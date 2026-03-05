@@ -1,11 +1,13 @@
-use std::{fs, str::FromStr, time::Duration};
+use std::{fs, str::FromStr};
 
 use anyhow::Result;
 use config::Config;
 use duration_string::DurationString;
 use serde::{Deserialize, Serialize};
 
-use crate::constant;
+pub mod embedding;
+
+use crate::{config::embedding::VizierEmbeddingModel, constant};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MemoryConfig {
@@ -68,7 +70,7 @@ pub struct BraveSearchConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VectorMemoryConfig {
-    pub model: ModelConfig,
+    pub model: VizierEmbeddingModel,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

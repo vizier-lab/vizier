@@ -2,17 +2,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::Utc;
-use rig::Embed;
 use rig::completion::ToolDefinition;
 use rig::embeddings::EmbeddingsBuilder;
 use rig::tool::Tool;
 use rig::vector_store::request::VectorSearchRequest;
-use rig::{
-    client::{EmbeddingsClient, Nothing},
-    providers::ollama,
-    vector_store::{InsertDocuments, VectorStoreIndex},
-};
-
+use rig::vector_store::{InsertDocuments, VectorStoreIndex};
 use rig_surrealdb::SurrealVectorStore;
 use schemars::schema_for;
 use serde::{Deserialize, Serialize};
@@ -22,6 +16,7 @@ use surrealdb::engine::local::Db;
 use crate::config::VectorMemoryConfig;
 use crate::database::schema::Memory;
 use crate::dependencies::VizierDependencies;
+use crate::embedding;
 use crate::error::{VizierError, error};
 
 // TODO: handle openai embedder
@@ -30,17 +25,8 @@ pub async fn init_vector_memory(
     config: VectorMemoryConfig,
     deps: VizierDependencies,
 ) -> Result<(MemoryRead, MemoryWrite)> {
-    let embedder = match &*config.model.provider {
-        _ => {
-            let client: ollama::Client = ollama::Client::builder()
-                .base_url(config.model.base_url)
-                .api_key(Nothing)
-                .build()
-                .unwrap();
-
-            client.embedding_model(config.model.name)
-        }
-    };
+    let embedder =
+        embedding::Client::new().embedding_model(&config.model.to_fastembed(), Some(workspace));
 
     let store = Arc::new(SurrealVectorStore::with_defaults(
         embedder.clone(),
@@ -54,10 +40,10 @@ pub async fn init_vector_memory(
 }
 
 pub type MemoryRead = ReadVectorMemory;
-pub struct ReadVectorMemory(Arc<SurrealVectorStore<Db, ollama::EmbeddingModel>>);
+pub struct ReadVectorMemory(Arc<SurrealVectorStore<Db, embedding::EmbeddingModel>>);
 
 impl MemoryRead {
-    fn new(store: Arc<SurrealVectorStore<Db, ollama::EmbeddingModel>>) -> Self {
+    fn new(store: Arc<SurrealVectorStore<Db, embedding::EmbeddingModel>>) -> Self {
         Self(store)
     }
 }
@@ -102,14 +88,14 @@ impl Tool for MemoryRead {
 
 pub type MemoryWrite = WriteVectorMemory;
 pub struct WriteVectorMemory(
-    Arc<SurrealVectorStore<Db, ollama::EmbeddingModel>>,
-    ollama::EmbeddingModel,
+    Arc<SurrealVectorStore<Db, embedding::EmbeddingModel>>,
+    embedding::EmbeddingModel,
 );
 
 impl MemoryWrite {
     fn new(
-        store: Arc<SurrealVectorStore<Db, ollama::EmbeddingModel>>,
-        model: ollama::EmbeddingModel,
+        store: Arc<SurrealVectorStore<Db, embedding::EmbeddingModel>>,
+        model: embedding::EmbeddingModel,
     ) -> Self {
         Self(store, model)
     }

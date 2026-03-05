@@ -14,6 +14,7 @@ mod config;
 mod constant;
 mod database;
 mod dependencies;
+mod embedding;
 mod error;
 mod transport;
 mod utils;
