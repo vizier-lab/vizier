@@ -43,7 +43,6 @@ impl VizierDatabases {
         threshold: f64,
     ) -> Result<Vec<Memory>> {
         let query = embedder.embed_text(&query).await?.vec;
-        println!("query: {}", query.len());
 
         let mut response = self
             .conn
