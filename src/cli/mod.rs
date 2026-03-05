@@ -26,7 +26,7 @@ enum Commands {
     Tui(tui::TuiArgs),
 }
 
-pub async fn cli() -> Result<()> {
+pub async fn start() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {

@@ -9,6 +9,7 @@ use anyhow::Result;
 
 mod agent;
 mod channels;
+mod cli;
 mod config;
 mod constant;
 mod database;
@@ -16,11 +17,10 @@ mod dependencies;
 mod error;
 mod transport;
 mod utils;
-mod vizier;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
-    vizier::cli().await?;
+    cli::start().await?;
     println!("vizier exited!");
     process::exit(0);
 }

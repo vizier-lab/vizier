@@ -6,11 +6,11 @@ use clap::Args;
 use crate::{
     agent::VizierAgents,
     channels::VizierChannels,
+    cli::tui::{self, TuiArgs},
     config::VizierConfig,
     constant::{AGENT_MD, BOOT_MD, IDENT_MD, USER_MD},
     dependencies::VizierDependencies,
     transport::VizierTransport,
-    vizier::tui::{self, TuiArgs},
 };
 
 #[derive(Debug, Args, Clone)]
