@@ -29,11 +29,6 @@ pub struct RunArgs {
 }
 
 pub async fn run_server(config: VizierConfig) -> Result<()> {
-    let _ = std::fs::create_dir_all(PathBuf::from_str(&format!(
-        "{}/db",
-        config.workspace.clone()
-    ))?);
-
     let deps = VizierDependencies::new(config.clone()).await?;
 
     init_workspace(config.workspace.clone());
@@ -92,7 +87,9 @@ pub async fn run(args: RunArgs) -> Result<()> {
                 .filter_module("h2", log::LevelFilter::Error)
                 .filter_module("tracing", log::LevelFilter::Off)
                 .filter_module("rustls", log::LevelFilter::Off)
-                // .filter_module("surrealdb", log::LevelFilter::Off)
+                .filter_module("surrealdb", log::LevelFilter::Off)
+                .filter_module("ort", log::LevelFilter::Off)
+                .filter_module("ureq", log::LevelFilter::Off)
                 .init();
         } else {
             pretty_env_logger::init();

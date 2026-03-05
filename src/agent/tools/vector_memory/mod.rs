@@ -1,50 +1,42 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use chrono::Utc;
 use rig::completion::ToolDefinition;
-use rig::embeddings::EmbeddingsBuilder;
 use rig::tool::Tool;
+use rig::vector_store::VectorStoreIndex;
 use rig::vector_store::request::VectorSearchRequest;
-use rig::vector_store::{InsertDocuments, VectorStoreIndex};
-use rig_surrealdb::SurrealVectorStore;
 use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use slugify::slugify;
-use surrealdb::engine::local::Db;
 
 use crate::config::VectorMemoryConfig;
 use crate::database::schema::Memory;
+use crate::database::{DistanceFunction, VizierDatabases};
 use crate::dependencies::VizierDependencies;
 use crate::embedding;
-use crate::error::{VizierError, error};
+use crate::error::VizierError;
 
-// TODO: handle openai embedder
 pub async fn init_vector_memory(
     workspace: String,
     config: VectorMemoryConfig,
     deps: VizierDependencies,
 ) -> Result<(MemoryRead, MemoryWrite)> {
-    let embedder =
-        embedding::Client::new().embedding_model(&config.model.to_fastembed(), Some(workspace));
-
-    let store = Arc::new(SurrealVectorStore::with_defaults(
-        embedder.clone(),
-        (*deps.database.conn).clone(),
-    ));
+    let embedder = Arc::new(
+        embedding::Client::new().embedding_model(&config.model.to_fastembed(), Some(workspace)),
+    );
 
     Ok((
-        MemoryRead::new(store.clone()),
-        MemoryWrite::new(store.clone(), embedder.clone()),
+        MemoryRead::new(deps.database.clone(), embedder.clone()),
+        MemoryWrite::new(deps.database.clone(), embedder.clone()),
     ))
 }
 
 pub type MemoryRead = ReadVectorMemory;
-pub struct ReadVectorMemory(Arc<SurrealVectorStore<Db, embedding::EmbeddingModel>>);
+pub struct ReadVectorMemory(VizierDatabases, Arc<embedding::EmbeddingModel>);
 
 impl MemoryRead {
-    fn new(store: Arc<SurrealVectorStore<Db, embedding::EmbeddingModel>>) -> Self {
-        Self(store)
+    fn new(store: VizierDatabases, model: Arc<embedding::EmbeddingModel>) -> Self {
+        Self(store, model)
     }
 }
 
@@ -73,30 +65,21 @@ impl Tool for MemoryRead {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         log::info!("read_memory: {}", args.query.clone());
 
-        let req = VectorSearchRequest::builder()
-            .query(args.query)
-            .samples(5)
-            .build()
+        let res = self
+            .0
+            .query_memory(&self.1, args.query, DistanceFunction::Euclidean, 10, 0.)
+            .await
             .unwrap();
 
-        match self.0.top_n::<Memory>(req).await {
-            Err(err) => crate::error::error("read_memory", err),
-            Ok(data) => return Ok(data.iter().map(|(_, _, memory)| memory.clone()).collect()),
-        }
+        Ok(res)
     }
 }
 
 pub type MemoryWrite = WriteVectorMemory;
-pub struct WriteVectorMemory(
-    Arc<SurrealVectorStore<Db, embedding::EmbeddingModel>>,
-    embedding::EmbeddingModel,
-);
+pub struct WriteVectorMemory(VizierDatabases, Arc<embedding::EmbeddingModel>);
 
 impl MemoryWrite {
-    fn new(
-        store: Arc<SurrealVectorStore<Db, embedding::EmbeddingModel>>,
-        model: embedding::EmbeddingModel,
-    ) -> Self {
+    fn new(store: VizierDatabases, model: Arc<embedding::EmbeddingModel>) -> Self {
         Self(store, model)
     }
 }
@@ -130,25 +113,10 @@ impl Tool for MemoryWrite {
         let slug = slugify!(&args.title).to_string();
         log::info!("write_memory: {:?}", slug.clone());
 
-        let document = EmbeddingsBuilder::new(self.1.clone())
-            .document(Memory {
-                slug: slug.clone(),
-                title: args.title,
-                content: args.content,
-                timestamp: Utc::now(),
-            })
-            .unwrap()
-            .build()
+        let _ = self
+            .0
+            .write_memory(&self.1, Some(slug.clone()), args.title, args.content)
             .await;
-
-        if let Err(err) = document {
-            return error("memory_write", err);
-        }
-
-        let document = document.unwrap();
-        if let Err(err) = self.0.insert_documents(document).await {
-            return error("memory_write", err);
-        }
 
         Ok(format!("memory {slug} is written"))
     }

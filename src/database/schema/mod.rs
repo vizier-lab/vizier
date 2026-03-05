@@ -9,14 +9,13 @@ struct User {
     pub password_hash: String,
 }
 
-#[derive(Embed, Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Memory {
     pub slug: String,
     pub title: String,
-    #[embed]
-    #[serde(skip)]
     pub content: String,
     pub timestamp: chrono::DateTime<Utc>,
+    pub embedding: Vec<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

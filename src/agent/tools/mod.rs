@@ -7,10 +7,7 @@ use crate::{
         tools::{
             brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
             vector_memory::init_vector_memory,
-            workspace::{
-                AgentDocument, IdentDocument, ReadPrimaryDocument, UserDocument,
-                WritePrimaryDocument,
-            },
+            workspace::{AgentDocument, IdentDocument, UserDocument, WritePrimaryDocument},
         },
     },
     config::ToolsConfig,

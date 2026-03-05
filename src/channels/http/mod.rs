@@ -12,14 +12,10 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::{
     channels::{
         VizierChannel,
-        http::{
-            api::v1::memory::get_all_memories,
-            state::{ChatTransport, HTTPState},
-        },
+        http::state::{ChatTransport, HTTPState},
     },
     config::HTTPChannelConfig,
     dependencies::VizierDependencies,
-    transport::VizierTransport,
 };
 
 pub mod models;
@@ -77,7 +73,15 @@ impl VizierChannel for HTTPChannel {
                 any(api::v1::session::chat),
             )
             // memory api
-            .route("/api/v1/memory", get(get_all_memories))
+            .route("/api/v1/memory", get(api::v1::memory::get_all_memories))
+            .route(
+                "/api/v1/memory/{slug}",
+                get(api::v1::memory::get_memory_detail),
+            )
+            .route(
+                "/api/v1/memory/{slug}",
+                delete(api::v1::memory::delete_memory),
+            )
             .layer(cors)
             .with_state(HTTPState {
                 db: self.deps.database.clone(),
