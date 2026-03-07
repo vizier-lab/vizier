@@ -4,7 +4,7 @@ use rig::{completion::ToolDefinition, tool::Tool};
 use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{VizierError, error};
+use crate::error::{VizierError, throw_vizier_error};
 
 pub trait PrimaryDocument {
     const NAME: &'static str;
@@ -81,7 +81,7 @@ where
 
         match std::fs::write(path, args.content) {
             Ok(_) => Ok(()),
-            Err(err) => error("write file", err),
+            Err(err) => throw_vizier_error("write file", err),
         }
     }
 }

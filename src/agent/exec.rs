@@ -3,7 +3,7 @@ use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
-use crate::error::{VizierError, error};
+use crate::error::{VizierError, throw_vizier_error};
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ExecCliArgs {
@@ -45,7 +45,7 @@ impl Tool for ExecCliFromWorkspace {
         };
 
         match output {
-            Err(err) => error("cli command", err),
+            Err(err) => throw_vizier_error("cli command", err),
             Ok(output) => Ok(String::from_utf8(output.stdout).unwrap()),
         }
     }

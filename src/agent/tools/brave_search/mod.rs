@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     config::BraveSearchConfig,
-    error::{VizierError, error},
+    error::{VizierError, throw_vizier_error},
 };
 
 mod request;
@@ -108,24 +108,24 @@ where
             .await;
 
         if let Err(err) = response {
-            return error("brave_search: http error", err);
+            return throw_vizier_error("brave_search: http error", err);
         }
 
         let response = response.unwrap();
         if response.status() != StatusCode::OK {
-            return error("status error:", response.error_for_status().err().unwrap());
+            return throw_vizier_error("status error:", response.error_for_status().err().unwrap());
         }
 
         let text = response.text().await;
         if let Err(err) = text {
-            return error("brave_search: text error:", err);
+            return throw_vizier_error("brave_search: text error:", err);
         }
 
         let text = text.unwrap();
         println!("{}", text.clone());
         match serde_json::from_str(&text) {
             Ok(value) => Ok(value),
-            Err(err) => error("brave_search: parse error:", err),
+            Err(err) => throw_vizier_error("brave_search: parse error:", err),
         }
     }
 }

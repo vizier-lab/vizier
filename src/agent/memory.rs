@@ -1,9 +1,6 @@
-use rig::{
-    completion::{CompletionModel, Prompt},
-    message::Message,
-};
+use rig::message::Message;
 
-use crate::{agent::VizierAgentImpl, config::agent::MemoryConfig, transport::VizierRequest};
+use crate::{agent::VizierAgent, config::agent::MemoryConfig, transport::VizierRequest};
 
 #[derive(Debug, Clone)]
 pub enum SessionMemory {
@@ -79,23 +76,32 @@ impl SessionMemories {
         self.recall().iter().map(|item| item.to_message()).collect()
     }
 
-    pub async fn try_summarize<T: CompletionModel>(
-        &mut self,
-        agent: VizierAgentImpl<T>,
-    ) -> anyhow::Result<()> {
+    pub async fn try_summarize(&mut self, agent: &VizierAgent) -> anyhow::Result<()> {
         if self.messages.len() < self.session_memory_recall_depth {
             return Ok(());
         }
 
-        let response =        agent.agent.prompt(format!(r"
+        let summary_prompt = format!(
+            r"
             Provided below is your recent conversation. 
             Summarize and remember it on your memory. 
             make it as concise as possible, yet maintain clarity and avoid information loss as much as possible
-            {}", self.format_messages_for_summary())).await?;
+            {}",
+            self.format_messages_for_summary()
+        );
+
+        let response = agent
+            .prompt(VizierRequest {
+                user: "system".into(),
+                content: summary_prompt,
+                is_silent_read: false,
+                metadata: serde_json::json!({}),
+            })
+            .await?;
 
         self.messages.clear();
 
-        self.summary = Some(response.to_string());
+        self.summary = Some(response);
 
         Ok(())
     }
@@ -113,4 +119,3 @@ impl SessionMemories {
         self.summary = None;
     }
 }
-
