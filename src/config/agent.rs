@@ -1,4 +1,5 @@
-use cursive::reexports::ahash::HashMap;
+use std::collections::HashMap;
+
 use duration_string::DurationString;
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +10,7 @@ pub type AgentConfigs = HashMap<String, AgentConfig>;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AgentConfig {
     pub name: String,
+    pub description: Option<String>,
     pub provider: ProviderVariant,
     pub model: String,
     pub session_ttl: DurationString,
@@ -22,7 +24,7 @@ pub struct MemoryConfig {
     pub session_memory_recall_depth: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct AgentToolsConfig {
     pub enable_brave_search: bool,
     pub enable_cli_access: bool,

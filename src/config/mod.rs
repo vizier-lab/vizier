@@ -1,4 +1,4 @@
-use std::{fs, str::FromStr};
+use std::{collections::HashMap, fs, str::FromStr};
 
 use anyhow::Result;
 use config::Config;
@@ -8,9 +8,17 @@ use serde::{Deserialize, Serialize};
 pub mod agent;
 pub mod embedding;
 pub mod provider;
+pub mod user;
 
 use crate::{
-    config::{agent::AgentConfigs, embedding::VizierEmbeddingModel, provider::ProviderConfig},
+    config::{
+        agent::{AgentConfig, AgentConfigs, AgentToolsConfig, MemoryConfig},
+        embedding::VizierEmbeddingModel,
+        provider::{
+            DeepseekProviderConfig, OllamaProviderConfig, OpenRouterProviderConfig, ProviderConfig,
+        },
+        user::UserConfig,
+    },
     constant,
 };
 
@@ -53,6 +61,7 @@ pub struct VectorMemoryConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VizierConfig {
     pub workspace: String,
+    pub primary_user: UserConfig,
     pub providers: ProviderConfig,
     pub agents: AgentConfigs,
     pub channels: ChannelsConfig,
@@ -92,7 +101,7 @@ impl VizierConfig {
             .build()?;
 
         log::info!("config loaded: {:?}", path.to_str().unwrap());
-        let config = settings.try_deserialize::<AllConfig>()?;
+        let mut config = settings.try_deserialize::<AllConfig>()?;
 
         Ok(config.vizier)
     }
@@ -116,12 +125,59 @@ impl VizierConfig {
             &path,
             format!(
                 "{}\n\n{addition}",
-                toml::to_string(&AllConfig {
+                serde_yaml::to_string(&AllConfig {
                     vizier: self.clone(),
                 })?
             ),
         )?;
 
         Ok(())
+    }
+}
+
+impl Default for VizierConfig {
+    fn default() -> Self {
+        VizierConfig {
+            workspace: "~/.vizier".into(),
+            primary_user: UserConfig { name: "admin".into(), discord_id: "".into(), discord_username: "".into(), alias: vec![] },
+            providers: ProviderConfig {
+                ollama: Some(OllamaProviderConfig::default()),
+                deepseek: Some(DeepseekProviderConfig::default()),
+                openrouter: Some(OpenRouterProviderConfig::default()),
+            },
+            agents: HashMap::from([(
+                "primary".into(),
+                AgentConfig {
+                    name: "Vizier".into(),
+                    description: Some("You are a digital steward of the 21st century.\n\n**Your job:** be genuinely helpful to your primary user, with insight, wit, and a refusal to be boring.
+                        ".into()),
+                    provider: provider::ProviderVariant::ollama,
+                    session_ttl: DurationString::from_string("30m".into()).unwrap(),
+                    model: "deepseek/deepseek-v3.2".into(),
+                    memory: MemoryConfig {
+                        session_memory_recall_depth: 30,
+                    },
+                    turn_depth: 100,
+                    tools: AgentToolsConfig::default(),
+                },
+            )]),
+            channels: ChannelsConfig {
+                discord: Some(vec![DiscordChannelConfig {
+                    token: "".into(),
+                    agent_id: "primary".into(),
+                }]),
+                http: Some(HTTPChannelConfig { port: 9999 }),
+            },
+            tools: ToolsConfig {
+                dangerously_enable_cli_access: false,
+                brave_search: Some(BraveSearchConfig {
+                    api_key: "".into(),
+                    safesearch: true,
+                }),
+                vector_memory: Some(VectorMemoryConfig {
+                    model: VizierEmbeddingModel::AllMiniLML6V2,
+                }),
+            },
+        }
     }
 }

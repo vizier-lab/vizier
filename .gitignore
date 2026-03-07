@@ -1,4 +1,4 @@
 /target
 .data/
 .vizier/
-.vizier.toml
+.vizier*

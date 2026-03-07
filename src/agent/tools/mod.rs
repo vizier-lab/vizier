@@ -8,7 +8,7 @@ use crate::{
         tools::{
             brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
             vector_memory::init_vector_memory,
-            workspace::{AgentDocument, IdentDocument, UserDocument, WritePrimaryDocument},
+            workspace::{AgentDocument, IdentDocument, WritePrimaryDocument},
         },
     },
     dependencies::VizierDependencies,
@@ -36,9 +36,6 @@ impl VizierTools {
                 agent_workspace.clone(),
             ))
             .tool(WritePrimaryDocument::<IdentDocument>::new(
-                agent_workspace.clone(),
-            ))
-            .tool(WritePrimaryDocument::<UserDocument>::new(
                 agent_workspace.clone(),
             ));
 

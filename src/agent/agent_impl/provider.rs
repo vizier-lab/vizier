@@ -5,9 +5,15 @@ use rig::{
 };
 
 use crate::{
-    agent::{agent::VizierAgentImpl, tools::VizierTools},
+    agent::{
+        agent_impl::{
+            VizierAgentImpl,
+            system_prompt::{boot::boot_md, init_workspace},
+        },
+        tools::VizierTools,
+    },
     dependencies::VizierDependencies,
-    utils::{agent_workspace, init_workspace},
+    utils::agent_workspace,
 };
 
 impl VizierAgentImpl<ollama::CompletionModel> {
@@ -22,10 +28,7 @@ impl VizierAgentImpl<ollama::CompletionModel> {
             .api_key(Nothing)
             .build()?;
 
-        let boot = std::fs::read_to_string(std::path::PathBuf::from(format!(
-            "{}/BOOT.md",
-            agent_workspace
-        )))?;
+        let boot = boot_md(agent_config);
 
         let tool = VizierTools::new(id.clone(), deps.clone())?;
 
@@ -41,6 +44,7 @@ impl VizierAgentImpl<ollama::CompletionModel> {
             id: id.clone(),
             agent,
             workspace: deps.config.workspace.clone(),
+            primary_user: deps.config.primary_user.clone(),
         })
     }
 }
@@ -55,10 +59,7 @@ impl VizierAgentImpl<openrouter::CompletionModel> {
         let client: openrouter::Client =
             openrouter::Client::new(deps.config.providers.openrouter.clone().unwrap().api_key)?;
 
-        let boot = std::fs::read_to_string(std::path::PathBuf::from(format!(
-            "{}/BOOT.md",
-            agent_workspace
-        )))?;
+        let boot = boot_md(agent_config);
 
         let tool = VizierTools::new(id.clone(), deps.clone())?;
 
@@ -74,6 +75,7 @@ impl VizierAgentImpl<openrouter::CompletionModel> {
             id: id.clone(),
             agent,
             workspace: deps.config.workspace.clone(),
+            primary_user: deps.config.primary_user.clone(),
         })
     }
 }
@@ -88,10 +90,7 @@ impl VizierAgentImpl<deepseek::CompletionModel> {
         let client: deepseek::Client =
             deepseek::Client::new(deps.config.providers.deepseek.clone().unwrap().api_key)?;
 
-        let boot = std::fs::read_to_string(std::path::PathBuf::from(format!(
-            "{}/BOOT.md",
-            agent_workspace
-        )))?;
+        let boot = boot_md(agent_config);
 
         let tool = VizierTools::new(id.clone(), deps.clone())?;
 
@@ -107,6 +106,7 @@ impl VizierAgentImpl<deepseek::CompletionModel> {
             id: id.clone(),
             agent,
             workspace: deps.config.workspace.clone(),
+            primary_user: deps.config.primary_user.clone(),
         })
     }
 }

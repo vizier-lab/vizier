@@ -15,17 +15,17 @@ pub struct ProviderConfig {
     pub openrouter: Option<OpenRouterProviderConfig>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct OllamaProviderConfig {
     pub base_url: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct DeepseekProviderConfig {
     pub api_key: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct OpenRouterProviderConfig {
     pub api_key: String,
 }

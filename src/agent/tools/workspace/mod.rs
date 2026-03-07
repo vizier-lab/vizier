@@ -25,13 +25,6 @@ impl PrimaryDocument for IdentDocument {
     const WRITE_NAME: &'static str = "WRITE_IDENT_MD_FILE";
 }
 
-pub struct UserDocument;
-
-impl PrimaryDocument for UserDocument {
-    const NAME: &'static str = "USER.md";
-    const WRITE_NAME: &'static str = "WRITE_USER_MD_FILE";
-}
-
 pub struct WritePrimaryDocument<T: PrimaryDocument> {
     _phantom_data: PhantomData<T>,
     workspace: String,

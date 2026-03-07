@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
-use crate::agent::agent::VizierAgent;
+use crate::agent::agent_impl::VizierAgent;
 use crate::agent::memory::SessionMemories;
 use crate::agent::session::VizierSession;
 use crate::dependencies::VizierDependencies;
@@ -13,7 +13,7 @@ use crate::error::VizierError;
 use crate::transport::{VizierRequest, VizierResponse};
 use crate::utils::remove_think_tags;
 
-pub mod agent;
+pub mod agent_impl;
 pub mod exec;
 pub mod memory;
 pub mod session;

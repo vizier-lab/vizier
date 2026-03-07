@@ -9,11 +9,15 @@ use rig::{
 };
 
 use crate::{
-    agent::memory::SessionMemories, config::provider::ProviderVariant,
-    dependencies::VizierDependencies, transport::VizierRequest, utils::agent_workspace,
+    agent::{agent_impl::system_prompt::user::primary_user_md, memory::SessionMemories},
+    config::{provider::ProviderVariant, user::UserConfig},
+    dependencies::VizierDependencies,
+    transport::VizierRequest,
+    utils::agent_workspace,
 };
 
 mod provider;
+mod system_prompt;
 
 #[derive(Clone)]
 pub enum VizierAgent {
@@ -76,6 +80,7 @@ pub struct VizierAgentImpl<T: CompletionModel> {
     agent: Agent<T>,
 
     workspace: String,
+    primary_user: UserConfig,
 }
 
 impl<T: CompletionModel> VizierAgentImpl<T> {
@@ -84,12 +89,11 @@ impl<T: CompletionModel> VizierAgentImpl<T> {
 
         let agent_md = read_md_file(agent_workspace.clone(), "AGENT.md".into());
         let ident_md = read_md_file(agent_workspace.clone(), "IDENT.md".into());
-        let user_md = read_md_file(agent_workspace.clone(), "USER.md".into());
 
         let history = vec![
             Message::user(agent_md),
+            Message::user(primary_user_md(&self.primary_user)),
             Message::user(ident_md),
-            Message::user(user_md),
         ];
 
         let response = self
@@ -105,12 +109,11 @@ impl<T: CompletionModel> VizierAgentImpl<T> {
 
         let agent_md = read_md_file(agent_workspace.clone(), "AGENT.md".into());
         let ident_md = read_md_file(agent_workspace.clone(), "IDENT.md".into());
-        let user_md = read_md_file(agent_workspace.clone(), "USER.md".into());
 
         let mut history = vec![
             Message::user(agent_md),
+            Message::user(primary_user_md(&self.primary_user)),
             Message::user(ident_md),
-            Message::user(user_md),
         ];
 
         history.extend(memory.recall_as_messages());
