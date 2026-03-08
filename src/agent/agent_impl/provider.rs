@@ -45,6 +45,7 @@ impl VizierAgentImpl<ollama::CompletionModel> {
             agent,
             workspace: deps.config.workspace.clone(),
             primary_user: deps.config.primary_user.clone(),
+            silent_read_initiative_chance: agent_config.silent_read_initiative_chance,
         })
     }
 }
@@ -76,6 +77,7 @@ impl VizierAgentImpl<openrouter::CompletionModel> {
             agent,
             workspace: deps.config.workspace.clone(),
             primary_user: deps.config.primary_user.clone(),
+            silent_read_initiative_chance: agent_config.silent_read_initiative_chance,
         })
     }
 }
@@ -107,6 +109,7 @@ impl VizierAgentImpl<deepseek::CompletionModel> {
             agent,
             workspace: deps.config.workspace.clone(),
             primary_user: deps.config.primary_user.clone(),
+            silent_read_initiative_chance: agent_config.silent_read_initiative_chance,
         })
     }
 }

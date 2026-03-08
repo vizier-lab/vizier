@@ -218,6 +218,8 @@ impl AgentSession {
     }
 
     async fn silent_read(&mut self, req: VizierRequest, agent: &VizierAgent) -> Result<()> {
+        agent.silent_read(req.clone(), &self.session_memory).await?;
+
         self.session_memory.push_user_message(req.clone());
         self.session_memory.try_summarize(agent).await?;
 

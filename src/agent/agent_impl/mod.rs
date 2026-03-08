@@ -1,6 +1,8 @@
 use std::{fs, path::PathBuf};
 
 use anyhow::Result;
+use chrono::Utc;
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rig::{
     agent::Agent,
     completion::{Chat, CompletionModel},
@@ -71,6 +73,16 @@ impl VizierAgent {
 
         Ok(response)
     }
+
+    pub async fn silent_read(&self, req: VizierRequest, memory: &SessionMemories) -> Result<()> {
+        let _ = match self {
+            Self::Ollama(agent) => agent.chat(req, memory).await,
+            Self::OpenRouter(agent) => agent.chat(req, memory).await,
+            Self::Deepseek(agent) => agent.chat(req, memory).await,
+        }?;
+
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -81,6 +93,8 @@ pub struct VizierAgentImpl<T: CompletionModel> {
 
     workspace: String,
     primary_user: UserConfig,
+
+    silent_read_initiative_chance: f32,
 }
 
 impl<T: CompletionModel> VizierAgentImpl<T> {
@@ -105,6 +119,13 @@ impl<T: CompletionModel> VizierAgentImpl<T> {
     }
 
     pub async fn chat(&self, req: VizierRequest, memory: &SessionMemories) -> Result<String> {
+        let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
+        let initiative_factor = rng.random_range(0_f32..=1_f32);
+
+        if req.is_silent_read && initiative_factor > self.silent_read_initiative_chance {
+            return Ok("".into());
+        }
+
         if req.is_task {
             return self.prompt(req).await;
         }
