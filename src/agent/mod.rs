@@ -1,16 +1,18 @@
 use anyhow::Result;
 use chrono::Utc;
+use flume::{Receiver, Sender};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard};
+use tokio::task::JoinHandle;
 
 use crate::agent::agent_impl::VizierAgent;
 use crate::agent::memory::SessionMemories;
 use crate::agent::session::VizierSession;
+use crate::config::agent::AgentConfig;
 use crate::dependencies::VizierDependencies;
-use crate::error::VizierError;
-use crate::transport::{VizierRequest, VizierResponse};
+use crate::transport::{VizierRequest, VizierResponse, VizierTransport};
 use crate::utils::remove_think_tags;
 
 pub mod agent_impl;
@@ -22,9 +24,45 @@ pub mod tools;
 #[derive(Clone)]
 pub struct VizierAgents {
     deps: VizierDependencies,
-    sessions: Arc<Mutex<HashMap<VizierSession, AgentSession>>>,
-    agents: Arc<HashMap<String, VizierAgent>>,
+    agents: HashMap<String, Arc<VizierAgent>>,
 }
+
+impl VizierAgent {
+    async fn handle_silent_read(
+        &self,
+        mut session: MutexGuard<'_, AgentSession>,
+        request: &VizierRequest,
+    ) -> Result<()> {
+        self.silent_read(request.clone(), &session.session_memory)
+            .await?;
+
+        session.session_memory.push_user_message(request.clone());
+        session.session_memory.try_summarize(self).await?;
+
+        session.last_interact_at = Utc::now();
+
+        Ok(())
+    }
+
+    async fn handle_chat(
+        &self,
+        request: &VizierRequest,
+        mut session: MutexGuard<'_, AgentSession>,
+    ) -> Result<String> {
+        let response = self.chat(request.clone(), &session.session_memory).await?;
+
+        let response_msg = remove_think_tags(&*response);
+
+        session.session_memory.push_user_message(request.clone());
+        session.session_memory.push_agent(response_msg);
+        session.session_memory.try_summarize(&self).await?;
+
+        session.last_interact_at = Utc::now();
+        Ok(response.to_string())
+    }
+}
+
+type SessionTransport = (Sender<VizierRequest>, Receiver<VizierRequest>);
 
 impl VizierAgents {
     pub async fn new(deps: VizierDependencies) -> Result<Self> {
@@ -34,162 +72,51 @@ impl VizierAgents {
         for (agent_id, _) in config.agents.iter() {
             agents.insert(
                 agent_id.clone(),
-                VizierAgent::new(&mut deps.clone(), agent_id.clone())?,
+                Arc::new(VizierAgent::new(&mut deps.clone(), agent_id.clone())?),
             );
         }
 
         Ok(Self {
             deps,
-            agents: Arc::new(agents),
-            sessions: Arc::new(Mutex::new(HashMap::new())),
+            agents: agents,
         })
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        let sessions = self.sessions.clone();
-
-        let cleanup_sessions = self.sessions.clone();
-        // stale agent session killer
-        let cleanup_handle = tokio::spawn(async move {
-            loop {
-                let lookup = cleanup_sessions.lock().await.clone();
-                for (session, agent_session) in lookup.iter() {
-                    if agent_session.is_stale().await {
-                        sessions.lock().await.remove(session);
-                    }
-                }
-            }
-        });
+        let mut sessions: HashMap<VizierSession, SessionProcess> = HashMap::new();
 
         let transport = self.deps.transport.clone();
+
         while let Ok((session, request)) = transport.read_request().await {
-            // handle user requested lobotomy
-            let lobotomy_transport = self.deps.transport.clone();
-            if request.content == "/lobotomy" {
-                let _ = self.handle_lobotomy(&session).await;
-                tokio::spawn(async move {
-                    if let Err(err) = lobotomy_transport
-                        .send_response(session.clone(), VizierResponse::Message("YIPEEEE".into()))
-                        .await
-                    {
-                        log::error!("{}", err);
-                    }
-                });
-
-                continue;
-            }
-
-            if request.is_silent_read {
-                self.handle_silent_read(&session, &request).await?;
-                continue;
-            }
-
-            // start thinking every 5 second until response ready
-            let thinking_transport = transport.clone();
-            let thinking_session = session.clone();
-            let thinking = tokio::spawn(async move {
-                loop {
-                    let _ = thinking_transport
-                        .send_response(thinking_session.clone(), VizierResponse::Thinking)
-                        .await;
-
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                }
-            });
-
-            let content = self.handle_chat(&session.clone(), &request).await;
-            match content {
-                Err(err) => {
-                    if let Err(err) = transport
-                        .send_response(session.clone(), VizierResponse::Message(err.to_string()))
-                        .await
-                    {
-                        log::error!("{}", err);
-                    }
-                }
-                Ok(content) => {
-                    if let Err(err) = transport
-                        .send_response(session.clone(), VizierResponse::Message(content))
-                        .await
-                    {
-                        log::error!("{}", err);
-                    }
+            if let Some(process) = sessions.get(&session) {
+                if !process.handle.is_finished() {
+                    let _ = process.session_transport.0.send_async(request).await;
+                    continue;
                 }
             }
 
-            // stop thinking
-            thinking.abort();
-        }
+            let agent_config = self
+                .deps
+                .config
+                .agents
+                .get(&session.0.clone())
+                .ok_or(anyhow::Error::msg("Agent not found"))?;
 
-        cleanup_handle.abort();
-        Ok(())
-    }
+            let agent = self
+                .agents
+                .get(&session.0.clone())
+                .ok_or(anyhow::Error::msg("Agent not found"))?;
 
-    fn init_session(&self, VizierSession(agent_id, _): &VizierSession) -> Result<AgentSession> {
-        let agent_config = self.deps.config.agents.get(agent_id);
+            let process = SessionProcess::new(
+                session.clone(),
+                agent_config.clone(),
+                agent.clone(),
+                transport.clone(),
+            );
 
-        if let Some(agent_config) = agent_config {
-            Ok(AgentSession {
-                session_memory: SessionMemories::new(agent_config.memory.clone()),
-                session_ttl: *agent_config.session_ttl,
-                last_interact_at: Utc::now(),
-            })
-        } else {
-            Err(VizierError("Agent not found".into()).into())
-        }
-    }
+            let _ = process.session_transport.0.send_async(request).await;
 
-    async fn handle_silent_read(
-        &mut self,
-        session: &VizierSession,
-        req: &VizierRequest,
-    ) -> Result<()> {
-        if let Some(agent) = self.agents.get(&session.0) {
-            if let Some(agent_session) = self.sessions.lock().await.get_mut(session) {
-                agent_session.silent_read(req.clone(), agent).await?
-            } else {
-                let mut agent_session = self.init_session(session)?;
-                agent_session.silent_read(req.clone(), agent).await?;
-                self.sessions
-                    .lock()
-                    .await
-                    .insert(session.clone(), agent_session);
-            }
-
-            Ok(())
-        } else {
-            Err(VizierError("Agent not found".into()).into())
-        }
-    }
-
-    async fn handle_chat(
-        &mut self,
-        session: &VizierSession,
-        req: &VizierRequest,
-    ) -> Result<String> {
-        if let Some(agent) = self.agents.get(&session.0) {
-            // find session, if none found, make it then retry
-            if let Some(agent_session) = self.sessions.lock().await.get_mut(session) {
-                agent_session.chat(req.clone(), agent).await
-            } else {
-                let mut agent_session = self.init_session(session)?;
-                let response = agent_session.chat(req.clone(), agent).await?;
-                self.sessions
-                    .lock()
-                    .await
-                    .insert(session.clone(), agent_session.clone());
-
-                Ok(response)
-            }
-        } else {
-            Err(VizierError("Agent not found".into()).into())
-        }
-    }
-
-    async fn handle_lobotomy(&mut self, session: &VizierSession) -> Result<()> {
-        // find session, if none found, make it then retry
-        if let Some(agent_session) = self.sessions.lock().await.get_mut(session) {
-            agent_session.lobotomy().await;
+            sessions.insert(session, process);
         }
 
         Ok(())
@@ -204,29 +131,6 @@ struct AgentSession {
 }
 
 impl AgentSession {
-    async fn chat(&mut self, req: VizierRequest, agent: &VizierAgent) -> Result<String> {
-        let response = agent.chat(req.clone(), &self.session_memory).await?;
-
-        let response_msg = remove_think_tags(&*response);
-
-        self.session_memory.push_user_message(req.clone());
-        self.session_memory.push_agent(response_msg);
-        self.session_memory.try_summarize(&agent).await?;
-
-        self.last_interact_at = Utc::now();
-        Ok(response.to_string())
-    }
-
-    async fn silent_read(&mut self, req: VizierRequest, agent: &VizierAgent) -> Result<()> {
-        agent.silent_read(req.clone(), &self.session_memory).await?;
-
-        self.session_memory.push_user_message(req.clone());
-        self.session_memory.try_summarize(agent).await?;
-
-        self.last_interact_at = Utc::now();
-        Ok(())
-    }
-
     async fn lobotomy(&mut self) {
         self.last_interact_at = Utc::now();
         self.session_memory.flush();
@@ -236,5 +140,112 @@ impl AgentSession {
         let diff = Utc::now() - self.last_interact_at;
 
         diff.to_std().unwrap() > self.session_ttl
+    }
+}
+
+struct SessionProcess {
+    session_transport: Arc<SessionTransport>,
+    handle: JoinHandle<()>,
+}
+
+impl SessionProcess {
+    fn new(
+        session: VizierSession,
+        agent_config: AgentConfig,
+        agent: Arc<VizierAgent>,
+        vizier_transport: VizierTransport,
+    ) -> Self {
+        let session_transport = Arc::new(flume::unbounded());
+        let send_response = async move |response| {
+            let res = vizier_transport
+                .send_response(session.clone(), response)
+                .await;
+
+            res
+        };
+
+        Self {
+            session_transport: session_transport.clone(),
+            handle: tokio::spawn(async move {
+                let session = Arc::new(Mutex::new(AgentSession {
+                    session_memory: SessionMemories::new(agent_config.memory.clone()),
+                    session_ttl: *agent_config.session_ttl,
+                    last_interact_at: Utc::now(),
+                }));
+
+                let main_session = session.clone();
+                let main_handler = tokio::spawn(async move {
+                    let send_response = send_response.clone();
+                    while let Ok(request) = session_transport.1.recv_async().await {
+                        let send_lobotomy = send_response.clone();
+                        if request.content == "/lobotomy" {
+                            let _ = main_session.lock().await.lobotomy().await;
+                            tokio::spawn(async move {
+                                if let Err(err) =
+                                    send_lobotomy(VizierResponse::Message("YIPEEEE".into())).await
+                                {
+                                    log::error!("{}", err);
+                                }
+                            });
+
+                            continue;
+                        }
+
+                        if request.is_silent_read {
+                            let _ = agent
+                                .handle_silent_read(main_session.lock().await, &request)
+                                .await;
+                            continue;
+                        }
+
+                        let send_thinking = send_response.clone();
+                        let thinking = tokio::spawn(async move {
+                            loop {
+                                let _ = send_thinking(VizierResponse::Thinking).await;
+
+                                tokio::time::sleep(Duration::from_secs(5)).await;
+                            }
+                        });
+
+                        let content = agent.handle_chat(&request, main_session.lock().await).await;
+                        let send_response = send_response.clone();
+                        match content {
+                            Err(err) => {
+                                if let Err(err) =
+                                    send_response(VizierResponse::Message(err.to_string())).await
+                                {
+                                    log::error!("{}", err);
+                                }
+                            }
+                            Ok(content) => {
+                                if let Err(err) =
+                                    send_response(VizierResponse::Message(content)).await
+                                {
+                                    log::error!("{}", err);
+                                }
+                            }
+                        }
+
+                        thinking.abort();
+                    }
+                });
+
+                let session = session.clone();
+                let stale_handler = tokio::spawn(async move {
+                    loop {
+                        let session = session.lock().await;
+                        if session.is_stale().await {
+                            log::debug!("{} session stale", agent_config.name);
+                            main_handler.abort();
+                            return;
+                        }
+
+                        let _ = tokio::time::sleep(session.session_ttl).await;
+                    }
+                });
+
+                let _ = stale_handler.await;
+            }),
+        }
     }
 }
