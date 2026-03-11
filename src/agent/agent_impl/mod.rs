@@ -14,7 +14,7 @@ use crate::{
     agent::{agent_impl::system_prompt::user::primary_user_md, memory::SessionMemories},
     config::{provider::ProviderVariant, user::UserConfig},
     dependencies::VizierDependencies,
-    transport::VizierRequest,
+    schema::VizierRequest,
     utils::agent_workspace,
 };
 

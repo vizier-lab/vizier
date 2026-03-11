@@ -8,11 +8,11 @@ use serde_json::json;
 use tokio::sync::Mutex;
 
 use crate::{
-    agent::session::{AgentId, SessionId, VizierSession},
     channels::http::models::session::{ChatRequest, ChatResponse},
     config::VizierConfig,
     database::VizierDatabases,
-    transport::{VizierRequest, VizierResponse, VizierTransport, VizierTransportChannel},
+    schema::{AgentId, SessionId, VizierRequest, VizierResponse, VizierSession},
+    transport::{VizierTransport, VizierTransportChannel},
 };
 
 #[derive(Debug, Clone)]

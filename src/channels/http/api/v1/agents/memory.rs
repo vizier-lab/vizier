@@ -13,7 +13,7 @@ use crate::{
         },
         state::HTTPState,
     },
-    database::schema::Memory,
+    schema::Memory,
 };
 
 pub fn memory() -> Router<HTTPState> {

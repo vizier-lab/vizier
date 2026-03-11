@@ -5,12 +5,11 @@ use futures::task;
 use surrealdb_types::Value;
 
 use crate::{
-    agent::session::AgentId,
     database::{
         VizierDatabases,
         query::{AllAnd, Cond, Op},
-        schema::Task,
     },
+    schema::{AgentId, Task},
 };
 
 impl VizierDatabases {

@@ -8,7 +8,6 @@ use surrealdb::engine::local::{Db, RocksDb};
 
 pub mod memory;
 pub mod query;
-pub mod schema;
 pub mod task;
 
 #[derive(Debug, Clone)]

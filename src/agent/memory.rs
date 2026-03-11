@@ -1,6 +1,6 @@
 use rig::message::Message;
 
-use crate::{agent::VizierAgent, config::agent::MemoryConfig, transport::VizierRequest};
+use crate::{agent::VizierAgent, config::agent::MemoryConfig, schema::VizierRequest};
 
 #[derive(Debug, Clone)]
 pub enum SessionMemory {

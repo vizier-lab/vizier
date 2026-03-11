@@ -12,10 +12,10 @@ use serenity::model::channel::Message;
 use serenity::prelude::*;
 use text_splitter::MarkdownSplitter;
 
-use crate::agent::session::{SessionId, VizierSession};
 use crate::channels::VizierChannel;
 use crate::config::DiscordChannelConfig;
-use crate::transport::{VizierRequest, VizierResponse, VizierTransport, VizierTransportChannel};
+use crate::schema::{SessionId, VizierRequest, VizierResponse, VizierSession};
+use crate::transport::{VizierTransport, VizierTransportChannel};
 use crate::utils::remove_think_tags;
 
 pub struct DiscordChannelReader {

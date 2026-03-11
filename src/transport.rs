@@ -1,48 +1,18 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use strum::{EnumIter, IntoEnumIterator};
+use surrealdb_types::SurrealValue;
 
-use crate::agent::session::{SessionId, VizierSession};
+use crate::schema::{SessionId, VizierSession, VizierRequest, VizierResponse};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, EnumIter)]
 pub enum VizierTransportChannel {
     Discord,
     HTTP,
     Task,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct VizierRequest {
-    pub user: String,
-    pub content: String,
-    pub is_silent_read: bool,
-    pub is_task: bool,
-    pub metadata: serde_json::Value,
-}
-
-impl VizierRequest {
-    pub fn to_prompt(&self) -> Result<String> {
-        Ok(format!(
-            "---\n{}\n---\n\n{}",
-            self.generate_frontmatter()?,
-            self.content
-        ))
-    }
-
-    pub fn generate_frontmatter(&self) -> Result<String> {
-        Ok(serde_yaml::to_string(&json!({
-            "sender": self.user,
-            "metadata": self.metadata,
-        }))?)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum VizierResponse {
-    Thinking,
-    Message(String),
 }
 
 #[derive(Debug, Clone)]

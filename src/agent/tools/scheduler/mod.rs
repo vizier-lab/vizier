@@ -5,12 +5,9 @@ use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
 use crate::{
-    agent::session::AgentId,
-    database::{
-        VizierDatabases,
-        schema::{Task, TaskSchedule},
-    },
+    database::VizierDatabases,
     error::VizierError,
+    schema::{AgentId, Task, TaskSchedule},
 };
 
 pub struct ScheduleOneTimeTask {

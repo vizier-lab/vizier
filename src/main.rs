@@ -17,6 +17,7 @@ mod dependencies;
 mod embedding;
 mod error;
 mod scheduler;
+mod schema;
 mod transport;
 mod utils;
 

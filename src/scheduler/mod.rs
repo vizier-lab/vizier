@@ -5,10 +5,8 @@ use chrono::{DateTime, Utc};
 use croner::Cron;
 
 use crate::{
-    agent::session::{SessionId, VizierSession},
-    database::schema::{Task, TaskSchedule},
     dependencies::VizierDependencies,
-    transport::VizierRequest,
+    schema::{SessionId, Task, TaskSchedule, VizierRequest, VizierSession},
 };
 
 pub struct VizierScheduler {

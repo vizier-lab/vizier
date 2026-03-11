@@ -9,16 +9,15 @@ use tokio::task::JoinHandle;
 
 use crate::agent::agent_impl::VizierAgent;
 use crate::agent::memory::SessionMemories;
-use crate::agent::session::VizierSession;
 use crate::config::agent::AgentConfig;
 use crate::dependencies::VizierDependencies;
-use crate::transport::{VizierRequest, VizierResponse, VizierTransport};
+use crate::schema::{VizierRequest, VizierResponse, VizierSession};
+use crate::transport::VizierTransport;
 use crate::utils::remove_think_tags;
 
 pub mod agent_impl;
 pub mod exec;
 pub mod memory;
-pub mod session;
 pub mod tools;
 
 #[derive(Clone)]

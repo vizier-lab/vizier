@@ -4,7 +4,6 @@ use rig::tool::server::{ToolServer, ToolServerHandle};
 use crate::{
     agent::{
         exec::ExecCliFromWorkspace,
-        session::AgentId,
         tools::{
             brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
             discord::new_discord_tools,
@@ -14,6 +13,7 @@ use crate::{
         },
     },
     dependencies::VizierDependencies,
+    schema::AgentId,
     utils::agent_workspace,
 };
 

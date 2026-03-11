@@ -3,8 +3,9 @@ use chrono::Utc;
 use rig::embeddings::EmbeddingModel;
 
 use crate::{
-    database::{DistanceFunction, VizierDatabases, schema::Memory},
+    database::{DistanceFunction, VizierDatabases},
     embedding,
+    schema::Memory,
 };
 
 use slugify::slugify;

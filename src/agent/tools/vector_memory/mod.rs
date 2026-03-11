@@ -8,10 +8,9 @@ use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
-use crate::agent::session::AgentId;
 use crate::config::VectorMemoryConfig;
-use crate::database::schema::Memory;
 use crate::database::{DistanceFunction, VizierDatabases};
+use crate::schema::{AgentId, Memory};
 use crate::dependencies::VizierDependencies;
 use crate::embedding;
 use crate::error::VizierError;
