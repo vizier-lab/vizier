@@ -1,5 +1,7 @@
 # Vizier
 
+> **Disclaimer:** this project currently on high-speed development mode; Readmes and Documentations may not properly updated yet
+
 > 21st Century Digital Steward; Right-hand agent for you majesty
 
 Vizier is a Rust-based AI agent framework that provides a unified interface for AI assistants across multiple communication channels (Discord, HTTP, etc.) with memory, tool usage, and extensible architecture.
