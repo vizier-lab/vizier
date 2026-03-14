@@ -1,4 +1,4 @@
-use std::{ffi::CString, fs, path::PathBuf, str::FromStr};
+use std::{ffi::CString, fs, path::PathBuf, str::FromStr, sync::Arc};
 
 use pyo3::{prelude::*, types::PyDict};
 use rig::{completion::ToolDefinition, tool::Tool};
@@ -9,7 +9,7 @@ use crate::error::{VizierError, throw_vizier_error};
 
 mod ptc;
 
-pub use ptc::{ProgrammaticToolCall, ToolCallable};
+pub use ptc::ProgrammaticToolCall;
 
 pub struct PythonInterpreter {
     workdir: String,
@@ -101,15 +101,14 @@ impl PythonInterpreter {
         self
     }
 
-    /// Register a tool using the ToolCallable wrapper (builder pattern)
+    /// Register a tool using Arc wrapper (builder pattern)
     pub fn with<T>(mut self, tool: T) -> Self
     where
         T: Tool<Error = VizierError> + Send + Sync + 'static,
         T::Args: for<'de> Deserialize<'de> + schemars::JsonSchema + Send,
         T::Output: Serialize + schemars::JsonSchema,
     {
-        self.programmatic_tools
-            .push(Box::new(ToolCallable::new(tool)));
+        self.programmatic_tools.push(Box::new(Arc::new(tool)));
         self
     }
 }

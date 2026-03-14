@@ -22,30 +22,7 @@ pub trait ProgrammaticToolCall: Send + Sync {
     fn register_in_globals(&self, py: Python<'_>, globals: &Bound<'_, PyDict>) -> PyResult<()>;
 }
 
-/// A wrapper that allows any Tool to be called from Python
-pub struct ToolCallable<T>
-where
-    T: Tool<Error = VizierError> + Send + Sync + 'static,
-    T::Args: for<'de> Deserialize<'de> + schemars::JsonSchema + Send,
-    T::Output: Serialize + schemars::JsonSchema,
-{
-    tool: Arc<T>,
-}
-
-impl<T> ToolCallable<T>
-where
-    T: Tool<Error = VizierError> + Send + Sync + 'static,
-    T::Args: for<'de> Deserialize<'de> + schemars::JsonSchema + Send,
-    T::Output: Serialize + schemars::JsonSchema,
-{
-    pub fn new(tool: T) -> Self {
-        Self {
-            tool: Arc::new(tool),
-        }
-    }
-}
-
-impl<T> ProgrammaticToolCall for ToolCallable<T>
+impl<T> ProgrammaticToolCall for Arc<T>
 where
     T: Tool<Error = VizierError> + Send + Sync + 'static,
     T::Args: for<'de> Deserialize<'de> + schemars::JsonSchema + Send,
@@ -69,7 +46,7 @@ where
     }
 
     fn register_in_globals(&self, py: Python<'_>, globals: &Bound<'_, PyDict>) -> PyResult<()> {
-        let tool = self.tool.clone();
+        let tool = self.clone();
 
         // Create a Python closure that calls the tool
         let closure = PyCFunction::new_closure(
