@@ -1,3 +1,5 @@
+use std::env;
+
 use anyhow::Result;
 use rig::{
     client::{CompletionClient, Nothing},
@@ -61,8 +63,10 @@ impl VizierAgentImpl<openrouter::CompletionModel> {
 
         let agent_config = deps.config.agents.get(&id).unwrap();
 
-        let client: openrouter::Client =
-            openrouter::Client::new(deps.config.providers.openrouter.clone().unwrap().api_key)?;
+        let client: openrouter::Client = openrouter::Client::new(
+            env::var("OPENROUTER_API_KEY")
+                .unwrap_or_else(|_| deps.config.providers.openrouter.clone().unwrap().api_key),
+        )?;
 
         let boot = boot_md(agent_config);
 
@@ -93,8 +97,10 @@ impl VizierAgentImpl<deepseek::CompletionModel> {
 
         let agent_config = deps.config.agents.get(&id).unwrap();
 
-        let client: deepseek::Client =
-            deepseek::Client::new(deps.config.providers.deepseek.clone().unwrap().api_key)?;
+        let client: deepseek::Client = deepseek::Client::new(
+            env::var("DEEPSEEK_API_KEY")
+                .unwrap_or_else(|_| deps.config.providers.deepseek.clone().unwrap().api_key),
+        )?;
 
         let boot = boot_md(agent_config);
 

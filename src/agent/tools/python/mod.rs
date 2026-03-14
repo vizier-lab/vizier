@@ -198,6 +198,7 @@ where
 
         let description = format!(
             "Run a Python script in a sandboxed environment.\n\n\
+            **only use this tools for calculation and accessing tools**
             Allowed builtins: {}\n\n\
             Allowed imports: {}{}",
             self.builtins_whitelist.join(", "),

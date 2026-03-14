@@ -2,3 +2,4 @@
 .data/
 .vizier/
 .vizier*
+.env

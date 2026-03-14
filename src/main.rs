@@ -23,6 +23,8 @@ mod utils;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
+
     cli::start().await?;
     println!("vizier exited!");
     process::exit(0);
