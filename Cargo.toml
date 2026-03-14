@@ -56,6 +56,7 @@ rand = "0.10.0"
 pyo3 = { version = "0.28.2", features = ["auto-initialize"] }
 pythonize = "0.28"
 dotenvy = "0.15.7"
+async-trait = "0.1.89"
 
 [build-dependencies]
 pyo3-build-config = "0.28.2"

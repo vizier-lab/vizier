@@ -7555,6 +7555,7 @@ name = "vizier-ai"
 version = "0.1.4"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "chrono",
  "clap",

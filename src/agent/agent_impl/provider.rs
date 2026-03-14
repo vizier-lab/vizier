@@ -36,7 +36,7 @@ impl VizierAgentImpl<ollama::CompletionModel> {
 
         let boot = boot_md(agent_config);
 
-        let tool = VizierTools::new(id.clone(), deps.clone())?;
+        let tool = VizierTools::new(id.clone(), deps.clone()).await?;
 
         let agent = client
             .agent(agent_config.model.clone())
@@ -70,7 +70,7 @@ impl VizierAgentImpl<openrouter::CompletionModel> {
 
         let boot = boot_md(agent_config);
 
-        let tool = VizierTools::new(id.clone(), deps.clone())?;
+        let tool = VizierTools::new(id.clone(), deps.clone()).await?;
 
         let agent = client
             .agent(agent_config.model.clone())
@@ -104,7 +104,7 @@ impl VizierAgentImpl<deepseek::CompletionModel> {
 
         let boot = boot_md(agent_config);
 
-        let tool = VizierTools::new(id.clone(), deps.clone())?;
+        let tool = VizierTools::new(id.clone(), deps.clone()).await?;
 
         let agent = client
             .agent(agent_config.model.clone())

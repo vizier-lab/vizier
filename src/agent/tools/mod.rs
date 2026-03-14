@@ -31,7 +31,7 @@ pub struct VizierTools {
 }
 
 impl VizierTools {
-    pub fn new(agent_id: AgentId, deps: VizierDependencies) -> Result<Self> {
+    pub async fn new(agent_id: AgentId, deps: VizierDependencies) -> Result<Self> {
         let agent_config = deps.config.agents.get(&agent_id).unwrap();
         let tool_config = deps.config.tools.clone();
         let workspace = deps.config.workspace.clone();
@@ -102,7 +102,9 @@ impl VizierTools {
                 }
             }
 
+            let python_tool_docs = python_interpreter.generate_docs_tool().await;
             tool_server_builder = tool_server_builder.tool(python_interpreter);
+            tool_server_builder = tool_server_builder.tool(python_tool_docs);
         }
 
         if agent_config.tools.discord.enabled && !agent_config.tools.discord.programmatic_tool_call

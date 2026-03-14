@@ -8,83 +8,133 @@ Vizier is a Rust-based AI agent framework that provides a unified interface for 
 
 ## Features
 
-- **Multi-Channel Support**: Connect to Discord, HTTP, and other communication platforms
+- **Multi-Channel Support**: Connect to Discord, HTTP (REST API & WebSocket), and WebUI
 - **AI Model Integration**: Support for multiple AI providers (DeepSeek, OpenRouter, Ollama, etc.)
-- **Memory System**: Session-based memory with configurable recall depth
-- **Tool System**: Extensible tool framework with CLI access, web search, and vector memory
+- **Memory System**: Session-based short-term memory, configurable recall depth, and vector-based long-term memory
+- **Tool System**: Extensible tool framework including CLI access, web search (Brave Search), Python interpreter, scheduler (cron & one-time tasks), vector memory, and workspace document management
+- **Scheduler**: Built-in task scheduler for automated agent execution
+- **WebUI**: Modern React-based web interface for interaction and management
 - **TUI Interface**: Built-in terminal user interface for local interaction (WIP)
-- **Configuration Driven**: Flexible configuration via TOML files
+- **Configuration Driven**: Flexible configuration via YAML files with environment-specific overrides
 
 ## Installation and Configuration
 
-**you need to have [cargo](https://rust-lang.org/) installed**
+**Prerequisites**: [Rust and Cargo](https://rust-lang.org/) installed.
 
-to setup your initial config, run this command:
+### Quick Start
+
+1. Install the `vizier-ai` binary:
+   ```sh
+   cargo install vizier-ai
+   ```
+
+2. Generate your initial configuration and workspace:
+   ```sh
+   vizier-ai onboard
+   ```
+   This will create a `.vizier` directory with a default `config.yaml`.
+
+3. Run the agent:
+   ```sh
+   vizier-ai run --config .vizier/config.yaml
+   ```
+
+### Development Setup
+
+For development, clone the repository and use the provided `just` commands:
+
 ```sh
-# install vizier
-cargo install vizier-ai
+# Install dependencies (Rust crates and webui npm packages)
+just install
 
-# generate config and workspace
-vizier-ai onboard
+# Run in development mode with hot-reload
+just dev
 
-## run the agent
-vizier-ai run --config "PATH_TO_YOUR_CONFIG"
+# Build the webui
+just build
 ```
+
+See the [Justfile](Justfile) for all available commands.
+
+### WebUI
+
+The web interface is built with React and served automatically when the HTTP channel is enabled. After building (`just build`), it will be available at `http://localhost:9999` (or the port configured in your `config.yaml`).
 
 ## Update Installed Version
 
-1. install `cargo-update` if you haven't installed it
-```sh
-cargo install cargo-update
-```
+1. Install `cargo-update` if you haven't already:
+   ```sh
+   cargo install cargo-update
+   ```
 
-2. update the binary
-```sh
-cargo install-update vizier-ai
-```
+2. Update the binary:
+   ```sh
+   cargo install-update vizier-ai
+   ```
 
 
 ## Planned Features
 
-- [ ] additional channels and client
-    - [ ] web ui
-    - [ ] tui (on progress)
-- [ ] additional providers support
-    - [ ] google
-    - [ ] openai
-    - [ ] etc
-- [ ] support openai embedding model
-- [ ] additional tools
-    - [ ] mcp
-    - [ ] built-in http client
-- [ ] scheduler and task system
-- [ ] skill system
-- [ ] misc
-    - [ ] webpage
-    - [ ] logo
+### In Progress / Near-term
+- [x] Web UI (React-based interface)
+- [ ] TUI (terminal user interface)
+- [ ] Additional AI providers (Google Gemini, OpenAI, Anthropic, etc.)
+- [ ] OpenAI embedding model support
+- [ ] Model Context Protocol (MCP) integration
+- [ ] Built-in HTTP client tool
+- [ ] Skill system for reusable agent behaviors
+
+### Completed
+- [x] Scheduler and task system (cron & one-time tasks)
+- [x] Vector memory for long-term retention
+- [x] Python interpreter tool
+- [x] Brave Search integration
+
+### Future Ideas
+- [ ] Plugin system for third-party extensions
+- [ ] Advanced monitoring and analytics
+- [ ] Multi-agent orchestration
+- [ ] Distributed execution
 
 ## Development
 
 ### Project Structure
 
-- `src/`: Rust source code
-- `templates/`: Template files for agent configuration
-- `migrations/`: Database migrations (if using SQL)
-- `.vizier/`: Workspace directory for runtime data
+- `src/`: Rust source code (agents, channels, tools, scheduler, database, etc.)
+- `webui/`: React-based web interface (built with Vite + React Router)
+- `templates/`: Template files for agent configuration and identity
+- `.vizier/`: Workspace directory for runtime data (config, database, agent workspaces)
+- `migrations/`: Database migrations (SurrealDB schemas)
 
 ### Available Commands
 
-See the `Justfile` for available commands:
-- `just dev`: Run in development mode
-- `just run`: Run in release mode  
-- `just tui`: Start TUI interface
-- `just docker`: Start Docker services
+See the [`Justfile`](Justfile) for available commands:
+
+| Command | Description |
+|---------|-------------|
+| `just install` | Install all dependencies (Rust crates + webui npm packages) |
+| `just dev` | Run in development mode with hot-reload |
+| `just run` | Run in release mode |
+| `just tui` | Start the terminal user interface (WIP) |
+| `just docker` | Start Docker services (database, etc.) |
+| `just build` | Build the webui frontend |
+
+### CLI Commands
+
+The `vizier-ai` binary provides these subcommands:
+
+- `vizier-ai onboard`: Interactive configuration setup
+- `vizier-ai run --config <path>`: Start the agent with given config
+- `vizier-ai tui`: Launch the TUI client (requires running agent)
+- `vizier-ai init`: Initialize a new vizier workspace
+- `vizier-ai configure`: Generate a new config non-interactively
 
 ### Adding New Features
 
-1. **New Tools**: Add to `src/agent/tools/`
-2. **New Channels**: Add to `src/channels/`
-3. **New Models**: Extend the model provider system in `src/agent/mod.rs`
+1. **New Tools**: Add to `src/agent/tools/` and register in `src/agent/tools/mod.rs`
+2. **New Channels**: Add to `src/channels/` and implement the `Channel` trait
+3. **New Models**: Extend the provider system in `src/agent/agent_impl/provider.rs`
+4. **New Schedules**: Add to `src/scheduler/` and integrate with task database
 
 ## License
 

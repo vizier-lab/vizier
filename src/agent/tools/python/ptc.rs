@@ -4,13 +4,13 @@ use pyo3::{
     prelude::*,
     types::{PyCFunction, PyDict},
 };
-use rig::tool::Tool;
+use rig::{completion::ToolDefinition, tool::Tool};
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Handle;
 
 use crate::error::VizierError;
 
-/// Trait for tools that can be called programmatically from Python
+#[async_trait::async_trait]
 pub trait ProgrammaticToolCall: Send + Sync {
     /// Returns the tool name for registration in Python globals
     fn name(&self) -> &'static str;
@@ -18,10 +18,20 @@ pub trait ProgrammaticToolCall: Send + Sync {
     /// Returns a description of the tool and its arguments for LLM discovery
     fn describe(&self) -> String;
 
+    /// Returns a description of input of the tool and its arguments for LLM discovery
+    fn describe_input(&self) -> String;
+
+    /// Returns a description of output of the tool and its arguments for LLM discovery
+    fn describe_output(&self) -> String;
+
+    /// Returns the tool definition
+    async fn get_definition(&self) -> ToolDefinition;
+
     /// Registers this tool as a callable function in the Python globals dict
     fn register_in_globals(&self, py: Python<'_>, globals: &Bound<'_, PyDict>) -> PyResult<()>;
 }
 
+#[async_trait::async_trait]
 impl<T> ProgrammaticToolCall for Arc<T>
 where
     T: Tool<Error = VizierError> + Send + Sync + 'static,
@@ -30,6 +40,26 @@ where
 {
     fn name(&self) -> &'static str {
         T::NAME
+    }
+
+    async fn get_definition(&self) -> ToolDefinition {
+        let definition = self.definition("".into()).await;
+
+        definition
+    }
+
+    fn describe_input(&self) -> String {
+        let args_schema = schemars::schema_for!(T::Args);
+        let args_schema_json = serde_json::to_string_pretty(&args_schema).unwrap_or_default();
+
+        args_schema_json
+    }
+
+    fn describe_output(&self) -> String {
+        let output_schema = schemars::schema_for!(T::Output);
+        let output_schema_json = serde_json::to_string_pretty(&output_schema).unwrap_or_default();
+
+        output_schema_json
     }
 
     fn describe(&self) -> String {

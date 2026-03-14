@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{VizierError, throw_vizier_error};
 
+mod docs;
 mod ptc;
 
 pub use ptc::ProgrammaticToolCall;
@@ -188,11 +189,11 @@ where
         } else {
             let mut tool_descriptions = Vec::new();
             for tool in &self.programmatic_tools {
-                tool_descriptions.push(tool.describe());
+                tool_descriptions.push(tool.name());
             }
             format!(
-                "\n\nAvailable tools (callable as functions):\n\n{}",
-                tool_descriptions.join("\n\n")
+                "\n\nAvailable tools (callable as functions, with kwargs, docs available in 'python_tools_docs'): {}",
+                tool_descriptions.join(",")
             )
         };
 
