@@ -9,27 +9,11 @@ pub type AgentId = String;
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, SurrealValue)]
 pub struct VizierSession(pub AgentId, pub SessionId);
 
-impl VizierSession {
-    pub fn to_simple(&self) -> String {
-        format!("{}__{}", self.0, self.1.to_simple())
-    }
-}
-
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, SurrealValue)]
 pub enum SessionId {
     DiscordChanel(u64),
     HTTP(String),
     Task(String),
-}
-
-impl SessionId {
-    pub fn to_simple(&self) -> String {
-        match self {
-            Self::DiscordChanel(id) => format!("DISCORD__{id}"),
-            Self::HTTP(id) => format!("HTTP__{id}"),
-            Self::Task(id) => format!("TASK__{id}"),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
@@ -86,21 +70,6 @@ pub struct Memory {
     pub timestamp: chrono::DateTime<Utc>,
     pub embedding: Vec<f64>,
     pub agent_id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
-pub struct Message {
-    pub user_id: String,
-    pub session: VizierSession,
-    pub content: MessageContent,
-    pub timestamp: chrono::DateTime<Utc>,
-}
-
-#[allow(non_camel_case_types)]
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
-pub enum MessageContent {
-    request(VizierRequest),
-    response(VizierResponse),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]

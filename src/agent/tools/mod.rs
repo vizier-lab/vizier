@@ -94,13 +94,9 @@ impl VizierTools {
             if agent_config.tools.vector_memory.enabled
                 && !agent_config.tools.vector_memory.programmatic_tool_call
             {
-                if let Some(vector_memory) = tool_config.vector_memory.clone() {
-                    let (read_memory, write_memory) = init_vector_memory(
-                        agent_id.clone(),
-                        workspace.clone(),
-                        vector_memory,
-                        deps.clone(),
-                    )?;
+                if let Some(_) = tool_config.vector_memory.clone() {
+                    let (read_memory, write_memory) =
+                        init_vector_memory(agent_id.clone(), deps.clone())?;
 
                     tool_server_builder = tool_server_builder.tool(read_memory).tool(write_memory);
                 }
@@ -138,13 +134,9 @@ impl VizierTools {
         if agent_config.tools.vector_memory.enabled
             && !agent_config.tools.vector_memory.programmatic_tool_call
         {
-            if let Some(vector_memory) = tool_config.vector_memory {
-                let (read_memory, write_memory) = init_vector_memory(
-                    agent_id.clone(),
-                    workspace.clone(),
-                    vector_memory,
-                    deps.clone(),
-                )?;
+            if let Some(_) = tool_config.vector_memory {
+                let (read_memory, write_memory) =
+                    init_vector_memory(agent_id.clone(), deps.clone())?;
 
                 tool_server_builder = tool_server_builder.tool(read_memory).tool(write_memory);
             }
@@ -157,4 +149,3 @@ impl VizierTools {
         })
     }
 }
-

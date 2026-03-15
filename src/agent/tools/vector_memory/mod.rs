@@ -8,23 +8,17 @@ use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
-use crate::config::VectorMemoryConfig;
 use crate::database::{DistanceFunction, VizierDatabases};
-use crate::schema::{AgentId, Memory};
 use crate::dependencies::VizierDependencies;
 use crate::embedding;
 use crate::error::VizierError;
+use crate::schema::{AgentId, Memory};
 
 pub fn init_vector_memory(
     agent_id: String,
-    workspace: String,
-    config: VectorMemoryConfig,
     deps: VizierDependencies,
 ) -> Result<(MemoryRead, MemoryWrite)> {
-    let embedder = Arc::new(
-        embedding::Client::new().embedding_model(&config.model.to_fastembed(), Some(workspace)),
-    );
-
+    let embedder = deps.embedder.unwrap();
     Ok((
         MemoryRead::new(agent_id.clone(), deps.database.clone(), embedder.clone()),
         MemoryWrite::new(agent_id.clone(), deps.database.clone(), embedder.clone()),
