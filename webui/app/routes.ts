@@ -8,6 +8,6 @@ import {
 export default [
   layout('layout.tsx', [
     index('routes/home.tsx'),
-    route('agents/:agent_id', 'routes/chats.tsx'),
+    route('agents/:agentId', 'routes/chats.tsx'),
   ]),
 ] satisfies RouteConfig

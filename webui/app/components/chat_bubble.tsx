@@ -4,24 +4,27 @@ import DotLoader from './dot_loader'
 import { motion, type Transition } from 'motion/react'
 
 import remarkGfm from 'remark-gfm'
+import Avatar from './avatar'
 
 interface ChatBubbleProps {
   chat: Chat
 }
 
 const ChatBubble = (props: ChatBubbleProps) => {
-  const isAgent = props.chat.user === 'agent'
+  const isAgent = props.chat.user_type === 'agent'
 
   const username = (
     <div className="font-bold">
-      {props.chat.user !== 'agent' ? `you` : 'vizier'}
+      {props.chat.username}
     </div>
   )
 
   const Profile = () => {
     return (
       <div className="flex items-center">
-        <div className="bg-black rounded-full w-10 h-10"></div>
+        <div className="rounded-full w-10 h-10 shadow-md border-solid">
+          <Avatar name={props.chat.user_id || ''} rounded />
+        </div>
       </div>
     )
   }

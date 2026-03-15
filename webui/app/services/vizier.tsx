@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { AgentDetail } from '~/interfaces/chat'
 
 export const base_url = import.meta.env.DEV
   ? 'localhost:9999'
@@ -40,6 +41,12 @@ export const listSession = async () => {
 
 export const listAgents = async () => {
   const res = await apiClient.get(`/agents`)
+
+  return res
+}
+
+export const getAgentDetail = async (agent_id: string) => {
+  const res = await apiClient.get(`/agents/${agent_id}`)
 
   return res
 }

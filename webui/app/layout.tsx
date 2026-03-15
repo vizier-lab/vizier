@@ -1,9 +1,8 @@
 'use client'
 
-import { FaCog } from 'react-icons/fa'
-import Avatar from "boring-avatars";
+import { FaDoorOpen } from 'react-icons/fa'
 import { TbPlus } from 'react-icons/tb'
-import { Link, Outlet, useLocation } from 'react-router'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router'
 import {
   ping,
   base_url,
@@ -13,6 +12,8 @@ import {
 } from './services/vizier'
 import { useEffect, useState } from 'react'
 import { useSessionStore } from './hooks/sessionStore'
+import type { AgentDetail } from './interfaces/chat';
+import Avatar from './components/avatar'
 
 const OnboardModal = () => {
   const [username, setUsername] = useState('')
@@ -46,16 +47,12 @@ const OnboardModal = () => {
 
 const Layout = () => {
   const [connected, setConnected] = useState(false)
-  const [sessions, setSessions] = useState([])
   const [agents, setAgents] = useState([])
-  const [activeAgent, setActiveAgent] = useState<any>(null)
-  const location = useLocation()
+  const [activeAgent, setActiveAgent] = useState<AgentDetail | null>(null)
+  const navigate = useNavigate();
 
   const username = useSessionStore((state: any) => state.username)
 
-  const updateSessions = () => {
-    listSessions().then((res) => setSessions(res.data.data))
-  }
 
   const init = () => {
     listAgents().then(({ data }) => {
@@ -66,8 +63,7 @@ const Layout = () => {
 
   useEffect(() => {
     init()
-    // updateSessions()
-  }, [connected, location])
+  }, [connected])
 
   const checkStatus = () => {
     ping()
@@ -80,14 +76,13 @@ const Layout = () => {
     setInterval(() => checkStatus(), 5000)
   }, [])
 
-  const AgentCard = ({ agent, active }: { agent: any, active: boolean }) => {
-    console.log({ agent })
+  const AgentCard = ({ agent }: { agent: AgentDetail }) => {
     return <div
       className="p-5 w-full flex border-b-gray-500"
       id="profile"
     >
       <div className="w-10 h-10 mr-2.5 rounded-4xl">
-        <Avatar className='rounded-xl' name={agent.agent_id} variant='beam' colors={["#cccccc", "#00bc7d", "#1e3a8a", "#101828"]} square />
+        <Avatar name={agent.agent_id} />
       </div>
       <div>
         <div className="flex items-center">
@@ -114,8 +109,14 @@ const Layout = () => {
           <div>
             <div className='max-h-70 overflow-scroll'>
               {
-                agents.map((agent: any) => <div key={agent.agent_id} className='hover:bg-gray-200' >
-                  <AgentCard agent={agent} active={activeAgent && activeAgent.agent_id} />
+                agents.map((agent: any) => <div
+                  key={agent.agent_id}
+                  className={`hover:bg-gray-200 ${activeAgent?.agent_id === agent.agent_id && 'bg-gray-200'}`}
+                  onClick={() => {
+                    setActiveAgent(agent)
+                    navigate(`/agents/${agent.agent_id}`)
+                  }}>
+                  <AgentCard agent={agent} />
 
                 </div>)
               }
@@ -141,8 +142,8 @@ const Layout = () => {
             </div>
           </div>
           <div className="p-5 pt-2.5 pb-2.5 text-gray-500 bg-white font-bold flex items-center active:inset-shadow-md hover:text-black rounded-full m-5 mb-0">
-            <FaCog size={20} />
-            <button className="ml-2 select-none">Settings</button>
+            <FaDoorOpen size={20} />
+            <button className="ml-2 select-none">Logout</button>
           </div>
         </div>
         <div className="w-full p-5 pl-0 pr-0">

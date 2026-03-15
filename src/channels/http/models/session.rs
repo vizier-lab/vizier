@@ -9,7 +9,6 @@ pub struct SessionResponse {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ChatRequest {
     pub user: String,
-    pub agent: String,
     pub content: String,
 }
 

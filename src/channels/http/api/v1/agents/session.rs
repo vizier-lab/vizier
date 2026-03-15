@@ -140,7 +140,6 @@ pub async fn chat(
             .unwrap();
     }
 
-    log::debug!("connect {}", session_id);
     let mut responses = state.transport.reponses.lock().await;
     let session = responses
         .entry((agent_id.clone(), session_id.clone()))

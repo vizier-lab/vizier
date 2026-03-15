@@ -43,10 +43,10 @@ const Editor = (props: { onSubmit: (value: string) => void }) => {
           setOnFocus(true)
         }}
       >
-        <div className="w-full max-h-[25vh] overflow-y-scroll no-scrollbar">
+        <div className="w-full max-h-[25vh] overflow-y-scroll no-scrollbar font-mono">
           <MDXEditor
             ref={ref}
-            className="max-h-[25vh] prose w-full"
+            className="max-h-[25vh] prose w-full font-mono"
             markdown={value}
             plugins={[
               headingsPlugin(),
@@ -55,7 +55,7 @@ const Editor = (props: { onSubmit: (value: string) => void }) => {
               thematicBreakPlugin(),
               markdownShortcutPlugin(),
             ]}
-            contentEditableClassName="editor-content"
+            contentEditableClassName="editor-content font-mono"
             spellCheck={false}
             placeholder="Type Something!"
             onChange={setValue}
@@ -67,7 +67,7 @@ const Editor = (props: { onSubmit: (value: string) => void }) => {
           style={{ height: '-webkit-fill-available' }}
         >
           <div
-            className="active:inset-shadow-md hover:inset-shadow-xs h-10 w-10 flex justify-center items-center rounded-full text-gray-500 hover:text-black"
+            className="active:inset-shadow-md hover:inset-shadow-xs h-10 w-10 flex justify-center items-center rounded-full text-gray-500 hover:text-black font-mono"
             onClick={() => submit(value)}
           >
             <FaPaperPlane />

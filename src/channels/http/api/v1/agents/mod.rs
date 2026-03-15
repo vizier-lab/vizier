@@ -1,10 +1,17 @@
-use axum::{Router, extract::State, routing::get};
+use axum::{
+    Router,
+    extract::{Path, State},
+    routing::get,
+};
 use reqwest::StatusCode;
 use serde_json::json;
 
 use crate::{
     channels::http::{
-        models::{self, response::api_response},
+        models::{
+            self,
+            response::{api_response, err_response},
+        },
         state::HTTPState,
     },
     config::VizierConfig,
@@ -25,6 +32,7 @@ impl VizierConfig {
 pub fn agents() -> Router<HTTPState> {
     Router::new()
         .route("/", get(list_agents))
+        .route("/{agent_id}", get(agent_detail))
         .nest("/{agent_id}/memory", memory())
         .nest("/{agent_id}/session", session())
 }
@@ -46,4 +54,23 @@ async fn list_agents(
         .collect();
 
     api_response(StatusCode::OK, res)
+}
+
+async fn agent_detail(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+) -> models::response::Response<serde_json::Value> {
+    let res = state.config.agents.get(&agent_id.clone()).map(|config| {
+        json!({
+            "agent_id": agent_id.clone(),
+            "name": config.name.clone(),
+            "description": config.description.clone(),
+        })
+    });
+
+    if res.is_none() {
+        err_response(StatusCode::NOT_FOUND, "not found".into())
+    } else {
+        api_response(StatusCode::OK, res.unwrap())
+    }
 }

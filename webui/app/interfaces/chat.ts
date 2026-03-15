@@ -1,5 +1,7 @@
 export interface Chat {
-  user: 'agent' | 'user'
+  user_id?: string
+  username?: string
+  user_type: 'agent' | 'user'
   content: 'thinking' | string
   timestamp?: string
 }
@@ -7,4 +9,10 @@ export interface Chat {
 export interface WSChatResponse {
   content: string
   thinking: boolean
+}
+
+export interface AgentDetail {
+  agent_id: string
+  name: string
+  description: string
 }
