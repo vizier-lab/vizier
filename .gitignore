@@ -3,3 +3,9 @@
 .vizier/
 .vizier*
 .env
+
+# webui build artifacts
+webui/node_modules/
+webui/build/
+webui/.vite/
+webui/.react-router/

@@ -8,11 +8,13 @@ license = "MIT"
 readme = "Readme.md"
 repository = "https://github.com/blinfoldking/vizier"
 include = [
-    "src/**/*",
-    "build.rs",
-    "Cargo.toml",
-    "webui/**/*",  # Your embedded file
-    "README.md"
+    "/src/**/*",
+    "/build.rs",
+    "/Cargo.toml",
+    "/Readme.md",
+    "/templates/**/*",
+    # Pre-built webui files (run 'npm run build' in webui/ before publishing)
+    "/webui/build/client/**/*",
 ]
 
 [dependencies]
