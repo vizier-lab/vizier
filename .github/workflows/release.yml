@@ -127,11 +127,13 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             cross: true
+          # macOS x86_64 (cross-compile from ARM64 runner)
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
             cross: false
+          # macOS ARM64 (native on ARM64 runner)
           - target: aarch64-apple-darwin
-            os: macos-14
+            os: macos-latest
             cross: false
 
     steps:
@@ -163,17 +165,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libssl-dev \
             pkg-config \
             python3-dev \
             libclang-dev \
-            clang
+            clang \
+            musl-tools \
+            perl \
+            make
 
       - name: Install cross
         if: matrix.cross
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build binary
+        env:
+          # Use vendored OpenSSL for cross-compilation
+          OPENSSL_STATIC: "1"
         run: |
           if [ "${{ matrix.cross }}" = "true" ]; then
             cross build --release --target ${{ matrix.target }}

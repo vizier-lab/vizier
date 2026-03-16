@@ -70,6 +70,10 @@ async-trait = "0.1.89"
 [build-dependencies]
 pyo3-build-config = "0.28.2"
 
+# Use vendored OpenSSL for easier cross-compilation
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/vizier-v{ version }-{ target }.tar.gz"
 pkg-fmt = "tgz"
