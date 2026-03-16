@@ -9,7 +9,7 @@ readme = "Readme.md"
 repository = "https://github.com/blinfoldking/vizier"
 include = [
     "src/**/*",
-    "build.rs"
+    "build.rs",
     "Cargo.toml",
     "webui/**/*",  # Your embedded file
     "README.md"
