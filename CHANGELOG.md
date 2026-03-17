@@ -2,12 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0-rc.4] - 2026-03-17
+
+### 🐛 Bug Fixes
+
+- Python bundling
 ## [0.2.0-rc.3] - 2026-03-17
 
 ### 🐛 Bug Fixes
 
 - Bin dir
 - Macos build run error
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.2.0-rc.3
 ## [0.2.0-rc.2] - 2026-03-17
 
 ### 🐛 Bug Fixes
