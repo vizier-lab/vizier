@@ -30,7 +30,7 @@ Vizier is a Rust-based AI agent framework that provides a unified interface for 
 
 2. Generate your initial configuration and workspace:
    ```sh
-   vizier-ai onboard
+   vizier-ai init
    ```
    This will create a `.vizier` directory with a default `config.yaml`.
 
@@ -73,28 +73,21 @@ The web interface is built with React and served automatically when the HTTP cha
    ```
 
 
-## Planned Features
+## Planned Features (V1.0.0)
 
-### In Progress / Near-term
 - [x] Web UI (React-based interface)
-- [ ] TUI (terminal user interface)
-- [ ] Additional AI providers (Google Gemini, OpenAI, Anthropic, etc.)
-- [ ] OpenAI embedding model support
-- [ ] Model Context Protocol (MCP) integration
-- [ ] Built-in HTTP client tool
-- [ ] Skill system for reusable agent behaviors
-
-### Completed
 - [x] Scheduler and task system (cron & one-time tasks)
 - [x] Vector memory for long-term retention
 - [x] Python interpreter tool
+    - [x] Programmatic Tool Calling
 - [x] Brave Search integration
-
-### Future Ideas
-- [ ] Plugin system for third-party extensions
-- [ ] Advanced monitoring and analytics
-- [ ] Multi-agent orchestration
-- [ ] Distributed execution
+- [x] Local embedding model support
+- [ ] Docker Sandbox
+- [ ] Model Context Protocol (MCP) integration
+- [ ] Built-in HTTP client tool
+- [ ] Skill system for reusable agent behaviors
+- [ ] Additional AI providers (Google Gemini, OpenAI, Anthropic, etc.)
+~~- [ ] TUI (terminal user interface)~~ on hold
 
 ## Development
 
@@ -123,7 +116,6 @@ See the [`Justfile`](Justfile) for available commands:
 
 The `vizier-ai` binary provides these subcommands:
 
-- `vizier-ai onboard`: Interactive configuration setup
 - `vizier-ai run --config <path>`: Start the agent with given config
 - `vizier-ai tui`: Launch the TUI client (requires running agent)
 - `vizier-ai init`: Initialize a new vizier workspace
