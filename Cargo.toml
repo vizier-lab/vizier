@@ -74,4 +74,4 @@ pyo3-build-config = "0.28.2"
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/vizier-v{ version }-{ target }.tar.gz"
 pkg-fmt = "tgz"
-bin-dir = "vizier-v{ version }-{ target }/vizier"
+bin-dir = "vizier-v{ version }-{ target }/"
