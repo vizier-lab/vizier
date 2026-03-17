@@ -6,7 +6,7 @@ use serde_json::json;
 use strum::{EnumIter, IntoEnumIterator};
 use surrealdb_types::SurrealValue;
 
-use crate::schema::{SessionId, VizierSession, VizierRequest, VizierResponse};
+use crate::schema::{SessionId, VizierRequest, VizierResponse, VizierSession};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, EnumIter)]
 pub enum VizierTransportChannel {
