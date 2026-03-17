@@ -5,16 +5,20 @@ use chrono::Utc;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rig::{
     agent::Agent,
-    completion::{Chat, CompletionModel},
+    client::CompletionClient,
+    completion::Chat,
     message::Message,
     providers::{deepseek, ollama, openrouter},
 };
 
 use crate::{
-    agent::{agent_impl::system_prompt::user::primary_user_md, memory::SessionMemories},
+    agent::{
+        agent_impl::{provider::NewVizierAgent, system_prompt::user::primary_user_md},
+        memory::SessionMemories,
+    },
     config::{provider::ProviderVariant, user::UserConfig},
     dependencies::VizierDependencies,
-    schema::VizierRequest,
+    schema::{VizierRequest, VizierSession},
     utils::agent_workspace,
 };
 
@@ -23,26 +27,25 @@ mod system_prompt;
 
 #[derive(Clone)]
 pub enum VizierAgent {
-    Ollama(VizierAgentImpl<ollama::CompletionModel>),
-    OpenRouter(VizierAgentImpl<openrouter::CompletionModel>),
-    Deepseek(VizierAgentImpl<deepseek::CompletionModel>),
+    Ollama(VizierAgentImpl<ollama::Client>),
+    OpenRouter(VizierAgentImpl<openrouter::Client>),
+    Deepseek(VizierAgentImpl<deepseek::Client>),
 }
 
 impl VizierAgent {
-    pub async fn new(deps: &VizierDependencies, id: String) -> Result<VizierAgent> {
-        let agent_config = deps.config.agents.get(&id).unwrap();
+    pub async fn new(deps: &VizierDependencies, session: VizierSession) -> Result<VizierAgent> {
+        let agent_config = deps.config.agents.get(&session.0.clone()).unwrap();
         let agent = match &agent_config.provider {
             ProviderVariant::openrouter => VizierAgent::OpenRouter(
-                VizierAgentImpl::<openrouter::CompletionModel>::new(id.clone(), deps.clone())
-                    .await?,
+                VizierAgentImpl::<openrouter::Client>::new(session.clone(), deps.clone()).await?,
             ),
 
             ProviderVariant::deepseek => VizierAgent::Deepseek(
-                VizierAgentImpl::<deepseek::CompletionModel>::new(id.clone(), deps.clone()).await?,
+                VizierAgentImpl::<deepseek::Client>::new(session.clone(), deps.clone()).await?,
             ),
 
             ProviderVariant::ollama => VizierAgent::Ollama(
-                VizierAgentImpl::<ollama::CompletionModel>::new(id.clone(), deps.clone()).await?,
+                VizierAgentImpl::<ollama::Client>::new(session.clone(), deps.clone()).await?,
             ),
         };
 
@@ -81,10 +84,10 @@ impl VizierAgent {
 }
 
 #[derive(Clone)]
-pub struct VizierAgentImpl<T: CompletionModel> {
+pub struct VizierAgentImpl<Client: CompletionClient> {
     #[allow(unused)]
     id: String,
-    agent: Agent<T>,
+    agent: Agent<Client::CompletionModel>,
 
     workspace: String,
     primary_user: UserConfig,
@@ -92,7 +95,7 @@ pub struct VizierAgentImpl<T: CompletionModel> {
     silent_read_initiative_chance: f32,
 }
 
-impl<T: CompletionModel> VizierAgentImpl<T> {
+impl<Client: CompletionClient> VizierAgentImpl<Client> {
     pub async fn prepare_system_prompts(&self) -> Vec<Message> {
         let agent_workspace = agent_workspace(&self.workspace, &self.id);
 

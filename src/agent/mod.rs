@@ -12,10 +12,10 @@ use crate::agent::agent_impl::VizierAgent;
 use crate::agent::memory::SessionMemories;
 use crate::config::agent::AgentConfig;
 use crate::dependencies::VizierDependencies;
+use crate::error::VizierError;
 use crate::schema::{
     SessionHistoryContent, VizierRequest, VizierResponse, VizierResponseStats, VizierSession,
 };
-use crate::transport::VizierTransport;
 use crate::utils::remove_think_tags;
 
 pub mod agent_impl;
@@ -26,7 +26,6 @@ pub mod tools;
 #[derive(Clone)]
 pub struct VizierAgents {
     deps: VizierDependencies,
-    agents: HashMap<String, Arc<VizierAgent>>,
 }
 
 impl VizierAgent {
@@ -68,20 +67,7 @@ type SessionTransport = (Sender<VizierRequest>, Receiver<VizierRequest>);
 
 impl VizierAgents {
     pub async fn new(deps: VizierDependencies) -> Result<Self> {
-        let mut agents = HashMap::new();
-
-        let config = deps.config.clone();
-        for (agent_id, _) in config.agents.iter() {
-            agents.insert(
-                agent_id.clone(),
-                Arc::new(VizierAgent::new(&mut deps.clone(), agent_id.clone()).await?),
-            );
-        }
-
-        Ok(Self {
-            deps,
-            agents: agents,
-        })
+        Ok(Self { deps })
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -101,20 +87,12 @@ impl VizierAgents {
                 .deps
                 .config
                 .agents
-                .get(&session.0.clone())
-                .ok_or(anyhow::Error::msg("Agent not found"))?;
+                .get(&session.0)
+                .ok_or(VizierError("agent not found".into()))?;
 
-            let agent = self
-                .agents
-                .get(&session.0.clone())
-                .ok_or(anyhow::Error::msg("Agent not found"))?;
-
-            let process = SessionProcess::new(
-                session.clone(),
-                agent_config.clone(),
-                agent.clone(),
-                self.deps.clone(),
-            );
+            let process =
+                SessionProcess::new(agent_config.clone(), session.clone(), self.deps.clone())
+                    .await?;
 
             let _ = process.session_transport.0.send_async(request).await;
 
@@ -151,12 +129,13 @@ struct SessionProcess {
 }
 
 impl SessionProcess {
-    fn new(
-        session: VizierSession,
+    async fn new(
         agent_config: AgentConfig,
-        agent: Arc<VizierAgent>,
+        session: VizierSession,
         deps: VizierDependencies,
-    ) -> Self {
+    ) -> Result<Self> {
+        let agent = Arc::new(VizierAgent::new(&deps, session.clone()).await?);
+
         let session_transport = Arc::new(flume::unbounded());
 
         let response_session = session.clone();
@@ -195,9 +174,10 @@ impl SessionProcess {
             res
         };
 
-        Self {
+        Ok(Self {
             session_transport: session_transport.clone(),
             handle: tokio::spawn(async move {
+                let agent_config = agent_config.clone();
                 let session = Arc::new(Mutex::new(AgentSession {
                     session_memory: SessionMemories::new(agent_config.memory.clone()),
                     session_ttl: *agent_config.session_ttl,
@@ -295,6 +275,6 @@ impl SessionProcess {
 
                 let _ = stale_handler.await;
             }),
-        }
+        })
     }
 }
