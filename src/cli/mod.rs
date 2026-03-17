@@ -31,6 +31,7 @@ enum Commands {
 pub async fn start() -> Result<()> {
     let cli = Cli::parse();
 
+    crate::utils::python::check_python_version()?;
     match &cli.command {
         Commands::Onboard(args) => onboard::onboard(args.clone()).await?,
         Commands::Run(args) => run::run(args.clone()).await?,

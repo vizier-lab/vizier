@@ -19,24 +19,46 @@ Vizier is a Rust-based AI agent framework that provides a unified interface for 
 
 ## Installation and Configuration
 
-**Prerequisites**: [Rust and Cargo](https://rust-lang.org/) installed.
+### Prerequisites
+
+- [Rust and Cargo](https://rust-lang.org/) installed
+- **Python 3.9 or higher** - Required for the Python interpreter tool
+
+#### Installing Python
+
+If you don't have Python 3.9+, install it:
+
+**macOS:**
+```sh
+brew install python@3.9
+```
+
+**Ubuntu/Debian:**
+```sh
+sudo apt-get install python3.9 python3.9-dev
+```
+
+**Windows:**
+Download from [python.org](https://www.python.org/downloads/)
 
 ### Quick Start
 
-1. Install the `vizier-ai` binary:
+1. Install the `vizier` binary:
    ```sh
-   cargo install vizier-ai
+   cargo install vizier
+   # Or using cargo-binstall (faster)
+   cargo binstall vizier
    ```
 
 2. Generate your initial configuration and workspace:
    ```sh
-   vizier-ai init
+   vizier init
    ```
    This will create a `.vizier` directory with a default `config.yaml`.
 
 3. Run the agent:
    ```sh
-   vizier-ai run --config .vizier/config.yaml
+   vizier run --config .vizier/config.yaml
    ```
 
 ### Development Setup
@@ -69,8 +91,40 @@ The web interface is built with React and served automatically when the HTTP cha
 
 2. Update the binary:
    ```sh
-   cargo install-update vizier-ai
+   cargo install-update vizier
    ```
+
+## Troubleshooting
+
+### Python Library Not Loaded Error
+
+If you see an error like:
+```
+dyld[...]: Library not loaded: /Library/Frameworks/Python.framework/Versions/3.14/Python
+```
+
+This means the binary was built against a different Python version than what's on your system.
+
+**Solution:** Build from source against your Python version:
+```sh
+# Clone the repository
+git clone https://github.com/blinfoldking/vizier
+cd vizier
+
+# Build with your Python version
+PYO3_PYTHON=$(which python3.9) cargo build --release
+
+# The binary will be at: target/release/vizier
+```
+
+### Wrong Python Version
+
+If you see:
+```
+Python version X.X detected, but Python 3.9 or higher is required
+```
+
+Install Python 3.9 or higher following the installation instructions above.
 
 
 ## Planned Features (V1.0.0)
@@ -114,12 +168,12 @@ See the [`Justfile`](Justfile) for available commands:
 
 ### CLI Commands
 
-The `vizier-ai` binary provides these subcommands:
+The `vizier` binary provides these subcommands:
 
-- `vizier-ai run --config <path>`: Start the agent with given config
-- `vizier-ai tui`: Launch the TUI client (requires running agent)
-- `vizier-ai init`: Initialize a new vizier workspace
-- `vizier-ai configure`: Generate a new config non-interactively
+- `vizier run --config <path>`: Start the agent with given config
+- `vizier tui`: Launch the TUI client (requires running agent)
+- `vizier init`: Initialize a new vizier workspace
+- `vizier configure`: Generate a new config non-interactively
 
 ### Adding New Features
 

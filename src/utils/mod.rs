@@ -2,6 +2,7 @@ use regex::Regex;
 
 pub mod discord;
 pub mod ollama;
+pub mod python;
 
 pub fn remove_think_tags(text: &str) -> String {
     let re = Regex::new(r"(.*\n)*</think>\n?").unwrap();
