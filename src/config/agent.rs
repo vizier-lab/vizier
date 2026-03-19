@@ -19,7 +19,7 @@ pub struct AgentConfig {
     pub turn_depth: usize,
     pub tools: AgentToolsConfig,
     pub silent_read_initiative_chance: f32,
-    pub show_thinking: bool,
+    pub show_thinking: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

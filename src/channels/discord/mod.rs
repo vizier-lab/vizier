@@ -22,10 +22,16 @@ pub struct DiscordChannelReader {
 }
 
 impl DiscordChannelReader {
-    pub async fn new(config: DiscordChannelConfig, transport: VizierTransport) -> Result<Self> {
+    pub async fn new(
+        agent_id: String,
+        config: DiscordChannelConfig,
+        transport: VizierTransport,
+    ) -> Result<Self> {
         let intents = GatewayIntents::all();
-        let client = Client::builder(config.token.clone(), intents)
-            .event_handler(Handler(config.agent_id.clone(), transport.clone()))
+        let token = std::env::var(format!("DISCORD_TOKEN_{}", agent_id.to_ascii_uppercase()))
+            .unwrap_or(config.token.clone().unwrap());
+        let client = Client::builder(token.clone(), intents)
+            .event_handler(Handler(agent_id, transport.clone()))
             .await?;
 
         Ok(Self { client })
@@ -43,11 +49,11 @@ impl VizierChannel for DiscordChannelReader {
 
 pub struct DiscordChannelWriter {
     transport: VizierTransport,
-    config: Vec<DiscordChannelConfig>,
+    config: HashMap<String, DiscordChannelConfig>,
 }
 
 impl DiscordChannelWriter {
-    pub fn new(transport: VizierTransport, config: Vec<DiscordChannelConfig>) -> Self {
+    pub fn new(transport: VizierTransport, config: HashMap<String, DiscordChannelConfig>) -> Self {
         Self { transport, config }
     }
 }
@@ -55,11 +61,10 @@ impl DiscordChannelWriter {
 impl VizierChannel for DiscordChannelWriter {
     async fn run(&mut self) -> Result<()> {
         let mut token_map = HashMap::new();
-        for config in self.config.iter() {
-            token_map.insert(
-                config.agent_id.clone(),
-                Arc::new(Http::new(&config.token.clone())),
-            );
+        for (agent_id, config) in self.config.iter() {
+            let token = std::env::var(format!("DISCORD_TOKEN_{}", agent_id.to_ascii_uppercase()))
+                .unwrap_or(config.token.clone().unwrap());
+            token_map.insert(agent_id.clone(), Arc::new(Http::new(&token)));
         }
 
         let mut recv = self.transport.subscribe_response().await?;

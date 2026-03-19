@@ -11,9 +11,10 @@ pub async fn init() -> Result<()> {
     config.workspace = format!("{}/.vizier", current_dir.to_str().unwrap());
 
     let mut config_path = current_dir.clone();
-    config_path.push(".vizier");
-    config_path.push("config.yaml");
-    config.save(config_path, "".into())?;
+    config_path.push(".vizier.yaml");
+    config.save(config_path.clone(), "".into())?;
+
+    let _ = VizierConfig::load(Some(config_path));
 
     Ok(())
 }

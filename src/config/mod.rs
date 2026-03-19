@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, str::FromStr};
+use std::{collections::HashMap, env::current_dir, fs, str::FromStr};
 
 use anyhow::Result;
 use config::Config;
@@ -24,14 +24,13 @@ use crate::{
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChannelsConfig {
-    pub discord: Option<Vec<DiscordChannelConfig>>,
+    pub discord: Option<HashMap<String, DiscordChannelConfig>>,
     pub http: Option<HTTPChannelConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DiscordChannelConfig {
-    pub agent_id: String,
-    pub token: String,
+    pub token: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -48,7 +47,7 @@ pub struct ToolsConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BraveSearchConfig {
-    pub api_key: String,
+    pub api_key: Option<String>,
     #[serde(default)]
     pub safesearch: bool,
 }
@@ -60,6 +59,7 @@ pub struct VectorMemoryConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VizierConfig {
+    #[serde(skip)]
     pub workspace: String,
     pub primary_user: UserConfig,
     pub providers: ProviderConfig,
@@ -75,7 +75,7 @@ struct AllConfig {
 
 impl VizierConfig {
     pub fn load(path: Option<std::path::PathBuf>) -> Result<Self> {
-        let mut default_path = dirs::home_dir().unwrap();
+        let mut default_path = current_dir().unwrap();
         default_path.push(std::path::PathBuf::from_str(constant::DEFAULT_CONFIG_PATH).unwrap());
 
         let path = path.unwrap_or_else(|| {
@@ -87,33 +87,19 @@ impl VizierConfig {
             default_path
         });
 
-        if !path.exists() {
-            log::warn!(
-                "{} not found, generating a new config file",
-                path.to_str().unwrap()
-            );
-
-            Self::create_file(path.clone())?;
-        }
-
         let settings = Config::builder()
             .add_source(config::File::from(path.clone()))
             .build()?;
 
         log::info!("config loaded: {:?}", path.to_str().unwrap());
-        let config = settings.try_deserialize::<AllConfig>()?;
+        let mut config = settings.try_deserialize::<AllConfig>()?;
+        let mut workspace = path.parent().unwrap().to_path_buf();
+        workspace.push(".vizier");
+
+        let _ = fs::create_dir_all(&workspace)?;
+        config.vizier.workspace = workspace.to_str().unwrap().to_string();
 
         Ok(config.vizier)
-    }
-
-    pub fn create_file(path: std::path::PathBuf) -> Result<()> {
-        if let Some(parent_dir) = path.parent() {
-            let _ = std::fs::create_dir_all(parent_dir)?;
-        }
-
-        let _ = fs::write(&path, constant::DEFAULT_CONFIG_TOML)?;
-
-        Ok(())
     }
 
     pub fn save(&self, path: std::path::PathBuf, addition: String) -> Result<()> {
@@ -146,7 +132,7 @@ impl Default for VizierConfig {
                 openrouter: Some(OpenRouterProviderConfig::default()),
             },
             agents: HashMap::from([(
-                "primary".into(),
+                "vizier".into(),
                 AgentConfig {
                     name: "Vizier".into(),
                     description: Some("digital steward".into()),
@@ -161,20 +147,19 @@ impl Default for VizierConfig {
                     turn_depth: 100,
                     tools: AgentToolsConfig::default(),
                     silent_read_initiative_chance: 0.01,
-                    show_thinking: false
+                    show_thinking: None
                 },
             )]),
             channels: ChannelsConfig {
-                discord: Some(vec![DiscordChannelConfig {
-                    token: "".into(),
-                    agent_id: "primary".into(),
-                }]),
+                discord: Some([("vizier".to_string(),DiscordChannelConfig {
+                    token: Some("".into()),
+                })].into_iter().collect::<HashMap<String,DiscordChannelConfig>>()),
                 http: Some(HTTPChannelConfig { port: 9999 }),
             },
             tools: ToolsConfig {
                 dangerously_enable_cli_access: false,
                 brave_search: Some(BraveSearchConfig {
-                    api_key: "".into(),
+                    api_key: Some("".into()),
                     safesearch: true,
                 }),
                 vector_memory: Some(VectorMemoryConfig {

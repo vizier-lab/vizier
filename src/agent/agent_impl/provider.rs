@@ -50,9 +50,14 @@ where
             .default_max_turns(agent_config.turn_depth)
             .build();
 
-        let hooks: Vec<Arc<Box<dyn VizierAgentHook>>> = vec![Arc::new(Box::new(
-            ThinkingHook::new(deps.transport.clone(), session.clone()),
-        ))];
+        let mut hooks: Vec<Arc<Box<dyn VizierAgentHook>>> = vec![];
+
+        if let Some(true) = agent_config.show_thinking {
+            hooks.push(Arc::new(Box::new(ThinkingHook::new(
+                deps.transport.clone(),
+                session.clone(),
+            ))));
+        }
 
         Ok(VizierAgentImpl::<Client> {
             id: session.0.clone(),
@@ -88,7 +93,7 @@ impl VizierAgentTrait<ollama::Client> for VizierAgentImpl<ollama::Client> {
 #[async_trait::async_trait]
 impl VizierAgentTrait<openrouter::Client> for VizierAgentImpl<openrouter::Client> {
     async fn init_client(
-        session: VizierSession,
+        _session: VizierSession,
         deps: VizierDependencies,
     ) -> Result<openrouter::Client> {
         let client: openrouter::Client = openrouter::Client::new(
@@ -103,7 +108,7 @@ impl VizierAgentTrait<openrouter::Client> for VizierAgentImpl<openrouter::Client
 #[async_trait::async_trait]
 impl VizierAgentTrait<deepseek::Client> for VizierAgentImpl<deepseek::Client> {
     async fn init_client(
-        session: VizierSession,
+        _session: VizierSession,
         deps: VizierDependencies,
     ) -> Result<deepseek::Client> {
         let client: deepseek::Client = deepseek::Client::new(

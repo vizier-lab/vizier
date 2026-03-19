@@ -70,11 +70,15 @@ impl VizierTools {
 
             if agent_config.tools.discord.is_programatically_enabled() {
                 if let Some(discord) = &deps.config.channels.discord {
-                    if let Some(discord) =
-                        discord.iter().find(|discord| discord.agent_id == agent_id)
-                    {
+                    if let Some((_, discord)) = discord.iter().find(|(id, _)| **id == agent_id) {
+                        let token = std::env::var(format!(
+                            "DISCORD_TOKEN_{}",
+                            agent_id.to_ascii_uppercase()
+                        ))
+                        .unwrap_or(discord.token.clone().unwrap());
+
                         let (send_message, react_message, get_message) =
-                            new_discord_tools(discord.token.clone());
+                            new_discord_tools(token.clone());
                         python_interpreter = python_interpreter
                             .tool(send_message)
                             .tool(react_message)
@@ -110,9 +114,12 @@ impl VizierTools {
         if agent_config.tools.discord.enabled && !agent_config.tools.discord.programmatic_tool_call
         {
             if let Some(discord) = &deps.config.channels.discord {
-                if let Some(discord) = discord.iter().find(|discord| discord.agent_id == agent_id) {
-                    let (send_message, react_message, get_message) =
-                        new_discord_tools(discord.token.clone());
+                if let Some((_, discord)) = discord.iter().find(|(id, _)| **id == agent_id) {
+                    let token =
+                        std::env::var(format!("DISCORD_TOKEN_{}", agent_id.to_ascii_uppercase()))
+                            .unwrap_or(discord.token.clone().unwrap());
+
+                    let (send_message, react_message, get_message) = new_discord_tools(token);
                     tool_server_builder = tool_server_builder
                         .tool(send_message)
                         .tool(react_message)

@@ -8,7 +8,7 @@ install:
   @echo -e "\n\\e[1;32mDone\\e[0m"
 
 run:
-  @cargo run -- run --config .vizier/config.yaml
+  @cargo run -- run --config .vizier.yaml
 
 run-python:
   @PYO3_PYTHON=$(which python3.9) cargo run --features python -- run --config .vizier/config.yaml

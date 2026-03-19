@@ -54,7 +54,7 @@ impl<T: SearchType> BraveSearch<T> {
     pub fn new(config: &BraveSearchConfig) -> Self {
         Self {
             _phantom: PhantomData,
-            api_key: config.api_key.clone(),
+            api_key: std::env::var("BRAVE_API_KEY").unwrap_or(config.api_key.clone().unwrap()),
             safesearch: config.safesearch,
         }
     }
