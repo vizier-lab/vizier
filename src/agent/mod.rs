@@ -20,6 +20,7 @@ use crate::utils::remove_think_tags;
 
 pub mod agent_impl;
 pub mod exec;
+pub mod hook;
 pub mod memory;
 pub mod tools;
 
@@ -112,12 +113,12 @@ struct AgentSession {
 }
 
 impl AgentSession {
-    async fn lobotomy(&mut self) {
+    fn lobotomy(&mut self) {
         self.last_interact_at = Utc::now();
         self.session_memory.flush();
     }
 
-    async fn is_stale(&self) -> bool {
+    fn is_stale(&self) -> bool {
         let diff = Utc::now() - self.last_interact_at;
 
         diff.to_std().unwrap() > self.session_ttl
@@ -196,7 +197,7 @@ impl SessionProcess {
                         let mut main_session = main_session.lock().await;
                         let send_lobotomy = send_response.clone();
                         if request.content == "/lobotomy" {
-                            let _ = main_session.lobotomy().await;
+                            let _ = main_session.lobotomy();
                             let _ = save_response("YIPEEEE".into()).await;
 
                             tokio::spawn(async move {
@@ -221,7 +222,8 @@ impl SessionProcess {
                         let send_thinking = send_response.clone();
                         let thinking = tokio::spawn(async move {
                             loop {
-                                let _ = send_thinking.clone()(VizierResponse::Thinking).await;
+                                let _ =
+                                    send_thinking.clone()(VizierResponse::ThinkingProgress).await;
 
                                 tokio::time::sleep(Duration::from_secs(5)).await;
                             }
@@ -266,7 +268,7 @@ impl SessionProcess {
                     loop {
                         let _ = tokio::time::sleep(*session_ttl).await;
                         let session = session.lock().await;
-                        if session.is_stale().await {
+                        if session.is_stale() {
                             log::debug!("{} session stale", agent_config.name);
                             main_handler.abort();
                             return;

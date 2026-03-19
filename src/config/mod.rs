@@ -161,6 +161,7 @@ impl Default for VizierConfig {
                     turn_depth: 100,
                     tools: AgentToolsConfig::default(),
                     silent_read_initiative_chance: 0.01,
+                    show_thinking: false
                 },
             )]),
             channels: ChannelsConfig {

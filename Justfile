@@ -11,7 +11,7 @@ run:
   @cargo run -- run --config .vizier/config.yaml
 
 run-python:
-  @cargo run --features python -- run --config .vizier/config.yaml
+  @PYO3_PYTHON=$(which python3.9) cargo run --features python -- run --config .vizier/config.yaml
 
 dev:
   cargo watch -s "just run"

@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, sync::Arc};
 
 use anyhow::Result;
 use rig::{
@@ -12,6 +12,7 @@ use crate::{
             VizierAgentImpl,
             system_prompt::{boot::boot_md, init_workspace},
         },
+        hook::{VizierAgentHook, thinking::ThinkingHook},
         tools::VizierTools,
     },
     dependencies::VizierDependencies,
@@ -20,7 +21,7 @@ use crate::{
 };
 
 #[async_trait::async_trait]
-pub trait NewVizierAgent<Client>
+pub trait VizierAgentTrait<Client>
 where
     Self: Sized,
     Client: rig::client::CompletionClient + Send + Sync,
@@ -49,9 +50,14 @@ where
             .default_max_turns(agent_config.turn_depth)
             .build();
 
+        let hooks: Vec<Arc<Box<dyn VizierAgentHook>>> = vec![Arc::new(Box::new(
+            ThinkingHook::new(deps.transport.clone(), session.clone()),
+        ))];
+
         Ok(VizierAgentImpl::<Client> {
             id: session.0.clone(),
             agent,
+            hooks,
             workspace: deps.config.workspace.clone(),
             primary_user: deps.config.primary_user.clone(),
             silent_read_initiative_chance: agent_config.silent_read_initiative_chance,
@@ -60,7 +66,7 @@ where
 }
 
 #[async_trait::async_trait]
-impl NewVizierAgent<ollama::Client> for VizierAgentImpl<ollama::Client> {
+impl VizierAgentTrait<ollama::Client> for VizierAgentImpl<ollama::Client> {
     async fn init_client(
         session: VizierSession,
         deps: VizierDependencies,
@@ -80,7 +86,7 @@ impl NewVizierAgent<ollama::Client> for VizierAgentImpl<ollama::Client> {
 }
 
 #[async_trait::async_trait]
-impl NewVizierAgent<openrouter::Client> for VizierAgentImpl<openrouter::Client> {
+impl VizierAgentTrait<openrouter::Client> for VizierAgentImpl<openrouter::Client> {
     async fn init_client(
         session: VizierSession,
         deps: VizierDependencies,
@@ -95,7 +101,7 @@ impl NewVizierAgent<openrouter::Client> for VizierAgentImpl<openrouter::Client> 
 }
 
 #[async_trait::async_trait]
-impl NewVizierAgent<deepseek::Client> for VizierAgentImpl<deepseek::Client> {
+impl VizierAgentTrait<deepseek::Client> for VizierAgentImpl<deepseek::Client> {
     async fn init_client(
         session: VizierSession,
         deps: VizierDependencies,

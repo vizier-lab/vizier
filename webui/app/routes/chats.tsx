@@ -73,22 +73,24 @@ const Chat = () => {
 
     let res: WSChatResponse = lastJsonMessage as WSChatResponse
 
-    setIsThinking(res.thinking)
+    setIsThinking(res.choice != undefined || res.thinking)
 
     if (res.thinking !== isThinking) {
       toBottom()
     }
-    if (res.thinking) return
+    if (res.thinking && !res.choice) return
 
     let newChat: Chat = {
       user_id: agentId,
       username: agentDetail?.name,
       user_type: 'agent',
       content: res.content,
+      choice: res.choice,
       timestamp: new Date().toISOString(),
     }
 
     setChats([...chats, newChat])
+
   }, [lastJsonMessage])
 
   const location = useLocation()

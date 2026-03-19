@@ -3,12 +3,20 @@ export interface Chat {
   username?: string
   user_type: 'agent' | 'user'
   content: 'thinking' | string
-  timestamp?: string
+  choice?: Choice
+  timestamp?: string,
+}
+
+
+export interface Choice {
+  name: string
+  args: any
 }
 
 export interface WSChatResponse {
   content: string
-  thinking: boolean
+  thinking: boolean,
+  choice?: Choice
 }
 
 export interface AgentDetail {

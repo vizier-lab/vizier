@@ -23,7 +23,11 @@ pub struct VizierResponseStats {
 
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
 pub enum VizierResponse {
-    Thinking,
+    ThinkingProgress,
+    Thinking {
+        name: String,
+        args: serde_json::Value,
+    },
     Message {
         content: String,
         stats: Option<VizierResponseStats>,

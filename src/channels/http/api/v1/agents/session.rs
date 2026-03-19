@@ -56,7 +56,8 @@ pub async fn get_session_history(
                 timestamp: Some(history.timestamp),
             }),
             SessionHistoryContent::Response(content, _) => ChatHistory::response(ChatResponse {
-                content,
+                content: Some(content),
+                choice: None,
                 thinking: false,
                 timestamp: Some(history.timestamp),
             }),

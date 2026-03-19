@@ -11,8 +11,15 @@ pub struct ChatRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct ChoiceResponse {
+    pub name: String,
+    pub args: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct ChatResponse {
-    pub content: String,
+    pub content: Option<String>,
+    pub choice: Option<ChoiceResponse>,
     pub thinking: bool,
     pub timestamp: Option<DateTime<Utc>>,
 }
@@ -20,18 +27,23 @@ pub struct ChatResponse {
 impl From<VizierResponse> for ChatResponse {
     fn from(value: VizierResponse) -> Self {
         match value {
-            VizierResponse::Thinking => Self {
-                content: "".into(),
+            VizierResponse::ThinkingProgress => Self {
+                content: None,
                 thinking: true,
                 timestamp: Some(Utc::now()),
+                choice: None,
             },
-            VizierResponse::Message {
-                content: content,
-                stats: _,
-            } => Self {
-                content: content,
+            VizierResponse::Message { content, stats: _ } => Self {
+                content: Some(content),
                 thinking: false,
                 timestamp: Some(Utc::now()),
+                choice: None,
+            },
+            VizierResponse::Thinking { name, args } => Self {
+                content: None,
+                thinking: false,
+                timestamp: Some(Utc::now()),
+                choice: Some(ChoiceResponse { name, args }),
             },
         }
     }

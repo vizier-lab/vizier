@@ -187,13 +187,13 @@ where
         let tools_desc = if self.programmatic_tools.is_empty() {
             String::new()
         } else {
-            let mut tool_descriptions = Vec::new();
+            let mut tool_docs = Vec::new();
             for tool in &self.programmatic_tools {
-                tool_descriptions.push(tool.name());
+                tool_docs.push(format!("\n--- {} ---\n{}", tool.name(), tool.describe()));
             }
             format!(
-                "\n\nAvailable tools (callable as functions, with kwargs, docs available in 'python_tools_docs'): {}",
-                tool_descriptions.join(",")
+                "\n\nAvailable programmatic tools (callable as functions with kwargs):\n{}",
+                tool_docs.join("\n")
             )
         };
 

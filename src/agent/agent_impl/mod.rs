@@ -1,19 +1,21 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use chrono::Utc;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rig::{
-    agent::Agent,
+    OneOrMany,
+    agent::{Agent, HookAction, PromptHook},
     client::CompletionClient,
-    completion::Chat,
-    message::Message,
+    completion::{Chat, Completion},
+    message::{AssistantContent, Message, ToolResultContent, UserContent},
     providers::{deepseek, ollama, openrouter},
 };
 
 use crate::{
     agent::{
-        agent_impl::{provider::NewVizierAgent, system_prompt::user::primary_user_md},
+        agent_impl::{provider::VizierAgentTrait, system_prompt::user::primary_user_md},
+        hook::{VizierAgentHook, thinking::ThinkingHook},
         memory::SessionMemories,
     },
     config::{provider::ProviderVariant, user::UserConfig},
@@ -89,6 +91,8 @@ pub struct VizierAgentImpl<Client: CompletionClient> {
     id: String,
     agent: Agent<Client::CompletionModel>,
 
+    hooks: Vec<Arc<Box<dyn VizierAgentHook>>>,
+
     workspace: String,
     primary_user: UserConfig,
 
@@ -137,10 +141,95 @@ impl<Client: CompletionClient> VizierAgentImpl<Client> {
         let mut history = self.prepare_system_prompts().await;
         history.extend(memory.recall_as_messages());
 
-        let response = self
-            .agent
-            .chat(format!("{}", req.to_prompt()?,), history)
-            .await?;
+        let mut req = req;
+        for hook in &self.hooks {
+            req = hook.on_request(req).await?;
+        }
+
+        let output: String;
+        let mut message = Message::user(format!("{}", req.to_prompt()?,));
+        loop {
+            let response = self
+                .agent
+                .completion(message.clone(), history.clone())
+                .await?
+                .send()
+                .await?;
+
+            history.push(message);
+
+            history.push(Message::Assistant {
+                id: response.message_id.clone(),
+                content: response.choice.clone(),
+            });
+
+            let (tool_calls, others): (Vec<_>, Vec<_>) = response
+                .choice
+                .iter()
+                .partition(|choice| matches!(choice, AssistantContent::ToolCall(_)));
+
+            if tool_calls.is_empty() {
+                output = others
+                    .iter()
+                    .filter_map(|item| {
+                        if let AssistantContent::Text(text) = item {
+                            Some(text.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                break;
+            }
+
+            let mut tool_responses = vec![];
+            for call in tool_calls.iter().filter_map(|item| {
+                if let AssistantContent::ToolCall(call) = item {
+                    Some(call)
+                } else {
+                    None
+                }
+            }) {
+                let (mut function_name, mut args) = (
+                    call.function.name.to_string(),
+                    serde_json::to_string(&call.function.arguments).unwrap(),
+                );
+                for hook in &self.hooks {
+                    (function_name, args) = hook.on_tool_call(function_name, args).await?;
+                }
+
+                let mut tool_res = match self
+                    .agent
+                    .tool_server_handle
+                    .call_tool(&function_name, &args)
+                    .await
+                {
+                    Err(err) => err.to_string(),
+                    Ok(s) => s,
+                };
+                for hook in &self.hooks {
+                    tool_res = hook.on_tool_response(tool_res).await?;
+                }
+
+                let content = ToolResultContent::from_tool_output(tool_res);
+                tool_responses.push(if let Some(call_id) = &call.call_id {
+                    UserContent::tool_result_with_call_id(call.id.clone(), call_id.clone(), content)
+                } else {
+                    UserContent::tool_result(call.id.clone(), content)
+                });
+            }
+
+            message = Message::User {
+                content: OneOrMany::many(tool_responses).unwrap(),
+            }
+        }
+
+        let mut response = output;
+        for hook in &self.hooks {
+            response = hook.on_response(response).await?;
+        }
 
         Ok(response)
     }
