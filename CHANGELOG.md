@@ -2,11 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0-rc.5] - 2026-03-20
+
+### 🚀 Features
+
+- Make Python an optional feature
+- [**breaking**] Make Python an opt-in feature (not default)
+- Transparent thinking feature
+- Add simpler tui
+
+### 🚜 Refactor
+
+- Refine config and init process
+- Refine config and init behaviour
+
+### 📚 Documentation
+
+- Book scaffold
+- Add chapter 1 of documentation
+- Add book pages workflow
 ## [0.2.0-rc.4] - 2026-03-17
 
 ### 🐛 Bug Fixes
 
 - Python bundling
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.2.0-rc.4
 ## [0.2.0-rc.3] - 2026-03-17
 
 ### 🐛 Bug Fixes
