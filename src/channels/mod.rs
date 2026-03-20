@@ -1,9 +1,11 @@
 use anyhow::Result;
+use flume::r#async;
 
 use crate::{
     channels::{
         discord::{DiscordChannelReader, DiscordChannelWriter},
         http::HTTPChannel,
+        socket::SocketChannel,
     },
     config::ChannelsConfig,
     dependencies::VizierDependencies,
@@ -12,6 +14,7 @@ use crate::{
 
 pub mod discord;
 pub mod http;
+pub mod socket;
 
 pub trait VizierChannel {
     async fn run(&mut self) -> Result<()>;
@@ -71,6 +74,7 @@ impl VizierChannels {
             });
         }
 
+        let _ = SocketChannel(self.deps.transport.clone()).run().await;
         Ok(())
     }
 }

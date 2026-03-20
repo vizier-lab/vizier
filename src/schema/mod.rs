@@ -14,6 +14,7 @@ pub enum SessionId {
     DiscordChanel(u64),
     HTTP(String),
     Task(String),
+    Socket(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]

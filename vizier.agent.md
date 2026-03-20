@@ -2,18 +2,18 @@
 # this is an example agent that also act as interactive documentation
 name: Vizier
 description: Digital steward
-provider: ollama
-model: qwen3.5:4b
+provider: deepseek
+model: deepseek-chat
 session_ttl: 30m
 session_memory:
   max_capacity: 10
 turn_depth: 10
 tools:
-  python_interpreter: true
-  cli_access: false
+  python_interpreter: false
+  cli_access: true
   brave_search:
-    enabled: true
-    programmatic_tool_call: true
+    enabled: false
+    programmatic_tool_call: false
   vector_memory:
     enabled: true
     programmatic_tool_call: false

@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 mod init;
 mod onboard;
 mod run;
+mod tui;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about=None)]
@@ -23,7 +24,7 @@ enum Commands {
     /// generate new config, non-interactively
     Configure,
     /// Open tui client
-    Tui,
+    Tui(tui::TuiArgs),
     /// init a vizier directory
     Init,
 }
@@ -36,6 +37,7 @@ pub async fn start() -> Result<()> {
         Commands::Onboard(args) => onboard::onboard(args.clone()).await?,
         Commands::Run(args) => run::run(args.clone()).await?,
         Commands::Init => init::init().await?,
+        Commands::Tui(args) => tui::tui(args.clone()).await?,
         _ => {
             unimplemented!("TODO: unimplemented");
         }

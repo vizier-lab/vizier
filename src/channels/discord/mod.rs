@@ -96,7 +96,7 @@ impl VizierChannel for DiscordChannelWriter {
                             let _ = crate::utils::discord::send_message(
                                 http.clone(),
                                 &channel_id,
-                                format_thinking(&name, &args),
+                                crate::utils::format_thinking(&name, &args),
                             )
                             .await;
                         }
@@ -108,24 +108,6 @@ impl VizierChannel for DiscordChannelWriter {
 
         Ok(())
     }
-}
-
-fn format_thinking(name: &String, args: &serde_json::Value) -> String {
-    let title = match &*name.clone() {
-        "think" => "is thinking:".to_string(),
-        _ => format!("use {}", &name),
-    };
-
-    let content = match &*name.clone() {
-        "think" => format!("\n > {}", args["thought"].as_str().unwrap()),
-        "python_interpreter" => format!("```python\n{}\n```", args["script"].as_str().unwrap()),
-        _ => format!(
-            "```js\n{}\n```",
-            serde_json::to_string_pretty(&args).unwrap()
-        ),
-    };
-
-    format!("{} {}", title, content)
 }
 
 struct Handler(String, VizierTransport);

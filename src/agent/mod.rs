@@ -269,7 +269,7 @@ impl SessionProcess {
                         let _ = tokio::time::sleep(*session_ttl).await;
                         let session = session.lock().await;
                         if session.is_stale() {
-                            log::debug!("{} session stale", agent_config.name);
+                            log::info!("{:?} session stale", session.clone());
                             main_handler.abort();
                             return;
                         }
