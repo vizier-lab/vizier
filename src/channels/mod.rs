@@ -1,5 +1,4 @@
 use anyhow::Result;
-use flume::r#async;
 
 use crate::{
     channels::{

@@ -6,17 +6,16 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, MutexGuard};
 use tokio::task::JoinHandle;
-use tokio::time::Instant;
 
 use crate::agent::agent_impl::VizierAgent;
+use crate::agent::hook::VizierSessionHooks;
+use crate::agent::hook::history::HistoryHook;
+use crate::agent::hook::thinking::ThinkingHook;
 use crate::agent::memory::SessionMemories;
 use crate::config::agent::AgentConfig;
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
-use crate::schema::{
-    SessionHistoryContent, VizierRequest, VizierResponse, VizierResponseStats, VizierSession,
-};
-use crate::utils::remove_think_tags;
+use crate::schema::{SessionHistoryContent, VizierRequest, VizierResponse, VizierSession};
 
 pub mod agent_impl;
 pub mod exec;
@@ -27,6 +26,7 @@ pub mod tools;
 #[derive(Clone)]
 pub struct VizierAgents {
     deps: VizierDependencies,
+    agents: HashMap<String, (AgentConfig, Arc<VizierAgent>)>,
 }
 
 impl VizierAgent {
@@ -34,8 +34,9 @@ impl VizierAgent {
         &self,
         mut session: MutexGuard<'_, AgentSession>,
         request: &VizierRequest,
+        hooks: Arc<VizierSessionHooks>,
     ) -> Result<()> {
-        self.silent_read(request.clone(), &session.session_memory)
+        self.silent_read(request.clone(), &session.session_memory, hooks)
             .await?;
 
         session.session_memory.push_user_message(request.clone());
@@ -50,17 +51,18 @@ impl VizierAgent {
         &self,
         request: &VizierRequest,
         mut session: MutexGuard<'_, AgentSession>,
-    ) -> Result<String> {
-        let response = self.chat(request.clone(), &session.session_memory).await?;
-
-        let response_msg = remove_think_tags(&*response);
+        hooks: Arc<VizierSessionHooks>,
+    ) -> Result<VizierResponse> {
+        let response = self
+            .chat(request.clone(), &session.session_memory, hooks)
+            .await?;
 
         session.session_memory.push_user_message(request.clone());
-        session.session_memory.push_agent(response_msg);
+        session.session_memory.push_agent(response.clone());
         session.session_memory.try_summarize(&self).await?;
 
         session.last_interact_at = Utc::now();
-        Ok(response.to_string())
+        Ok(response)
     }
 }
 
@@ -68,7 +70,18 @@ type SessionTransport = (Sender<VizierRequest>, Receiver<VizierRequest>);
 
 impl VizierAgents {
     pub async fn new(deps: VizierDependencies) -> Result<Self> {
-        Ok(Self { deps })
+        let mut agents = HashMap::new();
+        for (agent_id, agent_config) in deps.config.agents.iter() {
+            agents.insert(
+                agent_id.clone(),
+                (
+                    agent_config.clone(),
+                    Arc::new(VizierAgent::new(agent_id.clone(), &deps).await?),
+                ),
+            );
+        }
+
+        Ok(Self { deps, agents })
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -85,16 +98,19 @@ impl VizierAgents {
                 }
             }
 
-            let agent_config = self
-                .deps
-                .config
+            let (agent_config, agent) = self
                 .agents
                 .get(&session.0)
                 .ok_or(VizierError("agent not found".into()))?;
 
-            let process =
-                SessionProcess::new(agent_config.clone(), session.clone(), self.deps.clone())
-                    .await?;
+            let process = SessionProcess::new(
+                session.0.clone(),
+                agent.clone(),
+                agent_config.clone(),
+                session.clone(),
+                self.deps.clone(),
+            )
+            .await?;
 
             let _ = process.session_transport.0.send_async(request).await;
 
@@ -105,7 +121,7 @@ impl VizierAgents {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct AgentSession {
     session_memory: SessionMemories,
     session_ttl: Duration,
@@ -132,74 +148,56 @@ struct SessionProcess {
 
 impl SessionProcess {
     async fn new(
+        agent_id: String,
+        agent: Arc<VizierAgent>,
         agent_config: AgentConfig,
         session: VizierSession,
         deps: VizierDependencies,
     ) -> Result<Self> {
-        let agent = Arc::new(VizierAgent::new(&deps, session.clone()).await?);
-
+        let transport = deps.transport.clone();
         let session_transport = Arc::new(flume::unbounded());
 
         let response_session = session.clone();
+        let response_transport = transport.clone();
         let send_response = async move |response| {
-            let res = deps
-                .transport
+            let res = response_transport
                 .send_response(response_session, response)
                 .await;
 
             res
         };
 
-        let request_session = session.clone();
-        let request_database = deps.database.clone();
-        let save_request = async move |request: VizierRequest| {
-            let res = request_database
-                .save_session_history(
-                    request_session.clone(),
-                    SessionHistoryContent::Request(request.clone()),
-                )
-                .await;
+        let mut hooks = VizierSessionHooks::new()
+            .hook(HistoryHook::new(deps.database.clone(), session.clone()));
 
-            res
-        };
+        if let Some(true) = agent_config.show_thinking {
+            hooks = hooks.hook(ThinkingHook::new(transport.clone(), session.clone()));
+        }
+        let hooks = Arc::new(hooks);
 
-        let response_session = session.clone();
-        let response_database = deps.database.clone();
-        let save_response = async move |response: String| {
-            let res = response_database
-                .save_session_history(
-                    response_session.clone(),
-                    SessionHistoryContent::Response(response, None),
-                )
-                .await;
-
-            res
-        };
-
+        let memories = SessionMemories::new(
+            agent_id.clone(),
+            agent_config.session_memory.clone(),
+            hooks.clone(),
+        );
         Ok(Self {
             session_transport: session_transport.clone(),
             handle: tokio::spawn(async move {
                 let agent_config = agent_config.clone();
-                let session = Arc::new(Mutex::new(AgentSession {
-                    session_memory: SessionMemories::new(agent_config.session_memory.clone()),
+                let agent_session = Arc::new(Mutex::new(AgentSession {
+                    session_memory: memories,
                     session_ttl: *agent_config.session_ttl,
                     last_interact_at: Utc::now(),
                 }));
 
-                let main_session = session.clone();
+                let main_session = agent_session.clone();
                 let main_handler = tokio::spawn(async move {
                     let send_response = send_response.clone();
                     while let Ok(request) = session_transport.1.recv_async().await {
-                        let _ = save_request(request.clone()).await;
-
-                        let start = Instant::now();
-
                         let mut main_session = main_session.lock().await;
                         let send_lobotomy = send_response.clone();
                         if request.content == "/lobotomy" {
                             let _ = main_session.lobotomy();
-                            let _ = save_response("YIPEEEE".into()).await;
-
                             tokio::spawn(async move {
                                 if let Err(err) = send_lobotomy(VizierResponse::Message {
                                     content: "YIPEEEE".into(),
@@ -215,7 +213,9 @@ impl SessionProcess {
                         }
 
                         if request.is_silent_read {
-                            let _ = agent.handle_silent_read(main_session, &request).await;
+                            let _ = agent
+                                .handle_silent_read(main_session, &request, hooks.clone())
+                                .await;
                             continue;
                         }
 
@@ -229,11 +229,12 @@ impl SessionProcess {
                             }
                         });
 
-                        let content = agent.handle_chat(&request, main_session).await;
+                        let content = agent
+                            .handle_chat(&request, main_session, hooks.clone())
+                            .await;
                         let send_response = send_response.clone();
                         match content {
                             Err(err) => {
-                                let _ = save_response(err.to_string()).await;
                                 if let Err(err) = send_response(VizierResponse::Message {
                                     content: err.to_string(),
                                     stats: None,
@@ -243,16 +244,8 @@ impl SessionProcess {
                                     log::error!("{}", err);
                                 }
                             }
-                            Ok(content) => {
-                                let _ = save_response(content.clone()).await;
-                                if let Err(err) = send_response(VizierResponse::Message {
-                                    content,
-                                    stats: Some(VizierResponseStats {
-                                        duration: start.elapsed(),
-                                    }),
-                                })
-                                .await
-                                {
+                            Ok(response) => {
+                                if let Err(err) = send_response(response).await {
                                     log::error!("{}", err);
                                 }
                             }
@@ -262,13 +255,13 @@ impl SessionProcess {
                     }
                 });
 
-                let session = session.clone();
+                let agent_session = agent_session.clone();
                 let session_ttl = agent_config.session_ttl;
                 let stale_handler = tokio::spawn(async move {
                     loop {
                         let _ = tokio::time::sleep(*session_ttl).await;
-                        let session = session.lock().await;
-                        if session.is_stale() {
+                        let agent_session = agent_session.lock().await;
+                        if agent_session.is_stale() {
                             log::info!("{:?} session stale", session.clone());
                             main_handler.abort();
                             return;

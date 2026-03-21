@@ -33,6 +33,7 @@ pub enum VizierResponse {
         content: String,
         stats: Option<VizierResponseStats>,
     },
+    Empty,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, SurrealValue)]
@@ -108,4 +109,10 @@ pub struct SessionHistory {
 pub enum SessionHistoryContent {
     Request(VizierRequest),
     Response(String, Option<VizierResponseStats>),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocumentIndex {
+    pub path: String,
+    pub embedding: Vec<f64>,
 }

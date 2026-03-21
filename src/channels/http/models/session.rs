@@ -45,6 +45,7 @@ impl From<VizierResponse> for ChatResponse {
                 timestamp: Some(Utc::now()),
                 choice: Some(ChoiceResponse { name, args }),
             },
+            _ => unimplemented!(),
         }
     }
 }

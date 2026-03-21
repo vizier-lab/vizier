@@ -118,7 +118,7 @@ pub async fn tui(args: TuiArgs) -> Result<()> {
                             termimad::print_text(&format!("\n{} *{thinking}*\n", agent_name));
                             pb.reset();
                         }
-                        VizierResponse::ThinkingProgress => {}
+                        _ => {}
                     }
                 }
 

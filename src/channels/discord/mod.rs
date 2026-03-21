@@ -100,6 +100,8 @@ impl VizierChannel for DiscordChannelWriter {
                             )
                             .await;
                         }
+
+                        _ => unimplemented!(),
                     }
                 }
             }

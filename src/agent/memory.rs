@@ -1,57 +1,58 @@
+use std::sync::Arc;
+
 use rig::message::Message;
 
-use crate::{agent::VizierAgent, config::agent::MemoryConfig, schema::VizierRequest};
+use crate::{
+    agent::{VizierAgent, hook::VizierSessionHooks},
+    config::agent::MemoryConfig,
+    schema::{VizierRequest, VizierResponse},
+};
 
 #[derive(Debug, Clone)]
 pub enum SessionMemory {
-    Response(String),
+    Response(VizierResponse),
     Request(VizierRequest),
 }
 
 impl SessionMemory {
     fn simple(&self) -> String {
         match self {
-            Self::Request(req) => format!(
-                r"
----
-{}: {}
----
-                ",
-                req.user, req.content
-            ),
-            Self::Response(content) => format!("answer: {}", content),
-        }
-    }
-
-    #[allow(unused)]
-    fn to_string(&self) -> String {
-        match self {
-            Self::Request(req) => req.to_prompt().unwrap(),
-            Self::Response(content) => content.into(),
+            Self::Request(req) => format!("{}: {}", req.user, req.content),
+            Self::Response(VizierResponse::Message { content, stats: _ }) => {
+                format!("answer: {}", content)
+            }
+            _ => unimplemented!(),
         }
     }
 
     fn to_message(&self) -> Message {
         match self {
             Self::Request(req) => Message::user(req.to_prompt().unwrap()),
-            Self::Response(content) => Message::assistant(content),
+            Self::Response(VizierResponse::Message { content, stats: _ }) => {
+                Message::assistant(content)
+            }
+            _ => unimplemented!(),
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SessionMemories {
+    agent_id: String,
     messages: Vec<SessionMemory>,
     session_memory_recall_depth: usize,
     summary: Option<String>,
+    hooks: Arc<VizierSessionHooks>,
 }
 
 impl SessionMemories {
-    pub fn new(config: MemoryConfig) -> Self {
+    pub fn new(agent_id: String, config: MemoryConfig, hooks: Arc<VizierSessionHooks>) -> Self {
         Self {
+            agent_id,
             messages: vec![],
             session_memory_recall_depth: config.max_capacity,
             summary: None,
+            hooks,
         }
     }
 
@@ -59,7 +60,7 @@ impl SessionMemories {
         self.messages.push(SessionMemory::Request(req));
     }
 
-    pub fn push_agent(&mut self, response: String) {
+    pub fn push_agent(&mut self, response: VizierResponse) {
         self.messages.push(SessionMemory::Response(response));
     }
 
@@ -73,7 +74,16 @@ impl SessionMemories {
     }
 
     pub fn recall_as_messages(&self) -> Vec<Message> {
-        self.recall().iter().map(|item| item.to_message()).collect()
+        let mut res = vec![];
+
+        if let Some(summary) = &self.summary {
+            res.push(Message::System {
+                content: format!("# Context\n{}", summary),
+            });
+        }
+        res.extend(self.recall().iter().map(|item| item.to_message()));
+
+        res
     }
 
     pub async fn try_summarize(&mut self, agent: &VizierAgent) -> anyhow::Result<()> {
@@ -90,17 +100,20 @@ impl SessionMemories {
             self.format_messages_for_summary()
         );
 
-        let response = agent
-            .prompt(VizierRequest {
-                user: "system".into(),
-                content: summary_prompt,
-                ..Default::default()
-            })
-            .await?;
-
-        self.messages.clear();
-
-        self.summary = Some(response);
+        if let VizierResponse::Message { content, stats: _ } = agent
+            .prompt(
+                VizierRequest {
+                    user: "system".into(),
+                    content: summary_prompt,
+                    ..Default::default()
+                },
+                self.hooks.clone(),
+            )
+            .await?
+        {
+            self.messages.clear();
+            self.summary = Some(content);
+        }
 
         Ok(())
     }

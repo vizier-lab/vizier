@@ -52,7 +52,6 @@ duration-string = { version = "0.5.3", features = ["serde"] }
 inquire = { version = "0.9.3", features = ["chrono"] }
 tokio-tungstenite = "0.26.0"
 tungstenite = "0.28.0"
-cursive = "0.21.1"
 nanoid = "0.4.0"
 tower-http = { version = "0.6.8", features = ["cors", "fs"] }
 rust-embed = "8.11.0"

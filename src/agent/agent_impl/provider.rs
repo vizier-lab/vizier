@@ -1,4 +1,4 @@
-use std::{env, sync::Arc};
+use std::env;
 
 use anyhow::Result;
 use rig::{
@@ -12,11 +12,9 @@ use crate::{
             VizierAgentImpl,
             system_prompt::{boot::boot_md, init_workspace},
         },
-        hook::{VizierAgentHook, thinking::ThinkingHook},
         tools::VizierTools,
     },
     dependencies::VizierDependencies,
-    schema::VizierSession,
     utils::agent_workspace,
 };
 
@@ -26,21 +24,18 @@ where
     Self: Sized,
     Client: rig::client::CompletionClient + Send + Sync,
 {
-    async fn init_client(session: VizierSession, deps: VizierDependencies) -> Result<Client>;
+    async fn init_client(agent_id: String, deps: VizierDependencies) -> Result<Client>;
 
-    async fn new(
-        session: VizierSession,
-        deps: VizierDependencies,
-    ) -> Result<VizierAgentImpl<Client>> {
-        let client = Self::init_client(session.clone(), deps.clone()).await?;
+    async fn new(agent_id: String, deps: VizierDependencies) -> Result<VizierAgentImpl<Client>> {
+        let client = Self::init_client(agent_id.clone(), deps.clone()).await?;
 
-        let agent_config = deps.config.agents.get(&session.0).unwrap();
+        let agent_config = deps.config.agents.get(&agent_id).unwrap();
 
         let boot = boot_md();
-        let path = agent_workspace(&deps.config.workspace.clone(), &session.0);
+        let path = agent_workspace(&deps.config.workspace.clone(), &agent_id);
         init_workspace(path);
 
-        let tool = VizierTools::new(session.0.clone(), deps.clone()).await?;
+        let tool = VizierTools::new(agent_id.clone(), deps.clone()).await?;
 
         let agent = client
             .agent(agent_config.model.clone())
@@ -50,19 +45,9 @@ where
             .default_max_turns(agent_config.turn_depth)
             .build();
 
-        let mut hooks: Vec<Arc<Box<dyn VizierAgentHook>>> = vec![];
-
-        if let Some(true) = agent_config.show_thinking {
-            hooks.push(Arc::new(Box::new(ThinkingHook::new(
-                deps.transport.clone(),
-                session.clone(),
-            ))));
-        }
-
         Ok(VizierAgentImpl::<Client> {
-            id: session.0.clone(),
+            id: agent_id.clone(),
             agent,
-            hooks,
             system_prompt: agent_config
                 .system_prompt
                 .clone()
@@ -76,10 +61,7 @@ where
 
 #[async_trait::async_trait]
 impl VizierAgentTrait<ollama::Client> for VizierAgentImpl<ollama::Client> {
-    async fn init_client(
-        _session: VizierSession,
-        deps: VizierDependencies,
-    ) -> Result<ollama::Client> {
+    async fn init_client(_agent_id: String, deps: VizierDependencies) -> Result<ollama::Client> {
         let base_url = deps.config.providers.ollama.clone().unwrap().base_url;
 
         let client: ollama::Client = ollama::Client::builder()
@@ -94,7 +76,7 @@ impl VizierAgentTrait<ollama::Client> for VizierAgentImpl<ollama::Client> {
 #[async_trait::async_trait]
 impl VizierAgentTrait<openrouter::Client> for VizierAgentImpl<openrouter::Client> {
     async fn init_client(
-        _session: VizierSession,
+        _agent_id: String,
         deps: VizierDependencies,
     ) -> Result<openrouter::Client> {
         let client: openrouter::Client = openrouter::Client::new(
@@ -108,10 +90,7 @@ impl VizierAgentTrait<openrouter::Client> for VizierAgentImpl<openrouter::Client
 
 #[async_trait::async_trait]
 impl VizierAgentTrait<deepseek::Client> for VizierAgentImpl<deepseek::Client> {
-    async fn init_client(
-        _session: VizierSession,
-        deps: VizierDependencies,
-    ) -> Result<deepseek::Client> {
+    async fn init_client(_agent_id: String, deps: VizierDependencies) -> Result<deepseek::Client> {
         let client: deepseek::Client = deepseek::Client::new(
             env::var("DEEPSEEK_API_KEY")
                 .unwrap_or_else(|_| deps.config.providers.deepseek.clone().unwrap().api_key),

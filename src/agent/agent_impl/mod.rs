@@ -7,20 +7,21 @@ use rig::{
     OneOrMany,
     agent::Agent,
     client::CompletionClient,
-    completion::{Chat, Completion},
+    completion::Completion,
     message::{AssistantContent, Message, ToolResultContent, UserContent},
     providers::{deepseek, ollama, openrouter},
 };
+use tokio::time::Instant;
 
 use crate::{
     agent::{
         agent_impl::{provider::VizierAgentTrait, system_prompt::user::primary_user_md},
-        hook::VizierAgentHook,
+        hook::{VizierSessionHook, VizierSessionHooks},
         memory::SessionMemories,
     },
     config::{provider::ProviderVariant, user::UserConfig},
     dependencies::VizierDependencies,
-    schema::{VizierRequest, VizierSession},
+    schema::{VizierRequest, VizierResponse, VizierResponseStats},
     utils::agent_workspace,
 };
 
@@ -35,50 +36,64 @@ pub enum VizierAgent {
 }
 
 impl VizierAgent {
-    pub async fn new(deps: &VizierDependencies, session: VizierSession) -> Result<VizierAgent> {
-        let agent_config = deps.config.agents.get(&session.0.clone()).unwrap();
+    pub async fn new(agent_id: String, deps: &VizierDependencies) -> Result<VizierAgent> {
+        let agent_config = deps.config.agents.get(&agent_id.clone()).unwrap();
         let agent = match &agent_config.provider {
             ProviderVariant::openrouter => VizierAgent::OpenRouter(
-                VizierAgentImpl::<openrouter::Client>::new(session.clone(), deps.clone()).await?,
+                VizierAgentImpl::<openrouter::Client>::new(agent_id.clone(), deps.clone()).await?,
             ),
 
             ProviderVariant::deepseek => VizierAgent::Deepseek(
-                VizierAgentImpl::<deepseek::Client>::new(session.clone(), deps.clone()).await?,
+                VizierAgentImpl::<deepseek::Client>::new(agent_id.clone(), deps.clone()).await?,
             ),
 
             ProviderVariant::ollama => VizierAgent::Ollama(
-                VizierAgentImpl::<ollama::Client>::new(session.clone(), deps.clone()).await?,
+                VizierAgentImpl::<ollama::Client>::new(agent_id.clone(), deps.clone()).await?,
             ),
         };
 
         Ok(agent)
     }
 
-    pub async fn prompt(&self, req: VizierRequest) -> Result<String> {
+    pub async fn prompt(
+        &self,
+        req: VizierRequest,
+        hooks: Arc<VizierSessionHooks>,
+    ) -> Result<VizierResponse> {
         let response = match self {
-            Self::Ollama(agent) => agent.prompt(req).await,
-            Self::OpenRouter(agent) => agent.prompt(req).await,
-            Self::Deepseek(agent) => agent.prompt(req).await,
+            Self::Ollama(agent) => agent.prompt(req, hooks).await,
+            Self::OpenRouter(agent) => agent.prompt(req, hooks).await,
+            Self::Deepseek(agent) => agent.prompt(req, hooks).await,
         }?;
 
         Ok(response)
     }
 
-    pub async fn chat(&self, req: VizierRequest, memory: &SessionMemories) -> Result<String> {
+    pub async fn chat(
+        &self,
+        req: VizierRequest,
+        memory: &SessionMemories,
+        hooks: Arc<VizierSessionHooks>,
+    ) -> Result<VizierResponse> {
         let response = match self {
-            Self::Ollama(agent) => agent.chat(req, memory).await,
-            Self::OpenRouter(agent) => agent.chat(req, memory).await,
-            Self::Deepseek(agent) => agent.chat(req, memory).await,
+            Self::Ollama(agent) => agent.chat(req, Some(memory), hooks).await,
+            Self::OpenRouter(agent) => agent.chat(req, Some(memory), hooks).await,
+            Self::Deepseek(agent) => agent.chat(req, Some(memory), hooks).await,
         }?;
 
         Ok(response)
     }
 
-    pub async fn silent_read(&self, req: VizierRequest, memory: &SessionMemories) -> Result<()> {
+    pub async fn silent_read(
+        &self,
+        req: VizierRequest,
+        memory: &SessionMemories,
+        hooks: Arc<VizierSessionHooks>,
+    ) -> Result<()> {
         let _ = match self {
-            Self::Ollama(agent) => agent.chat(req, memory).await,
-            Self::OpenRouter(agent) => agent.chat(req, memory).await,
-            Self::Deepseek(agent) => agent.chat(req, memory).await,
+            Self::Ollama(agent) => agent.chat(req, Some(memory), hooks).await,
+            Self::OpenRouter(agent) => agent.chat(req, Some(memory), hooks).await,
+            Self::Deepseek(agent) => agent.chat(req, Some(memory), hooks).await,
         }?;
 
         Ok(())
@@ -91,7 +106,6 @@ pub struct VizierAgentImpl<Client: CompletionClient> {
     id: String,
     agent: Agent<Client::CompletionModel>,
     system_prompt: String,
-    hooks: Vec<Arc<Box<dyn VizierAgentHook>>>,
     workspace: String,
     primary_user: UserConfig,
     silent_read_initiative_chance: f32,
@@ -114,39 +128,41 @@ impl<Client: CompletionClient> VizierAgentImpl<Client> {
         res
     }
 
-    pub async fn prompt(&self, req: VizierRequest) -> Result<String> {
-        let history = self.prepare_system_prompts().await;
-
-        let response = self
-            .agent
-            .chat(format!("{}", req.to_prompt()?,), history)
-            .await?;
+    pub async fn prompt(
+        &self,
+        req: VizierRequest,
+        hooks: Arc<VizierSessionHooks>,
+    ) -> Result<VizierResponse> {
+        let response = self.chat(req, None, hooks).await?;
 
         Ok(response)
     }
 
-    pub async fn chat(&self, req: VizierRequest, memory: &SessionMemories) -> Result<String> {
+    pub async fn chat(
+        &self,
+        req: VizierRequest,
+        memory: Option<&SessionMemories>,
+        hooks: Arc<VizierSessionHooks>,
+    ) -> Result<VizierResponse> {
         let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
         let initiative_factor = rng.random_range(0_f32..=1_f32);
 
         if req.is_silent_read && initiative_factor > self.silent_read_initiative_chance {
-            return Ok("".into());
-        }
-
-        if req.is_task {
-            return self.prompt(req).await;
+            return Ok(VizierResponse::Empty);
         }
 
         let mut history = self.prepare_system_prompts().await;
-        history.extend(memory.recall_as_messages());
+        if let Some(memory) = memory {
+            history.extend(memory.recall_as_messages());
+        }
 
         let mut req = req;
-        for hook in &self.hooks {
-            req = hook.on_request(req).await?;
-        }
+        req = hooks.on_request(req).await?;
 
         let output: String;
         let mut message = Message::user(format!("{}", req.to_prompt()?,));
+
+        let start = Instant::now();
         loop {
             let response = self
                 .agent
@@ -195,9 +211,7 @@ impl<Client: CompletionClient> VizierAgentImpl<Client> {
                     call.function.name.to_string(),
                     serde_json::to_string(&call.function.arguments).unwrap(),
                 );
-                for hook in &self.hooks {
-                    (function_name, args) = hook.on_tool_call(function_name, args).await?;
-                }
+                (function_name, args) = hooks.on_tool_call(function_name, args).await?;
 
                 let mut tool_res = match self
                     .agent
@@ -208,9 +222,7 @@ impl<Client: CompletionClient> VizierAgentImpl<Client> {
                     Err(err) => err.to_string(),
                     Ok(s) => s,
                 };
-                for hook in &self.hooks {
-                    tool_res = hook.on_tool_response(tool_res).await?;
-                }
+                tool_res = hooks.on_tool_response(tool_res).await?;
 
                 let content = ToolResultContent::from_tool_output(tool_res);
                 tool_responses.push(if let Some(call_id) = &call.call_id {
@@ -225,10 +237,13 @@ impl<Client: CompletionClient> VizierAgentImpl<Client> {
             }
         }
 
-        let mut response = output;
-        for hook in &self.hooks {
-            response = hook.on_response(response).await?;
-        }
+        let mut response = VizierResponse::Message {
+            content: output.clone(),
+            stats: Some(VizierResponseStats {
+                duration: start.elapsed(),
+            }),
+        };
+        response = hooks.on_response(response).await?;
 
         Ok(response)
     }

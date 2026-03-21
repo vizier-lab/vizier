@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::{
-    agent::hook::VizierAgentHook,
+    agent::hook::VizierSessionHook,
     schema::{VizierResponse, VizierSession},
     transport::VizierTransport,
 };
@@ -19,7 +19,7 @@ impl ThinkingHook {
 }
 
 #[async_trait::async_trait]
-impl VizierAgentHook for ThinkingHook {
+impl VizierSessionHook for ThinkingHook {
     async fn on_tool_call(&self, function_name: String, args: String) -> Result<(String, String)> {
         self.transport
             .send_response(
