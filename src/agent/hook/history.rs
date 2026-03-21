@@ -2,26 +2,29 @@ use anyhow::Result;
 
 use crate::{
     agent::hook::VizierSessionHook,
-    database::VizierDatabases,
     schema::{SessionHistoryContent, VizierRequest, VizierResponse, VizierSession},
+    storage::{VizierStorage, history::HistoryStorage},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HistoryHook {
-    db: VizierDatabases,
+    storage: VizierStorage,
     session: VizierSession,
 }
 
 impl HistoryHook {
-    pub fn new(db: VizierDatabases, session: VizierSession) -> Self {
-        Self { db, session }
+    pub fn new(db: VizierStorage, session: VizierSession) -> Self {
+        Self {
+            storage: db,
+            session,
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl VizierSessionHook for HistoryHook {
     async fn on_request(&self, req: VizierRequest) -> Result<VizierRequest> {
-        self.db
+        self.storage
             .save_session_history(
                 self.session.clone(),
                 SessionHistoryContent::Request(req.clone()),
@@ -37,7 +40,7 @@ impl VizierSessionHook for HistoryHook {
             stats: stats,
         } = res.clone()
         {
-            self.db
+            self.storage
                 .save_session_history(
                     self.session.clone(),
                     SessionHistoryContent::Response(content, stats),

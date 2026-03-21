@@ -7499,6 +7499,7 @@ dependencies = [
  "flume",
  "form_urlencoded",
  "futures",
+ "glob",
  "indicatif",
  "inquire",
  "log",

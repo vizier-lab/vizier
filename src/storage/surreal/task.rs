@@ -1,19 +1,22 @@
 use std::collections::BTreeMap;
 
 use anyhow::Result;
-use futures::task;
 use surrealdb_types::Value;
 
 use crate::{
-    database::{
-        VizierDatabases,
-        query::{AllAnd, Cond, Op},
-    },
     schema::{AgentId, Task},
+    storage::{
+        surreal::{
+            SurrealStorage,
+            query::{AllAnd, Cond, Op},
+        },
+        task::TaskStorage,
+    },
 };
 
-impl VizierDatabases {
-    pub async fn save_task(&self, task: Task) -> Result<()> {
+#[async_trait::async_trait]
+impl TaskStorage for SurrealStorage {
+    async fn save_task(&self, task: Task) -> Result<()> {
         let _: Option<Task> = self
             .conn
             .upsert(("task", task.slug.clone()))
@@ -22,12 +25,12 @@ impl VizierDatabases {
         Ok(())
     }
 
-    pub async fn delete_task(&self, id: String) -> Result<()> {
+    async fn delete_task(&self, id: String) -> Result<()> {
         let _: Option<Task> = self.conn.delete(("task", id)).await?;
         Ok(())
     }
 
-    pub async fn get_task_list(
+    async fn get_task_list(
         &self,
         agent_id: Option<AgentId>,
         is_active: Option<bool>,

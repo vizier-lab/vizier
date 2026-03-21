@@ -7,6 +7,7 @@ use croner::Cron;
 use crate::{
     dependencies::VizierDependencies,
     schema::{SessionId, Task, TaskSchedule, VizierRequest, VizierSession},
+    storage::task::TaskStorage,
 };
 
 pub struct VizierScheduler {
@@ -24,7 +25,7 @@ impl VizierScheduler {
             let now = Utc::now();
 
             // fetch tasks
-            let tasks = self.deps.database.get_task_list(None, Some(true)).await?;
+            let tasks = self.deps.storage.get_task_list(None, Some(true)).await?;
 
             for task in tasks.iter() {
                 match &task.schedule {
@@ -54,13 +55,13 @@ impl VizierScheduler {
 
             for task in to_be_run {
                 if let &TaskSchedule::OneTimeTask(_) = &task.schedule {
-                    let _ = self.deps.database.delete_task(task.slug.clone()).await;
+                    let _ = self.deps.storage.delete_task(task.slug.clone()).await;
                 }
 
                 if let &TaskSchedule::CronTask(_) = &task.schedule {
                     let mut updated_task = task.clone();
                     updated_task.last_executed_at = Some(now);
-                    let _ = self.deps.database.save_task(updated_task).await;
+                    let _ = self.deps.storage.save_task(updated_task).await;
                 }
 
                 let _ = self

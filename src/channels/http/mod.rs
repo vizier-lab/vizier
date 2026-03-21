@@ -51,7 +51,7 @@ impl VizierChannel for HTTPChannel {
             .layer(cors)
             .with_state(HTTPState {
                 config: self.deps.config.clone(),
-                db: self.deps.database.clone(),
+                storage: self.deps.storage.clone(),
                 transport: self.deps.transport.clone(),
             });
 

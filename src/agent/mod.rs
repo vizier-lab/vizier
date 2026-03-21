@@ -168,7 +168,7 @@ impl SessionProcess {
         };
 
         let mut hooks = VizierSessionHooks::new()
-            .hook(HistoryHook::new(deps.database.clone(), session.clone()));
+            .hook(HistoryHook::new(deps.storage.clone(), session.clone()));
 
         if let Some(true) = agent_config.show_thinking {
             hooks = hooks.hook(ThinkingHook::new(transport.clone(), session.clone()));

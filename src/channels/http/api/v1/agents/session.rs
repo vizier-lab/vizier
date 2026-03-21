@@ -20,6 +20,7 @@ use crate::{
         state::HTTPState,
     },
     schema::{SessionHistoryContent, SessionId, VizierRequest, VizierSession},
+    storage::history::HistoryStorage,
     transport::VizierTransport,
 };
 
@@ -38,7 +39,7 @@ pub async fn get_session_history(
     }
 
     let response = state
-        .db
+        .storage
         .list_session_history(VizierSession(agent_id, SessionId::HTTP(session_id)))
         .await;
 

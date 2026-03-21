@@ -38,6 +38,8 @@ pub fn init_default_agent(path: PathBuf) {
         tools: AgentToolsConfig::default(),
         silent_read_initiative_chance: 0.,
         show_thinking: Some(false),
+        documents: vec![],
+        include_documents: None,
     };
 
     let content = format!(

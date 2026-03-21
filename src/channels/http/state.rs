@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use crate::{config::VizierConfig, database::VizierDatabases, transport::VizierTransport};
+use crate::{config::VizierConfig, storage::VizierStorage, transport::VizierTransport};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HTTPState {
     pub config: Arc<VizierConfig>,
     pub transport: VizierTransport,
-    pub db: VizierDatabases,
+    pub storage: VizierStorage,
 }

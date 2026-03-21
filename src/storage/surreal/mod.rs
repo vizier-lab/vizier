@@ -2,22 +2,28 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use surrealdb::Surreal;
 use surrealdb::engine::local::{Db, RocksDb};
+
+use crate::embedding;
+use crate::storage::VizierStorageProvider;
 
 pub mod history;
 pub mod memory;
 pub mod query;
 pub mod task;
 
-#[derive(Debug, Clone)]
-pub struct VizierDatabases {
-    pub conn: Arc<Surreal<Db>>,
+#[derive(Clone)]
+pub struct SurrealStorage {
+    conn: Arc<Surreal<Db>>,
+    embedder: Option<Arc<embedding::EmbeddingModel>>,
 }
 
-impl VizierDatabases {
-    pub async fn new(workspace: String) -> Result<Self> {
+impl SurrealStorage {
+    pub async fn new(
+        workspace: String,
+        embedder: Option<Arc<embedding::EmbeddingModel>>,
+    ) -> Result<Self> {
         let db = Surreal::new::<RocksDb>(format!("{workspace}/vizier.db")).await?;
         db.use_ns("vizier").use_db("v1").await?;
 
@@ -25,11 +31,16 @@ impl VizierDatabases {
         db.query("DEFINE TABLE task SCHEMALESS;").await?;
         db.query("DEFINE TABLE session_history SCHEMALESS;").await?;
 
-        let res = Self { conn: Arc::new(db) };
+        let res = Self {
+            conn: Arc::new(db),
+            embedder,
+        };
 
         Ok(res)
     }
 }
+
+impl VizierStorageProvider for SurrealStorage {}
 
 #[allow(unused)]
 pub enum DistanceFunction {

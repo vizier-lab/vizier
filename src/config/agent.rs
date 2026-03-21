@@ -21,6 +21,9 @@ pub struct AgentConfig {
     pub tools: AgentToolsConfig,
     pub silent_read_initiative_chance: f32,
     pub show_thinking: Option<bool>,
+    pub include_documents: Option<Vec<String>>,
+    #[serde(skip)]
+    pub documents: Vec<String>,
 }
 
 impl AgentConfig {
@@ -74,6 +77,22 @@ impl AgentConfig {
         let mut res: Self = serde_yaml::from_str(&frontmatter)
             .map_err(|_| VizierError("failed to deserialize frontmatter".into()))?;
         res.system_prompt = Some(content);
+
+        // add all included documents
+        let mut documents = vec![];
+        if let Some(paths) = &res.include_documents {
+            for path in paths {
+                for entry in glob::glob(&path).map_err(|err| VizierError(err.to_string()))? {
+                    let entry = entry.map_err(|err| VizierError(err.to_string()))?;
+                    if !entry.is_file() {
+                        continue;
+                    }
+
+                    documents.push(entry.to_string_lossy().to_string());
+                }
+            }
+        }
+        res.documents = documents;
 
         Ok(res)
     }

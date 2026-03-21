@@ -2,14 +2,18 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::{config::VizierConfig, database::VizierDatabases, transport::VizierTransport};
+use crate::{
+    config::VizierConfig,
+    storage::{VizierStorage, surreal::SurrealStorage},
+    transport::VizierTransport,
+};
 
 #[derive(Clone)]
 pub struct VizierDependencies {
     pub config: Arc<VizierConfig>,
     pub embedder: Option<Arc<crate::embedding::EmbeddingModel>>,
     pub transport: VizierTransport,
-    pub database: VizierDatabases,
+    pub storage: VizierStorage,
 }
 
 impl VizierDependencies {
@@ -21,9 +25,12 @@ impl VizierDependencies {
                     .embedding_model(&config.model.to_fastembed(), Some(workspace)),
             )
         });
+
+        let surreal = SurrealStorage::new(config.workspace.clone(), embedder.clone()).await?;
+
         Ok(Self {
             config: Arc::new(config.clone()),
-            database: VizierDatabases::new(config.workspace.clone()).await?,
+            storage: VizierStorage::new(surreal),
             transport: VizierTransport::new(),
             embedder,
         })

@@ -14,6 +14,7 @@ use crate::{
         state::HTTPState,
     },
     schema::Memory,
+    storage::memory::MemoryStorage,
 };
 
 pub fn memory() -> Router<HTTPState> {
@@ -31,15 +32,19 @@ pub async fn get_all_memories(
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
-    match state
-        .db
-        .conn
-        .query("SELECT slug, title, timestamp FROM type::table(memory) WHERE agent_id = $agent_id")
-        .bind(("agent_id", agent_id))
-        .await
-    {
-        Ok(mut data) => {
-            let response: Vec<serde_json::Value> = data.take(0).unwrap();
+    match state.storage.get_all_agent_memory(agent_id).await {
+        Ok(memory) => {
+            let response = memory
+                .iter()
+                .map(|memory| {
+                    serde_json::json!({
+                        "agent_id": memory.agent_id,
+                        "slug": memory.slug,
+                        "title": memory.title,
+                        "timestamp": memory.timestamp
+                    })
+                })
+                .collect();
 
             api_response(StatusCode::OK, response)
         }
@@ -50,24 +55,21 @@ pub async fn get_all_memories(
 pub async fn get_memory_detail(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
-) -> models::response::Response<Option<serde_json::Value>> {
+) -> models::response::Response<serde_json::Value> {
     if !state.config.is_agent_exists(&agent_id) {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
-    match state
-        .db
-        .conn
-        .query("SELECT slug, title, content, timestamp FROM type::table(memory) WHERE slug = $slug AND agent_id = $agent_id")
-        .bind(("slug", slug))
-        .bind(("agent_id", agent_id))
-        .await
-    {
-        Ok(mut data) => {
-            let response: Option<serde_json::Value> = data.take(0).unwrap();
-
-            api_response(StatusCode::OK, response)
-        }
+    match state.storage.get_memory_detail(agent_id, slug).await {
+        Ok(Some(memory)) => api_response(
+            StatusCode::OK,
+            serde_json::json!({
+                "agent_id": memory.agent_id,
+                "slug": memory.slug,
+                "title": memory.title,
+                "timestamp": memory.timestamp
+            }),
+        ),
         _ => err_response(StatusCode::NOT_FOUND, "Not Found".into()),
     }
 }
@@ -80,12 +82,7 @@ pub async fn delete_memory(
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
-    match state
-        .db
-        .conn
-        .delete::<Option<Memory>>(("memory", slug.clone()))
-        .await
-    {
+    match state.storage.delete_memory(agent_id, slug.clone()).await {
         Ok(_) => api_response(StatusCode::OK, format!("{slug} deleted")),
         _ => err_response(StatusCode::NOT_FOUND, "Not Found".into()),
     }

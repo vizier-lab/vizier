@@ -5,13 +5,13 @@ use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
 use crate::{
-    database::VizierDatabases,
     error::VizierError,
     schema::{AgentId, Task, TaskSchedule},
+    storage::{VizierStorage, task::TaskStorage},
 };
 
 pub struct ScheduleOneTimeTask {
-    pub db: VizierDatabases,
+    pub storage: VizierStorage,
     pub agent_id: AgentId,
 }
 
@@ -85,7 +85,7 @@ where
         log::info!("schedule_task {} {:?}", args.title, args.schedule.clone());
 
         let response = self
-            .db
+            .storage
             .save_task(Task {
                 slug: slugify!(&args.title.clone()),
                 user: args.user,
@@ -108,7 +108,7 @@ where
 }
 
 pub struct ScheduleCronTask {
-    pub db: VizierDatabases,
+    pub db: VizierStorage,
     pub agent_id: AgentId,
 }
 

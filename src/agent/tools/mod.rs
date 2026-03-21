@@ -49,11 +49,11 @@ impl VizierTools {
             ))
             .tool(ScheduleOneTimeTask {
                 agent_id: agent_id.clone(),
-                db: deps.database.clone(),
+                storage: deps.storage.clone(),
             })
             .tool(ScheduleCronTask {
                 agent_id: agent_id.clone(),
-                db: deps.database.clone(),
+                db: deps.storage.clone(),
             });
 
         if agent_config.tools.cli_access {
