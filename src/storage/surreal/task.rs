@@ -19,14 +19,17 @@ impl TaskStorage for SurrealStorage {
     async fn save_task(&self, task: Task) -> Result<()> {
         let _: Option<Task> = self
             .conn
-            .upsert(("task", task.slug.clone()))
+            .upsert(("task", format!("{}/{}", task.agent_id, task.slug)))
             .content(task)
             .await?;
         Ok(())
     }
 
-    async fn delete_task(&self, id: String) -> Result<()> {
-        let _: Option<Task> = self.conn.delete(("task", id)).await?;
+    async fn delete_task(&self, agent_id: AgentId, slug: String) -> Result<()> {
+        let _: Option<Task> = self
+            .conn
+            .delete(("task", format!("{}/{}", agent_id, slug)))
+            .await?;
         Ok(())
     }
 

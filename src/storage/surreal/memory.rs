@@ -42,7 +42,7 @@ impl MemoryStorage for SurrealStorage {
 
         let _: Option<Memory> = self
             .conn
-            .upsert(("memory", format!("{}__{}", agent_id, slug)))
+            .upsert(("memory", format!("{}/{}", agent_id, slug)))
             .content(memory)
             .await?;
 
@@ -63,7 +63,7 @@ impl MemoryStorage for SurrealStorage {
 
         let query = embedder.embed_text(&query).await?.vec;
 
-        let distance_function = DistanceFunction::Euclidean;
+        let distance_function = DistanceFunction::Cosine;
 
         let mut response = self
             .conn
@@ -114,7 +114,7 @@ impl MemoryStorage for SurrealStorage {
     async fn delete_memory(&self, agent_id: String, slug: String) -> Result<()> {
         let _ = self
             .conn
-            .delete::<Option<Memory>>(("memory", format!("{}__{}", agent_id, slug.clone())))
+            .delete::<Option<Memory>>(("memory", format!("{}/{}", agent_id, slug.clone())))
             .await?;
 
         Ok(())

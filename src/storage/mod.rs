@@ -4,8 +4,10 @@ use crate::storage::{history::HistoryStorage, memory::MemoryStorage, task::TaskS
 
 pub mod history;
 pub mod memory;
-pub mod surreal;
 pub mod task;
+
+pub mod fs;
+pub mod surreal;
 
 pub trait VizierStorageProvider
 where

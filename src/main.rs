@@ -17,7 +17,6 @@ mod constant;
 mod dependencies;
 mod embedding;
 mod error;
-mod indexed_document;
 mod scheduler;
 mod schema;
 mod storage;

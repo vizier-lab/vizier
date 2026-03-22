@@ -6,5 +6,5 @@ use crate::{config::VizierConfig, storage::VizierStorage, transport::VizierTrans
 pub struct HTTPState {
     pub config: Arc<VizierConfig>,
     pub transport: VizierTransport,
-    pub storage: VizierStorage,
+    pub storage: Arc<VizierStorage>,
 }

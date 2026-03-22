@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
 use crate::dependencies::VizierDependencies;
-use crate::embedding;
 use crate::error::VizierError;
 use crate::schema::{AgentId, Memory};
 use crate::storage::VizierStorage;
@@ -19,19 +18,18 @@ pub fn init_vector_memory(
     agent_id: String,
     deps: VizierDependencies,
 ) -> Result<(MemoryRead, MemoryWrite)> {
-    let embedder = deps.embedder.unwrap();
     Ok((
-        MemoryRead::new(agent_id.clone(), deps.storage.clone(), embedder.clone()),
-        MemoryWrite::new(agent_id.clone(), deps.storage.clone(), embedder.clone()),
+        MemoryRead::new(agent_id.clone(), deps.storage.clone()),
+        MemoryWrite::new(agent_id.clone(), deps.storage.clone()),
     ))
 }
 
 pub type MemoryRead = ReadVectorMemory;
-pub struct ReadVectorMemory(AgentId, VizierStorage, Arc<embedding::EmbeddingModel>);
+pub struct ReadVectorMemory(AgentId, Arc<VizierStorage>);
 
 impl MemoryRead {
-    fn new(agent_id: AgentId, store: VizierStorage, model: Arc<embedding::EmbeddingModel>) -> Self {
-        Self(agent_id, store, model)
+    fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
+        Self(agent_id, store)
     }
 }
 
@@ -71,11 +69,11 @@ impl Tool for MemoryRead {
 }
 
 pub type MemoryWrite = WriteVectorMemory;
-pub struct WriteVectorMemory(AgentId, VizierStorage, Arc<embedding::EmbeddingModel>);
+pub struct WriteVectorMemory(AgentId, Arc<VizierStorage>);
 
 impl MemoryWrite {
-    fn new(agent_id: AgentId, store: VizierStorage, model: Arc<embedding::EmbeddingModel>) -> Self {
-        Self(agent_id, store, model)
+    fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
+        Self(agent_id, store)
     }
 }
 

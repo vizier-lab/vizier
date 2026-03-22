@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use chrono::Utc;
 use rig::{completion::ToolDefinition, tool::Tool};
 use schemars::schema_for;
@@ -11,7 +13,7 @@ use crate::{
 };
 
 pub struct ScheduleOneTimeTask {
-    pub storage: VizierStorage,
+    pub storage: Arc<VizierStorage>,
     pub agent_id: AgentId,
 }
 
@@ -108,7 +110,7 @@ where
 }
 
 pub struct ScheduleCronTask {
-    pub db: VizierStorage,
+    pub db: Arc<VizierStorage>,
     pub agent_id: AgentId,
 }
 

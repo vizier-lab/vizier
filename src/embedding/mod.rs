@@ -18,7 +18,6 @@ impl Default for Client {
 }
 
 impl Client {
-    /// Create a new `rig-fastembed` client.
     pub fn new() -> Self {
         Self
     }
@@ -46,22 +45,6 @@ impl Client {
         )
     }
 
-    /// Create an embedding builder with the given embedding model.
-    ///
-    /// # Example
-    /// ```
-    /// use rig_fastembed::{Client, FastembedModel};
-    ///
-    /// // Initialize the Fastembed client
-    /// let fastembed_client = Client::new();
-    ///
-    /// let embeddings = fastembed_client.embeddings(FastembedModel::AllMiniLML6V2Q)
-    ///     .simple_document("doc0", "Hello, world!")
-    ///     .simple_document("doc1", "Goodbye, world!")
-    ///     .build()
-    ///     .await
-    ///     .expect("Failed to embed documents");
-    /// ```
     pub fn embeddings<D: Embed>(
         &self,
         model: &fastembed::EmbeddingModel,

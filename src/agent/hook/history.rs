@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 
 use crate::{
@@ -8,12 +10,12 @@ use crate::{
 
 #[derive(Clone)]
 pub struct HistoryHook {
-    storage: VizierStorage,
+    storage: Arc<VizierStorage>,
     session: VizierSession,
 }
 
 impl HistoryHook {
-    pub fn new(db: VizierStorage, session: VizierSession) -> Self {
+    pub fn new(db: Arc<VizierStorage>, session: VizierSession) -> Self {
         Self {
             storage: db,
             session,

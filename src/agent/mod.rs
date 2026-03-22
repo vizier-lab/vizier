@@ -167,8 +167,8 @@ impl SessionProcess {
             res
         };
 
-        let mut hooks = VizierSessionHooks::new()
-            .hook(HistoryHook::new(deps.storage.clone(), session.clone()));
+        let mut hooks =
+            VizierSessionHooks::new().hook(HistoryHook::new(deps.storage.clone(), session.clone()));
 
         if let Some(true) = agent_config.show_thinking {
             hooks = hooks.hook(ThinkingHook::new(transport.clone(), session.clone()));
@@ -195,6 +195,7 @@ impl SessionProcess {
                     let send_response = send_response.clone();
                     while let Ok(request) = session_transport.1.recv_async().await {
                         let mut main_session = main_session.lock().await;
+
                         let send_lobotomy = send_response.clone();
                         if request.content == "/lobotomy" {
                             let _ = main_session.lobotomy();

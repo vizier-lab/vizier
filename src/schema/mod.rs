@@ -17,6 +17,17 @@ pub enum SessionId {
     Socket(String),
 }
 
+impl SessionId {
+    pub fn to_slug(&self) -> String {
+        match self {
+            Self::DiscordChanel(id) => format!("discord__{}", id),
+            Self::HTTP(id) => format!("http__{}", id),
+            Self::Task(id) => format!("task__{}", id),
+            Self::Socket(id) => format!("socket__{}", id),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
 pub struct VizierResponseStats {
     pub duration: tokio::time::Duration,
@@ -100,7 +111,7 @@ pub enum TaskSchedule {
 #[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
 pub struct SessionHistory {
     pub uuid: uuid::Uuid,
-    pub vizier_session: VizierSession,
+    pub session: VizierSession,
     pub content: SessionHistoryContent,
     pub timestamp: chrono::DateTime<Utc>,
 }

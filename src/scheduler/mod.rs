@@ -55,7 +55,11 @@ impl VizierScheduler {
 
             for task in to_be_run {
                 if let &TaskSchedule::OneTimeTask(_) = &task.schedule {
-                    let _ = self.deps.storage.delete_task(task.slug.clone()).await;
+                    let _ = self
+                        .deps
+                        .storage
+                        .delete_task(task.agent_id.clone(), task.slug.clone())
+                        .await;
                 }
 
                 if let &TaskSchedule::CronTask(_) = &task.schedule {

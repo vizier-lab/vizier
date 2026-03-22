@@ -17,7 +17,6 @@ pub async fn ollama_pull_model(base_url: &str, model: &str) -> Result<()> {
         .send()
         .await;
 
-    println!("{:?}", resp);
     let resp = resp?;
 
     if !resp.status().is_success() {

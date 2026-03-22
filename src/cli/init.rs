@@ -43,16 +43,13 @@ pub fn init_default_agent(path: PathBuf) {
     };
 
     let content = format!(
-        r#"{}
----
-# {}
+        r#"# {}
 You are a 21st digital steward, your duty is to answer any questions from the user.
 Utilize any documents and memories at your disposal"#,
-        serde_yaml::to_string(&config.clone()).unwrap(),
         config.name
     );
 
     let mut target_path = path.clone();
     target_path.push("vizier.agent.md");
-    let _ = fs::write(target_path, content);
+    let _ = crate::utils::markdown::write_markdown(&config, content, target_path);
 }

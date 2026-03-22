@@ -147,10 +147,6 @@ impl<Client: CompletionClient> VizierAgentImpl<Client> {
         let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
         let initiative_factor = rng.random_range(0_f32..=1_f32);
 
-        if req.is_silent_read && initiative_factor > self.silent_read_initiative_chance {
-            return Ok(VizierResponse::Empty);
-        }
-
         let mut history = self.prepare_system_prompts().await;
         if let Some(memory) = memory {
             history.extend(memory.recall_as_messages());
@@ -159,10 +155,15 @@ impl<Client: CompletionClient> VizierAgentImpl<Client> {
         let mut req = req;
         req = hooks.on_request(req).await?;
 
+        if req.is_silent_read && initiative_factor > self.silent_read_initiative_chance {
+            return Ok(VizierResponse::Empty);
+        }
+
         let output: String;
         let mut message = Message::user(format!("{}", req.to_prompt()?,));
 
         let start = Instant::now();
+
         loop {
             let response = self
                 .agent

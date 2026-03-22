@@ -3,8 +3,8 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::{
-    config::VizierConfig,
-    storage::{VizierStorage, surreal::SurrealStorage},
+    config::{VizierConfig, storage::StorageConfig},
+    storage::{VizierStorage, fs::FileSystemStorage, surreal::SurrealStorage},
     transport::VizierTransport,
 };
 
@@ -13,7 +13,7 @@ pub struct VizierDependencies {
     pub config: Arc<VizierConfig>,
     pub embedder: Option<Arc<crate::embedding::EmbeddingModel>>,
     pub transport: VizierTransport,
-    pub storage: VizierStorage,
+    pub storage: Arc<VizierStorage>,
 }
 
 impl VizierDependencies {
@@ -26,11 +26,21 @@ impl VizierDependencies {
             )
         });
 
-        let surreal = SurrealStorage::new(config.workspace.clone(), embedder.clone()).await?;
+        let storage = match config.storage {
+            StorageConfig::Filesystem => {
+                let fs = FileSystemStorage::new(config.workspace.clone(), embedder.clone()).await?;
+                VizierStorage::new(fs)
+            }
+            StorageConfig::Surreal => {
+                let surreal =
+                    SurrealStorage::new(config.workspace.clone(), embedder.clone()).await?;
+                VizierStorage::new(surreal)
+            }
+        };
 
         Ok(Self {
             config: Arc::new(config.clone()),
-            storage: VizierStorage::new(surreal),
+            storage: Arc::new(VizierStorage::new(storage)),
             transport: VizierTransport::new(),
             embedder,
         })

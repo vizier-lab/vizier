@@ -1,6 +1,7 @@
 use regex::Regex;
 
 pub mod discord;
+pub mod markdown;
 pub mod ollama;
 pub mod python;
 

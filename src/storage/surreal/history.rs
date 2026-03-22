@@ -20,7 +20,7 @@ impl HistoryStorage for SurrealStorage {
             .create(("session_history", uuid.clone().to_string()))
             .content(SessionHistory {
                 uuid,
-                vizier_session: session.clone(),
+                session: session.clone(),
                 content,
                 timestamp: Utc::now(),
             })
@@ -33,9 +33,9 @@ impl HistoryStorage for SurrealStorage {
         let mut response = self
             .conn
             .query(format!(
-                "SELECT * FROM session_history WHERE vizier_session == $vizier_session ORDER BY timestamp ASC",
+                "SELECT * FROM session_history WHERE vizier_session == $session ORDER BY timestamp ASC",
             ))
-            .bind(("vizier_session", session.clone()))
+            .bind(("session", session.clone()))
             .await?;
 
         let list: Vec<SessionHistory> = response.take(0)?;

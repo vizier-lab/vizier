@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs, path::PathBuf};
 use duration_string::DurationString;
 use serde::{Deserialize, Serialize};
 
-use crate::{config::provider::ProviderVariant, error::VizierError};
+use crate::{config::provider::ProviderVariant, error::VizierError, utils};
 
 pub type AgentConfigs = HashMap<String, AgentConfig>;
 
@@ -54,28 +54,11 @@ impl AgentConfig {
     }
 
     fn load_from_md(s: PathBuf) -> crate::Result<Self> {
-        let raw_content = fs::read_to_string(&s).map_err(|err| VizierError(err.to_string()))?;
-        let mut content = raw_content.split('\n').into_iter().collect::<Vec<_>>();
+        // let raw_content = fs::read_to_string(&s)?;
+        let (frontmatter, content) = utils::markdown::read_markdown::<AgentConfig>(s)
+            .map_err(|err| VizierError(err.to_string()))?;
 
-        // naively get frontmatter
-        let mut curr = content.remove(0);
-        if curr != "---" {
-            return VizierError("failed to find frontmatter_raw".into()).into();
-        }
-        let mut frontmatter_raw = vec![];
-        loop {
-            curr = content.remove(0);
-            if curr == "---" {
-                break;
-            }
-
-            frontmatter_raw.push(curr);
-        }
-
-        let frontmatter = frontmatter_raw.join("\n");
-        let content = content.join("\n");
-        let mut res: Self = serde_yaml::from_str(&frontmatter)
-            .map_err(|_| VizierError("failed to deserialize frontmatter".into()))?;
+        let mut res: Self = frontmatter.clone();
         res.system_prompt = Some(content);
 
         // add all included documents

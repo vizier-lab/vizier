@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub mod agent;
 pub mod embedding;
 pub mod provider;
+pub mod storage;
 pub mod user;
 
 use crate::{
@@ -16,6 +17,7 @@ use crate::{
         provider::{
             DeepseekProviderConfig, OllamaProviderConfig, OpenRouterProviderConfig, ProviderConfig,
         },
+        storage::StorageConfig,
         user::UserConfig,
     },
     constant,
@@ -62,6 +64,7 @@ pub struct VizierConfig {
     pub workspace: String,
     pub primary_user: UserConfig,
     pub providers: ProviderConfig,
+    pub storage: StorageConfig,
     #[serde(skip)]
     pub agents: AgentConfigs,
     pub channels: ChannelsConfig,
@@ -141,6 +144,7 @@ impl Default for VizierConfig {
                 discord_username: "".into(),
                 alias: vec![],
             },
+            storage: StorageConfig::Filesystem,
             providers: ProviderConfig {
                 ollama: Some(OllamaProviderConfig::default()),
                 deepseek: Some(DeepseekProviderConfig::default()),
@@ -167,7 +171,7 @@ impl Default for VizierConfig {
                     safesearch: true,
                 }),
                 vector_memory: Some(VectorMemoryConfig {
-                    model: VizierEmbeddingModel::AllMiniLML6V2,
+                    model: VizierEmbeddingModel::AllMiniLml6V2,
                 }),
             },
         }

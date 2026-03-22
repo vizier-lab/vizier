@@ -9,7 +9,7 @@ use crate::{
 pub trait TaskStorage {
     async fn save_task(&self, task: Task) -> Result<()>;
 
-    async fn delete_task(&self, id: String) -> Result<()>;
+    async fn delete_task(&self, agent_id: AgentId, slug: String) -> Result<()>;
 
     async fn get_task_list(
         &self,
@@ -24,8 +24,8 @@ impl TaskStorage for VizierStorage {
         self.0.save_task(task).await
     }
 
-    async fn delete_task(&self, id: String) -> Result<()> {
-        self.0.delete_task(id).await
+    async fn delete_task(&self, agent_id: AgentId, slug: String) -> Result<()> {
+        self.0.delete_task(agent_id, slug).await
     }
 
     async fn get_task_list(
