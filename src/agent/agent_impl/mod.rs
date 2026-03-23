@@ -135,7 +135,7 @@ impl<Client: CompletionClient> VizierAgentImpl<Client> {
         let agent_workspace = agent_workspace(&self.workspace, &self.id);
 
         let agent_md = read_md_file(agent_workspace.clone(), "AGENT.md".into());
-        let ident_md = read_md_file(agent_workspace.clone(), "IDENT.md".into());
+        let ident_md = read_md_file(agent_workspace.clone(), "IDENTITY.md".into());
 
         let res = vec![
             Message::system(self.system_prompt.clone()),

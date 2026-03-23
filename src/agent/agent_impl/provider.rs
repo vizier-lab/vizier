@@ -108,7 +108,15 @@ impl VizierAgentTrait<anthropic::Client> for VizierAgentImpl<anthropic::Client> 
 impl VizierAgentTrait<openai::Client> for VizierAgentImpl<openai::Client> {
     async fn init_client(_agent_id: String, deps: VizierDependencies) -> Result<openai::Client> {
         let client: openai::Client =
-            openai::Client::new(deps.config.providers.openai.clone().unwrap().api_key)?;
+            if let Some(base_url) = deps.config.providers.openai.clone().unwrap().base_url {
+                let api_key = deps.config.providers.openai.clone().unwrap().api_key;
+                openai::Client::builder()
+                    .base_url(base_url)
+                    .api_key(api_key)
+                    .build()?
+            } else {
+                openai::Client::new(deps.config.providers.openai.clone().unwrap().api_key)?
+            };
 
         Ok(client)
     }

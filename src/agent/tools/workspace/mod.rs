@@ -21,8 +21,8 @@ impl PrimaryDocument for AgentDocument {
 pub struct IdentDocument;
 
 impl PrimaryDocument for IdentDocument {
-    const NAME: &'static str = "IDENT.md";
-    const WRITE_NAME: &'static str = "WRITE_IDENT_MD_FILE";
+    const NAME: &'static str = "IDENTITY.md";
+    const WRITE_NAME: &'static str = "WRITE_IDENTITY_MD_FILE";
 }
 
 pub struct WritePrimaryDocument<T: PrimaryDocument> {

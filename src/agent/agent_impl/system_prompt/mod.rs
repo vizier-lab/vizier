@@ -7,7 +7,7 @@ use crate::constant::{AGENT_MD, IDENT_MD};
 
 pub fn init_workspace(path: String) {
     let agent_path = PathBuf::from(format!("{}/AGENT.md", path.clone()));
-    let ident_path = PathBuf::from(format!("{}/IDENT.md", path.clone()));
+    let ident_path = PathBuf::from(format!("{}/IDENTITY.md", path.clone()));
 
     let create_file_if_not_exists = |path: PathBuf, content: &str| {
         if !path.exists() {

@@ -9,7 +9,7 @@ mod history;
 mod memory;
 mod task;
 
-const MEMORY_PATH: &'static str = "documents";
+const MEMORY_PATH: &'static str = "memory";
 const TASK_PATH: &'static str = "tasks";
 const HISTORY_PATH: &'static str = "history";
 
