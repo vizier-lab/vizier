@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::{
     schema::{
@@ -94,8 +93,12 @@ impl HistoryStorage for FileSystemStorage {
         Ok(())
     }
 
-    // TODO: cursor based pagination
-    async fn list_session_history(&self, session: VizierSession) -> Result<Vec<SessionHistory>> {
+    async fn list_session_history(
+        &self,
+        session: VizierSession,
+        before: Option<chrono::DateTime<Utc>>,
+        limit: Option<usize>,
+    ) -> Result<Vec<SessionHistory>> {
         let mut res = vec![];
 
         let path = format!(
@@ -140,6 +143,20 @@ impl HistoryStorage for FileSystemStorage {
             });
         }
 
+        // Sort by timestamp descending (most recent first) for proper cursor pagination
+        res.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+        // Apply cursor filter: get items before the given datetime
+        if let Some(before_dt) = before {
+            res.retain(|item| item.timestamp < before_dt);
+        }
+
+        // Apply limit
+        if let Some(limit_val) = limit {
+            res.truncate(limit_val);
+        }
+
+        // Sort back to ascending order (oldest first) for the final result
         res.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
         Ok(res)

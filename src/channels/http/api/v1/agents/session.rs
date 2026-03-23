@@ -1,7 +1,7 @@
 use axum::{
     Router,
     extract::{
-        Path, State, WebSocketUpgrade,
+        Path, Query, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
     routing::{any, get},
@@ -9,6 +9,7 @@ use axum::{
 use chrono::Utc;
 use futures::{SinkExt, StreamExt};
 use reqwest::StatusCode;
+use serde::Deserialize;
 
 use crate::{
     channels::http::{
@@ -30,8 +31,15 @@ pub fn session() -> Router<HTTPState> {
         .route("/{session_id}/history", get(get_session_history))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SessionHistoryQuery {
+    before: Option<chrono::DateTime<Utc>>,
+    limit: Option<usize>,
+}
+
 pub async fn get_session_history(
     Path((agent_id, session_id)): Path<(String, String)>,
+    Query(params): Query<SessionHistoryQuery>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<Vec<ChatHistory>> {
     if !state.config.is_agent_exists(&agent_id) {
@@ -40,7 +48,11 @@ pub async fn get_session_history(
 
     let response = state
         .storage
-        .list_session_history(VizierSession(agent_id, SessionId::HTTP(session_id)))
+        .list_session_history(
+            VizierSession(agent_id, SessionId::HTTP(session_id)),
+            params.before,
+            params.limit,
+        )
         .await;
 
     if response.is_err() {

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 
 use crate::{
     schema::{SessionHistory, SessionHistoryContent, VizierSession},
@@ -13,8 +14,12 @@ pub trait HistoryStorage {
         content: SessionHistoryContent,
     ) -> Result<()>;
 
-    // TODO: cursor based pagination
-    async fn list_session_history(&self, session: VizierSession) -> Result<Vec<SessionHistory>>;
+    async fn list_session_history(
+        &self,
+        session: VizierSession,
+        before: Option<DateTime<Utc>>,
+        limit: Option<usize>,
+    ) -> Result<Vec<SessionHistory>>;
 }
 
 #[async_trait::async_trait]
@@ -27,8 +32,12 @@ impl HistoryStorage for VizierStorage {
         self.0.save_session_history(session, content).await
     }
 
-    // TODO: cursor based pagination
-    async fn list_session_history(&self, session: VizierSession) -> Result<Vec<SessionHistory>> {
-        self.0.list_session_history(session).await
+    async fn list_session_history(
+        &self,
+        session: VizierSession,
+        before: Option<DateTime<Utc>>,
+        limit: Option<usize>,
+    ) -> Result<Vec<SessionHistory>> {
+        self.0.list_session_history(session, before, limit).await
     }
 }
