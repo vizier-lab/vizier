@@ -36,16 +36,23 @@ impl AgentConfig {
             let path = entry.path();
             if path.is_file() {
                 if path.to_string_lossy().ends_with(".agent.md") {
-                    let agent = Self::load_from_md(path.clone())?;
+                    let agent = Self::load_from_md(path.clone());
 
-                    let agent_id = path
-                        .to_path_buf()
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap()
-                        .replace(".agent.md", "");
+                    match agent {
+                        Ok(agent) => {
+                            let agent_id = path
+                                .to_path_buf()
+                                .file_name()
+                                .and_then(|s| s.to_str())
+                                .unwrap()
+                                .replace(".agent.md", "");
 
-                    res.insert(agent_id, agent);
+                            res.insert(agent_id, agent);
+                        }
+                        Err(_) => {
+                            log::warn!("failed to load {}", path.to_str().unwrap());
+                        }
+                    }
                 }
             }
         }

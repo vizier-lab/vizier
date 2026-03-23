@@ -2,7 +2,8 @@
 .data/
 .vizier/
 .vizier*
-.env
+*.dev.agent.md
+.env*
 
 # webui build artifacts
 webui/node_modules/

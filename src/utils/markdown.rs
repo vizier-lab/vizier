@@ -14,7 +14,11 @@ pub fn read_markdown<T: DeserializeOwned + Clone>(
     // naively get frontmatter
     let mut curr = content.remove(0);
     if curr != "---" {
-        return VizierError("failed to find frontmatter_raw".into()).into();
+        return VizierError(format!(
+            "failed to find frontmatter for {}",
+            path.to_str().unwrap()
+        ))
+        .into();
     }
     let mut frontmatter_raw = vec![];
     loop {

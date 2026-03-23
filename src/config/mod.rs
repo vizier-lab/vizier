@@ -1,7 +1,6 @@
 use std::{collections::HashMap, env::current_dir, fs, path::PathBuf, str::FromStr};
 
 use anyhow::Result;
-use config::Config;
 use serde::{Deserialize, Serialize};
 
 pub mod agent;
