@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use chrono::Utc;
@@ -11,7 +11,7 @@ use rig::{
     message::{AssistantContent, Message, ToolResultContent, UserContent},
     providers::{anthropic, deepseek, gemini, ollama, openai, openrouter},
 };
-use tokio::time::Instant;
+use tokio::time::{Instant, timeout};
 
 use crate::{
     agent::{
@@ -43,22 +43,23 @@ impl VizierAgent {
         let agent_config = deps.config.agents.get(&agent_id.clone()).unwrap();
         let agent = match &agent_config.provider {
             ProviderVariant::openrouter => VizierAgent::OpenRouter(
-                VizierAgentImpl::<openrouter::Client>::new(agent_id.clone(), deps.clone()).await?,
+                VizierAgentImpl::<openrouter::Client>::build(agent_id.clone(), deps.clone())
+                    .await?,
             ),
             ProviderVariant::deepseek => VizierAgent::Deepseek(
-                VizierAgentImpl::<deepseek::Client>::new(agent_id.clone(), deps.clone()).await?,
+                VizierAgentImpl::<deepseek::Client>::build(agent_id.clone(), deps.clone()).await?,
             ),
             ProviderVariant::ollama => VizierAgent::Ollama(
-                VizierAgentImpl::<ollama::Client>::new(agent_id.clone(), deps.clone()).await?,
+                VizierAgentImpl::<ollama::Client>::build(agent_id.clone(), deps.clone()).await?,
             ),
             ProviderVariant::anthropic => VizierAgent::Anthropic(
-                VizierAgentImpl::<anthropic::Client>::new(agent_id.clone(), deps.clone()).await?,
+                VizierAgentImpl::<anthropic::Client>::build(agent_id.clone(), deps.clone()).await?,
             ),
             ProviderVariant::openai => VizierAgent::OpenAI(
-                VizierAgentImpl::<openai::Client>::new(agent_id.clone(), deps.clone()).await?,
+                VizierAgentImpl::<openai::Client>::build(agent_id.clone(), deps.clone()).await?,
             ),
             ProviderVariant::gemini => VizierAgent::Gemini(
-                VizierAgentImpl::<gemini::Client>::new(agent_id.clone(), deps.clone()).await?,
+                VizierAgentImpl::<gemini::Client>::build(agent_id.clone(), deps.clone()).await?,
             ),
         };
 
@@ -128,6 +129,9 @@ pub struct VizierAgentImpl<Client: CompletionClient> {
     workspace: String,
     primary_user: UserConfig,
     silent_read_initiative_chance: f32,
+
+    prompt_timeout: Duration,
+    tool_call_timeout: Duration,
 }
 
 impl<Client: CompletionClient> VizierAgentImpl<Client> {
@@ -163,109 +167,118 @@ impl<Client: CompletionClient> VizierAgentImpl<Client> {
         memory: Option<&SessionMemories>,
         hooks: Arc<VizierSessionHooks>,
     ) -> Result<VizierResponse> {
-        let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
-        let initiative_factor = rng.random_range(0_f32..=1_f32);
+        timeout(self.prompt_timeout, async {
+            let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
+            let initiative_factor = rng.random_range(0_f32..=1_f32);
 
-        let mut history = self.prepare_system_prompts().await;
-        if let Some(memory) = memory {
-            history.extend(memory.recall_as_messages());
-        }
-
-        let mut req = req;
-        req = hooks.on_request(req).await?;
-
-        if req.is_silent_read && initiative_factor > self.silent_read_initiative_chance {
-            return Ok(VizierResponse::Empty);
-        }
-
-        let output: String;
-        let mut message = Message::user(format!("{}", req.to_prompt()?,));
-
-        let start = Instant::now();
-
-        loop {
-            let response = self
-                .agent
-                .completion(message.clone(), history.clone())
-                .await?
-                .send()
-                .await?;
-
-            history.push(message);
-
-            history.push(Message::Assistant {
-                id: response.message_id.clone(),
-                content: response.choice.clone(),
-            });
-
-            let (tool_calls, others): (Vec<_>, Vec<_>) = response
-                .choice
-                .iter()
-                .partition(|choice| matches!(choice, AssistantContent::ToolCall(_)));
-
-            if tool_calls.is_empty() {
-                output = others
-                    .iter()
-                    .filter_map(|item| {
-                        if let AssistantContent::Text(text) = item {
-                            Some(text.to_string())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
-                break;
+            let mut history = self.prepare_system_prompts().await;
+            if let Some(memory) = memory {
+                history.extend(memory.recall_as_messages());
             }
 
-            let mut tool_responses = vec![];
-            for call in tool_calls.iter().filter_map(|item| {
-                if let AssistantContent::ToolCall(call) = item {
-                    Some(call)
-                } else {
-                    None
-                }
-            }) {
-                let (mut function_name, mut args) = (
-                    call.function.name.to_string(),
-                    serde_json::to_string(&call.function.arguments).unwrap(),
-                );
-                (function_name, args) = hooks.on_tool_call(function_name, args).await?;
+            let mut req = req;
+            req = hooks.on_request(req).await?;
 
-                let mut tool_res = match self
+            if req.is_silent_read && initiative_factor > self.silent_read_initiative_chance {
+                return Ok(VizierResponse::Empty);
+            }
+
+            let output: String;
+            let mut message = Message::user(format!("{}", req.to_prompt()?,));
+
+            let start = Instant::now();
+
+            loop {
+                let response = self
                     .agent
-                    .tool_server_handle
-                    .call_tool(&function_name, &args)
-                    .await
-                {
-                    Err(err) => err.to_string(),
-                    Ok(s) => s,
-                };
-                tool_res = hooks.on_tool_response(tool_res).await?;
+                    .completion(message.clone(), history.clone())
+                    .await?
+                    .send()
+                    .await?;
 
-                let content = ToolResultContent::from_tool_output(tool_res);
-                tool_responses.push(if let Some(call_id) = &call.call_id {
-                    UserContent::tool_result_with_call_id(call.id.clone(), call_id.clone(), content)
-                } else {
-                    UserContent::tool_result(call.id.clone(), content)
+                history.push(message);
+
+                history.push(Message::Assistant {
+                    id: response.message_id.clone(),
+                    content: response.choice.clone(),
                 });
+
+                let (tool_calls, others): (Vec<_>, Vec<_>) = response
+                    .choice
+                    .iter()
+                    .partition(|choice| matches!(choice, AssistantContent::ToolCall(_)));
+
+                if tool_calls.is_empty() {
+                    output = others
+                        .iter()
+                        .filter_map(|item| {
+                            if let AssistantContent::Text(text) = item {
+                                Some(text.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    break;
+                }
+
+                let mut tool_responses = vec![];
+                for call in tool_calls.iter().filter_map(|item| {
+                    if let AssistantContent::ToolCall(call) = item {
+                        Some(call)
+                    } else {
+                        None
+                    }
+                }) {
+                    let (mut function_name, mut args) = (
+                        call.function.name.to_string(),
+                        serde_json::to_string(&call.function.arguments).unwrap(),
+                    );
+                    (function_name, args) = hooks.on_tool_call(function_name, args).await?;
+
+                    let mut tool_res = match timeout(
+                        self.tool_call_timeout,
+                        self.agent
+                            .tool_server_handle
+                            .call_tool(&function_name, &args),
+                    )
+                    .await?
+                    {
+                        Err(err) => err.to_string(),
+                        Ok(s) => s,
+                    };
+                    tool_res = hooks.on_tool_response(tool_res).await?;
+
+                    let content = ToolResultContent::from_tool_output(tool_res);
+                    tool_responses.push(if let Some(call_id) = &call.call_id {
+                        UserContent::tool_result_with_call_id(
+                            call.id.clone(),
+                            call_id.clone(),
+                            content,
+                        )
+                    } else {
+                        UserContent::tool_result(call.id.clone(), content)
+                    });
+                }
+
+                message = Message::User {
+                    content: OneOrMany::many(tool_responses).unwrap(),
+                }
             }
 
-            message = Message::User {
-                content: OneOrMany::many(tool_responses).unwrap(),
-            }
-        }
+            let mut response = VizierResponse::Message {
+                content: output.clone(),
+                stats: Some(VizierResponseStats {
+                    duration: start.elapsed(),
+                }),
+            };
+            response = hooks.on_response(response).await?;
 
-        let mut response = VizierResponse::Message {
-            content: output.clone(),
-            stats: Some(VizierResponseStats {
-                duration: start.elapsed(),
-            }),
-        };
-        response = hooks.on_response(response).await?;
-
-        Ok(response)
+            Ok(response)
+        })
+        .await?
     }
 }
 

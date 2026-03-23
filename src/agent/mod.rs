@@ -186,7 +186,7 @@ impl SessionProcess {
                 let agent_config = agent_config.clone();
                 let agent_session = Arc::new(Mutex::new(AgentSession {
                     session_memory: memories,
-                    session_ttl: *agent_config.session_ttl,
+                    session_ttl: *agent_config.session_timeout,
                     last_interact_at: Utc::now(),
                 }));
 
@@ -257,7 +257,7 @@ impl SessionProcess {
                 });
 
                 let agent_session = agent_session.clone();
-                let session_ttl = agent_config.session_ttl;
+                let session_ttl = agent_config.session_timeout;
                 let stale_handler = tokio::spawn(async move {
                     loop {
                         let _ = tokio::time::sleep(*session_ttl).await;

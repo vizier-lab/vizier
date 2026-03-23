@@ -24,7 +24,7 @@ where
 {
     async fn init_client(agent_id: String, deps: VizierDependencies) -> Result<Client>;
 
-    async fn new(agent_id: String, deps: VizierDependencies) -> Result<VizierAgentImpl<Client>> {
+    async fn build(agent_id: String, deps: VizierDependencies) -> Result<VizierAgentImpl<Client>> {
         let client = Self::init_client(agent_id.clone(), deps.clone()).await?;
 
         let agent_config = deps.config.agents.get(&agent_id).unwrap();
@@ -53,6 +53,8 @@ where
             workspace: deps.config.workspace.clone(),
             primary_user: deps.config.primary_user.clone(),
             silent_read_initiative_chance: agent_config.silent_read_initiative_chance,
+            prompt_timeout: agent_config.prompt_timeout.into(),
+            tool_call_timeout: agent_config.tools.timeout.into(),
         })
     }
 }

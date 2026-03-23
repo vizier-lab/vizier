@@ -3,11 +3,13 @@ name: Vizier
 description: Digital steward
 provider: ollama
 model: qwen3.5:4b
-session_ttl: 30m
+prompt_timeout: 5m
+session_timeout: 30m
 session_memory:
   max_capacity: 10
 turn_depth: 10
 tools:
+  timeout: 1m
   python_interpreter: false
   shell_access: false
   brave_search:

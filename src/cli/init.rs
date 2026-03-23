@@ -32,10 +32,12 @@ pub fn init_default_agent(path: PathBuf) {
         model: "qwen3.5:4b".into(),
         description: Some("Digital steward".into()),
         provider: crate::config::provider::ProviderVariant::ollama,
-        session_ttl: DurationString::from_string("30m".into()).unwrap(),
+        prompt_timeout: DurationString::from_string("5m".into()).unwrap(),
+        session_timeout: DurationString::from_string("30m".into()).unwrap(),
         session_memory: MemoryConfig { max_capacity: 10 },
         turn_depth: 10,
         tools: AgentToolsConfig {
+            timeout: DurationString::from_string("1m".into()).unwrap(),
             python_interpreter: false,
             shell_access: false,
             brave_search: ToolConfig {

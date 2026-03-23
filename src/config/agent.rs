@@ -15,13 +15,14 @@ pub struct AgentConfig {
     pub description: Option<String>,
     pub provider: ProviderVariant,
     pub model: String,
-    pub session_ttl: DurationString,
     pub session_memory: MemoryConfig,
     pub turn_depth: usize,
     pub tools: AgentToolsConfig,
     pub silent_read_initiative_chance: f32,
     pub show_thinking: Option<bool>,
     pub include_documents: Option<Vec<String>>,
+    pub prompt_timeout: DurationString,
+    pub session_timeout: DurationString,
     #[serde(skip)]
     pub documents: Vec<String>,
 }
@@ -95,6 +96,7 @@ pub struct MemoryConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct AgentToolsConfig {
+    pub timeout: DurationString,
     pub python_interpreter: bool,
     pub shell_access: bool,
     pub brave_search: ToolConfig,
