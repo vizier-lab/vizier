@@ -35,7 +35,7 @@ pub fn init_default_agent(path: PathBuf) {
         prompt_timeout: DurationString::from_string("5m".into()).unwrap(),
         session_timeout: DurationString::from_string("30m".into()).unwrap(),
         session_memory: MemoryConfig { max_capacity: 10 },
-        turn_depth: 10,
+        thinking_depth: 10,
         tools: AgentToolsConfig {
             timeout: DurationString::from_string("1m".into()).unwrap(),
             python_interpreter: false,

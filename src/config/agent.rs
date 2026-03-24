@@ -16,7 +16,7 @@ pub struct AgentConfig {
     pub provider: ProviderVariant,
     pub model: String,
     pub session_memory: MemoryConfig,
-    pub turn_depth: usize,
+    pub thinking_depth: usize,
     pub tools: AgentToolsConfig,
     pub silent_read_initiative_chance: f32,
     pub show_thinking: Option<bool>,

@@ -21,6 +21,7 @@ use crate::{
     },
     config::{provider::ProviderVariant, user::UserConfig},
     dependencies::VizierDependencies,
+    error::VizierError,
     schema::{VizierRequest, VizierResponse, VizierResponseStats},
     utils::agent_workspace,
 };
@@ -167,7 +168,18 @@ impl<Client: CompletionClient> VizierAgentImpl<Client> {
         memory: Option<&SessionMemories>,
         hooks: Arc<VizierSessionHooks>,
     ) -> Result<VizierResponse> {
+        let max_turn_depth = self.agent.default_max_turns.unwrap_or(0);
+        let mut turn_depth = 0;
+
         timeout(self.prompt_timeout, async {
+            turn_depth += 1;
+            if max_turn_depth > 0 && turn_depth > max_turn_depth {
+                return Err(anyhow::anyhow!(VizierError(format!(
+                    "thinking depth exceeding {}",
+                    max_turn_depth
+                ))));
+            }
+
             let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
             let initiative_factor = rng.random_range(0_f32..=1_f32);
 

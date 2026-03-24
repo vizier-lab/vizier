@@ -40,7 +40,7 @@ where
             .name(&agent_config.name.clone())
             .preamble(&boot)
             .tool_server_handle(tool.handle)
-            .default_max_turns(agent_config.turn_depth)
+            .default_max_turns(agent_config.thinking_depth)
             .build();
 
         Ok(VizierAgentImpl::<Client> {
