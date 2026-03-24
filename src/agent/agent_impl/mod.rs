@@ -238,13 +238,14 @@ impl<Client: CompletionClient> VizierAgentImpl<Client> {
                     );
                     (function_name, args) = hooks.on_tool_call(function_name, args).await?;
 
+                    let tool_server = self.agent.clone().tool_server_handle;
                     let mut tool_res = match timeout(
                         self.tool_call_timeout,
-                        self.agent
-                            .tool_server_handle
-                            .call_tool(&function_name, &args),
+                        tokio::spawn(
+                            async move { tool_server.call_tool(&function_name, &args).await },
+                        ),
                     )
-                    .await?
+                    .await??
                     {
                         Err(err) => err.to_string(),
                         Ok(s) => s,
