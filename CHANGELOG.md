@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-03-24
+
+### 🚀 Features
+
+- Implement modular storage and filesystem based storage
+- Change id of history based on provider
+- Implement multiple embedding providers
+- Add env interpolation support
+- Add anthropic, openai, and gemini provider
+- Add timeout logics
+- Implement chat intteruption
+- Implement cursor pagination
+- Implement sliding window for session history
+- Implement image based docker sandboxing
+- Reimplement turn depth as thinking depth
+- Recall old history on session start
+- Implement embedded document
+
+### 🐛 Bug Fixes
+
+- Missing context on interruption
+- Timeout now canceling tool call
+
+### 💼 Other
+
+- Update loading agent config behaviour
+- Rename IDENT.md to IDENTITY.md
+- Add package keyword
+
+### 🚜 Refactor
+
+- Make sessions processes shared its agent
+- Make db/storage modular
+
+### 📚 Documentation
+
+- Update documentation
 ## [0.2.0-rc.5] - 2026-03-20
 
 ### 🚀 Features
@@ -21,6 +58,10 @@ All notable changes to this project will be documented in this file.
 - Book scaffold
 - Add chapter 1 of documentation
 - Add book pages workflow
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.2.0-rc.5
 ## [0.2.0-rc.4] - 2026-03-17
 
 ### 🐛 Bug Fixes
