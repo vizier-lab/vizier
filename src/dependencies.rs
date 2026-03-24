@@ -3,10 +3,18 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::{
-    config::{VizierConfig, storage::StorageConfig},
+    config::{
+        VizierConfig,
+        storage::{DocumentIndexerConfig, StorageConfig},
+    },
     embedding::VizierEmbedder,
     shell::VizierShell,
-    storage::{VizierStorage, fs::FileSystemStorage, surreal::SurrealStorage},
+    storage::{
+        VizierStorage,
+        fs::FileSystemStorage,
+        indexer::{DocumentIndexer, VizierIndexer, inmem::InMemIndexer, surreal},
+        surreal::SurrealStorage,
+    },
     transport::VizierTransport,
 };
 
@@ -27,16 +35,24 @@ impl VizierDependencies {
             None
         };
 
-        let storage = match config.storage {
-            StorageConfig::Filesystem => {
-                let fs = FileSystemStorage::new(config.workspace.clone(), embedder.clone()).await?;
+        let surreal = SurrealStorage::new(config.workspace.clone(), embedder.clone()).await?;
+
+        let storage = match &config.storage {
+            StorageConfig::Filesystem(indexer_config) => {
+                let surreal_indexer = VizierIndexer::build(surreal);
+
+                let indexer = match indexer_config {
+                    DocumentIndexerConfig::Surreal => VizierIndexer::build(surreal_indexer),
+                    DocumentIndexerConfig::InMem => {
+                        VizierIndexer::build(InMemIndexer::new(embedder.clone()))
+                    }
+                };
+
+                let fs =
+                    FileSystemStorage::new(config.workspace.clone(), Arc::new(indexer)).await?;
                 VizierStorage::new(fs)
             }
-            StorageConfig::Surreal => {
-                let surreal =
-                    SurrealStorage::new(config.workspace.clone(), embedder.clone()).await?;
-                VizierStorage::new(surreal)
-            }
+            StorageConfig::Surreal => VizierStorage::new(surreal),
         };
 
         let shell = Arc::new(VizierShell::new(&config.shell).await?);

@@ -23,6 +23,7 @@ use crate::{
     dependencies::VizierDependencies,
     error::VizierError,
     schema::{VizierRequest, VizierResponse, VizierResponseStats},
+    storage::indexer::DocumentIndexer,
     utils::agent_workspace,
 };
 
@@ -42,6 +43,14 @@ pub enum VizierAgent {
 impl VizierAgent {
     pub async fn new(agent_id: String, deps: &VizierDependencies) -> Result<VizierAgent> {
         let agent_config = deps.config.agents.get(&agent_id.clone()).unwrap();
+        log::info!("reindex {} documents", agent_config.name);
+        for document in &agent_config.documents {
+            log::info!("reindex {}", document);
+            deps.storage
+                .add_document_index(format!("document/{}", agent_id), document.clone())
+                .await?;
+        }
+
         let agent = match &agent_config.provider {
             ProviderVariant::openrouter => VizierAgent::OpenRouter(
                 VizierAgentImpl::<openrouter::Client>::build(agent_id.clone(), deps.clone())

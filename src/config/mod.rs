@@ -154,7 +154,7 @@ impl Default for VizierConfig {
                 discord_username: "".into(),
                 alias: vec![],
             },
-            storage: StorageConfig::Filesystem,
+            storage: StorageConfig::Filesystem(storage::DocumentIndexerConfig::InMem),
             providers: ProviderConfig {
                 ollama: Some(OllamaProviderConfig::default()),
                 deepseek: None,

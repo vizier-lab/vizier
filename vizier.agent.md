@@ -5,7 +5,7 @@ provider: ollama
 model: qwen3.5:4b
 session_memory:
   max_capacity: 10
-turn_depth: 10
+thinking_depth: 10
 tools:
   timeout: 1m
   python_interpreter: false
@@ -21,7 +21,8 @@ tools:
     programmatic_tool_call: false
 silent_read_initiative_chance: 0.0
 show_thinking: false
-include_documents: null
+include_documents:
+  - ./docs/src/**/*.md
 prompt_timeout: 5m
 session_timeout: 30m
 ---

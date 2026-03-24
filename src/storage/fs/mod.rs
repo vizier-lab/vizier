@@ -1,9 +1,14 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::sync::Mutex;
 
-use crate::{embedding::VizierEmbedder, schema::DocumentIndex, storage::VizierStorageProvider};
+use crate::{
+    schema::DocumentIndex,
+    storage::{
+        VizierStorageProvider,
+        indexer::{DocumentIndexer, VizierIndexer},
+    },
+};
 
 mod history;
 mod memory;
@@ -15,17 +20,12 @@ const HISTORY_PATH: &'static str = "history";
 
 pub struct FileSystemStorage {
     workspace: String,
-    memory_indices: Arc<Mutex<HashMap<String, DocumentIndex>>>,
-    embedder: Option<Arc<VizierEmbedder>>,
+    indices: Arc<VizierIndexer>,
 }
 
 impl FileSystemStorage {
-    pub async fn new(workspace: String, embedder: Option<Arc<VizierEmbedder>>) -> Result<Self> {
-        let storage = Self {
-            workspace,
-            memory_indices: Arc::new(Mutex::new(HashMap::new())),
-            embedder,
-        };
+    pub async fn new(workspace: String, indices: Arc<VizierIndexer>) -> Result<Self> {
+        let storage = Self { workspace, indices };
 
         storage.reindex_memory().await?;
 
@@ -34,3 +34,25 @@ impl FileSystemStorage {
 }
 
 impl VizierStorageProvider for FileSystemStorage {}
+
+#[async_trait::async_trait]
+impl DocumentIndexer for FileSystemStorage {
+    async fn add_document_index(&self, context: String, path: String) -> Result<DocumentIndex> {
+        self.indices.add_document_index(context, path).await
+    }
+    async fn search_document_index(
+        &self,
+        context: String,
+        query: String,
+        limit: usize,
+        threshold: f64,
+    ) -> Result<Vec<DocumentIndex>> {
+        self.indices
+            .search_document_index(context, query, limit, threshold)
+            .await
+    }
+
+    async fn delete_index(&self, context: String, path: String) -> Result<()> {
+        self.indices.delete_index(context, path).await
+    }
+}

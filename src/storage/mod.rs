@@ -1,8 +1,16 @@
 use std::sync::Arc;
 
-use crate::storage::{history::HistoryStorage, memory::MemoryStorage, task::TaskStorage};
+use anyhow::Result;
+
+use crate::{
+    schema::DocumentIndex,
+    storage::{
+        history::HistoryStorage, indexer::DocumentIndexer, memory::MemoryStorage, task::TaskStorage,
+    },
+};
 
 pub mod history;
+pub mod indexer;
 pub mod memory;
 pub mod task;
 
@@ -11,7 +19,7 @@ pub mod surreal;
 
 pub trait VizierStorageProvider
 where
-    Self: MemoryStorage + TaskStorage + HistoryStorage,
+    Self: MemoryStorage + TaskStorage + HistoryStorage + DocumentIndexer,
 {
 }
 
@@ -21,6 +29,28 @@ pub struct VizierStorage(Arc<Box<dyn VizierStorageProvider + Sync + Send + 'stat
 impl VizierStorage {
     pub fn new<Storage: VizierStorageProvider + Sync + Send + 'static>(storage: Storage) -> Self {
         Self(Arc::new(Box::new(storage)))
+    }
+}
+
+#[async_trait::async_trait]
+impl DocumentIndexer for VizierStorage {
+    async fn add_document_index(&self, context: String, path: String) -> Result<DocumentIndex> {
+        self.0.add_document_index(context, path).await
+    }
+    async fn search_document_index(
+        &self,
+        context: String,
+        query: String,
+        limit: usize,
+        threshold: f64,
+    ) -> Result<Vec<DocumentIndex>> {
+        self.0
+            .search_document_index(context, query, limit, threshold)
+            .await
+    }
+
+    async fn delete_index(&self, context: String, path: String) -> Result<()> {
+        self.0.delete_index(context, path).await
     }
 }
 

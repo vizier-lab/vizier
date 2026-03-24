@@ -6,11 +6,10 @@ use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
 use crate::{
-    embedding::VizierEmbeddingModel,
-    error::VizierError,
-    schema::{DocumentIndex, Memory},
+    schema::Memory,
     storage::{
         fs::{FileSystemStorage, MEMORY_PATH},
+        indexer::DocumentIndexer,
         memory::MemoryStorage,
     },
     utils,
@@ -37,10 +36,6 @@ impl From<Memory> for MemoryFrontMatter {
 
 impl FileSystemStorage {
     pub async fn reindex_memory(&self) -> Result<()> {
-        if self.embedder.is_none() {
-            return Ok(());
-        }
-
         log::info!("reindex existing memory");
         let path = format!("{}/agents/**/{MEMORY_PATH}/*.md", self.workspace);
         for entry in glob::glob(&path)? {
@@ -50,34 +45,9 @@ impl FileSystemStorage {
                 continue;
             }
 
-            log::info!("reindex {:?}", entry);
-            let (frontmatter, content) =
-                utils::markdown::read_markdown::<MemoryFrontMatter>(entry)?;
-
-            let embedding = self.embedder.clone().unwrap().embed_text(&content).await?;
-            let memory = Memory {
-                slug: frontmatter.slug,
-                agent_id: frontmatter.agent_id,
-                content,
-                title: frontmatter.title,
-                timestamp: frontmatter.timestamp,
-                embedding: embedding.clone(),
-            };
-
-            let path_str = format!(
-                "{}/agents/{}/{}/{}",
-                self.workspace,
-                memory.agent_id.clone(),
-                MEMORY_PATH,
-                memory.slug.clone()
-            );
-            self.memory_indices.lock().await.insert(
-                path_str.clone(),
-                DocumentIndex {
-                    path: path_str,
-                    embedding,
-                },
-            );
+            self.indices
+                .add_document_index("memory".into(), entry.to_str().unwrap().to_string())
+                .await?;
         }
 
         Ok(())
@@ -93,11 +63,6 @@ impl MemoryStorage for FileSystemStorage {
         title: String,
         content: String,
     ) -> Result<()> {
-        let embedder = self
-            .embedder
-            .clone()
-            .ok_or(VizierError("embedder is not set".into()))?;
-
         let slug = slug.unwrap_or_else(|| slugify!(&title));
         let slug = if slug.ends_with(".md") {
             slug
@@ -129,14 +94,9 @@ impl MemoryStorage for FileSystemStorage {
             path.clone(),
         )?;
 
-        let embedding = embedder.embed_text(&content).await?;
-        self.memory_indices.lock().await.insert(
-            path_str.clone(),
-            DocumentIndex {
-                path: path_str,
-                embedding,
-            },
-        );
+        self.indices
+            .add_document_index("memory".into(), path_str.clone())
+            .await?;
 
         Ok(())
     }
@@ -146,47 +106,24 @@ impl MemoryStorage for FileSystemStorage {
         agent_id: String,
         query: String,
         limit: usize,
-        _threshold: f64,
+        threshold: f64,
     ) -> Result<Vec<Memory>> {
-        let embedder = self
-            .embedder
-            .clone()
-            .ok_or(VizierError("embedder is not set".into()))?;
-
-        let q_embedding = embedder.embed_text(&query).await?;
-
-        let path = format!(
-            "{}/agents/{}/{}",
-            self.workspace,
-            agent_id.clone(),
-            MEMORY_PATH
-        );
-
-        let indices = self.memory_indices.lock().await;
-
-        let mut documents = indices
-            .iter()
-            .filter(|index| index.0.contains(&path))
-            .map(|(_, index)| {
-                let distance = q_embedding
-                    .iter()
-                    .zip(&index.embedding)
-                    .map(|(a, b)| (a - b).powi(2))
-                    .sum::<f64>()
-                    .sqrt();
-
-                (index.clone(), distance)
-            })
-            .take(limit)
-            .collect::<Vec<(DocumentIndex, f64)>>();
-
-        documents.sort_by(|a, b| a.1.total_cmp(&b.1));
+        let documents = self
+            .indices
+            .search_document_index("memory".into(), query, limit, threshold)
+            .await?;
 
         let mut res = vec![];
-        for (index, _) in documents.iter() {
+        for index in documents.iter() {
             let (frontmatter, content) = utils::markdown::read_markdown::<MemoryFrontMatter>(
                 PathBuf::from(index.path.clone()),
             )?;
+
+            // TODO: need better handling to check agent_id on index level
+            // especially on multi agent workflow
+            if frontmatter.agent_id != agent_id {
+                continue;
+            }
 
             res.push(Memory {
                 slug: frontmatter.slug,
@@ -203,23 +140,22 @@ impl MemoryStorage for FileSystemStorage {
 
     async fn get_all_agent_memory(&self, agent_id: String) -> Result<Vec<Memory>> {
         let path = format!(
-            "{}/agents/{}/{}/",
+            "{}/agents/{}/{}/*",
             self.workspace,
             agent_id.clone(),
             MEMORY_PATH
         );
 
-        let indices = self.memory_indices.lock().await;
-        let indices = indices
-            .iter()
-            .filter(|index| index.0.contains(&path))
-            .map(|index| index.1.clone())
-            .collect::<Vec<_>>();
-
         let mut res = vec![];
-        for index in &indices {
+        for entry in glob::glob(&path)? {
+            let entry = entry?;
+
+            if !entry.is_file() {
+                continue;
+            }
+
             let (frontmatter, content) =
-                utils::markdown::read_markdown::<MemoryFrontMatter>(PathBuf::from(path.clone()))?;
+                utils::markdown::read_markdown::<MemoryFrontMatter>(entry)?;
 
             res.push(Memory {
                 slug: frontmatter.slug,
@@ -227,7 +163,7 @@ impl MemoryStorage for FileSystemStorage {
                 content,
                 title: frontmatter.title,
                 timestamp: frontmatter.timestamp,
-                embedding: index.embedding.clone(),
+                embedding: vec![],
             });
         }
 
@@ -253,15 +189,13 @@ impl MemoryStorage for FileSystemStorage {
             PathBuf::from(PathBuf::from(path.clone())),
         )?;
 
-        let indices = self.memory_indices.lock().await;
-        let index = indices.get(&path).ok_or(VizierError("not found".into()))?;
         let res = Memory {
             slug: frontmatter.slug,
             agent_id: frontmatter.agent_id,
             content,
             title: frontmatter.title,
             timestamp: frontmatter.timestamp,
-            embedding: index.embedding.clone(),
+            embedding: vec![],
         };
 
         Ok(Some(res))
@@ -282,9 +216,9 @@ impl MemoryStorage for FileSystemStorage {
             slug
         );
 
-        let mut indices = self.memory_indices.lock().await;
-        indices.remove(&path);
-
+        self.indices
+            .delete_index("memory".into(), path.clone())
+            .await?;
         std::fs::remove_file(path)?;
 
         Ok(())

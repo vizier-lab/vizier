@@ -58,7 +58,8 @@ impl Tool for MemoryRead {
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let res = self
             .1
-            .query_memory(self.0.clone(), args.query, 10, 0.)
+            // TODO: don't hardcode the threshold
+            .query_memory(self.0.clone(), args.query, 10, 0.1)
             .await
             .unwrap();
 

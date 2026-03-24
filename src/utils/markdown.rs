@@ -4,6 +4,14 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::error::VizierError;
 
+pub fn read_content(path: PathBuf) -> Result<String, VizierError> {
+    if let Ok((_, res)) = read_markdown::<serde_yaml::Value>(path.clone()) {
+        return Ok(res);
+    }
+
+    Ok(std::fs::read_to_string(path).map_err(|err| VizierError(err.to_string()))?)
+}
+
 pub fn read_markdown<T: DeserializeOwned + Clone>(
     path: PathBuf,
 ) -> Result<(T, String), VizierError> {

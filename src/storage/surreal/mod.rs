@@ -15,8 +15,8 @@ pub mod task;
 
 #[derive(Clone)]
 pub struct SurrealStorage {
-    conn: Arc<Surreal<Db>>,
-    embedder: Option<Arc<VizierEmbedder>>,
+    pub conn: Arc<Surreal<Db>>,
+    pub embedder: Option<Arc<VizierEmbedder>>,
 }
 
 impl SurrealStorage {

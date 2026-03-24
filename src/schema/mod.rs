@@ -122,8 +122,9 @@ pub enum SessionHistoryContent {
     Response(String, Option<VizierResponseStats>),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
 pub struct DocumentIndex {
     pub path: String,
     pub embedding: Vec<f64>,
+    pub context: String,
 }
