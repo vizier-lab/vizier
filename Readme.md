@@ -199,12 +199,13 @@ Install Python 3.9 or higher following the installation instructions above, then
     - [x] Programmatic Tool Calling
 - [x] Brave Search integration
 - [x] Local embedding model support
-- [ ] Docker Sandbox
+- [x] Docker Sandbox
+- [x] Simple TUI (terminal user interface)
+- [x] Additional AI providers (Google Gemini, OpenAI, Anthropic, etc.)
+- [ ] WASM based plugin
 - [ ] Model Context Protocol (MCP) integration
 - [ ] Built-in HTTP client tool
 - [ ] Skill system for reusable agent behaviors
-- [ ] Additional AI providers (Google Gemini, OpenAI, Anthropic, etc.)
-~~- [ ] TUI (terminal user interface)~~ on hold
 
 ## Development
 

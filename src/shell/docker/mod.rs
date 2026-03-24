@@ -116,7 +116,6 @@ impl ShellProvider for DockerShell {
             )
             .await;
 
-        log::debug!("{:?}", exec);
         let exec_id = exec?.id;
 
         let mut res = vec![];

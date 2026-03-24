@@ -69,7 +69,7 @@ impl SessionMemories {
         self.cap_message();
     }
 
-    pub fn push_agent(&mut self, response: VizierResponse) {
+    pub fn push_agent_message(&mut self, response: VizierResponse) {
         self.messages.push(SessionMemory::Response(response));
 
         self.cap_message();

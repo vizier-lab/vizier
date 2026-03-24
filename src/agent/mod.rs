@@ -16,7 +16,8 @@ use crate::agent::memory::SessionMemories;
 use crate::config::agent::AgentConfig;
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
-use crate::schema::{VizierRequest, VizierResponse, VizierSession};
+use crate::schema::{SessionHistoryContent, VizierRequest, VizierResponse, VizierSession};
+use crate::storage::history::HistoryStorage;
 
 pub mod agent_impl;
 pub mod hook;
@@ -58,7 +59,7 @@ impl VizierAgent {
             .await?;
 
         session.session_memory.push_user_message(request.clone());
-        session.session_memory.push_agent(response.clone());
+        session.session_memory.push_agent_message(response.clone());
         session.session_memory.try_summarize(&self).await?;
 
         session.last_interact_at = Utc::now();
@@ -176,11 +177,31 @@ impl SessionProcess {
         }
         let hooks = Arc::new(hooks);
 
-        let memories = SessionMemories::new(
+        let mut memories = SessionMemories::new(
             agent_id.clone(),
             agent_config.session_memory.clone(),
             hooks.clone(),
         );
+
+        // fill initial memory with previous conversation
+        deps.storage
+            .list_session_history(
+                session.clone(),
+                Some(Utc::now()),
+                Some(agent_config.session_memory.max_capacity),
+            )
+            .await?
+            .iter()
+            .for_each(|history| match &history.content {
+                SessionHistoryContent::Request(req) => memories.push_user_message(req.clone()),
+                SessionHistoryContent::Response(content, stats) => {
+                    memories.push_agent_message(VizierResponse::Message {
+                        content: content.clone(),
+                        stats: stats.clone(),
+                    })
+                }
+            });
+
         Ok(Self {
             session_transport: session_transport.clone(),
             handle: tokio::spawn(async move {
