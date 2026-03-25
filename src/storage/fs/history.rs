@@ -89,8 +89,14 @@ impl HistoryStorage for FileSystemStorage {
             slug
         ));
 
-        utils::markdown::write_markdown(&frontmatter, content, path)?;
-        Ok(())
+        let res = utils::markdown::write_markdown(&frontmatter, content, path.clone());
+
+        // delete the file if the write error
+        if res.is_err() {
+            let _ = std::fs::remove_file(&path);
+        }
+
+        Ok(res?)
     }
 
     async fn list_session_history(
@@ -116,31 +122,32 @@ impl HistoryStorage for FileSystemStorage {
                 continue;
             }
 
-            let (frontmatter, content) =
-                utils::markdown::read_markdown::<SessionHistoryFrontMatter>(entry)?;
-
-            res.push(SessionHistory {
-                uid: frontmatter.uid,
-                session: frontmatter.session,
-                timestamp: frontmatter.timestamp,
-                content: match frontmatter.content_metadata {
-                    ContentMetadata::request {
-                        user,
-                        is_silent_read,
-                        is_task,
-                        metadata,
-                    } => SessionHistoryContent::Request(VizierRequest {
-                        user,
-                        is_silent_read,
-                        is_task,
-                        metadata,
-                        content,
-                    }),
-                    ContentMetadata::response { stats } => {
-                        SessionHistoryContent::Response(content, stats)
-                    }
-                },
-            });
+            if let Ok((frontmatter, content)) =
+                utils::markdown::read_markdown::<SessionHistoryFrontMatter>(entry)
+            {
+                res.push(SessionHistory {
+                    uid: frontmatter.uid,
+                    session: frontmatter.session,
+                    timestamp: frontmatter.timestamp,
+                    content: match frontmatter.content_metadata {
+                        ContentMetadata::request {
+                            user,
+                            is_silent_read,
+                            is_task,
+                            metadata,
+                        } => SessionHistoryContent::Request(VizierRequest {
+                            user,
+                            is_silent_read,
+                            is_task,
+                            metadata,
+                            content,
+                        }),
+                        ContentMetadata::response { stats } => {
+                            SessionHistoryContent::Response(content, stats)
+                        }
+                    },
+                });
+            }
         }
 
         // Sort by timestamp descending (most recent first) for proper cursor pagination
