@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2] - 2026-03-25
+
+### 🐛 Bug Fixes
+
+- Remove summary in favor of session window
+- When init session using fs storage
 ## [0.2.1] - 2026-03-24
 
 ### 💼 Other
@@ -15,6 +21,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Remove useless ci
+- Bump version to 0.2.1
 ## [0.2.0] - 2026-03-24
 
 ### 🚀 Features
