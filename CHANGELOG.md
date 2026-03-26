@@ -2,12 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.3] - 2026-03-26
+
+### 🐛 Bug Fixes
+
+- Separate session for each task running
+
+### 📚 Documentation
+
+- Fix docs numbering and paging
 ## [0.2.2] - 2026-03-25
 
 ### 🐛 Bug Fixes
 
 - Remove summary in favor of session window
 - When init session using fs storage
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.2.2
 ## [0.2.1] - 2026-03-24
 
 ### 💼 Other
