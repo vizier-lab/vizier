@@ -13,7 +13,7 @@ use crate::{
     agents::{
         agent::{
             model::{VizierModel, VizierModelTrait},
-            system_prompt::{boot::boot_md, user::primary_user_md},
+            system_prompt::{boot::boot_md, init_workspace, user::primary_user_md},
         },
         hook::{VizierSessionHook, VizierSessionHooks},
         memory::SessionMemories,
@@ -22,7 +22,7 @@ use crate::{
     config::{agent::AgentConfig, user::UserConfig},
     dependencies::VizierDependencies,
     error::VizierError,
-    schema::{VizierRequest, VizierResponse, VizierResponseStats},
+    schema::{VizierRequest, VizierRequestContent, VizierResponse, VizierResponseStats},
     storage::indexer::DocumentIndexer,
     utils::agent_workspace,
 };
@@ -55,6 +55,7 @@ impl VizierAgent {
         let tools = VizierTools::new(agent_id.clone(), deps.clone()).await?;
 
         let workspace = agent_workspace(&deps.config.workspace, &agent_id);
+        init_workspace(workspace.clone());
 
         Ok(Self {
             model,
@@ -117,8 +118,10 @@ impl VizierAgent {
             let mut req = req;
             req = hooks.on_request(req).await?;
 
-            if req.is_silent_read && initiative_factor > self.config.silent_read_initiative_chance {
-                return Ok(VizierResponse::Empty);
+            if let VizierRequestContent::SilentRead(_) = req.content {
+                if initiative_factor > self.config.silent_read_initiative_chance {
+                    return Ok(VizierResponse::Empty);
+                }
             }
 
             let output: String;

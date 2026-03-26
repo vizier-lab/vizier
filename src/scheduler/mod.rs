@@ -78,9 +78,10 @@ impl VizierScheduler {
                         ),
                         VizierRequest {
                             user: task.user,
-                            content: task.instruction,
-                            is_task: true,
-                            ..Default::default()
+                            content: crate::schema::VizierRequestContent::Task(task.instruction),
+                            metadata: serde_json::json!({
+                                "timestamp": now,
+                            }),
                         },
                     )
                     .await;

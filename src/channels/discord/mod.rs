@@ -13,7 +13,9 @@ use serenity::prelude::*;
 
 use crate::channels::VizierChannel;
 use crate::config::DiscordChannelConfig;
-use crate::schema::{SessionId, VizierRequest, VizierResponse, VizierSession};
+use crate::schema::{
+    SessionId, VizierRequest, VizierRequestContent, VizierResponse, VizierSession,
+};
 use crate::transport::VizierTransport;
 use crate::utils::remove_think_tags;
 
@@ -165,10 +167,8 @@ impl EventHandler for Handler {
                                 command.user.display_name(),
                                 command.user.id.to_string()
                             ),
-                            content: "/lobotomy".into(),
-                            is_silent_read: true,
+                            content: VizierRequestContent::Command("/lobotomy".into()),
                             metadata,
-                            ..Default::default()
                         },
                     )
                     .await
@@ -232,10 +232,8 @@ If I am halucinating, feel free to `/lobotomy` me
                                     msg.author.display_name(),
                                     msg.author.id.to_string()
                                 ),
-                                content: msg.content,
-                                is_silent_read: true,
+                                content: VizierRequestContent::SilentRead(msg.content),
                                 metadata,
-                                ..Default::default()
                             },
                         )
                         .await
@@ -257,10 +255,8 @@ If I am halucinating, feel free to `/lobotomy` me
                                 msg.author.display_name(),
                                 msg.author.id.to_string()
                             ),
-                            content: msg.content,
+                            content: VizierRequestContent::Chat(msg.content),
                             metadata,
-
-                            ..Default::default()
                         },
                     )
                     .await

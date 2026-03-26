@@ -62,9 +62,8 @@ pub async fn tui(args: TuiArgs) -> Result<()> {
             session.clone(),
             VizierRequest {
                 user: config.primary_user.name.clone(),
-                content: text.clone(),
+                content: crate::schema::VizierRequestContent::Chat(text.clone()),
                 metadata,
-                ..Default::default()
             },
         );
 

@@ -20,7 +20,9 @@ use crate::{
         },
         state::HTTPState,
     },
-    schema::{SessionHistoryContent, SessionId, VizierRequest, VizierSession},
+    schema::{
+        SessionHistoryContent, SessionId, VizierRequest, VizierRequestContent, VizierSession,
+    },
     storage::history::HistoryStorage,
     transport::VizierTransport,
 };
@@ -64,7 +66,7 @@ pub async fn get_session_history(
         .iter()
         .map(|history| match history.content.clone() {
             SessionHistoryContent::Request(req) => ChatHistory::request(ChatRequest {
-                content: req.content,
+                content: format!("{}", req.content),
                 user: req.user,
                 timestamp: Some(history.timestamp),
             }),
@@ -141,10 +143,8 @@ pub async fn handle_socket(
                                 curr_session.clone(),
                                 VizierRequest {
                                     user: request.user,
-                                    content: request.content,
-                                    is_silent_read: false,
+                                    content: VizierRequestContent::Chat(request.content),
                                     metadata,
-                                    ..Default::default()
                                 },
                             )
                             .await;

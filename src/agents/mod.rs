@@ -16,7 +16,9 @@ use crate::agents::memory::SessionMemories;
 use crate::config::agent::AgentConfig;
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
-use crate::schema::{SessionHistoryContent, VizierRequest, VizierResponse, VizierSession};
+use crate::schema::{
+    SessionHistoryContent, VizierRequest, VizierRequestContent, VizierResponse, VizierSession,
+};
 use crate::storage::history::HistoryStorage;
 
 pub mod agent;
@@ -252,7 +254,23 @@ impl SessionProcess {
                             }
                         }
 
-                        if request.content == "/abort" {
+                        if let VizierRequestContent::Command(command) = &request.content {
+                            match &**command {
+                                "/abort" => {}
+                                "/lobotomy" => {
+                                    main_session.lock().await.lobotomy();
+
+                                    if let Err(err) = send_response(VizierResponse::Message {
+                                        content: "YIPEEEE".into(),
+                                        stats: None,
+                                    })
+                                    .await
+                                    {
+                                        log::error!("{}", err);
+                                    }
+                                }
+                                _ => {}
+                            }
                             continue;
                         }
 
@@ -261,54 +279,45 @@ impl SessionProcess {
 
                         let handler_thinking = is_thinking.clone();
                         curr_handle = tokio::spawn(async move {
-                            let mut main_session = main_session.lock().await;
-                            let send_lobotomy = send_response.clone();
-                            if request.content == "/lobotomy" {
-                                let _ = main_session.lobotomy();
-                                tokio::spawn(async move {
-                                    if let Err(err) = send_lobotomy(VizierResponse::Message {
-                                        content: "YIPEEEE".into(),
-                                        stats: None,
-                                    })
-                                    .await
-                                    {
-                                        log::error!("{}", err);
+                            let main_session = main_session.lock().await;
+
+                            match &request.content {
+                                VizierRequestContent::Chat(_) => {
+                                    *handler_thinking.lock().await = true;
+                                    let content = agent
+                                        .handle_chat(&request, main_session, hooks.clone())
+                                        .await;
+                                    let send_response = send_response.clone();
+                                    match content {
+                                        Err(err) => {
+                                            if let Err(err) =
+                                                send_response(VizierResponse::Message {
+                                                    content: err.to_string(),
+                                                    stats: None,
+                                                })
+                                                .await
+                                            {
+                                                log::error!("{}", err);
+                                            }
+                                        }
+                                        Ok(response) => {
+                                            if let Err(err) = send_response(response).await {
+                                                log::error!("{}", err);
+                                            }
+                                        }
                                     }
-                                });
-
-                                return;
-                            }
-
-                            if request.is_silent_read {
-                                let _ = agent
-                                    .handle_silent_read(main_session, &request, hooks.clone())
-                                    .await;
-                                return;
-                            }
-
-                            *handler_thinking.lock().await = true;
-                            let content = agent
-                                .handle_chat(&request, main_session, hooks.clone())
-                                .await;
-                            let send_response = send_response.clone();
-                            match content {
-                                Err(err) => {
-                                    if let Err(err) = send_response(VizierResponse::Message {
-                                        content: err.to_string(),
-                                        stats: None,
-                                    })
-                                    .await
-                                    {
-                                        log::error!("{}", err);
-                                    }
+                                    *handler_thinking.lock().await = false;
                                 }
-                                Ok(response) => {
-                                    if let Err(err) = send_response(response).await {
-                                        log::error!("{}", err);
-                                    }
+
+                                VizierRequestContent::SilentRead(_) => {
+                                    let _ = agent
+                                        .handle_silent_read(main_session, &request, hooks.clone())
+                                        .await;
+                                    return;
                                 }
+
+                                _ => unimplemented!(),
                             }
-                            *handler_thinking.lock().await = false;
                         });
                     }
                 });

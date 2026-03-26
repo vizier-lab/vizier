@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -15,6 +17,7 @@ pub enum SessionId {
     HTTP(String),
     Task(String, DateTime<Utc>),
     Socket(String),
+    InterAgent(Vec<String>),
 }
 
 impl SessionId {
@@ -26,6 +29,11 @@ impl SessionId {
                 format!("task__{}__{}", id, datetime.timestamp_subsec_nanos())
             }
             Self::Socket(id) => format!("socket__{}", id),
+            Self::InterAgent(set) => {
+                let participants = set.join("__");
+
+                format!("inter_agent__[{participants}]")
+            }
         }
     }
 }
@@ -55,12 +63,35 @@ pub enum VizierResponse {
     Empty,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, SurrealValue)]
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
+pub enum VizierRequestContent {
+    Chat(String),
+    Prompt(String),
+    SilentRead(String),
+    Task(String),
+    Command(String),
+}
+
+impl Display for VizierRequestContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Chat(content) => content,
+                Self::Prompt(content) => content,
+                Self::SilentRead(content) => content,
+                Self::Task(content) => content,
+                Self::Command(content) => content,
+            }
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
 pub struct VizierRequest {
     pub user: String,
-    pub content: String,
-    pub is_silent_read: bool,
-    pub is_task: bool,
+    pub content: VizierRequestContent,
     pub metadata: serde_json::Value,
 }
 

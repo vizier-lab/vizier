@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     schema::{
-        SessionHistory, SessionHistoryContent, VizierRequest, VizierResponseStats, VizierSession,
+        SessionHistory, SessionHistoryContent, VizierRequest, VizierRequestContent,
+        VizierResponseStats, VizierSession,
     },
     storage::{
         fs::{FileSystemStorage, HISTORY_PATH},
@@ -22,6 +23,9 @@ enum ContentMetadata {
         user: String,
         is_silent_read: bool,
         is_task: bool,
+        is_chat: bool,
+        is_prompt: bool,
+        is_command: bool,
         metadata: serde_json::Value,
     },
     response {
@@ -46,8 +50,31 @@ impl From<SessionHistory> for SessionHistoryFrontMatter {
             content_metadata: match value.content {
                 SessionHistoryContent::Request(req) => ContentMetadata::request {
                     user: req.user,
-                    is_silent_read: req.is_silent_read,
-                    is_task: req.is_task,
+                    is_silent_read: if let VizierRequestContent::SilentRead(_) = req.content {
+                        true
+                    } else {
+                        false
+                    },
+                    is_task: if let VizierRequestContent::Task(_) = req.content {
+                        true
+                    } else {
+                        false
+                    },
+                    is_chat: if let VizierRequestContent::Chat(_) = req.content {
+                        true
+                    } else {
+                        false
+                    },
+                    is_prompt: if let VizierRequestContent::Prompt(_) = req.content {
+                        true
+                    } else {
+                        false
+                    },
+                    is_command: if let VizierRequestContent::Command(_) = req.content {
+                        true
+                    } else {
+                        false
+                    },
                     metadata: req.metadata,
                 },
                 SessionHistoryContent::Response(_, stats) => {
@@ -76,7 +103,7 @@ impl HistoryStorage for FileSystemStorage {
         };
 
         let content = match content {
-            SessionHistoryContent::Request(req) => req.content.clone(),
+            SessionHistoryContent::Request(req) => format!("{}", req.content),
             SessionHistoryContent::Response(content, _) => content.clone(),
         };
 
@@ -134,13 +161,22 @@ impl HistoryStorage for FileSystemStorage {
                             user,
                             is_silent_read,
                             is_task,
+                            is_chat,
+                            is_prompt,
+                            is_command,
                             metadata,
                         } => SessionHistoryContent::Request(VizierRequest {
                             user,
-                            is_silent_read,
-                            is_task,
                             metadata,
-                            content,
+                            content: match (is_silent_read, is_task, is_chat, is_prompt, is_command)
+                            {
+                                (true, _, _, _, _) => VizierRequestContent::SilentRead(content),
+                                (_, true, _, _, _) => VizierRequestContent::Task(content),
+                                (_, _, true, _, _) => VizierRequestContent::Chat(content),
+                                (_, _, _, true, _) => VizierRequestContent::Prompt(content),
+                                (_, _, _, _, true) => VizierRequestContent::Command(content),
+                                _ => unimplemented!(),
+                            },
                         }),
                         ContentMetadata::response { stats } => {
                             SessionHistoryContent::Response(content, stats)
