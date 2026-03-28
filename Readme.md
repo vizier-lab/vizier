@@ -173,7 +173,7 @@ This means you built Vizier with Python support, but the binary was linked again
 **Solution: Build from source against your Python version**
 ```sh
 # Clone the repository
-git clone https://github.com/blinfoldking/vizier
+git clone https://github.com/vizier-lab/vizier
 cd vizier
 
 # Build with your Python version

@@ -54,7 +54,7 @@ cargo install vizier --features python
 Clone the repository and build manually:
 
 ```sh
-git clone https://github.com/blinfoldking/vizier
+git clone https://github.com/vizier-lab/vizier
 cd vizier
 cargo build --release
 ```

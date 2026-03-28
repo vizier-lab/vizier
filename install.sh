@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-REPO="blinfoldking/vizier"
+REPO="vizier-lab/vizier"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
 info() { echo "→ $1"; }
