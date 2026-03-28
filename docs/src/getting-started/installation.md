@@ -2,6 +2,10 @@
 
 ## Prerequisites
 
+No prerequisites required for standard installation. The install script handles everything automatically.
+
+### For Custom Installation (Building from Source)
+
 - [Rust and Cargo](https://rust-lang.org/) installed
 
 ### Optional: Python Support
@@ -32,7 +36,15 @@ Download from [python.org](https://www.python.org/downloads/)
 
 ## Installing Vizier
 
-### Standard Installation (without Python)
+### Standard Installation (Recommended)
+
+```sh
+curl -fsSL https://get.vizier.rs | sh
+```
+
+### Alternative: Cargo Installation
+
+If you prefer to build from source or need custom features:
 
 ```sh
 cargo install vizier
@@ -65,6 +77,15 @@ cargo build --release --features python
 ```
 
 ## Update Installed Version
+
+### Using Install Script
+
+Simply re-run the install script to get the latest version:
+```sh
+curl -fsSL https://get.vizier.rs | sh
+```
+
+### Using Cargo (if installed via cargo)
 
 1. Install `cargo-update` if you haven't already:
    ```sh

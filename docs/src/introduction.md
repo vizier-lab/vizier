@@ -51,7 +51,7 @@ Vizier is a Rust-based AI agent framework that provides a unified interface for 
 
 ```sh
 # Install Vizier
-cargo install vizier
+curl -fsSL https://get.vizier.rs | sh
 
 # Generate configuration
 vizier init

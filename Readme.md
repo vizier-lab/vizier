@@ -22,6 +22,10 @@ Vizier is a Rust-based AI agent framework that provides a unified interface for 
 
 ### Prerequisites
 
+No prerequisites required for standard installation. The install script handles everything automatically.
+
+#### For Custom Installation (Building from Source)
+
 - [Rust and Cargo](https://rust-lang.org/) installed
 
 #### Optional: Python Support
@@ -52,7 +56,12 @@ Download from [python.org](https://www.python.org/downloads/)
 
 ### Quick Start
 
-1. **Install Vizier** (without Python - default):
+1. **Install Vizier** (Recommended):
+   ```sh
+   curl -fsSL https://get.vizier.rs | sh
+   ```
+   
+   Or install via cargo (requires Rust):
    ```sh
    cargo install vizier
    # Or using cargo-binstall (faster)
@@ -131,6 +140,15 @@ just release-python  # Build release with Python
 The web interface is built with React and served automatically when the HTTP channel is enabled. After building (`just build`), it will be available at `http://localhost:9999` (or the port configured in your `config.yaml`).
 
 ## Update Installed Version
+
+### Using Install Script
+
+Simply re-run the install script to get the latest version:
+```sh
+curl -fFSL https://get.vizier.rs | sh
+```
+
+### Using Cargo (if installed via cargo)
 
 1. Install `cargo-update` if you haven't already:
    ```sh
