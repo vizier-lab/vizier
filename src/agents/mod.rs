@@ -17,9 +17,11 @@ use crate::config::agent::AgentConfig;
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::{
-    SessionHistoryContent, VizierRequest, VizierRequestContent, VizierResponse, VizierSession,
+    SessionHistoryContent, VizierChannelId, VizierRequest, VizierRequestContent, VizierResponse,
+    VizierSession, VizierSessionDetail,
 };
 use crate::storage::history::HistoryStorage;
+use crate::storage::session::SessionStorage;
 
 pub mod agent;
 pub mod hook;
@@ -40,7 +42,7 @@ impl VizierAgent {
         request: &VizierRequest,
         hooks: Arc<VizierSessionHooks>,
     ) -> Result<()> {
-        self.chat(request.clone(), Some(&session.session_memory), hooks)
+        self.chat(request.clone(), Some(&session.session_memory), Some(hooks))
             .await?;
 
         session.session_memory.push_user_message(request.clone());
@@ -57,7 +59,7 @@ impl VizierAgent {
         hooks: Arc<VizierSessionHooks>,
     ) -> Result<VizierResponse> {
         let response = self
-            .chat(request.clone(), Some(&session.session_memory), hooks)
+            .chat(request.clone(), Some(&session.session_memory), Some(hooks))
             .await;
 
         session.session_memory.push_user_message(request.clone());
@@ -74,7 +76,7 @@ impl VizierAgent {
         request: &VizierRequest,
         hooks: Arc<VizierSessionHooks>,
     ) -> Result<VizierResponse> {
-        let response = self.chat(request.clone(), None, hooks).await;
+        let response = self.chat(request.clone(), None, Some(hooks)).await;
 
         let response = response?;
         Ok(response)
@@ -227,7 +229,9 @@ impl SessionProcess {
                 }));
 
                 let main_session = agent_session.clone();
+                let handler_session = session.clone();
                 let main_handler = tokio::spawn(async move {
+                    let session = handler_session.clone();
                     let send_response = send_response.clone();
                     let mut curr_handle = tokio::spawn(async move {});
 
@@ -248,6 +252,52 @@ impl SessionProcess {
 
                     let mut prev_req: Option<VizierRequest> = None;
                     while let Ok(request) = session_transport.1.recv_async().await {
+                        // fill session detail in the background
+                        if session.1 != VizierChannelId::System {
+                            let storage = deps.storage.clone();
+                            let agent = agent.clone();
+                            let session = session.clone();
+                            let agent_id = agent_id.clone();
+                            let request = request.clone();
+
+                            let prompt = format!(
+                                "summarize prompt below as a plain single line title text: \n>{}",
+                                request.content.to_string()
+                            );
+                            let _ = tokio::spawn(async move {
+                                if let None = storage
+                                    .get_session_detail_by_topic(
+                                        session.0.clone(),
+                                        session.1.clone(),
+                                        session.2.clone(),
+                                    )
+                                    .await
+                                    .unwrap_or(None)
+                                {
+                                    let req = VizierRequest {
+                                        user: agent_id.clone(),
+                                        content: VizierRequestContent::Prompt(prompt),
+                                        metadata: serde_json::json!({}),
+                                    };
+
+                                    if let Ok(VizierResponse::Message { content, stats: _ }) =
+                                        agent.chat(req, None, None).await
+                                    {
+                                        let session_detail = VizierSessionDetail {
+                                            agent_id: session.0.clone(),
+                                            channel: session.1.clone(),
+                                            topic: session.2.clone(),
+                                            title: content.into(),
+                                        };
+
+                                        let _ = storage.save_session_detail(session_detail).await;
+
+                                        return;
+                                    }
+                                }
+                            });
+                        }
+
                         let main_session = main_session.clone();
 
                         let send_response = send_response.clone();
@@ -388,6 +438,7 @@ impl SessionProcess {
 
                 let agent_session = agent_session.clone();
                 let session_ttl = agent_config.session_timeout;
+                let session = session.clone();
                 let stale_handler = tokio::spawn(async move {
                     loop {
                         let _ = tokio::time::sleep(*session_ttl).await;

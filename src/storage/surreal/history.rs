@@ -20,7 +20,7 @@ impl HistoryStorage for SurrealStorage {
             .create(("session_history", uuid.clone().to_string()))
             .content(SessionHistory {
                 uid: uuid.to_string(),
-                session: session.clone(),
+                vizier_session: session.clone(),
                 content,
                 timestamp: Utc::now(),
             })
@@ -38,30 +38,30 @@ impl HistoryStorage for SurrealStorage {
         let query = if let Some(before_dt) = before {
             if let Some(limit_val) = limit {
                 format!(
-                    "SELECT * FROM session_history WHERE vizier_session == $session AND timestamp < {} ORDER BY timestamp DESC LIMIT {}",
+                    "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND timestamp < {} ORDER BY timestamp DESC LIMIT {}",
                     before_dt.timestamp_millis(),
                     limit_val
                 )
             } else {
                 format!(
-                    "SELECT * FROM session_history WHERE vizier_session == $session AND timestamp < {} ORDER BY timestamp DESC",
+                    "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND timestamp < {} ORDER BY timestamp DESC",
                     before_dt.timestamp_millis()
                 )
             }
         } else if let Some(limit_val) = limit {
             format!(
-                "SELECT * FROM session_history WHERE vizier_session == $session ORDER BY timestamp DESC LIMIT {}",
+                "SELECT * FROM session_history WHERE vizier_session == $vizier_session ORDER BY timestamp DESC LIMIT {}",
                 limit_val
             )
         } else {
-            "SELECT * FROM session_history WHERE vizier_session == $session ORDER BY timestamp DESC"
+            "SELECT * FROM session_history WHERE vizier_session == $vizier_session ORDER BY timestamp DESC"
                 .to_string()
         };
 
         let mut response = self
             .conn
             .query(query)
-            .bind(("session", session.clone()))
+            .bind(("vizier_session", session.clone()))
             .await?;
 
         let mut list: Vec<SessionHistory> = response.take(0)?;

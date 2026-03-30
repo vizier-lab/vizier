@@ -46,7 +46,7 @@ impl From<SessionHistory> for SessionHistoryFrontMatter {
         Self {
             uid: value.uid,
             timestamp: value.timestamp,
-            session: value.session,
+            session: value.vizier_session,
             content_metadata: match value.content {
                 SessionHistoryContent::Request(req) => ContentMetadata::request {
                     user: req.user,
@@ -93,11 +93,11 @@ impl HistoryStorage for FileSystemStorage {
         content: SessionHistoryContent,
     ) -> Result<()> {
         let now = Utc::now().to_rfc3339();
-        let slug = format!("{}__{}", session.1.to_slug(), now);
+        let slug = format!("{}", now);
 
         let history = SessionHistory {
             uid: slug.clone(),
-            session: session.clone(),
+            vizier_session: session.clone(),
             content: content.clone(),
             timestamp: Utc::now(),
         };
@@ -109,10 +109,11 @@ impl HistoryStorage for FileSystemStorage {
 
         let frontmatter = SessionHistoryFrontMatter::from(history);
         let path = PathBuf::from(format!(
-            "{}/agents/{}/{}/{}.md",
+            "{}/agents/{}/{}/{}/{}.md",
             self.workspace,
             session.0.clone(),
             HISTORY_PATH,
+            session.1.clone().to_slug(),
             slug
         ));
 
@@ -135,7 +136,7 @@ impl HistoryStorage for FileSystemStorage {
         let mut res = vec![];
 
         let path = format!(
-            "{}/agents/{}/{}/{}__*.md",
+            "{}/agents/{}/{}/{}/*.md",
             self.workspace,
             session.0.clone(),
             HISTORY_PATH,
@@ -154,7 +155,7 @@ impl HistoryStorage for FileSystemStorage {
             {
                 res.push(SessionHistory {
                     uid: frontmatter.uid,
-                    session: frontmatter.session,
+                    vizier_session: frontmatter.session,
                     timestamp: frontmatter.timestamp,
                     content: match frontmatter.content_metadata {
                         ContentMetadata::request {

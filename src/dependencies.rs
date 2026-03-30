@@ -12,7 +12,7 @@ use crate::{
     storage::{
         VizierStorage,
         fs::FileSystemStorage,
-        indexer::{DocumentIndexer, VizierIndexer, inmem::InMemIndexer, surreal},
+        indexer::{VizierIndexer, inmem::InMemIndexer},
         surreal::SurrealStorage,
     },
     transport::VizierTransport,
@@ -37,7 +37,12 @@ impl VizierDependencies {
 
         let surreal = SurrealStorage::new(config.workspace.clone(), embedder.clone()).await?;
 
+        println!("{:?}", config.storage);
         let storage = match &config.storage {
+            StorageConfig::Surreal => {
+                println!("called!");
+                VizierStorage::new(surreal)
+            }
             StorageConfig::Filesystem(indexer_config) => {
                 let surreal_indexer = VizierIndexer::build(surreal);
 
@@ -52,7 +57,6 @@ impl VizierDependencies {
                     FileSystemStorage::new(config.workspace.clone(), Arc::new(indexer)).await?;
                 VizierStorage::new(fs)
             }
-            StorageConfig::Surreal => VizierStorage::new(surreal),
         };
 
         let shell = Arc::new(VizierShell::new(&config.shell).await?);

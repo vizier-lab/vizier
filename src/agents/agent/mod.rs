@@ -95,7 +95,7 @@ impl VizierAgent {
         &self,
         req: VizierRequest,
         memory: Option<&SessionMemories>,
-        hooks: Arc<VizierSessionHooks>,
+        hooks: Option<Arc<VizierSessionHooks>>,
     ) -> Result<VizierResponse> {
         let max_turn_depth = self.config.thinking_depth;
         let mut turn_depth = 0;
@@ -121,7 +121,9 @@ impl VizierAgent {
             }
 
             let mut req = req;
-            req = hooks.on_request(req).await?;
+            if let Some(hooks) = hooks.clone() {
+                req = hooks.on_request(req).await?;
+            }
 
             if let VizierRequestContent::SilentRead(_) = req.content {
                 if initiative_factor > self.config.silent_read_initiative_chance {
@@ -196,7 +198,9 @@ impl VizierAgent {
                         call.function.name.to_string(),
                         serde_json::to_string(&call.function.arguments).unwrap(),
                     );
-                    (function_name, args) = hooks.on_tool_call(function_name, args).await?;
+                    if let Some(hooks) = hooks.clone() {
+                        (function_name, args) = hooks.on_tool_call(function_name, args).await?;
+                    }
 
                     // handle custom skill
                     let mut tool_res = if function_name.starts_with("SKILL__") {
@@ -216,7 +220,9 @@ impl VizierAgent {
                         }
                     };
 
-                    tool_res = hooks.on_tool_response(tool_res).await?;
+                    if let Some(hooks) = hooks.clone() {
+                        tool_res = hooks.on_tool_response(tool_res).await?;
+                    }
                     let content = ToolResultContent::from_tool_output(tool_res);
                     tool_responses.push(if let Some(call_id) = &call.call_id {
                         UserContent::tool_result_with_call_id(
@@ -246,7 +252,9 @@ impl VizierAgent {
                     duration: start.elapsed(),
                 }),
             };
-            response = hooks.on_response(response).await?;
+            if let Some(hooks) = hooks.clone() {
+                response = hooks.on_response(response).await?;
+            }
 
             Ok(response)
         })

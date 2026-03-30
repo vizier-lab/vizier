@@ -11,6 +11,7 @@ use crate::storage::VizierStorageProvider;
 pub mod history;
 pub mod memory;
 pub mod query;
+pub mod session;
 pub mod skill;
 pub mod task;
 
@@ -30,6 +31,7 @@ impl SurrealStorage {
         db.query("DEFINE TABLE session_history SCHEMALESS;").await?;
         db.query("DEFINE TABLE document_index SCHEMALESS;").await?;
         db.query("DEFINE TABLE skill SCHEMALESS;").await?;
+        db.query("DEFINE TABLE session_detail SCHEMALESS;").await?;
 
         let res = Self {
             conn: Arc::new(db),

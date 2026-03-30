@@ -6,13 +6,14 @@ use crate::{
     schema::DocumentIndex,
     storage::{
         history::HistoryStorage, indexer::DocumentIndexer, memory::MemoryStorage,
-        skill::SkillStorage, task::TaskStorage,
+        session::SessionStorage, skill::SkillStorage, task::TaskStorage,
     },
 };
 
 pub mod history;
 pub mod indexer;
 pub mod memory;
+pub mod session;
 pub mod skill;
 pub mod task;
 
@@ -21,7 +22,12 @@ pub mod surreal;
 
 pub trait VizierStorageProvider
 where
-    Self: MemoryStorage + TaskStorage + HistoryStorage + SkillStorage + DocumentIndexer,
+    Self: MemoryStorage
+        + TaskStorage
+        + HistoryStorage
+        + SkillStorage
+        + SessionStorage
+        + DocumentIndexer,
 {
 }
 

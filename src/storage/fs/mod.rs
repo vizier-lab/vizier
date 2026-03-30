@@ -12,12 +12,14 @@ use crate::{
 
 mod history;
 mod memory;
+mod session;
 mod skill;
 mod task;
 
 const MEMORY_PATH: &'static str = "memory";
 const TASK_PATH: &'static str = "tasks";
 const HISTORY_PATH: &'static str = "history";
+const SESSION_PATH: &'static str = "session";
 
 pub struct FileSystemStorage {
     workspace: String,

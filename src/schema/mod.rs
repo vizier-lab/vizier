@@ -20,6 +20,7 @@ pub enum VizierChannelId {
     Task(String, DateTime<Utc>),
     Socket(String),
     InterAgent(Vec<String>),
+    System,
 }
 
 impl VizierChannelId {
@@ -36,6 +37,7 @@ impl VizierChannelId {
 
                 format!("inter_agent__[{participants}]")
             }
+            Self::System => "SYSTEM".into(),
         }
     }
 }
@@ -152,7 +154,7 @@ pub enum TaskSchedule {
 #[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
 pub struct SessionHistory {
     pub uid: String,
-    pub session: VizierSession,
+    pub vizier_session: VizierSession,
     pub content: SessionHistoryContent,
     pub timestamp: chrono::DateTime<Utc>,
 }
@@ -178,4 +180,12 @@ pub struct Skill {
     pub author: String,
     pub description: String,
     pub content: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
+pub struct VizierSessionDetail {
+    pub agent_id: AgentId,
+    pub channel: VizierChannelId,
+    pub topic: Option<TopicId>,
+    pub title: String,
 }
