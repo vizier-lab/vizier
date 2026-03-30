@@ -29,6 +29,7 @@ impl SurrealStorage {
         db.query("DEFINE TABLE task SCHEMALESS;").await?;
         db.query("DEFINE TABLE session_history SCHEMALESS;").await?;
         db.query("DEFINE TABLE document_index SCHEMALESS;").await?;
+        db.query("DEFINE TABLE skill SCHEMALESS;").await?;
 
         let res = Self {
             conn: Arc::new(db),
