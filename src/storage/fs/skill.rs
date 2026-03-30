@@ -28,10 +28,10 @@ impl From<Skill> for SkillFrontMatter {
 #[async_trait::async_trait]
 impl SkillStorage for FileSystemStorage {
     async fn save_skill(&self, agent_id: Option<AgentId>, skill: Skill) -> Result<()> {
-        let mut path = format!("{}/skills/{}.md", self.workspace, skill.name);
+        let mut path = format!("{}/skills/{}/SKILL.md", self.workspace, skill.name);
         if let Some(agent_id) = agent_id {
             path = format!(
-                "{}/agents/{}/skills/{}.md",
+                "{}/agents/{}/skills/{}/SKILL.md",
                 self.workspace, agent_id, skill.name
             );
         }
@@ -49,7 +49,7 @@ impl SkillStorage for FileSystemStorage {
     async fn list_skill(&self, agent_id: Option<AgentId>) -> Result<Vec<Skill>> {
         let mut skills = HashMap::<String, Skill>::new();
 
-        let path = format!("{}/skills/*.md", self.workspace);
+        let path = format!("{}/skills/*/SKILL.md", self.workspace);
         for entry in glob::glob(&path)? {
             let entry = entry?;
 
@@ -68,7 +68,7 @@ impl SkillStorage for FileSystemStorage {
         }
 
         if let Some(agent_id) = agent_id {
-            let path = format!("{}/agents/{}/skills/*.md", self.workspace, agent_id);
+            let path = format!("{}/agents/{}/skills/*/SKILL.md", self.workspace, agent_id);
 
             for entry in glob::glob(&path)? {
                 let entry = entry?;
@@ -92,7 +92,10 @@ impl SkillStorage for FileSystemStorage {
     }
     async fn get_skill(&self, agent_id: Option<AgentId>, slug: String) -> Result<Option<Skill>> {
         if let Some(agent_id) = agent_id {
-            let path = format!("{}/agents/{}/skills/{}.md", self.workspace, agent_id, slug);
+            let path = format!(
+                "{}/agents/{}/skills/{}/SKILL.md",
+                self.workspace, agent_id, slug
+            );
 
             let (frontmatter, content) = crate::utils::markdown::read_markdown::<SkillFrontMatter>(
                 PathBuf::from_str(&path)?,
@@ -109,7 +112,7 @@ impl SkillStorage for FileSystemStorage {
             return Ok(Some(skill));
         }
 
-        let path = format!("{}/skills/{}.md", self.workspace, slug);
+        let path = format!("{}/skills/{}/SKILL.md", self.workspace, slug);
 
         let (frontmatter, content) =
             crate::utils::markdown::read_markdown::<SkillFrontMatter>(PathBuf::from_str(&path)?)?;
