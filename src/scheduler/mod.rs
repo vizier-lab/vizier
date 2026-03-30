@@ -88,7 +88,7 @@ impl VizierScheduler {
                     .await;
             }
 
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::time::sleep(Duration::from_mins(1)).await;
         }
     }
 }
