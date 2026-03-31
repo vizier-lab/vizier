@@ -63,7 +63,14 @@ impl VizierEmbedder {
 
                 Self::build(model)
             }
-            _ => unimplemented!(),
+            EmbeddingConfig::Openrouter { model } => {
+                let model = rig::providers::openrouter::Client::new(
+                    config.providers.openrouter.clone().unwrap().api_key,
+                )?
+                .embedding_model(model);
+
+                Self::build(model)
+            }
         })
     }
 }
