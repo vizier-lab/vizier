@@ -46,6 +46,7 @@ async fn main() -> Result<()> {
             .filter_module("ort", log::LevelFilter::Off)
             .filter_module("ureq", log::LevelFilter::Off)
             .filter_module("bollard", log::LevelFilter::Off)
+            .filter_module("rmcp", log::LevelFilter::Off)
             .init();
     } else {
         pretty_env_logger::init();

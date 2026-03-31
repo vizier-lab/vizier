@@ -5,16 +5,13 @@ use rig::completion::ToolDefinition;
 use tokio::process::Command;
 
 use rmcp::{
-    RoleClient, ServiceExt,
-    model::CallToolRequestParams,
+    RoleClient, Service, ServiceExt,
+    model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation},
     service::RunningService,
-    transport::{ConfigureCommandExt, TokioChildProcess},
+    transport::{ConfigureCommandExt, StreamableHttpClientTransport, TokioChildProcess},
 };
 
-use crate::{
-    config::{VizierConfig, tools::mcp::McpClientConfig},
-    error::VizierError,
-};
+use crate::config::{VizierConfig, tools::mcp::McpClientConfig};
 
 pub struct VizierMcpClients {
     pub clients: HashMap<String, Arc<VizierMcp>>,
@@ -59,7 +56,7 @@ pub trait VizierMcpClient {
 }
 
 #[async_trait::async_trait]
-impl VizierMcpClient for RunningService<RoleClient, ()> {
+impl<S: Service<RoleClient>> VizierMcpClient for RunningService<RoleClient, S> {
     async fn tools(&self) -> Result<Vec<ToolDefinition>> {
         let tools = self.list_all_tools().await?;
 
@@ -99,6 +96,16 @@ impl McpClientConfig {
                 let transport = TokioChildProcess::new(command)?;
 
                 let client = (().serve(transport)).await?;
+                Ok(VizierMcp(Arc::new(Box::new(client))))
+            }
+            Self::Http { uri } => {
+                let transport = StreamableHttpClientTransport::from_uri(uri.clone());
+                let client_info = ClientInfo::new(
+                    ClientCapabilities::default(),
+                    Implementation::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
+                );
+
+                let client = client_info.serve(transport).await?;
                 Ok(VizierMcp(Arc::new(Box::new(client))))
             }
         }

@@ -10,4 +10,7 @@ pub enum McpClientConfig {
         args: Vec<String>,
         env: Option<HashMap<String, String>>,
     },
+    Http {
+        uri: String,
+    },
 }

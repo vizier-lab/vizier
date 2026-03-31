@@ -40,10 +40,7 @@ impl VizierDependencies {
         let surreal = SurrealStorage::new(config.workspace.clone(), embedder.clone()).await?;
 
         let storage = match &config.storage {
-            StorageConfig::Surreal => {
-                println!("called!");
-                VizierStorage::new(surreal)
-            }
+            StorageConfig::Surreal => VizierStorage::new(surreal),
             StorageConfig::Filesystem(indexer_config) => {
                 let surreal_indexer = VizierIndexer::build(surreal);
 
