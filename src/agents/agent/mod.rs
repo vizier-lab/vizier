@@ -16,14 +16,16 @@ use crate::{
             system_prompt::{boot::boot_md, init_workspace, user::primary_user_md},
         },
         hook::{VizierSessionHook, VizierSessionHooks},
-        memory::SessionMemories,
         skill::VizierSkills,
         tools::VizierTools,
     },
     config::{agent::AgentConfig, user::UserConfig},
     dependencies::VizierDependencies,
     error::VizierError,
-    schema::{VizierRequest, VizierRequestContent, VizierResponse, VizierResponseStats},
+    schema::{
+        SessionHistory, SessionHistoryContent, VizierRequest, VizierRequestContent, VizierResponse,
+        VizierResponseStats,
+    },
     storage::indexer::DocumentIndexer,
     utils::agent_workspace,
 };
@@ -94,7 +96,7 @@ impl VizierAgent {
     pub async fn chat(
         &self,
         req: VizierRequest,
-        memory: Option<&SessionMemories>,
+        memory: Vec<SessionHistory>,
         hooks: Option<Arc<VizierSessionHooks>>,
     ) -> Result<VizierResponse> {
         let max_turn_depth = self.config.thinking_depth;
@@ -116,9 +118,10 @@ impl VizierAgent {
             let initiative_factor = rng.random_range(0_f32..=1_f32);
 
             let mut history = self.prepare_system_prompts().await;
-            if let Some(memory) = memory {
-                history.extend(memory.recall_as_messages());
-            }
+            history.extend(memory.iter().map(|history| match &history.content {
+                SessionHistoryContent::Request(req) => Message::user(req.to_prompt().unwrap()),
+                SessionHistoryContent::Response(content, _) => Message::assistant(content),
+            }));
 
             let mut req = req;
             if let Some(hooks) = hooks.clone() {

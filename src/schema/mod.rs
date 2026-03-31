@@ -65,6 +65,7 @@ pub enum VizierResponse {
         stats: Option<VizierResponseStats>,
     },
     Empty,
+    Abort,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]

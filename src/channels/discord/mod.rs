@@ -102,8 +102,16 @@ impl VizierChannel for DiscordChannelWriter {
                             )
                             .await;
                         }
+                        VizierResponse::Abort => {
+                            let _ = crate::utils::discord::send_message(
+                                http.clone(),
+                                &channel_id,
+                                "thinking aborted".into(),
+                            )
+                            .await;
+                        }
 
-                        _ => unimplemented!(),
+                        _ => {}
                     }
                 }
             }

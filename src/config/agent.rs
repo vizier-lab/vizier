@@ -23,7 +23,6 @@ pub struct AgentConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_documents: Option<Vec<String>>,
     pub prompt_timeout: DurationString,
-    pub session_timeout: DurationString,
     #[serde(skip)]
     pub documents: Vec<String>,
 }

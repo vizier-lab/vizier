@@ -33,7 +33,6 @@ pub fn init_default_agent(path: PathBuf) {
         description: Some("Digital steward".into()),
         provider: crate::config::provider::ProviderVariant::ollama,
         prompt_timeout: DurationString::from_string("5m".into()).unwrap(),
-        session_timeout: DurationString::from_string("30m".into()).unwrap(),
         session_memory: MemoryConfig { max_capacity: 10 },
         thinking_depth: 10,
         tools: AgentToolsConfig {
