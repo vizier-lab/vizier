@@ -3,9 +3,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serenity::all::{
-    ChannelId, Command, CreateCommand, CreateInteractionResponseMessage, Http, Interaction, Ready,
+    ChannelId, Command, CreateCommand, CreateCommandOption, CreateInteractionResponseMessage, Http,
+    Interaction, Ready,
 };
 use serenity::async_trait;
 use serenity::model::channel::Message;
@@ -13,9 +15,12 @@ use serenity::prelude::*;
 
 use crate::channels::VizierChannel;
 use crate::config::DiscordChannelConfig;
+use crate::dependencies::VizierDependencies;
 use crate::schema::{
-    VizierChannelId, VizierRequest, VizierRequestContent, VizierResponse, VizierSession,
+    TopicId, VizierChannelId, VizierRequest, VizierRequestContent, VizierResponse, VizierSession,
 };
+use crate::storage::session::SessionStorage;
+use crate::storage::state::StateStorage;
 use crate::transport::VizierTransport;
 use crate::utils::remove_think_tags;
 
@@ -27,12 +32,12 @@ impl DiscordChannelReader {
     pub async fn new(
         agent_id: String,
         config: DiscordChannelConfig,
-        transport: VizierTransport,
+        deps: VizierDependencies,
     ) -> Result<Self> {
         let intents = GatewayIntents::all();
         let token = config.token.clone();
         let client = Client::builder(token.clone(), intents)
-            .event_handler(Handler(agent_id, transport.clone()))
+            .event_handler(Handler(agent_id, deps.clone()))
             .await?;
 
         Ok(Self { client })
@@ -122,19 +127,33 @@ impl VizierChannel for DiscordChannelWriter {
     }
 }
 
-struct Handler(String, VizierTransport);
+struct Handler(String, VizierDependencies);
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ChannelState {
+    active_topic: Option<TopicId>,
+}
 
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, _ready: Ready) {
         let ping = CreateCommand::new("ping").description("a simple ping");
-        let lobotomy = CreateCommand::new("lobotomy")
-            .description("Reset current conversation in this channel");
-        let help = CreateCommand::new("help").description("How to use me");
+        // let help = CreateCommand::new("help").description("How to use me");
+
+        let new = CreateCommand::new("new").description("create fresh new session");
+        let session = CreateCommand::new("session")
+            .description("list or select session")
+            .add_option(CreateCommandOption::new(
+                serenity::all::CommandOptionType::String,
+                "topic_id",
+                "switch to the topic if not empty",
+            ));
 
         let _ = Command::create_global_command(ctx.http.clone(), ping).await;
-        let _ = Command::create_global_command(ctx.http.clone(), lobotomy).await;
-        let _ = Command::create_global_command(ctx.http.clone(), help).await;
+        // let _ = Command::create_global_command(ctx.http.clone(), help).await;
+
+        let _ = Command::create_global_command(ctx.http.clone(), new).await;
+        let _ = Command::create_global_command(ctx.http.clone(), session).await;
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
@@ -152,42 +171,115 @@ impl EventHandler for Handler {
                     .await;
             }
 
-            if command.data.name == "lobotomy" {
+            if command.data.name == "new" {
+                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
+                let topic_id = nanoid::nanoid!(10);
+
+                let _ = self
+                    .1
+                    .storage
+                    .save_state(
+                        format!("{}__{}", agent_id, channel.to_slug()),
+                        serde_json::to_value(ChannelState {
+                            active_topic: Some(topic_id.clone()),
+                        })
+                        .unwrap(),
+                    )
+                    .await;
+
                 let _ = command
                     .create_response(
                         ctx.http.clone(),
                         serenity::all::CreateInteractionResponse::Message(
-                            CreateInteractionResponseMessage::new().content("NOOOOOOOOO!!!"),
+                            CreateInteractionResponseMessage::new()
+                                .content(format!("switch to new session: **{}**", topic_id)),
                         ),
                     )
                     .await;
+            }
 
-                let metadata = json!({
-                    "sent_at": Utc::now().to_string(),
-                    "discord_channel_id": command.channel_id.to_string(),
-                });
+            if command.data.name == "session" {
+                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
+                let opt = command.data.options.clone();
 
-                if let Err(err) = self
-                    .1
-                    .send_request(
-                        VizierSession(
-                            agent_id,
-                            VizierChannelId::DiscordChanel(command.channel_id.get()),
-                            None,
-                        ),
-                        VizierRequest {
-                            user: format!(
-                                "@{} (DiscordId: {})",
-                                command.user.display_name(),
-                                command.user.id.to_string()
-                            ),
-                            content: VizierRequestContent::Command("/lobotomy".into()),
-                            metadata,
-                        },
-                    )
-                    .await
-                {
-                    log::error!("{}", err)
+                if let Some(raw_topic_id) = opt.iter().find_map(|opt| {
+                    if opt.name == "topic_id".to_string() {
+                        Some(opt.value.as_str().unwrap().to_string())
+                    } else {
+                        None
+                    }
+                }) {
+                    let topic_id: Option<TopicId> = if raw_topic_id == "DEFAULT".to_string() {
+                        None
+                    } else {
+                        Some(raw_topic_id.clone())
+                    };
+
+                    if let Ok(Some(_)) = self
+                        .1
+                        .storage
+                        .get_session_detail_by_topic(
+                            agent_id.clone(),
+                            channel.clone(),
+                            topic_id.clone(),
+                        )
+                        .await
+                    {
+                        let _ = self
+                            .1
+                            .storage
+                            .save_state(
+                                format!("{}__{}", agent_id, channel.to_slug()),
+                                serde_json::to_value(ChannelState {
+                                    active_topic: topic_id,
+                                })
+                                .unwrap(),
+                            )
+                            .await;
+
+                        let _ = command
+                            .create_response(
+                                ctx.http.clone(),
+                                serenity::all::CreateInteractionResponse::Message(
+                                    CreateInteractionResponseMessage::new().content(format!(
+                                        "switch to session: **{}**",
+                                        raw_topic_id
+                                    )),
+                                ),
+                            )
+                            .await;
+                    } else {
+                        let _ = command
+                            .create_response(
+                                ctx.http.clone(),
+                                serenity::all::CreateInteractionResponse::Message(
+                                    CreateInteractionResponseMessage::new()
+                                        .content("topic not found"),
+                                ),
+                            )
+                            .await;
+                    }
+                } else {
+                    if let Ok(sessions) = self.1.storage.get_session_list(agent_id, channel).await {
+                        let mut res = vec![];
+                        for session in &sessions {
+                            res.push(format!(
+                                "topic_id: {}\ntitle: {}",
+                                session.topic.clone().unwrap_or("DEFAULT".into()),
+                                session.title.clone()
+                            ));
+                        }
+
+                        let output = res.join("\n\n");
+                        let _ = command
+                            .create_response(
+                                ctx.http.clone(),
+                                serenity::all::CreateInteractionResponse::Message(
+                                    CreateInteractionResponseMessage::new().content(output),
+                                ),
+                            )
+                            .await;
+                    }
                 }
             }
 
@@ -214,9 +306,21 @@ If I am halucinating, feel free to `/lobotomy` me
     }
 
     async fn message(&self, ctx: Context, msg: Message) {
+        let agent_id = self.0.clone();
+        let channel = VizierChannelId::DiscordChanel(msg.channel_id.get());
+
+        let key = format!("{}__{}", agent_id, channel.to_slug());
+        let topic_id = if let Ok(Some(value)) = self.1.storage.get_state(key).await {
+            let state = serde_json::from_value::<ChannelState>(value).unwrap();
+
+            state.active_topic
+        } else {
+            None
+        };
+
         if let Ok(is_mention) = msg.mentions_me(ctx.http).await {
             let agent_id = self.0.clone();
-            let transport = self.1.clone();
+            let transport = self.1.transport.clone();
             let current_user = ctx.cache.current_user().discriminator;
             if msg.author.discriminator == current_user {
                 return;
@@ -242,7 +346,7 @@ If I am halucinating, feel free to `/lobotomy` me
                             VizierSession(
                                 agent_id,
                                 VizierChannelId::DiscordChanel(msg.channel_id.get()),
-                                None,
+                                topic_id,
                             ),
                             VizierRequest {
                                 user: format!(
@@ -269,7 +373,7 @@ If I am halucinating, feel free to `/lobotomy` me
                         VizierSession(
                             agent_id,
                             VizierChannelId::DiscordChanel(msg.channel_id.get()),
-                            None,
+                            topic_id,
                         ),
                         VizierRequest {
                             user: format!(

@@ -31,16 +31,15 @@ impl VizierChannels {
 
     pub async fn run(&self) -> Result<()> {
         if let Some(discord_configs) = &self.config.discord {
-            let transport = self.deps.transport.clone();
             for (agent_id, discord_config) in discord_configs.iter() {
                 let agent_id = agent_id.clone();
-                let transport = transport.clone();
+                let deps = self.deps.clone();
                 let reader_discord_config = discord_config.clone();
                 tokio::spawn(async move {
                     let mut discord_reader = DiscordChannelReader::new(
                         agent_id.clone(),
                         reader_discord_config.clone(),
-                        transport.clone(),
+                        deps.clone(),
                     )
                     .await
                     .unwrap();

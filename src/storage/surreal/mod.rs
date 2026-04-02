@@ -13,6 +13,7 @@ pub mod memory;
 pub mod query;
 pub mod session;
 pub mod skill;
+pub mod state;
 pub mod task;
 
 #[derive(Clone)]

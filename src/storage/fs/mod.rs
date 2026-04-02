@@ -14,12 +14,14 @@ mod history;
 mod memory;
 mod session;
 mod skill;
+mod state;
 mod task;
 
 const MEMORY_PATH: &'static str = "memory";
 const TASK_PATH: &'static str = "tasks";
 const HISTORY_PATH: &'static str = "history";
 const SESSION_PATH: &'static str = "session";
+const STATE_PATH: &'static str = "state";
 
 pub struct FileSystemStorage {
     workspace: String,

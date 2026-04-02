@@ -109,11 +109,12 @@ impl HistoryStorage for FileSystemStorage {
 
         let frontmatter = SessionHistoryFrontMatter::from(history);
         let path = PathBuf::from(format!(
-            "{}/agents/{}/{}/{}/{}.md",
+            "{}/agents/{}/{}/{}/{}/{}.md",
             self.workspace,
             session.0.clone(),
             HISTORY_PATH,
             session.1.clone().to_slug(),
+            session.2.clone().unwrap_or("DEFAULT".to_string()),
             slug
         ));
 
@@ -136,11 +137,12 @@ impl HistoryStorage for FileSystemStorage {
         let mut res = vec![];
 
         let path = format!(
-            "{}/agents/{}/{}/{}/*.md",
+            "{}/agents/{}/{}/{}/{}/*.md",
             self.workspace,
             session.0.clone(),
             HISTORY_PATH,
-            session.1.to_slug()
+            session.1.to_slug(),
+            session.2.clone().unwrap_or("DEFAULT".to_string()),
         );
 
         for entry in glob::glob(&path)? {
