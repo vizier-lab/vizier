@@ -160,7 +160,10 @@ impl Default for VizierConfig {
                 brave_search: Some(BraveSearchConfig::default()),
                 mcp_servers: HashMap::new(),
             },
-            shell: ShellConfig::Local(LocalShellConfig { path: ".".into() }),
+            shell: ShellConfig::Local(LocalShellConfig {
+                path: ".".into(),
+                env: None,
+            }),
         }
     }
 }

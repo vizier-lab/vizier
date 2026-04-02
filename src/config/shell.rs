@@ -1,9 +1,13 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct DockerShellConfig {
     pub image: DockerSourceConfig,
     pub container_name: String,
+    #[serde(default)]
+    pub env: Option<HashMap<String, String>>,
 }
 
 impl Default for DockerShellConfig {
@@ -11,6 +15,7 @@ impl Default for DockerShellConfig {
         Self {
             image: DockerSourceConfig::default(),
             container_name: "vizier".into(),
+            env: None,
         }
     }
 }
@@ -33,6 +38,8 @@ impl Default for DockerSourceConfig {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct LocalShellConfig {
     pub path: String,
+    #[serde(default)]
+    pub env: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]

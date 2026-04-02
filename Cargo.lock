@@ -7870,6 +7870,7 @@ dependencies = [
  "strum",
  "surrealdb",
  "surrealdb-types",
+ "tar",
  "termimad",
  "text-splitter",
  "tokio",
