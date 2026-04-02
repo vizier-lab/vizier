@@ -36,7 +36,6 @@ mod brave_search;
 mod consult;
 mod discord;
 mod document;
-mod mcp;
 mod scheduler;
 mod shell;
 mod skill;
