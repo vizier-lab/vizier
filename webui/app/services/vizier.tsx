@@ -84,6 +84,7 @@ export const listAgents = async () => {
 
 export const getAgentDetail = async (agentId: string) => {
   const res = await apiClient.get(`/agents/${agentId}`)
+  console.log('>>', { res })
   return res.data
 }
 
@@ -105,7 +106,7 @@ export const getTopicHistory = async (
   const params = new URLSearchParams()
   if (before) params.append('before', before)
   if (limit) params.append('limit', limit.toString())
-  
+
   const res = await apiClient.get(
     `/agents/${agentId}/channel/${CHANNEL_ID}/topic/${topicId}/history?${params}`
   )
@@ -174,7 +175,7 @@ export const queryMemories = async (
   params.append('query', query)
   if (limit) params.append('limit', limit.toString())
   if (threshold) params.append('threshold', threshold.toString())
-  
+
   const res = await apiClient.get(`/agents/${agentId}/memory/query?${params}`)
   return res.data
 }
@@ -186,7 +187,7 @@ export const queryMemories = async (
 export const listTasks = async (agentId: string, isActive?: boolean) => {
   const params = new URLSearchParams()
   if (isActive !== undefined) params.append('is_active', isActive.toString())
-  
+
   const res = await apiClient.get(`/agents/${agentId}/tasks?${params}`)
   return res.data
 }

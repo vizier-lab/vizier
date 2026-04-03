@@ -23,7 +23,7 @@ const ChatBubble = (props: ChatBubbleProps) => {
     return (
       <div className="flex items-center">
         <div className="rounded-full w-10 h-10 shadow-md border-solid">
-          <Avatar name={props.chat.user_id || ''} rounded />
+          <Avatar name={props.chat.user_id || ''} rounded={false} />
         </div>
       </div>
     )

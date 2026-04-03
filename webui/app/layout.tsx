@@ -13,7 +13,7 @@ export default function Layout() {
   const navigate = useNavigate()
   const params = useParams()
   const location = useLocation()
-  
+
   const currentAgentId = params.agentId
   const currentTopicId = params.topicId
   const [previousTopicId, setPreviousTopicId] = useState<string | undefined>()
@@ -41,39 +41,39 @@ export default function Layout() {
     loadAgents()
   }, [])
 
-   // Load topics when agent changes or when navigating away from /new
-   useEffect(() => {
-     if (!currentAgentId) return
-     
-     const loadTopics = async () => {
-       try {
-         const response = await listTopics(currentAgentId)
-         const topicsList = response.data || []
-         
-         // If we just created a new topic (navigating from 'new' to a real topic),
-         // add it optimistically if it's not in the list yet
-         if (previousTopicId === 'new' && currentTopicId && currentTopicId !== 'new') {
-           const topicExists = topicsList.some(t => t.topic_id === currentTopicId)
-           if (!topicExists) {
-             topicsList.push({
-               topic_id: currentTopicId,
-               title: currentTopicId, // Use topic_id as title until backend provides it
-               created_at: new Date().toISOString(),
-             } as Topic)
-           }
-         }
-         
-         setTopics(topicsList)
-       } catch (error) {
-         console.error('Failed to load topics:', error)
-       }
-     }
-     
-     loadTopics()
-     
-     // Update previous topic
-     setPreviousTopicId(currentTopicId)
-   }, [currentAgentId, currentTopicId, previousTopicId])
+  // Load topics when agent changes or when navigating away from /new
+  useEffect(() => {
+    if (!currentAgentId) return
+
+    const loadTopics = async () => {
+      try {
+        const response = await listTopics(currentAgentId)
+        const topicsList = response.data || []
+
+        // If we just created a new topic (navigating from 'new' to a real topic),
+        // add it optimistically if it's not in the list yet
+        if (previousTopicId === 'new' && currentTopicId && currentTopicId !== 'new') {
+          const topicExists = topicsList.some(t => t.topic_id === currentTopicId)
+          if (!topicExists) {
+            topicsList.push({
+              topic_id: currentTopicId,
+              title: currentTopicId, // Use topic_id as title until backend provides it
+              created_at: new Date().toISOString(),
+            } as Topic)
+          }
+        }
+
+        setTopics(topicsList)
+      } catch (error) {
+        console.error('Failed to load topics:', error)
+      }
+    }
+
+    loadTopics()
+
+    // Update previous topic
+    setPreviousTopicId(currentTopicId)
+  }, [currentAgentId, currentTopicId, previousTopicId])
 
   const handleLogout = () => {
     localStorage.removeItem('auth_token')
@@ -109,25 +109,25 @@ export default function Layout() {
       {/* Workspace sidebar (left) - Agent selector with settings and layout at bottom */}
       <div className="workspace-sidebar">
         <div className="workspace-items">
-           {agents.map((agent) => (
-             <div
-               key={agent.agent_id}
-               className={`workspace-item ${currentAgentId === agent.agent_id ? 'active' : ''}`}
-               onClick={() => {
-                 // Navigate to chat with first topic, or show empty state
-                 if (topics.length > 0) {
-                   navigate(`/${agent.agent_id}/chat/${topics[0].topic_id}`)
-                 } else {
-                   navigate(`/${agent.agent_id}/chat/new`)
-                 }
-               }}
-               title={agent.name}
-             >
-               <Avatar name={agent.agent_id} rounded={true} />
-             </div>
-           ))}
+          {agents.map((agent) => (
+            <div
+              key={agent.agent_id}
+              className={`workspace-item ${currentAgentId === agent.agent_id ? 'active' : ''}`}
+              onClick={() => {
+                // Navigate to chat with first topic, or show empty state
+                if (topics.length > 0) {
+                  navigate(`/${agent.agent_id}/chat/${topics[0].topic_id}`)
+                } else {
+                  navigate(`/${agent.agent_id}/chat/new`)
+                }
+              }}
+              title={agent.name}
+            >
+              <Avatar name={agent.agent_id} rounded={false} />
+            </div>
+          ))}
         </div>
-        
+
         {/* Bottom workspace controls */}
         <div className="workspace-bottom">
           <div
@@ -153,7 +153,7 @@ export default function Layout() {
           <div className="nav-header">
             {agents.find(a => a.agent_id === currentAgentId)?.name || currentAgentId}
           </div>
-          
+
           <div className="nav-content">
             {/* Tools section (moved above topics) */}
             <div className="nav-section">
