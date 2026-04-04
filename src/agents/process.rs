@@ -35,6 +35,7 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
 
     let mut main_handles = HashMap::<VizierSession, JoinHandle<()>>::new();
     let mut thinking_handles = HashMap::<VizierSession, Arc<JoinHandle<()>>>::new();
+    let mut detail_tasks = JoinSet::new();
 
     let heartbeat_agent_id = agent_id.clone();
     let heartbeat_interval = *agent_config.heartbeat_interval.clone();
@@ -45,7 +46,7 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
             let now = Utc::now();
             let session = VizierSession(
                 heartbeat_agent_id.clone(),
-                VizierChannelId::heartbeat(now.clone()),
+                VizierChannelId::Heartbeat(now.clone()),
                 None,
             );
 
@@ -82,7 +83,7 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
         let session_detail_session = session.clone();
         let session_detail_agent = agent.clone();
         let session_detail_request = request.clone();
-        tokio::spawn(async move {
+        detail_tasks.spawn(async move {
             let agent_id = session_detail_session.0;
             let channel = session_detail_session.1;
             let topic = session_detail_session.2;
@@ -147,15 +148,15 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
         let thinking_session = session.clone();
         let thinking_handle = Arc::new(tokio::spawn(async move {
             if let VizierRequestContent::Chat(_) = thinking_request.content {
+                let mut interval = tokio::time::interval(Duration::from_secs(5));
                 loop {
+                    interval.tick().await;
                     let _ = thinking_transport
                         .send_response(
                             thinking_session.clone(),
                             crate::schema::VizierResponse::ThinkingProgress,
                         )
                         .await;
-
-                    tokio::time::sleep(Duration::from_secs(5)).await;
                 }
             }
         }));

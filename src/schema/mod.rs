@@ -20,8 +20,9 @@ pub enum VizierChannelId {
     Task(String, DateTime<Utc>),
     Socket(String),
     InterAgent(Vec<String>),
-    heartbeat(DateTime<Utc>),
+    Heartbeat(DateTime<Utc>),
     System,
+    Subagent,
 }
 
 impl VizierChannelId {
@@ -38,8 +39,9 @@ impl VizierChannelId {
 
                 format!("inter_agent__[{participants}]")
             }
-            Self::heartbeat(datetime) => format!("heartbeat__{}", datetime.to_rfc3339()),
+            Self::Heartbeat(datetime) => format!("heartbeat__{}", datetime.to_rfc3339()),
             Self::System => "SYSTEM".into(),
+            Self::Subagent => "SUBAGENT".into(),
         }
     }
 }
