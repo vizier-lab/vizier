@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
 import { listAgents, listTopics } from './services/vizier'
-import { FiSettings, FiMessageCircle, FiCheckCircle, FiLogOut } from 'react-icons/fi'
+import { FiSettings, FiMessageCircle, FiCheckCircle, FiLogOut, FiSearch } from 'react-icons/fi'
 import { FaBook } from 'react-icons/fa'
 import Avatar from './components/avatar'
+import ThemeToggle from './components/ThemeToggle'
+import ToastContainer from './components/Toast'
 import type { Agent, Topic } from './interfaces/types'
 
 export default function Layout() {
@@ -99,13 +101,18 @@ export default function Layout() {
         height: '100vh',
         color: 'var(--text-tertiary)',
       }}>
-        Loading...
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-500 animate-pulse" />
+          <p>Loading Vizier...</p>
+        </div>
       </div>
     )
   }
 
   return (
     <div className="layout-container">
+      <ToastContainer />
+      
       {/* Workspace sidebar (left) - Agent selector with settings and layout at bottom */}
       <div className="workspace-sidebar">
         <div className="workspace-items">
@@ -151,10 +158,17 @@ export default function Layout() {
       {currentAgentId && (
         <div className="nav-sidebar">
           <div className="nav-header">
-            {agents.find(a => a.agent_id === currentAgentId)?.name || currentAgentId}
+            <span>{agents.find(a => a.agent_id === currentAgentId)?.name || currentAgentId}</span>
+            <ThemeToggle />
           </div>
 
           <div className="nav-content">
+            {/* Search for memories - only show on memory page */}
+            {currentView === 'memory' && (
+              <div style={{ marginBottom: '16px' }}>
+              </div>
+            )}
+
             {/* Tools section (moved above topics) */}
             <div className="nav-section">
               <div className="nav-section-title">Tools</div>

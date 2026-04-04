@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useParams } from 'react-router'
 import { listMemories, getMemory, createMemory, updateMemory, deleteMemory } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
-import { FiPlus, FiTrash2 } from 'react-icons/fi'
+import { FiPlus, FiTrash2, FiEdit2 } from 'react-icons/fi'
+import { Skeleton, SkeletonMemoryCard } from '../components/Skeleton'
+import { useToastStore } from '../hooks/toastStore'
 import type { Memory, MemoryDetail } from '../interfaces/types'
 
 type ModalMode = 'create' | 'edit' | 'view' | null
@@ -20,6 +24,8 @@ export default function MemoryManagement() {
   const [formSlug, setFormSlug] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  const { addToast } = useToastStore()
+
   useEffect(() => {
     loadMemories()
   }, [agentId])
@@ -33,6 +39,7 @@ export default function MemoryManagement() {
       setMemories(response.data || [])
     } catch (error) {
       console.error('Failed to load memories:', error)
+      addToast('error', 'Failed to load memories', 'Please try again')
     } finally {
       setLoading(false)
     }
@@ -47,6 +54,7 @@ export default function MemoryManagement() {
       setModalMode('view')
     } catch (error) {
       console.error('Failed to load memory:', error)
+      addToast('error', 'Failed to load memory', 'Please try again')
     }
   }
 
@@ -75,15 +83,17 @@ export default function MemoryManagement() {
 
       if (modalMode === 'create') {
         await createMemory(agentId, formTitle, formContent, finalSlug || undefined)
+        addToast('success', 'Memory created successfully')
       } else if (modalMode === 'edit' && selectedMemory) {
         await updateMemory(agentId, selectedMemory.slug, formTitle, formContent)
+        addToast('success', 'Memory updated successfully')
       }
       
       await loadMemories()
       closeModal()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to save memory:', error)
-      alert('Failed to save memory')
+      addToast('error', 'Failed to save memory', error.response?.data?.message || 'Please try again')
     } finally {
       setSubmitting(false)
     }
@@ -95,11 +105,12 @@ export default function MemoryManagement() {
     
     try {
       await deleteMemory(agentId, slug)
+      addToast('success', 'Memory deleted successfully')
       await loadMemories()
       closeModal()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to delete memory:', error)
-      alert('Failed to delete memory')
+      addToast('error', 'Failed to delete memory', error.response?.data?.message || 'Please try again')
     }
   }
 
@@ -109,18 +120,6 @@ export default function MemoryManagement() {
     setFormTitle('')
     setFormContent('')
     setFormSlug('')
-  }
-
-  if (loading) {
-    return (
-      <div className="main-body" style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}>
-        Loading memories...
-      </div>
-    )
   }
 
   return (
@@ -146,19 +145,33 @@ export default function MemoryManagement() {
 
       {/* Memory List */}
       <div className="main-body">
-        {memories.length === 0 ? (
+        {loading ? (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+            gap: '1rem',
+          }}>
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="card">
+                <SkeletonMemoryCard />
+              </div>
+            ))}
+          </div>
+        ) : memories.length === 0 ? (
           <div style={{
             textAlign: 'center',
             color: 'var(--text-tertiary)',
             padding: '3rem',
           }}>
-            <p>No memories yet.</p>
+            <div style={{ fontSize: '48px', marginBottom: '1rem', opacity: 0.5 }}>📚</div>
+            <p style={{ fontSize: '16px', marginBottom: '0.5rem' }}>No memories yet</p>
+            <p style={{ fontSize: '14px', marginBottom: '1.5rem' }}>Create your first memory to get started</p>
             <button 
               className="btn btn-primary" 
               onClick={handleCreateMemory}
-              style={{ marginTop: '1rem' }}
             >
-              Create your first memory
+              <FiPlus size={16} />
+              Create Memory
             </button>
           </div>
         ) : (
@@ -177,11 +190,24 @@ export default function MemoryManagement() {
                 }}
                 onClick={() => handleViewMemory(memory.slug)}
               >
-                <h4 style={{ marginBottom: '0.5rem' }}>{memory.title}</h4>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <h4 style={{ marginBottom: '0.5rem', flex: 1 }}>{memory.title}</h4>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleEditMemory({ ...memory, content: '' } as MemoryDetail)
+                    }}
+                    style={{ padding: '4px' }}
+                  >
+                    <FiEdit2 size={14} />
+                  </button>
+                </div>
                 <p style={{
                   fontSize: '12px',
                   color: 'var(--text-tertiary)',
                   marginBottom: '0.5rem',
+                  fontFamily: 'var(--font-mono)',
                 }}>
                   {memory.slug}
                 </p>
@@ -210,6 +236,7 @@ export default function MemoryManagement() {
               bottom: 0,
               background: 'rgba(0, 0, 0, 0.5)',
               zIndex: 1000,
+              backdropFilter: 'blur(4px)',
             }}
             onClick={closeModal}
           />
@@ -222,7 +249,7 @@ export default function MemoryManagement() {
               left: '50%',
               transform: 'translate(-50%, -50%)',
               background: 'var(--background)',
-              borderRadius: '8px',
+              borderRadius: '12px',
               padding: '2rem',
               maxWidth: '700px',
               width: '90%',
@@ -230,6 +257,7 @@ export default function MemoryManagement() {
               overflow: 'auto',
               zIndex: 1001,
               border: '1px solid var(--border)',
+              boxShadow: 'var(--shadow-xl)',
             }}
           >
             {modalMode === 'view' && selectedMemory && (
@@ -245,18 +273,23 @@ export default function MemoryManagement() {
                     <p style={{
                       fontSize: '12px',
                       color: 'var(--text-tertiary)',
+                      fontFamily: 'var(--font-mono)',
                     }}>
                       {selectedMemory.slug} • {new Date(selectedMemory.timestamp).toLocaleString()}
                     </p>
                   </div>
-                  <button className="btn btn-ghost" onClick={closeModal}>✕</button>
+                  <button className="btn btn-ghost" onClick={closeModal} style={{ padding: '8px' }}>✕</button>
                 </div>
                 
                 <div className="prose" style={{
                   marginBottom: '1.5rem',
-                  whiteSpace: 'pre-wrap',
+                  
+                  background: 'var(--surface)',
+                  padding: '1.5rem',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border)',
                 }}>
-                  {selectedMemory.content}
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedMemory.content}</ReactMarkdown>
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -264,15 +297,16 @@ export default function MemoryManagement() {
                     className="btn btn-secondary"
                     onClick={() => handleEditMemory(selectedMemory)}
                   >
+                    <FiEdit2 size={16} />
                     Edit
                   </button>
                   <button
                     className="btn btn-ghost"
                     onClick={() => handleDeleteMemory(selectedMemory.slug)}
-                    style={{ color: '#c00' }}
+                    style={{ color: '#ef4444', marginLeft: 'auto' }}
                   >
                     <FiTrash2 size={16} />
-                    <span>Delete</span>
+                    Delete
                   </button>
                 </div>
               </>
@@ -287,7 +321,7 @@ export default function MemoryManagement() {
                   marginBottom: '1.5rem',
                 }}>
                   <h2>{modalMode === 'create' ? 'Create Memory' : 'Edit Memory'}</h2>
-                  <button className="btn btn-ghost" onClick={closeModal}>✕</button>
+                  <button className="btn btn-ghost" onClick={closeModal} style={{ padding: '8px' }}>✕</button>
                 </div>
 
                 <div style={{
@@ -306,7 +340,7 @@ export default function MemoryManagement() {
                         placeholder="auto-generated if empty"
                       />
                       {formSlug && (
-                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
                           Slug: {formSlug}
                         </div>
                       )}
@@ -322,6 +356,7 @@ export default function MemoryManagement() {
                       onChange={(e) => setFormTitle(e.target.value)}
                       required
                       autoFocus
+                      placeholder="Enter memory title"
                     />
                   </div>
 
@@ -334,6 +369,7 @@ export default function MemoryManagement() {
                       required
                       rows={10}
                       style={{ fontFamily: 'var(--font-mono)' }}
+                      placeholder="Enter memory content..."
                     />
                   </div>
 
@@ -342,6 +378,7 @@ export default function MemoryManagement() {
                       className="btn btn-primary"
                       onClick={handleSubmit}
                       disabled={!formTitle.trim() || !formContent.trim() || submitting}
+                      style={{ flex: 1, justifyContent: 'center' }}
                     >
                       {submitting ? 'Saving...' : 'Save'}
                     </button>
