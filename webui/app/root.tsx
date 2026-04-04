@@ -11,9 +11,9 @@ import type { Route } from './+types/root'
 import './app.css'
 import '@mdxeditor/editor/style.css'
 
+import '@fontsource-variable/ibm-plex-sans'
 import '@fontsource/ibm-plex-mono'
 import '@fontsource/ibm-plex-serif'
-import '@fontsource-variable/ibm-plex-sans'
 
 export const links: Route.LinksFunction = () => [
     { rel: 'preconnect', href: 'https://fonts.googleapis.com' },

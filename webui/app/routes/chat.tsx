@@ -6,6 +6,7 @@ import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
 import type { Agent, ChatMessage, WebSocketMessage, WebSocketResponse } from '../interfaces/types'
 import ReactMarkdown from 'react-markdown'
 import { getCurrentUsername } from '../utils/auth'
+import { Skeleton, SkeletonMessage } from '../components/Skeleton'
 
 export default function Chat() {
   const { agentId, topicId } = useParams()
@@ -35,11 +36,6 @@ export default function Chat() {
     }
   )
 
-  useEffect(() => {
-    console.log('>>', { agentId })
-
-  }, [agentId])
-
   // Check if this is a new topic
   useEffect(() => {
     if (topicId === 'new') {
@@ -63,34 +59,9 @@ export default function Chat() {
       try {
         const response = await getTopicHistory(agentId, topicId)
         const historyMessages = response.data || []
-
-        // Validate and log message structure for debugging
-        if (historyMessages.length > 0) {
-          console.log('[Chat History Loaded]', {
-            count: historyMessages.length,
-            fullResponse: response,
-            firstMessage: JSON.stringify(historyMessages[0], null, 2),
-            lastMessage: JSON.stringify(historyMessages[historyMessages.length - 1], null, 2),
-          })
-
-          // Log what the renderer sees
-          historyMessages.forEach((msg, idx) => {
-            const hasRequest = msg.content?.Request !== undefined
-            const hasResponse = msg.content?.Response !== undefined
-            console.log(`[Message ${idx}]`, {
-              uid: msg.uid,
-              hasRequest,
-              hasResponse,
-              contentKeys: Object.keys(msg.content || {}),
-              fullMessage: JSON.stringify(msg, null, 2),
-            })
-          })
-        }
-
         setMessages(historyMessages)
       } catch (error) {
         console.error('Failed to load chat history:', error)
-        // Set empty messages array to avoid indefinite loading state
         setMessages([])
       } finally {
         setLoading(false)
@@ -104,12 +75,9 @@ export default function Chat() {
   useEffect(() => {
     if (!lastJsonMessage) return
 
-    // Log the raw response for debugging
-    console.log('[WebSocket Response]', lastJsonMessage)
-
     const wsResponse = lastJsonMessage as any
 
-    // Handle string format (Serde serializes unit variants as strings)
+    // Handle string format
     if (typeof wsResponse === 'string') {
       if (wsResponse === 'ThinkingProgress') {
         setIsThinking(true)
@@ -128,25 +96,21 @@ export default function Chat() {
 
     // Handle object format
     if (typeof wsResponse !== 'object' || wsResponse === null) {
-      console.warn('Invalid WebSocket response:', wsResponse)
       return
     }
 
-    // Check for ThinkingProgress (might be { ThinkingProgress: null } or just have the key)
     if ('ThinkingProgress' in wsResponse) {
       setIsThinking(true)
       setThinkingProgress(prev => prev + 1)
       return
     }
 
-    // Check for Thinking with tool info
     if (wsResponse.Thinking) {
       setIsThinking(true)
       setCurrentThinking(`Using ${wsResponse.Thinking.name}...`)
       return
     }
 
-    // Check for Message
     if (wsResponse.Message) {
       setIsThinking(false)
       setCurrentThinking(null)
@@ -171,7 +135,6 @@ export default function Chat() {
       return
     }
 
-    // Check for Empty
     if ('Empty' in wsResponse) {
       setIsThinking(false)
       setCurrentThinking(null)
@@ -179,15 +142,12 @@ export default function Chat() {
       return
     }
 
-    // Check for Abort
     if ('Abort' in wsResponse) {
       setIsThinking(false)
       setCurrentThinking(null)
       setThinkingProgress(0)
       return
     }
-
-    console.warn('Unknown response type:', wsResponse)
   }, [lastJsonMessage, agentId, topicId])
 
   // Auto-scroll to bottom
@@ -198,12 +158,9 @@ export default function Chat() {
   const handleCreateTopic = async () => {
     if (!newTopicId.trim() || !agentId) return
 
-    // Apply strict validation to remove trailing hyphens before submitting
     const finalTopicId = autoCorrectSlugStrict(newTopicId)
+    if (!finalTopicId) return
 
-    if (!finalTopicId) return // Ensure we have a valid slug
-
-    // Navigate to the new topic
     navigate(`/${agentId}/chat/${finalTopicId}`)
     setShowNewTopicInput(false)
     setNewTopicId('')
@@ -221,7 +178,6 @@ export default function Chat() {
       metadata: {},
     }
 
-    // Add user message to display
     const userMessage: ChatMessage = {
       uid: Date.now().toString(),
       vizier_session: {
@@ -240,8 +196,6 @@ export default function Chat() {
 
     setMessages(prev => [...prev, userMessage])
     setInput('')
-
-    // Send via WebSocket
     sendJsonMessage(message)
   }
 
@@ -254,13 +208,16 @@ export default function Chat() {
 
   if (loading) {
     return (
-      <div className="main-body" style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}>
-        Loading chat...
-      </div>
+      <>
+        <div className="main-header">
+          <Skeleton variant="text" width={200} height={24} />
+        </div>
+        <div className="main-body" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          <SkeletonMessage />
+          <SkeletonMessage />
+          <SkeletonMessage />
+        </div>
+      </>
     )
   }
 
@@ -299,7 +256,7 @@ export default function Chat() {
               }}
             />
             {newTopicId && (
-              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
                 Topic ID: {newTopicId}
               </div>
             )}
@@ -336,13 +293,19 @@ export default function Chat() {
     [ReadyState.UNINSTANTIATED]: 'Not connected',
   }[readyState]
 
-
   return (
     <>
       {/* Header */}
       <div className="main-header">
         <div style={{ flex: 1 }}>
           <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: readyState === ReadyState.OPEN ? 'var(--accent-primary)' : 'var(--text-tertiary)',
+              display: 'inline-block',
+            }} />
             # {topicId}
           </h3>
           <div style={{
@@ -357,7 +320,17 @@ export default function Chat() {
         <div style={{
           fontSize: '12px',
           color: readyState === ReadyState.OPEN ? 'var(--text-tertiary)' : 'var(--text-secondary)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
         }}>
+          <span style={{
+            width: '6px',
+            height: '6px',
+            borderRadius: '50%',
+            background: readyState === ReadyState.OPEN ? 'var(--accent-primary)' : '#f59e0b',
+            display: 'inline-block',
+          }} />
           {connectionStatus}
         </div>
       </div>
@@ -378,21 +351,20 @@ export default function Chat() {
             justifyContent: 'center',
             height: '100%',
             color: 'var(--text-tertiary)',
+            flexDirection: 'column',
+            gap: '1rem',
           }}>
-            No messages yet. Start the conversation!
+            <div style={{ fontSize: '48px', opacity: 0.5 }}>💬</div>
+            <p>No messages yet. Start the conversation!</p>
           </div>
         ) : (
           <>
             {messages.map((msg) => {
-              // Determine if this is a user message by checking for Request content
               const isUserMessage = msg.content.Request !== undefined
-
-              // Extract content - handle both Request and Response formats
               let content: string | undefined
               let senderName: string = 'Unknown'
 
               if (isUserMessage && msg.content.Request) {
-                // Request format: { user, content: { Chat: string }, metadata }
                 const request = msg.content.Request as any
                 if (request.content?.Chat) {
                   content = request.content.Chat
@@ -401,23 +373,17 @@ export default function Chat() {
                 }
                 senderName = request.user || 'You'
               } else if (!isUserMessage && msg.content.Response) {
-                // Response format: [string, stats?] (tuple format from backend)
                 const response = msg.content.Response as any
                 if (Array.isArray(response)) {
-                  // Tuple: [content, stats]
                   content = response[0]
                 } else if (typeof response === 'object' && 'content' in response) {
-                  // Object format: { content, stats }
                   content = response.content
                 } else if (typeof response === 'string') {
-                  // Direct string
                   content = response
                 }
-                console.log('>>', { agentDetail })
-                senderName = agentDetail?.name || ''
+                senderName = agentDetail?.name || 'Agent'
               }
 
-              // Skip if content is empty
               if (!content) return null
 
               return (
@@ -430,17 +396,24 @@ export default function Chat() {
                   }}
                 >
                   <div style={{
-                    fontWeight: '600',
-                    fontSize: '14px',
-                    color: isUserMessage ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
                   }}>
-                    {senderName}
+                    <div style={{
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      color: isUserMessage ? 'var(--text-primary)' : 'var(--accent-primary)',
+                    }}>
+                      {senderName}
+                    </div>
                   </div>
                   <div className="prose" style={{
                     padding: '12px 16px',
                     background: isUserMessage ? 'var(--surface)' : 'transparent',
                     borderRadius: '8px',
-                    borderLeft: isUserMessage ? 'none' : '3px solid var(--border)',
+                    borderLeft: isUserMessage ? 'none' : '3px solid var(--accent-primary)',
+                    boxShadow: isUserMessage ? 'var(--shadow-sm)' : 'none',
                   }}>
                     <ReactMarkdown>{content}</ReactMarkdown>
                   </div>
@@ -458,19 +431,20 @@ export default function Chat() {
                 <div style={{
                   fontWeight: '600',
                   fontSize: '14px',
-                  color: 'var(--text-secondary)',
+                  color: 'var(--accent-primary)',
                 }}>
-                  Agent
+                  {agentDetail?.name || 'Agent'}
                 </div>
                 <div style={{
                   padding: '12px 16px',
                   borderRadius: '8px',
-                  borderLeft: '3px solid var(--border)',
+                  borderLeft: '3px solid var(--accent-primary)',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
                   color: 'var(--text-tertiary)',
                   fontStyle: 'italic',
+                  background: 'var(--surface)',
                 }}>
                   <div className="thinking-dots">
                     <span>.</span>
@@ -491,8 +465,7 @@ export default function Chat() {
         borderTop: '1px solid var(--border)',
         padding: '16px 24px',
         background: 'var(--background)',
-      }
-      }>
+      }}>
         <form onSubmit={handleSendMessage} style={{
           display: 'flex',
           gap: '12px',

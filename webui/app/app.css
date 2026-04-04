@@ -3,12 +3,13 @@
 @plugin "@tailwindcss/typography";
 
 /* ============================================================================
-    MODERN REFINED DESIGN (Vizier v2)
+    MODERN REFINED DESIGN WITH LIGHT/DARK THEME (Vizier v3)
     ============================================================================ */
 
 :root {
-    /* Extended color palette */
+    /* Light Mode Colors */
     --color-white: #ffffff;
+    --color-black: #0a0a0a;
     --color-bg-primary: #fafbfc;
     --color-bg-secondary: #f6f8fa;
     --color-surface: #ffffff;
@@ -25,6 +26,7 @@
     --accent-lighter: #D1F3E4;
     --accent-medium: #6EE7B7;
     --accent-dark: #047857;
+    --accent-gradient: linear-gradient(135deg, #10B981 0%, #14B8A6 50%, #06B6D4 100%);
     
     /* Semantic colors */
     --background: var(--color-bg-primary);
@@ -48,6 +50,7 @@
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
     --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    --shadow-glow: 0 0 20px rgba(16, 185, 129, 0.3);
     
     /* Transitions */
     --transition-fast: 120ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -55,15 +58,50 @@
     --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Dark Mode Colors */
+.dark {
+    --color-bg-primary: #0a0a0b;
+    --color-bg-secondary: #161618;
+    --color-surface: #18181b;
+    --color-border-light: #27272a;
+    --color-border-medium: #3f3f46;
+    --color-text-primary: #fafafa;
+    --color-text-secondary: #a1a1aa;
+    --color-text-tertiary: #71717a;
+    --color-text-muted: #3f3f46;
+    
+    --background: var(--color-bg-primary);
+    --surface: var(--color-surface);
+    --border: var(--color-border-light);
+    --text-primary: var(--color-text-primary);
+    --text-secondary: var(--color-text-secondary);
+    --text-tertiary: var(--color-text-tertiary);
+    --hover: var(--color-bg-secondary);
+    
+    /* Dark mode sidebar */
+    --sidebar-bg: #09090b;
+    --sidebar-text: #fafafa;
+    --sidebar-text-muted: #71717a;
+    --sidebar-hover: rgba(255, 255, 255, 0.05);
+    --sidebar-active: rgba(16, 185, 129, 0.25);
+    
+    /* Dark mode shadows */
+    --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+    --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
+}
+
 @theme {
     --color-white: var(--color-white);
     --color-black: var(--color-black);
-    --color-gray-50: var(--color-lightest);
-    --color-gray-100: var(--color-lighter);
-    --color-gray-200: var(--color-light);
-    --color-gray-400: var(--color-mid);
-    --color-gray-700: var(--color-dark);
-    --color-gray-800: var(--color-darker);
+    --color-gray-50: var(--color-bg-secondary);
+    --color-gray-100: var(--color-border-light);
+    --color-gray-200: var(--color-border-medium);
+    --color-gray-400: var(--color-text-tertiary);
+    --color-gray-700: var(--color-text-secondary);
+    --color-gray-800: var(--color-text-primary);
 }
 
 @theme inline {
@@ -88,6 +126,10 @@
     padding: 0;
 }
 
+html {
+    transition: background-color var(--transition-slow), color var(--transition-slow);
+}
+
 body {
     background: var(--background);
     color: var(--text-primary);
@@ -96,6 +138,7 @@ body {
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    transition: background-color var(--transition-slow), color var(--transition-slow);
 }
 
 /* Modern typography */
@@ -207,7 +250,7 @@ input:focus, textarea:focus {
     left: 0;
     right: 0;
     height: 3px;
-    background: linear-gradient(90deg, var(--accent-primary), var(--accent-medium));
+    background: var(--accent-gradient);
     opacity: 0;
     transition: opacity var(--transition-base);
 }
@@ -238,14 +281,14 @@ input:focus, textarea:focus {
 }
 
 .btn-primary {
-    background: var(--accent-primary);
+    background: var(--accent-gradient);
     color: white;
     box-shadow: var(--shadow-sm);
     border: none;
 }
 
 .btn-primary:hover {
-    background: var(--accent-dark);
+    filter: brightness(1.1);
     box-shadow: var(--shadow-md);
     transform: translateY(-1px);
 }
@@ -297,6 +340,45 @@ input:focus, textarea:focus {
 }
 
 /* ============================================================================
+   THEME TOGGLE
+   ============================================================================ */
+
+.theme-toggle {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--hover);
+    color: var(--text-secondary);
+    transition: all var(--transition-base);
+    position: relative;
+}
+
+.theme-toggle:hover {
+    background: var(--accent-light);
+    color: var(--accent-primary);
+}
+
+.theme-icon-light {
+    display: block;
+}
+
+.theme-icon-dark {
+    display: none;
+    position: absolute;
+}
+
+.dark .theme-icon-light {
+    display: none;
+}
+
+.dark .theme-icon-dark {
+    display: block;
+}
+
+/* ============================================================================
    LAYOUT CLASSES (Slack-inspired)
    ============================================================================ */
 
@@ -318,6 +400,7 @@ input:focus, textarea:focus {
     gap: 0;
     border-right: 1px solid rgba(0, 0, 0, 0.1);
     overflow: visible;
+    transition: background-color var(--transition-slow);
 }
 
 .workspace-items {
@@ -357,17 +440,6 @@ input:focus, textarea:focus {
     border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* Agent item wrapper - allows tooltip overflow */
-.workspace-agent-wrapper {
-    position: relative;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: visible;
-}
-
-/* Workspace item with tooltip support */
 .workspace-item {
     width: 48px;
     height: 48px;
@@ -390,7 +462,7 @@ input:focus, textarea:focus {
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), transparent);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), transparent);
     opacity: 0;
     transition: opacity var(--transition-base);
 }
@@ -405,13 +477,10 @@ input:focus, textarea:focus {
 }
 
 .workspace-item.active {
-    background: linear-gradient(135deg, var(--accent-primary), var(--accent-medium));
+    background: var(--accent-gradient);
     color: white;
-    box-shadow: 0 8px 16px rgba(16, 185, 129, 0.3);
+    box-shadow: var(--shadow-glow);
 }
-
-/* Custom CSS Tooltip */
-
 
 .workspace-item svg {
     display: block;
@@ -425,6 +494,7 @@ input:focus, textarea:focus {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    transition: background-color var(--transition-slow), border-color var(--transition-slow);
 }
 
 .nav-header {
@@ -433,6 +503,10 @@ input:focus, textarea:focus {
     font-weight: 700;
     font-size: 16px;
     color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: border-color var(--transition-slow), color var(--transition-slow);
 }
 
 .nav-content {
@@ -470,7 +544,7 @@ input:focus, textarea:focus {
 }
 
 .nav-item:hover {
-    background: rgba(16, 185, 129, 0.05);
+    background: rgba(16, 185, 129, 0.08);
     color: var(--accent-primary);
     border-left-color: var(--accent-primary);
 }
@@ -482,6 +556,10 @@ input:focus, textarea:focus {
     font-weight: 600;
 }
 
+.dark .nav-item.active {
+    background: rgba(16, 185, 129, 0.15);
+}
+
 /* Main content area */
 .main-content {
     flex: 1;
@@ -489,6 +567,7 @@ input:focus, textarea:focus {
     flex-direction: column;
     overflow: hidden;
     background: var(--background);
+    transition: background-color var(--transition-slow);
 }
 
 .main-header {
@@ -500,6 +579,7 @@ input:focus, textarea:focus {
     gap: 20px;
     background: var(--surface);
     box-shadow: var(--shadow-xs);
+    transition: background-color var(--transition-slow), border-color var(--transition-slow);
 }
 
 .main-body {
@@ -559,12 +639,12 @@ input:focus, textarea:focus {
 }
 
 .prose a {
-    color: var(--text-primary);
+    color: var(--accent-primary);
     text-decoration: underline;
 }
 
 .prose a:hover {
-    color: var(--text-secondary);
+    color: var(--accent-dark);
 }
 
 .prose strong {
@@ -666,4 +746,34 @@ input:focus, textarea:focus {
     40% {
         opacity: 1;
     }
+}
+
+/* ============================================================================
+   SCROLLBAR STYLING
+   ============================================================================ */
+
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--background);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-text-tertiary);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-secondary);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+    background: var(--color-border-medium);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-tertiary);
 }
