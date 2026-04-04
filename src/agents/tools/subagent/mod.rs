@@ -47,7 +47,7 @@ impl Tool for SpawnSubAgents {
         ToolDefinition {
             name: Self::NAME.to_string(),
             description: format!(
-                "spawn subagents of yourselves to do on or multiple task in paralel"
+                "spawn subagents of yourselves a wait for them to do one or multiple task in paralel"
             ),
             parameters,
         }
