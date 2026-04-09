@@ -6,7 +6,6 @@ mod agent;
 mod init;
 mod onboard;
 mod run;
-mod tui;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about=None)]
@@ -24,8 +23,6 @@ enum Commands {
     Onboard(onboard::OnboardArgs),
     /// generate new config, non-interactively
     Configure,
-    /// Open tui client
-    Tui(tui::TuiArgs),
     /// init a vizier directory
     Init,
     /// Manage agents
@@ -40,7 +37,6 @@ pub async fn start() -> Result<()> {
         Commands::Onboard(args) => onboard::onboard(args.clone()).await?,
         Commands::Run(args) => run::run(args.clone()).await?,
         Commands::Init => init::init().await?,
-        Commands::Tui(args) => tui::tui(args.clone()).await?,
         Commands::Agent(args) => agent::agent(args.clone()).await?,
         _ => {
             unimplemented!("TODO: unimplemented");

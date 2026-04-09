@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use anyhow::Result;
-use chrono::{DateTime, Timelike, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use surrealdb_types::SurrealValue;
@@ -18,7 +18,6 @@ pub enum VizierChannelId {
     DiscordChanel(u64),
     HTTP(String),
     Task(String, DateTime<Utc>),
-    Socket(String),
     InterAgent(Vec<String>),
     Heartbeat(DateTime<Utc>),
     System,
@@ -33,7 +32,6 @@ impl VizierChannelId {
             Self::Task(id, datetime) => {
                 format!("task__{}__{}", id, datetime.timestamp_subsec_nanos())
             }
-            Self::Socket(id) => format!("socket__{}", id),
             Self::InterAgent(set) => {
                 let participants = set.join("__");
 
