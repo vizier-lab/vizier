@@ -7,6 +7,11 @@ All notable changes to this project will be documented in this file.
 ### 🚀 Features
 
 - Tool adjustment
+
+### ⚙️ Miscellaneous Tasks
+
+- Fix windows-installer build error
+- Bump version to 0.3.0-rc.3
 ## [0.3.0-rc.2] - 2026-04-09
 
 ### 🚀 Features
