@@ -29,40 +29,10 @@ pub struct ScheduleOneTimeTaskArgs {
     #[schemars(description = "user who request the task")]
     user: String,
 
-    #[schemars(description = "Scheduled utc datetime of the task, in timestamp secs format")]
-    schedule: DateTime,
-}
-
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema, Clone)]
-struct DateTime {
-    #[schemars(description = "year")]
-    year: i32,
-    #[schemars(description = "month")]
-    month: u32,
-    #[schemars(description = "day")]
-    day: u32,
-    #[schemars(description = "hour")]
-    hour: u32,
-    #[schemars(description = "minute")]
-    minute: u32,
-    #[schemars(description = "second")]
-    second: u32,
-}
-
-impl DateTime {
-    /// Converts to an Optional NaiveDateTime (returns None if input is invalid)
-    pub fn to_chrono(&self) -> Option<chrono::NaiveDateTime> {
-        let date = chrono::NaiveDate::from_ymd_opt(self.year, self.month, self.day)?;
-        let time = chrono::NaiveTime::from_hms_opt(self.hour, self.minute, self.second)?;
-
-        Some(chrono::NaiveDateTime::new(date, time))
-    }
-
-    /// Converts to a UTC DateTime
-    pub fn to_utc(&self) -> Option<chrono::DateTime<chrono::Utc>> {
-        self.to_chrono()
-            .map(|naive| chrono::DateTime::from_naive_utc_and_offset(naive, Utc))
-    }
+    #[schemars(
+        description = "Scheduled utc datetime of the task, in RFC3339 format (e.g., 2024-12-25T10:30:00Z)"
+    )]
+    schedule: String,
 }
 
 impl Tool for ScheduleOneTimeTask
@@ -85,10 +55,13 @@ where
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let utc_datetime = args
-            .schedule
-            .to_utc()
-            .ok_or_else(|| VizierError("Invalid datetime provided".to_string()))?;
+        let utc_datetime = chrono::DateTime::parse_from_rfc3339(&args.schedule)
+            .map(|dt| dt.with_timezone(&Utc))
+            .map_err(|_| {
+                VizierError(
+                    "Invalid datetime format. Use RFC3339 (e.g., 2024-12-25T10:30:00Z)".to_string(),
+                )
+            })?;
 
         // Validate that one-time task is in the future
         let now = Utc::now();
@@ -177,10 +150,7 @@ where
         match Cron::from_str(&args.cron) {
             Ok(_) => {}
             Err(e) => {
-                return Err(VizierError(format!(
-                    "Invalid cron expression: {}",
-                    e
-                )));
+                return Err(VizierError(format!("Invalid cron expression: {}", e)));
             }
         }
 

@@ -2,13 +2,9 @@ use rig::{completion::ToolDefinition, tool::Tool};
 use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use teloxide::Bot;
+use teloxide::{Bot, types::Recipient};
 
-use crate::{
-    config::VizierConfig,
-    error::VizierError,
-    utils::telegram::send_message,
-};
+use crate::{config::VizierConfig, error::VizierError, utils::telegram::send_message};
 
 pub struct TelegramDmPrimaryUser {
     bot: Option<Bot>,
@@ -83,10 +79,16 @@ where
             format!("@{}", self.username)
         };
 
-        match send_message(bot, teloxide::types::Recipient::ChannelUsername(username.clone()), args.content).await {
+        println!("{username}");
+        let recipient = Recipient::ChannelUsername(username.clone());
+        match send_message(bot, recipient, args.content).await {
             Ok(()) => Ok(()),
             Err(err) => {
-                log::error!("telegram_dm_primary_user: failed to send message to {}: {:?}", username, err);
+                log::error!(
+                    "telegram_dm_primary_user: failed to send message to {}: {:?}",
+                    username,
+                    err
+                );
                 Ok(())
             }
         }
