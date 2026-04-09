@@ -27,7 +27,7 @@ pub async fn onboard(args: OnboardArgs) -> Result<()> {
     let workspace = match &args.path {
         Some(p) => p.clone(),
         None => Text::new("Workspace path:")
-            .with_default("~/.vizier")
+            .with_default(&std::env::current_dir()?.to_string_lossy())
             .prompt()?,
     };
 

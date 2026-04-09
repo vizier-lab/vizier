@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use clap::{Parser, Subcommand};
 
+mod agent;
 mod init;
 mod onboard;
 mod run;
@@ -27,6 +28,8 @@ enum Commands {
     Tui(tui::TuiArgs),
     /// init a vizier directory
     Init,
+    /// Manage agents
+    Agent(agent::AgentArgs),
 }
 
 pub async fn start() -> Result<()> {
@@ -38,6 +41,7 @@ pub async fn start() -> Result<()> {
         Commands::Run(args) => run::run(args.clone()).await?,
         Commands::Init => init::init().await?,
         Commands::Tui(args) => tui::tui(args.clone()).await?,
+        Commands::Agent(args) => agent::agent(args.clone()).await?,
         _ => {
             unimplemented!("TODO: unimplemented");
         }
