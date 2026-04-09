@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0-rc.2] - 2026-04-09
+
+### 🚀 Features
+
+- Adjust how thinking progress is implemented
+- Adjust webui to the new thinking flow
+- Adjust default and system prompt
+- Adjust onboarding and add command to generate new agent
+- Tweak styling
+- Add windows  support
+
+### ⚙️ Miscellaneous Tasks
+
+- Delete default vizier agent
+- Rename template file
 ## [0.3.0-rc.1] - 2026-04-04
 
 ### 🚀 Features
@@ -49,6 +64,7 @@ All notable changes to this project will be documented in this file.
 - Update repository ownership
 - Remove unused file
 - Remove old api
+- Bump version to 0.3.0-rc.1
 ## [0.2.3] - 2026-03-26
 
 ### 🐛 Bug Fixes
