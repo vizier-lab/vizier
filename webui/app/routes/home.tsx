@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
+import { useThemeStore } from '../hooks/themeStore'
 import type { Route } from './+types/home'
 
 export function meta({ }: Route.MetaArgs) {
@@ -11,6 +12,7 @@ export function meta({ }: Route.MetaArgs) {
 
 export default function Home() {
   const navigate = useNavigate()
+  const resolvedTheme = useThemeStore((state) => state.resolvedTheme)
 
   // Redirect to first agent when home page loads
   useEffect(() => {
@@ -27,7 +29,7 @@ export default function Home() {
       flexDirection: 'column',
       gap: '1rem',
     }}>
-      <h1>Vizier</h1>
+      <img src={`/vizier-logo-${resolvedTheme}.svg`} alt="Vizier" style={{ height: '64px' }} />
       <p style={{ color: 'var(--text-secondary)' }}>
         Select an agent from the sidebar to begin
       </p>

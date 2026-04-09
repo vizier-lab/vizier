@@ -2,7 +2,9 @@ import { useState, FormEvent, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { login } from '../services/vizier'
 import { useToastStore } from '../hooks/toastStore'
+import { useThemeStore } from '../hooks/themeStore'
 import ToastContainer from '../components/Toast'
+import ThemeToggle from '../components/ThemeToggle'
 
 export default function Login() {
   const [username, setUsername] = useState('')
@@ -11,6 +13,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
   const { addToast } = useToastStore()
+  const resolvedTheme = useThemeStore((state) => state.resolvedTheme)
 
   // Check if already logged in
   useEffect(() => {
@@ -50,7 +53,15 @@ export default function Login() {
         position: 'relative',
         overflow: 'hidden',
       }}>
-        {/* Background gradient decoration */}
+        <div style={{
+          position: 'absolute',
+          top: '1rem',
+          right: '1rem',
+          zIndex: 2,
+        }}>
+          <ThemeToggle />
+        </div>
+
         <div style={{
           position: 'absolute',
           top: '-50%',
@@ -84,22 +95,16 @@ export default function Login() {
             textAlign: 'center',
             marginBottom: '2.5rem',
           }}>
-            <div style={{
-              width: '64px',
-              height: '64px',
-              margin: '0 auto 1.5rem',
-              background: 'linear-gradient(135deg, #10B981 0%, #14B8A6 100%)',
-              borderRadius: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 8px 16px rgba(16, 185, 129, 0.3)',
-            }}>
-              <span style={{
-                fontSize: '32px',
-                color: 'white',
-              }}>🔮</span>
-            </div>
+            <img
+              src={`/vizier-logo-${resolvedTheme}.svg`}
+              alt="Vizier"
+              style={{
+                width: '64px',
+                height: '64px',
+                margin: '0 auto 1.5rem',
+                display: 'block',
+              }}
+            />
             <h1 style={{
               fontSize: '2rem',
               fontWeight: '700',
