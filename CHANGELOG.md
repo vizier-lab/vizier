@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0-rc.3] - 2026-04-09
+
+### 🚀 Features
+
+- Tool adjustment
 ## [0.3.0-rc.2] - 2026-04-09
 
 ### 🚀 Features
@@ -24,6 +29,7 @@ All notable changes to this project will be documented in this file.
 - Add logo
 - Implement date picker for task
 - Add telegram channel
+- Implement various dm tools
 
 ### 🐛 Bug Fixes
 
@@ -37,6 +43,7 @@ All notable changes to this project will be documented in this file.
 - Fix windows build
 - Bump version to 0.3.0-rc.2
 - Remove arm 64 windows release
+- Bump version to 0.3.0-rc.2
 ## [0.3.0-rc.1] - 2026-04-04
 
 ### 🚀 Features
