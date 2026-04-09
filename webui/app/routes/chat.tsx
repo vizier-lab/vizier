@@ -10,6 +10,7 @@ import rehypeHighlight from 'rehype-highlight'
 import { getCurrentUsername } from '../utils/auth'
 import { Skeleton, SkeletonMessage } from '../components/Skeleton'
 import { FaPaperPlane } from 'react-icons/fa'
+import { useToastStore } from '../hooks/toastStore'
 
 const textareaStyle = `
   .chat-textarea::-webkit-scrollbar {
@@ -37,6 +38,7 @@ export default function Chat() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const thinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const { addToast } = useToastStore()
 
   // WebSocket connection
   const { sendJsonMessage, lastJsonMessage, readyState } = useWebSocket(
@@ -67,9 +69,7 @@ export default function Chat() {
         listTopics(agentId).then(topic => {
           let topicDetail = topic.data.find((item: any) => item.topic_id == topicId);
 
-          if (topicDetail) {
-            setTopicDetail(topicDetail)
-          }
+          setTopicDetail(topicDetail)
         })
       }
     }
@@ -197,6 +197,19 @@ export default function Chat() {
 
     const finalTopicId = autoCorrectSlugStrict(newTopicId)
     if (!finalTopicId) return
+
+    try {
+      const response = await listTopics(agentId)
+      const topics = response.data || []
+      const exists = topics.some((t: any) => t.topic_id === finalTopicId)
+
+      if (exists) {
+        addToast('error', 'Topic already exists', `A topic with ID "${finalTopicId}" already exists.`)
+        return
+      }
+    } catch (error) {
+      console.error('Failed to check topic existence:', error)
+    }
 
     navigate(`/${agentId}/chat/${finalTopicId}`)
     setShowNewTopicInput(false)

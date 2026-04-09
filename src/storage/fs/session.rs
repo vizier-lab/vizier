@@ -98,4 +98,24 @@ impl SessionStorage for FileSystemStorage {
 
         Ok(res)
     }
+
+    async fn delete_session(
+        &self,
+        agent_id: AgentId,
+        channel: VizierChannelId,
+        topic: TopicId,
+    ) -> Result<()> {
+        let path = PathBuf::from(format!(
+            "{}/agents/{}/{}/{}/{}.md",
+            self.workspace,
+            agent_id.clone(),
+            SESSION_PATH,
+            channel.clone().to_slug(),
+            topic.clone()
+        ));
+
+        std::fs::remove_file(path)?;
+
+        Ok(())
+    }
 }

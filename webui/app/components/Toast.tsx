@@ -23,24 +23,29 @@ function ToastItem({ toast }: { toast: Toast }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: -20, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -20, scale: 0.95 }}
-      className={`flex items-start gap-3 p-5 rounded-lg border shadow-lg ${toastColors[toast.type]}`}
+      // initial={{ opacity: 0, y: -20, scale: 0.95 }}
+      // animate={{ opacity: 1, y: 0, scale: 1 }}
+      // exit={{ opacity: 0, y: -20, scale: 0.95 }}
+      className={`flex items-start justify-between gap-3 p-2! pt-0! rounded-lg border shadow-lg ${toastColors[toast.type]}`}
     >
-      <Icon className="flex-shrink-0 mt-0.5" size={18} />
-      <div className="flex-1">
-        <p className="font-medium text-sm">{toast.message}</p>
-        {toast.description && (
-          <p className="text-xs mt-1 opacity-80">{toast.description}</p>
-        )}
+      <div className='flex gap-2 pt-2! pb-2!'>
+        <Icon className="mt-1!" size={18} />
+        <div className="flex-1">
+          <p className="font-medium text-sm">{toast.message}</p>
+          {toast.description && (
+            <p className="text-xs mt-1 opacity-80">{toast.description}</p>
+          )}
+        </div>
+
       </div>
+
       <button
         onClick={() => removeToast(toast.id)}
-        className="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+        className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
       >
         ×
       </button>
+
     </motion.div>
   )
 }

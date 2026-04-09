@@ -119,6 +119,11 @@ export const getChatWebSocketUrl = (agentId: string, topicId: string) => {
   return `${protocol}//${base_url}/api/v1/agents/${agentId}/channel/${CHANNEL_ID}/topic/${topicId}/chat?token=${token}`
 }
 
+export const deleteTopic = async (agentId: string, topicId: string) => {
+  const res = await apiClient.delete(`/agents/${agentId}/channel/${CHANNEL_ID}/topic/${topicId}`)
+  return res.data
+}
+
 // ============================================================================
 // MEMORY ENDPOINTS
 // ============================================================================

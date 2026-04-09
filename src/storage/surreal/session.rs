@@ -52,4 +52,22 @@ impl SessionStorage for SurrealStorage {
 
         Ok(list)
     }
+
+    async fn delete_session(
+        &self,
+        agent_id: AgentId,
+        channel: VizierChannelId,
+        topic: TopicId,
+    ) -> Result<()> {
+        let _: Option<VizierSessionDetail> = self
+            .conn
+            .query("DELETE FROM session_detail WHERE agent_id = $agent_id AND channel = $channel AND topic = $topic")
+            .bind(("agent_id", agent_id))
+            .bind(("channel", channel))
+            .bind(("topic", topic))
+            .await?
+            .take(0)?;
+
+        Ok(())
+    }
 }

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
-import { listAgents, listTopics } from './services/vizier'
-import { FiSettings, FiMessageCircle, FiCheckCircle, FiLogOut, FiSearch } from 'react-icons/fi'
+import { listAgents, listTopics, deleteTopic } from './services/vizier'
+import { FiSettings, FiMessageCircle, FiCheckCircle, FiLogOut, FiSearch, FiTrash2 } from 'react-icons/fi'
 import { FaBook, FaFile } from 'react-icons/fa'
 import Avatar from './components/avatar'
 import ThemeToggle from './components/ThemeToggle'
 import ToastContainer from './components/Toast'
+import { useToastStore } from './hooks/toastStore'
 import type { Agent, Topic } from './interfaces/types'
 
 export default function Layout() {
@@ -15,6 +16,7 @@ export default function Layout() {
   const navigate = useNavigate()
   const params = useParams()
   const location = useLocation()
+  const { addToast } = useToastStore()
 
   const currentAgentId = params.agentId
   const currentTopicId = params.topicId
@@ -80,6 +82,25 @@ export default function Layout() {
   const handleLogout = () => {
     localStorage.removeItem('auth_token')
     navigate('/login')
+  }
+
+  const handleDeleteTopic = async (e: React.MouseEvent, topicId: string) => {
+    e.stopPropagation()
+    if (!currentAgentId) return
+    if (!confirm('Are you sure you want to delete this topic?')) return
+
+    try {
+      await deleteTopic(currentAgentId, topicId)
+      addToast('success', 'Topic deleted successfully')
+      const response = await listTopics(currentAgentId)
+      setTopics(response.data || [])
+      if (currentTopicId === topicId) {
+        navigate(`/${currentAgentId}/chat/new`)
+      }
+    } catch (error: any) {
+      console.error('Failed to delete topic:', error)
+      addToast('error', 'Failed to delete topic', error.response?.data?.message || 'Please try again')
+    }
   }
 
   const getCurrentView = () => {
@@ -207,12 +228,19 @@ export default function Layout() {
               {topics.map((topic) => (
                 <div
                   key={topic.topic_id}
-                  className={`nav-item ${currentTopicId === topic.topic_id ? 'active' : ''}`}
+                  className={`nav-item group ${currentTopicId === topic.topic_id ? 'active' : ''}`}
                   onClick={() => navigate(`/${currentAgentId}/chat/${topic.topic_id}`)}
                   title={topic.title}
                 >
                   <FiMessageCircle size={16} />
-                  <span>{topic.topic_id}</span>
+                  <span className="flex-1 truncate">{topic.topic_id}</span>
+                  <button
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-opacity"
+                    onClick={(e) => handleDeleteTopic(e, topic.topic_id)}
+                    title="Delete topic"
+                  >
+                    <FiTrash2 size={14} />
+                  </button>
                 </div>
               ))}
               <div

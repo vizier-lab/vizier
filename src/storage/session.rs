@@ -21,6 +21,13 @@ pub trait SessionStorage {
         agent_id: AgentId,
         chanel: VizierChannelId,
     ) -> Result<Vec<VizierSessionDetail>>;
+
+    async fn delete_session(
+        &self,
+        agent_id: AgentId,
+        chanel: VizierChannelId,
+        topic: TopicId,
+    ) -> Result<()>;
 }
 
 #[async_trait::async_trait]
@@ -46,5 +53,14 @@ impl SessionStorage for VizierStorage {
         chanel: VizierChannelId,
     ) -> Result<Vec<VizierSessionDetail>> {
         self.0.get_session_list(agent_id, chanel).await
+    }
+
+    async fn delete_session(
+        &self,
+        agent_id: AgentId,
+        chanel: VizierChannelId,
+        topic: TopicId,
+    ) -> Result<()> {
+        self.0.delete_session(agent_id, chanel, topic).await
     }
 }
