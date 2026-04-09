@@ -19,6 +19,15 @@ All notable changes to this project will be documented in this file.
 - Adjust layout
 - Tweak paddings and layouts
 - Add utility to modify primary documetns of agents
+- Replace chat header with topic title
+- Add delete session
+- Add logo
+- Implement date picker for task
+- Add telegram channel
+
+### 🐛 Bug Fixes
+
+- Windows build
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -26,6 +35,8 @@ All notable changes to this project will be documented in this file.
 - Rename template file
 - Bump version to 0.3.0-rc.2
 - Fix windows build
+- Bump version to 0.3.0-rc.2
+- Remove arm 64 windows release
 ## [0.3.0-rc.1] - 2026-04-04
 
 ### 🚀 Features
