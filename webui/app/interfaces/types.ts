@@ -91,7 +91,7 @@ export interface WebSocketMessage {
 }
 
 export type WebSocketResponse =
-  | { ThinkingProgress: null }
+  | { ThinkingStart: null }
   | { 
       Thinking: {
         name: string

@@ -21,10 +21,10 @@ export default function Chat() {
   const [showNewTopicInput, setShowNewTopicInput] = useState(false)
   const [isThinking, setIsThinking] = useState(false)
   const [currentThinking, setCurrentThinking] = useState<string | null>(null)
-  const [thinkingProgress, setThinkingProgress] = useState(0)
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const thinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // WebSocket connection
   const { sendJsonMessage, lastJsonMessage, readyState } = useWebSocket(
@@ -73,6 +73,24 @@ export default function Chat() {
     loadHistory()
   }, [agentId, topicId])
 
+  const clearThinkingState = () => {
+    setIsThinking(false)
+    setCurrentThinking(null)
+    if (thinkingTimeoutRef.current) {
+      clearTimeout(thinkingTimeoutRef.current)
+      thinkingTimeoutRef.current = null
+    }
+  }
+
+  const startThinkingTimeout = () => {
+    if (thinkingTimeoutRef.current) {
+      clearTimeout(thinkingTimeoutRef.current)
+    }
+    thinkingTimeoutRef.current = setTimeout(() => {
+      clearThinkingState()
+    }, 60000)
+  }
+
   // Handle incoming WebSocket messages
   useEffect(() => {
     if (!lastJsonMessage) return
@@ -81,17 +99,13 @@ export default function Chat() {
 
     // Handle string format
     if (typeof wsResponse === 'string') {
-      if (wsResponse === 'ThinkingProgress') {
+      if (wsResponse === 'ThinkingStart') {
         setIsThinking(true)
-        setThinkingProgress(prev => prev + 1)
+        startThinkingTimeout()
       } else if (wsResponse === 'Empty') {
-        setIsThinking(false)
-        setCurrentThinking(null)
-        setThinkingProgress(0)
+        clearThinkingState()
       } else if (wsResponse === 'Abort') {
-        setIsThinking(false)
-        setCurrentThinking(null)
-        setThinkingProgress(0)
+        clearThinkingState()
       }
       return
     }
@@ -101,22 +115,21 @@ export default function Chat() {
       return
     }
 
-    if ('ThinkingProgress' in wsResponse) {
+    if ('ThinkingStart' in wsResponse) {
       setIsThinking(true)
-      setThinkingProgress(prev => prev + 1)
+      startThinkingTimeout()
       return
     }
 
     if (wsResponse.Thinking) {
       setIsThinking(true)
       setCurrentThinking(`Using ${wsResponse.Thinking.name}...`)
+      startThinkingTimeout()
       return
     }
 
     if (wsResponse.Message) {
-      setIsThinking(false)
-      setCurrentThinking(null)
-      setThinkingProgress(0)
+      clearThinkingState()
 
       const newMessage: ChatMessage = {
         uid: Date.now().toString(),
@@ -138,16 +151,12 @@ export default function Chat() {
     }
 
     if ('Empty' in wsResponse) {
-      setIsThinking(false)
-      setCurrentThinking(null)
-      setThinkingProgress(0)
+      clearThinkingState()
       return
     }
 
     if ('Abort' in wsResponse) {
-      setIsThinking(false)
-      setCurrentThinking(null)
-      setThinkingProgress(0)
+      clearThinkingState()
       return
     }
   }, [lastJsonMessage, agentId, topicId])
