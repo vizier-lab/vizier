@@ -2,7 +2,7 @@
 .data/
 .vizier/
 *.vizier*
-*.dev.agent.md
+*.agent.md
 .env*
 
 # webui build artifacts

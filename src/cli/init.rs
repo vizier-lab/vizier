@@ -3,9 +3,12 @@ use std::{env, path::PathBuf};
 use anyhow::Result;
 use duration_string::DurationString;
 
-use crate::config::{
-    VizierConfig,
-    agent::{AgentConfig, AgentToolsConfig, MemoryConfig, ToolConfig},
+use crate::{
+    config::{
+        VizierConfig,
+        agent::{AgentConfig, AgentToolsConfig, MemoryConfig, ToolConfig},
+    },
+    constant::AGENT_TEMPLATE,
 };
 
 pub async fn init() -> Result<()> {
@@ -62,9 +65,9 @@ pub fn init_default_agent(path: PathBuf) {
 
     let content = format!(
         r#"# {}
-You are a 21st digital steward, your duty is to answer any questions from the user.
-Utilize any documents and memories at your disposal"#,
-        config.name
+
+{}"#,
+        config.name, AGENT_TEMPLATE
     );
 
     let mut target_path = path.clone();
