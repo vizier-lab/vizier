@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0-rc.4] - 2026-04-09
+
+### ⚙️ Miscellaneous Tasks
+
+- Window installer build
+- Bump version to 0.3.0-rc.4
 ## [0.3.0-rc.3] - 2026-04-09
 
 ### 🚀 Features
