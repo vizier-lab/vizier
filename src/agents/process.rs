@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use chrono::Utc;
@@ -42,7 +42,9 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
     let heartbeat_transport = deps.transport.clone();
     let heartbeat_workspace = agent.workspace.clone();
     let heartbeat = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(heartbeat_interval);
         loop {
+            interval.tick().await;
             let now = Utc::now();
             let session = VizierSession(
                 heartbeat_agent_id.clone(),
@@ -68,8 +70,6 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
                     log::error!("heartbeat error: {}", err);
                 }
             }
-
-            tokio::time::sleep(heartbeat_interval).await;
         }
     });
 
@@ -148,16 +148,12 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
         let thinking_session = session.clone();
         let thinking_handle = Arc::new(tokio::spawn(async move {
             if let VizierRequestContent::Chat(_) = thinking_request.content {
-                let mut interval = tokio::time::interval(Duration::from_secs(5));
-                loop {
-                    interval.tick().await;
-                    let _ = thinking_transport
-                        .send_response(
-                            thinking_session.clone(),
-                            crate::schema::VizierResponse::ThinkingProgress,
-                        )
-                        .await;
-                }
+                let _ = thinking_transport
+                    .send_response(
+                        thinking_session.clone(),
+                        crate::schema::VizierResponse::ThinkingStart,
+                    )
+                    .await;
             }
         }));
         thinking_handles.insert(session.clone(), thinking_handle.clone());

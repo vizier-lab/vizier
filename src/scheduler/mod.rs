@@ -21,7 +21,9 @@ impl VizierScheduler {
 
     pub async fn run(&mut self) -> Result<()> {
         let mut schedules: HashMap<(DateTime<Utc>, String), Task> = HashMap::new();
+        let mut interval = tokio::time::interval(Duration::from_secs(1));
         loop {
+            interval.tick().await;
             let now = Utc::now();
 
             // fetch tasks
@@ -87,8 +89,6 @@ impl VizierScheduler {
                     )
                     .await;
             }
-
-            tokio::time::sleep(Duration::from_mins(1)).await;
         }
     }
 }

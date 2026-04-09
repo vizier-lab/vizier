@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serenity::all::{
     ChannelId, Command, CreateCommand, CreateCommandOption, CreateInteractionResponseMessage, Http,
-    Interaction, Ready,
+    Interaction, Ready, Typing,
 };
 use serenity::async_trait;
 use serenity::model::channel::Message;
@@ -74,6 +74,7 @@ impl VizierChannel for DiscordChannelWriter {
 
         let mut recv = self.transport.subscribe_response().await?;
         let _ = tokio::spawn(async move {
+            let mut typing_state = HashMap::<u64, Typing>::new();
             loop {
                 if let Ok((
                     VizierSession(agent_id, VizierChannelId::DiscordChanel(channel_id), _),
@@ -81,36 +82,44 @@ impl VizierChannel for DiscordChannelWriter {
                 )) = recv.recv().await
                 {
                     let http = token_map.get(&agent_id).unwrap().clone();
-                    let channel_id = ChannelId::new(channel_id);
+                    let discord_channel_id = ChannelId::new(channel_id);
 
                     match res {
-                        VizierResponse::ThinkingProgress => {
-                            tokio::spawn(async move {
-                                let _ = channel_id.broadcast_typing(&http).await;
-                            });
+                        VizierResponse::ThinkingStart => {
+                            typing_state.insert(
+                                channel_id,
+                                Typing::start(http.clone(), discord_channel_id),
+                            );
                         }
-                        VizierResponse::Message { content, stats: _ } => {
-                            let content = remove_think_tags(&content.clone());
-                            let _ = crate::utils::discord::send_message(
-                                http.clone(),
-                                &channel_id,
-                                content,
-                            )
-                            .await;
-                        }
-
                         VizierResponse::Thinking { name, args } => {
                             let _ = crate::utils::discord::send_message(
                                 http.clone(),
-                                &channel_id,
+                                &discord_channel_id,
                                 crate::utils::format_thinking(&name, &args),
                             )
                             .await;
                         }
-                        VizierResponse::Abort => {
+                        VizierResponse::Message { content, stats: _ } => {
+                            if let Some(typing) = typing_state.remove(&channel_id) {
+                                typing.stop();
+                            }
+
+                            let content = remove_think_tags(&content.clone());
                             let _ = crate::utils::discord::send_message(
                                 http.clone(),
-                                &channel_id,
+                                &discord_channel_id,
+                                content,
+                            )
+                            .await;
+                        }
+                        VizierResponse::Abort => {
+                            if let Some(typing) = typing_state.remove(&channel_id) {
+                                typing.stop();
+                            }
+
+                            let _ = crate::utils::discord::send_message(
+                                http.clone(),
+                                &discord_channel_id,
                                 "thinking aborted".into(),
                             )
                             .await;
