@@ -244,7 +244,7 @@ jobs:
   # ====================
   windows-installer:
     name: Build Windows Installer
-    needs: build
+    needs: [prepare-release, build]
     runs-on: windows-latest
     steps:
       - name: Checkout
