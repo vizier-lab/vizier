@@ -4,9 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [0.3.0-rc.7] - 2026-04-10
 
+### 🚀 Features
+
+- Add copy button to chat balloon
+- Adjust thinking and tool calls debug hook
+
 ### ⚙️ Miscellaneous Tasks
 
 - Update lock
+- Remove unused route
+- Bump version to 0.3.0-rc.7
 ## [0.3.0-rc.6] - 2026-04-09
 
 ### 🐛 Bug Fixes
