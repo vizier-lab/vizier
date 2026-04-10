@@ -10,6 +10,7 @@ import rehypeHighlight from 'rehype-highlight'
 import { getCurrentUsername } from '../utils/auth'
 import { Skeleton, SkeletonMessage } from '../components/Skeleton'
 import { FaPaperPlane } from 'react-icons/fa'
+import { FiCopy, FiCheck } from 'react-icons/fi'
 import { useToastStore } from '../hooks/toastStore'
 
 const textareaStyle = `
@@ -446,14 +447,39 @@ export default function Chat() {
                       {senderName}
                     </div>
                   </div>
-                  <div className="prose" style={{
+                  <div style={{
                     padding: '12px 16px',
                     background: isUserMessage ? 'var(--surface)' : 'transparent',
                     borderRadius: '8px',
                     borderLeft: isUserMessage ? 'none' : '3px solid var(--accent-primary)',
                     boxShadow: isUserMessage ? 'var(--shadow-sm)' : 'none',
                   }}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{content}</ReactMarkdown>
+                    <div className="prose">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{content}</ReactMarkdown>
+                    </div>
+                    {!isUserMessage && (
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(content)
+                          addToast('success', 'Copied!', 'Message copied to clipboard')
+                        }}
+                        style={{
+                          marginTop: '8px',
+                          padding: '4px 8px',
+                          background: 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: 'var(--text-tertiary)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          fontSize: '12px',
+                        }}
+                        title="Copy to clipboard"
+                      >
+                        <FiCopy size={14} />
+                      </button>
+                    )}
                   </div>
                 </div>
               )

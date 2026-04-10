@@ -6,6 +6,8 @@ import { motion, type Transition } from 'motion/react'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import Avatar from './avatar'
+import { FiCopy, FiCheck } from 'react-icons/fi'
+import { useToastStore } from '~/hooks/toastStore'
 
 interface ChatBubbleProps {
   chat: Chat,
@@ -13,6 +15,8 @@ interface ChatBubbleProps {
 
 const ChatBubble = (props: ChatBubbleProps) => {
   const isAgent = props.chat.user_type === 'agent'
+  const { addToast } = useToastStore()
+  const copyContent = props.chat.content === 'thinking' ? '' : props.chat.content
 
   const username = (
     <div className="font-bold">
@@ -45,7 +49,17 @@ const ChatBubble = (props: ChatBubbleProps) => {
     >
       {
         props.chat.choice
-          ? <div className='p-5 prose mb-5 mt-5 min-w-full border-l-2 border-dashed bg-gray-300 shadow-md'>
+          ? <div className='p-5 prose mb-5 mt-5 min-w-full border-l-2 border-dashed bg-gray-300 shadow-md relative'>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(formatChoice(props.chat.choice!))
+                addToast('success', 'Copied!', 'Message copied to clipboard')
+              }}
+              className="absolute top-2 right-2 p-2 hover:bg-black/10 rounded cursor-pointer"
+              title="Copy to clipboard"
+            >
+              <FiCopy size={14} />
+            </button>
             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
               {`**${props.chat.username}** ${formatChoice(props.chat.choice)}`}
             </ReactMarkdown>
@@ -74,6 +88,18 @@ const ChatBubble = (props: ChatBubbleProps) => {
                   </ReactMarkdown>
                 )}
               </div>
+              {props.chat.content !== 'thinking' && isAgent && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(props.chat.content)
+                    addToast('success', 'Copied!', 'Message copied to clipboard')
+                  }}
+                  className="mt-2 p-1 hover:bg-black/10 rounded cursor-pointer flex items-center gap-1 text-xs text-black/50"
+                  title="Copy to clipboard"
+                >
+                  <FiCopy size={12} />
+                </button>
+              )}
               {props.chat.timestamp && (
                 <div className="text-black opacity-50 text-xs mt-5">
                   {props.chat.timestamp}
