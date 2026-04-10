@@ -9,6 +9,7 @@ use crate::{
         agent::{VizierAgent, read_md_file},
         hook::{
             VizierSessionHooks, debug::DebugHook, history::HistoryHook, thinking::ThinkingHook,
+            tool_calls::ToolCallsHook,
         },
     },
     config::agent::AgentConfig,
@@ -249,6 +250,11 @@ impl AgentSession {
         if let Some(true) = agent_config.show_thinking {
             hooks = hooks.hook(ThinkingHook::new(deps.transport.clone(), session.clone()));
         }
+
+        if let Some(true) = agent_config.show_tool_calls {
+            hooks = hooks.hook(ToolCallsHook::new(deps.transport.clone(), session.clone()));
+        }
+
         let hooks = Arc::new(hooks);
 
         Ok(Self { hooks })

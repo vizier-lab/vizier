@@ -35,7 +35,6 @@ pub fn init_default_agent(path: PathBuf) {
         system_prompt: None,
         model: "qwen3.5:4b".into(),
         description: Some("Digital steward".into()),
-        heartbeat_interval: DurationString::from_string("30m".into()).unwrap(),
         provider: crate::config::provider::ProviderVariant::ollama,
         prompt_timeout: DurationString::from_string("5m".into()).unwrap(),
         session_memory: MemoryConfig { max_capacity: 10 },
@@ -70,6 +69,8 @@ pub fn init_default_agent(path: PathBuf) {
         show_thinking: Some(false),
         documents: vec![],
         include_documents: None,
+        heartbeat_interval: DurationString::from_string("30m".into()).unwrap(),
+        show_tool_calls: None,
     };
 
     let content = format!(

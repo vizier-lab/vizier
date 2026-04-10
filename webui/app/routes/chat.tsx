@@ -7,6 +7,7 @@ import type { Agent, ChatMessage, Topic, WebSocketMessage, WebSocketResponse } f
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
+import hljs from 'highlight.js'
 import { getCurrentUsername } from '../utils/auth'
 import { Skeleton, SkeletonMessage } from '../components/Skeleton'
 import { FaPaperPlane } from 'react-icons/fa'
@@ -23,6 +24,26 @@ const textareaStyle = `
   }
 `
 
+interface InlineEvent {
+  id: string
+  type: 'start' | 'tool_choice' | 'thinking'
+  content?: string
+  timestamp: number
+}
+
+const formatToolChoice = (name: string, args: Record<string, unknown>): string => {
+  switch (name) {
+    case 'think':
+      return `> ${args.thought as string}`
+    case 'memory_read':
+      return `**search memory:** '${args.query as string}'`
+    case 'memory_write':
+      return `**write memory:** '${args.title as string}'`
+    default:
+      return `*use* **${name}**`
+  }
+}
+
 export default function Chat() {
   const { agentId, topicId } = useParams()
   const navigate = useNavigate()
@@ -33,8 +54,7 @@ export default function Chat() {
   const [isNewTopic, setIsNewTopic] = useState(false)
   const [newTopicId, setNewTopicId] = useState('')
   const [showNewTopicInput, setShowNewTopicInput] = useState(false)
-  const [isThinking, setIsThinking] = useState(false)
-  const [currentThinking, setCurrentThinking] = useState<string | null>(null)
+  const [inlineEvents, setInlineEvents] = useState<InlineEvent[]>([])
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -52,7 +72,6 @@ export default function Chat() {
     }
   )
 
-  // TODO: 
   const [topicDetail, setTopicDetail] = useState<any | null>(null)
 
   // Check if this is a new topic
@@ -73,6 +92,15 @@ export default function Chat() {
           setTopicDetail(topicDetail)
         })
       }
+    }
+  }, [topicId])
+
+  // Clear inline events when topic changes
+  useEffect(() => {
+    setInlineEvents([])
+    if (thinkingTimeoutRef.current) {
+      clearTimeout(thinkingTimeoutRef.current)
+      thinkingTimeoutRef.current = null
     }
   }, [topicId])
 
@@ -100,9 +128,8 @@ export default function Chat() {
     loadHistory()
   }, [agentId, topicId])
 
-  const clearThinkingState = () => {
-    setIsThinking(false)
-    setCurrentThinking(null)
+  const clearInlineEvents = () => {
+    setInlineEvents([])
     if (thinkingTimeoutRef.current) {
       clearTimeout(thinkingTimeoutRef.current)
       thinkingTimeoutRef.current = null
@@ -114,8 +141,17 @@ export default function Chat() {
       clearTimeout(thinkingTimeoutRef.current)
     }
     thinkingTimeoutRef.current = setTimeout(() => {
-      clearThinkingState()
-    }, 60000)
+      clearInlineEvents()
+    }, 3600000)
+  }
+
+  const addInlineEvent = (type: InlineEvent['type'], content?: string) => {
+    setInlineEvents(prev => [...prev, {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      type,
+      content,
+      timestamp: Date.now(),
+    }])
   }
 
   // Handle incoming WebSocket messages
@@ -127,12 +163,12 @@ export default function Chat() {
     // Handle string format
     if (typeof wsResponse === 'string') {
       if (wsResponse === 'ThinkingStart') {
-        setIsThinking(true)
+        setInlineEvents([{ id: Date.now().toString(), type: 'start', timestamp: Date.now() }])
         startThinkingTimeout()
       } else if (wsResponse === 'Empty') {
-        clearThinkingState()
+        clearInlineEvents()
       } else if (wsResponse === 'Abort') {
-        clearThinkingState()
+        clearInlineEvents()
       }
       return
     }
@@ -143,20 +179,25 @@ export default function Chat() {
     }
 
     if ('ThinkingStart' in wsResponse) {
-      setIsThinking(true)
+      setInlineEvents([{ id: Date.now().toString(), type: 'start', timestamp: Date.now() }])
       startThinkingTimeout()
       return
     }
 
-    if (wsResponse.Thinking) {
-      setIsThinking(true)
-      setCurrentThinking(`Using ${wsResponse.Thinking.name}...`)
-      startThinkingTimeout()
+    if (wsResponse.ToolChoice) {
+      const { name, args } = wsResponse.ToolChoice as { name: string; args: Record<string, unknown> }
+      const content = formatToolChoice(name, args)
+      addInlineEvent('tool_choice', content)
+      return
+    }
+
+    if (typeof wsResponse.Thinking === 'string') {
+      addInlineEvent('thinking', wsResponse.Thinking)
       return
     }
 
     if (wsResponse.Message) {
-      clearThinkingState()
+      clearInlineEvents()
 
       const newMessage: ChatMessage = {
         uid: Date.now().toString(),
@@ -178,12 +219,12 @@ export default function Chat() {
     }
 
     if ('Empty' in wsResponse) {
-      clearThinkingState()
+      clearInlineEvents()
       return
     }
 
     if ('Abort' in wsResponse) {
-      clearThinkingState()
+      clearInlineEvents()
       return
     }
   }, [lastJsonMessage, agentId, topicId])
@@ -383,7 +424,7 @@ export default function Chat() {
           gap: '1.5rem',
         }}
       >
-        {messages.length === 0 && !isThinking ? (
+        {messages.length === 0 && inlineEvents.length === 0 ? (
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -485,8 +526,8 @@ export default function Chat() {
               )
             })}
 
-            {/* Thinking indicator */}
-            {isThinking && (
+            {/* Thinking indicator with inline events */}
+            {inlineEvents.length > 0 && (
               <div style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -504,18 +545,43 @@ export default function Chat() {
                   borderRadius: '8px',
                   borderLeft: '3px solid var(--accent-primary)',
                   display: 'flex',
-                  alignItems: 'center',
+                  flexDirection: 'column',
                   gap: '8px',
-                  color: 'var(--text-tertiary)',
-                  fontStyle: 'italic',
+                  color: 'var(--text-secondary)',
                   background: 'var(--surface)',
                 }}>
-                  <div className="thinking-dots">
-                    <span>.</span>
-                    <span>.</span>
-                    <span>.</span>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    color: 'var(--text-tertiary)',
+                  }}>
+                    thinking
+                    <div className="thinking-dots">
+                      <span>.</span>
+                      <span>.</span>
+                      <span>.</span>
+                    </div>
                   </div>
-                  {currentThinking || 'Thinking...'}
+                  {inlineEvents.map((evt) => (
+                    <div key={evt.id} style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '8px',
+                      fontSize: '14px',
+                    }}>
+                      {evt.type === 'tool_choice' && evt.content && (
+                        <div className="prose">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                            {evt.content}
+                          </ReactMarkdown>
+                        </div>
+                      )}
+                      {evt.type === 'thinking' && evt.content && (
+                        <span style={{ fontStyle: 'italic' }}>{evt.content}</span>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

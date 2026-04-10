@@ -358,6 +358,7 @@ pub async fn onboard(args: OnboardArgs) -> Result<()> {
         include_documents: None,
         prompt_timeout: DurationString::from_string("5m".into()).unwrap(),
         heartbeat_interval: DurationString::from_string("30m".into()).unwrap(),
+        show_tool_calls: None,
     };
 
     config.save(config_path.clone(), "".into())?;

@@ -120,16 +120,24 @@ const formatChoice = (choice: Choice) => {
   }
 
   let title = titleMap[choice.name] ?? `use **${choice.name}**`
-  let content = `\`\`\`js\n${JSON.stringify(choice.args, null, 2)}\n\`\`\``
+  let content: string
 
-  if (choice.name == "think")
-    content = choice.args.thought
-
-  if (choice.name == "memory_write")
-    content = choice.args.content
-
-  if (choice.name == "python_interpreter")
-    content = `\`\`\`py\n${choice.args.script}\n\`\`\``
+  switch (choice.name) {
+    case "think":
+      content = choice.args.thought as string
+      break
+    case "memory_read":
+      content = `⚙️ memory: searching for '${choice.args.query as string}'`
+      break
+    case "memory_write":
+      content = `⚙️ memory: writing '${choice.args.title as string}'`
+      break
+    case "python_interpreter":
+      content = `\`\`\`py\n${choice.args.script as string}\n\`\`\``
+      break
+    default:
+      content = `${choice.name}: \`\`\`js\n${JSON.stringify(choice.args, null, 2)}\n\`\`\``
+  }
 
   return `${title} \n ${content}`
 }

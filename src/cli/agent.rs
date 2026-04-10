@@ -178,6 +178,7 @@ pub async fn agent_new(args: AgentNewArgs) -> Result<()> {
         include_documents: None,
         prompt_timeout: DurationString::from_string("5m".into()).unwrap(),
         heartbeat_interval: DurationString::from_string("30m".into()).unwrap(),
+        show_tool_calls: None,
     };
 
     println!("\n========== Agent Preview ==========\n");

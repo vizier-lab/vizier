@@ -91,11 +91,19 @@ impl VizierChannel for DiscordChannelWriter {
                                 Typing::start(http.clone(), discord_channel_id),
                             );
                         }
-                        VizierResponse::Thinking { name, args } => {
+                        VizierResponse::ToolChoice { name, args } => {
                             let _ = crate::utils::discord::send_message(
                                 http.clone(),
                                 &discord_channel_id,
                                 crate::utils::format_thinking(&name, &args),
+                            )
+                            .await;
+                        }
+                        VizierResponse::Thinking(thought) => {
+                            let _ = crate::utils::discord::send_message(
+                                http.clone(),
+                                &discord_channel_id,
+                                format!("> {}", thought),
                             )
                             .await;
                         }

@@ -68,12 +68,16 @@ pub fn agent_workspace(workspace: &str, agent_id: &str) -> PathBuf {
 pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
     let title = match &*name.clone() {
         "think" => "is thinking:".to_string(),
+        "memory_read" => "memory:".to_string(),
+        "memory_write" => "memory:".to_string(),
         _ => format!("use {}", &name),
     };
 
     let content = match &*name.clone() {
         "think" => format!("\n> {}", args["thought"].as_str().unwrap()),
         "python_interpreter" => format!("```python\n{}\n```", args["script"].as_str().unwrap()),
+        "memory_read" => format!("searching for '{}'", args["query"].as_str().unwrap()),
+        "memory_write" => format!("writing '{}'", args["title"].as_str().unwrap()),
         _ => format!(
             "```js\n{}\n```",
             serde_json::to_string_pretty(&args).unwrap()

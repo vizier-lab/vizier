@@ -8,29 +8,31 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct ThinkingHook {
+pub struct ToolCallsHook {
     transport: VizierTransport,
     session: VizierSession,
 }
 
-impl ThinkingHook {
+impl ToolCallsHook {
     pub fn new(transport: VizierTransport, session: VizierSession) -> Self {
         Self { transport, session }
     }
 }
 
 #[async_trait::async_trait]
-impl VizierSessionHook for ThinkingHook {
+impl VizierSessionHook for ToolCallsHook {
     async fn on_tool_call(&self, function_name: String, args: String) -> Result<(String, String)> {
-        if function_name == "think".to_string() {
-            if let Ok(thinking) = serde_json::from_str::<Value>(&args) {
-                self.transport
-                    .send_response(
-                        self.session.clone(),
-                        VizierResponse::Thinking(thinking["thought"].to_string()),
-                    )
-                    .await?;
-            }
+        if function_name != "think" {
+            let args_json: serde_json::Value = serde_json::from_str::<Value>(&args)?;
+            self.transport
+                .send_response(
+                    self.session.clone(),
+                    VizierResponse::ToolChoice {
+                        name: function_name.clone(),
+                        args: args_json,
+                    },
+                )
+                .await?;
         }
 
         Ok((function_name, args))
@@ -40,3 +42,4 @@ impl VizierSessionHook for ThinkingHook {
         Ok(res)
     }
 }
+

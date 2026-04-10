@@ -6,6 +6,7 @@ use anyhow::Result;
 pub mod debug;
 pub mod history;
 pub mod thinking;
+pub mod tool_calls;
 
 #[async_trait::async_trait]
 pub trait VizierSessionHook

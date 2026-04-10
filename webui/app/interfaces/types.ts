@@ -93,11 +93,12 @@ export interface WebSocketMessage {
 export type WebSocketResponse =
   | { ThinkingStart: null }
   | { 
-      Thinking: {
+      ToolChoice: {
         name: string
         args: Record<string, unknown>
       }
     }
+  | { Thinking: string }
   | {
       Message: {
         content: string

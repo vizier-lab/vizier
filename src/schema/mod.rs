@@ -60,7 +60,8 @@ pub struct VizierResponseStats {
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
 pub enum VizierResponse {
     ThinkingStart,
-    Thinking {
+    Thinking(String),
+    ToolChoice {
         name: String,
         args: serde_json::Value,
     },

@@ -20,6 +20,7 @@ pub struct AgentConfig {
     pub tools: AgentToolsConfig,
     pub silent_read_initiative_chance: f32,
     pub show_thinking: Option<bool>,
+    pub show_tool_calls: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_documents: Option<Vec<String>>,
     pub prompt_timeout: DurationString,

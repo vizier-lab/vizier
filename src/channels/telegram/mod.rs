@@ -312,11 +312,19 @@ impl VizierChannel for TelegramChannelWriter {
                             });
                             typing_handles.insert(chat_id.0, typing_task);
                         }
-                        VizierResponse::Thinking { name, args } => {
+                        VizierResponse::ToolChoice { name, args } => {
                             let _ = crate::utils::telegram::send_message(
                                 &bot,
                                 chat_id,
                                 crate::utils::format_thinking(&name, &args),
+                            )
+                            .await;
+                        }
+                        VizierResponse::Thinking(thought) => {
+                            let _ = crate::utils::telegram::send_message(
+                                &bot,
+                                chat_id,
+                                format!("> {}", thought),
                             )
                             .await;
                         }
