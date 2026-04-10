@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0-rc.7] - 2026-04-10
+
+### ⚙️ Miscellaneous Tasks
+
+- Update lock
+## [0.3.0-rc.6] - 2026-04-09
+
+### 🐛 Bug Fixes
+
+- Surreal storage
+- Ensure Windows compatibility by using PathBuf for all filesystem paths
+- Include .exe files in GitHub release artifacts
+
+### ⚙️ Miscellaneous Tasks
+
+- Add rust caching
+- Add rust caching
+- Bump version to 0.3.0-rc.6
 ## [0.3.0-rc.5] - 2026-04-09
 
 ### ⚙️ Miscellaneous Tasks
