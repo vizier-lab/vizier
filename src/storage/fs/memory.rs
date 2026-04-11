@@ -12,7 +12,7 @@ use crate::{
         indexer::DocumentIndexer,
         memory::MemoryStorage,
     },
-    utils::{self, build_glob_path},
+    utils::{self, build_glob_path, build_path},
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -37,6 +37,10 @@ impl From<Memory> for MemoryFrontMatter {
 impl FileSystemStorage {
     pub async fn reindex_memory(&self) -> Result<()> {
         log::info!("reindex existing memory");
+        let base_path = build_path(&self.workspace, &["agents"]);
+        if !base_path.exists() {
+            std::fs::create_dir_all(&base_path)?;
+        }
         let path = build_glob_path(&self.workspace, &["agents", "**", MEMORY_PATH, "*.md"]);
         for entry in glob::glob(&path)? {
             let entry = entry?;
