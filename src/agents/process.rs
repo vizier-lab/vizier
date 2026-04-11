@@ -100,7 +100,7 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
                             user: "system".into(),
                             content: VizierRequestContent::Prompt(format!(
                                 // TODO: resolve the tools issue programatically instead
-                                "summarize (don't execute) prompt below into a single line title: \n {}",
+                                r#"summarize (don't execute) prompt below into a single line title: \n "{}""#,
                                 session_detail_request.to_prompt().unwrap()
                             )),
                             metadata: serde_json::json!({}),
@@ -110,11 +110,13 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
                     )
                     .await;
                 if let Ok(VizierResponse::Message { content, stats: _ }) = res {
+                    let mut title = content;
+                    title.truncate(20);
                     let detail = VizierSessionDetail {
                         agent_id,
                         channel,
                         topic,
-                        title: content,
+                        title,
                     };
                     let _ = session_detail_storage.save_session_detail(detail).await;
                 }
