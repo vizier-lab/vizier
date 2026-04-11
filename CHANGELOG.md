@@ -2,11 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.2] - 2026-04-11
+
+### 🐛 Bug Fixes
+
+- Reindex error on windows
+- Docker dist
+
+### 💼 Other
+
+- Remove subagent capabilities
 ## [0.3.1] - 2026-04-10
+
+### 🐛 Bug Fixes
+
+- Title too long
 
 ### ⚙️ Miscellaneous Tasks
 
 - Update lock
+- Bump version to 0.3.1
 ## [0.3.0] - 2026-04-10
 
 ### 🐛 Bug Fixes
