@@ -53,21 +53,30 @@ jobs:
         with:
           ref: v${{ inputs.version }}
 
-      - name: Download Linux x86_64 binary
+      - name: Download Linux amd64 binary
         uses: actions/download-artifact@v4
         with:
           name: vizier-x86_64-unknown-linux-gnu
-          path: binary
+          path: binary-amd64
 
-      - name: Extract binary
+      - name: Download Linux arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: vizier-aarch64-unknown-linux-gnu
+          path: binary-arm64
+
+      - name: Extract binaries
         shell: bash
         run: |
           VERSION="${{ inputs.version }}"
-          mkdir -p dist
-          tar -xzf binary/vizier-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz -C dist
-          mv dist/vizier-v${VERSION}-x86_64-unknown-linux-gnu/vizier dist/
-          chmod +x dist/vizier
-          ls -la dist/
+          mkdir -p dist/amd64 dist/arm64
+          tar -xzf binary-amd64/vizier-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz -C dist/amd64
+          mv dist/amd64/vizier-v${VERSION}-x86_64-unknown-linux-gnu/vizier dist/amd64/
+          chmod +x dist/amd64/vizier
+          tar -xzf binary-arm64/vizier-v${VERSION}-aarch64-unknown-linux-gnu.tar.gz -C dist/arm64
+          mv dist/arm64/vizier-v${VERSION}-aarch64-unknown-linux-gnu/vizier dist/arm64/
+          chmod +x dist/arm64/vizier
+          ls -la dist/amd64/ dist/arm64/
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -79,8 +88,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
+      - name: Extract metadata for amd64
+        id: meta-amd64
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
@@ -89,17 +98,60 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ !inputs.dry_run }}
 
-      - name: Build and push Docker image
+      - name: Extract metadata for arm64
+        id: meta-arm64
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}-arm64
+            type=semver,pattern={{major}}.{{minor}}-arm64
+            type=raw,value=latest-arm64,enable=${{ !inputs.dry_run }}
+
+      - name: Build and push Docker image (amd64)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: ${{ !inputs.dry_run }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta-amd64.outputs.tags }}
+          labels: ${{ steps.meta-amd64.outputs.labels }}
           build-args: |
-            VERSION=${{ inputs.version }}
+            BINARY_PATH=dist/amd64/vizier
+
+      - name: Build and push Docker image (arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          push: ${{ !inputs.dry_run }}
+          tags: ${{ steps.meta-arm64.outputs.tags }}
+          labels: ${{ steps.meta-arm64.outputs.labels }}
+          build-args: |
+            BINARY_PATH=dist/arm64/vizier
+
+      - name: Create and push multi-arch manifest (latest)
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          VERSION="${{ inputs.version }}"
+          IMAGE="ghcr.io/${{ github.repository }}"
+          docker manifest create ${IMAGE}:${VERSION} ${IMAGE}:${VERSION}-amd64 ${IMAGE}:${VERSION}-arm64
+          docker manifest create ${IMAGE}:latest ${IMAGE}:latest-amd64 ${IMAGE}:latest-arm64
+          docker manifest push ${IMAGE}:${VERSION}
+          docker manifest push ${IMAGE}:latest
+
+      - name: Create and push multi-arch manifest (minor)
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          VERSION="${{ inputs.version }}"
+          MAJOR_MINOR="${VERSION%.*}"
+          IMAGE="ghcr.io/${{ github.repository }}"
+          docker manifest create ${IMAGE}:${MAJOR_MINOR} ${IMAGE}:${MAJOR_MINOR}-amd64 ${IMAGE}:${MAJOR_MINOR}-arm64
+          docker manifest push ${IMAGE}:${MAJOR_MINOR}
 
       - name: Dry run docker summary
         if: ${{ inputs.dry_run }}
@@ -107,8 +159,12 @@ jobs:
           echo "## Dry Run - Docker Image" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Would push:" >> $GITHUB_STEP_SUMMARY
-          echo "- ghcr.io/${{ github.repository }}:${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- ghcr.io/${{ github.repository }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "- ghcr.io/${{ github.repository }}:${{ inputs.version }}-amd64" >> $GITHUB_STEP_SUMMARY
+          echo "- ghcr.io/${{ github.repository }}:${{ inputs.version }}-arm64" >> $GITHUB_STEP_SUMMARY
+          echo "- ghcr.io/${{ github.repository }}:${{ inputs.version }} (multi-arch manifest)" >> $GITHUB_STEP_SUMMARY
+          echo "- ghcr.io/${{ github.repository }}:latest-amd64" >> $GITHUB_STEP_SUMMARY
+          echo "- ghcr.io/${{ github.repository }}:latest-arm64" >> $GITHUB_STEP_SUMMARY
+          echo "- ghcr.io/${{ github.repository }}:latest (multi-arch manifest)" >> $GITHUB_STEP_SUMMARY
 
   # ====================
   # Summary
