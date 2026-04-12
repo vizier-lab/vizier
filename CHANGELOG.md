@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.2] - 2026-04-11
+## [0.3.3] - 2026-04-11
 
 ### 🐛 Bug Fixes
 
@@ -16,6 +16,8 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Fix docker image build
+- Bump version to 0.3.2
+- Temporarily remove docker publish
 - Bump version to 0.3.2
 ## [0.3.1] - 2026-04-10
 
