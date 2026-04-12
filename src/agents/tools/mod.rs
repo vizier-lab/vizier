@@ -19,6 +19,7 @@ use crate::{
         scheduler::{ScheduleCronTask, ScheduleOneTimeTask},
         shell::ShellExec,
         skill::CreateSkill,
+        subtasks::SubtasksTool,
         telegram::new_telegram_tools,
         vector_memory::init_vector_memory,
         workspace::{
@@ -47,6 +48,7 @@ mod notify;
 mod scheduler;
 mod shell;
 mod skill;
+mod subtasks;
 mod telegram;
 mod vector_memory;
 mod workspace;
@@ -129,6 +131,7 @@ impl VizierTools {
             })
             .tool(ConsultAgent::new(agent_id.clone(), deps.clone()))
             .tool(DelegateAgent::new(agent_id.clone(), deps.clone()))
+            .tool(SubtasksTool::new(agent_id.clone(), deps.clone()))
             .tool(CreateSkill::new(agent_id.clone(), deps.clone()));
 
         if agent_config.documents.len() > 0 {
