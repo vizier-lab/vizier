@@ -1,4 +1,4 @@
-use std::{fs, sync::Arc};
+use std::{fs, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use chrono::Utc;
@@ -7,9 +7,11 @@ use rig::{
     OneOrMany,
     message::{AssistantContent, Message, ToolResultContent, UserContent},
 };
+use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, timeout};
 
 use crate::{
+    VizierError,
     agents::{
         agent::{
             model::{VizierModel, VizierModelTrait},
@@ -22,16 +24,27 @@ use crate::{
     config::{agent::AgentConfig, user::UserConfig},
     dependencies::VizierDependencies,
     schema::{
-        SessionHistory, SessionHistoryContent, VizierRequest, VizierRequestContent,
-        VizierResponse, VizierResponseContent, VizierResponseStats,
+        SessionHistory, SessionHistoryContent, VizierRequest, VizierRequestContent, VizierResponse,
+        VizierResponseContent, VizierResponseStats,
     },
     storage::indexer::DocumentIndexer,
     utils::{agent_workspace, build_path},
-    VizierError,
 };
 
 mod model;
 mod system_prompt;
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct Subtask {
+    title: String,
+    prompt: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct SubtaskArgs {
+    #[schemars(description = "list of subtasks to be execute in paralel")]
+    tasks: Vec<Subtask>,
+}
 
 #[derive(Clone)]
 pub struct VizierAgent {
@@ -105,52 +118,73 @@ impl VizierAgent {
         memory: Vec<SessionHistory>,
         hooks: Option<Arc<VizierSessionHooks>>,
     ) -> Result<VizierResponse> {
-        let max_turn_depth = self.config.thinking_depth;
-        let mut turn_depth = 0;
-
         let mut tools = self.tools.tools().await?;
         tools.extend(self.skills.get_skills().await?);
 
+        let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
+        let initiative_factor = rng.random_range(0_f32..=1_f32);
+
+        let mut history = self.prepare_system_prompts().await;
+        history.extend(memory.iter().map(|history| match &history.content {
+            SessionHistoryContent::Request(req) => Message::user(req.to_prompt().unwrap()),
+            SessionHistoryContent::Response(r) => {
+                if let VizierResponseContent::Message { content, .. } = &r.content {
+                    Message::assistant(content.clone())
+                } else {
+                    Message::assistant("".to_string())
+                }
+            }
+        }));
+
+        let mut req = req;
+        if let Some(hooks) = hooks.clone() {
+            req = hooks.on_request(req).await?;
+        }
+
+        if let VizierRequestContent::SilentRead(_) = req.content {
+            if initiative_factor > self.config.silent_read_initiative_chance {
+                return Ok(VizierResponse {
+                    timestamp: chrono::Utc::now(),
+                    content: VizierResponseContent::Empty,
+                });
+            }
+        }
+
+        let (output, stats) = self
+            .prompt(req.to_prompt()?, history, 0, hooks.clone(), false)
+            .await?;
+
+        let mut response = VizierResponse {
+            timestamp: chrono::Utc::now(),
+            content: VizierResponseContent::Message {
+                content: output,
+                stats: Some(stats),
+            },
+        };
+        if let Some(hooks) = hooks.clone() {
+            response = hooks.on_response(response).await?;
+        }
+
+        Ok(response)
+    }
+
+    pub async fn prompt(
+        &self,
+        prompt: String,
+        history: Vec<Message>,
+        turn_depth: usize,
+        hooks: Option<Arc<VizierSessionHooks>>,
+        is_subagent: bool,
+    ) -> Result<(String, VizierResponseStats)> {
         timeout(*self.config.prompt_timeout, async {
-            turn_depth += 1;
-            if max_turn_depth > 0 && turn_depth > max_turn_depth {
-                return Err(anyhow::anyhow!(VizierError(format!(
-                    "thinking depth exceeding {}",
-                    max_turn_depth
-                ))));
-            }
-
-            let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
-            let initiative_factor = rng.random_range(0_f32..=1_f32);
-
-            let mut history = self.prepare_system_prompts().await;
-            history.extend(memory.iter().map(|history| match &history.content {
-                SessionHistoryContent::Request(req) => Message::user(req.to_prompt().unwrap()),
-                SessionHistoryContent::Response(r) => {
-                    if let VizierResponseContent::Message { content, .. } = &r.content {
-                        Message::assistant(content.clone())
-                    } else {
-                        Message::assistant("".to_string())
-                    }
-                }
-            }));
-
-            let mut req = req;
-            if let Some(hooks) = hooks.clone() {
-                req = hooks.on_request(req).await?;
-            }
-
-            if let VizierRequestContent::SilentRead(_) = req.content {
-                if initiative_factor > self.config.silent_read_initiative_chance {
-                    return Ok(VizierResponse {
-                        timestamp: chrono::Utc::now(),
-                        content: VizierResponseContent::Empty,
-                    });
-                }
-            }
+            let mut history = history.clone();
+            let mut turn_depth = turn_depth;
+            let max_turn_depth = self.config.thinking_depth;
+            let mut tools = self.tools.tools().await?;
+            tools.extend(self.skills.get_skills().await?);
 
             let output: String;
-            let mut message = Message::user(format!("{}", req.to_prompt()?,));
+            let mut message = Message::user(prompt);
 
             let start = Instant::now();
 
@@ -162,6 +196,14 @@ impl VizierAgent {
             let mut total_tokens: u64 = 0;
 
             loop {
+                turn_depth += 1;
+                if max_turn_depth > 0 && turn_depth > max_turn_depth {
+                    return Err(anyhow::anyhow!(VizierError(format!(
+                        "thinking depth exceeding {}",
+                        max_turn_depth
+                    ))));
+                }
+
                 let (message_id, choices, usage) = self
                     .model
                     .completion(message.clone(), history.clone(), tools.clone())
@@ -258,26 +300,18 @@ impl VizierAgent {
                 }
             }
 
-            let mut response = VizierResponse {
-                timestamp: chrono::Utc::now(),
-                content: VizierResponseContent::Message {
-                    content: output.clone(),
-                    stats: Some(VizierResponseStats {
-                        total_tokens,
-                        total_cached_input_tokens,
-                        total_input_tokens,
-                        total_output_tokens,
-                        input_tokens,
-                        cached_input_tokens,
-                        duration: start.elapsed(),
-                    }),
+            Ok((
+                output,
+                VizierResponseStats {
+                    total_tokens,
+                    total_cached_input_tokens,
+                    total_input_tokens,
+                    total_output_tokens,
+                    input_tokens,
+                    cached_input_tokens,
+                    duration: start.elapsed(),
                 },
-            };
-            if let Some(hooks) = hooks.clone() {
-                response = hooks.on_response(response).await?;
-            }
-
-            Ok(response)
+            ))
         })
         .await?
     }

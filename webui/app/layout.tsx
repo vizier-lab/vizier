@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
 import { listAgents, listTopics, deleteTopic } from './services/vizier'
 import { FiSettings, FiMessageCircle, FiCheckCircle, FiLogOut, FiSearch, FiTrash2, FiTrendingUp } from 'react-icons/fi'
-import { FaBook, FaFile } from 'react-icons/fa'
+import { FaBook, FaFile, FaFolder } from 'react-icons/fa'
 import Avatar from './components/avatar'
 import ThemeToggle from './components/ThemeToggle'
 import ToastContainer from './components/Toast'
@@ -216,7 +216,7 @@ export default function Layout() {
                 className={`nav-item ${currentView === 'documents' ? 'active' : ''}`}
                 onClick={() => navigate(`/${currentAgentId}/documents`)}
               >
-                <FaFile size={16} />
+                <FaFolder size={16} />
                 <span>Documents</span>
               </div>
               <div

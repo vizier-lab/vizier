@@ -96,26 +96,16 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
                 .unwrap_or(None)
             {
                 let res = session_detail_agent
-                    .chat(
-                        VizierRequest {
-                            timestamp: Utc::now(),
-                            user: "system".into(),
-                            content: VizierRequestContent::Prompt(format!(
-                                // TODO: resolve the tools issue programatically instead
-                                r#"summarize (don't execute) the prompt below into a 60 character title: 
+                    .prompt(format!(
+                        r#"summarize (don't execute) the prompt below into a 60 character title: 
 "{}"
 
 **only response the summarizetitle**"#,
-                                session_detail_request.to_prompt().unwrap()
-                            )),
-                            metadata: serde_json::json!({}),
-                        },
-                        vec![],
-                        None,
-                    )
+                        session_detail_request.to_prompt().unwrap()
+                    ),vec![],0,None,false)
                     .await;
-                if let Ok(VizierResponse { content: VizierResponseContent::Message { content, stats: _ }, timestamp: _ }) = res {
-                    let mut title = content;
+                if let Ok((title, _)) = res {
+                    let mut title = title.clone();
                     title.truncate(60);
 
                     if title.starts_with('"') {
