@@ -7,6 +7,7 @@ Configure data persistence backend:
 ```yaml
 storage:
   type: filesystem
+  indexer: in_mem
 ```
 
 ### Storage Types
@@ -15,6 +16,13 @@ storage:
 |------|-------------|
 | `filesystem` | Store data in `.vizier/` directory (default) |
 | `surreal` | Use SurrealDB for data storage |
+
+### Indexer Types
+
+| Type | Description |
+|------|-------------|
+| `in_mem` | In-memory indexer (default, fast, non-persistent) |
+| `surreal` | SurrealDB-based indexer (persistent, slower) |
 
 ## `shell`
 
@@ -32,6 +40,8 @@ shell:
 shell:
   environment: local
   path: "/path/to/working/dir"  # Working directory for shell commands
+  env:                           # Optional: environment variables
+    KEY: "value"
 ```
 
 ### Docker Environment

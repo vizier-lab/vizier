@@ -67,5 +67,17 @@ Configure the HTTP/WebSocket server:
 ```yaml
 channels:
   http:
-    port: 9999
+    port: 9999                          # Server port
+    jwt_secret: "${VIZIER_JWT_SECRET}"  # Secret for JWT signing
+    jwt_expiry_hours: 720               # Token expiry (default: 30 days)
 ```
+
+### Authentication
+
+The HTTP channel uses JWT (JSON Web Token) authentication:
+- `jwt_secret`: Secret key used to sign tokens (use environment variable)
+- `jwt_expiry_hours`: How long tokens remain valid
+
+### WebUI Access
+
+When HTTP channel is enabled, the WebUI is served at `http://localhost:<port>`.

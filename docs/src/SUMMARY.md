@@ -17,6 +17,8 @@
 - [2.6 Storage & Shell](./configuration/storage-shell.md)
 - [2.7 Agents](./configuration/agents.md)
 - [2.8 CLI](./configuration/cli.md)
+- [2.9 MCP Servers](./configuration/mcp.md)
+- [2.10 Skills](./configuration/skills.md)
 
 # 3. Development
 

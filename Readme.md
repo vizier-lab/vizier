@@ -220,10 +220,11 @@ Install Python 3.9 or higher following the installation instructions above, then
 - [x] Docker Sandbox
 - [x] Simple TUI (terminal user interface)
 - [x] Additional AI providers (Google Gemini, OpenAI, Anthropic, etc.)
-- [ ] WASM based plugin
-- [ ] Model Context Protocol (MCP) integration
+- [x] Sub-agent spawning for parallel task execution
+- [x] Model Context Protocol (MCP) integration
+- [x] Skill system for reusable agent behaviors
+- [ ] WASM-based plugin system
 - [ ] Built-in HTTP client tool
-- [ ] Skill system for reusable agent behaviors
 
 ## Development
 

@@ -6,7 +6,7 @@ Vizier is a Rust-based AI agent framework that provides a unified interface for 
 
 ## Features
 
-- **Multi-Channel Support**: Connect to Discord, HTTP (REST API & WebSocket), and WebUI
+- **Multi-Channel Support**: Connect to Discord, Telegram, HTTP (REST API & WebSocket), and WebUI
 - **AI Model Integration**: Support for multiple AI providers (DeepSeek, OpenRouter, Ollama, Anthropic, OpenAI, Gemini)
 - **Memory System**: Session-based short-term memory, configurable recall depth, and vector-based long-term memory
 - **Tool System**: Extensible tool framework including CLI access, web search (Brave Search), Python interpreter (opt-in), scheduler (cron & one-time tasks), vector memory, workspace document management, and **sub-agent spawning for parallel task execution**
@@ -80,8 +80,10 @@ See the [Getting Started](./getting-started/installation.md) section for detaile
 - [x] Simple TUI (terminal user interface)
 - [x] Additional AI providers (Google Gemini, OpenAI, Anthropic)
 - [x] **Sub-agent spawning for parallel task execution**
+- [x] **Sub-agent spawning for parallel task execution**
+- [x] Model Context Protocol (MCP) integration
+- [x] **Skill system for reusable agent behaviors**
 - [ ] WASM-based plugin system
-- [ ] Model Context Protocol (MCP) integration
 - [ ] Built-in HTTP client tool
 
 ## Next Steps
