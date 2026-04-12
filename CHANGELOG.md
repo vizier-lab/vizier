@@ -2,12 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-04-12
+
+### 🚀 Features
+
+- Add usage stats detail in message bubble
+- Add usage analytics page
+- Adjust token user by channel type
+- Adjust chat layout
+- Implement subagent tool
+
+### 🐛 Bug Fixes
+
+- Dropdown on analytics
+
+### 🚜 Refactor
+
+- Adjust history schema and fix dedup on webui
+- Adjust analytics layout
+- Adjust prompt function
 ## [0.3.3] - 2026-04-11
 
 ### 🐛 Bug Fixes
 
 - Reindex error on windows
 - Docker dist
+- Agent generation cli command
 
 ### 💼 Other
 
@@ -19,6 +39,7 @@ All notable changes to this project will be documented in this file.
 - Bump version to 0.3.2
 - Temporarily remove docker publish
 - Bump version to 0.3.2
+- Bump version to 0.3.3
 ## [0.3.1] - 2026-04-10
 
 ### 🐛 Bug Fixes
