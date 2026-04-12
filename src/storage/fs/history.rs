@@ -7,9 +7,10 @@ use std::collections::HashMap;
 
 use crate::{
     schema::{
-        AgentUsageStats, ChannelTypeUsage, ChannelUsage, DailyUsage, SessionHistory,
-        SessionHistoryContent, UsageSummary, VizierRequest, VizierRequestContent,
-        VizierResponse, VizierResponseContent, VizierResponseStats, VizierSession,
+        AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage, DailyChannelTypeUsage,
+        DailyUsage, SessionHistory, SessionHistoryContent, UsageSummary, VizierRequest,
+        VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
+        VizierSession,
     },
     storage::{
         fs::{FileSystemStorage, HISTORY_PATH},
@@ -267,6 +268,8 @@ impl HistoryStorage for FileSystemStorage {
 
         let mut by_channel_type: HashMap<String, ChannelTypeUsage> = HashMap::new();
         let mut by_day: HashMap<NaiveDate, DailyUsage> = HashMap::new();
+        let mut by_day_and_channel_type: HashMap<NaiveDate, HashMap<String, ChannelTypeUsageDetail>> =
+            HashMap::new();
 
         let path_pattern = format!(
             "{}/agents/{}/{}/*/*/*.md",
@@ -346,6 +349,22 @@ impl HistoryStorage for FileSystemStorage {
                         day_entry.input_tokens += stats.total_input_tokens;
                         day_entry.output_tokens += stats.total_output_tokens;
                         day_entry.total_requests += 1;
+
+                        let day_channel_entry = by_day_and_channel_type
+                            .entry(date)
+                            .or_insert_with(HashMap::new);
+                        let channel_detail = day_channel_entry
+                            .entry(channel_type.clone())
+                            .or_insert_with(|| ChannelTypeUsageDetail {
+                                total_tokens: 0,
+                                input_tokens: 0,
+                                output_tokens: 0,
+                                total_requests: 0,
+                            });
+                        channel_detail.total_tokens += stats.total_tokens;
+                        channel_detail.input_tokens += stats.total_input_tokens;
+                        channel_detail.output_tokens += stats.total_output_tokens;
+                        channel_detail.total_requests += 1;
                     }
                 }
             }
@@ -353,6 +372,17 @@ impl HistoryStorage for FileSystemStorage {
 
         let mut by_day_vec: Vec<DailyUsage> = by_day.into_values().collect();
         by_day_vec.sort_by(|a, b| a.date.cmp(&b.date));
+
+        let by_day_and_channel_type_vec: Vec<DailyChannelTypeUsage> = by_day_and_channel_type
+            .into_iter()
+            .map(|(date, channel_map)| DailyChannelTypeUsage {
+                date,
+                by_channel_type: channel_map,
+            })
+            .collect();
+        let mut by_day_and_channel_type_vec: Vec<DailyChannelTypeUsage> =
+            by_day_and_channel_type_vec;
+        by_day_and_channel_type_vec.sort_by(|a, b| a.date.cmp(&b.date));
 
         let avg_duration_ms = if total_requests > 0 {
             total_duration_ms as f64 / total_requests as f64
@@ -370,6 +400,7 @@ impl HistoryStorage for FileSystemStorage {
             },
             by_channel_type,
             by_day: by_day_vec,
+            by_day_and_channel_type: by_day_and_channel_type_vec,
         })
     }
 }

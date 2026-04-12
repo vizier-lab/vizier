@@ -182,6 +182,18 @@ export interface ChannelUsage {
   total_requests: number
 }
 
+export interface ChannelTypeUsageDetail {
+  total_tokens: number
+  input_tokens: number
+  output_tokens: number
+  total_requests: number
+}
+
+export interface DailyChannelTypeUsage {
+  date: string
+  by_channel_type: Record<string, ChannelTypeUsageDetail>
+}
+
 export interface ChannelTypeUsage {
   total_tokens: number
   total_requests: number
@@ -200,4 +212,5 @@ export interface AgentUsageStats {
   summary: UsageSummary
   by_channel_type: Record<string, ChannelTypeUsage>
   by_day: DailyUsage[]
+  by_day_and_channel_type: DailyChannelTypeUsage[]
 }

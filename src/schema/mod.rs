@@ -221,6 +221,20 @@ pub struct ChannelUsage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelTypeUsageDetail {
+    pub total_tokens: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_requests: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyChannelTypeUsage {
+    pub date: chrono::NaiveDate,
+    pub by_channel_type: std::collections::HashMap<String, ChannelTypeUsageDetail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelTypeUsage {
     pub total_tokens: u64,
     pub total_requests: u64,
@@ -241,4 +255,6 @@ pub struct AgentUsageStats {
     pub summary: UsageSummary,
     pub by_channel_type: std::collections::HashMap<String, ChannelTypeUsage>,
     pub by_day: Vec<DailyUsage>,
+    #[serde(default)]
+    pub by_day_and_channel_type: Vec<DailyChannelTypeUsage>,
 }

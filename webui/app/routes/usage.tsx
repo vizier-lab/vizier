@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router'
 import { getAgentUsage } from '../services/vizier'
 import { useToastStore } from '../hooks/toastStore'
-import type { AgentUsageStats, ChannelTypeUsage } from '../interfaces/types'
-import { UsageBarChart, ChannelTypeBarChart, type UsageMetric } from '../components/UsageBarChart'
+import type { AgentUsageStats } from '../interfaces/types'
+import { UsageBarChart, ChannelTypeStackedChart, type UsageMetric, type DisplayMode } from '../components/UsageBarChart'
 import { FiChevronDown, FiChevronRight, FiCalendar } from 'react-icons/fi'
 
 const DATE_RANGE_OPTIONS = [
@@ -18,6 +18,23 @@ const METRIC_OPTIONS: { label: string; value: UsageMetric }[] = [
   { label: 'Input', value: 'input' },
   { label: 'Output', value: 'output' },
 ]
+
+const DISPLAY_MODE_OPTIONS: { label: string; value: DisplayMode }[] = [
+  { label: 'Grouped', value: 'grouped' },
+  { label: 'Stacked', value: 'stacked' },
+]
+
+const CHANNEL_COLORS: Record<string, string> = {
+  http: '#3b82f6',
+  discord: '#5865f2',
+  telegram: '#0088cc',
+  task: '#f59e0b',
+  inter_agent: '#8b5cf6',
+  heartbeat: '#ef4444',
+  system: '#6b7280',
+  subagent: '#14b8a6',
+  other: '#9ca3af',
+}
 
 function formatNumber(num: number): string {
   if (num >= 1000000) {
@@ -47,7 +64,7 @@ export default function UsageDashboard() {
   const [customEndDate, setCustomEndDate] = useState('')
 
   const [dayMetric, setDayMetric] = useState<UsageMetric>('total')
-  const [channelTypeMetric, setChannelTypeMetric] = useState<UsageMetric>('total')
+  const [displayMode, setDisplayMode] = useState<DisplayMode>('grouped')
 
   const [expandedChannels, setExpandedChannels] = useState<Record<string, boolean>>({})
 
@@ -114,14 +131,31 @@ export default function UsageDashboard() {
     }))
   }
 
-  const getChannelTypeChartData = () => {
-    if (!usage?.by_channel_type) return []
-    return Object.entries(usage.by_channel_type).map(([name, data]) => ({
-      name,
-      total: data.total_tokens,
-      input: 0,
-      output: 0,
-    }))
+  const getDayAndChannelTypeChartData = () => {
+    if (!usage?.by_day_and_channel_type) return []
+    const channelTypes = new Set<string>()
+    usage.by_day_and_channel_type.forEach((day) => {
+      Object.keys(day.by_channel_type).forEach((ct) => channelTypes.add(ct))
+    })
+    const sortedChannelTypes = Array.from(channelTypes).sort()
+    return usage.by_day_and_channel_type.map((day) => {
+      const entry: Record<string, string | number> = {
+        name: new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      }
+      sortedChannelTypes.forEach((ct) => {
+        entry[ct] = day.by_channel_type[ct]?.total_tokens || 0
+      })
+      return entry
+    })
+  }
+
+  const getChannelTypes = (): string[] => {
+    if (!usage?.by_day_and_channel_type) return []
+    const channelTypes = new Set<string>()
+    usage.by_day_and_channel_type.forEach((day) => {
+      Object.keys(day.by_channel_type).forEach((ct) => channelTypes.add(ct))
+    })
+    return Array.from(channelTypes).sort()
   }
 
   const formatDateRange = () => {
@@ -326,54 +360,66 @@ export default function UsageDashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '24px' }}>
           <div style={{ background: 'var(--surface)', borderRadius: '8px', padding: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '16px', fontWeight: 600 }}>Token Usage by Day</h2>
-              <select
-                value={dayMetric}
-                onChange={(e) => setDayMetric(e.target.value as UsageMetric)}
-                style={{
-                  padding: '4px 8px',
-                  fontSize: '12px',
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '4px',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                }}
-              >
-                {METRIC_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <h2 style={{ fontSize: '16px', fontWeight: 600 }}>Token Usage by Day (Input/Output)</h2>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <select
+                  value={dayMetric}
+                  onChange={(e) => setDayMetric(e.target.value as UsageMetric)}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: '12px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '4px',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {METRIC_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={displayMode}
+                  onChange={(e) => setDisplayMode(e.target.value as DisplayMode)}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: '12px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '4px',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {DISPLAY_MODE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <UsageBarChart data={getDayChartData()} metric={dayMetric} />
+            <UsageBarChart data={getDayChartData()} metric={dayMetric} displayMode={displayMode} />
           </div>
 
           <div style={{ background: 'var(--surface)', borderRadius: '8px', padding: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '16px', fontWeight: 600 }}>Token Usage by Channel Type</h2>
-              <select
-                value={channelTypeMetric}
-                onChange={(e) => setChannelTypeMetric(e.target.value as UsageMetric)}
-                style={{
-                  padding: '4px 8px',
-                  fontSize: '12px',
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '4px',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                }}
-              >
-                {METRIC_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <h2 style={{ fontSize: '16px', fontWeight: 600 }}>Token Usage by Day (Channel Type)</h2>
             </div>
-            <ChannelTypeBarChart data={getChannelTypeChartData()} metric={channelTypeMetric} />
+            {usage.by_day_and_channel_type && usage.by_day_and_channel_type.length > 0 ? (
+              <ChannelTypeStackedChart
+                data={getDayAndChannelTypeChartData()}
+                channelTypes={getChannelTypes()}
+                colors={CHANNEL_COLORS}
+              />
+            ) : (
+              <div style={{ color: 'var(--text-tertiary)', textAlign: 'center', padding: '80px 0' }}>
+                No channel type data available
+              </div>
+            )}
           </div>
         </div>
 
