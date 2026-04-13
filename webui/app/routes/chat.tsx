@@ -297,6 +297,9 @@ export default function Chat() {
 
     setMessages(prev => [...prev, userMessage])
     setInput('')
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto'
+    }
     console.log('Calling sendJsonMessage with:', message)
     console.log('WebSocket readyState:', readyState)
     sendJsonMessage(message)
