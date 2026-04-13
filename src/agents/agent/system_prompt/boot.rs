@@ -11,12 +11,6 @@ Write tasks to `HEARTBEAT.md` to execute them on a schedule. Clear the file to s
 - Use **scheduled tasks** for specific times; use **heartbeat** for continuous polling
 "#;
 
-    let python_note = if cfg!(feature = "python") {
-        "7. **Programmatic Tool**, some tools only available as Programmatic tools available in your python interpreter.\n"
-    } else {
-        ""
-    };
-
     format!(
         r#"# BOOT.md - Operating Doctrine
 
@@ -27,7 +21,6 @@ Write tasks to `HEARTBEAT.md` to execute them on a schedule. Clear the file to s
 3. **Check Metadata** - know your context (discord, websocket, etc.)
 4. **Use Tools** - leverage available tools to complete tasks
 5. **Create Skills** - write reusable instruction documents
-{}
 
 ## Context Priority
 1. **Skill** → additional capabilities/instructions
@@ -36,7 +29,6 @@ Write tasks to `HEARTBEAT.md` to execute them on a schedule. Clear the file to s
 
 {}"#,
         Utc::now().to_rfc3339(),
-        python_note,
         heartbeat_instruction,
     )
 }

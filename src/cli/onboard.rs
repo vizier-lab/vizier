@@ -328,7 +328,6 @@ pub async fn onboard(args: OnboardArgs) -> Result<()> {
         thinking_depth,
         tools: AgentToolsConfig {
             timeout: DurationString::from_string("1m".into()).unwrap(),
-            python_interpreter: false,
             shell_access,
             brave_search: ToolConfig {
                 enabled: brave_search_enabled,

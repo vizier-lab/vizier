@@ -41,7 +41,6 @@ pub fn init_default_agent(path: PathBuf) {
         thinking_depth: 10,
         tools: AgentToolsConfig {
             timeout: DurationString::from_string("1m".into()).unwrap(),
-            python_interpreter: false,
             shell_access: false,
             brave_search: ToolConfig {
                 enabled: false,

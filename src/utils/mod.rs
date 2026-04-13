@@ -4,7 +4,6 @@ use std::path::PathBuf;
 pub mod discord;
 pub mod markdown;
 pub mod ollama;
-pub mod python;
 pub mod tar;
 pub mod telegram;
 

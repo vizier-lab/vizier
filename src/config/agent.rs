@@ -100,8 +100,6 @@ pub struct MemoryConfig {
 pub struct AgentToolsConfig {
     pub timeout: DurationString,
     #[serde(default)]
-    pub python_interpreter: bool,
-    #[serde(default)]
     pub shell_access: bool,
     #[serde(default)]
     pub brave_search: ToolConfig,

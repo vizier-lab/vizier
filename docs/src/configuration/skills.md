@@ -48,17 +48,6 @@ Skills are scoped to individual agents:
 
 ## Skill Management
 
-### Creating a Skill
-
-```python
-# Example: Agent creates a skill
-create_skill(
-    name="daily_summary",
-    description="Generates a summary of daily activities",
-    instruction="Create a concise summary of the user's day, highlighting key accomplishments and pending tasks."
-)
-```
-
 ### Using a Skill
 
 After creation, the skill becomes available as a tool:

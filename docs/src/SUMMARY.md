@@ -37,8 +37,7 @@
 # 5. Troubleshooting
 
 <!-- - [5.1 Common Issues](./troubleshooting/common-issues.md) -->
-<!-- - [5.2 Python Support](./troubleshooting/python.md) -->
-<!-- - [5.3 FAQ](./troubleshooting/faq.md) -->
+<!-- - [5.2 FAQ](./troubleshooting/faq.md) -->
 
 ---
 

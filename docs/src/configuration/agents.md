@@ -15,7 +15,6 @@ prompt_timeout: "5m"
 session_timeout: "30m"
 tools:
   timeout: "1m"
-  python_interpreter: true
   shell_access: false
   brave_search:
     enabled: true
@@ -62,15 +61,14 @@ Each tool can be configured with:
 ```yaml
 tools:
   timeout: "1m"                         # Global tool execution timeout
-  python_interpreter: false             # Enable Python code execution
   shell_access: false                   # Enable shell command execution
   mcp_servers: []                       # List of MCP server names to use
   brave_search:
     enabled: false
-    programmatic_tool_call: false       # Allow Python scripts to invoke search
+    programmatic_tool_call: false       # Allow tools to invoke search
   vector_memory:
     enabled: true
-    programmatic_tool_call: true        # Allow Python to access memory
+    programmatic_tool_call: true        # Allow tools to access memory
   discord:
     enabled: false                      # Enable Discord-specific actions
     programmatic_tool_call: false
@@ -87,16 +85,13 @@ tools:
 | Tool | `enabled` | `programmatic_tool_call` | Note |
 |------|-----------|-------------------------|------|
 | `timeout` | N/A | N/A | Global tool execution timeout |
-| `python_interpreter` | N/A (use `true`/`false`) | N/A | Requires `--features python` build |
 | `shell_access` | N/A (use `true`/`false`) | N/A | Subject to global `dangerously_enable_cli_access` |
 | `mcp_servers` | N/A | N/A | List of MCP server names from `.vizier.yaml` |
-| `brave_search` | Enable web search | Allow Python to invoke search | Requires `BRAVE_API_KEY` |
-| `vector_memory` | Enable memory | Allow Python to use memory | Requires embedding config |
-| `discord` | Enable Discord actions | Allow Python to use Discord | Requires Discord token in `.vizier.yaml` |
-| `telegram` | Enable Telegram actions | Allow Python to use Telegram | Requires Telegram token in `.vizier.yaml` |
-| `notify_primary_user` | Enable notifications | Allow Python to send notifications | Sends via Discord DM, Telegram DM, or WebUI |
-
-**Note:** `python_interpreter` requires building with `--features python`.
+| `brave_search` | Enable web search | Allow tools to invoke search | Requires `BRAVE_API_KEY` |
+| `vector_memory` | Enable memory | Allow tools to use memory | Requires embedding config |
+| `discord` | Enable Discord actions | Allow tools to use Discord | Requires Discord token in `.vizier.yaml` |
+| `telegram` | Enable Telegram actions | Allow tools to use Telegram | Requires Telegram token in `.vizier.yaml` |
+| `notify_primary_user` | Enable notifications | Allow tools to send notifications | Sends via Discord DM, Telegram DM, or WebUI |
 
 ## Complete Example
 
@@ -114,7 +109,6 @@ prompt_timeout: 5m
 session_timeout: 1h
 tools:
   timeout: 1m
-  python_interpreter: true
   shell_access: false
   mcp_servers: []                       # Add MCP server names here
   brave_search:
@@ -139,6 +133,6 @@ include_documents:
   - "docs/**/*.md"
 ---
 
-You are a helpful coding assistant specialized in Rust and Python.
+You are a helpful coding assistant specialized in Rust.
 Help the user write clean, efficient code.
 ```
