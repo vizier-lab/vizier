@@ -34,14 +34,16 @@ interface InlineEvent {
 const formatToolChoice = (name: string, args: Record<string, unknown>): string => {
   switch (name) {
     case 'think':
-      return `${args.thought as string}`
+      return args.thought as string
     case 'memory_read':
       return `**search memory:** '${args.query as string}'`
     case 'memory_write':
       return `**write memory:** '${args.title as string}'`
+    case 'python_interpreter':
+      return "**programatic tool**: \n```python" + `\n${args.script as string}\n` + "```"
     default:
       let formattedArgs = "```js" + `\n${JSON.stringify(args, null, 2)}\n` + "```";
-      return `* use * ** ${name}** \n${formattedArgs}`
+      return `*use* **${name}** \n${formattedArgs}`
   }
 }
 

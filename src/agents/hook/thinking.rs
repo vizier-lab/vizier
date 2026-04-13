@@ -29,7 +29,9 @@ impl VizierSessionHook for ThinkingHook {
                         self.session.clone(),
                         VizierResponse {
                             timestamp: chrono::Utc::now(),
-                            content: VizierResponseContent::Thinking(thinking["thought"].to_string()),
+                            content: VizierResponseContent::Thinking(
+                                thinking["thought"].as_str().unwrap().to_string(),
+                            ),
                         },
                     )
                     .await?;
