@@ -1,4 +1,5 @@
-import { useEffect, useState, useRef, FormEvent } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import type { FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
 import { getTopicHistory, getChatWebSocketUrl, listTopics, getAgentDetail } from '../services/vizier'
@@ -13,6 +14,9 @@ import { Skeleton, SkeletonMessage } from '../components/Skeleton'
 import { FaPaperPlane } from 'react-icons/fa'
 import { FiCopy, FiCheck } from 'react-icons/fi'
 import { useToastStore } from '../hooks/toastStore'
+import { MessageItem } from '../components/MessageItem'
+import { ThinkingIndicator } from '../components/ThinkingIndicator'
+import { debounce } from '../utils/debounce'
 
 const textareaStyle = `
   .chat-textarea::-webkit-scrollbar {
@@ -65,6 +69,15 @@ export default function Chat() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const thinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { addToast } = useToastStore()
+
+  // Create debounced resize handler to prevent layout thrashing on every keystroke
+  const debouncedResize = useMemo(
+    () => debounce((target: HTMLTextAreaElement) => {
+      target.style.height = 'auto'
+      target.style.height = Math.min(target.scrollHeight, window.innerHeight * 0.5) + 'px'
+    }, 50),
+    []
+  )
 
   // WebSocket connection
   const wsUrl = agentId && topicId && topicId !== 'new'
@@ -262,9 +275,11 @@ export default function Chat() {
     setNewTopicId('')
   }
 
-  const handleSendMessage = async (e: FormEvent) => {
+  const handleSendMessage = useCallback(async (e: FormEvent) => {
     e.preventDefault()
-    if (!input.trim() || !agentId || !topicId) return
+    // Read current input value directly from DOM to avoid stale closure
+    const currentInput = inputRef.current?.value || ''
+    if (!currentInput.trim() || !agentId || !topicId) return
 
     console.log('WebSocket readyState before check:', readyState)
     if (readyState !== 1) { // 1 = OPEN
@@ -277,8 +292,8 @@ export default function Chat() {
     const message: WebSocketMessage = {
       timestamp: new Date().toISOString(),
       user: username,
-      content: { chat: input.trim() },
-      metadata: null,
+      content: { chat: currentInput.trim() },
+      metadata: null as any,
     }
 
     console.log('Sending message:', JSON.stringify(message))
@@ -294,7 +309,7 @@ export default function Chat() {
         Request: {
           timestamp: new Date().toISOString(),
           user: username,
-          content: { chat: input.trim() },
+          content: { chat: currentInput.trim() },
         },
       },
     }
@@ -308,14 +323,19 @@ export default function Chat() {
     console.log('WebSocket readyState:', readyState)
     sendJsonMessage(message)
     console.log('sendJsonMessage called, readyState now:', readyState)
-  }
+  }, [agentId, topicId, readyState, sendJsonMessage])
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSendMessage(e as any)
     }
-  }
+  }, [handleSendMessage])
+
+  const handleCopyMessage = useCallback((content: string) => {
+    navigator.clipboard.writeText(content)
+    addToast('success', 'Copied!', 'Message copied to clipboard')
+  }, [addToast])
 
   if (loading) {
     return (
@@ -482,143 +502,23 @@ export default function Chat() {
               if (!content) return null
 
               return (
-                <div
+                <MessageItem
                   key={msg.uid}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px',
-                  }}
-                >
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                  }}>
-                    <div style={{
-                      fontWeight: '600',
-                      fontSize: '14px',
-                      color: isUserMessage ? 'var(--text-primary)' : 'var(--accent-primary)',
-                    }}>
-                      {senderName}
-                    </div>
-                  </div>
-                  <div style={{
-                    padding: '12px 16px',
-                    background: isUserMessage ? 'var(--surface)' : 'transparent',
-                    borderRadius: '8px',
-                    borderLeft: isUserMessage ? 'none' : '3px solid var(--accent-primary)',
-                    boxShadow: isUserMessage ? 'var(--shadow-sm)' : 'none',
-                  }}>
-                    <div className="flex items-start justify-between">
-                      <div className='prose'>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{content}</ReactMarkdown>
-                      </div>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(content)
-                          addToast('success', 'Copied!', 'Message copied to clipboard')
-                        }}
-                        className='sticky border flex items-center justify-center mt-1!'
-                        style={{
-                          color: 'var(--text-tertiary)',
-                        }}
-                        title="Copy to clipboard"
-                      >
-                        <FiCopy size={14} />
-                      </button>
-                    </div>
-
-                    {!isUserMessage && stats && (
-                      <div
-                        title={`Input: ${stats.total_input_tokens} | Output: ${stats.total_output_tokens} | Cached: ${stats.total_cached_input_tokens} `}
-                        style={{
-                          marginTop: '8px',
-                          padding: '4px 8px',
-                          background: 'var(--surface)',
-                          borderRadius: '4px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          fontSize: '11px',
-                          color: 'var(--text-tertiary)',
-                        }}
-                      >
-                        <span>{stats.total_tokens} tokens</span>
-                        <span style={{ opacity: 0.5 }}>·</span>
-                        <span>in: {stats.total_input_tokens}</span>
-                        <span style={{ opacity: 0.5 }}>·</span>
-                        <span>out: {stats.total_output_tokens}</span>
-                        <span style={{ opacity: 0.5 }}>·</span>
-                        <span>{Math.round(stats.duration.secs * 1000 + stats.duration.nanos / 1000000)}ms</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                  uid={msg.uid}
+                  isUserMessage={isUserMessage}
+                  senderName={senderName}
+                  content={content}
+                  stats={stats}
+                  onCopy={handleCopyMessage}
+                />
               )
             })}
 
             {/* Thinking indicator with inline events */}
-            {inlineEvents.length > 0 && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-              }}>
-                <div style={{
-                  fontWeight: '600',
-                  fontSize: '14px',
-                  color: 'var(--accent-primary)',
-                }}>
-                  {agentDetail?.name || 'Agent'}
-                </div>
-                <div style={{
-                  padding: '12px 16px',
-                  borderRadius: '8px',
-                  borderLeft: '3px solid var(--accent-primary)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  color: 'var(--text-secondary)',
-                  background: 'var(--surface)',
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    color: 'var(--text-tertiary)',
-                  }}>
-                    thinking
-                    <div className="thinking-dots">
-                      <span>.</span>
-                      <span>.</span>
-                      <span>.</span>
-                    </div>
-                  </div>
-                  {inlineEvents.map((evt) => (
-                    <div key={evt.id} style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '8px',
-                      fontSize: '14px',
-                    }}>
-                      {evt.type === 'tool_choice' && evt.content && (
-                        <div className="prose">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                            {evt.content}
-                          </ReactMarkdown>
-                        </div>
-                      )}
-                      {evt.type === 'thinking' && evt.content && (
-                        <div className="prose">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                            {evt.content.split('\n').map(line => `> ${line} `).join('\n')}
-                          </ReactMarkdown>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            <ThinkingIndicator
+              inlineEvents={inlineEvents}
+              agentName={agentDetail?.name || 'Agent'}
+            />
           </>
         )}
         <div ref={messagesEndRef} />
@@ -643,8 +543,7 @@ export default function Chat() {
             value={input}
             onChange={(e) => {
               setInput(e.target.value)
-              e.target.style.height = 'auto'
-              e.target.style.height = Math.min(e.target.scrollHeight, window.innerHeight * 0.5) + 'px'
+              debouncedResize(e.target)
             }}
             onKeyDown={handleKeyDown}
             placeholder={readyState === ReadyState.OPEN ? "Type your message..." : "Connecting..."}
