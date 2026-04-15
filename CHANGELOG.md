@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0-rc.1] - 2026-04-15
+
+### 🚀 Features
+
+- Optimize prompt
+- Better think indicator
+- Adjust tool indicator
+- Make python programmatic sandbox tool, need no runtime depedencies (#5)
+- Add think tool
+- Add agent shared_document
+- Adjust runtime path
+- Implement simple dreaming
+- Adjust dreaming
+
+### 🐛 Bug Fixes
+
+- Multiline textarea not reset
+- Usage layout
+
+### 🚜 Refactor
+
+- Optimize chat input
+
+### ⚙️ Miscellaneous Tasks
+
+- Adjust install script
 ## [0.4.0] - 2026-04-12
 
 ### 🚀 Features
@@ -21,6 +47,14 @@ All notable changes to this project will be documented in this file.
 - Adjust history schema and fix dedup on webui
 - Adjust analytics layout
 - Adjust prompt function
+
+### 📚 Documentation
+
+- Update book
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.4.0
 ## [0.3.3] - 2026-04-11
 
 ### 🐛 Bug Fixes
