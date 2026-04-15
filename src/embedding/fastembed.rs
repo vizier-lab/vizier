@@ -37,7 +37,8 @@ impl Client {
             match workspace {
                 None => None,
                 Some(workspace) => {
-                    let path = build_path(&workspace, &["embeddings", &model.to_string()]);
+                    let path =
+                        build_path(&workspace, &[".runtime", "embeddings", &model.to_string()]);
                     Some(path)
                 }
             },

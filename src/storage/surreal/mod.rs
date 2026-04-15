@@ -29,7 +29,7 @@ pub struct SurrealStorage {
 
 impl SurrealStorage {
     pub async fn new(workspace: String, embedder: Option<Arc<VizierEmbedder>>) -> Result<Self> {
-        let db_path = build_path(&workspace, &["vizier.db"]);
+        let db_path = build_path(&workspace, &[".runtime", "surreal"]);
         let db = Surreal::new::<RocksDb>(db_path).await?;
         db.use_ns("vizier").use_db("v1").await?;
 
