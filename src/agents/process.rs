@@ -61,15 +61,78 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
                         VizierRequest {
                             timestamp: Utc::now(),
                             user: heartbeat_agent_id.clone(),
-                            content: VizierRequestContent::Task("TODO:".into()),
-                            metadata: serde_json::json!({
-                                "timestamp": now,
-                            }),
+                            content: VizierRequestContent::Task(prompt.clone()),
+                            metadata: serde_json::json!({}),
                         },
                     )
                     .await
                 {
                     log::error!("heartbeat error: {}", err);
+                }
+            }
+        }
+    });
+
+    let dream_agent_id = agent_id.clone();
+    let dream_interval = *agent_config.dream_interval.clone();
+    let dream_transport = deps.transport.clone();
+    let dream_storage = deps.storage.clone();
+    let dream = tokio::spawn(async move {
+        let prompt = "Extract, summarize, and/or analyze previous conversations.
+        and do the following:
+        1. adjust your AGENT.md, IDENTITY.md, HEARTBEAT.md accordingly.
+        2. make one or multiple mamories about them, if you need them long term.
+        "
+        .to_string();
+
+        let mut interval = tokio::time::interval(dream_interval);
+
+        loop {
+            interval.tick().await;
+
+            // collect all sessions
+            if let Ok(sessions) = dream_storage
+                .get_session_list(dream_agent_id.clone(), None)
+                .await
+            {
+                let sessions = sessions
+                    .iter()
+                    .filter_map(|session| match &session.channel {
+                        VizierChannelId::System
+                        | VizierChannelId::Subagent
+                        | VizierChannelId::Dream(_)
+                        | VizierChannelId::Task(_, _)
+                        | VizierChannelId::InterAgent(_) => None,
+
+                        // only reflect on user intection channel
+                        channel => Some(VizierSession(
+                            session.agent_id.clone(),
+                            channel.clone(),
+                            session.topic.clone(),
+                        )),
+                    });
+
+                let agent_id = dream_agent_id.clone();
+                let now = Utc::now();
+                for session in sessions {
+                    if let Err(err) = dream_transport
+                        .send_request(
+                            VizierSession(
+                                agent_id.clone(),
+                                VizierChannelId::Dream(Box::new(session)),
+                                Some(now.to_rfc3339()),
+                            ),
+                            VizierRequest {
+                                timestamp: now,
+                                user: agent_id.clone(),
+                                content: VizierRequestContent::Task(prompt.clone()),
+                                metadata: serde_json::json!({}),
+                            },
+                        )
+                        .await
+                    {
+                        log::error!("dream error: {}", err);
+                    }
                 }
             }
         }
@@ -100,7 +163,7 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
                         r#"summarize (don't execute) the prompt below into a 60 character title: 
 "{}"
 
-**only response the summarizetitle**"#,
+**only response the summarize title**"#,
                         session_detail_request.to_prompt().unwrap()
                     ),vec![],0,None,false)
                     .await;
@@ -215,6 +278,7 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
     }
 
     heartbeat.abort();
+    dream.abort();
 
     Ok(())
 }
@@ -233,16 +297,40 @@ pub async fn handle_request(
             let history = storage
                 .list_session_history(
                     session.clone(),
-                    Some(Utc::now()),
+                    Some(request.timestamp.clone()),
                     Some(agent_config.session_memory.max_capacity),
                 )
                 .await?;
-
             let res = agent.chat(request, history, Some(hooks)).await?;
             transport.send_response(session, res).await?;
         }
         VizierRequestContent::Prompt(_) | VizierRequestContent::Task(_) => {
-            let res = agent.chat(request, vec![], Some(hooks)).await?;
+            let history = match &session.1 {
+                VizierChannelId::Dream(dream_session) => {
+                    let dream_interval = *agent_config.dream_interval;
+                    let end = request.timestamp.clone();
+                    let start = end - dream_interval;
+                    let history = storage
+                        .list_session_by_time_window(*dream_session.clone(), Some(start), Some(end))
+                        .await?;
+
+                    // skip dreaming if history is empty
+                    if history.is_empty() {
+                        let res = VizierResponse {
+                            timestamp: end.clone(),
+                            content: VizierResponseContent::Abort,
+                        };
+
+                        transport.send_response(session, res).await?;
+                        return Ok(());
+                    }
+
+                    history
+                }
+                _ => vec![],
+            };
+
+            let res = agent.chat(request, history, Some(hooks)).await?;
             transport.send_response(session, res).await?;
         }
         VizierRequestContent::Command(_) => unimplemented!(),

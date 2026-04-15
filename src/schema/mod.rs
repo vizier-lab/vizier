@@ -13,6 +13,17 @@ pub type TopicId = String;
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, SurrealValue)]
 pub struct VizierSession(pub AgentId, pub VizierChannelId, pub Option<TopicId>);
 
+impl VizierSession {
+    pub fn to_slug(&self) -> String {
+        format!(
+            "{}__{}__{}",
+            self.0,
+            self.1.to_slug(),
+            self.2.unwrap_or("DEFAULT".to_string())
+        )
+    }
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, SurrealValue)]
 pub enum VizierChannelId {
     DiscordChanel(u64),
@@ -23,6 +34,7 @@ pub enum VizierChannelId {
     Heartbeat(DateTime<Utc>),
     System,
     Subagent,
+    Dream(Box<VizierSession>),
 }
 
 impl VizierChannelId {
@@ -41,6 +53,7 @@ impl VizierChannelId {
             }
             Self::Heartbeat(datetime) => format!("heartbeat__{}", datetime.to_rfc3339()),
             Self::System => "SYSTEM".into(),
+            Self::Dream(session) => format!("DREAM__{}", session.to_slug()),
             Self::Subagent => "SUBAGENT".into(),
         }
     }

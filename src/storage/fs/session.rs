@@ -71,15 +71,18 @@ impl SessionStorage for FileSystemStorage {
     async fn get_session_list(
         &self,
         agent_id: AgentId,
-        channel: VizierChannelId,
+        channel: Option<VizierChannelId>,
     ) -> Result<Vec<VizierSessionDetail>> {
-        let path = format!(
-            "{}/agents/{}/{}/{}/*.md",
-            self.workspace,
-            agent_id.clone(),
-            SESSION_PATH,
-            channel.clone().to_slug(),
-        );
+        let path = match channel {
+            Some(ch) => format!(
+                "{}/agents/{}/{}/{}/*.md",
+                self.workspace, agent_id.clone(), SESSION_PATH, ch.to_slug(),
+            ),
+            None => format!(
+                "{}/agents/{}/{}/*/*.md",
+                self.workspace, agent_id.clone(), SESSION_PATH,
+            ),
+        };
 
         let mut res = vec![];
         for entry in glob::glob(&path)? {

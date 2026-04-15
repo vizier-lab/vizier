@@ -39,16 +39,27 @@ impl SessionStorage for SurrealStorage {
     async fn get_session_list(
         &self,
         agent_id: AgentId,
-        channel: VizierChannelId,
+        channel: Option<VizierChannelId>,
     ) -> Result<Vec<VizierSessionDetail>> {
-        let mut response = self
-            .conn
-            .query("SELECT * FROM session_detail WHERE agent_id = $agent_id AND channel = $channel")
-            .bind(("agent_id", agent_id))
-            .bind(("channel", channel))
-            .await?;
-
-        let list: Vec<VizierSessionDetail> = response.take(0)?;
+        let list: Vec<VizierSessionDetail> = match channel {
+            Some(ch) => {
+                let mut response = self
+                    .conn
+                    .query("SELECT * FROM session_detail WHERE agent_id = $agent_id AND channel = $channel")
+                    .bind(("agent_id", agent_id))
+                    .bind(("channel", ch))
+                    .await?;
+                response.take(0)?
+            }
+            None => {
+                let mut response = self
+                    .conn
+                    .query("SELECT * FROM session_detail WHERE agent_id = $agent_id")
+                    .bind(("agent_id", agent_id))
+                    .await?;
+                response.take(0)?
+            }
+        };
 
         Ok(list)
     }

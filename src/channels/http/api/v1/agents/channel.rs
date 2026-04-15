@@ -98,7 +98,7 @@ pub async fn list_topics(
 
     let response = state
         .storage
-        .get_session_list(agent_id, channel)
+        .get_session_list(agent_id, Some(channel))
         .await;
 
     if response.is_err() {

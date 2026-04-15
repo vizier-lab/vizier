@@ -27,6 +27,7 @@ pub struct AgentConfig {
     #[serde(skip)]
     pub documents: Vec<String>,
     pub heartbeat_interval: DurationString,
+    pub dream_interval: DurationString,
 }
 
 impl AgentConfig {

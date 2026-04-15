@@ -239,6 +239,56 @@ impl HistoryStorage for SurrealStorage {
             by_day_and_channel_type: by_day_and_channel_type_vec,
         })
     }
+
+    async fn list_session_by_time_window(
+        &self,
+        session: VizierSession,
+        start_datetime: Option<DateTime<Utc>>,
+        end_datetime: Option<DateTime<Utc>>,
+    ) -> Result<Vec<SessionHistory>> {
+        let query = if start_datetime.is_some() && end_datetime.is_some() {
+            format!(
+                "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND content.timestamp >= {} AND content.timestamp <= {} ORDER BY content.timestamp DESC",
+                start_datetime.unwrap().timestamp_millis(),
+                end_datetime.unwrap().timestamp_millis()
+            )
+        } else if start_datetime.is_some() {
+            format!(
+                "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND content.timestamp >= {} ORDER BY content.timestamp DESC",
+                start_datetime.unwrap().timestamp_millis()
+            )
+        } else if end_datetime.is_some() {
+            format!(
+                "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND content.timestamp <= {} ORDER BY content.timestamp DESC",
+                end_datetime.unwrap().timestamp_millis()
+            )
+        } else {
+            "SELECT * FROM session_history WHERE vizier_session == $vizier_session ORDER BY content.timestamp DESC"
+                .to_string()
+        };
+
+        let mut response = self
+            .conn
+            .query(query)
+            .bind(("vizier_session", session.clone()))
+            .await?;
+
+        let mut list: Vec<SessionHistory> = response.take(0)?;
+
+        list.sort_by(|a, b| {
+            let a_ts = match &a.content {
+                SessionHistoryContent::Request(r) => r.timestamp,
+                SessionHistoryContent::Response(r) => r.timestamp,
+            };
+            let b_ts = match &b.content {
+                SessionHistoryContent::Request(r) => r.timestamp,
+                SessionHistoryContent::Response(r) => r.timestamp,
+            };
+            a_ts.cmp(&b_ts)
+        });
+
+        Ok(list)
+    }
 }
 
 fn get_channel_type(channel_slug: &str) -> String {

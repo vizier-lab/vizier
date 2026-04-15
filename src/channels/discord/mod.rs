@@ -278,7 +278,7 @@ impl EventHandler for Handler {
                             .await;
                     }
                 } else {
-                    if let Ok(sessions) = self.1.storage.get_session_list(agent_id, channel).await {
+                    if let Ok(sessions) = self.1.storage.get_session_list(agent_id, Some(channel)).await {
                         let mut res = vec![];
                         for session in &sessions {
                             res.push(format!(

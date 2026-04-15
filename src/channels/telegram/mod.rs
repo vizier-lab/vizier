@@ -190,7 +190,7 @@ impl TelegramChannelReader {
                 if let Ok(sessions) = self
                     .deps
                     .storage
-                    .get_session_list(self.agent_id.clone(), channel.clone())
+                    .get_session_list(self.agent_id.clone(), Some(channel.clone()))
                     .await
                 {
                     let mut res = vec![];

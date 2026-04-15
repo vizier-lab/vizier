@@ -403,6 +403,98 @@ impl HistoryStorage for FileSystemStorage {
             by_day_and_channel_type: by_day_and_channel_type_vec,
         })
     }
+
+    async fn list_session_by_time_window(
+        &self,
+        session: VizierSession,
+        start_datetime: Option<DateTime<Utc>>,
+        end_datetime: Option<DateTime<Utc>>,
+    ) -> Result<Vec<SessionHistory>> {
+        let mut res = vec![];
+
+        let path = format!(
+            "{}/agents/{}/{}/{}/{}/*.md",
+            self.workspace,
+            session.0.clone(),
+            HISTORY_PATH,
+            session.1.to_slug(),
+            session.2.clone().unwrap_or("DEFAULT".to_string()),
+        );
+
+        for entry in glob::glob(&path)? {
+            let entry = entry?;
+
+            if !entry.is_file() {
+                continue;
+            }
+
+            if let Ok((frontmatter, content)) =
+                utils::markdown::read_markdown::<SessionHistoryFrontMatter>(entry)
+            {
+                let timestamp = frontmatter.timestamp;
+
+                if let Some(start) = start_datetime {
+                    if timestamp < start {
+                        continue;
+                    }
+                }
+                if let Some(end) = end_datetime {
+                    if timestamp > end {
+                        continue;
+                    }
+                }
+
+                res.push(SessionHistory {
+                    uid: frontmatter.uid,
+                    vizier_session: frontmatter.session,
+                    content: match frontmatter.content_metadata {
+                        ContentMetadata::request {
+                            user,
+                            is_silent_read,
+                            is_task,
+                            is_chat,
+                            is_prompt,
+                            is_command,
+                            metadata,
+                        } => SessionHistoryContent::Request(VizierRequest {
+                            timestamp,
+                            user,
+                            metadata,
+                            content: match (is_silent_read, is_task, is_chat, is_prompt, is_command)
+                            {
+                                (true, _, _, _, _) => VizierRequestContent::SilentRead(content),
+                                (_, true, _, _, _) => VizierRequestContent::Task(content),
+                                (_, _, true, _, _) => VizierRequestContent::Chat(content),
+                                (_, _, _, true, _) => VizierRequestContent::Prompt(content),
+                                (_, _, _, _, true) => VizierRequestContent::Command(content),
+                                _ => unimplemented!(),
+                            },
+                        }),
+                        ContentMetadata::response { content, stats } => {
+                            SessionHistoryContent::Response(VizierResponse {
+                                timestamp,
+                                content: VizierResponseContent::Message { content, stats },
+                            })
+                        }
+                    },
+                });
+            }
+        }
+
+        res.sort_by(|a, b| {
+            let a_ts = match &a.content {
+                SessionHistoryContent::Request(r) => r.timestamp,
+                SessionHistoryContent::Response(r) => r.timestamp,
+            };
+            let b_ts = match &b.content {
+                SessionHistoryContent::Request(r) => r.timestamp,
+                SessionHistoryContent::Response(r) => r.timestamp,
+            };
+            a_ts.cmp(&b_ts)
+        });
+
+        Ok(res)
+    }
 }
 
 fn get_channel_type(channel_slug: &str) -> String {
