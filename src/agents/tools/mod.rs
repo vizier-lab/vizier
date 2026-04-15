@@ -20,6 +20,7 @@ use crate::{
         skill::CreateSkill,
         subtasks::SubtasksTool,
         telegram::new_telegram_tools,
+        think::ThinkTool,
         vector_memory::init_vector_memory,
         workspace::{
             AgentDocument, HeartbeatDocument, IdentDocument, ReadPrimaryDocument,
@@ -44,6 +45,7 @@ mod shell;
 mod skill;
 mod subtasks;
 mod telegram;
+mod think;
 mod vector_memory;
 mod workspace;
 
@@ -184,7 +186,7 @@ impl VizierTools {
 
         let mut tools = VizierToolSet::new();
         tools = tools
-            // .tool(ThinkTool)
+            .tool(ThinkTool)
             .tool(WritePrimaryDocument::<AgentDocument>::new(
                 agent_workspace.clone(),
             ))
