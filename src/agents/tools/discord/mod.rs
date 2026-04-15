@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
-use rig::{completion::ToolDefinition, tool::Tool};
-use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use serenity::all::{ChannelId, Http, MessageId};
 
+use crate::agents::tools::VizierTool;
 use crate::error::{VizierError, throw_vizier_error};
 
 pub fn new_discord_tools(
@@ -32,28 +31,20 @@ pub struct SendDiscoedMessageArgs {
     content: String,
 }
 
-impl Tool for SendDiscordMessage
-where
-    Self: Sync + Send,
-{
-    const NAME: &'static str = "discord_send_message";
-    type Error = VizierError;
-    type Args = SendDiscoedMessageArgs;
+#[async_trait::async_trait]
+impl VizierTool for SendDiscordMessage {
+    type Input = SendDiscoedMessageArgs;
     type Output = ();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: format!(
-                "send a discord message to a channel, avoid using this when user interact with you directly from discord"
-            ),
-            parameters,
-        }
+    fn name() -> String {
+        "discord_send_message".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "send a discord message to a channel, avoid using this when user interact with you directly from discord".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> anyhow::Result<Self::Output, VizierError> {
         let response = crate::utils::discord::send_message(
             self.http.clone(),
             &ChannelId::new(args.channel_id),
@@ -84,26 +75,20 @@ pub struct ReactDiscoedMessageArgs {
     emoji: char,
 }
 
-impl Tool for ReactDiscordMessage
-where
-    Self: Sync + Send,
-{
-    const NAME: &'static str = "discord_react_message";
-    type Error = VizierError;
-    type Args = ReactDiscoedMessageArgs;
+#[async_trait::async_trait]
+impl VizierTool for ReactDiscordMessage {
+    type Input = ReactDiscoedMessageArgs;
     type Output = ();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: format!("emoji react to a discord message"),
-            parameters,
-        }
+    fn name() -> String {
+        "discord_react_message".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "emoji react to a discord message".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> anyhow::Result<Self::Output, VizierError> {
         let channel = ChannelId::new(args.channel_id);
         let message_id = MessageId::new(args.message_id);
 
@@ -135,26 +120,20 @@ pub struct GetDiscordMessageArgs {
     message_id: u64,
 }
 
-impl Tool for GetDiscordMessage
-where
-    Self: Sync + Send,
-{
-    const NAME: &'static str = "discord_get_message_by_id";
-    type Error = VizierError;
-    type Args = GetDiscordMessageArgs;
+#[async_trait::async_trait]
+impl VizierTool for GetDiscordMessage {
+    type Input = GetDiscordMessageArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: format!("get message by message id"),
-            parameters,
-        }
+    fn name() -> String {
+        "discord_get_message_by_id".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "get message by message id".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> anyhow::Result<Self::Output, VizierError> {
         let channel = ChannelId::new(args.channel_id);
         let message_id = MessageId::new(args.message_id);
 

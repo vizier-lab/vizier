@@ -47,6 +47,7 @@ async fn main() -> Result<()> {
             .filter_module("ureq", log::LevelFilter::Off)
             .filter_module("bollard", log::LevelFilter::Off)
             .filter_module("rmcp", log::LevelFilter::Off)
+            .filter_module("rustpython", log::LevelFilter::Off)
             .init();
     } else {
         pretty_env_logger::init();

@@ -1,11 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
-use rig::{
-    completion::ToolDefinition,
-    tool::server::{ToolServer, ToolServerHandle},
-    tools::ThinkTool,
-};
+use rig::completion::ToolDefinition;
+use schemars::{JsonSchema, schema_for};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     agents::tools::{
@@ -16,6 +14,7 @@ use crate::{
         notify::{
             DiscordDmPrimaryUser, NotifyPrimaryUser, TelegramDmPrimaryUser, WebUiNotifyPrimaryUser,
         },
+        ptc::ProgramaticSandbox,
         scheduler::{ScheduleCronTask, ScheduleOneTimeTask},
         shell::ShellExec,
         skill::CreateSkill,
@@ -34,17 +33,12 @@ use crate::{
     utils::agent_workspace,
 };
 
-#[cfg(feature = "python")]
-mod python;
-
-#[cfg(feature = "python")]
-use crate::agents::tools::python::PythonInterpreter;
-
 mod brave_search;
 mod consult;
 mod discord;
 mod document;
 mod notify;
+mod ptc;
 mod scheduler;
 mod shell;
 mod skill;
@@ -54,17 +48,98 @@ mod vector_memory;
 mod workspace;
 
 #[derive(Clone)]
+pub struct VizierToolSet {
+    pub tools: HashMap<String, Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>>,
+}
+
+impl VizierToolSet {
+    fn new() -> Self {
+        Self {
+            tools: HashMap::new(),
+        }
+    }
+
+    fn tool<Tool: VizierToolDyn + Sync + Send + 'static>(mut self, tool: Tool) -> Self {
+        self.tools
+            .insert(tool.tool_name(), Arc::new(Box::new(tool)));
+
+        self
+    }
+
+    async fn call(&self, function_name: String, args: String) -> Result<String, VizierError> {
+        let tool = self
+            .tools
+            .get(&function_name)
+            .ok_or(VizierError(format!("{function_name} does not exists")))?;
+
+        Ok(tool.tool_call(args).await?)
+    }
+}
+
+#[derive(Clone)]
 pub struct VizierTools {
-    pub handle: ToolServerHandle,
+    pub tools: VizierToolSet,
     pub mcp: HashMap<String, Arc<VizierMcp>>,
+}
+
+#[async_trait::async_trait]
+pub trait VizierToolDyn {
+    fn tool_name(&self) -> String;
+    fn tool_def(&self) -> ToolDefinition;
+    async fn tool_call(&self, args: String) -> Result<String, VizierError>;
+}
+
+#[async_trait::async_trait]
+impl<Tool: VizierTool + Sync + Send> VizierToolDyn for Tool {
+    fn tool_name(&self) -> String {
+        Self::name()
+    }
+
+    fn tool_def(&self) -> ToolDefinition {
+        ToolDefinition {
+            name: Self::name(),
+            description: format!(
+                "{} \n Output Schema: \n {}",
+                self.description(),
+                Self::output_schema()
+            ),
+            parameters: Self::input_schema(),
+        }
+    }
+
+    async fn tool_call(&self, args: String) -> Result<String, VizierError> {
+        let input = serde_json::from_str(&args).map_err(|err| VizierError(err.to_string()))?;
+        let output = self.call(input).await?;
+
+        serde_json::to_string(&output).map_err(|err| VizierError(err.to_string()))
+    }
+}
+
+#[async_trait::async_trait]
+pub trait VizierTool {
+    type Input: JsonSchema + for<'a> Deserialize<'a> + Serialize;
+    type Output: JsonSchema + for<'a> Deserialize<'a> + Serialize;
+
+    fn name() -> String;
+
+    fn input_schema() -> serde_json::Value {
+        serde_json::to_value(schema_for!(<Self as VizierTool>::Input)).unwrap()
+    }
+    fn output_schema() -> serde_json::Value {
+        serde_json::to_value(schema_for!(<Self as VizierTool>::Output)).unwrap()
+    }
+
+    fn description(&self) -> String;
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError>;
 }
 
 impl VizierTools {
     pub async fn tools(&self) -> Result<Vec<ToolDefinition>> {
         let mut res = vec![];
 
-        for tool in self.handle.get_tool_defs(None).await? {
-            res.push(tool);
+        for (_, tool) in self.tools.tools.iter() {
+            res.push(tool.tool_def());
         }
 
         for (key, mcp) in &self.mcp {
@@ -94,7 +169,7 @@ impl VizierTools {
             return Ok(serde_json::to_string(&res)?);
         }
 
-        let res = self.handle.call_tool(&function_name, &params).await?;
+        let res = self.tools.call(function_name, params).await?;
         Ok(res)
     }
 }
@@ -107,8 +182,9 @@ impl VizierTools {
         let agent_workspace_path = agent_workspace(&workspace, &agent_id);
         let agent_workspace = agent_workspace_path.to_string_lossy().to_string();
 
-        let mut tool_server_builder = ToolServer::new()
-            .tool(ThinkTool)
+        let mut tools = VizierToolSet::new();
+        tools = tools
+            // .tool(ThinkTool)
             .tool(WritePrimaryDocument::<AgentDocument>::new(
                 agent_workspace.clone(),
             ))
@@ -135,100 +211,20 @@ impl VizierTools {
             .tool(CreateSkill::new(agent_id.clone(), deps.clone()));
 
         if agent_config.documents.len() > 0 {
-            tool_server_builder =
-                tool_server_builder.tool(init_document_tools(agent_id.clone(), deps.clone())?);
+            tools = tools.tool(init_document_tools(agent_id.clone(), deps.clone())?);
         }
 
         if agent_config.tools.shell_access {
-            tool_server_builder = tool_server_builder.tool(ShellExec(deps.shell.clone()));
+            tools = tools.tool(ShellExec(deps.shell.clone()));
         }
 
-        #[cfg(feature = "python")]
-        if agent_config.tools.python_interpreter {
-            let mut python_interpreter =
-                PythonInterpreter::new(format!("{agent_workspace}/workdir"));
-
-            if agent_config.tools.discord.is_programatically_enabled() {
-                if let Some(discord) = &deps.config.channels.discord {
-                    if let Some((_, discord)) = discord.iter().find(|(id, _)| **id == agent_id) {
-                        let token = discord.token.clone();
-
-                        let (send_message, react_message, get_message) =
-                            new_discord_tools(token.clone());
-                        python_interpreter = python_interpreter
-                            .tool(send_message)
-                            .tool(react_message)
-                            .tool(get_message);
-                    }
-                }
-            }
-
-            if agent_config.tools.telegram.is_programatically_enabled() {
-                if let Some(telegram) = &deps.config.channels.telegram {
-                    if let Some((_, telegram)) = telegram.iter().find(|(id, _)| **id == agent_id) {
-                        let bot_token = telegram.token.clone();
-
-                        let (send_message, react_message, get_message) =
-                            new_telegram_tools(bot_token.clone());
-                        python_interpreter = python_interpreter
-                            .tool(send_message)
-                            .tool(react_message)
-                            .tool(get_message);
-                    }
-                }
-            }
-
-            if agent_config.tools.brave_search.is_programatically_enabled() {
-                if let Some(brave_search) = tool_config.brave_search.clone() {
-                    python_interpreter = python_interpreter
-                        .tool(BraveSearch::<WebOnlySearch>::new(&brave_search))
-                        .tool(BraveSearch::<NewsOnlySearch>::new(&brave_search));
-                }
-            }
-
-            if agent_config.tools.vector_memory.enabled
-                && !agent_config.tools.vector_memory.programmatic_tool_call
-            {
-                if let Some(_) = deps.config.embedding {
-                    let (read_memory, write_memory) =
-                        init_vector_memory(agent_id.clone(), deps.clone())?;
-
-                    python_interpreter = python_interpreter.tool(read_memory).tool(write_memory);
-                }
-            }
-
-            if agent_config
-                .tools
-                .notify_primary_user
-                .is_programatically_enabled()
-            {
-                python_interpreter = python_interpreter
-                    .tool(DiscordDmPrimaryUser::new(deps.config.clone()))
-                    .tool(TelegramDmPrimaryUser::new(deps.config.clone()))
-                    .tool(WebUiNotifyPrimaryUser::new(
-                        agent_id.clone(),
-                        deps.transport.clone(),
-                    ))
-                    .tool(NotifyPrimaryUser::new(
-                        deps.config.clone(),
-                        agent_id.clone(),
-                        deps.transport.clone(),
-                    ));
-            }
-
-            let python_tool_docs = python_interpreter.generate_docs_tool().await;
-            tool_server_builder = tool_server_builder.tool(python_interpreter);
-            tool_server_builder = tool_server_builder.tool(python_tool_docs);
-        }
-
-        if agent_config.tools.discord.enabled && !agent_config.tools.discord.programmatic_tool_call
-        {
+        if agent_config.tools.discord.enabled {
             if let Some(discord) = &deps.config.channels.discord {
                 if let Some((_, discord)) = discord.iter().find(|(id, _)| **id == agent_id) {
                     let token = discord.token.clone();
 
                     let (send_message, react_message, get_message) = new_discord_tools(token);
-                    tool_server_builder = tool_server_builder
+                    tools = tools
                         .tool(send_message)
                         .tool(react_message)
                         .tool(get_message);
@@ -236,15 +232,13 @@ impl VizierTools {
             }
         }
 
-        if agent_config.tools.telegram.enabled
-            && !agent_config.tools.telegram.programmatic_tool_call
-        {
+        if agent_config.tools.telegram.enabled {
             if let Some(telegram) = &deps.config.channels.telegram {
                 if let Some((_, telegram)) = telegram.iter().find(|(id, _)| **id == agent_id) {
                     let bot_token = telegram.token.clone();
 
                     let (send_message, react_message, get_message) = new_telegram_tools(bot_token);
-                    tool_server_builder = tool_server_builder
+                    tools = tools
                         .tool(send_message)
                         .tool(react_message)
                         .tool(get_message);
@@ -252,28 +246,24 @@ impl VizierTools {
             }
         }
 
-        if agent_config.tools.brave_search.enabled
-            && !agent_config.tools.brave_search.programmatic_tool_call
-        {
+        if agent_config.tools.brave_search.enabled {
             if let Some(brave_search) = tool_config.brave_search {
-                tool_server_builder = tool_server_builder
+                tools = tools
                     .tool(BraveSearch::<WebOnlySearch>::new(&brave_search))
                     .tool(BraveSearch::<NewsOnlySearch>::new(&brave_search));
             }
         }
 
-        if agent_config.tools.vector_memory.enabled
-            && !agent_config.tools.vector_memory.programmatic_tool_call
-        {
+        if agent_config.tools.vector_memory.enabled {
             if let Some(_) = deps.config.embedding {
                 let (read_memory, write_memory) =
                     init_vector_memory(agent_id.clone(), deps.clone())?;
 
-                tool_server_builder = tool_server_builder.tool(read_memory).tool(write_memory);
+                tools = tools.tool(read_memory).tool(write_memory);
             }
         }
 
-        tool_server_builder = tool_server_builder
+        tools = tools
             .tool(DiscordDmPrimaryUser::new(deps.config.clone()))
             .tool(TelegramDmPrimaryUser::new(deps.config.clone()))
             .tool(WebUiNotifyPrimaryUser::new(
@@ -286,8 +276,6 @@ impl VizierTools {
                 deps.transport.clone(),
             ));
 
-        let tool_server = tool_server_builder.run();
-
         let mut mcp = HashMap::new();
         for m in &agent_config.tools.mcp_servers {
             if let Some(client) = deps.mcp_clients.clients.get(m) {
@@ -295,9 +283,20 @@ impl VizierTools {
             }
         }
 
-        Ok(Self {
-            handle: tool_server,
-            mcp,
-        })
+        let temp_tool = Self {
+            tools: tools.clone(),
+            mcp: mcp.clone(),
+        };
+
+        if agent_config.tools.programmatic_sandbox {
+            let programmatic_tool = ProgramaticSandbox {
+                tools: Arc::new(temp_tool),
+            };
+            tools = tools.tool(programmatic_tool);
+
+            Ok(Self { tools, mcp })
+        } else {
+            Ok(temp_tool)
+        }
     }
 }

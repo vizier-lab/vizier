@@ -2,15 +2,13 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::Utc;
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
-use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
+use crate::agents::tools::VizierTool;
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
-use crate::schema::{AgentId, Memory};
+use crate::schema::AgentId;
 use crate::storage::VizierStorage;
 use crate::storage::memory::MemoryStorage;
 
@@ -39,26 +37,22 @@ pub struct MemoryReadArgs {
     pub query: String,
 }
 
-impl Tool for MemoryRead {
-    const NAME: &'static str = "memory_read";
-    type Error = VizierError;
-    type Args = MemoryReadArgs;
+#[async_trait::async_trait]
+impl VizierTool for MemoryRead {
+    type Input = MemoryReadArgs;
     type Output = Vec<String>;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Search your memory for informations".into(),
-            parameters,
-        }
+    fn name() -> String {
+        "memory_read".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "Search your memory for informations".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let res = self
             .1
-            // TODO: don't hardcode the threshold
             .query_memory(self.0.clone(), args.query, 10, 0.1)
             .await
             .map_err(|err| VizierError(err.to_string()))?;
@@ -85,23 +79,20 @@ pub struct MemoryWriteArgs {
     pub content: String,
 }
 
-impl Tool for MemoryWrite {
-    const NAME: &'static str = "memory_write";
-    type Error = VizierError;
-    type Args = MemoryWriteArgs;
+#[async_trait::async_trait]
+impl VizierTool for MemoryWrite {
+    type Input = MemoryWriteArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "write or update a new memory".into(),
-            parameters,
-        }
+    fn name() -> String {
+        "memory_write".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "write or update a new memory".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let slug = slugify!(&args.title).to_string();
 
         let content = format!(

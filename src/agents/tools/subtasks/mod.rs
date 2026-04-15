@@ -6,6 +6,7 @@ use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    agents::tools::VizierTool,
     dependencies::VizierDependencies,
     error::VizierError,
     schema::{AgentId, VizierRequest, VizierRequestContent, VizierResponseContent, VizierSession},
@@ -36,23 +37,20 @@ pub struct SubtasksArgs {
     tasks: Vec<Task>,
 }
 
-impl Tool for SubtasksTool {
-    const NAME: &'static str = "paralel_subtasks";
-    type Error = VizierError;
-    type Args = SubtasksArgs;
+#[async_trait::async_trait]
+impl VizierTool for SubtasksTool {
+    type Input = SubtasksArgs;
     type Output = Vec<String>;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: format!("Complete multiple tasks in paralel"),
-            parameters,
-        }
+    fn name() -> String {
+        "paralel_subtasks".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "Complete multiple tasks in paralel".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let mut recv = self
             .transport
             .subscribe_response()

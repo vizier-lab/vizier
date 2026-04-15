@@ -6,6 +6,7 @@ use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    agents::tools::VizierTool,
     config::tools::BraveSearchConfig,
     error::{VizierError, throw_vizier_error},
 };
@@ -71,29 +72,25 @@ pub struct BraveSearchArgs {
 const SEARCH_URL: &'static str = r"https://api.search.brave.com/res/v1/web/search";
 const PAGE_SIZE: u32 = 10;
 
-impl<T: SearchType> Tool for BraveSearch<T>
+#[async_trait::async_trait]
+impl<T: SearchType> VizierTool for BraveSearch<T>
 where
-    Self: Send + Sync,
+    T: Sync + Send,
 {
-    const NAME: &'static str = T::NAME;
-    type Error = VizierError;
-    type Args = BraveSearchArgs;
+    type Input = BraveSearchArgs;
     type Output = response::BraveResponse;
-
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: T::NAME.to_string(),
-            description: format!(
-                "{}, use intervals between the usage of these tools",
-                T::description()
-            ),
-            parameters,
-        }
+    fn name() -> String {
+        T::NAME.to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        format!(
+            "{}, use intervals between the usage of these tools",
+            T::description()
+        )
+    }
+
+    async fn call(&self, args: Self::Input) -> anyhow::Result<Self::Output, VizierError> {
         let params = request::SearchParams {
             q: args.query,
             count: Some(PAGE_SIZE), // TODO: hardcoded for now

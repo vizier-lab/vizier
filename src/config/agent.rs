@@ -100,7 +100,7 @@ pub struct MemoryConfig {
 pub struct AgentToolsConfig {
     pub timeout: DurationString,
     #[serde(default)]
-    pub python_interpreter: bool,
+    pub programmatic_sandbox: bool,
     #[serde(default)]
     pub shell_access: bool,
     #[serde(default)]
@@ -120,12 +120,4 @@ pub struct AgentToolsConfig {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ToolConfig {
     pub enabled: bool,
-    pub programmatic_tool_call: bool,
-}
-
-impl ToolConfig {
-    #[allow(unused)]
-    pub fn is_programatically_enabled(&self) -> bool {
-        self.enabled && self.programmatic_tool_call
-    }
 }

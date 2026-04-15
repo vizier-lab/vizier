@@ -1,13 +1,10 @@
 use std::sync::Arc;
 
-use rig::{completion::ToolDefinition, tool::Tool};
-use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use serenity::all::{Http, UserId};
 
 use crate::{
-    config::VizierConfig,
-    error::VizierError,
+    agents::tools::VizierTool, config::VizierConfig, error::VizierError,
     utils::discord::send_message,
 };
 
@@ -28,11 +25,7 @@ impl DiscordDmPrimaryUser {
             Arc::new(Http::new(""))
         };
 
-        let discord_id = config
-            .primary_user
-            .discord_id
-            .parse::<u64>()
-            .unwrap_or(0);
+        let discord_id = config.primary_user.discord_id.parse::<u64>().unwrap_or(0);
 
         Self { http, discord_id }
     }
@@ -44,25 +37,23 @@ pub struct DiscordDmPrimaryUserArgs {
     content: String,
 }
 
-impl Tool for DiscordDmPrimaryUser
+#[async_trait::async_trait]
+impl VizierTool for DiscordDmPrimaryUser
 where
     Self: Sync + Send,
 {
-    const NAME: &'static str = "discord_dm_primary_user";
-    type Error = VizierError;
-    type Args = DiscordDmPrimaryUserArgs;
+    type Input = DiscordDmPrimaryUserArgs;
     type Output = ();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "send a direct message to the primary user on Discord".into(),
-            parameters,
-        }
+    fn name() -> String {
+        "discord_dm_primary_user".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "send a direct message to the primary user on Discord".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         if self.discord_id == 0 {
             log::warn!("discord_dm_primary_user: no discord_id configured");
             return Ok(());
@@ -72,7 +63,10 @@ where
         let channel_id = match user_id.create_dm_channel(self.http.clone()).await {
             Ok(channel) => channel.id,
             Err(err) => {
-                log::error!("discord_dm_primary_user: failed to create DM channel: {:?}", err);
+                log::error!(
+                    "discord_dm_primary_user: failed to create DM channel: {:?}",
+                    err
+                );
                 return Ok(());
             }
         };

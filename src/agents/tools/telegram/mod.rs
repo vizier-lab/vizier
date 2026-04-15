@@ -1,13 +1,18 @@
-use teloxide::prelude::*;
-use teloxide::Bot;
-use teloxide::sugar::request::RequestReplyExt;
-use rig::{completion::ToolDefinition, tool::Tool};
-use schemars::schema_for;
 use serde::{Deserialize, Serialize};
+use teloxide::Bot;
+use teloxide::prelude::*;
+use teloxide::sugar::request::RequestReplyExt;
 
-use crate::error::{throw_vizier_error, VizierError};
+use crate::agents::tools::VizierTool;
+use crate::error::{VizierError, throw_vizier_error};
 
-pub fn new_telegram_tools(bot_token: String) -> (SendTelegramMessage, ReactTelegramMessage, GetTelegramMessage) {
+pub fn new_telegram_tools(
+    bot_token: String,
+) -> (
+    SendTelegramMessage,
+    ReactTelegramMessage,
+    GetTelegramMessage,
+) {
     let bot = Bot::new(bot_token);
 
     (
@@ -30,34 +35,23 @@ pub struct SendTelegramMessageArgs {
     content: String,
 }
 
-impl Tool for SendTelegramMessage
-where
-    Self: Sync + Send,
-{
-    const NAME: &'static str = "telegram_send_message";
-    type Error = VizierError;
-    type Args = SendTelegramMessageArgs;
+#[async_trait::async_trait]
+impl VizierTool for SendTelegramMessage {
+    type Input = SendTelegramMessageArgs;
     type Output = ();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: format!(
-                "send a telegram message to a chat, avoid using this when user interact with you directly from telegram"
-            ),
-            parameters,
-        }
+    fn name() -> String {
+        "telegram_send_message".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let response = crate::utils::telegram::send_message(
-            &self.bot,
-            ChatId(args.chat_id),
-            args.content,
-        )
-        .await;
+    fn description(&self) -> String {
+        "send a telegram message to a chat, avoid using this when user interact with you directly from telegram".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+        let response =
+            crate::utils::telegram::send_message(&self.bot, ChatId(args.chat_id), args.content)
+                .await;
 
         match response {
             Ok(()) => Ok(()),
@@ -82,26 +76,20 @@ pub struct ReactTelegramMessageArgs {
     emoji: String,
 }
 
-impl Tool for ReactTelegramMessage
-where
-    Self: Sync + Send,
-{
-    const NAME: &'static str = "telegram_react_message";
-    type Error = VizierError;
-    type Args = ReactTelegramMessageArgs;
+#[async_trait::async_trait]
+impl VizierTool for ReactTelegramMessage {
+    type Input = ReactTelegramMessageArgs;
     type Output = ();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: format!("emoji react to a telegram message"),
-            parameters,
-        }
+    fn name() -> String {
+        "telegram_react_message".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "emoji react to a telegram message".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let chat_id = ChatId(args.chat_id);
         let message_id = teloxide::types::MessageId(args.message_id as i32);
 
@@ -131,26 +119,20 @@ pub struct GetTelegramMessageArgs {
     message_id: i64,
 }
 
-impl Tool for GetTelegramMessage
-where
-    Self: Sync + Send,
-{
-    const NAME: &'static str = "telegram_get_message_by_id";
-    type Error = VizierError;
-    type Args = GetTelegramMessageArgs;
+#[async_trait::async_trait]
+impl VizierTool for GetTelegramMessage {
+    type Input = GetTelegramMessageArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: format!("get message by message id"),
-            parameters,
-        }
+    fn name() -> String {
+        "telegram_get_message_by_id".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "get message by message id".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let chat_id = ChatId(args.chat_id);
         let message_id = teloxide::types::MessageId(args.message_id as i32);
 
@@ -162,10 +144,14 @@ where
         match response {
             Ok(msg) => Ok(format!(
                 "{}: {}",
-                msg.from().map(|u| u.full_name()).unwrap_or_else(|| "Unknown".into()),
+                msg.from
+                    .clone()
+                    .map(|u| u.full_name())
+                    .unwrap_or_else(|| "Unknown".into()),
                 msg.text().unwrap_or("")
             )),
             Err(err) => throw_vizier_error("telegram_get_message ", err),
         }
     }
 }
+

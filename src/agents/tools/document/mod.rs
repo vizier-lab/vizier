@@ -2,11 +2,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
-use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 
+use crate::agents::tools::VizierTool;
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::AgentId;
@@ -32,26 +30,22 @@ pub struct DocumentReadArgs {
     pub query: String,
 }
 
-impl Tool for DocumentRead {
-    const NAME: &'static str = "documents_search";
-    type Error = VizierError;
-    type Args = DocumentReadArgs;
+#[async_trait::async_trait]
+impl VizierTool for DocumentRead {
+    type Input = DocumentReadArgs;
     type Output = Vec<String>;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Search any included documents for informations".into(),
-            parameters,
-        }
+    fn name() -> String {
+        "documents_search".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "Search any included documents for informations".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> anyhow::Result<Self::Output, VizierError> {
         let res = self
             .1
-            // TODO: don't hardcode the threshold
             .search_document_index(format!("document/{}", self.0.clone()), args.query, 10, 0.1)
             .await
             .unwrap();
@@ -65,3 +59,4 @@ impl Tool for DocumentRead {
         Ok(docs)
     }
 }
+

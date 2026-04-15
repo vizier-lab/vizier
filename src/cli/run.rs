@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Args;
+use tokio::task::JoinSet;
 
 use crate::{
     agents::VizierAgents,
@@ -23,6 +24,7 @@ pub struct RunArgs {
 
 pub async fn run_server(config: VizierConfig) -> Result<()> {
     let deps = VizierDependencies::new(config.clone()).await?;
+    let mut set = JoinSet::new();
 
     log::info!("preload all local models");
     for (_, config) in &deps.config.agents {
@@ -34,28 +36,35 @@ pub async fn run_server(config: VizierConfig) -> Result<()> {
     log::info!("preload done");
 
     let mut scheduler = VizierScheduler::new(deps.clone()).await?;
-    tokio::spawn(async move {
+    set.spawn(async move {
         if let Err(err) = scheduler.run().await {
             log::error!("{}", err);
         }
     });
 
     let mut agents = VizierAgents::new(deps.clone()).await?;
-    tokio::spawn(async move {
+    set.spawn(async move {
         if let Err(err) = agents.run().await {
             log::error!("{}", err);
         }
     });
 
     let channels = VizierChannels::new(config.channels.clone(), deps.clone())?;
-    tokio::spawn(async move {
+    set.spawn(async move {
         if let Err(err) = channels.run().await {
             log::error!("{}", err);
         }
     });
 
+    set.spawn(async move {
+        if let Err(err) = deps.run().await {
+            log::error!("{}", err);
+        }
+    });
+
     log::info!("vizier is running!");
-    deps.run().await?;
+
+    set.join_all().await;
     Ok(())
 }
 

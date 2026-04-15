@@ -327,29 +327,20 @@ pub async fn onboard(args: OnboardArgs) -> Result<()> {
         },
         thinking_depth,
         tools: AgentToolsConfig {
+            programmatic_sandbox: false,
             timeout: DurationString::from_string("1m".into()).unwrap(),
-            python_interpreter: false,
             shell_access,
             brave_search: ToolConfig {
                 enabled: brave_search_enabled,
-                programmatic_tool_call: false,
             },
             vector_memory: ToolConfig {
                 enabled: vector_memory_enabled,
-                programmatic_tool_call: false,
             },
             discord: ToolConfig {
                 enabled: discord_enabled,
-                programmatic_tool_call: false,
             },
-            telegram: ToolConfig {
-                enabled: false,
-                programmatic_tool_call: false,
-            },
-            notify_primary_user: ToolConfig {
-                enabled: true,
-                programmatic_tool_call: false,
-            },
+            telegram: ToolConfig { enabled: false },
+            notify_primary_user: ToolConfig { enabled: true },
             mcp_servers: vec![],
         },
         silent_read_initiative_chance: 0.,

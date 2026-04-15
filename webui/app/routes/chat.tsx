@@ -41,6 +41,8 @@ const formatToolChoice = (name: string, args: Record<string, unknown>): string =
       return `**write memory:** '${args.title as string}'`
     case 'python_interpreter':
       return "**programatic tool**: \n```python" + `\n${args.script as string}\n` + "```"
+    case 'programmatic_sandbox':
+      return "**programatic sandbox**: \n```py" + `\n${args.script as string}\n` + "```"
     default:
       let formattedArgs = "```js" + `\n${JSON.stringify(args, null, 2)}\n` + "```";
       return `*use* **${name}** \n${formattedArgs}`
@@ -576,14 +578,12 @@ export default function Chat() {
                   borderLeft: '3px solid var(--accent-primary)',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '8px',
                   color: 'var(--text-secondary)',
                   background: 'var(--surface)',
                 }}>
                   <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '8px',
                     color: 'var(--text-tertiary)',
                   }}>
                     thinking

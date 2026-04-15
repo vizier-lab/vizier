@@ -1,8 +1,7 @@
-use rig::{completion::ToolDefinition, tool::Tool};
-use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    agents::tools::VizierTool,
     error::VizierError,
     schema::{VizierChannelId, VizierResponse, VizierResponseContent, VizierSession},
     transport::VizierTransport,
@@ -15,7 +14,10 @@ pub struct WebUiNotifyPrimaryUser {
 
 impl WebUiNotifyPrimaryUser {
     pub fn new(agent_id: String, transport: VizierTransport) -> Self {
-        Self { agent_id, transport }
+        Self {
+            agent_id,
+            transport,
+        }
     }
 }
 
@@ -25,25 +27,23 @@ pub struct WebUiNotifyPrimaryUserArgs {
     content: String,
 }
 
-impl Tool for WebUiNotifyPrimaryUser
+#[async_trait::async_trait]
+impl VizierTool for WebUiNotifyPrimaryUser
 where
     Self: Sync + Send,
 {
-    const NAME: &'static str = "webui_notify_primary_user";
-    type Error = VizierError;
-    type Args = WebUiNotifyPrimaryUserArgs;
+    type Input = WebUiNotifyPrimaryUserArgs;
     type Output = ();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "send a notification to the primary user via WebUI".into(),
-            parameters,
-        }
+    fn name() -> String {
+        "webui_notify_primary_user".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "send a notification to the primary user via WebUI".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let session = VizierSession(
             self.agent_id.clone(),
             VizierChannelId::HTTP("vizier-webui".to_string()),
@@ -61,7 +61,10 @@ where
         match self.transport.send_response(session, response).await {
             Ok(()) => Ok(()),
             Err(err) => {
-                log::error!("webui_notify_primary_user: failed to send notification: {:?}", err);
+                log::error!(
+                    "webui_notify_primary_user: failed to send notification: {:?}",
+                    err
+                );
                 Ok(())
             }
         }

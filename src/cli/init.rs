@@ -16,7 +16,9 @@ pub async fn init() -> Result<()> {
     let current_dir = env::current_dir()?;
 
     let mut config = VizierConfig::default();
-    config.workspace = build_path(current_dir.to_str().unwrap(), &[".vizier"]).to_string_lossy().to_string();
+    config.workspace = build_path(current_dir.to_str().unwrap(), &[".vizier"])
+        .to_string_lossy()
+        .to_string();
 
     let mut config_path = current_dir.clone();
     config_path.push(".vizier.yaml");
@@ -40,29 +42,14 @@ pub fn init_default_agent(path: PathBuf) {
         session_memory: MemoryConfig { max_capacity: 10 },
         thinking_depth: 10,
         tools: AgentToolsConfig {
+            programmatic_sandbox: false,
             timeout: DurationString::from_string("1m".into()).unwrap(),
-            python_interpreter: false,
             shell_access: false,
-            brave_search: ToolConfig {
-                enabled: false,
-                programmatic_tool_call: false,
-            },
-            vector_memory: ToolConfig {
-                enabled: true,
-                programmatic_tool_call: false,
-            },
-            discord: ToolConfig {
-                enabled: false,
-                programmatic_tool_call: false,
-            },
-            telegram: ToolConfig {
-                enabled: false,
-                programmatic_tool_call: false,
-            },
-            notify_primary_user: ToolConfig {
-                enabled: true,
-                programmatic_tool_call: false,
-            },
+            brave_search: ToolConfig { enabled: false },
+            vector_memory: ToolConfig { enabled: true },
+            discord: ToolConfig { enabled: false },
+            telegram: ToolConfig { enabled: false },
+            notify_primary_user: ToolConfig { enabled: true },
             mcp_servers: vec![],
         },
         silent_read_initiative_chance: 0.,

@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
-use rig::{completion::ToolDefinition, tool::Tool};
-use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    agents::tools::VizierTool,
     config::VizierConfig,
     error::VizierError,
-    schema::{VizierChannelId, VizierResponse, VizierResponseContent, VizierSession},
+    schema::{VizierChannelId, VizierResponseContent, VizierSession},
     transport::VizierTransport,
 };
 
@@ -33,25 +32,23 @@ pub struct NotifyPrimaryUserArgs {
     content: String,
 }
 
-impl Tool for NotifyPrimaryUser
+#[async_trait::async_trait]
+impl VizierTool for NotifyPrimaryUser
 where
     Self: Sync + Send,
 {
-    const NAME: &'static str = "notify_primary_user";
-    type Error = VizierError;
-    type Args = NotifyPrimaryUserArgs;
+    type Input = NotifyPrimaryUserArgs;
     type Output = ();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "send a notification to the primary user via all available channels (Discord, Telegram, WebUI)".into(),
-            parameters,
-        }
+    fn name() -> String {
+        "notify_primary_user".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "send a notification to the primary user via all available channels (Discord, Telegram, WebUI)".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let content = args.content;
         let config = self.config.clone();
         let config2 = config.clone();
@@ -72,11 +69,7 @@ where
             Self::send_webui_internal(&agent_id2, &transport2, &content3).await;
         });
 
-        let _ = tokio::join!(
-            discord_handle,
-            telegram_handle,
-            webui_handle
-        );
+        let _ = tokio::join!(discord_handle, telegram_handle, webui_handle);
 
         Ok(())
     }
@@ -84,9 +77,9 @@ where
 
 impl NotifyPrimaryUser {
     async fn send_discord_internal(config: &Arc<VizierConfig>, content: &str) {
+        use crate::utils::discord::send_message;
         use serenity::all::{Http, UserId};
         use std::sync::Arc;
-        use crate::utils::discord::send_message;
 
         let discord_id = match config.primary_user.discord_id.parse::<u64>() {
             Ok(id) => id,
@@ -110,20 +103,25 @@ impl NotifyPrimaryUser {
         let channel_id = match user_id.create_dm_channel(http.clone()).await {
             Ok(channel) => channel.id,
             Err(err) => {
-                log::error!("notify_primary_user: failed to create Discord DM channel: {:?}", err);
+                log::error!(
+                    "notify_primary_user: failed to create Discord DM channel: {:?}",
+                    err
+                );
                 return;
             }
         };
 
         if let Err(err) = send_message(http, &channel_id, content.to_string()).await {
-            log::error!("notify_primary_user: failed to send Discord message: {:?}", err);
+            log::error!(
+                "notify_primary_user: failed to send Discord message: {:?}",
+                err
+            );
         }
     }
 
     async fn send_telegram_internal(config: &Arc<VizierConfig>, content: &str) {
-        use teloxide::Bot;
-        use teloxide::prelude::*;
         use crate::utils::telegram::send_message;
+        use teloxide::Bot;
 
         let bot_token = if let Some(telegram) = &config.channels.telegram {
             if let Some((_, telegram_config)) = telegram.iter().next() {
@@ -149,8 +147,18 @@ impl NotifyPrimaryUser {
             format!("@{}", username)
         };
 
-        if let Err(err) = send_message(&bot, teloxide::types::Recipient::ChannelUsername(username.clone()), content.to_string()).await {
-            log::error!("notify_primary_user: failed to send Telegram message to {}: {:?}", username, err);
+        if let Err(err) = send_message(
+            &bot,
+            teloxide::types::Recipient::ChannelUsername(username.clone()),
+            content.to_string(),
+        )
+        .await
+        {
+            log::error!(
+                "notify_primary_user: failed to send Telegram message to {}: {:?}",
+                username,
+                err
+            );
         }
     }
 
@@ -172,7 +180,10 @@ impl NotifyPrimaryUser {
         };
 
         if let Err(err) = transport.send_response(session, response).await {
-            log::error!("notify_primary_user: failed to send WebUI notification: {:?}", err);
+            log::error!(
+                "notify_primary_user: failed to send WebUI notification: {:?}",
+                err
+            );
         }
     }
 }

@@ -68,11 +68,7 @@ fastembed = "4.9.1"
 croner = { version = "3.0.1", features = ["serde"] }
 indicatif = "0.17.11"
 rand = "0.10.0"
-pyo3 = { version = "0.28.2", features = [
-  "auto-initialize",
-  "abi3-py39",
-], optional = true }
-pythonize = { version = "0.28", optional = true }
+
 dotenvy = "0.15.7"
 async-trait = "0.1.89"
 async-broadcast = "0.7.2"
@@ -88,13 +84,11 @@ rmcp = { version = "1.3.0", features = [
   "transport-streamable-http-client-reqwest",
   "transport-streamable-http-server",
 ] }
-
-[build-dependencies]
-pyo3-build-config = { version = "0.28.2", optional = true }
+rustpython-vm = { version = "0.4.0", features = ["serde"] }
+rustpython = "0.4.0"
 
 [features]
 default = []
-python = ["pyo3", "pythonize", "pyo3-build-config"]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/vizier-v{ version }-{ target }.tar.gz"

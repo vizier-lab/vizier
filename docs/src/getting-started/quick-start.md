@@ -54,24 +54,14 @@ just dev
 just build
 ```
 
-### Development with Python
-
-```sh
-# Run with Python feature
-just dev-python
-```
-
 ### Available Just Commands
 
 | Command | Description |
 |---------|-------------|
 | `just install` | Install all dependencies (Rust crates + webui npm packages) |
 | `just dev` | Run in development mode with hot-reload |
-| `just dev-python` | Run in development mode with Python support |
 | `just run` | Run in release mode |
-| `just run-python` | Run in release mode with Python support |
 | `just release` | Build release binary |
-| `just release-python` | Build release binary with Python support |
 | `just tui` | Start the terminal user interface (WIP) |
 | `just docker` | Start Docker services (database, etc.) |
 | `just build` | Build the webui frontend |

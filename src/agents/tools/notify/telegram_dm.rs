@@ -1,9 +1,8 @@
-use rig::{completion::ToolDefinition, tool::Tool};
-use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use teloxide::{Bot, types::Recipient};
 
+use crate::agents::tools::VizierTool;
 use crate::{config::VizierConfig, error::VizierError, utils::telegram::send_message};
 
 pub struct TelegramDmPrimaryUser {
@@ -41,25 +40,23 @@ pub struct TelegramDmPrimaryUserArgs {
     content: String,
 }
 
-impl Tool for TelegramDmPrimaryUser
+#[async_trait::async_trait]
+impl VizierTool for TelegramDmPrimaryUser
 where
     Self: Sync + Send,
 {
-    const NAME: &'static str = "telegram_dm_primary_user";
-    type Error = VizierError;
-    type Args = TelegramDmPrimaryUserArgs;
+    type Input = TelegramDmPrimaryUserArgs;
     type Output = ();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "send a direct message to the primary user on Telegram".into(),
-            parameters,
-        }
+    fn name() -> String {
+        "telegram_dm_primary_user".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "send a direct message to the primary user on Telegram".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let bot = match &self.bot {
             Some(bot) => bot,
             None => {

@@ -6,7 +6,9 @@ use rig::tool::Tool;
 use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use serenity::async_trait;
 
+use crate::agents::tools::VizierTool;
 use crate::config::agent::AgentConfig;
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
@@ -57,41 +59,20 @@ pub struct ConsultAgentArgs {
     pub prompt: String,
 }
 
-impl Tool for ConsultAgent {
-    const NAME: &'static str = "consult_agent";
-    type Error = VizierError;
-    type Args = ConsultAgentArgs;
+#[async_trait::async_trait]
+impl VizierTool for ConsultAgent {
+    type Input = ConsultAgentArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        let available_agents_desc = self
-            .agents
-            .iter()
-            .map(|(agent_id, config)| {
-                format!(
-                    r#"**Agent ID:** {}
-**Name:** {}
-**Description:** {}"#,
-                    agent_id,
-                    config.name,
-                    config.description.clone().unwrap_or("".into())
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: format!(
-                "Consult, or ask other agent and wait for the response\n\nAvailable Agent\n{available_agents_desc}"
-            ),
-            parameters,
-        }
+    fn name() -> String {
+        "consult_agent".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "Consult, or ask other agent and wait for the response".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let mut recv = self
             .transport
             .subscribe_response()
@@ -104,7 +85,6 @@ impl Tool for ConsultAgent {
             args.topic_id,
         );
 
-        // send prompt
         let _ = self
             .transport
             .send_request(
@@ -119,7 +99,6 @@ impl Tool for ConsultAgent {
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
-        // wait for resp
         loop {
             let (session, response) = recv
                 .recv()
@@ -130,7 +109,11 @@ impl Tool for ConsultAgent {
                 continue;
             }
 
-            if let VizierResponse { content: VizierResponseContent::Message { content, stats: _ }, timestamp: _ } = response {
+            if let VizierResponse {
+                content: VizierResponseContent::Message { content, stats: _ },
+                timestamp: _,
+            } = response
+            {
                 return Ok(content);
             }
         }
@@ -174,15 +157,16 @@ pub struct DelegateAgentArgs {
     pub prompt: String,
 }
 
-impl Tool for DelegateAgent {
-    const NAME: &'static str = "delegate_agent";
-    type Error = VizierError;
-    type Args = DelegateAgentArgs;
+#[async_trait::async_trait]
+impl VizierTool for DelegateAgent {
+    type Input = DelegateAgentArgs;
     type Output = ();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
+    fn name() -> String {
+        "delegate_agent".to_string()
+    }
 
+    fn description(&self) -> String {
         let available_agents_desc = self
             .agents
             .iter()
@@ -199,23 +183,18 @@ impl Tool for DelegateAgent {
             .collect::<Vec<_>>()
             .join("\n");
 
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: format!(
-                "Assign an agent a task to do, this is a non-blocking tool, you won't need to wait the agent\n\nAvailable Agent\n{available_agents_desc}"
-            ),
-            parameters,
-        }
+        format!(
+            "Assign an agent a task to do, this is a non-blocking tool, you won't need to wait the agent\n\nAvailable Agent\n{available_agents_desc}"
+        )
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let curr_session = VizierSession(
             args.agent_id.clone(),
             VizierChannelId::InterAgent(vec![self.agent_id.clone(), args.agent_id.clone()]),
             None,
         );
 
-        // send prompt
         let _ = self
             .transport
             .send_request(
@@ -223,7 +202,7 @@ impl Tool for DelegateAgent {
                 VizierRequest {
                     timestamp: chrono::Utc::now(),
                     user: self.agent_id.clone(),
-                    content: VizierRequestContent::Prompt(args.prompt.clone()),
+                    content: VizierRequestContent::Prompt(args.prompt),
                     metadata: json!({}),
                 },
             )
@@ -233,3 +212,4 @@ impl Tool for DelegateAgent {
         Ok(())
     }
 }
+

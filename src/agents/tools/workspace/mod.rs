@@ -1,10 +1,9 @@
 use std::marker::PhantomData;
 
-use rig::{completion::ToolDefinition, tool::Tool};
-use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    agents::tools::VizierTool,
     error::{VizierError, throw_vizier_error},
     utils::build_path,
 };
@@ -59,29 +58,26 @@ pub struct WritePrimaryDocumentArgs {
     content: String,
 }
 
-impl<T: PrimaryDocument> Tool for WritePrimaryDocument<T>
+#[async_trait::async_trait]
+impl<T: PrimaryDocument> VizierTool for WritePrimaryDocument<T>
 where
     Self: Sync + Send,
 {
-    const NAME: &'static str = T::WRITE_NAME;
-    type Error = VizierError;
-    type Args = WritePrimaryDocumentArgs;
+    type Input = WritePrimaryDocumentArgs;
     type Output = ();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: format!(
-                "write over the content {} file, **not append**. Always tell user after updating document!",
-                T::NAME
-            ),
-            parameters,
-        }
+    fn name() -> String {
+        T::WRITE_NAME.to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        format!(
+            "write over the content {} file, **not append**. Always tell user after updating document!",
+            T::NAME
+        )
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let path = build_path(&self.workspace, &[T::NAME]);
 
         match std::fs::write(path, args.content) {
@@ -108,26 +104,23 @@ impl<T: PrimaryDocument> ReadPrimaryDocument<T> {
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ReadPrimaryDocumentArgs {}
 
-impl<T: PrimaryDocument> Tool for ReadPrimaryDocument<T>
+#[async_trait::async_trait]
+impl<T: PrimaryDocument> VizierTool for ReadPrimaryDocument<T>
 where
     Self: Sync + Send,
 {
-    const NAME: &'static str = T::READ_NAME;
-    type Error = VizierError;
-    type Args = ReadPrimaryDocumentArgs;
+    type Input = ReadPrimaryDocumentArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: format!("read the conten of {} file", T::NAME),
-            parameters,
-        }
+    fn name() -> String {
+        T::READ_NAME.to_string()
     }
 
-    async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        format!("read the conten of {} file", T::NAME)
+    }
+
+    async fn call(&self, _args: Self::Input) -> Result<Self::Output, VizierError> {
         let path = build_path(&self.workspace, &[T::NAME]);
         let content = std::fs::read_to_string(path).map_err(|err| VizierError(err.to_string()))?;
 

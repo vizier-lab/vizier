@@ -2,12 +2,11 @@ use std::{str::FromStr, sync::Arc};
 
 use chrono::Utc;
 use croner::Cron;
-use rig::{completion::ToolDefinition, tool::Tool};
-use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
 use crate::{
+    agents::tools::VizierTool,
     error::VizierError,
     schema::{AgentId, Task, TaskSchedule},
     storage::{VizierStorage, task::TaskStorage},
@@ -35,26 +34,20 @@ pub struct ScheduleOneTimeTaskArgs {
     schedule: String,
 }
 
-impl Tool for ScheduleOneTimeTask
-where
-    Self: Sync + Send,
-{
-    const NAME: &'static str = "schedule_one_time_task";
-    type Error = VizierError;
-    type Args = ScheduleOneTimeTaskArgs;
+#[async_trait::async_trait]
+impl VizierTool for ScheduleOneTimeTask {
+    type Input = ScheduleOneTimeTaskArgs;
     type Output = ();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: format!("Schedule a new one-time task at a specific date and time"),
-            parameters,
-        }
+    fn name() -> String {
+        "schedule_one_time_task".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "Schedule a new one-time task at a specific date and time".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let utc_datetime = chrono::DateTime::parse_from_rfc3339(&args.schedule)
             .map(|dt| dt.with_timezone(&Utc))
             .map_err(|_| {
@@ -63,7 +56,6 @@ where
                 )
             })?;
 
-        // Validate that one-time task is in the future
         let now = Utc::now();
         if utc_datetime < now {
             return Err(VizierError(
@@ -122,27 +114,20 @@ pub struct ScheduleCronTaskArgs {
     cron: String,
 }
 
-impl Tool for ScheduleCronTask
-where
-    Self: Sync + Send,
-{
-    const NAME: &'static str = "schedule_cron_task";
-    type Error = VizierError;
-    type Args = ScheduleCronTaskArgs;
+#[async_trait::async_trait]
+impl VizierTool for ScheduleCronTask {
+    type Input = ScheduleCronTaskArgs;
     type Output = ();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: format!("Schedule a new recurring task using a cron expression"),
-            parameters,
-        }
+    fn name() -> String {
+        "schedule_cron_task".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        // Validate cron expression
+    fn description(&self) -> String {
+        "Schedule a new recurring task using a cron expression".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         if args.cron.trim().is_empty() {
             return Err(VizierError("Cron expression cannot be empty".to_string()));
         }

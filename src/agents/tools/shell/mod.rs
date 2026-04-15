@@ -1,10 +1,9 @@
 use futures::TryFutureExt;
-use rig::{completion::ToolDefinition, tool::Tool};
-use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
+    agents::tools::VizierTool,
     error::VizierError,
     shell::{ShellProvider, VizierShell},
 };
@@ -17,23 +16,20 @@ pub struct ShellExecArgs {
 
 pub struct ShellExec(pub Arc<VizierShell>);
 
-impl Tool for ShellExec {
-    const NAME: &'static str = "shell_exec";
-    type Error = VizierError;
-    type Args = ShellExecArgs;
+#[async_trait::async_trait]
+impl VizierTool for ShellExec {
+    type Input = ShellExecArgs;
     type Output = String;
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "run a a CLI command on a workspace directory".into(),
-            parameters,
-        }
+    fn name() -> String {
+        "shell_exec".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "run a a CLI command on a workspace directory".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         Ok(self
             .0
             .exec(args.commands)

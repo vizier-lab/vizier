@@ -1,12 +1,10 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
-use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
+use crate::agents::tools::VizierTool;
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::{AgentId, Skill};
@@ -33,23 +31,20 @@ pub struct CreateSkillArgs {
     pub instruction: String,
 }
 
-impl Tool for CreateSkill {
-    const NAME: &'static str = "create_skill";
-    type Error = VizierError;
-    type Args = CreateSkillArgs;
+#[async_trait::async_trait]
+impl VizierTool for CreateSkill {
+    type Input = CreateSkillArgs;
     type Output = ();
 
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(Self::Args)).unwrap();
-
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "create a new skill you have learn, to be reusable".into(),
-            parameters,
-        }
+    fn name() -> String {
+        "create_skill".to_string()
     }
 
-    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    fn description(&self) -> String {
+        "create a new skill you have learn, to be reusable".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let slug = slugify::slugify!(&args.name);
 
         self.1
