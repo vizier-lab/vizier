@@ -25,8 +25,12 @@ case "$OS" in
     macos) TARGET="${ARCH}-apple-darwin";;
 esac
 
-# Get version
-VERSION="${VERSION:-$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name": "v?([^"]+)".*/\1/')}"
+# Get version (stable release only, no prereleases)
+get_latest_version() {
+    local releases_url="https://api.github.com/repos/$REPO/releases"
+    curl -s "$releases_url" | grep '"tag_name":' | grep -v '"prerelease": true' | head -1 | sed -E 's/.*"tag_name": "v?([^"]+)".*/\1/'
+}
+VERSION="${VERSION:-$(get_latest_version)}"
 [ -z "$VERSION" ] && error "Failed to get latest version"
 VERSION="${VERSION#v}"
 
