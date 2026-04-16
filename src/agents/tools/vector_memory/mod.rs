@@ -15,10 +15,12 @@ use crate::storage::memory::MemoryStorage;
 pub fn init_vector_memory(
     agent_id: String,
     deps: VizierDependencies,
-) -> Result<(MemoryRead, MemoryWrite)> {
+) -> Result<(MemoryRead, MemoryWrite, MemoryList, MemoryDetail)> {
     Ok((
         MemoryRead::new(agent_id.clone(), deps.storage.clone()),
         MemoryWrite::new(agent_id.clone(), deps.storage.clone()),
+        MemoryList::new(agent_id.clone(), deps.storage.clone()),
+        MemoryDetail::new(agent_id.clone(), deps.storage.clone()),
     ))
 }
 
@@ -28,6 +30,77 @@ pub struct ReadVectorMemory(AgentId, Arc<VizierStorage>);
 impl MemoryRead {
     fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
         Self(agent_id, store)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemoryListArgs {
+    #[schemars(description = "Maximum number of memories to return")]
+    #[serde(default = "default_limit")]
+    pub limit: Option<usize>,
+
+    #[schemars(description = "Number of memories to skip")]
+    #[serde(default = "default_offset")]
+    pub offset: Option<usize>,
+}
+
+fn default_limit() -> Option<usize> {
+    Some(50)
+}
+
+fn default_offset() -> Option<usize> {
+    Some(0)
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemorySummary {
+    pub slug: String,
+    pub title: String,
+    pub timestamp: chrono::DateTime<Utc>,
+}
+
+pub type MemoryList = ListVectorMemory;
+pub struct ListVectorMemory(AgentId, Arc<VizierStorage>);
+
+impl MemoryList {
+    fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
+        Self(agent_id, store)
+    }
+}
+
+#[async_trait::async_trait]
+impl VizierTool for MemoryList {
+    type Input = MemoryListArgs;
+    type Output = Vec<MemorySummary>;
+
+    fn name() -> String {
+        "memory_list".to_string()
+    }
+
+    fn description(&self) -> String {
+        "List all available memories".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+        let limit = args.limit.unwrap_or(50);
+        let offset = args.offset.unwrap_or(0);
+
+        let all_memory = self
+            .1
+            .get_all_agent_memory(self.0.clone())
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
+
+        Ok(all_memory
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .map(|m| MemorySummary {
+                slug: m.slug,
+                title: m.title,
+                timestamp: m.timestamp,
+            })
+            .collect())
     }
 }
 
@@ -108,5 +181,59 @@ impl VizierTool for MemoryWrite {
             .await;
 
         Ok(format!("memory {slug} is written"))
+    }
+}
+
+pub type MemoryDetail = GetVectorMemory;
+pub struct GetVectorMemory(AgentId, Arc<VizierStorage>);
+
+impl MemoryDetail {
+    fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
+        Self(agent_id, store)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemoryDetailArgs {
+    #[schemars(description = "Slug of the memory to retrieve")]
+    pub slug: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemoryDetailOutput {
+    pub slug: String,
+    pub title: String,
+    pub content: String,
+    pub timestamp: chrono::DateTime<Utc>,
+    pub agent_id: String,
+}
+
+#[async_trait::async_trait]
+impl VizierTool for MemoryDetail {
+    type Input = MemoryDetailArgs;
+    type Output = Option<MemoryDetailOutput>;
+
+    fn name() -> String {
+        "memory_detail".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Get memory details by slug".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+        let memory = self
+            .1
+            .get_memory_detail(self.0.clone(), args.slug)
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
+
+        Ok(memory.map(|m| MemoryDetailOutput {
+            slug: m.slug,
+            title: m.title,
+            content: m.content,
+            timestamp: m.timestamp,
+            agent_id: m.agent_id,
+        }))
     }
 }

@@ -254,10 +254,14 @@ impl VizierTools {
 
         if agent_config.tools.vector_memory.enabled {
             if let Some(_) = deps.config.embedding {
-                let (read_memory, write_memory) =
+                let (read_memory, write_memory, list_memory, detail_memory) =
                     init_vector_memory(agent_id.clone(), deps.clone())?;
 
-                tools = tools.tool(read_memory).tool(write_memory);
+                tools = tools
+                    .tool(read_memory)
+                    .tool(write_memory)
+                    .tool(list_memory)
+                    .tool(detail_memory);
             }
         }
 
