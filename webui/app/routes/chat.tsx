@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import type { FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
-import { getTopicHistory, getChatWebSocketUrl, listTopics, getAgentDetail } from '../services/vizier'
+import { getTopicHistory, getChatWebSocketUrl, listTopics, getAgentDetail, listAgents } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
 import type { Agent, ChatMessage, Topic, WebSocketMessage, WebSocketResponse, VizierResponseStats } from '../interfaces/types'
 import ReactMarkdown from 'react-markdown'
@@ -35,21 +35,93 @@ interface InlineEvent {
   timestamp: number
 }
 
-const formatToolChoice = (name: string, args: Record<string, unknown>): string => {
+const formatToolChoice = (name: string, args: Record<string, unknown>, agentNames: Record<string, string>): string => {
   switch (name) {
     case 'think':
-      return args.thought as string
+      return `💭 ${args.thought as string}`
     case 'memory_read':
-      return `**search memory:** '${args.query as string}'`
+      return `🔍 Searching memory for '${args.query as string}'`
     case 'memory_write':
-      return `**write memory:** '${args.title as string}'`
-    case 'python_interpreter':
-      return "**programatic tool**: \n```python" + `\n${args.script as string}\n` + "```"
+      return `💾 Remembering: '${args.title as string}'`
+    case 'memory_list':
+      return `📚 Listing memories`
+    case 'memory_detail':
+      return `🔎 Getting memory detail for '${args.slug as string}'`
+    case 'web_search':
+      return `🌐 Searching the web for '${args.query as string}'`
+    case 'news_search':
+      return `📰 Finding news about '${args.query as string}'`
+    case 'shell_exec':
+      return `🖥️ Running shell command:\n\`\`\`bash\n${args.commands as string}\n\`\`\``
     case 'programmatic_sandbox':
-      return "**programatic sandbox**: \n```py" + `\n${args.script as string}\n` + "```"
+      return `🐍 Running Python script:\n\`\`\`python\n${args.script as string}\n\`\`\``
+    case 'schedule_one_time_task':
+      return `⏰ Scheduling task: '${args.title as string}'`
+    case 'schedule_cron_task':
+      return `🔄 Setting up recurring task: '${args.title as string}'`
+    case 'consult_agent': {
+      const targetAgentId = args.agent_id as string
+      const agentName = agentNames[targetAgentId] || targetAgentId
+      return `🤝 Consulting agent ${agentName} about '${args.prompt as string}'`
+    }
+    case 'delegate_agent': {
+      const targetAgentId = args.agent_id as string
+      const agentName = agentNames[targetAgentId] || targetAgentId
+      return `👤 Assigning task to ${agentName}: '${args.prompt as string}'`
+    }
+    case 'paralel_subtasks':
+      return `⚡ Running parallel tasks`
+    case 'create_skill':
+      return `🎯 Creating skill: '${args.name as string}'`
+    case 'WRITE_AGENT_MD_FILE':
+      return `📝 Updating agent notes`
+    case 'READ_AGENT_MD_FILE':
+      return `📖 Reading agent notes`
+    case 'WRITE_IDENTITY_MD_FILE':
+      return `🪪 Updating identity notes`
+    case 'READ_IDENTITY_MD_FILE':
+      return `🪪 Reading identity notes`
+    case 'WRITE_HEARTBEAT_MD_FILE':
+      return `💗 Updating heartbeat`
+    case 'READ_HEARTBEAT_MD_FILE':
+      return `💗 Reading heartbeat`
+    case 'shared_document_read':
+      return `📄 Searching shared docs for '${args.query as string}'`
+    case 'shared_document_write':
+      return `📄 Writing shared doc: '${args.title as string}'`
+    case 'shared_document_get':
+      return `📄 Getting shared doc: '${args.slug as string}'`
+    case 'shared_document_list':
+      return `📁 Listing shared docs`
+    case 'discord_send_message':
+      return `💬 Sending Discord message`
+    case 'discord_react_message':
+      return `👍 Reacting on Discord`
+    case 'discord_get_message_by_id':
+      return `📩 Getting Discord message`
+    case 'telegram_send_message':
+      return `✈️ Sending Telegram message`
+    case 'telegram_react_message':
+      return `👍 Reacting on Telegram`
+    case 'telegram_get_message_by_id':
+      return `📩 Getting Telegram message`
+    case 'discord_dm_primary_user':
+      return `💬 DM on Discord`
+    case 'telegram_dm_primary_user':
+      return `✈️ DM on Telegram`
+    case 'webui_notify_primary_user':
+      return `🔔 WebUI notification`
+    case 'notify_primary_user':
+      return `🔔 Notifying user`
     default:
-      let formattedArgs = "```js" + `\n${JSON.stringify(args, null, 2)}\n` + "```";
-      return `*use* **${name}** \n${formattedArgs}`
+      if (name.startsWith('mcp_')) {
+        const parts = name.replace('mcp_', '').split('__')
+        const server = parts[0]
+        const toolName = parts.slice(1).join('__')
+        return `🔌 Using MCP tool: ${toolName} (${server})`
+      }
+      const formattedArgs = `\`\`\`js\n${JSON.stringify(args, null, 2)}\n\`\`\``
+      return `🔧 Using ${name}\n${formattedArgs}`
   }
 }
 
@@ -97,6 +169,7 @@ export default function Chat() {
   )
 
   const [topicDetail, setTopicDetail] = useState<any | null>(null)
+  const [agentNames, setAgentNames] = useState<Record<string, string>>({})
 
   // Check if this is a new topic
   useEffect(() => {
@@ -152,6 +225,16 @@ export default function Chat() {
 
     loadHistory()
   }, [agentId, topicId])
+
+  useEffect(() => {
+    listAgents().then(res => {
+      const names: Record<string, string> = {}
+      res.data.forEach((agent: Agent) => {
+        names[agent.agent_id] = agent.name
+      })
+      setAgentNames(names)
+    })
+  }, [])
 
   const clearInlineEvents = () => {
     setInlineEvents([])
@@ -214,7 +297,7 @@ export default function Chat() {
       }
 
       if ('tool_choice' in content) {
-        const toolContent = formatToolChoice(content.tool_choice.name, content.tool_choice.args)
+        const toolContent = formatToolChoice(content.tool_choice.name, content.tool_choice.args, agentNames)
         addInlineEvent('tool_choice', toolContent)
         return
       }
