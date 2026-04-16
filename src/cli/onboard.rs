@@ -7,7 +7,8 @@ use inquire::{Confirm, CustomType, Password, Select, Text};
 
 use crate::{
     config::{
-        ChannelsConfig, DiscordChannelConfig, HTTPChannelConfig, VizierConfig,
+        ChannelsConfig, DiscordChannelConfig, HTTPChannelConfig, TelegramChannelConfig,
+        VizierConfig,
         agent::{AgentConfig, AgentToolsConfig, MemoryConfig, ToolConfig},
         provider::{ProviderConfig, ProviderVariant},
         storage::{DocumentIndexerConfig, StorageConfig},
@@ -39,7 +40,7 @@ pub async fn onboard(args: OnboardArgs) -> Result<()> {
         PathBuf::from(&workspace)
     };
 
-    let user_name = Text::new("Your name:").with_default("admin").prompt()?;
+    let user_name = Text::new("Username").with_default("admin").prompt()?;
 
     let mut providers = ProviderConfig::default();
     let mut provider_names: Vec<String> = Vec::new();
@@ -147,6 +148,13 @@ pub async fn onboard(args: OnboardArgs) -> Result<()> {
     };
 
     let agent_name = Text::new("Agent name:").with_default("Vizier").prompt()?;
+    let agent_id = agent_name
+        .to_lowercase()
+        .replace(' ', "_")
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+        .collect::<String>();
+
     let model = Text::new("Model:").with_default(default_model).prompt()?;
     let agent_description = Text::new("Agent description (optional):")
         .with_default("Digital Steward")
@@ -186,6 +194,16 @@ pub async fn onboard(args: OnboardArgs) -> Result<()> {
         None
     };
 
+    let telegram_enabled = Confirm::new("Enable Telegram?")
+        .with_default(false)
+        .prompt()?;
+
+    let telegram_token = if telegram_enabled {
+        Some(Password::new("Telegram bot token:").prompt()?)
+    } else {
+        None
+    };
+
     let storage_type = Select::new(
         "Storage type:",
         vec!["Filesystem".to_string(), "Surreal".to_string()],
@@ -198,15 +216,7 @@ pub async fn onboard(args: OnboardArgs) -> Result<()> {
         StorageConfig::Surreal
     };
 
-    let agent_file_name = format!(
-        "{}.agent.md",
-        agent_name
-            .to_lowercase()
-            .replace(' ', "_")
-            .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
-            .collect::<String>()
-    );
+    let agent_file_name = format!("{}.agent.md", agent_id.clone(),);
 
     let mut config_path = workspace_path.clone();
     config_path.push(".vizier.yaml");
@@ -286,14 +296,16 @@ pub async fn onboard(args: OnboardArgs) -> Result<()> {
         agents: HashMap::new(),
         channels: ChannelsConfig {
             discord: discord_token.map(|token| {
-                HashMap::from([("vizier".to_string(), DiscordChannelConfig { token })])
+                HashMap::from([(agent_id.to_string(), DiscordChannelConfig { token })])
             }),
             http: Some(HTTPChannelConfig {
                 port: 9999,
                 jwt_secret: "${VIZIER_JWT_SECRET}".into(),
                 jwt_expiry_hours: 720,
             }),
-            telegram: None,
+            telegram: telegram_token.map(|token| {
+                HashMap::from([(agent_id.to_string(), TelegramChannelConfig { token })])
+            }),
         },
         tools: ToolsConfig {
             brave_search: if brave_search_enabled {
