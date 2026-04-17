@@ -32,7 +32,6 @@ enum ContentMetadata {
         metadata: serde_json::Value,
     },
     response {
-        content: String,
         stats: Option<VizierResponseStats>,
     },
 }
@@ -86,16 +85,12 @@ impl From<SessionHistory> for SessionHistoryFrontMatter {
                     metadata: req.metadata,
                 },
                 SessionHistoryContent::Response(r) => match &r.content {
-                    VizierResponseContent::Message { content, stats } => {
+                    VizierResponseContent::Message { content: _, stats } => {
                         ContentMetadata::response {
-                            content: content.clone(),
                             stats: stats.clone(),
                         }
                     }
-                    _ => ContentMetadata::response {
-                        content: String::new(),
-                        stats: None,
-                    },
+                    _ => ContentMetadata::response { stats: None },
                 },
             },
         }
@@ -200,7 +195,7 @@ impl HistoryStorage for FileSystemStorage {
                                 _ => unimplemented!(),
                             },
                         }),
-                        ContentMetadata::response { content, stats } => {
+                        ContentMetadata::response { stats } => {
                             SessionHistoryContent::Response(VizierResponse {
                                 timestamp: frontmatter.timestamp,
                                 content: VizierResponseContent::Message { content, stats },
@@ -472,7 +467,7 @@ impl HistoryStorage for FileSystemStorage {
                                 _ => unimplemented!(),
                             },
                         }),
-                        ContentMetadata::response { content, stats } => {
+                        ContentMetadata::response { stats } => {
                             SessionHistoryContent::Response(VizierResponse {
                                 timestamp,
                                 content: VizierResponseContent::Message { content, stats },
