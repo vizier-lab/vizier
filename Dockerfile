@@ -1,8 +1,23 @@
-FROM alpine:3.20
+# ====================
+# Stage 1: Extract pre-built binaries from release tarball
+# ====================
+FROM debian:bookworm AS build
 
-ARG BINARY_PATH=dist/vizier
-COPY ${BINARY_PATH} /usr/local/bin/vizier
+ARG TARGET_DIR
 
-ENV RUST_BACKTRACE=1
+RUN mkdir -p /staging && \
+    tar -xzf vizier-${TARGET_DIR}.tar.gz -C /staging
+
+# ====================
+# Stage 2: Minimal runtime image
+# ====================
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /staging/${TARGET_DIR}/vizier /usr/local/bin/vizier
 
 ENTRYPOINT ["vizier"]
