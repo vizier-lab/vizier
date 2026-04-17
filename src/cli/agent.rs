@@ -161,6 +161,8 @@ pub async fn agent_new(args: AgentNewArgs) -> Result<()> {
             },
             telegram: ToolConfig { enabled: false },
             notify_primary_user: ToolConfig { enabled: true },
+            fetch: ToolConfig { enabled: false },
+            http_client: ToolConfig { enabled: false },
             mcp_servers: vec![],
         },
         silent_read_initiative_chance: 0.,

@@ -10,6 +10,8 @@ use crate::{
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
         consult::{ConsultAgent, DelegateAgent},
         discord::new_discord_tools,
+        fetch::FetchWebpage,
+        http_client::HttpClient,
         notify::{
             DiscordDmPrimaryUser, NotifyPrimaryUser, TelegramDmPrimaryUser, WebUiNotifyPrimaryUser,
         },
@@ -37,6 +39,8 @@ use crate::{
 mod brave_search;
 mod consult;
 mod discord;
+mod fetch;
+mod http_client;
 mod notify;
 mod ptc;
 mod scheduler;
@@ -262,6 +266,14 @@ impl VizierTools {
                     .tool(BraveSearch::<WebOnlySearch>::new(&brave_search))
                     .tool(BraveSearch::<NewsOnlySearch>::new(&brave_search));
             }
+        }
+
+        if agent_config.tools.fetch.enabled {
+            tools = tools.tool(FetchWebpage);
+        }
+
+        if agent_config.tools.http_client.enabled {
+            tools = tools.tool(HttpClient);
         }
 
         if agent_config.tools.vector_memory.enabled {

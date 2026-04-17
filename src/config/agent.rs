@@ -115,6 +115,10 @@ pub struct AgentToolsConfig {
     #[serde(default)]
     pub notify_primary_user: ToolConfig,
     #[serde(default)]
+    pub fetch: ToolConfig,
+    #[serde(default)]
+    pub http_client: ToolConfig,
+    #[serde(default)]
     pub mcp_servers: Vec<String>,
 }
 

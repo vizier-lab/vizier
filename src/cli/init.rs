@@ -50,6 +50,8 @@ pub fn init_default_agent(path: PathBuf) {
             discord: ToolConfig { enabled: false },
             telegram: ToolConfig { enabled: false },
             notify_primary_user: ToolConfig { enabled: true },
+            fetch: ToolConfig { enabled: false },
+            http_client: ToolConfig { enabled: false },
             mcp_servers: vec![],
         },
         silent_read_initiative_chance: 0.,
