@@ -134,10 +134,6 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             cross: false
-          # Windows x86_64 (native)
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            cross: false
 
     steps:
       - name: Checkout
@@ -211,30 +207,6 @@ jobs:
           echo "ASSET=${ARCHIVE_NAME}" >> $GITHUB_ENV
           echo "CHECKSUM=${ARCHIVE_NAME}.sha256" >> $GITHUB_ENV
 
-      - name: Package binary (Windows)
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: |
-          $VERSION = "${{ needs.prepare-release.outputs.version }}"
-          $TARGET = "${{ matrix.target }}"
-          $BINARY_NAME = "vizier"
-          $EXE_NAME = "vizier.exe"
-          
-          $ARCHIVE_DIR = "vizier-v${VERSION}-${TARGET}"
-          $ARCHIVE_NAME = "${ARCHIVE_DIR}.zip"
-          
-          New-Item -ItemType Directory -Force -Path "dist/${ARCHIVE_DIR}" | Out-Null
-          Copy-Item "target/${TARGET}/release/${EXE_NAME}" "dist/${ARCHIVE_DIR}/" -Force
-          Copy-Item "Readme.md" "dist/${ARCHIVE_DIR}/" -ErrorAction SilentlyContinue
-          
-          Compress-Archive -Path "dist/${ARCHIVE_DIR}" -DestinationPath "dist/${ARCHIVE_NAME}" -Force
-          
-          $SHA256 = (Get-FileHash -Path "dist/${ARCHIVE_NAME}" -Algorithm SHA256).Hash.ToLower()
-          "${SHA256}  ${ARCHIVE_NAME}" | Out-File -FilePath "dist/${ARCHIVE_NAME}.sha256" -Encoding ASCII
-          
-          echo "ASSET=${ARCHIVE_NAME}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "CHECKSUM=${ARCHIVE_NAME}.sha256" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -245,66 +217,11 @@ jobs:
           retention-days: 7
 
   # ====================
-  # Build Windows NSIS installer
-  # ====================
-  windows-installer:
-    name: Build Windows Installer
-    needs: [prepare-release, build]
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.dry_run && github.ref || format('v{0}', needs.prepare-release.outputs.version) }}
-
-      - name: Download Windows x86_64 binary
-        uses: actions/download-artifact@v4
-        with:
-          name: vizier-x86_64-pc-windows-msvc
-          path: target/x86_64-pc-windows-msvc/release/
-
-      - name: Extract Windows binary from artifact
-        shell: powershell
-        run: |
-          $VERSION = "${{ needs.prepare-release.outputs.version }}"
-          $TARGET = "x86_64-pc-windows-msvc"
-          $ZIP = "target/${TARGET}/release/vizier-v${VERSION}-${TARGET}.zip"
-          Expand-Archive -Path $ZIP -DestinationPath "target/${TARGET}/release/" -Force
-          Copy-Item "target/${TARGET}/release/vizier-v${VERSION}-${TARGET}/vizier.exe" "target/${TARGET}/release/vizier.exe" -Force
-
-      - name: Install NSIS
-        run: choco install nsis -y
-
-      - name: Build installer
-        working-directory: installer/windows
-        run: |
-          $VERSION = "${{ needs.prepare-release.outputs.version }}"
-          $VERSION_NOSUFFIX = $VERSION -replace '-.*$', ''
-          (Get-Content installer.nsi) -replace '0\.3\.0\.0', "${VERSION_NOSUFFIX}.0" -replace '0\.3\.0', "${VERSION_NOSUFFIX}" | Set-Content installer.nsi
-          & 'C:\Program Files (x86)\NSIS\makensis.exe' installer.nsi
-
-      - name: Rename installer
-        shell: powershell
-        run: |
-          $VERSION = "${{ needs.prepare-release.outputs.version }}"
-          $TARGET = "x86_64"
-          $NEW_NAME = "vizier-${VERSION}-${TARGET}-installer.exe"
-          Rename-Item -Path "installer/windows/vizier-installer.exe" -NewName $NEW_NAME
-          Write-Host "Renamed to $NEW_NAME"
-
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vizier-windows-installer
-          path: "installer/windows/*.exe"
-          retention-days: 7
-
-  # ====================
   # Create GitHub Release
   # ====================
   create-release:
     name: Create GitHub Release
-    needs: [prepare-release, build, windows-installer]
+    needs: [prepare-release, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -331,9 +248,6 @@ jobs:
             ${{ needs.prepare-release.outputs.changelog }}
 
             ## Installation
-
-            ### Windows
-            Download and run the `vizier-*-x86_64-installer.exe` installer from the assets below. This will install Vizier to `C:\Program Files\Vizier\` and add it to your PATH.
 
             ### macOS / Linux
             Download the appropriate archive for your platform and extract it to a directory, or use one of the methods below.

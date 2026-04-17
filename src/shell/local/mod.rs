@@ -21,15 +21,8 @@ impl LocalShell {
 #[async_trait::async_trait]
 impl ShellProvider for LocalShell {
     async fn exec(&self, commands: String) -> Result<String> {
-        let mut cmd = if cfg!(target_os = "windows") {
-            let mut c = Command::new("cmd");
-            c.args(["/C", &commands]);
-            c
-        } else {
-            let mut c = Command::new("sh");
-            c.arg("-c").args([&commands]);
-            c
-        };
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").args([&commands]);
 
         cmd.current_dir(self.workdir.clone());
 
