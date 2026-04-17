@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0-rc.2] - 2026-04-16
+
+### 🚀 Features
+
+- Included document is injected directly to context
+- Implement additional memory tools
+- Detailing in think indicator
+
+### 🐛 Bug Fixes
+
+- Onboarding for discord
+
+### ⚙️ Miscellaneous Tasks
+
+- Install script to directo stable only
+- Add update install script
 ## [0.5.0-rc.1] - 2026-04-15
 
 ### 🚀 Features
@@ -28,6 +44,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Adjust install script
+- Bump version to 0.5.0-rc.1
 ## [0.4.0] - 2026-04-12
 
 ### 🚀 Features
