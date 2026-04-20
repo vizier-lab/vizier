@@ -1,4 +1,4 @@
-use std::{fs, sync::Arc, time::Duration};
+use std::{fs, sync::Arc};
 
 use anyhow::Result;
 use base64::Engine;
@@ -29,7 +29,6 @@ use crate::{
         SessionHistory, SessionHistoryContent, VizierAttachment, VizierRequest,
         VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
     },
-    storage::indexer::DocumentIndexer,
     utils::{agent_workspace, build_path, get_mime_type},
 };
 
@@ -149,14 +148,7 @@ impl VizierAgent {
         }
 
         let (output, stats) = self
-            .prompt(
-                req.to_prompt()?,
-                req.attachments.clone(),
-                history,
-                0,
-                hooks.clone(),
-                false,
-            )
+            .prompt(req.to_message()?, history, 0, hooks.clone(), false)
             .await?;
 
         let mut response = VizierResponse {
@@ -175,8 +167,7 @@ impl VizierAgent {
 
     pub async fn prompt(
         &self,
-        prompt: String,
-        attachments: Vec<VizierAttachment>,
+        message: Message,
         history: Vec<Message>,
         turn_depth: usize,
         hooks: Option<Arc<VizierSessionHooks>>,
@@ -190,35 +181,8 @@ impl VizierAgent {
             tools.extend(self.skills.get_skills().await?);
 
             let output: String;
-            let mut contents = vec![UserContent::Text(prompt.into())];
-            let attachments = attachments.iter().map(|attachment| {
-                let mime_type = get_mime_type(&attachment.filename);
-                // TODO : handle all mime type cases
-                if mime_type.starts_with("image/") {
-                    let base64 = base64::engine::general_purpose::STANDARD
-                        .encode(attachment.content.clone());
-                    let media_type = match &*mime_type {
-                        "image/png" => ImageMediaType::PNG,
-                        _ => ImageMediaType::JPEG,
-                    };
-                    UserContent::image_base64(base64, Some(media_type), None)
-                } else {
-                    UserContent::Text(
-                        attachment
-                            .content
-                            .clone()
-                            .into_ascii_string()
-                            .unwrap()
-                            .to_string()
-                            .into(),
-                    )
-                }
-            });
-            contents.extend(attachments);
 
-            let mut message = Message::User {
-                content: OneOrMany::many(contents).unwrap(),
-            };
+            let mut message = message;
 
             let start = Instant::now();
 

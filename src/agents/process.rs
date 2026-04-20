@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use chrono::Utc;
+use rig::message::Message;
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::{
@@ -171,7 +172,7 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
                     session_detail_request.to_prompt().unwrap()
                 );
                 let res = session_detail_agent
-                    .prompt(prompt, vec![], vec![], 0, None, false)
+                    .prompt(Message::system(prompt), vec![], 0, None, false)
                     .await;
                 if let Ok((title, _)) = res {
                     let mut title = title.clone();

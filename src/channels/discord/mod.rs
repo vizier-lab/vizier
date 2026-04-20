@@ -17,8 +17,8 @@ use crate::channels::VizierChannel;
 use crate::config::DiscordChannelConfig;
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
-    TopicId, VizierAttachment, VizierChannelId, VizierRequest, VizierRequestContent,
-    VizierResponse, VizierResponseContent, VizierSession,
+    TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId, VizierRequest,
+    VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
 };
 use crate::storage::session::SessionStorage;
 use crate::storage::state::StateStorage;
@@ -364,7 +364,7 @@ If I am halucinating, feel free to `/lobotomy` me
                 if let Ok(bytes) = attachment.download().await {
                     attachments.push(VizierAttachment {
                         filename: attachment.filename.clone(),
-                        content: bytes,
+                        content: VizierAttachmentContent::Bytes(bytes),
                     });
                 }
             }
