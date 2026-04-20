@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0-rc.3] - 2026-04-17
+
+### 🚀 Features
+
+- Add docker image publishing workflow
+- Implement additional tool for tasks and scheduling
+- Add http client tool
+- Add openapi documentation
+
+### 🐛 Bug Fixes
+
+- Duplicate running schedule
+
+### 📚 Documentation
+
+- Update documentations
+
+### ⚙️ Miscellaneous Tasks
+
+- Drop windows support (for now) :(
 ## [0.5.0-rc.2] - 2026-04-16
 
 ### 🚀 Features
@@ -18,6 +38,8 @@ All notable changes to this project will be documented in this file.
 
 - Install script to directo stable only
 - Add update install script
+- Remove unused data from fs storage
+- Bump version to 0.5.0-rc.2
 ## [0.5.0-rc.1] - 2026-04-15
 
 ### 🚀 Features
