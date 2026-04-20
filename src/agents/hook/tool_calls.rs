@@ -41,8 +41,7 @@ impl VizierSessionHook for ToolCallsHook {
         Ok((function_name, args))
     }
 
-    async fn on_tool_response(&self, res: String) -> Result<String> {
+    async fn on_tool_response(&self, res: VizierResponse) -> Result<VizierResponse> {
         Ok(res)
     }
 }
-

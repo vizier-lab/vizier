@@ -26,8 +26,9 @@ use crate::{
     config::{agent::AgentConfig, user::UserConfig},
     dependencies::VizierDependencies,
     schema::{
-        SessionHistory, SessionHistoryContent, VizierAttachment, VizierRequest,
-        VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
+        SessionHistory, SessionHistoryContent, VizierAttachment, VizierAttachmentContent,
+        VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent,
+        VizierResponseStats,
     },
     utils::{agent_workspace, build_path, get_mime_type},
 };
@@ -253,7 +254,7 @@ impl VizierAgent {
                     }
                 }) {
                     let (mut function_name, mut args) = (
-                        call.function.name.to_string(),
+                        call.function.name.clone(),
                         serde_json::to_string(&call.function.arguments).unwrap(),
                     );
                     if let Some(hooks) = hooks.clone() {
@@ -261,19 +262,30 @@ impl VizierAgent {
                     }
 
                     // handle custom skill
-                    let mut tool_res = if function_name.starts_with("SKILL__") {
-                        self.call_skill(function_name).await
+                    let mut tool_res = if function_name.clone().starts_with("SKILL__") {
+                        let output = self.call_skill(function_name.clone()).await;
+                        VizierResponse {
+                            timestamp: Utc::now(),
+                            content: VizierResponseContent::ToolResponse {
+                                response: serde_json::Value::String(output),
+                            },
+                        }
                     } else {
                         let tool_server = self.tools.clone();
                         match timeout(
                             *self.config.tools.timeout,
-                            tokio::spawn(
-                                async move { tool_server.call(function_name, args).await },
-                            ),
+                            tokio::spawn(async move {
+                                tool_server.call(function_name.clone(), args).await
+                            }),
                         )
                         .await??
                         {
-                            Err(err) => err.to_string(),
+                            Err(err) => VizierResponse {
+                                timestamp: Utc::now(),
+                                content: VizierResponseContent::ToolResponse {
+                                    response: serde_json::Value::String(err.to_string()),
+                                },
+                            },
                             Ok(s) => s,
                         }
                     };
@@ -281,16 +293,9 @@ impl VizierAgent {
                     if let Some(hooks) = hooks.clone() {
                         tool_res = hooks.on_tool_response(tool_res).await?;
                     }
-                    let content = ToolResultContent::from_tool_output(tool_res);
-                    tool_responses.push(if let Some(call_id) = &call.call_id {
-                        UserContent::tool_result_with_call_id(
-                            call.id.clone(),
-                            call_id.clone(),
-                            content,
-                        )
-                    } else {
-                        UserContent::tool_result(call.id.clone(), content)
-                    });
+                    tool_responses.push(
+                        tool_res.to_tool_response_content(call.id.clone(), call.call_id.clone())?,
+                    );
                 }
 
                 message = Message::User {

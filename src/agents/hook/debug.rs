@@ -1,6 +1,9 @@
 use anyhow::Result;
 
-use crate::{agents::hook::VizierSessionHook, schema::VizierSession};
+use crate::{
+    agents::hook::VizierSessionHook,
+    schema::{VizierResponse, VizierSession},
+};
 
 pub struct DebugHook(pub VizierSession);
 
@@ -11,8 +14,8 @@ impl VizierSessionHook for DebugHook {
         Ok((function_name, args))
     }
 
-    async fn on_tool_response(&self, res: String) -> Result<String> {
-        log::debug!("{:?} tool resp: {}", self.0, res);
+    async fn on_tool_response(&self, res: VizierResponse) -> Result<VizierResponse> {
+        log::debug!("tool resp: {:?}", res);
         Ok(res)
     }
 }

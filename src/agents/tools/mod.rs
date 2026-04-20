@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
+use chrono::Utc;
 use rig::completion::ToolDefinition;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,7 @@ use crate::{
         notify::{
             DiscordDmPrimaryUser, NotifyPrimaryUser, TelegramDmPrimaryUser, WebUiNotifyPrimaryUser,
         },
-        ptc::ProgramaticSandbox,
+        // ptc::ProgramaticSandbox,
         scheduler::{DeleteTask, GetTaskDetail, ListTask, ScheduleCronTask, ScheduleOneTimeTask},
         shared_document::init_shared_document_tools,
         shell::ShellExec,
@@ -32,7 +33,7 @@ use crate::{
     dependencies::VizierDependencies,
     error::VizierError,
     mcp::{VizierMcp, VizierMcpClient},
-    schema::AgentId,
+    schema::{AgentId, VizierResponse},
     utils::agent_workspace,
 };
 
@@ -42,7 +43,7 @@ mod discord;
 mod fetch;
 mod http_client;
 mod notify;
-mod ptc;
+// mod ptc;
 mod scheduler;
 mod shared_document;
 mod shell;
@@ -72,13 +73,18 @@ impl VizierToolSet {
         self
     }
 
-    async fn call(&self, function_name: String, args: String) -> Result<String, VizierError> {
+    async fn call(
+        &self,
+        function_name: String,
+        args: String,
+    ) -> Result<serde_json::Value, VizierError> {
         let tool = self
             .tools
             .get(&function_name)
             .ok_or(VizierError(format!("{function_name} does not exists")))?;
 
-        Ok(tool.tool_call(args).await?)
+        let output = tool.tool_call(args).await?;
+        Ok(serde_json::to_value(&output).map_err(|err| VizierError(err.to_string()))?)
     }
 }
 
@@ -159,7 +165,7 @@ impl VizierTools {
         Ok(res)
     }
 
-    pub async fn call(&self, function_name: String, params: String) -> Result<String> {
+    pub async fn call(&self, function_name: String, params: String) -> Result<VizierResponse> {
         // mcp calls
         if function_name.starts_with("mcp_") {
             let (server, function_name) = function_name.split_once("__").unwrap();
@@ -172,11 +178,22 @@ impl VizierTools {
                 .call(function_name.to_string(), serde_json::from_str(&params)?)
                 .await?;
 
-            return Ok(serde_json::to_string(&res)?);
+            return Ok(VizierResponse {
+                timestamp: Utc::now(),
+                content: crate::schema::VizierResponseContent::ToolResponse { response: res },
+            });
         }
 
-        let res = self.tools.call(function_name, params).await?;
-        Ok(res)
+        let res = self.tools.call(function_name.clone(), params).await?;
+
+        if let Ok(vizier_response) = serde_json::from_value(res.clone()) {
+            return Ok(vizier_response);
+        }
+
+        Ok(VizierResponse {
+            timestamp: Utc::now(),
+            content: crate::schema::VizierResponseContent::ToolResponse { response: res },
+        })
     }
 }
 
@@ -317,20 +334,28 @@ impl VizierTools {
             }
         }
 
-        let temp_tool = Self {
+        let tools = Self {
             tools: tools.clone(),
             mcp: mcp.clone(),
         };
 
-        if agent_config.tools.programmatic_sandbox {
-            let programmatic_tool = ProgramaticSandbox {
-                tools: Arc::new(temp_tool),
-            };
-            tools = tools.tool(programmatic_tool);
+        Ok(tools)
 
-            Ok(Self { tools, mcp })
-        } else {
-            Ok(temp_tool)
-        }
+        // TODO: fix ptc
+        // let temp_tool = Self {
+        //     tools: tools.clone(),
+        //     mcp: mcp.clone(),
+        // };
+        //
+        // if agent_config.tools.programmatic_sandbox {
+        //     let programmatic_tool = ProgramaticSandbox {
+        //         tools: Arc::new(temp_tool),
+        //     };
+        //     tools = tools.tool(programmatic_tool);
+        //
+        //     Ok(Self { tools, mcp })
+        // } else {
+        //     Ok(temp_tool)
+        // }
     }
 }

@@ -40,8 +40,4 @@ impl VizierSessionHook for ThinkingHook {
 
         Ok((function_name, args))
     }
-
-    async fn on_tool_response(&self, res: String) -> Result<String> {
-        Ok(res)
-    }
 }
