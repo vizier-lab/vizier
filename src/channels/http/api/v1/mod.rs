@@ -13,6 +13,7 @@ use crate::channels::http::{
 
 pub mod agents;
 pub mod auth;
+pub mod files;
 
 pub fn v1(state: HTTPState) -> Router<HTTPState> {
     Router::new()
@@ -39,6 +40,13 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
             delete(auth::delete_api_key)
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
+        // Files routes
+        .route(
+            "/files/upload",
+            post(files::upload_file)
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .route("/files/{file_id}", get(files::download_file))
         // Protected routes
         .nest(
             "/agents",

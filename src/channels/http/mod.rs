@@ -107,6 +107,8 @@ impl VizierChannel for HTTPChannel {
         api::v1::agents::task::create_task,
         api::v1::agents::task::update_task,
         api::v1::agents::task::delete_task,
+        api::v1::files::upload_file,
+        api::v1::files::download_file,
     ),
     components(
         schemas(
@@ -150,6 +152,7 @@ impl VizierChannel for HTTPChannel {
             crate::channels::http::models::response::APIResponse<api::v1::agents::memory::UpdateMemoryResponse>,
             crate::channels::http::models::response::APIResponse<api::v1::agents::task::TaskResponse>,
             crate::channels::http::models::response::APIResponse<Vec<api::v1::agents::task::TaskResponse>>,
+            crate::channels::http::models::response::APIResponse<api::v1::files::UploadResponse>,
             crate::schema::AgentUsageStats,
             crate::schema::SessionHistory,
         )

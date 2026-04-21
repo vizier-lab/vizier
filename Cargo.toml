@@ -21,6 +21,7 @@ keywords = ["ai", "cli", "agent"]
 [dependencies]
 chrono = { version = "0.4.43", features = ["serde"] }
 axum = { version = "0.8.8", features = ["ws"] }
+axum-extra = { version = "0.12.6", features = ["multipart"] }
 anyhow = "1.0.100"
 clap = { version = "4.5.57", features = ["derive"] }
 config = "0.15.19"
