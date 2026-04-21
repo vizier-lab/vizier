@@ -15,12 +15,13 @@ use crate::{
     channels::http::{
         models::{
             self,
-            response::{api_response, err_response, APIResponse},
+            response::{APIResponse, api_response, err_response},
         },
         state::HTTPState,
     },
     schema::{
-        SessionHistory, TopicId, VizierChannelId, VizierRequest, VizierSessionDetail, VizierSession,
+        SessionHistory, TopicId, VizierAttachmentContent, VizierChannelId, VizierRequest,
+        VizierSession, VizierSessionDetail,
     },
     storage::{history::HistoryStorage, session::SessionStorage},
     transport::VizierTransport,
@@ -30,7 +31,10 @@ pub fn channel() -> Router<HTTPState> {
     Router::new()
         .route("/{channel_id}/topics", get(list_topics))
         .route("/{channel_id}/topic/{topic_id}/chat", any(chat))
-        .route("/{channel_id}/topic/{topic_id}/history", get(get_topic_history))
+        .route(
+            "/{channel_id}/topic/{topic_id}/history",
+            get(get_topic_history),
+        )
         .route("/{channel_id}/topic/{topic_id}", delete(delete_topic))
 }
 
@@ -82,11 +86,7 @@ pub async fn get_topic_history(
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
-    let session = VizierSession(
-        agent_id,
-        VizierChannelId::HTTP(channel_id),
-        Some(topic_id),
-    );
+    let session = VizierSession(agent_id, VizierChannelId::HTTP(channel_id), Some(topic_id));
 
     let response = state
         .storage
@@ -129,7 +129,10 @@ pub async fn list_topics(
         .await;
 
     if response.is_err() {
-        return err_response(StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch topics".into());
+        return err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to fetch topics".into(),
+        );
     }
 
     let list = response
@@ -202,11 +205,7 @@ pub async fn chat(
     }
 
     let transport = state.transport.clone();
-    let session = VizierSession(
-        agent_id,
-        VizierChannelId::HTTP(channel_id),
-        Some(topic_id),
-    );
+    let session = VizierSession(agent_id, VizierChannelId::HTTP(channel_id), Some(topic_id));
 
     ws.on_upgrade(move |socket| handle_socket(socket, session, transport))
 }
@@ -238,6 +237,20 @@ pub async fn handle_socket(
             match message {
                 Message::Text(text) => {
                     if let Ok(request) = serde_json::from_str::<VizierRequest>(&text.to_string()) {
+                        let mut request = request.clone();
+                        for attachment in request.attachments.iter_mut() {
+                            if let VizierAttachmentContent::Url(url) = &attachment.content {
+                                if let Ok(response) = reqwest::get(url).await {
+                                    if response.status().is_success() {
+                                        if let Ok(bytes) = response.bytes().await {
+                                            attachment.content =
+                                                VizierAttachmentContent::Bytes(bytes.to_vec());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         let _ = transport.send_request(curr_session.clone(), request).await;
                     }
                 }
