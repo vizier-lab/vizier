@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-04-21
+
+### 🚀 Features
+
+- Saved attachments to storage
+- Implement attachment for telegram channel
+- Implement upload/download api
+- Implement attachment on webui
+
+### 🐛 Bug Fixes
+
+- Llm unable to parse local url
+- Docker deployment
+
+### 🚜 Refactor
+
+- Schema structure
+- Standardise tool call response
 ## [0.5.0-rc.3] - 2026-04-17
 
 ### 🚀 Features
@@ -10,6 +28,7 @@ All notable changes to this project will be documented in this file.
 - Implement additional tool for tasks and scheduling
 - Add http client tool
 - Add openapi documentation
+- Implement basic png attachment
 
 ### 🐛 Bug Fixes
 
@@ -22,6 +41,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Drop windows support (for now) :(
+- Bump version to 0.5.0-rc.3
 ## [0.5.0-rc.2] - 2026-04-16
 
 ### 🚀 Features
