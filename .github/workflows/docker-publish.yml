@@ -1,9 +1,12 @@
 name: Docker Publish
 
 on:
-  workflow_run:
-    workflows: ["Release & Build"]
-    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 0.2.0)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,7 +16,6 @@ jobs:
   build-push:
     name: Build & Push - ${{ matrix.platform }}
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -26,14 +28,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
       - name: Determine if stable release
         id: stable
         run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
+          VERSION="${{ inputs.version }}"
           if [[ "$VERSION" == *-* ]]; then
             echo "stable=false" >> $GITHUB_OUTPUT
           else
@@ -42,10 +40,10 @@ jobs:
 
       - name: Download release asset for ${{ matrix.target }}
         run: |
-          gh release download v${{ steps.version.outputs.VERSION }} \
+          gh release download v${{ inputs.version }} \
             --dir . \
             --pattern "*${{ matrix.target }}*.tar.gz"
-          echo "ASSET_NAME=vizier-${{ steps.version.outputs.VERSION }}-${{ matrix.target }}.tar.gz" >> $GITHUB_OUTPUT
+          echo "ASSET_NAME=vizier-${{ inputs.version }}-${{ matrix.target }}.tar.gz" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -67,12 +65,12 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
+            ghcr.io/${{ github.repository }}:${{ inputs.version }}
             ${{ steps.stable.outputs.stable && 'ghcr.io/${{ github.repository }}:latest' || '' }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.version=${{ steps.version.outputs.VERSION }}
+            org.opencontainers.image.version=${{ inputs.version }}
             org.opencontainers.image.title=vizier
             org.opencontainers.image.description=21st Century Digital Steward
           build-args: |
-            TARGET_DIR=vizier-${{ steps.version.outputs.VERSION }}-${{ matrix.target }}
+            TARGET_DIR=vizier-${{ inputs.version }}-${{ matrix.target }}
