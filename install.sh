@@ -28,7 +28,7 @@ esac
 # Get version (stable release only, no prereleases)
 get_latest_version() {
     local releases_url="https://api.github.com/repos/$REPO/releases"
-    curl -s "$releases_url" | grep -oP '"tag_name":\s*"\K[^"]+' | grep -v '-' | sort -V | tail -1 | sed 's/^v//'
+    curl -s "$releases_url" | awk -F'"' '/"tag_name":/ && !/-/ {gsub(/^v/, "", $4); print $4; exit}'
 }
 VERSION="${VERSION:-$(get_latest_version)}"
 [ -z "$VERSION" ] && error "Failed to get latest version"
@@ -41,7 +41,7 @@ mkdir -p "$INSTALL_DIR"
 
 # Download
 cd "$(mktemp -d)"
-curl -fsSL "https://github.com/$REPO/releases/download/v$VERSION/vizier-v$VERSION-$TARGET.tar.gz" -o vizier.tar.gz || error "Download failed"
+curl -fsSL "https://github.com/$REPO/releases/download/v$VERSION/vizier-v$VERSION-$TARGET.tar.gz" -o vizier.tar.gz || error "Download failed. Version v$VERSION for $TARGET may not exist."
 tar -xzf vizier.tar.gz
 mv "vizier-v$VERSION-$TARGET/vizier" "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/vizier"
@@ -55,10 +55,13 @@ add_to_path() {
         */fish) shell_rc="$HOME/.config/fish/config.fish";;
     esac
 
-    if [ -n "$shell_rc" ] && ! grep -q "$INSTALL_DIR" "$shell_rc" 2>/dev/null; then
+    if [ -n "$shell_rc" ] && ! grep -q "export PATH=.*$INSTALL_DIR" "$shell_rc" 2>/dev/null; then
         echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$shell_rc"
         info "Added $INSTALL_DIR to PATH in $shell_rc"
-        info "Run: source $shell_rc"
+        case "$SHELL" in
+            */fish) info "Run: exec fish or restart terminal";;
+            *) info "Run: source $shell_rc";;
+        esac
     fi
 }
 
@@ -70,3 +73,7 @@ esac
 
 info "Vizier installed to $INSTALL_DIR/vizier"
 "$INSTALL_DIR/vizier" --version 2>/dev/null || true
+
+TMP_DIR="$(mktemp -d)"
+cd "$TMP_DIR"
+trap 'rm -rf "$TMP_DIR"' EXIT
