@@ -133,7 +133,7 @@ impl VizierAgent {
                     truncated_content.truncate(200);
 
                     format!(
-                        "## {}\nslug:{}\n{}...\n**use the slug for more detail of this memory**\n \n---",
+                        "## {}\nslug: **{}**\n{}...\n**use the slug for more detail of this memory**\n \n---",
                         memory.title, memory.slug, truncated_content,
                     )
                 })
