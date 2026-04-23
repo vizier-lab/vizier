@@ -41,7 +41,7 @@ mkdir -p "$INSTALL_DIR"
 
 # Download
 cd "$(mktemp -d)"
-curl -fsSL "https://github.com/$REPO/releases/download/v$VERSION/vizier-v$VERSION-$TARGET.tar.gz" -o vizier.tar.gz || error "Download failed"
+curl -fsSL "https://github.com/$REPO/releases/download/v$VERSION/vizier-v$VERSION-$TARGET.tar.gz" -o vizier.tar.gz || error "Download failed. Version v$VERSION for $TARGET may not exist."
 tar -xzf vizier.tar.gz
 mv "vizier-v$VERSION-$TARGET/vizier" "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/vizier"
@@ -55,10 +55,13 @@ add_to_path() {
         */fish) shell_rc="$HOME/.config/fish/config.fish";;
     esac
 
-    if [ -n "$shell_rc" ] && ! grep -q "$INSTALL_DIR" "$shell_rc" 2>/dev/null; then
+    if [ -n "$shell_rc" ] && ! grep -q "export PATH=.*$INSTALL_DIR" "$shell_rc" 2>/dev/null; then
         echo "export PATH=\"$INSTALL_DIR:\$PATH\"" >> "$shell_rc"
         info "Added $INSTALL_DIR to PATH in $shell_rc"
-        info "Run: source $shell_rc"
+        case "$SHELL" in
+            */fish) info "Run: exec fish or restart terminal";;
+            *) info "Run: source $shell_rc";;
+        esac
     fi
 }
 
@@ -70,3 +73,7 @@ esac
 
 info "Vizier installed to $INSTALL_DIR/vizier"
 "$INSTALL_DIR/vizier" --version 2>/dev/null || true
+
+TMP_DIR="$(mktemp -d)"
+cd "$TMP_DIR"
+trap 'rm -rf "$TMP_DIR"' EXIT
