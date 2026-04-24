@@ -47,8 +47,14 @@ jobs:
         run: |
           gh release download v${{ inputs.version }} \
             --dir . \
-            --pattern "*${{ matrix.target }}*.tar.gz"
-          echo "ASSET_NAME=vizier-${{ inputs.version }}-${{ matrix.target }}.tar.gz" >> $GITHUB_OUTPUT
+            --pattern "vizier-v${{ inputs.version }}-${{ matrix.target }}.tar.gz"
+          echo "ASSET_NAME=vizier-v${{ inputs.version }}-${{ matrix.target }}.tar.gz" >> $GITHUB_OUTPUT
+
+      - name: Verify downloaded files
+        run: |
+          echo "Downloaded files:"
+          ls -lh *.tar.gz
+          echo "Expected file: vizier-v${{ inputs.version }}-${{ matrix.target }}.tar.gz"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -76,4 +82,4 @@ jobs:
             org.opencontainers.image.title=vizier
             org.opencontainers.image.description=21st Century Digital Steward
           build-args: |
-            TARGET_DIR=${{ inputs.version }}-${{ matrix.target }}
+            TARGET_DIR=v${{ inputs.version }}-${{ matrix.target }}
