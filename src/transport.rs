@@ -21,12 +21,15 @@ pub struct VizierTransport {
 
 impl VizierTransport {
     pub fn new() -> Self {
-        let request_channel = Arc::new(broadcast(100));
-        let response_channel = Arc::new(broadcast(100));
+        let mut request_channel = broadcast(1000);
+        request_channel.0.set_overflow(true);
+
+        let mut response_channel = broadcast(1000);
+        response_channel.0.set_overflow(true);
 
         Self {
-            request_channel,
-            response_channel,
+            request_channel: Arc::new(request_channel),
+            response_channel: Arc::new(response_channel),
         }
     }
 
