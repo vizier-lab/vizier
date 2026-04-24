@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.2] - 2026-04-24
+
+### 🚀 Features
+
+- Adjust default system prompt
+
+### 🐛 Bug Fixes
+
+- Enable transport overflow
+
+### 💼 Other
+
+- Fix docker publish
 ## [0.5.1] - 2026-04-23
 
 ### 🚀 Features
@@ -17,6 +30,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Update workflow
+- Bump version to 0.5.1
 ## [0.5.0] - 2026-04-21
 
 ### 🚀 Features
