@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.3] - 2026-04-25
+
+### 🐛 Bug Fixes
+
+- Enable overflow on recv
+
+### 💼 Other
+
+- Fix docker build
+- Fix docker build
+- Fix docker build
+- Change docker image base to ubuntu
 ## [0.5.2] - 2026-04-24
 
 ### 🚀 Features
@@ -15,6 +27,11 @@ All notable changes to this project will be documented in this file.
 ### 💼 Other
 
 - Fix docker publish
+- Fix docker build
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.5.2
 ## [0.5.1] - 2026-04-23
 
 ### 🚀 Features
