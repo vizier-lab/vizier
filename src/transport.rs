@@ -23,9 +23,11 @@ impl VizierTransport {
     pub fn new() -> Self {
         let mut request_channel = broadcast(1000);
         request_channel.0.set_overflow(true);
+        request_channel.1.set_overflow(true);
 
         let mut response_channel = broadcast(1000);
         response_channel.0.set_overflow(true);
+        response_channel.1.set_overflow(true);
 
         Self {
             request_channel: Arc::new(request_channel),
