@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.4] - 2026-04-28
+
+### 🚀 Features
+
+- Add additional context around time
+- Allow tools to have attachment
+
+### 💼 Other
+
+- Optimize tools description
+
+### 🚜 Refactor
+
+- Remove unused import
 ## [0.5.3] - 2026-04-25
 
 ### 🐛 Bug Fixes
@@ -14,6 +28,11 @@ All notable changes to this project will be documented in this file.
 - Fix docker build
 - Fix docker build
 - Change docker image base to ubuntu
+
+### ⚙️ Miscellaneous Tasks
+
+- Missing amd64 docker version
+- Bump version to 0.5.3
 ## [0.5.2] - 2026-04-24
 
 ### 🚀 Features
