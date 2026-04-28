@@ -109,7 +109,15 @@ pub struct VizierTools {
 #[async_trait::async_trait]
 pub trait VizierToolDyn {
     fn tool_name(&self) -> String;
+
     fn tool_def(&self) -> ToolDefinition;
+
+    fn description(&self) -> String;
+
+    fn input_schema(&self) -> serde_json::Value;
+
+    fn output_schema(&self) -> serde_json::Value;
+
     async fn tool_call(&self, args: String) -> Result<String, VizierError>;
 }
 
@@ -122,13 +130,21 @@ impl<Tool: VizierTool + Sync + Send> VizierToolDyn for Tool {
     fn tool_def(&self) -> ToolDefinition {
         ToolDefinition {
             name: Self::name(),
-            description: format!(
-                "{} \n Output Schema: \n {}",
-                self.description(),
-                Self::output_schema()
-            ),
+            description: self.description(),
             parameters: Self::input_schema(),
         }
+    }
+
+    fn description(&self) -> String {
+        <Self as VizierTool>::description(self)
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        Self::input_schema()
+    }
+
+    fn output_schema(&self) -> serde_json::Value {
+        Self::output_schema()
     }
 
     async fn tool_call(&self, args: String) -> Result<String, VizierError> {
@@ -149,6 +165,7 @@ pub trait VizierTool {
     fn input_schema() -> serde_json::Value {
         serde_json::to_value(schema_for!(<Self as VizierTool>::Input)).unwrap()
     }
+
     fn output_schema() -> serde_json::Value {
         serde_json::to_value(schema_for!(<Self as VizierTool>::Output)).unwrap()
     }

@@ -43,10 +43,12 @@ impl VizierTool for ProgramaticSandbox {
             .tools
             .iter()
             .map(|(function_name, tool)| {
-                let def = tool.tool_def();
                 format!(
-                    "tool_name: {}\ntool_input: {}\ntool_description: {}\n---",
-                    function_name, def.parameters, def.description
+                    "tool_name: {}\ndescription: {}\ninput: {}\noutput: {}\n---",
+                    function_name,
+                    tool.description(),
+                    tool.input_schema(),
+                    tool.output_schema()
                 )
             })
             .collect::<Vec<_>>()

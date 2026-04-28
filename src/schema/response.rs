@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use rig::{
     OneOrMany,
-    message::{Message, ToolResultContent, UserContent},
+    message::{ToolResultContent, UserContent},
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -74,4 +74,3 @@ impl VizierResponse {
         Ok(res)
     }
 }
-
