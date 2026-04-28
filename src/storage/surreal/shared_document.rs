@@ -119,11 +119,7 @@ impl SharedDocumentStorage for SurrealStorage {
         Ok(data)
     }
 
-    async fn delete_shared_document(
-        &self,
-        author_agent_id: String,
-        slug: String,
-    ) -> Result<()> {
+    async fn delete_shared_document(&self, author_agent_id: String, slug: String) -> Result<()> {
         let mut response = self
             .conn
             .query("SELECT * FROM type::table(shared_document) WHERE slug = $slug")
@@ -138,11 +134,9 @@ impl SharedDocumentStorage for SurrealStorage {
             }
         }
 
-        let _: Option<SharedDocument> = self
-            .conn
-            .delete(("shared_document", slug))
-            .await?;
+        let _: Option<SharedDocument> = self.conn.delete(("shared_document", slug)).await?;
 
         Ok(())
     }
 }
+

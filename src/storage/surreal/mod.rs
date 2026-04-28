@@ -5,11 +5,7 @@ use anyhow::Result;
 use surrealdb::Surreal;
 use surrealdb::engine::local::{Db, RocksDb};
 
-use crate::{
-    embedding::VizierEmbedder,
-    storage::{VizierStorageProvider, shared_document::SharedDocumentStorage},
-    utils::build_path,
-};
+use crate::{embedding::VizierEmbedder, storage::VizierStorageProvider, utils::build_path};
 
 pub mod history;
 pub mod memory;

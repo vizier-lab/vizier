@@ -1,12 +1,8 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use rig::completion::ToolDefinition;
-use rig::tool::Tool;
-use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use serenity::async_trait;
 
 use crate::agents::tools::VizierTool;
 use crate::config::agent::AgentConfig;

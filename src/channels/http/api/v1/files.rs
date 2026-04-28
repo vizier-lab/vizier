@@ -1,15 +1,10 @@
 use std::path::PathBuf;
 
 use axum::{
-    Router,
     body::Body,
     extract::{Path, State},
-    http::{
-        HeaderMap, StatusCode,
-        header::{CONTENT_DISPOSITION, CONTENT_TYPE},
-    },
+    http::{StatusCode, header::CONTENT_TYPE},
     response::{IntoResponse, Response},
-    routing::post,
 };
 use axum_extra::extract::Multipart;
 use serde::Serialize;
@@ -29,12 +24,6 @@ pub struct UploadResponse {
     pub file_id: String,
     pub filename: String,
     pub url: String,
-}
-
-pub fn files() -> axum::Router<HTTPState> {
-    axum::Router::new()
-        .route("/upload", post(upload_file))
-        .route("/{file_id}", axum::routing::get(download_file))
 }
 
 #[utoipa::path(
@@ -207,4 +196,3 @@ pub async fn download_file(
         .unwrap()
         .into_response()
 }
-

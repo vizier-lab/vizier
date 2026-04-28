@@ -3,7 +3,7 @@ use base64::Engine;
 use chrono::{DateTime, Utc};
 use rig::{
     OneOrMany,
-    message::{DocumentMediaType, ImageMediaType, MimeType, ToolResultContent, UserContent},
+    message::{ImageMediaType, MimeType, ToolResultContent, UserContent},
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -91,7 +91,7 @@ impl VizierResponse {
         call_id: Option<String>,
     ) -> Result<UserContent> {
         let mut tool_contents = match &self.content {
-            VizierResponseContent::Message { content, stats } => {
+            VizierResponseContent::Message { content, stats: _ } => {
                 vec![ToolResultContent::text(content)]
             }
 
