@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.5] - 2026-05-02
+
+### 🐛 Bug Fixes
+
+- Crash when model halucinating mcp function_name
 ## [0.5.4] - 2026-04-28
 
 ### 🚀 Features
@@ -16,6 +21,10 @@ All notable changes to this project will be documented in this file.
 ### 🚜 Refactor
 
 - Remove unused import
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.5.4
 ## [0.5.3] - 2026-04-25
 
 ### 🐛 Bug Fixes

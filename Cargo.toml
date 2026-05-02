@@ -1,6 +1,6 @@
 [package]
 name = "vizier"
-version = "0.5.4"
+version = "0.5.5"
 edition = "2024"
 authors = ["Ganesha Danu <hi@blinfoldking.dev>"]
 description = "21st Century Digital Steward; Right hand agent for you majesty"
