@@ -8,6 +8,7 @@ use tokio::task::JoinSet;
 use crate::{
     agents::VizierAgents,
     channels::VizierChannels,
+    command::VizierCommandServer,
     config::{VizierConfig, provider::ProviderVariant},
     dependencies::VizierDependencies,
     scheduler::VizierScheduler,
@@ -20,17 +21,24 @@ pub struct RunArgs {
         long,
         value_name = "PATH",
         value_hint = clap::ValueHint::DirPath,
-        help = "path to .vizier.yaml config file",
+        help = "path to .vizier.yaml or .vizier/config.yaml config file",
     )]
     config: Option<std::path::PathBuf>,
 
-    #[arg(short, long, help = "run the server in the background")]
-    detached: Option<bool>,
+    #[arg(
+        short,
+        long,
+        help = "run the server and attach to current terminal session"
+    )]
+    attached: bool,
 }
 
 #[tokio::main(flavor = "multi_thread")]
 pub async fn run_server(config: VizierConfig) -> Result<()> {
     let deps = VizierDependencies::new(config.clone()).await?;
+    let exit_transport = deps.clone().transport;
+    let exit_signal = exit_transport.exit_signal();
+
     let mut set = JoinSet::new();
 
     tracing::info!("preload all local models");
@@ -63,6 +71,13 @@ pub async fn run_server(config: VizierConfig) -> Result<()> {
         }
     });
 
+    let commands = VizierCommandServer::new(deps.clone())?;
+    set.spawn(async move {
+        if let Err(err) = commands.run().await {
+            tracing::error!("{}", err);
+        }
+    });
+
     set.spawn(async move {
         if let Err(err) = deps.run().await {
             tracing::error!("{}", err);
@@ -71,8 +86,10 @@ pub async fn run_server(config: VizierConfig) -> Result<()> {
 
     tracing::info!("vizier is running!");
 
-    set.join_all().await;
-    Ok(())
+    let _ = exit_signal.await;
+    set.abort_all();
+
+    std::process::exit(0);
 }
 
 pub fn run(args: RunArgs) -> Result<()> {
@@ -86,28 +103,34 @@ pub fn run(args: RunArgs) -> Result<()> {
     let _ = fs::create_dir_all(&runtime_dir);
 
     let mut stdout_path = runtime_dir.clone();
-    stdout_path.push("out.log");
+    let now = chrono::Utc::now().to_string();
+
+    stdout_path.push(format!("{}.out", now));
     let stdout = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(stdout_path)?;
 
     let mut stderr_path = runtime_dir.clone();
-    stderr_path.push("err.log");
+    stderr_path.push(format!("{}.err", now));
     let stderr = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(stderr_path)?;
 
     let config = config.clone();
-    let daemonize = Daemonize::new()
-        .pid_file("/tmp/vizier.pid")
-        .working_directory(workspace.parent().unwrap())
-        .umask(0o022)
-        .stdout(stdout)
-        .stderr(stderr);
 
-    daemonize.start()?;
+    if !args.attached {
+        let daemonize = Daemonize::new()
+            .pid_file("/tmp/vizier.pid")
+            .working_directory(workspace.parent().unwrap())
+            .umask(0o022)
+            .stdout(stdout)
+            .stderr(stderr);
+        let _ = daemonize.start()?;
+    }
+
     let _ = run_server(config);
+
     Ok(())
 }

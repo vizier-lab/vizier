@@ -12,6 +12,7 @@ pub type Result<T> = std::result::Result<T, VizierError>;
 mod agents;
 mod channels;
 mod cli;
+mod command;
 mod config;
 mod constant;
 mod dependencies;
