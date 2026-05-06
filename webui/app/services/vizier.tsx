@@ -84,7 +84,11 @@ export const listAgents = async () => {
 
 export const getAgentDetail = async (agentId: string) => {
   const res = await apiClient.get(`/agents/${agentId}`)
-  console.log('>>', { res })
+  return res.data
+}
+
+export const agentSchema = async () => {
+  const res = await apiClient.get(`/agents/schema`)
   return res.data
 }
 

@@ -186,7 +186,6 @@ export default function Chat() {
 
 
       if (agentId) {
-        console.log('>> ?', { agentId })
         listTopics(agentId).then(topic => {
           let topicDetail = topic.data.find((item: any) => item.topic_id == topicId);
 
@@ -357,7 +356,7 @@ export default function Chat() {
       console.error('Failed to check topic existence:', error)
     }
 
-    navigate(`/${agentId}/chat/${finalTopicId}`)
+    navigate(`/agent/${agentId}/chat/${finalTopicId}`)
     setShowNewTopicInput(false)
     setNewTopicId('')
   }

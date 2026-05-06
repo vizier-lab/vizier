@@ -5,19 +5,20 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
+use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     channels::http::{
         models::{
             self,
-            response::{api_response, err_response, APIResponse},
+            response::{APIResponse, api_response, err_response},
         },
         state::HTTPState,
     },
     config::VizierConfig,
-    schema::AgentUsageStats,
-    storage::{history::HistoryStorage, VizierStorage},
+    schema::{AgentDefinition, AgentUsageStats},
+    storage::{VizierStorage, history::HistoryStorage},
 };
 
 pub mod channel;
@@ -39,6 +40,7 @@ impl VizierConfig {
 pub fn agents() -> Router<HTTPState> {
     Router::new()
         .route("/", get(list_agents))
+        .route("/schema", get(agent_schema))
         .route("/{agent_id}", get(agent_detail))
         .route("/{agent_id}/usage", get(agent_usage))
         .nest("/{agent_id}/channel", channel())
@@ -93,11 +95,15 @@ async fn agent_detail(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<AgentSummary> {
-    let res = state.config.agents.get(&agent_id).map(|config| AgentSummary {
-        agent_id: agent_id.clone(),
-        name: config.name.clone(),
-        description: config.description.clone(),
-    });
+    let res = state
+        .config
+        .agents
+        .get(&agent_id)
+        .map(|config| AgentSummary {
+            agent_id: agent_id.clone(),
+            name: config.name.clone(),
+            description: config.description.clone(),
+        });
 
     if res.is_none() {
         err_response(StatusCode::NOT_FOUND, "not found".into())
@@ -110,6 +116,25 @@ async fn agent_detail(
 pub struct UsageQuery {
     pub start_date: Option<String>,
     pub end_date: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/schema",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID")
+    ),
+    responses(
+        (status = 200, description = "Agent Definition Schema", body = APIResponse<serde_json::Value>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>),
+        (status = 500, description = "Internal server error", body = APIResponse<String>)
+    )
+)]
+async fn agent_schema(
+    State(state): State<HTTPState>,
+) -> models::response::Response<serde_json::Value> {
+    let res = serde_json::to_value(schema_for!(AgentDefinition)).unwrap();
+    api_response(StatusCode::OK, res)
 }
 
 #[utoipa::path(
@@ -156,3 +181,4 @@ async fn agent_usage(
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
     }
 }
+

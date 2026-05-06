@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
 import { listAgents, listTopics, deleteTopic } from './services/vizier'
-import { FiSettings, FiMessageCircle, FiCheckCircle, FiLogOut, FiSearch, FiTrash2, FiTrendingUp } from 'react-icons/fi'
-import { FaBook, FaFile, FaFolder } from 'react-icons/fa'
+import { FiSettings, FiMessageCircle, FiCheckCircle, FiLogOut, FiTrash2, FiTrendingUp } from 'react-icons/fi'
+import { FaBook, FaBrain, FaPlus, } from 'react-icons/fa'
 import Avatar from './components/avatar'
 import ThemeToggle from './components/ThemeToggle'
 import ToastContainer from './components/Toast'
@@ -139,6 +139,7 @@ export default function Layout() {
       {/* Workspace sidebar (left) - Agent selector with settings and layout at bottom */}
       <div className="workspace-sidebar">
         <div className="workspace-items">
+
           {agents.map((agent) => (
             <div
               key={agent.agent_id}
@@ -146,9 +147,9 @@ export default function Layout() {
               onClick={() => {
                 // Navigate to chat with first topic, or show empty state
                 if (topics.length > 0) {
-                  navigate(`/${agent.agent_id}/chat/${topics[0].topic_id}`)
+                  navigate(`/agent/${agent.agent_id}/chat/${topics[0].topic_id}`)
                 } else {
-                  navigate(`/${agent.agent_id}/chat/new`)
+                  navigate(`/agent/${agent.agent_id}/chat/new`)
                 }
               }}
               title={agent.name}
@@ -156,6 +157,13 @@ export default function Layout() {
               <Avatar name={agent.agent_id} rounded={false} />
             </div>
           ))}
+          <div
+            className={`workspace-item`}
+            onClick={() => navigate(`/agent/new`)}
+            title={"Add new Agent"}
+          >
+            <FaPlus />
+          </div>
         </div>
 
         {/* Bottom workspace controls */}
@@ -163,7 +171,7 @@ export default function Layout() {
           <ThemeToggle />
           <div
             className={`workspace-item ${currentView === 'settings' ? 'active' : ''}`}
-            onClick={() => navigate(currentAgentId ? `/${currentAgentId}/settings` : '/settings')}
+            onClick={() => navigate('/settings')}
             title="Settings"
           >
             <FiSettings size={20} />
@@ -196,32 +204,34 @@ export default function Layout() {
             )}
 
             {/* Tools section (moved above topics) */}
+
             <div className="nav-section">
               <div className="nav-section-title">Tools</div>
               <div
+                className={`nav-item ${currentView === 'documents' ? 'active' : ''}`}
+                onClick={() => navigate(`/agent/${currentAgentId}/documents`)}
+              >
+                <FaBrain size={16} />
+                <span>Documents</span>
+              </div>
+              <div
                 className={`nav-item ${currentView === 'memory' ? 'active' : ''}`}
-                onClick={() => navigate(`/${currentAgentId}/memory`)}
+                onClick={() => navigate(`/agent/${currentAgentId}/memory`)}
               >
                 <FaBook size={16} />
                 <span>Memory</span>
               </div>
               <div
                 className={`nav-item ${currentView === 'tasks' ? 'active' : ''}`}
-                onClick={() => navigate(`/${currentAgentId}/tasks`)}
+                onClick={() => navigate(`/agent/${currentAgentId}/tasks`)}
               >
                 <FiCheckCircle size={16} />
                 <span>Tasks</span>
               </div>
-              <div
-                className={`nav-item ${currentView === 'documents' ? 'active' : ''}`}
-                onClick={() => navigate(`/${currentAgentId}/documents`)}
-              >
-                <FaFolder size={16} />
-                <span>Documents</span>
-              </div>
+
               <div
                 className={`nav-item ${currentView === 'usage' ? 'active' : ''}`}
-                onClick={() => navigate(`/${currentAgentId}/usage`)}
+                onClick={() => navigate(`/agent/${currentAgentId}/usage`)}
               >
                 <FiTrendingUp size={16} />
                 <span>Usage</span>
@@ -237,7 +247,7 @@ export default function Layout() {
                 <div
                   key={topic.topic_id}
                   className={`nav-item group ${currentTopicId === topic.topic_id ? 'active' : ''}`}
-                  onClick={() => navigate(`/${currentAgentId}/chat/${topic.topic_id}`)}
+                  onClick={() => navigate(`/agent/${currentAgentId}/chat/${topic.topic_id}`)}
                   title={topic.title}
                 >
                   <FiMessageCircle size={16} />
@@ -253,7 +263,7 @@ export default function Layout() {
               ))}
               <div
                 className="nav-item"
-                onClick={() => navigate(`/${currentAgentId}/chat/new`)}
+                onClick={() => navigate(`/agent/${currentAgentId}/chat/new`)}
                 style={{ color: 'var(--text-tertiary)' }}
               >
                 <span style={{ fontSize: '18px', lineHeight: '1' }}>+</span>
