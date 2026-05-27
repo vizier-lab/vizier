@@ -38,14 +38,14 @@ pub struct AgentNewArgs {
     pub path: Option<String>,
 }
 
-pub async fn agent(args: AgentArgs) -> Result<()> {
+pub fn agent(args: AgentArgs) -> Result<()> {
     match args.command {
-        AgentSubcommand::New(args) => agent_new(args).await?,
+        AgentSubcommand::New(args) => agent_new(args)?,
     }
     Ok(())
 }
 
-pub async fn agent_new(args: AgentNewArgs) -> Result<()> {
+pub fn agent_new(args: AgentNewArgs) -> Result<()> {
     let config = VizierConfig::load(None::<PathBuf>)?;
 
     let workspace = match &args.path {

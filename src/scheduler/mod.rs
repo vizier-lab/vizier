@@ -34,7 +34,7 @@ impl VizierScheduler {
             let tasks = match self.deps.storage.get_task_list(None, Some(true)).await {
                 Ok(t) => t,
                 Err(e) => {
-                    log::error!("Failed to fetch task list: {}", e);
+                    tracing::error!("Failed to fetch task list: {}", e);
                     continue;
                 }
             };
@@ -52,7 +52,7 @@ impl VizierScheduler {
                         let cron = match Cron::from_str(cron_str) {
                             Ok(c) => c,
                             Err(e) => {
-                                log::warn!(
+                                tracing::warn!(
                                     "Invalid cron expression for task '{}': {}",
                                     task.slug,
                                     e
@@ -65,7 +65,7 @@ impl VizierScheduler {
                         {
                             Ok(s) => s,
                             Err(e) => {
-                                log::warn!(
+                                tracing::warn!(
                                     "Failed to find next occurrence for cron task '{}': {}",
                                     task.slug,
                                     e
@@ -104,7 +104,7 @@ impl VizierScheduler {
                         .delete_task(task.agent_id.clone(), task.slug.clone())
                         .await
                     {
-                        log::error!("Failed to delete one-time task '{}': {}", task_slug, e);
+                        tracing::error!("Failed to delete one-time task '{}': {}", task_slug, e);
                     }
                 }
 
@@ -112,7 +112,7 @@ impl VizierScheduler {
                     let mut updated_task = task.clone();
                     updated_task.last_executed_at = Some(now);
                     if let Err(e) = self.deps.storage.save_task(updated_task).await {
-                        log::error!("Failed to update cron task '{}': {}", task_slug, e);
+                        tracing::error!("Failed to update cron task '{}': {}", task_slug, e);
                     }
                 }
 
@@ -140,7 +140,7 @@ impl VizierScheduler {
                     )
                     .await
                 {
-                    log::error!("Failed to send request for task '{}': {}", task_slug, e);
+                    tracing::error!("Failed to send request for task '{}': {}", task_slug, e);
                 }
 
                 running.remove(&(task.agent_id, task_slug));

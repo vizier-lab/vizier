@@ -62,7 +62,7 @@ where
         match self.transport.send_response(session, response).await {
             Ok(()) => Ok(()),
             Err(err) => {
-                log::error!(
+                tracing::error!(
                     "webui_notify_primary_user: failed to send notification: {:?}",
                     err
                 );

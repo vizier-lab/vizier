@@ -31,11 +31,17 @@ pub struct FileSystemStorage {
 }
 
 impl FileSystemStorage {
-    pub async fn new(workspace: String, indices: Arc<VizierIndexer>) -> Result<Self> {
+    pub async fn new(
+        workspace: String,
+        indices: Arc<VizierIndexer>,
+        reindex: bool,
+    ) -> Result<Self> {
         let storage = Self { workspace, indices };
 
-        storage.reindex_memory().await?;
-        storage.reindex_shared_documents().await?;
+        if reindex {
+            storage.reindex_memory().await?;
+            storage.reindex_shared_documents().await?;
+        }
 
         Ok(storage)
     }

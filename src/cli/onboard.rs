@@ -24,7 +24,7 @@ pub struct OnboardArgs {
     pub path: Option<String>,
 }
 
-pub async fn onboard(args: OnboardArgs) -> Result<()> {
+pub fn onboard(args: OnboardArgs) -> Result<()> {
     let workspace = match &args.path {
         Some(p) => p.clone(),
         None => Text::new("Workspace path:")

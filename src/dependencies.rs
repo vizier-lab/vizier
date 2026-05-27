@@ -46,15 +46,19 @@ impl VizierDependencies {
             StorageConfig::Filesystem(indexer_config) => {
                 let surreal_indexer = VizierIndexer::build(surreal);
 
-                let indexer = match indexer_config {
-                    DocumentIndexerConfig::Surreal => VizierIndexer::build(surreal_indexer),
-                    DocumentIndexerConfig::InMem => {
-                        VizierIndexer::build(InMemIndexer::new(embedder.clone()))
+                let (reindex, indexer) = match indexer_config {
+                    DocumentIndexerConfig::Surreal => {
+                        (false, VizierIndexer::build(surreal_indexer))
                     }
+                    DocumentIndexerConfig::InMem => (
+                        true,
+                        VizierIndexer::build(InMemIndexer::new(embedder.clone())),
+                    ),
                 };
 
                 let fs =
-                    FileSystemStorage::new(config.workspace.clone(), Arc::new(indexer)).await?;
+                    FileSystemStorage::new(config.workspace.clone(), Arc::new(indexer), reindex)
+                        .await?;
                 VizierStorage::new(fs)
             }
         };
@@ -81,7 +85,7 @@ impl VizierDependencies {
         if !storage.user_exists().await? {
             // Get the primary user name from config
             let username = &config.primary_user.username;
-            
+
             // Create default password hash
             // We need to create a temporary AuthService for this
             // Since we don't have the HTTP config here, we'll use a default
@@ -91,18 +95,18 @@ impl VizierDependencies {
                 jwt_expiry_hours: 720,
             };
             let auth_service = AuthService::new(&default_http_config);
-            
+
             let password_hash = auth_service.hash_password("admin")?;
-            
+
             // Create the user
             storage.create_user(username, &password_hash).await?;
-            
-            log::warn!(
+
+            tracing::warn!(
                 "Default user '{}' created with password 'admin'. Please change immediately!",
                 username
             );
         }
-        
+
         Ok(())
     }
 

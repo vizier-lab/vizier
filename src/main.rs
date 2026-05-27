@@ -1,17 +1,18 @@
-extern crate pretty_env_logger;
 #[allow(unused)]
 #[macro_use]
-extern crate log;
+extern crate tracing;
 
 use std::process;
 
 use crate::error::VizierError;
+use tracing_subscriber::{EnvFilter, fmt};
 
 pub type Result<T> = std::result::Result<T, VizierError>;
 
 mod agents;
 mod channels;
 mod cli;
+mod command;
 mod config;
 mod constant;
 mod dependencies;
@@ -25,36 +26,35 @@ mod storage;
 mod transport;
 mod utils;
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
     if std::env::var("RUST_LOG").is_err() {
-        pretty_env_logger::formatted_builder()
-            .filter_level(log::LevelFilter::Debug)
-            .filter_module("rig", log::LevelFilter::Error)
-            .filter_module("serenity", log::LevelFilter::Error)
-            .filter_module("sqlx", log::LevelFilter::Error)
-            .filter_module("reqwest", log::LevelFilter::Error)
-            .filter_module("hyper", log::LevelFilter::Error)
-            .filter_module("tungstenite", log::LevelFilter::Error)
-            .filter_module("sqlx", log::LevelFilter::Error)
-            .filter_module("h2", log::LevelFilter::Error)
-            .filter_module("tracing", log::LevelFilter::Off)
-            .filter_module("rustls", log::LevelFilter::Off)
-            .filter_module("surrealdb", log::LevelFilter::Off)
-            .filter_module("ort", log::LevelFilter::Off)
-            .filter_module("ureq", log::LevelFilter::Off)
-            .filter_module("bollard", log::LevelFilter::Off)
-            .filter_module("rmcp", log::LevelFilter::Off)
-            .filter_module("rustpython", log::LevelFilter::Off)
-            .init();
+        let filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new("vizier=debug"))
+            .add_directive("rig=error".parse().unwrap())
+            .add_directive("serenity=error".parse().unwrap())
+            .add_directive("sqlx=error".parse().unwrap())
+            .add_directive("reqwest=error".parse().unwrap())
+            .add_directive("hyper=error".parse().unwrap())
+            .add_directive("tungstenite=error".parse().unwrap())
+            .add_directive("h2=error".parse().unwrap())
+            .add_directive("tracing=off".parse().unwrap())
+            .add_directive("rustls=off".parse().unwrap())
+            .add_directive("surrealdb=off".parse().unwrap())
+            .add_directive("ort=off".parse().unwrap())
+            .add_directive("ureq=off".parse().unwrap())
+            .add_directive("bollard=off".parse().unwrap())
+            .add_directive("rmcp=off".parse().unwrap())
+            .add_directive("rustpython=off".parse().unwrap());
+
+        fmt().with_env_filter(filter).compact().init();
     } else {
-        pretty_env_logger::init();
+        fmt().compact().init();
     }
 
-    if let Err(err) = cli::start().await {
-        log::error!("{}", err)
+    if let Err(err) = cli::start() {
+        tracing::error!("{}", err)
     }
     process::exit(0);
 }

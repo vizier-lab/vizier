@@ -55,7 +55,7 @@ where
 
     async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         if self.discord_id == 0 {
-            log::warn!("discord_dm_primary_user: no discord_id configured");
+            tracing::warn!("discord_dm_primary_user: no discord_id configured");
             return Ok(());
         }
 
@@ -63,7 +63,7 @@ where
         let channel_id = match user_id.create_dm_channel(self.http.clone()).await {
             Ok(channel) => channel.id,
             Err(err) => {
-                log::error!(
+                tracing::error!(
                     "discord_dm_primary_user: failed to create DM channel: {:?}",
                     err
                 );
@@ -74,7 +74,7 @@ where
         match send_message(self.http.clone(), &channel_id, args.content).await {
             Ok(()) => Ok(()),
             Err(err) => {
-                log::error!("discord_dm_primary_user: failed to send message: {:?}", err);
+                tracing::error!("discord_dm_primary_user: failed to send message: {:?}", err);
                 Ok(())
             }
         }

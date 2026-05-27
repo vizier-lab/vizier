@@ -44,7 +44,7 @@ impl VizierChannels {
                     .unwrap();
 
                     if let Err(e) = discord_reader.run().await {
-                        log::error!("Err{:?}", e)
+                        tracing::error!("Err{:?}", e)
                     }
                 });
             }
@@ -56,7 +56,7 @@ impl VizierChannels {
                     DiscordChannelWriter::new(transport.clone(), discord_configs.clone());
 
                 if let Err(e) = discord_writer.run().await {
-                    log::error!("Err{:?}", e)
+                    tracing::error!("Err{:?}", e)
                 }
             });
         }
@@ -66,7 +66,7 @@ impl VizierChannels {
 
             tokio::spawn(async move {
                 if let Err(e) = http.run().await {
-                    log::error!("Err{:?}", e);
+                    tracing::error!("Err{:?}", e);
                 }
             });
         }
@@ -86,7 +86,7 @@ impl VizierChannels {
                     .unwrap();
 
                     if let Err(e) = telegram_reader.run().await {
-                        log::error!("Err{:?}", e)
+                        tracing::error!("Err{:?}", e)
                     }
                 });
             }
@@ -98,7 +98,7 @@ impl VizierChannels {
                     TelegramChannelWriter::new(transport.clone(), telegram_configs.clone());
 
                 if let Err(e) = telegram_writer.run().await {
-                    log::error!("Err{:?}", e)
+                    tracing::error!("Err{:?}", e)
                 }
             });
         }

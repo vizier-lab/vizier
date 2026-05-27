@@ -95,7 +95,7 @@ impl VizierConfig {
         default_path.push(std::path::PathBuf::from_str(constant::DEFAULT_CONFIG_PATH).unwrap());
 
         let path = path.unwrap_or_else(|| {
-            log::warn!(
+            tracing::warn!(
                 "config path not inputed, fallback to {:?}",
                 default_path.to_str().unwrap()
             );
@@ -103,7 +103,7 @@ impl VizierConfig {
             default_path
         });
 
-        log::info!("config loaded: {:?}", path.to_str().unwrap());
+        tracing::info!("config loaded: {:?}", path.to_str().unwrap());
 
         let raw_string = std::fs::read_to_string(&path)?;
         let config_string = shellexpand::env(&raw_string)?;

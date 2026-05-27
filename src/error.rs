@@ -2,7 +2,7 @@
 pub struct VizierError(pub String);
 
 pub fn throw_vizier_error<T, E: std::error::Error>(prefix: &str, err: E) -> Result<T, VizierError> {
-    log::error!("{}: {}", prefix, err);
+    tracing::error!("{}: {}", prefix, err);
     Err(VizierError(format!("{}: {}", prefix, err.to_string())))
 }
 

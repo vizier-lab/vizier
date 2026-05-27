@@ -12,7 +12,7 @@ use crate::{
     utils::build_path,
 };
 
-pub async fn init() -> Result<()> {
+pub fn init() -> Result<()> {
     let current_dir = env::current_dir()?;
 
     let mut config = VizierConfig::default();

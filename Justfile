@@ -10,6 +10,12 @@ install:
 run:
   @cargo run -- run --config dev.vizier.yaml
 
+run-a:
+  @cargo run -- run -a --config dev.vizier.yaml
+
+shutdown:
+  @cargo run -- shutdown --config dev.vizier.yaml
+
 dev:
   cargo watch -s "just run"
 

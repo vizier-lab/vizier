@@ -84,7 +84,7 @@ impl NotifyPrimaryUser {
         let discord_id = match config.primary_user.discord_id.parse::<u64>() {
             Ok(id) => id,
             Err(_) => {
-                log::warn!("notify_primary_user: no discord_id configured");
+                tracing::warn!("notify_primary_user: no discord_id configured");
                 return;
             }
         };
@@ -103,7 +103,7 @@ impl NotifyPrimaryUser {
         let channel_id = match user_id.create_dm_channel(http.clone()).await {
             Ok(channel) => channel.id,
             Err(err) => {
-                log::error!(
+                tracing::error!(
                     "notify_primary_user: failed to create Discord DM channel: {:?}",
                     err
                 );
@@ -112,7 +112,7 @@ impl NotifyPrimaryUser {
         };
 
         if let Err(err) = send_message(http, &channel_id, content.to_string()).await {
-            log::error!(
+            tracing::error!(
                 "notify_primary_user: failed to send Discord message: {:?}",
                 err
             );
@@ -137,7 +137,7 @@ impl NotifyPrimaryUser {
 
         let username = &config.primary_user.telegram_username;
         if username.is_empty() {
-            log::warn!("notify_primary_user: no telegram_username configured");
+            tracing::warn!("notify_primary_user: no telegram_username configured");
             return;
         }
 
@@ -154,7 +154,7 @@ impl NotifyPrimaryUser {
         )
         .await
         {
-            log::error!(
+            tracing::error!(
                 "notify_primary_user: failed to send Telegram message to {}: {:?}",
                 username,
                 err
@@ -181,7 +181,7 @@ impl NotifyPrimaryUser {
         };
 
         if let Err(err) = transport.send_response(session, response).await {
-            log::error!(
+            tracing::error!(
                 "notify_primary_user: failed to send WebUI notification: {:?}",
                 err
             );

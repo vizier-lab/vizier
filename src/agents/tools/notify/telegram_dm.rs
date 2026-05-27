@@ -60,13 +60,13 @@ where
         let bot = match &self.bot {
             Some(bot) => bot,
             None => {
-                log::warn!("telegram_dm_primary_user: no bot token configured");
+                tracing::warn!("telegram_dm_primary_user: no bot token configured");
                 return Ok(());
             }
         };
 
         if self.username.is_empty() {
-            log::warn!("telegram_dm_primary_user: no telegram_username configured");
+            tracing::warn!("telegram_dm_primary_user: no telegram_username configured");
             return Ok(());
         }
 
@@ -81,7 +81,7 @@ where
         match send_message(bot, recipient, args.content).await {
             Ok(()) => Ok(()),
             Err(err) => {
-                log::error!(
+                tracing::error!(
                     "telegram_dm_primary_user: failed to send message to {}: {:?}",
                     username,
                     err

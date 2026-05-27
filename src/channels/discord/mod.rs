@@ -48,7 +48,7 @@ impl DiscordChannelReader {
 impl VizierChannel for DiscordChannelReader {
     async fn run(&mut self) -> Result<()> {
         if let Err(err) = self.client.start().await {
-            log::error!("{:?}", err);
+            tracing::error!("{:?}", err);
         }
         Ok(())
     }
@@ -342,7 +342,7 @@ If I am halucinating, feel free to `/lobotomy` me
                     )
                     .await
                 {
-                    log::error!("{}", err)
+                    tracing::error!("{}", err)
                 }
             }
         }
@@ -418,7 +418,7 @@ If I am halucinating, feel free to `/lobotomy` me
                         )
                         .await
                     {
-                        log::error!("{}", err)
+                        tracing::error!("{}", err)
                     }
                 });
 
@@ -449,7 +449,7 @@ If I am halucinating, feel free to `/lobotomy` me
                     )
                     .await
                 {
-                    log::error!("{}", err)
+                    tracing::error!("{}", err)
                 }
             });
         }

@@ -34,7 +34,7 @@ where
             .send_message(recipient.clone(), escaped_content)
             .await
         {
-            log::error!("{:?}", err);
+            tracing::error!("{:?}", err);
         }
         return Ok(());
     }
@@ -52,7 +52,7 @@ where
             .send_message(recipient.clone(), msg)
             .await
         {
-            log::error!("{:?}", err);
+            tracing::error!("{:?}", err);
         }
     }
 

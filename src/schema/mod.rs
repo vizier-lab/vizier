@@ -1,3 +1,4 @@
+mod commands;
 mod history;
 mod metrics;
 mod request;
@@ -6,6 +7,7 @@ mod session;
 mod storage;
 mod task;
 
+pub use commands::{CommandRequest, CommandResponse};
 pub use history::{SessionHistory, SessionHistoryContent};
 pub use metrics::{
     AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage, DailyChannelTypeUsage,
@@ -25,4 +27,3 @@ struct User {
     pub username: String,
     pub password_hash: String,
 }
-

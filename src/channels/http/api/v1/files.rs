@@ -44,7 +44,7 @@ pub async fn upload_file(
     let uploads_dir = PathBuf::from(workspace).join(UPLOADS_DIR);
 
     if let Err(e) = fs::create_dir_all(&uploads_dir).await {
-        log::error!("Failed to create uploads directory: {}", e);
+        tracing::error!("Failed to create uploads directory: {}", e);
         return err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to create upload directory".to_string(),
@@ -60,7 +60,7 @@ pub async fn upload_file(
             Ok(Some(f)) => f,
             Ok(None) => break,
             Err(e) => {
-                log::error!("Error reading multipart field: {}", e);
+                tracing::error!("Error reading multipart field: {}", e);
                 break;
             }
         };
@@ -77,7 +77,7 @@ pub async fn upload_file(
                     file_data = b.to_vec();
                 }
                 Err(e) => {
-                    log::error!("Error reading file bytes: {}", e);
+                    tracing::error!("Error reading file bytes: {}", e);
                     return err_response(
                         StatusCode::BAD_REQUEST,
                         format!("Error reading file: {}", e),
@@ -93,7 +93,7 @@ pub async fn upload_file(
 
     let file_dir = uploads_dir.join(&file_id);
     if let Err(e) = fs::create_dir_all(&file_dir).await {
-        log::error!("Failed to create file directory: {}", e);
+        tracing::error!("Failed to create file directory: {}", e);
         return err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to create file directory".to_string(),
@@ -104,7 +104,7 @@ pub async fn upload_file(
     let mut file = match fs::File::create(&file_path).await {
         Ok(f) => f,
         Err(e) => {
-            log::error!("Failed to create file: {}", e);
+            tracing::error!("Failed to create file: {}", e);
             return err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to save file".to_string(),
@@ -113,7 +113,7 @@ pub async fn upload_file(
     };
 
     if let Err(e) = file.write_all(&file_data).await {
-        log::error!("Failed to write file data: {}", e);
+        tracing::error!("Failed to write file data: {}", e);
         return err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to write file".to_string(),

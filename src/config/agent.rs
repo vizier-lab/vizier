@@ -54,7 +54,7 @@ impl AgentConfig {
                             res.insert(agent_id, agent);
                         }
                         Err(_) => {
-                            log::warn!("failed to load {}", path.to_str().unwrap());
+                            tracing::warn!("failed to load {}", path.to_str().unwrap());
                         }
                     }
                 }

@@ -14,7 +14,7 @@ pub async fn send_message(
         let channel_id = channel_id.clone();
         let content = content.clone();
         if let Err(err) = channel_id.say(&http, content.clone()).await {
-            log::error!("{:?}", err);
+            tracing::error!("{:?}", err);
         }
 
         return Ok(());
@@ -32,7 +32,7 @@ pub async fn send_message(
     if let Err(err) = tokio::spawn(async move {
         for msg in chunks.clone() {
             if let Err(err) = channel_id.say(&http, msg).await {
-                log::error!("{:?}", err);
+                tracing::error!("{:?}", err);
             }
         }
     })

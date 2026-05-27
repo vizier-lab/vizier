@@ -6,7 +6,7 @@ pub async fn ollama_pull_model(base_url: &str, model: &str) -> Result<()> {
     let pull_url = format!("{}/api/pull", base_url);
     let http_client = reqwest::Client::new();
 
-    log::info!("Pulling Ollama model '{}'...", model);
+    tracing::info!("Pulling Ollama model '{}'...", model);
 
     let resp = http_client
         .post(&pull_url)
@@ -93,6 +93,6 @@ pub async fn ollama_pull_model(base_url: &str, model: &str) -> Result<()> {
     }
 
     pb.finish_with_message(format!("Ollama model '{}' is ready", model));
-    log::info!("Ollama model '{}' is ready", model);
+    tracing::info!("Ollama model '{}' is ready", model);
     Ok(())
 }

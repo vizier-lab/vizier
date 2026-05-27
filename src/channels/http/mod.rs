@@ -68,7 +68,7 @@ impl VizierChannel for HTTPChannel {
             tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.config.port)).await?;
 
         let server = axum::serve(listener, app);
-        log::info!("http listening on port {}", self.config.port);
+        tracing::info!("http listening on port {}", self.config.port);
 
         server.await?;
 

@@ -36,7 +36,7 @@ impl From<Memory> for MemoryFrontMatter {
 
 impl FileSystemStorage {
     pub async fn reindex_memory(&self) -> Result<()> {
-        log::info!("reindex existing memory");
+        tracing::info!("reindex existing memory");
         let base_path = build_path(&self.workspace, &["agents"]);
         if !base_path.exists() {
             std::fs::create_dir_all(&base_path)?;
@@ -119,7 +119,7 @@ impl MemoryStorage for FileSystemStorage {
 
         let mut res = vec![];
         for index in documents.iter() {
-            log::debug!("{:?}", index);
+            tracing::debug!("{:?}", index);
             let (frontmatter, content) = utils::markdown::read_markdown::<MemoryFrontMatter>(
                 PathBuf::from(index.path.clone()),
             )?;

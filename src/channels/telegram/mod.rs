@@ -61,7 +61,7 @@ impl VizierChannel for TelegramChannelReader {
                     for update in updates {
                         self.offset = update.id.0 as i64 + 1;
                         if let Err(e) = self.handle_update(update).await {
-                            log::error!("Error handling update: {:?}", e);
+                            tracing::error!("Error handling update: {:?}", e);
                         }
                     }
                 }
@@ -280,7 +280,7 @@ impl TelegramChannelReader {
                     )
                     .await
                 {
-                    log::error!("{}", err);
+                    tracing::error!("{}", err);
                 }
             });
         } else {
@@ -302,7 +302,7 @@ impl TelegramChannelReader {
                     )
                     .await
                 {
-                    log::error!("{}", err);
+                    tracing::error!("{}", err);
                 }
             });
         }

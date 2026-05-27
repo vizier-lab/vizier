@@ -72,7 +72,7 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
                     )
                     .await
                 {
-                    log::error!("heartbeat error: {}", err);
+                    tracing::error!("heartbeat error: {}", err);
                 }
             }
         }
@@ -139,7 +139,7 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
                         )
                         .await
                     {
-                        log::error!("dream error: {}", err);
+                        tracing::error!("dream error: {}", err);
                     }
                 }
             }
@@ -268,7 +268,7 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
                 )
                 .await
                 {
-                    log::error!("{}", err);
+                    tracing::error!("{}", err);
                     let _ = transport
                         .send_response(
                             session.clone(),

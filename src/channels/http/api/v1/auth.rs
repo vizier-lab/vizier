@@ -90,7 +90,7 @@ pub async fn login(
             );
         }
         Err(e) => {
-            log::error!("Failed to get user: {}", e);
+            tracing::error!("Failed to get user: {}", e);
             return models::response::err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal server error".to_string(),
@@ -108,7 +108,7 @@ pub async fn login(
             );
         }
         Err(e) => {
-            log::error!("Failed to verify password: {}", e);
+            tracing::error!("Failed to verify password: {}", e);
             return models::response::err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal server error".to_string(),
@@ -120,7 +120,7 @@ pub async fn login(
     match auth_service.generate_token(&user.user_id, &user.username) {
         Ok(token) => api_response(StatusCode::OK, LoginResponse { token }),
         Err(e) => {
-            log::error!("Failed to generate token: {}", e);
+            tracing::error!("Failed to generate token: {}", e);
             models::response::err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to generate token".to_string(),
@@ -177,7 +177,7 @@ pub async fn change_password(
             );
         }
         Err(e) => {
-            log::error!("Failed to verify password: {}", e);
+            tracing::error!("Failed to verify password: {}", e);
             return models::response::err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal server error".to_string(),
@@ -189,7 +189,7 @@ pub async fn change_password(
     let new_password_hash = match auth_service.hash_password(&req.new_password) {
         Ok(hash) => hash,
         Err(e) => {
-            log::error!("Failed to hash new password: {}", e);
+            tracing::error!("Failed to hash new password: {}", e);
             return models::response::err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to process new password".to_string(),
@@ -201,7 +201,7 @@ pub async fn change_password(
     match state.storage.update_password(&user.user_id, &new_password_hash).await {
         Ok(_) => api_response(StatusCode::NO_CONTENT, String::new()),
         Err(e) => {
-            log::error!("Failed to update password: {}", e);
+            tracing::error!("Failed to update password: {}", e);
             models::response::err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to update password".to_string(),
@@ -250,7 +250,7 @@ pub async fn create_api_key(
     {
         Ok(key) => key,
         Err(e) => {
-            log::error!("Failed to create API key: {}", e);
+            tracing::error!("Failed to create API key: {}", e);
             return models::response::err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to create API key".to_string(),
@@ -285,7 +285,7 @@ pub async fn list_api_keys(
     let keys = match state.storage.list_api_keys(&user.user_id).await {
         Ok(keys) => keys,
         Err(e) => {
-            log::error!("Failed to list API keys: {}", e);
+            tracing::error!("Failed to list API keys: {}", e);
             return models::response::err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to list API keys".to_string(),
@@ -328,7 +328,7 @@ pub async fn delete_api_key(
     let keys = match state.storage.list_api_keys(&user.user_id).await {
         Ok(keys) => keys,
         Err(e) => {
-            log::error!("Failed to list API keys: {}", e);
+            tracing::error!("Failed to list API keys: {}", e);
             return models::response::err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to verify API key ownership".to_string(),
@@ -346,7 +346,7 @@ pub async fn delete_api_key(
     match state.storage.delete_api_key(&key_id).await {
         Ok(_) => api_response(StatusCode::NO_CONTENT, String::new()),
         Err(e) => {
-            log::error!("Failed to delete API key: {}", e);
+            tracing::error!("Failed to delete API key: {}", e);
             models::response::err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to delete API key".to_string(),

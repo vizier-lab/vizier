@@ -25,7 +25,7 @@ struct SharedDocumentFrontMatter {
 
 impl FileSystemStorage {
     pub async fn reindex_shared_documents(&self) -> Result<()> {
-        log::info!("reindex existing shared documents");
+        tracing::info!("reindex existing shared documents");
         let base_path = build_path(&self.workspace, &[SHARED_DOCUMENT_PATH]);
         if !base_path.exists() {
             std::fs::create_dir_all(&base_path)?;
@@ -105,7 +105,7 @@ impl SharedDocumentStorage for FileSystemStorage {
 
         let mut res = vec![];
         for index in documents.iter() {
-            log::debug!("{:?}", index);
+            tracing::debug!("{:?}", index);
             let (frontmatter, content) = utils::markdown::read_markdown::<SharedDocumentFrontMatter>(
                 PathBuf::from(index.path.clone()),
             )?;
