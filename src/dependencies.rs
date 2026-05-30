@@ -6,15 +6,19 @@ use crate::{
     channels::http::auth::AuthService,
     config::{
         VizierConfig,
+        provider::ProviderVariant,
         storage::{DocumentIndexerConfig, StorageConfig},
     },
     embedding::VizierEmbedder,
     mcp::VizierMcpClients,
+    schema::{ProviderEntry, ProviderEntryConfig},
     shell::VizierShell,
     storage::{
         VizierStorage,
+        agent::AgentStorage,
         fs::FileSystemStorage,
         indexer::{VizierIndexer, inmem::InMemIndexer},
+        provider::ProviderStorage,
         surreal::SurrealStorage,
         user::UserStorage,
     },
@@ -70,6 +74,12 @@ impl VizierDependencies {
         // Initialize default user if no users exist
         Self::initialize_default_user(&config, &storage).await?;
 
+        // Auto-migrate providers from YAML config if storage is empty
+        Self::migrate_providers(&config, &storage).await?;
+
+        // Auto-migrate channel tokens into agent configs
+        Self::migrate_channel_tokens(&config, &storage).await?;
+
         Ok(Self {
             config: Arc::new(config.clone()),
             storage: Arc::new(VizierStorage::new(storage)),
@@ -105,6 +115,108 @@ impl VizierDependencies {
                 "Default user '{}' created with password 'admin'. Please change immediately!",
                 username
             );
+        }
+
+        Ok(())
+    }
+
+    async fn migrate_providers(config: &VizierConfig, storage: &VizierStorage) -> Result<()> {
+        if !storage.list_providers().await?.is_empty() {
+            return Ok(());
+        }
+
+        tracing::info!("migrating providers from YAML config to storage");
+
+        let providers = &config.providers;
+        let entries: Vec<ProviderEntry> = [
+            providers.ollama.as_ref().map(|c| ProviderEntry {
+                variant: ProviderVariant::ollama,
+                config: ProviderEntryConfig::Ollama { base_url: c.base_url.clone() },
+            }),
+            providers.openai.as_ref().map(|c| ProviderEntry {
+                variant: ProviderVariant::openai,
+                config: ProviderEntryConfig::Openai { api_key: c.api_key.clone(), base_url: c.base_url.clone() },
+            }),
+            providers.anthropic.as_ref().map(|c| ProviderEntry {
+                variant: ProviderVariant::anthropic,
+                config: ProviderEntryConfig::Anthropic { api_key: c.api_key.clone() },
+            }),
+            providers.deepseek.as_ref().map(|c| ProviderEntry {
+                variant: ProviderVariant::deepseek,
+                config: ProviderEntryConfig::Deepseek { api_key: c.api_key.clone() },
+            }),
+            providers.openrouter.as_ref().map(|c| ProviderEntry {
+                variant: ProviderVariant::openrouter,
+                config: ProviderEntryConfig::Openrouter { api_key: c.api_key.clone() },
+            }),
+            providers.gemini.as_ref().map(|c| ProviderEntry {
+                variant: ProviderVariant::gemini,
+                config: ProviderEntryConfig::Gemini { api_key: c.api_key.clone() },
+            }),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
+        for entry in entries {
+            if let Err(e) = storage.upsert_provider(&entry).await {
+                tracing::warn!("failed to migrate provider {:?}: {}", entry.variant, e);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn migrate_channel_tokens(config: &VizierConfig, storage: &VizierStorage) -> Result<()> {
+        let agents = storage.list_agents().await?;
+        if agents.is_empty() {
+            return Ok(());
+        }
+
+        let mut needs_update = false;
+        for (_, agent_config) in &agents {
+            if agent_config.discord_token.is_some() || agent_config.telegram_token.is_some() {
+                needs_update = true;
+                break;
+            }
+        }
+
+        if needs_update {
+            return Ok(());
+        }
+
+        // Check if there are channel tokens in YAML config to migrate
+        let has_discord = config.channels.discord.as_ref().map_or(false, |d| !d.is_empty());
+        let has_telegram = config.channels.telegram.as_ref().map_or(false, |t| !t.is_empty());
+
+        if !has_discord && !has_telegram {
+            return Ok(());
+        }
+
+        tracing::info!("migrating channel tokens from YAML config to agent configs");
+
+        for (agent_id, mut agent_config) in agents {
+            let mut changed = false;
+
+            if let Some(discord_configs) = &config.channels.discord {
+                if let Some(discord_config) = discord_configs.get(&agent_id) {
+                    agent_config.discord_token = Some(discord_config.token.clone());
+                    changed = true;
+                }
+            }
+
+            if let Some(telegram_configs) = &config.channels.telegram {
+                if let Some(telegram_config) = telegram_configs.get(&agent_id) {
+                    agent_config.telegram_token = Some(telegram_config.token.clone());
+                    changed = true;
+                }
+            }
+
+            if changed {
+                if let Err(e) = storage.update_agent(&agent_id, &agent_config).await {
+                    tracing::warn!("failed to migrate channel tokens for agent '{}': {}", agent_id, e);
+                }
+            }
         }
 
         Ok(())

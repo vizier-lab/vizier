@@ -13,6 +13,7 @@ use crate::{
 mod agent;
 mod history;
 mod memory;
+mod provider;
 mod session;
 mod shared_document;
 mod skill;

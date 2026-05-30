@@ -10,6 +10,7 @@ use crate::{embedding::VizierEmbedder, storage::VizierStorageProvider, utils::bu
 pub mod agent;
 pub mod history;
 pub mod memory;
+pub mod provider;
 pub mod query;
 pub mod session;
 pub mod shared_document;
@@ -40,6 +41,7 @@ impl SurrealStorage {
         db.query("DEFINE TABLE api_key SCHEMALESS;").await?;
         db.query("DEFINE TABLE shared_document SCHEMALESS;").await?;
         db.query("DEFINE TABLE agent_config SCHEMALESS;").await?;
+        db.query("DEFINE TABLE provider_config SCHEMALESS;").await?;
 
         let res = Self {
             conn: Arc::new(db),

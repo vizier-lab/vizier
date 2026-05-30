@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use rig::client::{EmbeddingsClient, Nothing};
 
-use crate::config::{VizierConfig, embedding::EmbeddingConfig};
+use crate::config::{VizierConfig, embedding::EmbeddingConfig, provider::ProviderConfig};
 
 pub mod fastembed;
 pub mod gemini;
@@ -26,48 +26,55 @@ impl VizierEmbedder {
     }
 
     pub async fn new(config: &VizierConfig) -> Result<Self> {
-        Ok(match &config.embedding.clone().unwrap() {
+        Self::from_providers(&config.embedding, &config.providers, &config.workspace).await
+    }
+
+    pub async fn from_providers(
+        embedding_config: &Option<EmbeddingConfig>,
+        providers: &ProviderConfig,
+        workspace: &str,
+    ) -> Result<Self> {
+        Ok(match embedding_config.clone().unwrap() {
             EmbeddingConfig::Local { model } => {
                 let model = fastembed::Client::new()
-                    .embedding_model(&model.to_fastembed(), Some(config.workspace.clone()));
+                    .embedding_model(&model.to_fastembed(), Some(workspace.to_string()));
 
                 Self::build(model)
             }
             EmbeddingConfig::Ollama { model } => {
-                let base_url = config.providers.ollama.clone().unwrap().base_url;
+                let base_url = providers.ollama.clone().unwrap().base_url;
 
-                // pull model first
-                crate::utils::ollama::ollama_pull_model(&base_url, model).await?;
+                crate::utils::ollama::ollama_pull_model(&base_url, &model).await?;
 
                 let model = rig::providers::ollama::Client::builder()
                     .base_url(base_url)
                     .api_key(Nothing)
                     .build()?
-                    .embedding_model(model);
+                    .embedding_model(&model);
 
                 Self::build(model)
             }
             EmbeddingConfig::Openai { model } => {
                 let model = rig::providers::openai::Client::new(
-                    config.providers.openai.clone().unwrap().api_key,
+                    providers.openai.clone().unwrap().api_key,
                 )?
-                .embedding_model(model);
+                .embedding_model(&model);
 
                 Self::build(model)
             }
             EmbeddingConfig::Gemini { model } => {
                 let model = rig::providers::gemini::Client::new(
-                    config.providers.gemini.clone().unwrap().api_key,
+                    providers.gemini.clone().unwrap().api_key,
                 )?
-                .embedding_model(model);
+                .embedding_model(&model);
 
                 Self::build(model)
             }
             EmbeddingConfig::Openrouter { model } => {
                 let model = rig::providers::openrouter::Client::new(
-                    config.providers.openrouter.clone().unwrap().api_key,
+                    providers.openrouter.clone().unwrap().api_key,
                 )?
-                .embedding_model(model);
+                .embedding_model(&model);
 
                 Self::build(model)
             }

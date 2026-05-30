@@ -271,6 +271,30 @@ export default function AgentNew() {
                   />
                 </section>
               </div>
+
+              {/* Channel Tokens */}
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <section style={{ ...fieldStyle, flex: 1 }}>
+                  <label style={labelStyle}>Discord Bot Token</label>
+                  <input
+                    style={inputStyle}
+                    type="password"
+                    placeholder="Optional"
+                    value={form.discord_token || ''}
+                    onChange={(e) => updateField('discord_token', e.target.value || undefined)}
+                  />
+                </section>
+                <section style={{ ...fieldStyle, flex: 1 }}>
+                  <label style={labelStyle}>Telegram Bot Token</label>
+                  <input
+                    style={inputStyle}
+                    type="password"
+                    placeholder="Optional"
+                    value={form.telegram_token || ''}
+                    onChange={(e) => updateField('telegram_token', e.target.value || undefined)}
+                  />
+                </section>
+              </div>
             </>
           )}
 

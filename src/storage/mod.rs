@@ -3,11 +3,13 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::{
-    schema::{AgentConfig, DocumentIndex},
+    config::provider::ProviderVariant,
+    schema::{AgentConfig, DocumentIndex, ProviderEntry},
     storage::{
         agent::AgentStorage, history::HistoryStorage, indexer::DocumentIndexer,
-        memory::MemoryStorage, session::SessionStorage, shared_document::SharedDocumentStorage,
-        skill::SkillStorage, state::StateStorage, task::TaskStorage, user::UserStorage,
+        memory::MemoryStorage, provider::ProviderStorage, session::SessionStorage,
+        shared_document::SharedDocumentStorage, skill::SkillStorage, state::StateStorage,
+        task::TaskStorage, user::UserStorage,
     },
 };
 
@@ -15,6 +17,7 @@ pub mod agent;
 pub mod history;
 pub mod indexer;
 pub mod memory;
+pub mod provider;
 pub mod session;
 pub mod shared_document;
 pub mod skill;
@@ -36,7 +39,8 @@ where
         + DocumentIndexer
         + UserStorage
         + SharedDocumentStorage
-        + AgentStorage,
+        + AgentStorage
+        + ProviderStorage,
 {
 }
 
@@ -138,5 +142,24 @@ impl AgentStorage for VizierStorage {
 
     async fn delete_agent(&self, agent_id: &str) -> Result<()> {
         self.0.delete_agent(agent_id).await
+    }
+}
+
+#[async_trait::async_trait]
+impl ProviderStorage for VizierStorage {
+    async fn list_providers(&self) -> Result<Vec<ProviderEntry>> {
+        self.0.list_providers().await
+    }
+
+    async fn get_provider(&self, variant: &ProviderVariant) -> Result<Option<ProviderEntry>> {
+        self.0.get_provider(variant).await
+    }
+
+    async fn upsert_provider(&self, entry: &ProviderEntry) -> Result<()> {
+        self.0.upsert_provider(entry).await
+    }
+
+    async fn delete_provider(&self, variant: &ProviderVariant) -> Result<()> {
+        self.0.delete_provider(variant).await
     }
 }

@@ -14,6 +14,7 @@ use crate::channels::http::{
 pub mod agents;
 pub mod auth;
 pub mod files;
+pub mod providers;
 
 pub fn v1(state: HTTPState) -> Router<HTTPState> {
     Router::new()
@@ -51,6 +52,10 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
         .nest(
             "/agents",
             agents().layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .nest(
+            "/providers",
+            providers::providers().layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
 }
 

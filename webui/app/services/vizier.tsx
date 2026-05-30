@@ -116,6 +116,25 @@ export const deleteAgent = async (agentId: string, deleteWorkspace: boolean = fa
 }
 
 // ============================================================================
+// PROVIDER ENDPOINTS
+// ============================================================================
+
+export const listProviders = async () => {
+  const res = await apiClient.get('/providers')
+  return res.data
+}
+
+export const upsertProvider = async (variant: string, data: import('../interfaces/types').UpsertProviderRequest) => {
+  const res = await apiClient.put(`/providers/${variant}`, data)
+  return res.data
+}
+
+export const deleteProvider = async (variant: string) => {
+  const res = await apiClient.delete(`/providers/${variant}`)
+  return res.data
+}
+
+// ============================================================================
 // CHAT/TOPIC ENDPOINTS
 // ============================================================================
 

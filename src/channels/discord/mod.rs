@@ -14,7 +14,6 @@ use serenity::model::channel::Message;
 use serenity::prelude::*;
 
 use crate::channels::VizierChannel;
-use crate::config::DiscordChannelConfig;
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
     TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId, VizierRequest,
@@ -32,11 +31,10 @@ pub struct DiscordChannelReader {
 impl DiscordChannelReader {
     pub async fn new(
         agent_id: String,
-        config: DiscordChannelConfig,
+        token: String,
         deps: VizierDependencies,
     ) -> Result<Self> {
         let intents = GatewayIntents::all();
-        let token = config.token.clone();
         let client = Client::builder(token.clone(), intents)
             .event_handler(Handler(agent_id, deps.clone()))
             .await?;
@@ -56,11 +54,11 @@ impl VizierChannel for DiscordChannelReader {
 
 pub struct DiscordChannelWriter {
     transport: VizierTransport,
-    config: HashMap<String, DiscordChannelConfig>,
+    config: HashMap<String, String>,
 }
 
 impl DiscordChannelWriter {
-    pub fn new(transport: VizierTransport, config: HashMap<String, DiscordChannelConfig>) -> Self {
+    pub fn new(transport: VizierTransport, config: HashMap<String, String>) -> Self {
         Self { transport, config }
     }
 }
@@ -68,9 +66,8 @@ impl DiscordChannelWriter {
 impl VizierChannel for DiscordChannelWriter {
     async fn run(&mut self) -> Result<()> {
         let mut token_map = HashMap::new();
-        for (agent_id, config) in self.config.iter() {
-            let token = config.token.clone();
-            token_map.insert(agent_id.clone(), Arc::new(Http::new(&token)));
+        for (agent_id, token) in self.config.iter() {
+            token_map.insert(agent_id.clone(), Arc::new(Http::new(token)));
         }
 
         let mut recv = self.transport.subscribe_response().await?;

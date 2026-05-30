@@ -6,8 +6,11 @@ use tokio::task::JoinHandle;
 use crate::agents::process::agent_process;
 use crate::config::provider::ProviderVariant;
 use crate::dependencies::VizierDependencies;
-use crate::schema::{AgentCommand, AgentCommandResult, AgentConfig, AgentId, AgentSummary};
+use crate::schema::{
+    AgentCommand, AgentCommandResult, AgentConfig, AgentId, AgentSummary, ProviderEntryConfig,
+};
 use crate::storage::agent::AgentStorage;
+use crate::storage::provider::ProviderStorage;
 use crate::utils::agent_workspace;
 
 pub mod agent;
@@ -53,9 +56,10 @@ impl VizierAgents {
         config: &AgentConfig,
     ) -> Result<AgentProcess> {
         if config.provider == ProviderVariant::ollama {
-            if let Some(ollama_config) = &deps.config.providers.ollama {
-                crate::utils::ollama::ollama_pull_model(&ollama_config.base_url, &config.model)
-                    .await?;
+            if let Ok(Some(provider)) = deps.storage.get_provider(&ProviderVariant::ollama).await {
+                if let ProviderEntryConfig::Ollama { base_url } = &provider.config {
+                    crate::utils::ollama::ollama_pull_model(base_url, &config.model).await?;
+                }
             }
         }
 

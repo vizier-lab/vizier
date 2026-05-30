@@ -89,6 +89,8 @@ export interface CreateAgentRequest {
   prompt_timeout?: string
   heartbeat_interval?: string
   dream_interval?: string
+  discord_token?: string
+  telegram_token?: string
 }
 
 export interface AgentDetail {
@@ -110,6 +112,23 @@ export interface AgentDetail {
   prompt_timeout: string
   heartbeat_interval: string
   dream_interval: string
+  discord_token?: string
+  telegram_token?: string
+}
+
+// ============================================================================
+// PROVIDERS
+// ============================================================================
+
+export interface ProviderResponse {
+  variant: string
+  has_api_key: boolean
+  base_url?: string
+}
+
+export interface UpsertProviderRequest {
+  api_key?: string
+  base_url?: string
 }
 
 // ============================================================================

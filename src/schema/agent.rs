@@ -27,6 +27,10 @@ pub struct AgentConfig {
     pub documents: Vec<String>,
     pub heartbeat_interval: DurationString,
     pub dream_interval: DurationString,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discord_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub telegram_token: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

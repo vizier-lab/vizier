@@ -63,6 +63,8 @@ export default function AgentEdit() {
           prompt_timeout: d.prompt_timeout,
           heartbeat_interval: d.heartbeat_interval,
           dream_interval: d.dream_interval,
+          discord_token: d.discord_token || '',
+          telegram_token: d.telegram_token || '',
         })
       } catch (err: any) {
         addToast('error', 'Failed to load agent config')
@@ -306,6 +308,30 @@ export default function AgentEdit() {
                     placeholder="24h"
                     value={form.dream_interval || ''}
                     onChange={(e) => updateField('dream_interval', e.target.value)}
+                  />
+                </section>
+              </div>
+
+              {/* Channel Tokens */}
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <section style={{ ...fieldStyle, flex: 1 }}>
+                  <label style={labelStyle}>Discord Bot Token</label>
+                  <input
+                    style={inputStyle}
+                    type="password"
+                    placeholder="Optional"
+                    value={form.discord_token || ''}
+                    onChange={(e) => updateField('discord_token', e.target.value || undefined)}
+                  />
+                </section>
+                <section style={{ ...fieldStyle, flex: 1 }}>
+                  <label style={labelStyle}>Telegram Bot Token</label>
+                  <input
+                    style={inputStyle}
+                    type="password"
+                    placeholder="Optional"
+                    value={form.telegram_token || ''}
+                    onChange={(e) => updateField('telegram_token', e.target.value || undefined)}
                   />
                 </section>
               </div>

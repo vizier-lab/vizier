@@ -58,6 +58,8 @@ pub fn init_default_agent(path: PathBuf) {
         include_documents: None,
         heartbeat_interval: DurationString::from_string("30m".into()).unwrap(),
         dream_interval: DurationString::from_string("24h".into()).unwrap(),
+        discord_token: None,
+        telegram_token: None,
         show_tool_calls: None,
     };
 

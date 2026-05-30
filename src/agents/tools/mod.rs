@@ -317,43 +317,43 @@ impl VizierTools {
         }
 
         default_toolset = default_toolset
-            .tool(DiscordDmPrimaryUser::new(deps.config.clone()))
-            .tool(TelegramDmPrimaryUser::new(deps.config.clone()))
+            .tool(DiscordDmPrimaryUser::new(
+                agent_config.discord_token.clone(),
+                deps.config.primary_user.discord_id.clone(),
+            ))
+            .tool(TelegramDmPrimaryUser::new(
+                agent_config.telegram_token.clone(),
+                deps.config.primary_user.telegram_username.clone(),
+            ))
             .tool(WebUiNotifyPrimaryUser::new(
                 agent_id.clone(),
                 deps.transport.clone(),
             ))
             .tool(NotifyPrimaryUser::new(
-                deps.config.clone(),
+                agent_config.discord_token.clone(),
+                agent_config.telegram_token.clone(),
+                deps.config.primary_user.clone(),
                 agent_id.clone(),
                 deps.transport.clone(),
             ));
 
         if agent_config.tools.discord.enabled {
-            if let Some(discord) = &deps.config.channels.discord {
-                if let Some((_, discord)) = discord.iter().find(|(id, _)| **id == agent_id) {
-                    let token = discord.token.clone();
-
-                    let (send_message, react_message, get_message) = new_discord_tools(token);
-                    default_toolset = default_toolset
-                        .tool(send_message)
-                        .tool(react_message)
-                        .tool(get_message);
-                }
+            if let Some(token) = &agent_config.discord_token {
+                let (send_message, react_message, get_message) = new_discord_tools(token.clone());
+                default_toolset = default_toolset
+                    .tool(send_message)
+                    .tool(react_message)
+                    .tool(get_message);
             }
         }
 
         if agent_config.tools.telegram.enabled {
-            if let Some(telegram) = &deps.config.channels.telegram {
-                if let Some((_, telegram)) = telegram.iter().find(|(id, _)| **id == agent_id) {
-                    let bot_token = telegram.token.clone();
-
-                    let (send_message, react_message, get_message) = new_telegram_tools(bot_token);
-                    default_toolset = default_toolset
-                        .tool(send_message)
-                        .tool(react_message)
-                        .tool(get_message);
-                }
+            if let Some(token) = &agent_config.telegram_token {
+                let (send_message, react_message, get_message) = new_telegram_tools(token.clone());
+                default_toolset = default_toolset
+                    .tool(send_message)
+                    .tool(react_message)
+                    .tool(get_message);
             }
         }
 

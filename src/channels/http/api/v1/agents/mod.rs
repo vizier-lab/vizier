@@ -93,6 +93,8 @@ pub struct AgentDetail {
     pub prompt_timeout: String,
     pub heartbeat_interval: String,
     pub dream_interval: String,
+    pub discord_token: Option<String>,
+    pub telegram_token: Option<String>,
 }
 
 #[utoipa::path(
@@ -132,6 +134,8 @@ async fn agent_detail(
                 prompt_timeout: config.prompt_timeout.to_string(),
                 heartbeat_interval: config.heartbeat_interval.to_string(),
                 dream_interval: config.dream_interval.to_string(),
+                discord_token: config.discord_token,
+                telegram_token: config.telegram_token,
             },
         ),
         Ok(None) => err_response(StatusCode::NOT_FOUND, "not found".into()),
@@ -160,6 +164,10 @@ pub struct CreateAgentRequest {
     pub heartbeat_interval: Option<String>,
     #[serde(default)]
     pub dream_interval: Option<String>,
+    #[serde(default)]
+    pub discord_token: Option<String>,
+    #[serde(default)]
+    pub telegram_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
@@ -244,6 +252,8 @@ impl CreateAgentRequest {
                 self.dream_interval.unwrap_or("24h".into()),
             )
             .unwrap(),
+            discord_token: self.discord_token,
+            telegram_token: self.telegram_token,
         }
     }
 }

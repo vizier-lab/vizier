@@ -4,28 +4,19 @@ use serde::{Deserialize, Serialize};
 use serenity::all::{Http, UserId};
 
 use crate::{
-    agents::tools::VizierTool, config::VizierConfig, error::VizierError,
+    agents::tools::VizierTool, error::VizierError,
     utils::discord::send_message,
 };
 
 pub struct DiscordDmPrimaryUser {
-    http: Arc<Http>,
+    http: Option<Arc<Http>>,
     discord_id: u64,
 }
 
 impl DiscordDmPrimaryUser {
-    pub fn new(config: Arc<VizierConfig>) -> Self {
-        let http = if let Some(discord) = &config.channels.discord {
-            if let Some((_, discord_config)) = discord.iter().next() {
-                Arc::new(Http::new(&discord_config.token))
-            } else {
-                Arc::new(Http::new(""))
-            }
-        } else {
-            Arc::new(Http::new(""))
-        };
-
-        let discord_id = config.primary_user.discord_id.parse::<u64>().unwrap_or(0);
+    pub fn new(token: Option<String>, discord_id: String) -> Self {
+        let http = token.map(|t| Arc::new(Http::new(&t)));
+        let discord_id = discord_id.parse::<u64>().unwrap_or(0);
 
         Self { http, discord_id }
     }
@@ -59,8 +50,16 @@ where
             return Ok(());
         }
 
+        let http = match &self.http {
+            Some(http) => http,
+            None => {
+                tracing::warn!("discord_dm_primary_user: no discord token configured");
+                return Ok(());
+            }
+        };
+
         let user_id = UserId::new(self.discord_id);
-        let channel_id = match user_id.create_dm_channel(self.http.clone()).await {
+        let channel_id = match user_id.create_dm_channel(http.clone()).await {
             Ok(channel) => channel.id,
             Err(err) => {
                 tracing::error!(
@@ -71,7 +70,7 @@ where
             }
         };
 
-        match send_message(self.http.clone(), &channel_id, args.content).await {
+        match send_message(http.clone(), &channel_id, args.content).await {
             Ok(()) => Ok(()),
             Err(err) => {
                 tracing::error!("discord_dm_primary_user: failed to send message: {:?}", err);

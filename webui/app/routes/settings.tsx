@@ -1,11 +1,11 @@
 import { useEffect, useState, FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router'
-import { listApiKeys, createApiKey, deleteApiKey, changePassword, deleteAgent } from '../services/vizier'
-import { FiTrash2 } from 'react-icons/fi'
+import { listApiKeys, createApiKey, deleteApiKey, changePassword, deleteAgent, listProviders, upsertProvider, deleteProvider } from '../services/vizier'
+import { FiTrash2, FiEdit3, FiPlus } from 'react-icons/fi'
 import { useToastStore } from '../hooks/toastStore'
-import type { ApiKey } from '../interfaces/types'
+import type { ApiKey, ProviderResponse } from '../interfaces/types'
 
-type Section = 'password' | 'api-keys' | 'danger'
+type Section = 'password' | 'api-keys' | 'providers' | 'danger'
 
 export default function Settings() {
   const { agentId } = useParams()
@@ -34,9 +34,18 @@ export default function Settings() {
   const [deleting, setDeleting] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
+  // Providers state
+  const [providers, setProviders] = useState<ProviderResponse[]>([])
+  const [loadingProviders, setLoadingProviders] = useState(false)
+  const [editingProvider, setEditingProvider] = useState<string | null>(null)
+  const [providerForm, setProviderForm] = useState({ api_key: '', base_url: '' })
+
   useEffect(() => {
     if (activeSection === 'api-keys') {
       loadApiKeys()
+    }
+    if (activeSection === 'providers') {
+      loadProviders()
     }
   }, [activeSection])
 
@@ -49,6 +58,44 @@ export default function Settings() {
       console.error('Failed to load API keys:', error)
     } finally {
       setLoadingKeys(false)
+    }
+  }
+
+  const loadProviders = async () => {
+    try {
+      setLoadingProviders(true)
+      const res = await listProviders()
+      setProviders(res.data || [])
+    } catch {
+      addToast('error', 'Failed to load providers')
+    } finally {
+      setLoadingProviders(false)
+    }
+  }
+
+  const handleSaveProvider = async (variant: string) => {
+    try {
+      await upsertProvider(variant, {
+        api_key: providerForm.api_key || undefined,
+        base_url: providerForm.base_url || undefined,
+      })
+      addToast('success', `${variant} provider saved`)
+      setEditingProvider(null)
+      setProviderForm({ api_key: '', base_url: '' })
+      await loadProviders()
+    } catch (err: any) {
+      addToast('error', err?.response?.data?.message || 'Failed to save provider')
+    }
+  }
+
+  const handleDeleteProvider = async (variant: string) => {
+    if (!confirm(`Remove ${variant} provider?`)) return
+    try {
+      await deleteProvider(variant)
+      addToast('success', `${variant} provider removed`)
+      await loadProviders()
+    } catch (err: any) {
+      addToast('error', err?.response?.data?.message || 'Failed to delete provider')
     }
   }
 
@@ -158,6 +205,12 @@ export default function Settings() {
           API Keys
         </button>
         <button
+          onClick={() => setActiveSection('providers')}
+          className={`px-3 py-1.5 text-sm font-medium rounded-t transition-colors ${activeSection === 'providers' ? 'bg-[var(--surface)] text-[var(--text-primary)] border-b-2 border-[var(--accent-primary)]' : 'text-[var(--text-tertiary)]'}`}
+        >
+          Providers
+        </button>
+        <button
           onClick={() => setActiveSection('danger')}
           className={`px-3 py-1.5 text-sm font-medium rounded-t transition-colors ${activeSection === 'danger' ? 'bg-[var(--surface)] text-[var(--text-primary)] border-b-2 border-red-500' : 'text-red-400'}`}
         >
@@ -183,6 +236,12 @@ export default function Settings() {
             onClick={() => setActiveSection('api-keys')}
           >
             API Keys
+          </div>
+          <div
+            className={`nav-item ${activeSection === 'providers' ? 'active' : ''}`}
+            onClick={() => setActiveSection('providers')}
+          >
+            Providers
           </div>
           <div
             className={`nav-item ${activeSection === 'danger' ? 'active' : ''}`}
@@ -407,6 +466,103 @@ export default function Settings() {
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Providers Section */}
+          {activeSection === 'providers' && (
+            <div style={{ maxWidth: '600px' }}>
+              <h2 style={{ marginBottom: '1rem' }}>Providers</h2>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', fontSize: '14px' }}>
+                Configure AI provider credentials. These are shared across all agents.
+              </p>
+
+              {loadingProviders ? (
+                <p style={{ color: 'var(--text-tertiary)' }}>Loading...</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {(() => {
+                    const ALL_VARIANTS = ['ollama', 'openai', 'anthropic', 'deepseek', 'openrouter', 'gemini']
+                    const configured = providers.map((p) => p.variant)
+                    const unconfigured = ALL_VARIANTS.filter((v) => !configured.includes(v))
+                    const pInputStyle: React.CSSProperties = {
+                      width: '100%', padding: '0.5rem 0.75rem', borderRadius: '0.375rem',
+                      border: '1px solid var(--border)', background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none',
+                    }
+
+                    return (
+                      <>
+                        {providers.map((p) => (
+                          <div key={p.variant} style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <strong style={{ textTransform: 'capitalize' }}>{p.variant}</strong>
+                                {p.base_url && <span style={{ color: 'var(--text-tertiary)', marginLeft: '0.75rem', fontSize: '0.8rem' }}>{p.base_url}</span>}
+                              </div>
+                              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button onClick={() => { setEditingProvider(p.variant); setProviderForm({ api_key: '', base_url: '' }) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem' }}><FiEdit3 size={16} /></button>
+                                <button onClick={() => handleDeleteProvider(p.variant)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '0.25rem' }}><FiTrash2 size={16} /></button>
+                              </div>
+                            </div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
+                              {p.has_api_key ? 'API key configured' : p.variant === 'ollama' ? 'No API key required' : 'No API key'}
+                            </div>
+                            {editingProvider === p.variant && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)' }}>
+                                {p.variant !== 'ollama' && (
+                                  <div>
+                                    <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>API Key</label>
+                                    <input style={pInputStyle} type="password" placeholder="sk-..." value={providerForm.api_key} onChange={(e) => setProviderForm({ ...providerForm, api_key: e.target.value })} />
+                                  </div>
+                                )}
+                                {(p.variant === 'ollama' || p.variant === 'openai') && (
+                                  <div>
+                                    <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Base URL</label>
+                                    <input style={pInputStyle} placeholder={p.variant === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com/v1'} value={providerForm.base_url} onChange={(e) => setProviderForm({ ...providerForm, base_url: e.target.value })} />
+                                  </div>
+                                )}
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                  <button onClick={() => setEditingProvider(null)} style={{ padding: '0.4rem 1rem', borderRadius: '0.375rem', border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', fontSize: '0.8rem' }}>Cancel</button>
+                                  <button onClick={() => handleSaveProvider(p.variant)} style={{ padding: '0.4rem 1rem', borderRadius: '0.375rem', border: 'none', background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer', fontSize: '0.8rem' }}>Save</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {unconfigured.map((variant) => (
+                          <div key={variant} style={{ padding: '1rem', border: '1px dashed var(--border)', borderRadius: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <strong style={{ textTransform: 'capitalize', color: 'var(--text-tertiary)' }}>{variant}</strong>
+                              <button onClick={() => { setEditingProvider(variant); setProviderForm({ api_key: '', base_url: '' }) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', padding: '0.25rem' }}><FiPlus size={16} /></button>
+                            </div>
+                            {editingProvider === variant && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                {variant !== 'ollama' && (
+                                  <div>
+                                    <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>API Key</label>
+                                    <input style={pInputStyle} type="password" placeholder="sk-..." value={providerForm.api_key} onChange={(e) => setProviderForm({ ...providerForm, api_key: e.target.value })} />
+                                  </div>
+                                )}
+                                {(variant === 'ollama' || variant === 'openai') && (
+                                  <div>
+                                    <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Base URL</label>
+                                    <input style={pInputStyle} placeholder={variant === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com/v1'} value={providerForm.base_url} onChange={(e) => setProviderForm({ ...providerForm, base_url: e.target.value })} />
+                                  </div>
+                                )}
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                  <button onClick={() => setEditingProvider(null)} style={{ padding: '0.4rem 1rem', borderRadius: '0.375rem', border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', fontSize: '0.8rem' }}>Cancel</button>
+                                  <button onClick={() => handleSaveProvider(variant)} style={{ padding: '0.4rem 1rem', borderRadius: '0.375rem', border: 'none', background: 'var(--accent-primary)', color: '#fff', cursor: 'pointer', fontSize: '0.8rem' }}>Save</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </>
+                    )
+                  })()}
                 </div>
               )}
             </div>

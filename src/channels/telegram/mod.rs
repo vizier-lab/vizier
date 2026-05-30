@@ -8,7 +8,6 @@ use teloxide::prelude::*;
 use teloxide::types::ChatAction;
 
 use crate::channels::VizierChannel;
-use crate::config::TelegramChannelConfig;
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
     TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId, VizierRequest,
@@ -30,11 +29,10 @@ pub struct TelegramChannelReader {
 impl TelegramChannelReader {
     pub async fn new(
         agent_id: String,
-        config: TelegramChannelConfig,
+        token: String,
         deps: VizierDependencies,
     ) -> Result<Self> {
-        let bot = Bot::new(config.token.clone());
-        let token = config.token;
+        let bot = Bot::new(token.clone());
 
         Ok(Self {
             bot,
@@ -317,10 +315,10 @@ pub struct TelegramChannelWriter {
 }
 
 impl TelegramChannelWriter {
-    pub fn new(transport: VizierTransport, config: HashMap<String, TelegramChannelConfig>) -> Self {
+    pub fn new(transport: VizierTransport, config: HashMap<String, String>) -> Self {
         let bots = config
             .into_iter()
-            .map(|(agent_id, cfg)| (agent_id, Bot::new(cfg.token)))
+            .map(|(agent_id, token)| (agent_id, Bot::new(token)))
             .collect();
 
         Self { transport, bots }

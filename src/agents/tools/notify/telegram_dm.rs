@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use teloxide::{Bot, types::Recipient};
 
 use crate::agents::tools::VizierTool;
-use crate::{config::VizierConfig, error::VizierError, utils::telegram::send_message};
+use crate::{error::VizierError, utils::telegram::send_message};
 
 pub struct TelegramDmPrimaryUser {
     bot: Option<Bot>,
@@ -11,24 +10,8 @@ pub struct TelegramDmPrimaryUser {
 }
 
 impl TelegramDmPrimaryUser {
-    pub fn new(config: Arc<VizierConfig>) -> Self {
-        let bot_token = if let Some(telegram) = &config.channels.telegram {
-            if let Some((_, telegram_config)) = telegram.iter().next() {
-                telegram_config.token.clone()
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
-
-        let bot = if !bot_token.is_empty() {
-            Some(Bot::new(bot_token))
-        } else {
-            None
-        };
-
-        let username = config.primary_user.telegram_username.clone();
+    pub fn new(token: Option<String>, username: String) -> Self {
+        let bot = token.filter(|t| !t.is_empty()).map(Bot::new);
 
         Self { bot, username }
     }
@@ -76,7 +59,6 @@ where
             format!("@{}", self.username)
         };
 
-        println!("{username}");
         let recipient = Recipient::ChannelUsername(username.clone());
         match send_message(bot, recipient, args.content).await {
             Ok(()) => Ok(()),

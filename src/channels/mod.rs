@@ -6,8 +6,9 @@ use crate::{
         http::HTTPChannel,
         telegram::{TelegramChannelReader, TelegramChannelWriter},
     },
-    config::ChannelsConfig,
+    config::HTTPChannelConfig,
     dependencies::VizierDependencies,
+    storage::agent::AgentStorage,
 };
 
 pub mod discord;
@@ -19,29 +20,36 @@ pub trait VizierChannel {
 }
 
 pub struct VizierChannels {
-    config: ChannelsConfig,
+    http_config: Option<HTTPChannelConfig>,
     deps: VizierDependencies,
 }
 
 impl VizierChannels {
-    pub fn new(config: ChannelsConfig, deps: VizierDependencies) -> Result<Self> {
-        Ok(Self { config, deps })
+    pub fn new(http_config: Option<HTTPChannelConfig>, deps: VizierDependencies) -> Result<Self> {
+        Ok(Self { http_config, deps })
     }
 
     pub async fn run(&self) -> Result<()> {
-        if let Some(discord_configs) = &self.config.discord {
-            for (agent_id, discord_config) in discord_configs.iter() {
+        let agents = self.deps.storage.list_agents().await.unwrap_or_default();
+
+        // Spawn Discord channels
+        let discord_agents: Vec<(String, String)> = agents
+            .iter()
+            .filter_map(|(id, config)| {
+                config.discord_token.as_ref().map(|t| (id.clone(), t.clone()))
+            })
+            .collect();
+
+        if !discord_agents.is_empty() {
+            for (agent_id, token) in &discord_agents {
                 let agent_id = agent_id.clone();
+                let token = token.clone();
                 let deps = self.deps.clone();
-                let reader_discord_config = discord_config.clone();
                 tokio::spawn(async move {
-                    let mut discord_reader = DiscordChannelReader::new(
-                        agent_id.clone(),
-                        reader_discord_config.clone(),
-                        deps.clone(),
-                    )
-                    .await
-                    .unwrap();
+                    let mut discord_reader =
+                        DiscordChannelReader::new(agent_id.clone(), token, deps.clone())
+                            .await
+                            .unwrap();
 
                     if let Err(e) = discord_reader.run().await {
                         tracing::error!("Err{:?}", e)
@@ -50,10 +58,10 @@ impl VizierChannels {
             }
 
             let transport = self.deps.transport.clone();
-            let discord_configs = discord_configs.clone();
+            let token_map: std::collections::HashMap<String, String> =
+                discord_agents.into_iter().collect();
             tokio::spawn(async move {
-                let mut discord_writer =
-                    DiscordChannelWriter::new(transport.clone(), discord_configs.clone());
+                let mut discord_writer = DiscordChannelWriter::new(transport.clone(), token_map);
 
                 if let Err(e) = discord_writer.run().await {
                     tracing::error!("Err{:?}", e)
@@ -61,8 +69,9 @@ impl VizierChannels {
             });
         }
 
-        if let Some(http) = &self.config.http {
-            let mut http = HTTPChannel::new(http.clone(), self.deps.clone())?;
+        // Spawn HTTP channel
+        if let Some(http_config) = &self.http_config {
+            let mut http = HTTPChannel::new(http_config.clone(), self.deps.clone())?;
 
             tokio::spawn(async move {
                 if let Err(e) = http.run().await {
@@ -71,19 +80,24 @@ impl VizierChannels {
             });
         }
 
-        if let Some(telegram_configs) = &self.config.telegram {
-            for (agent_id, telegram_config) in telegram_configs.iter() {
+        // Spawn Telegram channels
+        let telegram_agents: Vec<(String, String)> = agents
+            .iter()
+            .filter_map(|(id, config)| {
+                config.telegram_token.as_ref().map(|t| (id.clone(), t.clone()))
+            })
+            .collect();
+
+        if !telegram_agents.is_empty() {
+            for (agent_id, token) in &telegram_agents {
                 let agent_id = agent_id.clone();
+                let token = token.clone();
                 let deps = self.deps.clone();
-                let reader_telegram_config = telegram_config.clone();
                 tokio::spawn(async move {
-                    let mut telegram_reader = TelegramChannelReader::new(
-                        agent_id.clone(),
-                        reader_telegram_config.clone(),
-                        deps.clone(),
-                    )
-                    .await
-                    .unwrap();
+                    let mut telegram_reader =
+                        TelegramChannelReader::new(agent_id.clone(), token, deps.clone())
+                            .await
+                            .unwrap();
 
                     if let Err(e) = telegram_reader.run().await {
                         tracing::error!("Err{:?}", e)
@@ -92,10 +106,10 @@ impl VizierChannels {
             }
 
             let transport = self.deps.transport.clone();
-            let telegram_configs = telegram_configs.clone();
+            let token_map: std::collections::HashMap<String, String> =
+                telegram_agents.into_iter().collect();
             tokio::spawn(async move {
-                let mut telegram_writer =
-                    TelegramChannelWriter::new(transport.clone(), telegram_configs.clone());
+                let mut telegram_writer = TelegramChannelWriter::new(transport.clone(), token_map);
 
                 if let Err(e) = telegram_writer.run().await {
                     tracing::error!("Err{:?}", e)

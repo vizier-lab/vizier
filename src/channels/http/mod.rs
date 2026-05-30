@@ -114,6 +114,10 @@ impl VizierChannel for HTTPChannel {
         api::v1::agents::task::delete_task,
         api::v1::files::upload_file,
         api::v1::files::download_file,
+        api::v1::providers::list_providers,
+        api::v1::providers::get_provider,
+        api::v1::providers::upsert_provider,
+        api::v1::providers::delete_provider,
     ),
     components(
         schemas(
@@ -129,6 +133,8 @@ impl VizierChannel for HTTPChannel {
             api::v1::agents::CreateAgentTools,
             api::v1::agents::DeleteAgentQuery,
             api::v1::agents::UsageQuery,
+            api::v1::providers::ProviderResponse,
+            api::v1::providers::UpsertProviderRequest,
             api::v1::agents::channel::HistoryQuery,
             api::v1::agents::channel::TopicEntry,
             api::v1::agents::documents::UpdateDocumentRequest,

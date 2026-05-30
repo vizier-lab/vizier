@@ -364,6 +364,8 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         heartbeat_interval: DurationString::from_string("30m".into()).unwrap(),
         dream_interval: DurationString::from_string("24h".into()).unwrap(),
         show_tool_calls: None,
+        discord_token: None,
+        telegram_token: None,
     };
 
     config.save(config_path.clone(), "".into())?;

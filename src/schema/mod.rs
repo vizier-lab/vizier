@@ -2,6 +2,7 @@ pub mod agent;
 mod commands;
 mod history;
 mod metrics;
+pub mod provider;
 mod request;
 mod response;
 mod session;
@@ -15,6 +16,7 @@ pub use metrics::{
     AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage, DailyChannelTypeUsage,
     DailyUsage, UsageSummary,
 };
+pub use provider::{ProviderEntry, ProviderEntryConfig};
 pub use request::{VizierAttachment, VizierAttachmentContent, VizierRequest, VizierRequestContent};
 pub use response::{VizierResponse, VizierResponseContent, VizierResponseStats};
 pub use session::{AgentId, TopicId, VizierChannelId, VizierSession, VizierSessionDetail};
