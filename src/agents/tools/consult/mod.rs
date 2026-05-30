@@ -5,12 +5,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::agents::tools::VizierTool;
-use crate::config::agent::AgentConfig;
-use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::{
-    AgentId, TopicId, VizierChannelId, VizierRequest, VizierRequestContent, VizierResponse,
-    VizierResponseContent, VizierSession,
+    AgentConfig, AgentId, TopicId, VizierChannelId, VizierRequest, VizierRequestContent,
+    VizierResponse, VizierResponseContent, VizierSession,
 };
 use crate::transport::VizierTransport;
 
@@ -21,24 +19,11 @@ pub struct ConsultAgent {
 }
 
 impl ConsultAgent {
-    pub fn new(agent_id: AgentId, deps: VizierDependencies) -> Self {
-        let agents = deps
-            .config
-            .agents
-            .clone()
-            .iter()
-            .filter_map(|(aid, config)| {
-                if &agent_id == aid {
-                    None
-                } else {
-                    Some((aid.clone(), config.clone()))
-                }
-            })
-            .collect::<HashMap<_, _>>();
+    pub fn new(agent_id: AgentId, agents: HashMap<String, AgentConfig>, transport: VizierTransport) -> Self {
         Self {
             agent_id,
             agents,
-            transport: deps.transport.clone(),
+            transport,
         }
     }
 }
@@ -126,24 +111,11 @@ pub struct DelegateAgent {
 }
 
 impl DelegateAgent {
-    pub fn new(agent_id: AgentId, deps: VizierDependencies) -> Self {
-        let agents = deps
-            .config
-            .agents
-            .clone()
-            .iter()
-            .filter_map(|(aid, config)| {
-                if &agent_id == aid {
-                    None
-                } else {
-                    Some((aid.clone(), config.clone()))
-                }
-            })
-            .collect::<HashMap<_, _>>();
+    pub fn new(agent_id: AgentId, agents: HashMap<String, AgentConfig>, transport: VizierTransport) -> Self {
         Self {
             agent_id,
             agents,
-            transport: deps.transport.clone(),
+            transport,
         }
     }
 }

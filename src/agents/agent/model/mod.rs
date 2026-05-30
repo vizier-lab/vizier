@@ -9,8 +9,8 @@ use rig::{
 };
 
 use crate::{
-    config::provider::ProviderVariant, dependencies::VizierDependencies, error::VizierError,
-    schema::AgentId,
+    config::provider::ProviderVariant, dependencies::VizierDependencies,
+    schema::{AgentConfig, AgentId},
 };
 
 mod provider;
@@ -23,31 +23,29 @@ impl VizierModel {
         Self(Arc::new(Box::new(model)))
     }
 
-    pub async fn new(agent_id: AgentId, deps: VizierDependencies) -> Result<Self> {
-        let agent_config = &deps
-            .config
-            .agents
-            .get(&agent_id)
-            .ok_or(VizierError("agent not found".into()))?;
-
+    pub async fn new(
+        agent_id: AgentId,
+        deps: VizierDependencies,
+        agent_config: &AgentConfig,
+    ) -> Result<Self> {
         Ok(match agent_config.provider {
             ProviderVariant::ollama => {
-                Self::build(VizierModelImpl::<ollama::Client>::build(agent_id, deps).await?)
+                Self::build(VizierModelImpl::<ollama::Client>::build(agent_id, deps, agent_config).await?)
             }
             ProviderVariant::openai => {
-                Self::build(VizierModelImpl::<openai::Client>::build(agent_id, deps).await?)
+                Self::build(VizierModelImpl::<openai::Client>::build(agent_id, deps, agent_config).await?)
             }
             ProviderVariant::anthropic => {
-                Self::build(VizierModelImpl::<anthropic::Client>::build(agent_id, deps).await?)
+                Self::build(VizierModelImpl::<anthropic::Client>::build(agent_id, deps, agent_config).await?)
             }
             ProviderVariant::openrouter => {
-                Self::build(VizierModelImpl::<openrouter::Client>::build(agent_id, deps).await?)
+                Self::build(VizierModelImpl::<openrouter::Client>::build(agent_id, deps, agent_config).await?)
             }
             ProviderVariant::gemini => {
-                Self::build(VizierModelImpl::<gemini::Client>::build(agent_id, deps).await?)
+                Self::build(VizierModelImpl::<gemini::Client>::build(agent_id, deps, agent_config).await?)
             }
             ProviderVariant::deepseek => {
-                Self::build(VizierModelImpl::<deepseek::Client>::build(agent_id, deps).await?)
+                Self::build(VizierModelImpl::<deepseek::Client>::build(agent_id, deps, agent_config).await?)
             }
         })
     }
@@ -72,13 +70,12 @@ where
 {
     async fn init_client(agent_id: AgentId, deps: VizierDependencies) -> Result<Client>;
 
-    async fn build(agent_id: AgentId, deps: VizierDependencies) -> Result<VizierModelImpl<Client>> {
-        let model = &deps
-            .config
-            .agents
-            .get(&agent_id)
-            .ok_or(VizierError("agent not found".into()))?
-            .model;
+    async fn build(
+        agent_id: AgentId,
+        deps: VizierDependencies,
+        agent_config: &AgentConfig,
+    ) -> Result<VizierModelImpl<Client>> {
+        let model = &agent_config.model;
 
         let model = Self::init_client(agent_id, deps.clone())
             .await?

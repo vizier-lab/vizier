@@ -84,7 +84,6 @@ export const listAgents = async () => {
 
 export const getAgentDetail = async (agentId: string) => {
   const res = await apiClient.get(`/agents/${agentId}`)
-  console.log('>>', { res })
   return res.data
 }
 
@@ -98,6 +97,21 @@ export const getAgentUsage = async (
   if (endDate) params.append('end_date', endDate)
 
   const res = await apiClient.get(`/agents/${agentId}/usage?${params}`)
+  return res.data
+}
+
+export const createAgent = async (data: import('../interfaces/types').CreateAgentRequest) => {
+  const res = await apiClient.post('/agents', data)
+  return res.data
+}
+
+export const updateAgent = async (agentId: string, data: import('../interfaces/types').CreateAgentRequest) => {
+  const res = await apiClient.put(`/agents/${agentId}`, data)
+  return res.data
+}
+
+export const deleteAgent = async (agentId: string, deleteWorkspace: boolean = false) => {
+  const res = await apiClient.delete(`/agents/${agentId}?delete_workspace=${deleteWorkspace}`)
   return res.data
 }
 

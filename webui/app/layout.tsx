@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
-import { listAgents } from './services/vizier'
-import { FiSettings, FiCheckCircle, FiLogOut, FiTrendingUp, FiChevronDown, FiChevronLeft, FiMessageSquare, FiSun, FiMoon, FiMenu } from 'react-icons/fi'
+import { listAgents, deleteAgent } from './services/vizier'
+import { FiSettings, FiCheckCircle, FiLogOut, FiTrendingUp, FiChevronDown, FiChevronLeft, FiMessageSquare, FiSun, FiMoon, FiMenu, FiPlus, FiTrash2, FiEdit3 } from 'react-icons/fi'
 import { FaBook, FaFolder } from 'react-icons/fa'
 import Avatar from './components/avatar'
 import ToastContainer from './components/Toast'
@@ -103,6 +103,7 @@ export default function Layout() {
     if (location.pathname.includes('/documents')) return 'documents'
     if (location.pathname.includes('/usage')) return 'usage'
     if (location.pathname.includes('/settings')) return 'settings'
+    if (location.pathname.includes('/edit')) return 'edit'
     if (location.pathname.includes('/chat')) return 'chat'
     return null
   }
@@ -189,57 +190,47 @@ export default function Layout() {
                   </div>
                 </div>
               ))}
+              <div
+                className="agent-dropdown-item"
+                onClick={() => {
+                  setShowAgentDropdown(false)
+                  navigate('/agents/new')
+                }}
+                style={{ borderTop: '1px solid var(--border)', marginTop: '0.25rem', paddingTop: '0.5rem' }}
+              >
+                <FiPlus size={18} />
+                <div className="agent-dropdown-info">
+                  <span className="agent-dropdown-name">Create Agent</span>
+                </div>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Tools section — only when agent is selected */}
-        {currentAgentId && (
-          <div className="nav-content">
-            <div className="nav-section">
+        {/* Tools section */}
+        <div className="nav-content">
+          <div className="nav-section">
+            {([
+              ['chat', 'Chat', FiMessageSquare],
+              ['memory', 'Memory', FaBook],
+              ['tasks', 'Tasks', FiCheckCircle],
+              ['documents', 'Documents', FaFolder],
+              ['usage', 'Usage', FiTrendingUp],
+              ['edit', 'Edit Agent', FiEdit3],
+            ] as const).map(([view, label, Icon]) => (
               <div
-                className={`nav-item ${currentView === 'chat' ? 'active' : ''}`}
-                onClick={() => handleNavClick(`/${currentAgentId}/chat`)}
-                title={collapsed ? 'Chat' : undefined}
+                key={view}
+                className={`nav-item ${currentView === view ? 'active' : ''}`}
+                onClick={() => currentAgentId && handleNavClick(`/${currentAgentId}/${view}`)}
+                title={collapsed ? label : undefined}
+                style={!currentAgentId ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : undefined}
               >
-                <FiMessageSquare size={18} />
-                <span>Chat</span>
+                <Icon size={18} />
+                <span>{label}</span>
               </div>
-              <div
-                className={`nav-item ${currentView === 'memory' ? 'active' : ''}`}
-                onClick={() => handleNavClick(`/${currentAgentId}/memory`)}
-                title={collapsed ? 'Memory' : undefined}
-              >
-                <FaBook size={18} />
-                <span>Memory</span>
-              </div>
-              <div
-                className={`nav-item ${currentView === 'tasks' ? 'active' : ''}`}
-                onClick={() => handleNavClick(`/${currentAgentId}/tasks`)}
-                title={collapsed ? 'Tasks' : undefined}
-              >
-                <FiCheckCircle size={18} />
-                <span>Tasks</span>
-              </div>
-              <div
-                className={`nav-item ${currentView === 'documents' ? 'active' : ''}`}
-                onClick={() => handleNavClick(`/${currentAgentId}/documents`)}
-                title={collapsed ? 'Documents' : undefined}
-              >
-                <FaFolder size={18} />
-                <span>Documents</span>
-              </div>
-              <div
-                className={`nav-item ${currentView === 'usage' ? 'active' : ''}`}
-                onClick={() => handleNavClick(`/${currentAgentId}/usage`)}
-                title={collapsed ? 'Usage' : undefined}
-              >
-                <FiTrendingUp size={18} />
-                <span>Usage</span>
-              </div>
-            </div>
+            ))}
           </div>
-        )}
+        </div>
 
         {/* Bottom: Toggle, Settings, Theme, Logout */}
         <div className="nav-bottom">

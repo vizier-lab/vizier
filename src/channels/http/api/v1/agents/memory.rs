@@ -105,7 +105,7 @@ pub async fn get_all_memories(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<Vec<MemorySummary>> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -145,7 +145,7 @@ pub async fn create_memory(
     State(state): State<HTTPState>,
     Json(body): Json<CreateMemoryRequest>,
 ) -> models::response::Response<CreateMemoryResponse> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -185,7 +185,7 @@ pub async fn update_memory(
     State(state): State<HTTPState>,
     Json(body): Json<UpdateMemoryRequest>,
 ) -> models::response::Response<UpdateMemoryResponse> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -232,7 +232,7 @@ pub async fn query_memories(
     Query(params): Query<QueryMemoryRequest>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<Vec<MemoryDetail>> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -275,7 +275,7 @@ pub async fn get_memory_detail(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<MemoryDetail> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -310,7 +310,7 @@ pub async fn delete_memory(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<String> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 

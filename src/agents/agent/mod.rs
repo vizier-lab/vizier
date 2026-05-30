@@ -21,17 +21,17 @@ use crate::{
         skill::VizierSkills,
         tools::VizierTools,
     },
-    config::{agent::AgentConfig, user::UserConfig},
+    config::user::UserConfig,
     dependencies::VizierDependencies,
     schema::{
-        Memory, SessionHistory, SessionHistoryContent, VizierRequest, VizierRequestContent,
-        VizierResponse, VizierResponseContent, VizierResponseStats,
+        AgentConfig, Memory, SessionHistory, SessionHistoryContent, VizierRequest,
+        VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
     },
     utils::{agent_workspace, build_path},
 };
 
 mod model;
-mod system_prompt;
+pub mod system_prompt;
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct Subtask {
@@ -57,11 +57,13 @@ pub struct VizierAgent {
 }
 
 impl VizierAgent {
-    pub async fn new(agent_id: String, deps: &VizierDependencies) -> Result<VizierAgent> {
-        let agent_config = deps.config.agents.get(&agent_id.clone()).unwrap();
-
-        let model = VizierModel::new(agent_id.clone(), deps.clone()).await?;
-        let tools = VizierTools::new(agent_id.clone(), deps.clone()).await?;
+    pub async fn new(
+        agent_id: String,
+        deps: &VizierDependencies,
+        agent_config: &AgentConfig,
+    ) -> Result<VizierAgent> {
+        let model = VizierModel::new(agent_id.clone(), deps.clone(), agent_config).await?;
+        let tools = VizierTools::new(agent_id.clone(), deps.clone(), agent_config).await?;
         let skills = VizierSkills::new(agent_id.clone(), deps.clone()).await?;
 
         let workspace = agent_workspace(&deps.config.workspace, &agent_id)
@@ -198,7 +200,7 @@ impl VizierAgent {
         history: Vec<Message>,
         turn_depth: usize,
         hooks: Option<Arc<VizierSessionHooks>>,
-        is_subagent: bool,
+        _is_subagent: bool,
     ) -> Result<(String, VizierResponseStats)> {
         timeout(*self.config.prompt_timeout, async {
             let mut history = history.clone();

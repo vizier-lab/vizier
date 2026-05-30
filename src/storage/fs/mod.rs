@@ -10,6 +10,7 @@ use crate::{
     },
 };
 
+mod agent;
 mod history;
 mod memory;
 mod session;

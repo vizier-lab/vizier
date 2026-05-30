@@ -708,9 +708,20 @@ export default function Chat() {
       </div >
 
       {/* Input */}
-      < div className="border-t border-[var(--border)] px-4 py-3 md:px-6 md:py-4 bg-[var(--background)]">
+      <div style={{
+        borderTop: '1px solid var(--border)',
+        padding: '0.75rem 1.5rem 1rem',
+        background: 'var(--background)',
+      }}>
         <style>{textareaStyle}</style>
-        <div className="flex flex-col gap-3 max-w-[900px] mx-auto w-full">
+        <div style={{
+          maxWidth: '800px',
+          margin: '0 auto',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.75rem',
+          width: '100%',
+        }}>
           {/* Attachment chips */}
           {attachments.length > 0 && (
             <div style={{
@@ -766,7 +777,7 @@ export default function Chat() {
             </div>
           )}
           {/* Input row */}
-          <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '12px' }}>
+          <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
             <input
               type="file"
               ref={fileInputRef}

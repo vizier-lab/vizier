@@ -174,7 +174,7 @@ pub async fn download_file(
     };
 
     let file_path = entry.path();
-    let filename = entry.file_name().to_string_lossy().to_string();
+    let _filename = entry.file_name().to_string_lossy().to_string();
 
     let data = match fs::read(&file_path).await {
         Ok(d) => d,

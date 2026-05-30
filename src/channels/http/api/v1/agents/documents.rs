@@ -67,7 +67,7 @@ pub async fn get_agent_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<DocumentContentResponse> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -96,7 +96,7 @@ pub async fn update_agent_doc(
     State(state): State<HTTPState>,
     Json(body): Json<UpdateDocumentRequest>,
 ) -> models::response::Response<DocumentUpdateResponse> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -122,7 +122,7 @@ pub async fn get_identity_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<DocumentContentResponse> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -151,7 +151,7 @@ pub async fn update_identity_doc(
     State(state): State<HTTPState>,
     Json(body): Json<UpdateDocumentRequest>,
 ) -> models::response::Response<DocumentUpdateResponse> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -177,7 +177,7 @@ pub async fn get_heartbeat_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<DocumentContentResponse> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -206,7 +206,7 @@ pub async fn update_heartbeat_doc(
     State(state): State<HTTPState>,
     Json(body): Json<UpdateDocumentRequest>,
 ) -> models::response::Response<DocumentUpdateResponse> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 

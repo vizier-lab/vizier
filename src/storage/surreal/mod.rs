@@ -7,6 +7,7 @@ use surrealdb::engine::local::{Db, RocksDb};
 
 use crate::{embedding::VizierEmbedder, storage::VizierStorageProvider, utils::build_path};
 
+pub mod agent;
 pub mod history;
 pub mod memory;
 pub mod query;
@@ -38,6 +39,7 @@ impl SurrealStorage {
         db.query("DEFINE TABLE user SCHEMALESS;").await?;
         db.query("DEFINE TABLE api_key SCHEMALESS;").await?;
         db.query("DEFINE TABLE shared_document SCHEMALESS;").await?;
+        db.query("DEFINE TABLE agent_config SCHEMALESS;").await?;
 
         let res = Self {
             conn: Arc::new(db),

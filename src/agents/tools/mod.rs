@@ -34,6 +34,7 @@ use crate::{
     error::VizierError,
     mcp::{VizierMcp, VizierMcpClient},
     schema::{AgentId, VizierResponse},
+    storage::agent::AgentStorage,
     utils::agent_workspace,
 };
 
@@ -250,12 +251,24 @@ impl VizierTools {
 }
 
 impl VizierTools {
-    pub async fn new(agent_id: AgentId, deps: VizierDependencies) -> Result<Self> {
-        let agent_config = deps.config.agents.get(&agent_id).unwrap();
+    pub async fn new(
+        agent_id: AgentId,
+        deps: VizierDependencies,
+        agent_config: &crate::schema::AgentConfig,
+    ) -> Result<Self> {
         let tool_config = deps.config.tools.clone();
         let workspace = deps.config.workspace.clone();
         let agent_workspace_path = agent_workspace(&workspace, &agent_id);
         let agent_workspace = agent_workspace_path.to_string_lossy().to_string();
+
+        let other_agents: HashMap<String, crate::schema::AgentConfig> = deps
+            .storage
+            .list_agents()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(aid, _)| aid != &agent_id)
+            .collect();
 
         let mut default_toolset = VizierToolSet::new();
         let mut user_toolset = VizierToolSet::new();
@@ -294,8 +307,8 @@ impl VizierTools {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
             })
-            .tool(ConsultAgent::new(agent_id.clone(), deps.clone()))
-            .tool(DelegateAgent::new(agent_id.clone(), deps.clone()))
+            .tool(ConsultAgent::new(agent_id.clone(), other_agents.clone(), deps.transport.clone()))
+            .tool(DelegateAgent::new(agent_id.clone(), other_agents.clone(), deps.transport.clone()))
             .tool(SubtasksTool::new(agent_id.clone(), deps.clone()))
             .tool(CreateSkill::new(agent_id.clone(), deps.clone()));
 

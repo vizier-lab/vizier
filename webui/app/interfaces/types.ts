@@ -32,6 +32,86 @@ export interface Agent {
   description?: string
 }
 
+export interface AgentToolConfig {
+  enabled: boolean
+}
+
+export interface AgentToolsConfig {
+  timeout: string
+  programmatic_sandbox: boolean
+  shell_access: boolean
+  brave_search: AgentToolConfig
+  vector_memory: AgentToolConfig
+  discord: AgentToolConfig
+  telegram: AgentToolConfig
+  notify_primary_user: AgentToolConfig
+  fetch: AgentToolConfig
+  http_client: AgentToolConfig
+  mcp_servers: string[]
+}
+
+export interface AgentConfig {
+  name: string
+  system_prompt?: string
+  description?: string
+  provider: string
+  model: string
+  session_memory: { max_capacity: number }
+  thinking_depth: number
+  tools: AgentToolsConfig
+  silent_read_initiative_chance: number
+  show_thinking?: boolean
+  show_tool_calls?: boolean
+  include_documents?: string[]
+  prompt_timeout: string
+  heartbeat_interval: string
+  dream_interval: string
+}
+
+export interface CreateAgentRequest {
+  agent_id: string
+  name: string
+  description?: string
+  provider: string
+  model: string
+  system_prompt?: string
+  thinking_depth?: number
+  session_memory_capacity?: number
+  tools?: {
+    shell_access?: boolean
+    brave_search?: boolean
+    vector_memory?: boolean
+    discord?: boolean
+    telegram?: boolean
+    fetch?: boolean
+    http_client?: boolean
+  }
+  prompt_timeout?: string
+  heartbeat_interval?: string
+  dream_interval?: string
+}
+
+export interface AgentDetail {
+  agent_id: string
+  name: string
+  description?: string
+  provider: string
+  model: string
+  system_prompt?: string
+  thinking_depth: number
+  session_memory_capacity: number
+  shell_access: boolean
+  brave_search: boolean
+  vector_memory: boolean
+  discord: boolean
+  telegram: boolean
+  fetch: boolean
+  http_client: boolean
+  prompt_timeout: string
+  heartbeat_interval: string
+  dream_interval: string
+}
+
 // ============================================================================
 // CHAT/TOPIC
 // ============================================================================

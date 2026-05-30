@@ -9,7 +9,7 @@ use crate::{
     agents::VizierAgents,
     channels::VizierChannels,
     command::VizierCommandServer,
-    config::{VizierConfig, provider::ProviderVariant},
+    config::VizierConfig,
     dependencies::VizierDependencies,
     scheduler::VizierScheduler,
 };
@@ -40,15 +40,6 @@ pub async fn run_server(config: VizierConfig) -> Result<()> {
     let exit_signal = exit_transport.exit_signal();
 
     let mut set = JoinSet::new();
-
-    tracing::info!("preload all local models");
-    for (_, config) in &deps.config.agents {
-        if config.provider == ProviderVariant::ollama {
-            let base_url = deps.config.providers.ollama.clone().unwrap().base_url;
-            crate::utils::ollama::ollama_pull_model(&base_url, &config.model).await?;
-        }
-    }
-    tracing::info!("preload done");
 
     let mut scheduler = VizierScheduler::new(deps.clone()).await?;
     set.spawn(async move {

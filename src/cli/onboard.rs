@@ -9,13 +9,13 @@ use crate::{
     config::{
         ChannelsConfig, DiscordChannelConfig, HTTPChannelConfig, TelegramChannelConfig,
         VizierConfig,
-        agent::{AgentConfig, AgentToolsConfig, MemoryConfig, ToolConfig},
         provider::{ProviderConfig, ProviderVariant},
         storage::{DocumentIndexerConfig, StorageConfig},
         tools::{BraveSearchConfig, ToolsConfig},
         user::UserConfig,
     },
     constant::AGENT_TEMPLATE,
+    schema::{AgentConfig, AgentToolsConfig, MemoryConfig, ToolConfig},
 };
 
 #[derive(Debug, Args, Clone)]
@@ -293,7 +293,6 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         },
         providers,
         storage,
-        agents: HashMap::new(),
         channels: ChannelsConfig {
             discord: discord_token.map(|token| {
                 HashMap::from([(agent_id.to_string(), DiscordChannelConfig { token })])

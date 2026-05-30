@@ -8,10 +8,10 @@ use inquire::{Confirm, CustomType, Select, Text};
 use crate::{
     config::{
         VizierConfig,
-        agent::{AgentConfig, AgentToolsConfig, MemoryConfig, ToolConfig},
         provider::ProviderVariant,
     },
     constant::AGENT_TEMPLATE,
+    schema::{AgentConfig, AgentToolsConfig, MemoryConfig, ToolConfig},
 };
 
 #[derive(Debug, Parser, Clone)]

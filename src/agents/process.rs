@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::Result;
 use chrono::Utc;
 use rig::message::Message;
+use tokio::sync::watch;
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::{
@@ -13,11 +14,9 @@ use crate::{
             tool_calls::ToolCallsHook,
         },
     },
-    config::agent::AgentConfig,
     dependencies::VizierDependencies,
-    error::VizierError,
     schema::{
-        AgentId, VizierChannelId, VizierRequest, VizierRequestContent, VizierResponse,
+        AgentConfig, AgentId, VizierChannelId, VizierRequest, VizierRequestContent, VizierResponse,
         VizierResponseContent, VizierSession, VizierSessionDetail,
     },
     storage::{
@@ -26,13 +25,13 @@ use crate::{
     transport::VizierTransport,
 };
 
-pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Result<()> {
-    let agent = Arc::new(VizierAgent::new(agent_id.clone(), &deps).await?);
-    let agent_config = deps
-        .config
-        .agents
-        .get(&agent_id)
-        .ok_or(VizierError("agent is not found".into()))?;
+pub async fn agent_process(
+    agent_id: AgentId,
+    deps: VizierDependencies,
+    agent_config: AgentConfig,
+    _shutdown_rx: watch::Receiver<bool>,
+) -> Result<()> {
+    let agent = Arc::new(VizierAgent::new(agent_id.clone(), &deps, &agent_config).await?);
 
     let mut recv = deps.transport.subscribe_request().await?;
     let mut agent_sessions = HashMap::<VizierSession, AgentSession>::new();
@@ -42,7 +41,7 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
     let mut detail_tasks = JoinSet::new();
 
     let heartbeat_agent_id = agent_id.clone();
-    let heartbeat_interval = *agent_config.heartbeat_interval.clone();
+    let heartbeat_interval = *agent_config.heartbeat_interval;
     let heartbeat_transport = deps.transport.clone();
     let heartbeat_workspace = agent.workspace.clone();
     let heartbeat = tokio::spawn(async move {
@@ -79,7 +78,7 @@ pub async fn agent_process(agent_id: AgentId, deps: VizierDependencies) -> Resul
     });
 
     let dream_agent_id = agent_id.clone();
-    let dream_interval = *agent_config.dream_interval.clone();
+    let dream_interval = *agent_config.dream_interval;
     let dream_transport = deps.transport.clone();
     let dream_storage = deps.storage.clone();
     let dream = tokio::spawn(async move {

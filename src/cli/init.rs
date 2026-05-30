@@ -4,11 +4,9 @@ use anyhow::Result;
 use duration_string::DurationString;
 
 use crate::{
-    config::{
-        VizierConfig,
-        agent::{AgentConfig, AgentToolsConfig, MemoryConfig, ToolConfig},
-    },
+    config::VizierConfig,
     constant::AGENT_TEMPLATE,
+    schema::{AgentConfig, AgentToolsConfig, MemoryConfig, ToolConfig},
     utils::build_path,
 };
 

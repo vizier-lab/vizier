@@ -12,6 +12,7 @@ export default [
   // Protected routes with layout
   layout('layout.tsx', [
     index('routes/home.tsx'),
+    route('agents/new', 'routes/agent-new.tsx'),
     route('settings', 'routes/settingsRoot.tsx'),
     route(':agentId/chat', 'routes/chat.tsx', { id: 'agent-chat' }),
     route(':agentId/chat/:topicId', 'routes/chat.tsx', { id: 'agent-chat-topic' }),
@@ -20,5 +21,6 @@ export default [
     route(':agentId/documents', 'routes/documents.tsx'),
     route(':agentId/usage', 'routes/usage.tsx'),
     route(':agentId/settings', 'routes/settings.tsx'),
+    route(':agentId/edit', 'routes/agent-edit.tsx'),
   ]),
 ] satisfies RouteConfig

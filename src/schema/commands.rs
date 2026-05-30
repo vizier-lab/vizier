@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::schema::agent::AgentConfig;
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandRequest {
@@ -21,4 +23,34 @@ impl std::fmt::Display for CommandResponse {
             CommandResponse::Error(s) => write!(f, "{s}"),
         }
     }
+}
+
+pub enum AgentCommand {
+    Create {
+        agent_id: String,
+        config: AgentConfig,
+        resp: tokio::sync::oneshot::Sender<AgentCommandResult>,
+    },
+    Update {
+        agent_id: String,
+        config: AgentConfig,
+        resp: tokio::sync::oneshot::Sender<AgentCommandResult>,
+    },
+    Delete {
+        agent_id: String,
+        delete_workspace: bool,
+        resp: tokio::sync::oneshot::Sender<AgentCommandResult>,
+    },
+}
+
+pub enum AgentCommandResult {
+    Ok(AgentSummary),
+    Error(String),
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct AgentSummary {
+    pub agent_id: String,
+    pub name: String,
+    pub description: Option<String>,
 }

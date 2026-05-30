@@ -82,7 +82,7 @@ pub async fn get_topic_history(
     Query(params): Query<HistoryQuery>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<Vec<SessionHistory>> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -117,7 +117,7 @@ pub async fn list_topics(
     Path((agent_id, channel_id)): Path<(String, String)>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<Vec<TopicEntry>> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -161,7 +161,7 @@ pub async fn delete_topic(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<String> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -197,7 +197,7 @@ pub async fn chat(
     ws: WebSocketUpgrade,
     State(state): State<HTTPState>,
 ) -> axum::response::Response {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return axum::response::Response::builder()
             .status(404)
             .body(axum::body::Body::empty())

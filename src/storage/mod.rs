@@ -3,14 +3,15 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::{
-    schema::DocumentIndex,
+    schema::{AgentConfig, DocumentIndex},
     storage::{
-        history::HistoryStorage, indexer::DocumentIndexer, memory::MemoryStorage,
-        session::SessionStorage, shared_document::SharedDocumentStorage, skill::SkillStorage,
-        state::StateStorage, task::TaskStorage, user::UserStorage,
+        agent::AgentStorage, history::HistoryStorage, indexer::DocumentIndexer,
+        memory::MemoryStorage, session::SessionStorage, shared_document::SharedDocumentStorage,
+        skill::SkillStorage, state::StateStorage, task::TaskStorage, user::UserStorage,
     },
 };
 
+pub mod agent;
 pub mod history;
 pub mod indexer;
 pub mod memory;
@@ -34,7 +35,8 @@ where
         + StateStorage
         + DocumentIndexer
         + UserStorage
-        + SharedDocumentStorage,
+        + SharedDocumentStorage
+        + AgentStorage,
 {
 }
 
@@ -113,5 +115,28 @@ impl UserStorage for VizierStorage {
 
     async fn update_api_key_last_used(&self, key_id: &str) -> Result<()> {
         self.0.update_api_key_last_used(key_id).await
+    }
+}
+
+#[async_trait::async_trait]
+impl AgentStorage for VizierStorage {
+    async fn list_agents(&self) -> Result<Vec<(String, AgentConfig)>> {
+        self.0.list_agents().await
+    }
+
+    async fn get_agent(&self, agent_id: &str) -> Result<Option<AgentConfig>> {
+        self.0.get_agent(agent_id).await
+    }
+
+    async fn create_agent(&self, agent_id: &str, config: &AgentConfig) -> Result<()> {
+        self.0.create_agent(agent_id, config).await
+    }
+
+    async fn update_agent(&self, agent_id: &str, config: &AgentConfig) -> Result<()> {
+        self.0.update_agent(agent_id, config).await
+    }
+
+    async fn delete_agent(&self, agent_id: &str) -> Result<()> {
+        self.0.delete_agent(agent_id).await
     }
 }

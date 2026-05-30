@@ -128,7 +128,7 @@ pub async fn get_tasks(
     Query(params): Query<GetTasksQuery>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<Vec<TaskResponse>> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -162,7 +162,7 @@ pub async fn get_task(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<TaskResponse> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -197,7 +197,7 @@ pub async fn create_task(
     State(state): State<HTTPState>,
     Json(body): Json<CreateTaskRequest>,
 ) -> models::response::Response<TaskResponse> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -244,7 +244,7 @@ pub async fn update_task(
     State(state): State<HTTPState>,
     Json(body): Json<CreateTaskRequest>,
 ) -> models::response::Response<TaskResponse> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
@@ -298,7 +298,7 @@ pub async fn delete_task(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<String> {
-    if !state.config.is_agent_exists(&agent_id) {
+    if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 

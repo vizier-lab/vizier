@@ -3,7 +3,6 @@ use std::{collections::HashMap, env::current_dir, fs, path::PathBuf, str::FromSt
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-pub mod agent;
 pub mod embedding;
 pub mod provider;
 pub mod shell;
@@ -13,7 +12,6 @@ pub mod user;
 
 use crate::{
     config::{
-        agent::{AgentConfig, AgentConfigs},
         embedding::{EmbeddingConfig, LocalEmbeddingModelVariant},
         provider::{OllamaProviderConfig, ProviderConfig},
         shell::{LocalShellConfig, ShellConfig},
@@ -77,8 +75,6 @@ pub struct VizierConfig {
     pub primary_user: UserConfig,
     pub providers: ProviderConfig,
     pub storage: StorageConfig,
-    #[serde(skip)]
-    pub agents: AgentConfigs,
     pub channels: ChannelsConfig,
     pub tools: ToolsConfig,
     pub shell: ShellConfig,
@@ -119,10 +115,6 @@ impl VizierConfig {
         workspace.push(".vizier");
         let _ = fs::create_dir_all(&workspace)?;
         config.vizier.workspace = workspace.to_str().unwrap().to_string();
-
-        let agent_path = parent_path;
-        let agents = AgentConfig::find_agent_configs(agent_path)?;
-        config.vizier.agents = agents;
 
         Ok(config.vizier)
     }
@@ -169,7 +161,6 @@ impl Default for VizierConfig {
             embedding: Some(EmbeddingConfig::Local {
                 model: LocalEmbeddingModelVariant::AllMiniLml6V2,
             }),
-            agents: HashMap::from([]),
             channels: ChannelsConfig {
                 discord: Some(
                     [("vizier".to_string(), DiscordChannelConfig::default())]

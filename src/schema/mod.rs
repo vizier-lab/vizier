@@ -1,3 +1,4 @@
+pub mod agent;
 mod commands;
 mod history;
 mod metrics;
@@ -7,7 +8,8 @@ mod session;
 mod storage;
 mod task;
 
-pub use commands::{CommandRequest, CommandResponse};
+pub use agent::{AgentConfig, AgentToolsConfig, MemoryConfig, ToolConfig};
+pub use commands::{AgentCommand, AgentCommandResult, AgentSummary, CommandRequest, CommandResponse};
 pub use history::{SessionHistory, SessionHistoryContent};
 pub use metrics::{
     AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage, DailyChannelTypeUsage,
