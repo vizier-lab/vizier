@@ -13,7 +13,8 @@ export default [
   layout('layout.tsx', [
     index('routes/home.tsx'),
     route('settings', 'routes/settingsRoot.tsx'),
-    route(':agentId/chat/:topicId', 'routes/chat.tsx'),
+    route(':agentId/chat', 'routes/chat.tsx', { id: 'agent-chat' }),
+    route(':agentId/chat/:topicId', 'routes/chat.tsx', { id: 'agent-chat-topic' }),
     route(':agentId/memory', 'routes/memory.tsx'),
     route(':agentId/tasks', 'routes/tasks.tsx'),
     route(':agentId/documents', 'routes/documents.tsx'),

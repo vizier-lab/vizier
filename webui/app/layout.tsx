@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
 import { listAgents } from './services/vizier'
-import { FiSettings, FiCheckCircle, FiLogOut, FiTrendingUp, FiChevronDown } from 'react-icons/fi'
+import { FiSettings, FiCheckCircle, FiLogOut, FiTrendingUp, FiChevronDown, FiMessageSquare } from 'react-icons/fi'
 import { FaBook, FaFolder } from 'react-icons/fa'
 import Avatar from './components/avatar'
 import ThemeToggle from './components/ThemeToggle'
@@ -61,7 +61,7 @@ export default function Layout() {
 
   const handleSelectAgent = (agentId: string) => {
     setShowAgentDropdown(false)
-    navigate(`/${agentId}/chat/new`)
+    navigate(`/${agentId}/chat`)
   }
 
   const getCurrentView = () => {
@@ -144,6 +144,13 @@ export default function Layout() {
           <div className="nav-content">
             <div className="nav-section">
               <div className="nav-section-title">Tools</div>
+              <div
+                className={`nav-item ${currentView === 'chat' ? 'active' : ''}`}
+                onClick={() => navigate(`/${currentAgentId}/chat`)}
+              >
+                <FiMessageSquare size={16} />
+                <span>Chat</span>
+              </div>
               <div
                 className={`nav-item ${currentView === 'memory' ? 'active' : ''}`}
                 onClick={() => navigate(`/${currentAgentId}/memory`)}
