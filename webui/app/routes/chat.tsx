@@ -1,27 +1,17 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import type { FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router'
-import { getTopicHistory, listTopics, deleteTopic, getAgentDetail, listAgents, uploadFile, base_url } from '../services/vizier'
+import { getTopicHistory, listTopics, deleteTopic, getAgentDetail, listAgents } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
 import type { Agent, ChatMessage, Topic, VizierAttachment, WebSocketMessage, WebSocketResponse, VizierResponseStats } from '../interfaces/types'
 import { getCurrentUsername } from '../utils/auth'
 import { Skeleton, SkeletonMessage } from '../components/Skeleton'
-import { FaPaperPlane, FaPaperclip, FaXmark, FaChevronDown, FaTrash } from 'react-icons/fa6'
+import { FaPaperPlane, FaPaperclip, FaXmark, FaChevronDown, FaTrash, FaCloudArrowUp } from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
 import { useConnectionStore } from '../hooks/connectionStore'
 import { MessageItem } from '../components/MessageItem'
 import { ThinkingIndicator } from '../components/ThinkingIndicator'
 import { debounce } from '../utils/debounce'
-
-const textareaStyle = `
-  .chat-textarea::-webkit-scrollbar {
-    display: none;
-  }
-  .chat-textarea {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-`
 
 interface InlineEvent {
   id: string
@@ -130,11 +120,16 @@ export default function Chat() {
   const [inlineEvents, setInlineEvents] = useState<InlineEvent[]>([])
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null)
   const [attachments, setAttachments] = useState<VizierAttachment[]>([])
-  const [uploading, setUploading] = useState(false)
   const [showSessionDropdown, setShowSessionDropdown] = useState(false)
   const [sessionList, setSessionList] = useState<Topic[]>([])
   const [showNewSessionInput, setShowNewSessionInput] = useState(false)
   const [newSessionId, setNewSessionId] = useState('')
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
+  const [sendPulse, setSendPulse] = useState(false)
+  const [imagePreviews, setImagePreviews] = useState<Record<string, string>>({})
+  const prevInputRef = useRef('')
+  const dragCounterRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -153,6 +148,23 @@ export default function Chat() {
     }, 50),
     []
   )
+
+  // Pulse send button when input transitions from empty to non-empty
+  useEffect(() => {
+    if (input.trim() && !prevInputRef.current.trim()) {
+      setSendPulse(true)
+      const timer = setTimeout(() => setSendPulse(false), 300)
+      return () => clearTimeout(timer)
+    }
+    prevInputRef.current = input
+  }, [input])
+
+  // Cleanup image preview object URLs on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(imagePreviews).forEach(url => URL.revokeObjectURL(url))
+    }
+  }, [])
 
   const [topicDetail, setTopicDetail] = useState<any | null>(null)
   const [agentNames, setAgentNames] = useState<Record<string, string>>({})
@@ -177,6 +189,10 @@ export default function Chat() {
   useEffect(() => {
     setInlineEvents([])
     setAttachments([])
+    setImagePreviews(prev => {
+      Object.values(prev).forEach(url => URL.revokeObjectURL(url))
+      return {}
+    })
     setShowSessionDropdown(false)
     setShowNewSessionInput(false)
     setNewSessionId('')
@@ -435,6 +451,10 @@ export default function Chat() {
     setMessages(prev => [...prev, userMessage])
     setInput('')
     setAttachments([])
+    setImagePreviews(prev => {
+      Object.values(prev).forEach(url => URL.revokeObjectURL(url))
+      return {}
+    })
     if (inputRef.current) {
       inputRef.current.style.height = 'auto'
     }
@@ -453,33 +473,116 @@ export default function Chat() {
     addToast('success', 'Copied!', 'Message copied to clipboard')
   }, [addToast])
 
-  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files) return
+  const fileToBase64 = useCallback((file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = reader.result as string
+        const base64 = result.split(',')[1] || ''
+        resolve(base64)
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }, [])
 
-    setUploading(true)
-    for (const file of Array.from(files)) {
+  const processFiles = useCallback(async (files: File[]) => {
+    const imageFiles = files.filter(f => f.type.startsWith('image/'))
+    const newPreviews: Record<string, string> = {}
+    for (const file of imageFiles) {
+      newPreviews[file.name] = URL.createObjectURL(file)
+    }
+    setImagePreviews(prev => ({ ...prev, ...newPreviews }))
+
+    for (const file of files) {
       try {
-        const result = await uploadFile(file)
+        const base64 = await fileToBase64(file)
         const newAttachment: VizierAttachment = {
-          filename: result.filename,
-          content: { url: `http://${base_url}${result.url}` },
+          filename: file.name,
+          content: { base64 },
         }
         setAttachments(prev => [...prev, newAttachment])
       } catch (err: any) {
-        console.error('Upload failed:', err)
-        addToast('error', 'Upload failed', err?.message || 'Failed to upload file')
+        console.error('File read failed:', err)
+        addToast('error', 'File read failed', err?.message || 'Failed to read file')
       }
     }
-    setUploading(false)
+  }, [addToast, fileToBase64])
+
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+    await processFiles(Array.from(files))
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
-  }, [addToast])
+  }, [processFiles])
 
   const handleRemoveAttachment = useCallback((index: number) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index))
+    setAttachments(prev => {
+      const removed = prev[index]
+      if (removed) {
+        setImagePreviews(p => {
+          const copy = { ...p }
+          delete copy[removed.filename]
+          return copy
+        })
+      }
+      return prev.filter((_, i) => i !== index)
+    })
   }, [])
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current++
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragOver(true)
+    }
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current--
+    if (dragCounterRef.current === 0) {
+      setIsDragOver(false)
+    }
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current = 0
+    setIsDragOver(false)
+    const files = Array.from(e.dataTransfer.files).filter(f => {
+      const ext = f.name.toLowerCase()
+      return f.type.startsWith('image/') || ext.endsWith('.pdf') || ext.endsWith('.doc') || ext.endsWith('.docx') || ext.endsWith('.txt')
+    })
+    if (files.length > 0) {
+      processFiles(files)
+    }
+  }, [processFiles])
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items)
+    const imageItems = items.filter(item => item.type.startsWith('image/'))
+    if (imageItems.length === 0) return
+
+    e.preventDefault()
+    const files = imageItems
+      .map(item => item.getAsFile())
+      .filter((f): f is File => f !== null)
+    if (files.length > 0) {
+      processFiles(files)
+      addToast('info', 'Image pasted', 'Image uploaded from clipboard')
+    }
+  }, [processFiles, addToast])
 
   if (loading) {
     return (
@@ -708,17 +811,15 @@ export default function Chat() {
 
       {/* Input */}
       <div style={{
-        borderTop: '1px solid var(--border)',
         padding: '0.75rem 1.5rem 1rem',
         background: 'var(--background)',
       }}>
-        <style>{textareaStyle}</style>
         <div style={{
           maxWidth: '800px',
           margin: '0 auto',
           display: 'flex',
           flexDirection: 'column',
-          gap: '0.75rem',
+          gap: '0.5rem',
           width: '100%',
         }}>
           {/* Attachment chips */}
@@ -726,119 +827,105 @@ export default function Chat() {
             <div style={{
               display: 'flex',
               flexWrap: 'wrap',
-              gap: '8px',
+              gap: '6px',
               alignItems: 'center',
             }}>
-              <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Attached:</span>
-              {attachments.map((att, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    padding: '4px 8px',
-                    background: 'var(--surface)',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                  }}
-                >
-                  <span>{att.filename}</span>
-                  <button
-                    onClick={() => handleRemoveAttachment(idx)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      padding: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      color: 'var(--text-tertiary)',
-                    }}
-                  >
-                    <FaXmark size={12} />
-                  </button>
-                </div>
-              ))}
+              {attachments.map((att, idx) => {
+                const isImage = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(att.filename)
+                const preview = imagePreviews[att.filename]
+                const base64 = 'base64' in att.content ? att.content.base64 : undefined
+                const ext = att.filename.split('.').pop()?.toLowerCase() || 'png'
+                const mimeMap: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp' }
+                const base64Src = base64 ? `data:${mimeMap[ext] || 'image/png'};base64,${base64}` : undefined
+                return (
+                  <div key={idx} className="chat-attachment-chip">
+                    {isImage && preview ? (
+                      <img src={preview} alt={att.filename} className="chat-attachment-chip-thumbnail" />
+                    ) : isImage && base64Src ? (
+                      <img src={base64Src} alt={att.filename} className="chat-attachment-chip-thumbnail" />
+                    ) : null}
+                    <span>{att.filename}</span>
+                    <button
+                      onClick={() => handleRemoveAttachment(idx)}
+                      className="chat-attachment-chip-remove"
+                    >
+                      <FaXmark size={10} />
+                    </button>
+                  </div>
+                )
+              })}
               <button
-                onClick={() => setAttachments([])}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: '11px',
-                  color: 'var(--text-tertiary)',
-                  textDecoration: 'underline',
+                onClick={() => {
+                  setAttachments([])
+                  setImagePreviews({})
                 }}
+                className="chat-clear-all-btn"
               >
                 Clear all
               </button>
             </div>
           )}
-          {/* Input row */}
-          <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileSelect}
-              multiple
-              accept="image/*,.pdf,.doc,.docx,.txt"
-              style={{ display: 'none' }}
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={!connected || uploading}
-              style={{
-                width: '44px',
-                height: '44px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                borderRadius: '8px',
-                cursor: !connected || uploading ? 'not-allowed' : 'pointer',
-                color: !connected || uploading ? 'var(--text-tertiary)' : 'var(--text-primary)',
-                opacity: uploading ? 0.7 : 1,
-              }}
-              title="Attach file"
-            >
-              {uploading ? (
-                <span style={{ fontSize: '10px' }}>...</span>
-              ) : (
-                <FaPaperclip />
-              )}
-            </button>
-            <textarea
-              className="chat-textarea"
-              ref={inputRef}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value)
-                debouncedResize(e.target)
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder={connected ? "Type a message..." : "Connecting..."}
-              disabled={!connected}
-              rows={1}
-              style={{
-                flex: 1,
-                resize: 'none',
-                minHeight: '44px',
-                maxHeight: '50vh',
-                overflowY: 'auto',
-              }}
-            />
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={!input.trim() || !connected}
-              style={{ width: '44px', height: '44px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            >
-              <FaPaperPlane />
-            </button>
-          </form>
+          {/* Keyboard hint */}
+          <div className={`chat-keyboard-hint${isFocused && !input.trim() ? ' visible' : ''}`}>
+            Press <strong>Enter</strong> to send, <strong>Shift+Enter</strong> for new line
+          </div>
+          {/* Input container */}
+          <div
+            className={`chat-input-container${isDragOver ? ' drag-over' : ''}`}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+          >
+            {isDragOver && (
+              <div className="chat-drop-overlay">
+                <FaCloudArrowUp size={20} />
+                Drop files here
+              </div>
+            )}
+            <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '4px 8px 4px 4px' }}>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.txt"
+                style={{ display: 'none' }}
+              />
+              <button
+                type="button"
+                className="chat-attach-btn"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={!connected}
+                title="Attach file"
+              >
+                <FaPaperclip size={16} />
+              </button>
+              <textarea
+                className="chat-input-textarea"
+                ref={inputRef}
+                value={input}
+                onChange={(e) => {
+                  setInput(e.target.value)
+                  debouncedResize(e.target)
+                }}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+                placeholder={connected ? "Type a message..." : "Connecting..."}
+                disabled={!connected}
+                rows={1}
+              />
+              <button
+                type="submit"
+                className={`chat-send-btn${input.trim() ? ' has-content' : ''}${sendPulse ? ' pulse' : ''}`}
+                disabled={!input.trim() || !connected}
+              >
+                <FaPaperPlane size={14} />
+              </button>
+            </form>
+          </div>
         </div>
       </div >
     </>

@@ -27,6 +27,41 @@ function MessageItemComponent({
 }: MessageItemProps) {
   const isImage = (filename: string) => /\.(jpg|jpeg|png|gif|webp)$/i.test(filename)
 
+  const getMimeType = (filename: string): string => {
+    const ext = filename.split('.').pop()?.toLowerCase()
+    const map: Record<string, string> = {
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+      gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+      bmp: 'image/bmp', pdf: 'application/pdf',
+      doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      txt: 'text/plain', rtf: 'application/rtf',
+    }
+    return map[ext || ''] || 'application/octet-stream'
+  }
+
+  const bytesToBase64 = (bytes: number[]): string => {
+    let binary = ''
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    return btoa(binary)
+  }
+
+  const getAttachmentSrc = (att: VizierAttachment): string | undefined => {
+    const mime = getMimeType(att.filename)
+    if ('url' in att.content) {
+      const url = att.content.url
+      return (url.startsWith(`http://${base_url}`) ? '' : `http://${base_url}`) + url
+    }
+    if ('base64' in att.content) {
+      return `data:${mime};base64,${att.content.base64}`
+    }
+    if ('bytes' in att.content) {
+      return `data:${mime};base64,${bytesToBase64(att.content.bytes)}`
+    }
+    return undefined
+  }
+
   const getFileIcon = (filename: string) => {
     if (/\.pdf$/i.test(filename)) return <FaFilePdf size={16} />
     if (/\.(jpg|jpeg|png|gif|webp)$/i.test(filename)) return <FaFileImage size={16} />
@@ -88,51 +123,49 @@ function MessageItemComponent({
             gap: '8px',
           }}>
             {attachments.map((att, idx) => {
-              if (att.content.url) {
-                if (isImage(att.filename)) {
-                  return (
-                    <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <img
-                        src={(att.content.url?.startsWith(`http://${base_url}`) ? '' : `http://${base_url}`) + `${att.content.url}`}
-                        alt={att.filename}
-                        style={{
-                          maxWidth: '300px',
-                          maxHeight: '200px',
-                          borderRadius: '8px',
-                          objectFit: 'cover',
-                        }}
-                      />
-                      <span style={{
-                        fontSize: '12px',
-                        color: 'var(--text-tertiary)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                      }}>
-                        📎 {att.filename}
-                      </span>
-                    </div>
-                  )
-                }
+              const src = getAttachmentSrc(att)
+              if (isImage(att.filename) && src) {
                 return (
-                  <div
-                    key={idx}
-                    style={{
+                  <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <img
+                      src={src}
+                      alt={att.filename}
+                      style={{
+                        maxWidth: '300px',
+                        maxHeight: '200px',
+                        borderRadius: '8px',
+                        objectFit: 'cover',
+                      }}
+                    />
+                    <span style={{
+                      fontSize: '12px',
+                      color: 'var(--text-tertiary)',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '8px',
-                      padding: '8px 12px',
-                      background: 'var(--surface)',
-                      borderRadius: '6px',
-                      fontSize: '13px',
-                    }}
-                  >
-                    {getFileIcon(att.filename)}
-                    <span>{att.filename}</span>
+                      gap: '4px',
+                    }}>
+                      📎 {att.filename}
+                    </span>
                   </div>
                 )
               }
-              return null
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 12px',
+                    background: 'var(--surface)',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                  }}
+                >
+                  {getFileIcon(att.filename)}
+                  <span>{att.filename}</span>
+                </div>
+              )
             })}
           </div>
         )}
