@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import useWebSocket, { ReadyState } from 'react-use-websocket'
 import { getTopicHistory, getChatWebSocketUrl, listTopics, deleteTopic, getAgentDetail, listAgents, uploadFile, base_url } from '../services/vizier'
-import { nanoid } from 'nanoid'
+import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
 import type { Agent, ChatMessage, Topic, VizierAttachment, WebSocketMessage, WebSocketResponse, VizierResponseStats } from '../interfaces/types'
 import { getCurrentUsername } from '../utils/auth'
 import { Skeleton, SkeletonMessage } from '../components/Skeleton'
@@ -134,6 +134,8 @@ export default function Chat() {
   const [uploading, setUploading] = useState(false)
   const [showSessionDropdown, setShowSessionDropdown] = useState(false)
   const [sessionList, setSessionList] = useState<Topic[]>([])
+  const [showNewSessionInput, setShowNewSessionInput] = useState(false)
+  const [newSessionId, setNewSessionId] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -193,6 +195,8 @@ export default function Chat() {
     setInlineEvents([])
     setAttachments([])
     setShowSessionDropdown(false)
+    setShowNewSessionInput(false)
+    setNewSessionId('')
     if (thinkingTimeoutRef.current) {
       clearTimeout(thinkingTimeoutRef.current)
       thinkingTimeoutRef.current = null
@@ -368,8 +372,29 @@ export default function Chat() {
 
   const handleNewSession = useCallback(() => {
     setShowSessionDropdown(false)
-    navigate(`/${agentId}/chat/${nanoid(10)}`)
-  }, [agentId, navigate])
+    setShowNewSessionInput(true)
+    setNewSessionId('')
+  }, [])
+
+  const handleCreateSession = useCallback(() => {
+    if (!agentId) return
+    const slug = autoCorrectSlugStrict(newSessionId)
+    if (!slug) return
+    const exists = sessionList.some(s => s.topic_id === slug)
+    if (exists) {
+      addToast('error', 'Session already exists', `"${slug}" already exists.`)
+      return
+    }
+    setShowSessionDropdown(false)
+    setShowNewSessionInput(false)
+    setNewSessionId('')
+    navigate(`/${agentId}/chat/${slug}`)
+  }, [agentId, newSessionId, sessionList, navigate, addToast])
+
+  const handleCancelNewSession = useCallback(() => {
+    setShowNewSessionInput(false)
+    setNewSessionId('')
+  }, [])
 
   const handleDeleteSession = useCallback(async (e: React.MouseEvent, sessionId: string) => {
     e.stopPropagation()
@@ -566,6 +591,89 @@ export default function Chat() {
           {connectionStatus}
         </div>
       </div>
+
+      {/* New Session Modal */}
+      {showNewSessionInput && (
+        <>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 1000,
+              backdropFilter: 'blur(4px)',
+            }}
+            onClick={handleCancelNewSession}
+          />
+          <div
+            style={{
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: 'var(--background)',
+              borderRadius: '12px',
+              padding: '2rem',
+              maxWidth: '420px',
+              width: '90%',
+              zIndex: 1001,
+              border: '1px solid var(--border)',
+              boxShadow: 'var(--shadow-xl)',
+            }}
+          >
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '1.5rem',
+            }}>
+              <h2 style={{ margin: 0 }}>New Session</h2>
+              <button className="btn btn-ghost" onClick={handleCancelNewSession} style={{ padding: '8px' }}>✕</button>
+            </div>
+
+            <div className="input-group">
+              <label htmlFor="new-session-id">Topic ID</label>
+              <input
+                id="new-session-id"
+                type="text"
+                value={newSessionId}
+                onChange={(e) => setNewSessionId(autoCorrectSlug(e.target.value))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateSession()
+                  if (e.key === 'Escape') handleCancelNewSession()
+                }}
+                placeholder="my-session-name"
+                autoFocus
+              />
+              {newSessionId && (
+                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+                  → {autoCorrectSlugStrict(newSessionId) || '...'}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '1.5rem' }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleCreateSession}
+                disabled={!autoCorrectSlugStrict(newSessionId)}
+                style={{ flex: 1, justifyContent: 'center' }}
+              >
+                Create
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={handleCancelNewSession}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Messages */}
       <div
