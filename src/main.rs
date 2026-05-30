@@ -18,6 +18,7 @@ mod constant;
 mod dependencies;
 mod embedding;
 mod error;
+mod global_resources;
 mod mcp;
 mod scheduler;
 mod schema;

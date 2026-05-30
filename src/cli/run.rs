@@ -11,6 +11,7 @@ use crate::{
     command::VizierCommandServer,
     config::VizierConfig,
     dependencies::VizierDependencies,
+    global_resources::VizierGlobalResources,
     scheduler::VizierScheduler,
 };
 
@@ -51,6 +52,13 @@ pub async fn run_server(config: VizierConfig) -> Result<()> {
     let mut agents = VizierAgents::new(deps.clone()).await?;
     set.spawn(async move {
         if let Err(err) = agents.run().await {
+            tracing::error!("{}", err);
+        }
+    });
+
+    let mut global_resources = VizierGlobalResources::new(deps.clone());
+    set.spawn(async move {
+        if let Err(err) = global_resources.run().await {
             tracing::error!("{}", err);
         }
     });

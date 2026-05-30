@@ -18,7 +18,7 @@ use crate::{
     },
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentSummary, AgentToolsConfig,
-        AgentUsageStats, MemoryConfig, ToolConfig,
+        AgentUsageStats, BraveSearchToolSettings, MemoryConfig, ToolConfig,
     },
     storage::{agent::AgentStorage, history::HistoryStorage, VizierStorage},
 };
@@ -85,6 +85,7 @@ pub struct AgentDetail {
     pub session_memory_capacity: usize,
     pub shell_access: bool,
     pub brave_search: bool,
+    pub brave_search_settings: Option<BraveSearchToolSettings>,
     pub vector_memory: bool,
     pub discord: bool,
     pub telegram: bool,
@@ -126,6 +127,13 @@ async fn agent_detail(
                 session_memory_capacity: config.session_memory.max_capacity,
                 shell_access: config.tools.shell_access,
                 brave_search: config.tools.brave_search.enabled,
+                brave_search_settings: if config.tools.brave_search.settings.api_key.is_some()
+                    || config.tools.brave_search.settings.safesearch.is_some()
+                {
+                    Some(config.tools.brave_search.settings.clone())
+                } else {
+                    None
+                },
                 vector_memory: config.tools.vector_memory.enabled,
                 discord: config.tools.discord.enabled,
                 telegram: config.tools.telegram.enabled,
@@ -177,6 +185,8 @@ pub struct CreateAgentTools {
     #[serde(default)]
     pub brave_search: Option<bool>,
     #[serde(default)]
+    pub brave_search_settings: Option<BraveSearchToolSettings>,
+    #[serde(default)]
     pub vector_memory: Option<bool>,
     #[serde(default)]
     pub discord: Option<bool>,
@@ -193,6 +203,7 @@ impl CreateAgentRequest {
         let tools = self.tools.unwrap_or(CreateAgentTools {
             shell_access: None,
             brave_search: None,
+            brave_search_settings: None,
             vector_memory: None,
             discord: None,
             telegram: None,
@@ -216,22 +227,28 @@ impl CreateAgentRequest {
                 shell_access: tools.shell_access.unwrap_or(false),
                 brave_search: ToolConfig {
                     enabled: tools.brave_search.unwrap_or(false),
+                    settings: tools.brave_search_settings.unwrap_or_default(),
                 },
                 vector_memory: ToolConfig {
                     enabled: tools.vector_memory.unwrap_or(true),
+                    settings: (),
                 },
                 discord: ToolConfig {
                     enabled: tools.discord.unwrap_or(false),
+                    settings: (),
                 },
                 telegram: ToolConfig {
                     enabled: tools.telegram.unwrap_or(false),
+                    settings: (),
                 },
-                notify_primary_user: ToolConfig { enabled: true },
+                notify_primary_user: ToolConfig { enabled: true, settings: () },
                 fetch: ToolConfig {
                     enabled: tools.fetch.unwrap_or(false),
+                    settings: (),
                 },
                 http_client: ToolConfig {
                     enabled: tools.http_client.unwrap_or(false),
+                    settings: (),
                 },
                 mcp_servers: vec![],
             },

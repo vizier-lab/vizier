@@ -1,19 +1,24 @@
-import { useEffect, useState, FormEvent } from 'react'
-import { listApiKeys, createApiKey, deleteApiKey, changePassword } from '../services/vizier'
-import { FiTrash2 } from 'react-icons/fi'
-import type { ApiKey } from '../interfaces/types'
+import { useEffect, useState } from 'react'
+import type { FormEvent } from 'react'
+import { listApiKeys, createApiKey, deleteApiKey, changePassword, listGlobalConfigs, upsertGlobalConfig } from '../services/vizier'
+import { FiTrash2, FiPlus } from 'react-icons/fi'
+import { useToastStore } from '../hooks/toastStore'
+import type { ApiKey, GlobalConfigEntry, McpServerConfig, ShellConfigData } from '../interfaces/types'
 
-type Section = 'password' | 'api-keys'
+type Section = 'password' | 'api-keys' | 'mcp-servers' | 'shell'
 
 export default function Settings() {
+  const addToast = useToastStore((s) => s.addToast)
   const [activeSection, setActiveSection] = useState<Section>('password')
 
+  // Password change state
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordChanging, setPasswordChanging] = useState(false)
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
 
+  // API Keys state
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
   const [loadingKeys, setLoadingKeys] = useState(false)
   const [showCreateKeyForm, setShowCreateKeyForm] = useState(false)
@@ -22,10 +27,26 @@ export default function Settings() {
   const [createdKey, setCreatedKey] = useState<string | null>(null)
   const [creatingKey, setCreatingKey] = useState(false)
 
+  // MCP Servers state
+  const [mcpServers, setMcpServers] = useState<Record<string, McpServerConfig>>({})
+  const [loadingMcp, setLoadingMcp] = useState(false)
+  const [savingMcp, setSavingMcp] = useState(false)
+  const [showAddMcp, setShowAddMcp] = useState(false)
+  const [editingMcp, setEditingMcp] = useState<string | null>(null)
+  const [mcpForm, setMcpForm] = useState<{ name: string; host: 'local' | 'http'; command: string; args: string; uri: string; env: string }>({
+    name: '', host: 'local', command: '', args: '', uri: '', env: '',
+  })
+
+  // Shell config state
+  const [shellConfig, setShellConfig] = useState<ShellConfigData | null>(null)
+  const [loadingShell, setLoadingShell] = useState(false)
+  const [savingShell, setSavingShell] = useState(false)
+  const [shellForm, setShellForm] = useState<ShellConfigData>({ environment: 'local', path: '.' })
+
   useEffect(() => {
-    if (activeSection === 'api-keys') {
-      loadApiKeys()
-    }
+    if (activeSection === 'api-keys') loadApiKeys()
+    if (activeSection === 'mcp-servers') loadMcpServers()
+    if (activeSection === 'shell') loadShellConfig()
   }, [activeSection])
 
   const loadApiKeys = async () => {
@@ -40,20 +61,57 @@ export default function Settings() {
     }
   }
 
+  const loadMcpServers = async () => {
+    try {
+      setLoadingMcp(true)
+      const response = await listGlobalConfigs()
+      const entries: GlobalConfigEntry[] = response.data || []
+      const mcpEntry = entries.find((e) => e.key === 'mcp_servers')
+      if (mcpEntry && mcpEntry.value.type === 'McpServers') {
+        setMcpServers(mcpEntry.value.data as Record<string, McpServerConfig>)
+      } else {
+        setMcpServers({})
+      }
+    } catch (error) {
+      console.error('Failed to load MCP servers:', error)
+    } finally {
+      setLoadingMcp(false)
+    }
+  }
+
+  const loadShellConfig = async () => {
+    try {
+      setLoadingShell(true)
+      const response = await listGlobalConfigs()
+      const entries: GlobalConfigEntry[] = response.data || []
+      const shellEntry = entries.find((e) => e.key === 'shell')
+      if (shellEntry && shellEntry.value.type === 'Shell') {
+        const cfg = shellEntry.value.data as ShellConfigData
+        setShellConfig(cfg)
+        setShellForm(cfg)
+      } else {
+        const defaultCfg: ShellConfigData = { environment: 'local', path: '.' }
+        setShellConfig(defaultCfg)
+        setShellForm(defaultCfg)
+      }
+    } catch (error) {
+      console.error('Failed to load shell config:', error)
+    } finally {
+      setLoadingShell(false)
+    }
+  }
+
   const handlePasswordChange = async (e: FormEvent) => {
     e.preventDefault()
     setPasswordMessage(null)
-
     if (newPassword !== confirmPassword) {
       setPasswordMessage({ type: 'error', text: 'New passwords do not match' })
       return
     }
-
     if (newPassword.length < 8) {
       setPasswordMessage({ type: 'error', text: 'Password must be at least 8 characters' })
       return
     }
-
     setPasswordChanging(true)
     try {
       await changePassword(currentPassword, newPassword)
@@ -62,10 +120,7 @@ export default function Settings() {
       setNewPassword('')
       setConfirmPassword('')
     } catch (error: any) {
-      setPasswordMessage({
-        type: 'error',
-        text: error.response?.data?.message || 'Failed to change password'
-      })
+      setPasswordMessage({ type: 'error', text: error.response?.data?.message || 'Failed to change password' })
     } finally {
       setPasswordChanging(false)
     }
@@ -73,7 +128,6 @@ export default function Settings() {
 
   const handleCreateApiKey = async () => {
     if (!newKeyName.trim()) return
-
     setCreatingKey(true)
     try {
       const response = await createApiKey(newKeyName, parseInt(newKeyExpiry))
@@ -91,13 +145,11 @@ export default function Settings() {
 
   const handleDeleteApiKey = async (keyId: string) => {
     if (!confirm('Are you sure you want to delete this API key?')) return
-
     try {
       await deleteApiKey(keyId)
       await loadApiKeys()
     } catch (error) {
       console.error('Failed to delete API key:', error)
-      alert('Failed to delete API key')
     }
   }
 
@@ -106,256 +158,240 @@ export default function Settings() {
     setShowCreateKeyForm(false)
   }
 
+  const parseEnvString = (envStr: string): Record<string, string> | undefined => {
+    if (!envStr.trim()) return undefined
+    const env: Record<string, string> = {}
+    for (const line of envStr.split('\n')) {
+      const idx = line.indexOf('=')
+      if (idx > 0) {
+        env[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
+      }
+    }
+    return Object.keys(env).length > 0 ? env : undefined
+  }
+
+  const envToString = (env?: Record<string, string>): string => {
+    if (!env) return ''
+    return Object.entries(env).map(([k, v]) => `${k}=${v}`).join('\n')
+  }
+
+  const handleSaveMcpServer = async () => {
+    if (!mcpForm.name.trim()) {
+      addToast('error', 'Server name is required')
+      return
+    }
+
+    let config: McpServerConfig
+    if (mcpForm.host === 'local') {
+      if (!mcpForm.command.trim()) {
+        addToast('error', 'Command is required for local MCP servers')
+        return
+      }
+      config = {
+        host: 'local',
+        command: mcpForm.command,
+        args: mcpForm.args ? mcpForm.args.split(' ').map((a) => a.trim()).filter(Boolean) : [],
+        env: parseEnvString(mcpForm.env),
+      }
+    } else {
+      if (!mcpForm.uri.trim()) {
+        addToast('error', 'URI is required for HTTP MCP servers')
+        return
+      }
+      config = { host: 'http', uri: mcpForm.uri }
+    }
+
+    const updated = { ...mcpServers }
+    if (editingMcp) {
+      delete updated[editingMcp]
+    }
+    updated[mcpForm.name] = config
+
+    setSavingMcp(true)
+    try {
+      await upsertGlobalConfig('mcp_servers', { type: 'McpServers', data: updated })
+      setMcpServers(updated)
+      setShowAddMcp(false)
+      setEditingMcp(null)
+      setMcpForm({ name: '', host: 'local', command: '', args: '', uri: '', env: '' })
+      addToast('success', 'MCP servers saved. Restart to take effect.')
+    } catch (err: any) {
+      addToast('error', err?.response?.data?.message || 'Failed to save MCP servers')
+    } finally {
+      setSavingMcp(false)
+    }
+  }
+
+  const handleDeleteMcpServer = async (name: string) => {
+    if (!confirm(`Remove MCP server "${name}"?`)) return
+    const updated = { ...mcpServers }
+    delete updated[name]
+
+    setSavingMcp(true)
+    try {
+      await upsertGlobalConfig('mcp_servers', { type: 'McpServers', data: updated })
+      setMcpServers(updated)
+      addToast('success', 'MCP server removed. Restart to take effect.')
+    } catch (err: any) {
+      addToast('error', err?.response?.data?.message || 'Failed to delete MCP server')
+    } finally {
+      setSavingMcp(false)
+    }
+  }
+
+  const handleEditMcpServer = (name: string) => {
+    const cfg = mcpServers[name]
+    setEditingMcp(name)
+    setMcpForm({
+      name,
+      host: cfg.host,
+      command: cfg.command || '',
+      args: cfg.args?.join(' ') || '',
+      uri: cfg.uri || '',
+      env: envToString(cfg.env),
+    })
+    setShowAddMcp(true)
+  }
+
+  const handleSaveShell = async () => {
+    setSavingShell(true)
+    try {
+      await upsertGlobalConfig('shell', { type: 'Shell', data: shellForm })
+      setShellConfig(shellForm)
+      addToast('success', 'Shell config saved. Restart to take effect.')
+    } catch (err: any) {
+      addToast('error', err?.response?.data?.message || 'Failed to save shell config')
+    } finally {
+      setSavingShell(false)
+    }
+  }
+
+  const pInputStyle: React.CSSProperties = {
+    width: '100%', padding: '0.5rem 0.75rem', borderRadius: '0.375rem',
+    border: '1px solid var(--border)', background: 'var(--bg-primary)',
+    color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none',
+  }
+
   return (
     <>
       <div className="main-header">
-        <div>
-          <h3 style={{ margin: 0 }}>Settings</h3>
-        </div>
+        <div><h3 style={{ margin: 0 }}>Settings</h3></div>
       </div>
 
-      {/* Mobile section nav (horizontal tabs) */}
-      <div className="flex md:hidden border-b border-[var(--border)] px-4 gap-2 py-2">
-        <button
-          onClick={() => setActiveSection('password')}
-          className={`px-3 py-1.5 text-sm font-medium rounded-t transition-colors ${activeSection === 'password' ? 'bg-[var(--surface)] text-[var(--text-primary)] border-b-2 border-[var(--accent-primary)]' : 'text-[var(--text-tertiary)]'}`}
-        >
-          Password
-        </button>
-        <button
-          onClick={() => setActiveSection('api-keys')}
-          className={`px-3 py-1.5 text-sm font-medium rounded-t transition-colors ${activeSection === 'api-keys' ? 'bg-[var(--surface)] text-[var(--text-primary)] border-b-2 border-[var(--accent-primary)]' : 'text-[var(--text-tertiary)]'}`}
-        >
-          API Keys
-        </button>
+      {/* Mobile section nav */}
+      <div className="flex md:hidden border-b border-[var(--border)] px-4 gap-2 py-2 overflow-x-auto">
+        {([['password', 'Password'], ['api-keys', 'API Keys'], ['mcp-servers', 'MCP Servers'], ['shell', 'Shell']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setActiveSection(key)}
+            className={`px-3 py-1.5 text-sm font-medium rounded-t transition-colors whitespace-nowrap ${activeSection === key ? 'bg-[var(--surface)] text-[var(--text-primary)] border-b-2 border-[var(--accent-primary)]' : 'text-[var(--text-tertiary)]'}`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="flex" style={{ height: 'calc(100vh - 60px)' }}>
-        <div className="hidden md:block" style={{
-          width: '200px',
-          borderRight: '1px solid var(--border)',
-          padding: '24px 16px',
-        }}>
-          <div
-            className={`nav-item ${activeSection === 'password' ? 'active' : ''}`}
-            onClick={() => setActiveSection('password')}
-          >
-            Password
-          </div>
-          <div
-            className={`nav-item ${activeSection === 'api-keys' ? 'active' : ''}`}
-            onClick={() => setActiveSection('api-keys')}
-          >
-            API Keys
-          </div>
+        {/* Desktop sidebar nav */}
+        <div className="hidden md:block" style={{ width: '200px', borderRight: '1px solid var(--border)', padding: '24px 16px' }}>
+          {([['password', 'Password'], ['api-keys', 'API Keys'], ['mcp-servers', 'MCP Servers'], ['shell', 'Shell Config']] as const).map(([key, label]) => (
+            <div
+              key={key}
+              className={`nav-item ${activeSection === key ? 'active' : ''}`}
+              onClick={() => setActiveSection(key)}
+            >
+              {label}
+            </div>
+          ))}
         </div>
 
-        <div className="flex-1 overflow-auto p-4 md:p-6">
+        {/* Content */}
+        <div className="flex-1 overflow-auto" style={{ padding: '24px' }}>
+          {/* Password Section */}
           {activeSection === 'password' && (
             <div style={{ maxWidth: '600px' }}>
               <h2 style={{ marginBottom: '1rem' }}>Change Password</h2>
-              <p style={{
-                color: 'var(--text-secondary)',
-                marginBottom: '2rem',
-                fontSize: '14px',
-              }}>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', fontSize: '14px' }}>
                 Update your account password. Make sure to use a strong password.
               </p>
-
               {passwordMessage && (
-                <div style={{
-                  padding: '12px',
-                  background: passwordMessage.type === 'success' ? '#e8f5e9' : '#ffebee',
-                  border: `1px solid ${passwordMessage.type === 'success' ? '#c8e6c9' : '#ffcdd2'}`,
-                  borderRadius: '4px',
-                  color: passwordMessage.type === 'success' ? '#2e7d32' : '#c62828',
-                  fontSize: '14px',
-                  marginBottom: '1rem',
-                }}>
+                <div style={{ padding: '12px', background: passwordMessage.type === 'success' ? '#e8f5e9' : '#ffebee', border: `1px solid ${passwordMessage.type === 'success' ? '#c8e6c9' : '#ffcdd2'}`, borderRadius: '4px', color: passwordMessage.type === 'success' ? '#2e7d32' : '#c62828', fontSize: '14px', marginBottom: '1rem' }}>
                   {passwordMessage.text}
                 </div>
               )}
-
-              <form onSubmit={handlePasswordChange} style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '1rem',
-              }}>
+              <form onSubmit={handlePasswordChange} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div className="input-group">
                   <label htmlFor="current-password">Current Password</label>
-                  <input
-                    id="current-password"
-                    type="password"
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    required
-                    disabled={passwordChanging}
-                  />
+                  <input id="current-password" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required disabled={passwordChanging} />
                 </div>
-
                 <div className="input-group">
                   <label htmlFor="new-password">New Password</label>
-                  <input
-                    id="new-password"
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    required
-                    minLength={8}
-                    disabled={passwordChanging}
-                  />
+                  <input id="new-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={8} disabled={passwordChanging} />
                 </div>
-
                 <div className="input-group">
                   <label htmlFor="confirm-password">Confirm New Password</label>
-                  <input
-                    id="confirm-password"
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    required
-                    minLength={8}
-                    disabled={passwordChanging}
-                  />
+                  <input id="confirm-password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={8} disabled={passwordChanging} />
                 </div>
-
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={passwordChanging}
-                  style={{ alignSelf: 'flex-start' }}
-                >
+                <button type="submit" className="btn btn-primary" disabled={passwordChanging} style={{ alignSelf: 'flex-start' }}>
                   {passwordChanging ? 'Changing...' : 'Change Password'}
                 </button>
               </form>
             </div>
           )}
 
+          {/* API Keys Section */}
           {activeSection === 'api-keys' && (
             <div>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '1.5rem',
-              }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                 <div>
                   <h2 style={{ marginBottom: '0.5rem' }}>API Keys</h2>
-                  <p style={{
-                    color: 'var(--text-secondary)',
-                    fontSize: '14px',
-                  }}>
-                    Manage API keys for programmatic access
-                  </p>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Manage API keys for programmatic access</p>
                 </div>
                 {!showCreateKeyForm && (
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => setShowCreateKeyForm(true)}
-                  >
-                    + Create API Key
-                  </button>
+                  <button className="btn btn-primary" onClick={() => setShowCreateKeyForm(true)}>+ Create API Key</button>
                 )}
               </div>
-
               {showCreateKeyForm && !createdKey && (
                 <div className="card" style={{ marginBottom: '1.5rem' }}>
                   <h3 style={{ marginBottom: '1rem' }}>Create New API Key</h3>
-                  <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '1rem',
-                  }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div className="input-group">
                       <label htmlFor="key-name">Key Name</label>
-                      <input
-                        id="key-name"
-                        type="text"
-                        value={newKeyName}
-                        onChange={(e) => setNewKeyName(e.target.value)}
-                        placeholder="My API Key"
-                        required
-                      />
+                      <input id="key-name" type="text" value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} placeholder="My API Key" required />
                     </div>
-
                     <div className="input-group">
                       <label htmlFor="key-expiry">Expires In (days)</label>
-                      <input
-                        id="key-expiry"
-                        type="number"
-                        value={newKeyExpiry}
-                        onChange={(e) => setNewKeyExpiry(e.target.value)}
-                        min="1"
-                        max="365"
-                      />
+                      <input id="key-expiry" type="number" value={newKeyExpiry} onChange={(e) => setNewKeyExpiry(e.target.value)} min="1" max="365" />
                     </div>
-
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <button
-                        className="btn btn-primary"
-                        onClick={handleCreateApiKey}
-                        disabled={!newKeyName.trim() || creatingKey}
-                      >
+                      <button className="btn btn-primary" onClick={handleCreateApiKey} disabled={!newKeyName.trim() || creatingKey}>
                         {creatingKey ? 'Creating...' : 'Create'}
                       </button>
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() => {
-                          setShowCreateKeyForm(false)
-                          setNewKeyName('')
-                          setNewKeyExpiry('90')
-                        }}
-                        disabled={creatingKey}
-                      >
+                      <button className="btn btn-secondary" onClick={() => { setShowCreateKeyForm(false); setNewKeyName(''); setNewKeyExpiry('90') }} disabled={creatingKey}>
                         Cancel
                       </button>
                     </div>
                   </div>
                 </div>
               )}
-
               {loadingKeys ? (
-                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-tertiary)' }}>
-                  Loading API keys...
-                </div>
+                <p style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-tertiary)' }}>Loading API keys...</p>
               ) : apiKeys.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-tertiary)' }}>
-                  No API keys yet. Create one to get started.
-                </div>
+                <p style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-tertiary)' }}>No API keys yet. Create one to get started.</p>
               ) : (
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '1rem',
-                }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   {apiKeys.map((key) => (
-                    <div key={key.id} className="card" style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}>
+                    <div key={key.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
                         <h4 style={{ marginBottom: '0.25rem' }}>{key.name}</h4>
-                        <div style={{
-                          fontSize: '12px',
-                          color: 'var(--text-tertiary)',
-                        }}>
+                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
                           <div>Created: {new Date(key.created_at).toLocaleString()}</div>
-                          {key.expires_at && (
-                            <div>Expires: {new Date(key.expires_at).toLocaleString()}</div>
-                          )}
-                          {key.last_used_at && (
-                            <div>Last used: {new Date(key.last_used_at).toLocaleString()}</div>
-                          )}
+                          {key.expires_at && <div>Expires: {new Date(key.expires_at).toLocaleString()}</div>}
+                          {key.last_used_at && <div>Last used: {new Date(key.last_used_at).toLocaleString()}</div>}
                         </div>
                       </div>
-                      <button
-                        className="btn btn-ghost"
-                        onClick={() => handleDeleteApiKey(key.id)}
-                        style={{ color: '#c00' }}
-                      >
-                        <FiTrash2 size={16} />
-                        <span>Delete</span>
+                      <button className="btn btn-ghost" onClick={() => handleDeleteApiKey(key.id)} style={{ color: '#c00' }}>
+                        <FiTrash2 size={16} /><span>Delete</span>
                       </button>
                     </div>
                   ))}
@@ -363,75 +399,182 @@ export default function Settings() {
               )}
             </div>
           )}
+
+          {/* MCP Servers Section */}
+          {activeSection === 'mcp-servers' && (
+            <div style={{ maxWidth: '700px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <div>
+                  <h2 style={{ marginBottom: '0.5rem' }}>MCP Servers</h2>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                    Configure Model Context Protocol server connections. Agents can reference these by name.
+                  </p>
+                </div>
+                {!showAddMcp && (
+                  <button className="btn btn-primary" onClick={() => { setShowAddMcp(true); setEditingMcp(null); setMcpForm({ name: '', host: 'local', command: '', args: '', uri: '', env: '' }) }}>
+                    <FiPlus size={14} /> Add Server
+                  </button>
+                )}
+              </div>
+
+              {/* Add/Edit MCP Form */}
+              {showAddMcp && (
+                <div className="card" style={{ marginBottom: '1.5rem' }}>
+                  <h3 style={{ marginBottom: '1rem' }}>{editingMcp ? `Edit ${editingMcp}` : 'Add MCP Server'}</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Name</label>
+                      <input style={pInputStyle} placeholder="my-server" value={mcpForm.name} onChange={(e) => setMcpForm({ ...mcpForm, name: e.target.value })} disabled={!!editingMcp} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Type</label>
+                      <div style={{ display: 'flex', gap: '1rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                          <input type="radio" checked={mcpForm.host === 'local'} onChange={() => setMcpForm({ ...mcpForm, host: 'local' })} /> Local Process
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                          <input type="radio" checked={mcpForm.host === 'http'} onChange={() => setMcpForm({ ...mcpForm, host: 'http' })} /> HTTP
+                        </label>
+                      </div>
+                    </div>
+                    {mcpForm.host === 'local' ? (
+                      <>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Command</label>
+                          <input style={pInputStyle} placeholder="npx" value={mcpForm.command} onChange={(e) => setMcpForm({ ...mcpForm, command: e.target.value })} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Arguments (space-separated)</label>
+                          <input style={pInputStyle} placeholder="-y @modelcontextprotocol/server-filesystem /path" value={mcpForm.args} onChange={(e) => setMcpForm({ ...mcpForm, args: e.target.value })} />
+                        </div>
+                      </>
+                    ) : (
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>URI</label>
+                        <input style={pInputStyle} placeholder="http://localhost:3000/mcp" value={mcpForm.uri} onChange={(e) => setMcpForm({ ...mcpForm, uri: e.target.value })} />
+                      </div>
+                    )}
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Environment Variables (KEY=value, one per line)</label>
+                      <textarea style={{ ...pInputStyle, minHeight: '60px', resize: 'vertical', fontFamily: 'monospace', fontSize: '0.8rem' }} placeholder="API_KEY=abc123" value={mcpForm.env} onChange={(e) => setMcpForm({ ...mcpForm, env: e.target.value })} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button className="btn btn-primary" onClick={handleSaveMcpServer} disabled={savingMcp}>
+                        {savingMcp ? 'Saving...' : 'Save'}
+                      </button>
+                      <button className="btn btn-secondary" onClick={() => { setShowAddMcp(false); setEditingMcp(null) }} disabled={savingMcp}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* MCP Servers List */}
+              {loadingMcp ? (
+                <p style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-tertiary)' }}>Loading...</p>
+              ) : Object.keys(mcpServers).length === 0 ? (
+                <p style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-tertiary)' }}>No MCP servers configured.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {Object.entries(mcpServers).map(([name, cfg]) => (
+                    <div key={name} style={{ padding: '1rem', border: '1px solid var(--border)', borderRadius: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <strong>{name}</strong>
+                        <span style={{ marginLeft: '0.75rem', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', background: cfg.host === 'local' ? 'var(--surface)' : 'var(--accent-primary)', color: cfg.host === 'local' ? 'var(--text-secondary)' : '#fff' }}>
+                          {cfg.host}
+                        </span>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>
+                          {cfg.host === 'local' ? `${cfg.command} ${(cfg.args || []).join(' ')}` : cfg.uri}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button onClick={() => handleEditMcpServer(name)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem', fontSize: '0.8rem' }}>Edit</button>
+                        <button onClick={() => handleDeleteMcpServer(name)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '0.25rem' }}>
+                          <FiTrash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Shell Config Section */}
+          {activeSection === 'shell' && (
+            <div style={{ maxWidth: '600px' }}>
+              <h2 style={{ marginBottom: '1rem' }}>Shell Configuration</h2>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', fontSize: '14px' }}>
+                Configure the shell environment for agent command execution.
+              </p>
+
+              {loadingShell ? (
+                <p style={{ color: 'var(--text-tertiary)' }}>Loading...</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Environment</label>
+                    <div style={{ display: 'flex', gap: '1rem' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                        <input type="radio" checked={shellForm.environment === 'local'} onChange={() => setShellForm({ ...shellForm, environment: 'local', path: '.' })} /> Local
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                        <input type="radio" checked={shellForm.environment === 'docker'} onChange={() => setShellForm({ ...shellForm, environment: 'docker', container_name: 'vizier', image: { source: 'pull', name: 'ubuntu:latest' } })} /> Docker
+                      </label>
+                    </div>
+                  </div>
+
+                  {shellForm.environment === 'local' ? (
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Working Directory</label>
+                      <input style={pInputStyle} placeholder="." value={shellForm.path || ''} onChange={(e) => setShellForm({ ...shellForm, path: e.target.value })} />
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Image Name</label>
+                        <input style={pInputStyle} placeholder="ubuntu:latest" value={shellForm.image?.name || ''} onChange={(e) => setShellForm({ ...shellForm, image: { source: 'pull', name: e.target.value } })} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Container Name</label>
+                        <input style={pInputStyle} placeholder="vizier" value={shellForm.container_name || ''} onChange={(e) => setShellForm({ ...shellForm, container_name: e.target.value })} />
+                      </div>
+                    </>
+                  )}
+
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Environment Variables (KEY=value, one per line)</label>
+                    <textarea style={{ ...pInputStyle, minHeight: '80px', resize: 'vertical', fontFamily: 'monospace', fontSize: '0.8rem' }} placeholder="PATH=/usr/local/bin:/usr/bin" value={envToString(shellForm.env)} onChange={(e) => setShellForm({ ...shellForm, env: parseEnvString(e.target.value) })} />
+                  </div>
+
+                  <button className="btn btn-primary" onClick={handleSaveShell} disabled={savingShell} style={{ alignSelf: 'flex-start' }}>
+                    {savingShell ? 'Saving...' : 'Save Shell Config'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
+      {/* Created Key Modal */}
       {createdKey && (
         <>
-          <div
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0, 0, 0, 0.5)',
-              zIndex: 1000,
-            }}
-            onClick={closeCreatedKeyModal}
-          />
-          <div
-            style={{
-              position: 'fixed',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              background: 'var(--background)',
-              borderRadius: '8px',
-              padding: '2rem',
-              maxWidth: '600px',
-              width: '90%',
-              zIndex: 1001,
-              border: '1px solid var(--border)',
-            }}
-          >
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.5)', zIndex: 1000 }} onClick={closeCreatedKeyModal} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', background: 'var(--background)', borderRadius: '8px', padding: '2rem', maxWidth: '600px', width: '90%', zIndex: 1001, border: '1px solid var(--border)' }}>
             <h2 style={{ marginBottom: '1rem' }}>API Key Created</h2>
-            <p style={{
-              color: '#c62828',
-              background: '#ffebee',
-              padding: '12px',
-              borderRadius: '4px',
-              fontSize: '14px',
-              marginBottom: '1rem',
-            }}>
+            <p style={{ color: '#c62828', background: '#ffebee', padding: '12px', borderRadius: '4px', fontSize: '14px', marginBottom: '1rem' }}>
               <strong>Important:</strong> This key will only be shown once. Make sure to copy it now.
             </p>
-            <div style={{
-              background: 'var(--surface)',
-              padding: '16px',
-              borderRadius: '4px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '14px',
-              wordBreak: 'break-all',
-              marginBottom: '1.5rem',
-              border: '1px solid var(--border)',
-            }}>
+            <div style={{ background: 'var(--surface)', padding: '16px', borderRadius: '4px', fontFamily: 'var(--font-mono)', fontSize: '14px', wordBreak: 'break-all', marginBottom: '1.5rem', border: '1px solid var(--border)' }}>
               {createdKey}
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  navigator.clipboard.writeText(createdKey)
-                  alert('API key copied to clipboard')
-                }}
-              >
+              <button className="btn btn-primary" onClick={() => { navigator.clipboard.writeText(createdKey); alert('API key copied to clipboard') }}>
                 Copy to Clipboard
               </button>
-              <button
-                className="btn btn-secondary"
-                onClick={closeCreatedKeyModal}
-              >
+              <button className="btn btn-secondary" onClick={closeCreatedKeyModal}>
                 Close
               </button>
             </div>

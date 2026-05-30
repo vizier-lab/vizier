@@ -46,24 +46,31 @@ pub struct AgentToolsConfig {
     #[serde(default)]
     pub shell_access: bool,
     #[serde(default)]
-    pub brave_search: ToolConfig,
+    pub brave_search: ToolConfig<BraveSearchToolSettings>,
     #[serde(default)]
-    pub vector_memory: ToolConfig,
+    pub vector_memory: ToolConfig<()>,
     #[serde(default)]
-    pub discord: ToolConfig,
+    pub discord: ToolConfig<()>,
     #[serde(default)]
-    pub telegram: ToolConfig,
+    pub telegram: ToolConfig<()>,
     #[serde(default)]
-    pub notify_primary_user: ToolConfig,
+    pub notify_primary_user: ToolConfig<()>,
     #[serde(default)]
-    pub fetch: ToolConfig,
+    pub fetch: ToolConfig<()>,
     #[serde(default)]
-    pub http_client: ToolConfig,
+    pub http_client: ToolConfig<()>,
     #[serde(default)]
     pub mcp_servers: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct ToolConfig {
+pub struct ToolConfig<Settings> {
     pub enabled: bool,
+    pub settings: Settings,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]
+pub struct BraveSearchToolSettings {
+    pub api_key: Option<String>,
+    pub safesearch: Option<bool>,
 }

@@ -4,16 +4,17 @@ use anyhow::Result;
 
 use crate::{
     config::provider::ProviderVariant,
-    schema::{AgentConfig, DocumentIndex, ProviderEntry},
+    schema::{AgentConfig, DocumentIndex, GlobalConfigEntry, ProviderEntry},
     storage::{
-        agent::AgentStorage, history::HistoryStorage, indexer::DocumentIndexer,
-        memory::MemoryStorage, provider::ProviderStorage, session::SessionStorage,
-        shared_document::SharedDocumentStorage, skill::SkillStorage, state::StateStorage,
-        task::TaskStorage, user::UserStorage,
+        agent::AgentStorage, global_config::GlobalConfigStorage, history::HistoryStorage,
+        indexer::DocumentIndexer, memory::MemoryStorage, provider::ProviderStorage,
+        session::SessionStorage, shared_document::SharedDocumentStorage, skill::SkillStorage,
+        state::StateStorage, task::TaskStorage, user::UserStorage,
     },
 };
 
 pub mod agent;
+pub mod global_config;
 pub mod history;
 pub mod indexer;
 pub mod memory;
@@ -40,7 +41,8 @@ where
         + UserStorage
         + SharedDocumentStorage
         + AgentStorage
-        + ProviderStorage,
+        + ProviderStorage
+        + GlobalConfigStorage,
 {
 }
 
@@ -161,5 +163,24 @@ impl ProviderStorage for VizierStorage {
 
     async fn delete_provider(&self, variant: &ProviderVariant) -> Result<()> {
         self.0.delete_provider(variant).await
+    }
+}
+
+#[async_trait::async_trait]
+impl GlobalConfigStorage for VizierStorage {
+    async fn list_global_configs(&self) -> Result<Vec<GlobalConfigEntry>> {
+        self.0.list_global_configs().await
+    }
+
+    async fn get_global_config(&self, key: &str) -> Result<Option<GlobalConfigEntry>> {
+        self.0.get_global_config(key).await
+    }
+
+    async fn upsert_global_config(&self, entry: &GlobalConfigEntry) -> Result<()> {
+        self.0.upsert_global_config(entry).await
+    }
+
+    async fn delete_global_config(&self, key: &str) -> Result<()> {
+        self.0.delete_global_config(key).await
     }
 }

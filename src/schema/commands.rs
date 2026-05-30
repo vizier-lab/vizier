@@ -1,5 +1,9 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
+use crate::config::shell::ShellConfig;
+use crate::config::tools::mcp::McpClientConfig;
 use crate::schema::agent::AgentConfig;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -53,4 +57,20 @@ pub struct AgentSummary {
     pub agent_id: String,
     pub name: String,
     pub description: Option<String>,
+}
+
+pub enum GlobalCommand {
+    ReloadMcp {
+        config: HashMap<String, McpClientConfig>,
+        resp: tokio::sync::oneshot::Sender<GlobalCommandResult>,
+    },
+    ReloadShell {
+        config: ShellConfig,
+        resp: tokio::sync::oneshot::Sender<GlobalCommandResult>,
+    },
+}
+
+pub enum GlobalCommandResult {
+    Ok(String),
+    Error(String),
 }

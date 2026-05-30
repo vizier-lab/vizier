@@ -32,6 +32,7 @@ export default function AgentNew() {
     tools: {
       shell_access: false,
       brave_search: false,
+      brave_search_settings: {},
       vector_memory: true,
       discord: false,
       telegram: false,
@@ -222,7 +223,6 @@ export default function AgentNew() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   {([
                     ['shell_access', 'Shell Access'],
-                    ['brave_search', 'Brave Search'],
                     ['vector_memory', 'Vector Memory'],
                     ['discord', 'Discord'],
                     ['telegram', 'Telegram'],
@@ -238,6 +238,58 @@ export default function AgentNew() {
                       {label}
                     </label>
                   ))}
+                </div>
+
+                {/* Brave Search with settings */}
+                <div style={{ marginTop: '0.75rem', padding: '0.75rem', border: '1px solid var(--border)', borderRadius: '0.5rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer', marginBottom: form.tools?.brave_search ? '0.75rem' : 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={form.tools?.brave_search ?? false}
+                      onChange={(e) => updateTool('brave_search', e.target.checked)}
+                    />
+                    Brave Search
+                  </label>
+                  {form.tools?.brave_search && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingLeft: '1.5rem' }}>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>API Key (optional, falls back to global)</label>
+                        <input
+                          style={inputStyle}
+                          type="password"
+                          placeholder="Leave empty to use global config"
+                          value={form.tools?.brave_search_settings?.api_key || ''}
+                          onChange={(e) => setForm((prev) => ({
+                            ...prev,
+                            tools: {
+                              ...prev.tools!,
+                              brave_search_settings: {
+                                ...prev.tools?.brave_search_settings,
+                                api_key: e.target.value || undefined,
+                              },
+                            },
+                          }))}
+                        />
+                      </div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={form.tools?.brave_search_settings?.safesearch ?? true}
+                          onChange={(e) => setForm((prev) => ({
+                            ...prev,
+                            tools: {
+                              ...prev.tools!,
+                              brave_search_settings: {
+                                ...prev.tools?.brave_search_settings,
+                                safesearch: e.target.checked,
+                              },
+                            },
+                          }))}
+                        />
+                        Safe Search
+                      </label>
+                    </div>
+                  )}
                 </div>
               </section>
 

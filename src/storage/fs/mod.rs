@@ -11,6 +11,7 @@ use crate::{
 };
 
 mod agent;
+mod global_config;
 mod history;
 mod memory;
 mod provider;

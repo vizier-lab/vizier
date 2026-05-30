@@ -313,7 +313,8 @@ impl VizierTools {
             .tool(CreateSkill::new(agent_id.clone(), deps.clone()));
 
         if agent_config.tools.shell_access {
-            default_toolset = default_toolset.tool(ShellExec(deps.shell.clone()));
+            let shell = deps.shell.load();
+            default_toolset = default_toolset.tool(ShellExec(shell.clone()));
         }
 
         default_toolset = default_toolset
@@ -358,10 +359,25 @@ impl VizierTools {
         }
 
         if agent_config.tools.brave_search.enabled {
-            if let Some(brave_search) = tool_config.brave_search {
+            let global = tool_config.brave_search.as_ref();
+            let per_agent = &agent_config.tools.brave_search.settings;
+
+            let api_key = per_agent
+                .api_key
+                .as_ref()
+                .or(global.map(|g| &g.api_key));
+            let safesearch = per_agent
+                .safesearch
+                .or(global.map(|g| g.safesearch));
+
+            if let (Some(key), Some(ss)) = (api_key, safesearch) {
+                let cfg = crate::config::tools::BraveSearchConfig {
+                    api_key: key.clone(),
+                    safesearch: ss,
+                };
                 user_toolset = user_toolset
-                    .tool(BraveSearch::<WebOnlySearch>::new(&brave_search))
-                    .tool(BraveSearch::<NewsOnlySearch>::new(&brave_search));
+                    .tool(BraveSearch::<WebOnlySearch>::new(&cfg))
+                    .tool(BraveSearch::<NewsOnlySearch>::new(&cfg));
             }
         }
 
@@ -395,8 +411,9 @@ impl VizierTools {
             .tool(shared_doc_list);
 
         let mut mcp = HashMap::new();
+        let mcp_clients = deps.mcp_clients.load();
         for m in &agent_config.tools.mcp_servers {
-            if let Some(client) = deps.mcp_clients.clients.get(m) {
+            if let Some(client) = mcp_clients.clients.get(m) {
                 mcp.insert(m.clone(), client.clone());
             }
         }

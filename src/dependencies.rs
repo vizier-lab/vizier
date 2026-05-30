@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use arc_swap::ArcSwap;
 
 use crate::{
     channels::http::auth::AuthService,
@@ -11,12 +12,13 @@ use crate::{
     },
     embedding::VizierEmbedder,
     mcp::VizierMcpClients,
-    schema::{ProviderEntry, ProviderEntryConfig},
+    schema::{GlobalConfigEntry, GlobalConfigValue, ProviderEntry, ProviderEntryConfig},
     shell::VizierShell,
     storage::{
         VizierStorage,
         agent::AgentStorage,
         fs::FileSystemStorage,
+        global_config::GlobalConfigStorage,
         indexer::{VizierIndexer, inmem::InMemIndexer},
         provider::ProviderStorage,
         surreal::SurrealStorage,
@@ -31,8 +33,8 @@ pub struct VizierDependencies {
     pub embedder: Option<Arc<VizierEmbedder>>,
     pub transport: VizierTransport,
     pub storage: Arc<VizierStorage>,
-    pub mcp_clients: Arc<VizierMcpClients>,
-    pub shell: Arc<VizierShell>,
+    pub mcp_clients: Arc<ArcSwap<VizierMcpClients>>,
+    pub shell: Arc<ArcSwap<VizierShell>>,
 }
 
 impl VizierDependencies {
@@ -67,15 +69,18 @@ impl VizierDependencies {
             }
         };
 
-        let shell = Arc::new(VizierShell::new(&config.shell).await?);
+        let shell = Arc::new(ArcSwap::new(Arc::new(VizierShell::new(&config.shell).await?)));
 
-        let mcp_clients = Arc::new(VizierMcpClients::new(config.clone()).await?);
+        let mcp_clients = Arc::new(ArcSwap::new(Arc::new(VizierMcpClients::new(config.clone()).await?)));
 
         // Initialize default user if no users exist
         Self::initialize_default_user(&config, &storage).await?;
 
         // Auto-migrate providers from YAML config if storage is empty
         Self::migrate_providers(&config, &storage).await?;
+
+        // Auto-migrate global config (mcp_servers, shell) from YAML if storage is empty
+        Self::migrate_global_config(&config, &storage).await?;
 
         // Auto-migrate channel tokens into agent configs
         Self::migrate_channel_tokens(&config, &storage).await?;
@@ -224,6 +229,34 @@ impl VizierDependencies {
 
     pub async fn run(&self) -> Result<()> {
         self.transport.run().await?;
+
+        Ok(())
+    }
+
+    async fn migrate_global_config(config: &VizierConfig, storage: &VizierStorage) -> Result<()> {
+        if !storage.list_global_configs().await?.is_empty() {
+            return Ok(());
+        }
+
+        tracing::info!("migrating global config (mcp_servers, shell) from YAML to storage");
+
+        if !config.tools.mcp_servers.is_empty() {
+            let entry = GlobalConfigEntry {
+                key: "mcp_servers".to_string(),
+                value: GlobalConfigValue::McpServers(config.tools.mcp_servers.clone()),
+            };
+            if let Err(e) = storage.upsert_global_config(&entry).await {
+                tracing::warn!("failed to migrate mcp_servers config: {}", e);
+            }
+        }
+
+        let entry = GlobalConfigEntry {
+            key: "shell".to_string(),
+            value: GlobalConfigValue::Shell(config.shell.clone()),
+        };
+        if let Err(e) = storage.upsert_global_config(&entry).await {
+            tracing::warn!("failed to migrate shell config: {}", e);
+        }
 
         Ok(())
     }

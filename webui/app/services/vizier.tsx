@@ -326,6 +326,30 @@ export const ping = async () => {
 }
 
 // ============================================================================
+// GLOBAL CONFIG ENDPOINTS
+// ============================================================================
+
+export const listGlobalConfigs = async () => {
+  const res = await apiClient.get('/global-config')
+  return res.data
+}
+
+export const getGlobalConfig = async (key: string) => {
+  const res = await apiClient.get(`/global-config/${key}`)
+  return res.data
+}
+
+export const upsertGlobalConfig = async (key: string, data: Record<string, unknown>) => {
+  const res = await apiClient.put(`/global-config/${key}`, data)
+  return res.data
+}
+
+export const deleteGlobalConfig = async (key: string) => {
+  const res = await apiClient.delete(`/global-config/${key}`)
+  return res.data
+}
+
+// ============================================================================
 // FILE UPLOAD ENDPOINTS
 // ============================================================================
 

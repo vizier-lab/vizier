@@ -36,11 +36,17 @@ export interface AgentToolConfig {
   enabled: boolean
 }
 
+export interface BraveSearchToolSettings {
+  api_key?: string
+  safesearch?: boolean
+}
+
 export interface AgentToolsConfig {
   timeout: string
   programmatic_sandbox: boolean
   shell_access: boolean
   brave_search: AgentToolConfig
+  brave_search_settings?: BraveSearchToolSettings
   vector_memory: AgentToolConfig
   discord: AgentToolConfig
   telegram: AgentToolConfig
@@ -80,6 +86,7 @@ export interface CreateAgentRequest {
   tools?: {
     shell_access?: boolean
     brave_search?: boolean
+    brave_search_settings?: BraveSearchToolSettings
     vector_memory?: boolean
     discord?: boolean
     telegram?: boolean
@@ -104,6 +111,7 @@ export interface AgentDetail {
   session_memory_capacity: number
   shell_access: boolean
   brave_search: boolean
+  brave_search_settings?: BraveSearchToolSettings
   vector_memory: boolean
   discord: boolean
   telegram: boolean
@@ -320,4 +328,32 @@ export interface AgentUsageStats {
   by_channel_type: Record<string, ChannelTypeUsage>
   by_day: DailyUsage[]
   by_day_and_channel_type: DailyChannelTypeUsage[]
+}
+
+// ============================================================================
+// GLOBAL CONFIG
+// ============================================================================
+
+export interface McpServerConfig {
+  host: 'local' | 'http'
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  uri?: string
+}
+
+export interface GlobalConfigEntry {
+  key: string
+  value: {
+    type: 'McpServers' | 'Shell'
+    data: Record<string, McpServerConfig> | ShellConfigData
+  }
+}
+
+export interface ShellConfigData {
+  environment: 'local' | 'docker'
+  path?: string
+  env?: Record<string, string>
+  image?: { source: 'pull'; name: string } | { source: 'dockerfile'; path: string; name: string }
+  container_name?: string
 }
