@@ -1,19 +1,15 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import type { FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router'
-import useWebSocket, { ReadyState } from 'react-use-websocket'
-import { getTopicHistory, getChatWebSocketUrl, listTopics, getAgentDetail, listAgents, uploadFile, base_url } from '../services/vizier'
+import { getTopicHistory, listTopics, deleteTopic, getAgentDetail, listAgents, uploadFile, base_url } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
 import type { Agent, ChatMessage, Topic, VizierAttachment, WebSocketMessage, WebSocketResponse, VizierResponseStats } from '../interfaces/types'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
-import hljs from 'highlight.js'
 import { getCurrentUsername } from '../utils/auth'
 import { Skeleton, SkeletonMessage } from '../components/Skeleton'
 import { FaPaperPlane, FaPaperclip } from 'react-icons/fa'
-import { FiX } from 'react-icons/fi'
+import { FiX, FiChevronDown, FiTrash2 } from 'react-icons/fi'
 import { useToastStore } from '../hooks/toastStore'
+import { useConnectionStore } from '../hooks/connectionStore'
 import { MessageItem } from '../components/MessageItem'
 import { ThinkingIndicator } from '../components/ThinkingIndicator'
 import { debounce } from '../utils/debounce'
@@ -132,18 +128,23 @@ export default function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(true)
-  const [isNewTopic, setIsNewTopic] = useState(false)
-  const [newTopicId, setNewTopicId] = useState('')
-  const [showNewTopicInput, setShowNewTopicInput] = useState(false)
   const [inlineEvents, setInlineEvents] = useState<InlineEvent[]>([])
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null)
   const [attachments, setAttachments] = useState<VizierAttachment[]>([])
   const [uploading, setUploading] = useState(false)
+  const [showSessionDropdown, setShowSessionDropdown] = useState(false)
+  const [sessionList, setSessionList] = useState<Topic[]>([])
+  const [showNewSessionInput, setShowNewSessionInput] = useState(false)
+  const [newSessionId, setNewSessionId] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const thinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sessionSelectorRef = useRef<HTMLDivElement>(null)
   const { addToast } = useToastStore()
+  const { connected, lastMessage, messageCount, sendMessage, clearLastMessage } = useConnectionStore()
+
+  const resolvedTopicId = topicId ?? 'DEFAULT'
 
   // Create debounced resize handler to prevent layout thrashing on every keystroke
   const debouncedResize = useMemo(
@@ -154,52 +155,32 @@ export default function Chat() {
     []
   )
 
-  // WebSocket connection
-  const wsUrl = agentId && topicId && topicId !== 'new'
-    ? getChatWebSocketUrl(agentId, topicId)
-    : null
-  console.log('WebSocket URL:', wsUrl)
-
-  const { sendJsonMessage, lastJsonMessage, readyState } = useWebSocket(
-    wsUrl,
-    {
-      shouldReconnect: () => true,
-      reconnectInterval: 3000,
-      onOpen: () => console.log('WebSocket connected'),
-      onClose: () => console.log('WebSocket disconnected'),
-      onError: (e) => console.error('WebSocket error:', e),
-    }
-  )
-
   const [topicDetail, setTopicDetail] = useState<any | null>(null)
   const [agentNames, setAgentNames] = useState<Record<string, string>>({})
 
-  // Check if this is a new topic
+  // Redirect to DEFAULT if no topicId
   useEffect(() => {
-    if (topicId === 'new') {
-      setIsNewTopic(true)
-      setShowNewTopicInput(true)
-      setLoading(false)
-    } else {
-      setIsNewTopic(false)
-      setShowNewTopicInput(false)
-
-
-      if (agentId) {
-        console.log('>> ?', { agentId })
-        listTopics(agentId).then(topic => {
-          let topicDetail = topic.data.find((item: any) => item.topic_id == topicId);
-
-          setTopicDetail(topicDetail)
-        })
-      }
+    if (agentId && !topicId) {
+      navigate(`/${agentId}/chat/DEFAULT`, { replace: true })
     }
-  }, [topicId])
+  }, [agentId, topicId, navigate])
+
+  // Load topic detail
+  useEffect(() => {
+    if (!agentId) return
+    listTopics(agentId).then(topic => {
+      const detail = topic.data.find((item: any) => item.topic_id === resolvedTopicId)
+      setTopicDetail(detail || null)
+    })
+  }, [agentId, resolvedTopicId])
 
   // Clear inline events and attachments when topic changes
   useEffect(() => {
     setInlineEvents([])
     setAttachments([])
+    setShowSessionDropdown(false)
+    setShowNewSessionInput(false)
+    setNewSessionId('')
     if (thinkingTimeoutRef.current) {
       clearTimeout(thinkingTimeoutRef.current)
       thinkingTimeoutRef.current = null
@@ -208,7 +189,7 @@ export default function Chat() {
 
   // Load chat history
   useEffect(() => {
-    if (!agentId || !topicId || topicId === 'new') return
+    if (!agentId) return
 
     getAgentDetail(agentId).then(data => {
       setAgentDetail(data.data)
@@ -216,7 +197,7 @@ export default function Chat() {
 
     const loadHistory = async () => {
       try {
-        const response = await getTopicHistory(agentId, topicId)
+        const response = await getTopicHistory(agentId, resolvedTopicId)
         const historyMessages = response.data || []
         setMessages(historyMessages)
       } catch (error) {
@@ -228,7 +209,7 @@ export default function Chat() {
     }
 
     loadHistory()
-  }, [agentId, topicId])
+  }, [agentId, resolvedTopicId])
 
   useEffect(() => {
     listAgents().then(res => {
@@ -268,10 +249,9 @@ export default function Chat() {
 
   // Handle incoming WebSocket messages
   useEffect(() => {
-    console.log('WebSocket message received:', lastJsonMessage)
-    if (!lastJsonMessage) return
+    if (!lastMessage) return
 
-    const wsResponse = lastJsonMessage as WebSocketResponse
+    const wsResponse = lastMessage as WebSocketResponse
 
     if (typeof wsResponse !== 'object' || wsResponse === null) {
       return
@@ -317,7 +297,7 @@ export default function Chat() {
             vizier_session: {
               agent_id: agentId!,
               channel: 'vizier-webui',
-              topic: topicId!,
+              topic: resolvedTopicId,
             },
             content: {
               Response: {
@@ -331,45 +311,98 @@ export default function Chat() {
         return
       }
     }
-  }, [lastJsonMessage, agentId, topicId])
+  }, [lastMessage, agentId, resolvedTopicId])
 
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const handleCreateTopic = async () => {
-    if (!newTopicId.trim() || !agentId) return
-
-    const finalTopicId = autoCorrectSlugStrict(newTopicId)
-    if (!finalTopicId) return
-
-    try {
-      const response = await listTopics(agentId)
-      const topics = response.data || []
-      const exists = topics.some((t: any) => t.topic_id === finalTopicId)
-
-      if (exists) {
-        addToast('error', 'Topic already exists', `A topic with ID "${finalTopicId}" already exists.`)
-        return
+  // Close session dropdown on outside click
+  useEffect(() => {
+    if (!showSessionDropdown) return
+    const handleClick = (e: MouseEvent) => {
+      if (sessionSelectorRef.current && !sessionSelectorRef.current.contains(e.target as Node)) {
+        setShowSessionDropdown(false)
       }
-    } catch (error) {
-      console.error('Failed to check topic existence:', error)
     }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showSessionDropdown])
 
-    navigate(`/${agentId}/chat/${finalTopicId}`)
-    setShowNewTopicInput(false)
-    setNewTopicId('')
-  }
+  const loadSessionList = useCallback(async () => {
+    if (!agentId) return
+    try {
+      const res = await listTopics(agentId)
+      setSessionList(res.data || [])
+    } catch (err) {
+      console.error('Failed to load sessions:', err)
+    }
+  }, [agentId])
+
+  const handleToggleSessionDropdown = useCallback(() => {
+    const next = !showSessionDropdown
+    setShowSessionDropdown(next)
+    if (next) {
+      loadSessionList()
+    }
+  }, [showSessionDropdown, loadSessionList])
+
+  const handleSelectSession = useCallback((sessionId: string) => {
+    setShowSessionDropdown(false)
+    navigate(`/${agentId}/chat/${sessionId}`)
+  }, [agentId, navigate])
+
+  const handleNewSession = useCallback(() => {
+    setShowSessionDropdown(false)
+    setShowNewSessionInput(true)
+    setNewSessionId('')
+  }, [])
+
+  const handleCreateSession = useCallback(() => {
+    if (!agentId) return
+    const slug = autoCorrectSlugStrict(newSessionId)
+    if (!slug) return
+    const exists = sessionList.some(s => s.topic_id === slug)
+    if (exists) {
+      addToast('error', 'Session already exists', `"${slug}" already exists.`)
+      return
+    }
+    setShowSessionDropdown(false)
+    setShowNewSessionInput(false)
+    setNewSessionId('')
+    navigate(`/${agentId}/chat/${slug}`)
+  }, [agentId, newSessionId, sessionList, navigate, addToast])
+
+  const handleCancelNewSession = useCallback(() => {
+    setShowNewSessionInput(false)
+    setNewSessionId('')
+  }, [])
+
+  const handleDeleteSession = useCallback(async (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation()
+    if (!agentId) return
+    if (!confirm(`Delete session "${sessionId}"?`)) return
+    try {
+      await deleteTopic(agentId, sessionId)
+      addToast('success', 'Session deleted')
+      if (resolvedTopicId === sessionId) {
+        navigate(`/${agentId}/chat/DEFAULT`)
+      } else {
+        loadSessionList()
+      }
+    } catch (err: any) {
+      addToast('error', 'Failed to delete session', err?.response?.data?.message || err?.message)
+    }
+  }, [agentId, resolvedTopicId, navigate, addToast, loadSessionList])
 
   const handleSendMessage = useCallback(async (e: FormEvent) => {
     e.preventDefault()
     const currentInput = inputRef.current?.value || ''
-    if (!currentInput.trim() || !agentId || !topicId) return
+    if (!currentInput.trim() || !agentId) return
 
-    console.log('WebSocket readyState before check:', readyState)
-    if (readyState !== 1) {
-      console.error('WebSocket not ready, state:', readyState)
+    if (!connected) {
+      console.error('WebSocket not connected')
       return
     }
 
@@ -383,14 +416,12 @@ export default function Chat() {
       attachments: attachments.length > 0 ? attachments : undefined,
     }
 
-    console.log('Sending message:', JSON.stringify(message))
-
     const userMessage: ChatMessage = {
       uid: Date.now().toString(),
       vizier_session: {
         agent_id: agentId,
         channel: 'vizier-webui',
-        topic: topicId,
+        topic: resolvedTopicId,
       },
       content: {
         Request: {
@@ -408,11 +439,8 @@ export default function Chat() {
     if (inputRef.current) {
       inputRef.current.style.height = 'auto'
     }
-    console.log('Calling sendJsonMessage with:', message)
-    console.log('WebSocket readyState:', readyState)
-    sendJsonMessage(message)
-    console.log('sendJsonMessage called, readyState now:', readyState)
-  }, [agentId, topicId, readyState, sendJsonMessage, attachments])
+    sendMessage(message)
+  }, [agentId, resolvedTopicId, connected, sendMessage, attachments])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -469,107 +497,142 @@ export default function Chat() {
     )
   }
 
-  if (showNewTopicInput) {
-    return (
-      <div className="main-body" style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}>
-        <div style={{
-          maxWidth: '500px',
-          width: '100%',
-        }}>
-          <h2 style={{ marginBottom: '1rem' }}>Create New Topic</h2>
-          <p style={{
-            color: 'var(--text-secondary)',
-            marginBottom: '1.5rem',
-            fontSize: '14px',
-          }}>
-            Enter a unique identifier for this conversation topic (e.g., "project-alpha", "daily-standup")
-          </p>
-          <div className="input-group">
-            <label htmlFor="topic-id">Topic ID</label>
-            <input
-              id="topic-id"
-              type="text"
-              value={newTopicId}
-              onChange={(e) => setNewTopicId(autoCorrectSlug(e.target.value))}
-              placeholder="my-topic-id"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  handleCreateTopic()
-                }
-              }}
-            />
-            {newTopicId && (
-              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
-                Topic ID: {newTopicId}
-              </div>
-            )}
-          </div>
-          <div style={{
-            display: 'flex',
-            gap: '8px',
-            marginTop: '1rem',
-          }}>
-            <button
-              className="btn btn-primary"
-              onClick={handleCreateTopic}
-              disabled={!newTopicId.trim()}
-            >
-              Create Topic
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => navigate('/')}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  const connectionStatus = {
-    [ReadyState.CONNECTING]: 'Connecting...',
-    [ReadyState.OPEN]: 'Connected',
-    [ReadyState.CLOSING]: 'Closing...',
-    [ReadyState.CLOSED]: 'Disconnected',
-    [ReadyState.UNINSTANTIATED]: 'Not connected',
-  }[readyState]
-
   return (
     <>
       {/* Header */}
       <div className="main-header">
-        <div style={{ flex: 1 }}>
-          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-              {topicDetail ? topicDetail.title : topicId}
-            </ReactMarkdown>
+        <div className="session-selector-wrapper" ref={sessionSelectorRef}>
+          <div
+            className="session-selector"
+            onClick={handleToggleSessionDropdown}
+          >
+            <span className="session-selector-title">
+              {topicDetail ? topicDetail.title : resolvedTopicId}
+            </span>
+            <FiChevronDown size={14} className={`session-selector-chevron ${showSessionDropdown ? 'open' : ''}`} />
+          </div>
+          <button
+            className="session-new-btn"
+            onClick={handleNewSession}
+            title="New session"
+          >
+            +
+          </button>
 
-          </h3>
-        </div>
-        <div style={{
-          fontSize: '12px',
-          color: readyState === ReadyState.OPEN ? 'var(--text-tertiary)' : 'var(--text-secondary)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-        }}>
-          <span style={{
-            width: '6px',
-            height: '6px',
-            borderRadius: '50%',
-            background: readyState === ReadyState.OPEN ? 'var(--accent-primary)' : '#f59e0b',
-            display: 'inline-block',
-          }} />
-          {connectionStatus}
+          {showSessionDropdown && (
+            <div className="session-dropdown">
+              {sessionList.length === 0 ? (
+                <div className="session-dropdown-empty">No sessions</div>
+              ) : (
+                sessionList.map((session) => (
+                  <div
+                    key={session.topic_id}
+                    className={`session-dropdown-item ${resolvedTopicId === session.topic_id ? 'active' : ''}`}
+                    onClick={() => handleSelectSession(session.topic_id)}
+                  >
+                    <div className="session-dropdown-item-info">
+                      <span className="session-dropdown-item-id">{session.topic_id}</span>
+                      {session.title && session.title !== session.topic_id && (
+                        <span className="session-dropdown-item-title">{session.title}</span>
+                      )}
+                    </div>
+                    <button
+                      className="session-dropdown-delete"
+                      onClick={(e) => handleDeleteSession(e, session.topic_id)}
+                      title="Delete session"
+                    >
+                      <FiTrash2 size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* New Session Modal */}
+      {showNewSessionInput && (
+        <>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 1000,
+              backdropFilter: 'blur(4px)',
+            }}
+            onClick={handleCancelNewSession}
+          />
+          <div
+            style={{
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: 'var(--background)',
+              borderRadius: '12px',
+              padding: '2rem',
+              maxWidth: '420px',
+              width: '90%',
+              zIndex: 1001,
+              border: '1px solid var(--border)',
+              boxShadow: 'var(--shadow-xl)',
+            }}
+          >
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '1.5rem',
+            }}>
+              <h2 style={{ margin: 0 }}>New Session</h2>
+              <button className="btn btn-ghost" onClick={handleCancelNewSession} style={{ padding: '8px' }}>✕</button>
+            </div>
+
+            <div className="input-group">
+              <label htmlFor="new-session-id">Topic ID</label>
+              <input
+                id="new-session-id"
+                type="text"
+                value={newSessionId}
+                onChange={(e) => setNewSessionId(autoCorrectSlug(e.target.value))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateSession()
+                  if (e.key === 'Escape') handleCancelNewSession()
+                }}
+                placeholder="my-session-name"
+                autoFocus
+              />
+              {newSessionId && (
+                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+                  → {autoCorrectSlugStrict(newSessionId) || '...'}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '1.5rem' }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleCreateSession}
+                disabled={!autoCorrectSlugStrict(newSessionId)}
+                style={{ flex: 1, justifyContent: 'center' }}
+              >
+                Create
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={handleCancelNewSession}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Messages */}
       <div
@@ -645,19 +708,9 @@ export default function Chat() {
       </div >
 
       {/* Input */}
-      < div style={{
-        borderTop: '1px solid var(--border)',
-        padding: '16px 24px',
-        background: 'var(--background)',
-      }}>
+      < div className="border-t border-[var(--border)] px-4 py-3 md:px-6 md:py-4 bg-[var(--background)]">
         <style>{textareaStyle}</style>
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-          maxWidth: '900px',
-          margin: '0 auto',
-        }}>
+        <div className="flex flex-col gap-3 max-w-[900px] mx-auto w-full">
           {/* Attachment chips */}
           {attachments.length > 0 && (
             <div style={{
@@ -725,7 +778,7 @@ export default function Chat() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={readyState !== ReadyState.OPEN || uploading}
+              disabled={!connected || uploading}
               style={{
                 width: '44px',
                 height: '44px',
@@ -735,8 +788,8 @@ export default function Chat() {
                 background: 'var(--surface)',
                 border: '1px solid var(--border)',
                 borderRadius: '8px',
-                cursor: readyState !== ReadyState.OPEN || uploading ? 'not-allowed' : 'pointer',
-                color: readyState !== ReadyState.OPEN || uploading ? 'var(--text-tertiary)' : 'var(--text-primary)',
+                cursor: !connected || uploading ? 'not-allowed' : 'pointer',
+                color: !connected || uploading ? 'var(--text-tertiary)' : 'var(--text-primary)',
                 opacity: uploading ? 0.7 : 1,
               }}
               title="Attach file"
@@ -756,8 +809,8 @@ export default function Chat() {
                 debouncedResize(e.target)
               }}
               onKeyDown={handleKeyDown}
-              placeholder={readyState === ReadyState.OPEN ? "Type your message..." : "Connecting..."}
-              disabled={readyState !== ReadyState.OPEN}
+              placeholder={connected ? "Type a message..." : "Connecting..."}
+              disabled={!connected}
               rows={1}
               style={{
                 flex: 1,
@@ -770,7 +823,7 @@ export default function Chat() {
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={!input.trim() || readyState !== ReadyState.OPEN}
+              disabled={!input.trim() || !connected}
               style={{ width: '44px', height: '44px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               <FaPaperPlane />

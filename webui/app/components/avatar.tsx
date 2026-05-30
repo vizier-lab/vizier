@@ -15,32 +15,54 @@ interface AvatarProps {
   rounded?: boolean
   variant?: AvatarVariant
   size?: 'sm' | 'md' | 'lg'
+  showStatus?: boolean
+  online?: boolean
 }
 
 const sizeMap = {
-  sm: 32,
+  sm: 36,
   md: 48,
   lg: 64,
 }
 
-const Avatar = ({ 
-  name, 
-  rounded = false, 
+const dotSizeMap = {
+  sm: 12,
+  md: 16,
+  lg: 18,
+}
+
+const Avatar = ({
+  name,
+  rounded = false,
   variant = 'beam',
-  size = 'md'
+  size = 'md',
+  showStatus = false,
+  online = false,
 }: AvatarProps) => {
   const colors = colorPalettes[variant]
   const avatarSize = sizeMap[size]
-  
+  const dotSize = dotSizeMap[size]
+
   return (
-    <BoringAvatar 
-      className={`${rounded ? 'rounded-full' : 'rounded-xl'}`} 
-      name={name} 
-      variant={variant === 'beam_emerald' ? 'beam' : variant}
-      colors={colors} 
-      square
-      size={avatarSize}
-    />
+    <span className="avatar-wrapper">
+      <BoringAvatar
+        className={`${rounded ? 'rounded-full' : 'rounded-xl'}`}
+        name={name}
+        variant={variant === 'beam_emerald' ? 'beam' : variant}
+        colors={colors}
+        square
+        size={avatarSize}
+      />
+      {showStatus && (
+        <span
+          className={`avatar-status-dot ${online ? 'online' : ''}`}
+          style={{
+            width: dotSize,
+            height: dotSize,
+          }}
+        />
+      )}
+    </span>
   )
 }
 

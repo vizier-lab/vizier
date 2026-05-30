@@ -1,34 +1,39 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
-import { listAgents, listTopics, deleteTopic } from './services/vizier'
-import { FiSettings, FiMessageCircle, FiCheckCircle, FiLogOut, FiSearch, FiTrash2, FiTrendingUp } from 'react-icons/fi'
-import { FaBook, FaFile, FaFolder } from 'react-icons/fa'
+import { listAgents } from './services/vizier'
+import { FiSettings, FiCheckCircle, FiLogOut, FiTrendingUp, FiChevronDown, FiChevronLeft, FiMessageSquare, FiSun, FiMoon, FiMenu } from 'react-icons/fi'
+import { FaBook, FaFolder } from 'react-icons/fa'
 import Avatar from './components/avatar'
-import ThemeToggle from './components/ThemeToggle'
 import ToastContainer from './components/Toast'
-import { useToastStore } from './hooks/toastStore'
-import type { Agent, Topic } from './interfaces/types'
+import { useConnectionStore } from './hooks/connectionStore'
+import { useSidebarStore } from './hooks/sidebarStore'
+import { useThemeStore } from './hooks/themeStore'
+import type { Agent } from './interfaces/types'
 
 export default function Layout() {
   const [agents, setAgents] = useState<Agent[]>([])
-  const [topics, setTopics] = useState<Topic[]>([])
   const [loading, setLoading] = useState(true)
+  const [showAgentDropdown, setShowAgentDropdown] = useState(false)
   const navigate = useNavigate()
   const params = useParams()
   const location = useLocation()
-  const { addToast } = useToastStore()
+  const agentCardRef = useRef<HTMLDivElement>(null)
 
   const currentAgentId = params.agentId
   const currentTopicId = params.topicId
-  const [previousTopicId, setPreviousTopicId] = useState<string | undefined>()
+
+  const { connected, connect, disconnect } = useConnectionStore()
+  const { collapsed, toggleSidebar, mobileOpen, closeMobile } = useSidebarStore()
+  const { theme, toggleTheme } = useThemeStore()
 
   // Check auth
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
     if (!token) {
+      disconnect()
       navigate('/login')
     }
-  }, [navigate])
+  }, [navigate, disconnect])
 
   // Load agents
   useEffect(() => {
@@ -45,62 +50,51 @@ export default function Layout() {
     loadAgents()
   }, [])
 
-  // Load topics when agent changes or when navigating away from /new
+  // WebSocket lifecycle — connect when on a chat route, keep alive on other routes
   useEffect(() => {
-    if (!currentAgentId) return
+    if (!currentAgentId || !currentTopicId) return
 
-    const loadTopics = async () => {
-      try {
-        const response = await listTopics(currentAgentId)
-        const topicsList = response.data || []
+    const token = localStorage.getItem('auth_token')
+    if (!token) return
 
-        // If we just created a new topic (navigating from 'new' to a real topic),
-        // add it optimistically if it's not in the list yet
-        if (previousTopicId === 'new' && currentTopicId && currentTopicId !== 'new') {
-          const topicExists = topicsList.some(t => t.topic_id === currentTopicId)
-          if (!topicExists) {
-            topicsList.push({
-              topic_id: currentTopicId,
-              title: currentTopicId, // Use topic_id as title until backend provides it
-              created_at: new Date().toISOString(),
-            } as Topic)
-          }
-        }
+    connect(currentAgentId, currentTopicId)
+  }, [currentAgentId, currentTopicId, connect])
 
-        setTopics(topicsList)
-      } catch (error) {
-        console.error('Failed to load topics:', error)
+  // Disconnect on agent change (switching to a different agent)
+  useEffect(() => {
+    return () => {
+      // Only disconnect when the agent actually changes, not on every re-render
+    }
+  }, [currentAgentId])
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!showAgentDropdown) return
+    const handleClick = (e: MouseEvent) => {
+      if (agentCardRef.current && !agentCardRef.current.contains(e.target as Node)) {
+        setShowAgentDropdown(false)
       }
     }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showAgentDropdown])
 
-    loadTopics()
-
-    // Update previous topic
-    setPreviousTopicId(currentTopicId)
-  }, [currentAgentId, currentTopicId, previousTopicId])
+  // Close mobile drawer on route change
+  useEffect(() => {
+    closeMobile()
+  }, [location.pathname, closeMobile])
 
   const handleLogout = () => {
+    disconnect()
     localStorage.removeItem('auth_token')
     navigate('/login')
   }
 
-  const handleDeleteTopic = async (e: React.MouseEvent, topicId: string) => {
-    e.stopPropagation()
-    if (!currentAgentId) return
-    if (!confirm('Are you sure you want to delete this topic?')) return
-
-    try {
-      await deleteTopic(currentAgentId, topicId)
-      addToast('success', 'Topic deleted successfully')
-      const response = await listTopics(currentAgentId)
-      setTopics(response.data || [])
-      if (currentTopicId === topicId) {
-        navigate(`/${currentAgentId}/chat/new`)
-      }
-    } catch (error: any) {
-      console.error('Failed to delete topic:', error)
-      addToast('error', 'Failed to delete topic', error.response?.data?.message || 'Please try again')
-    }
+  const handleSelectAgent = (agentId: string) => {
+    setShowAgentDropdown(false)
+    closeMobile()
+    disconnect()
+    navigate(`/${agentId}/chat`)
   }
 
   const getCurrentView = () => {
@@ -113,7 +107,13 @@ export default function Layout() {
     return null
   }
 
+  const handleNavClick = (path: string) => {
+    closeMobile()
+    navigate(path)
+  }
+
   const currentView = getCurrentView()
+  const currentAgent = agents.find(a => a.agent_id === currentAgentId)
 
   if (loading) {
     return (
@@ -136,139 +136,168 @@ export default function Layout() {
     <div className="layout-container">
       <ToastContainer />
 
-      {/* Workspace sidebar (left) - Agent selector with settings and layout at bottom */}
-      <div className="workspace-sidebar">
-        <div className="workspace-items">
-          {agents.map((agent) => (
-            <div
-              key={agent.agent_id}
-              className={`workspace-item ${currentAgentId === agent.agent_id ? 'active' : ''}`}
-              onClick={() => {
-                // Navigate to chat with first topic, or show empty state
-                if (topics.length > 0) {
-                  navigate(`/${agent.agent_id}/chat/${topics[0].topic_id}`)
-                } else {
-                  navigate(`/${agent.agent_id}/chat/new`)
-                }
-              }}
-              title={agent.name}
-            >
-              <Avatar name={agent.agent_id} rounded={false} />
-            </div>
-          ))}
-        </div>
+      {/* Backdrop for mobile drawer */}
+      <div
+        className={`sidebar-backdrop ${mobileOpen ? 'visible' : ''}`}
+        onClick={closeMobile}
+      />
 
-        {/* Bottom workspace controls */}
-        <div className="workspace-bottom">
-          <ThemeToggle />
+      {/* Single sidebar */}
+      <div className={`nav-sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>
+        {/* Agent card with dropdown */}
+        <div className="agent-card-wrapper" ref={agentCardRef}>
           <div
-            className={`workspace-item ${currentView === 'settings' ? 'active' : ''}`}
-            onClick={() => navigate(currentAgentId ? `/${currentAgentId}/settings` : '/settings')}
-            title="Settings"
+            className="agent-card"
+            onClick={() => setShowAgentDropdown(!showAgentDropdown)}
+            title={collapsed && currentAgent ? currentAgent.name : undefined}
           >
-            <FiSettings size={20} />
-          </div>
-          <div
-            className="workspace-item"
-            onClick={handleLogout}
-            title="Logout"
-          >
-            <FiLogOut size={20} />
-          </div>
-        </div>
-      </div>
-
-      {/* Navigation sidebar (middle) - Topics and navigation */}
-      {currentAgentId && (
-        <div className="nav-sidebar">
-          <div className="nav-header">
-            <div className='flex flex-col'>
-              <span>{agents.find(a => a.agent_id === currentAgentId)?.name || currentAgentId}</span>
-              <div className='opacity-50 m-2 text-xs font-mono font-extralight'>{currentAgentId}</div>
-            </div>
-          </div>
-
-          <div className="nav-content">
-            {/* Search for memories - only show on memory page */}
-            {currentView === 'memory' && (
-              <div style={{ marginBottom: '16px' }}>
-              </div>
+            {currentAgent ? (
+              <>
+                <Avatar
+                  name={currentAgent.agent_id}
+                  rounded={false}
+                  size="sm"
+                  showStatus
+                  online={connected}
+                />
+                <div className="agent-card-info">
+                  <span className="agent-card-name">{currentAgent.name}</span>
+                  <span className="agent-card-id">{currentAgent.agent_id}</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <Avatar name="empty" rounded={false} size="sm" />
+                <span className="agent-card-placeholder">Select an agent</span>
+              </>
             )}
+            <FiChevronDown size={18} className={`agent-card-chevron ${showAgentDropdown ? 'open' : ''}`} />
+          </div>
 
-            {/* Tools section (moved above topics) */}
+          {showAgentDropdown && (
+            <div className={`agent-dropdown ${collapsed ? 'agent-dropdown-collapsed' : ''}`}>
+              {agents.map((agent) => (
+                <div
+                  key={agent.agent_id}
+                  className={`agent-dropdown-item ${currentAgentId === agent.agent_id ? 'active' : ''}`}
+                  onClick={() => handleSelectAgent(agent.agent_id)}
+                >
+                  <Avatar name={agent.agent_id} rounded={false} size="sm" />
+                  <div className="agent-dropdown-info">
+                    <span className="agent-dropdown-name">{agent.name}</span>
+                    <span className="agent-dropdown-id">{agent.agent_id}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Tools section — only when agent is selected */}
+        {currentAgentId && (
+          <div className="nav-content">
             <div className="nav-section">
-              <div className="nav-section-title">Tools</div>
+              <div
+                className={`nav-item ${currentView === 'chat' ? 'active' : ''}`}
+                onClick={() => handleNavClick(`/${currentAgentId}/chat`)}
+                title={collapsed ? 'Chat' : undefined}
+              >
+                <FiMessageSquare size={18} />
+                <span>Chat</span>
+              </div>
               <div
                 className={`nav-item ${currentView === 'memory' ? 'active' : ''}`}
-                onClick={() => navigate(`/${currentAgentId}/memory`)}
+                onClick={() => handleNavClick(`/${currentAgentId}/memory`)}
+                title={collapsed ? 'Memory' : undefined}
               >
-                <FaBook size={16} />
+                <FaBook size={18} />
                 <span>Memory</span>
               </div>
               <div
                 className={`nav-item ${currentView === 'tasks' ? 'active' : ''}`}
-                onClick={() => navigate(`/${currentAgentId}/tasks`)}
+                onClick={() => handleNavClick(`/${currentAgentId}/tasks`)}
+                title={collapsed ? 'Tasks' : undefined}
               >
-                <FiCheckCircle size={16} />
+                <FiCheckCircle size={18} />
                 <span>Tasks</span>
               </div>
               <div
                 className={`nav-item ${currentView === 'documents' ? 'active' : ''}`}
-                onClick={() => navigate(`/${currentAgentId}/documents`)}
+                onClick={() => handleNavClick(`/${currentAgentId}/documents`)}
+                title={collapsed ? 'Documents' : undefined}
               >
-                <FaFolder size={16} />
+                <FaFolder size={18} />
                 <span>Documents</span>
               </div>
               <div
                 className={`nav-item ${currentView === 'usage' ? 'active' : ''}`}
-                onClick={() => navigate(`/${currentAgentId}/usage`)}
+                onClick={() => handleNavClick(`/${currentAgentId}/usage`)}
+                title={collapsed ? 'Usage' : undefined}
               >
-                <FiTrendingUp size={16} />
+                <FiTrendingUp size={18} />
                 <span>Usage</span>
               </div>
             </div>
+          </div>
+        )}
 
-            <div className="divider" />
-
-            {/* Topics section - now showing only topic_id/slug */}
-            <div className="nav-section">
-              <div className="nav-section-title">Topics</div>
-              {topics.map((topic) => (
-                <div
-                  key={topic.topic_id}
-                  className={`nav-item group ${currentTopicId === topic.topic_id ? 'active' : ''}`}
-                  onClick={() => navigate(`/${currentAgentId}/chat/${topic.topic_id}`)}
-                  title={topic.title}
-                >
-                  <FiMessageCircle size={16} />
-                  <span className="flex-1 truncate">{topic.topic_id}</span>
-                  <button
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-opacity"
-                    onClick={(e) => handleDeleteTopic(e, topic.topic_id)}
-                    title="Delete topic"
-                  >
-                    <FiTrash2 size={14} />
-                  </button>
-                </div>
-              ))}
-              <div
-                className="nav-item"
-                onClick={() => navigate(`/${currentAgentId}/chat/new`)}
-                style={{ color: 'var(--text-tertiary)' }}
-              >
-                <span style={{ fontSize: '18px', lineHeight: '1' }}>+</span>
-                <span>New Topic</span>
-              </div>
-            </div>
+        {/* Bottom: Toggle, Settings, Theme, Logout */}
+        <div className="nav-bottom">
+          <div
+            className="nav-item sidebar-toggle"
+            onClick={toggleSidebar}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <FiChevronLeft
+              size={18}
+              style={{
+                transition: 'transform 0.2s ease',
+                transform: collapsed ? 'rotate(180deg)' : 'none',
+              }}
+            />
+            <span>Collapse</span>
+          </div>
+          <div
+            className={`nav-item ${currentView === 'settings' ? 'active' : ''}`}
+            onClick={() => handleNavClick(currentAgentId ? `/${currentAgentId}/settings` : '/settings')}
+            title={collapsed ? 'Settings' : undefined}
+          >
+            <FiSettings size={18} />
+            <span>Settings</span>
+          </div>
+          <div
+            className="nav-item nav-theme-row"
+            onClick={toggleTheme}
+            title={collapsed ? `Switch to ${theme === 'dark' ? 'light' : 'dark'} mode` : undefined}
+          >
+            <FiSun className="theme-icon-light" size={18} />
+            <FiMoon className="theme-icon-dark" size={18} />
+            <span className="theme-label">Theme</span>
+          </div>
+          <div
+            className="nav-item"
+            onClick={handleLogout}
+            title={collapsed ? 'Logout' : undefined}
+          >
+            <FiLogOut size={18} />
+            <span>Logout</span>
           </div>
         </div>
-      )
-      }
+      </div>
 
       {/* Main content area */}
       <div className="main-content">
+        {/* Mobile-only header bar with hamburger */}
+        <div className="flex items-center px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)] md:hidden">
+          <button className="mobile-menu-btn" onClick={() => useSidebarStore.getState().toggleMobile()}>
+            <FiMenu size={22} />
+          </button>
+          {currentAgent && (
+            <span className="ml-3 font-semibold text-sm">{currentAgent.name}</span>
+          )}
+        </div>
         <Outlet />
       </div>
-    </div >
+    </div>
   )
 }

@@ -119,12 +119,25 @@ export default function Settings() {
         </div>
       </div>
 
-      <div style={{
-        display: 'flex',
-        height: 'calc(100vh - 60px)',
-      }}>
-        {/* Section Navigation */}
-        <div style={{
+      {/* Mobile section nav (horizontal tabs) */}
+      <div className="flex md:hidden border-b border-[var(--border)] px-4 gap-2 py-2">
+        <button
+          onClick={() => setActiveSection('password')}
+          className={`px-3 py-1.5 text-sm font-medium rounded-t transition-colors ${activeSection === 'password' ? 'bg-[var(--surface)] text-[var(--text-primary)] border-b-2 border-[var(--accent-primary)]' : 'text-[var(--text-tertiary)]'}`}
+        >
+          Password
+        </button>
+        <button
+          onClick={() => setActiveSection('api-keys')}
+          className={`px-3 py-1.5 text-sm font-medium rounded-t transition-colors ${activeSection === 'api-keys' ? 'bg-[var(--surface)] text-[var(--text-primary)] border-b-2 border-[var(--accent-primary)]' : 'text-[var(--text-tertiary)]'}`}
+        >
+          API Keys
+        </button>
+      </div>
+
+      <div className="flex" style={{ height: 'calc(100vh - 60px)' }}>
+        {/* Section Navigation (desktop only) */}
+        <div className="hidden md:block" style={{
           width: '200px',
           borderRight: '1px solid var(--border)',
           padding: '24px 16px',
@@ -144,11 +157,7 @@ export default function Settings() {
         </div>
 
         {/* Content */}
-        <div style={{
-          flex: 1,
-          overflow: 'auto',
-          padding: '24px',
-        }}>
+        <div className="flex-1 overflow-auto p-4 md:p-6">
           {/* Password Section */}
           {activeSection === 'password' && (
             <div style={{ maxWidth: '600px' }}>

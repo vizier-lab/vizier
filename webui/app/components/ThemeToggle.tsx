@@ -1,8 +1,12 @@
 import { FiSun, FiMoon } from 'react-icons/fi'
 import { useThemeStore } from '../hooks/themeStore'
 
-export default function ThemeToggle() {
-  const { theme, setTheme, toggleTheme } = useThemeStore()
+interface ThemeToggleProps {
+  showLabel?: boolean
+}
+
+export default function ThemeToggle({ showLabel = false }: ThemeToggleProps) {
+  const { theme, toggleTheme } = useThemeStore()
 
   return (
     <button
@@ -12,6 +16,7 @@ export default function ThemeToggle() {
     >
       <FiSun className="theme-icon-light" size={20} />
       <FiMoon className="theme-icon-dark" size={20} />
+      {showLabel && <span className="theme-label">Theme</span>}
     </button>
   )
 }
