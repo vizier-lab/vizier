@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { useToastStore } from '../hooks/toastStore'
-import { getAgentDetail, updateAgent } from '../services/vizier'
-import type { CreateAgentRequest, AgentDetail } from '../interfaces/types'
+import { getAgentDetail, updateAgent, listGlobalConfigs } from '../services/vizier'
+import TooltipLabel from '../components/TooltipLabel'
+import type { CreateAgentRequest, AgentDetail, GlobalConfigEntry } from '../interfaces/types'
 
 const PROVIDERS = ['ollama', 'deepseek', 'openrouter', 'anthropic', 'openai', 'gemini', 'mimo']
 
@@ -13,6 +14,7 @@ export default function AgentEdit() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [availableMcpServers, setAvailableMcpServers] = useState<string[]>([])
   const [form, setForm] = useState<CreateAgentRequest>({
     agent_id: '',
     name: '',
@@ -22,7 +24,7 @@ export default function AgentEdit() {
     system_prompt: '',
     thinking_depth: 10,
     session_memory_capacity: 10,
-    max_tokens: undefined,
+    max_tokens: 100000,
     tools: {
       shell_access: false,
       brave_search: false,
@@ -32,6 +34,8 @@ export default function AgentEdit() {
       telegram: false,
       fetch: false,
       http_client: false,
+      timeout: '1m',
+      mcp_servers: [],
     },
     prompt_timeout: '5m',
     heartbeat_interval: '30m',
@@ -63,6 +67,8 @@ export default function AgentEdit() {
             telegram: d.telegram,
             fetch: d.fetch,
             http_client: d.http_client,
+            timeout: d.tools_timeout || '1m',
+            mcp_servers: d.mcp_servers || [],
           },
           prompt_timeout: d.prompt_timeout,
           heartbeat_interval: d.heartbeat_interval,
@@ -91,6 +97,39 @@ export default function AgentEdit() {
     }))
   }
 
+  const updateToolField = (key: string, value: string | string[]) => {
+    setForm((prev) => ({
+      ...prev,
+      tools: { ...prev.tools, [key]: value },
+    }))
+  }
+
+  const toggleMcpServer = (name: string) => {
+    setForm((prev) => {
+      const current = prev.tools?.mcp_servers ?? []
+      const next = current.includes(name)
+        ? current.filter((s) => s !== name)
+        : [...current, name]
+      return { ...prev, tools: { ...prev.tools, mcp_servers: next } }
+    })
+  }
+
+  useEffect(() => {
+    const loadMcpServers = async () => {
+      try {
+        const response = await listGlobalConfigs()
+        const entries: GlobalConfigEntry[] = response.data || []
+        const mcpEntry = entries.find((e) => e.key === 'mcp_servers')
+        if (mcpEntry && mcpEntry.value.type === 'McpServers') {
+          setAvailableMcpServers(Object.keys(mcpEntry.value.data))
+        }
+      } catch {
+        // silently ignore — MCP servers are optional
+      }
+    }
+    loadMcpServers()
+  }, [])
+
   const handleSave = async () => {
     if (!agentId || !form.name.trim()) {
       addToast('error', 'Name is required')
@@ -116,7 +155,7 @@ export default function AgentEdit() {
     padding: '0.5rem 0.75rem',
     borderRadius: '0.375rem',
     border: '1px solid var(--border)',
-    background: 'var(--bg-primary)',
+    background: 'var(--surface)',
     color: 'var(--text-primary)',
     fontSize: '0.875rem',
     outline: 'none',
@@ -158,7 +197,9 @@ export default function AgentEdit() {
       <div className="main-body" style={{ display: 'flex', justifyContent: 'center' }}>
         <div style={{ width: '100%', maxWidth: '720px', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <section style={fieldStyle}>
-            <label style={labelStyle}>Agent ID</label>
+            <label style={labelStyle}>
+              <TooltipLabel label="Agent ID" tooltip="Unique identifier for the agent. Lowercase letters, numbers, hyphens, and underscores only. Cannot be changed after creation." />
+            </label>
             <input
               style={{ ...inputStyle, opacity: 0.6 }}
               value={form.agent_id}
@@ -167,7 +208,10 @@ export default function AgentEdit() {
           </section>
 
           <section style={fieldStyle}>
-            <label style={labelStyle}>Name *</label>
+            <label style={labelStyle}>
+              <TooltipLabel label="Name" tooltip="Display name for this agent." />
+              {' *'}
+            </label>
             <input
               style={inputStyle}
               placeholder="My Agent"
@@ -177,7 +221,9 @@ export default function AgentEdit() {
           </section>
 
           <section style={fieldStyle}>
-            <label style={labelStyle}>Description</label>
+            <label style={labelStyle}>
+              <TooltipLabel label="Description" tooltip="Optional description of what this agent does." />
+            </label>
             <input
               style={inputStyle}
               placeholder="A helpful assistant"
@@ -188,7 +234,9 @@ export default function AgentEdit() {
 
           <div style={{ display: 'flex', gap: '0.75rem' }}>
             <section style={{ ...fieldStyle, flex: 1 }}>
-              <label style={labelStyle}>Provider</label>
+              <label style={labelStyle}>
+                <TooltipLabel label="Provider" tooltip="The AI provider to use for completions (e.g. ollama, openai, anthropic)." />
+              </label>
               <select
                 style={inputStyle}
                 value={form.provider}
@@ -203,7 +251,9 @@ export default function AgentEdit() {
               </select>
             </section>
             <section style={{ ...fieldStyle, flex: 1 }}>
-              <label style={labelStyle}>Model</label>
+              <label style={labelStyle}>
+                <TooltipLabel label="Model" tooltip="The model identifier for the selected provider (e.g. gpt-4o-mini, claude-3-haiku)." />
+              </label>
               <input
                 style={inputStyle}
                 value={form.model}
@@ -213,7 +263,9 @@ export default function AgentEdit() {
           </div>
 
           <section style={fieldStyle}>
-            <label style={labelStyle}>System Prompt</label>
+            <label style={labelStyle}>
+              <TooltipLabel label="System Prompt" tooltip="Instructions that define the agent's behavior, personality, and capabilities." />
+            </label>
             <textarea
               style={{ ...inputStyle, minHeight: '120px', resize: 'vertical' }}
               placeholder="You are a helpful assistant..."
@@ -224,7 +276,9 @@ export default function AgentEdit() {
 
           <div style={{ display: 'flex', gap: '0.75rem' }}>
             <section style={{ ...fieldStyle, flex: 1 }}>
-              <label style={labelStyle}>Thinking Depth</label>
+              <label style={labelStyle}>
+                <TooltipLabel label="Thinking Depth" tooltip="Maximum number of LLM reasoning turns per request. Each turn allows one completion call plus any tool executions. Higher values enable deeper reasoning but increase latency. Set to 0 for unlimited." />
+              </label>
               <input
                 style={inputStyle}
                 type="number"
@@ -234,7 +288,9 @@ export default function AgentEdit() {
               />
             </section>
             <section style={{ ...fieldStyle, flex: 1 }}>
-              <label style={labelStyle}>Max Tokens</label>
+              <label style={labelStyle}>
+                <TooltipLabel label="Max Tokens" tooltip="Maximum output tokens per LLM completion request. Passed directly to the provider API. Leave empty to use the provider's default limit." />
+              </label>
               <input
                 style={inputStyle}
                 type="number"
@@ -245,7 +301,9 @@ export default function AgentEdit() {
               />
             </section>
             <section style={{ ...fieldStyle, flex: 1 }}>
-              <label style={labelStyle}>Memory Capacity</label>
+              <label style={labelStyle}>
+                <TooltipLabel label="Memory Capacity" tooltip="Maximum number of recent conversation messages loaded as context for each request. Higher values give more conversational context but increase token usage." />
+              </label>
               <input
                 style={inputStyle}
                 type="number"
@@ -274,7 +332,9 @@ export default function AgentEdit() {
           {showAdvanced && (
             <>
               <section style={fieldStyle}>
-                <label style={labelStyle}>Tools</label>
+                <label style={labelStyle}>
+                  <TooltipLabel label="Tools" tooltip="Capabilities the agent can use during conversations and tasks." />
+                </label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   {([
                     ['shell_access', 'Shell Access'],
@@ -348,9 +408,45 @@ export default function AgentEdit() {
                 </div>
               </section>
 
+              {/* Tool Timeout + MCP Servers */}
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <section style={{ ...fieldStyle, flex: 1 }}>
-                  <label style={labelStyle}>Prompt Timeout</label>
+                  <label style={labelStyle}>
+                    <TooltipLabel label="Tool Timeout" tooltip="Maximum time allowed for a single tool execution (e.g. 1m, 30s, 2m)." />
+                  </label>
+                  <input
+                    style={inputStyle}
+                    placeholder="1m"
+                    value={form.tools?.timeout || ''}
+                    onChange={(e) => updateToolField('timeout', e.target.value)}
+                  />
+                </section>
+                {availableMcpServers.length > 0 && (
+                  <section style={{ ...fieldStyle, flex: 1 }}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="MCP Servers" tooltip="Select globally configured MCP servers to attach to this agent." />
+                    </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', padding: '0.25rem 0' }}>
+                      {availableMcpServers.map((name) => (
+                        <label key={name} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={form.tools?.mcp_servers?.includes(name) ?? false}
+                            onChange={() => toggleMcpServer(name)}
+                          />
+                          {name}
+                        </label>
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <section style={{ ...fieldStyle, flex: 1 }}>
+                  <label style={labelStyle}>
+                    <TooltipLabel label="Prompt Timeout" tooltip="Maximum wall-clock duration for a single request, including all reasoning turns and tool executions (e.g. 5m, 30s)." />
+                  </label>
                   <input
                     style={inputStyle}
                     placeholder="5m"
@@ -359,7 +455,9 @@ export default function AgentEdit() {
                   />
                 </section>
                 <section style={{ ...fieldStyle, flex: 1 }}>
-                  <label style={labelStyle}>Heartbeat Interval</label>
+                  <label style={labelStyle}>
+                    <TooltipLabel label="Heartbeat Interval" tooltip="How often the agent's background task loop runs. The agent executes tasks written to HEARTBEAT.md on each tick (e.g. 30m, 1h)." />
+                  </label>
                   <input
                     style={inputStyle}
                     placeholder="30m"
@@ -368,7 +466,9 @@ export default function AgentEdit() {
                   />
                 </section>
                 <section style={{ ...fieldStyle, flex: 1 }}>
-                  <label style={labelStyle}>Dream Interval</label>
+                  <label style={labelStyle}>
+                    <TooltipLabel label="Dream Interval" tooltip="How often the agent runs a self-reflection process that analyzes past conversations and updates its documents and memories (e.g. 24h)." />
+                  </label>
                   <input
                     style={inputStyle}
                     placeholder="24h"
@@ -381,7 +481,9 @@ export default function AgentEdit() {
               {/* Channel Tokens */}
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <section style={{ ...fieldStyle, flex: 1 }}>
-                  <label style={labelStyle}>Discord Bot Token</label>
+                  <label style={labelStyle}>
+                    <TooltipLabel label="Discord Bot Token" tooltip="Bot token from the Discord Developer Portal. Required for the agent to connect to Discord channels." />
+                  </label>
                   <input
                     style={inputStyle}
                     type="password"
@@ -391,7 +493,9 @@ export default function AgentEdit() {
                   />
                 </section>
                 <section style={{ ...fieldStyle, flex: 1 }}>
-                  <label style={labelStyle}>Telegram Bot Token</label>
+                  <label style={labelStyle}>
+                    <TooltipLabel label="Telegram Bot Token" tooltip="Bot token from @BotFather. Required for the agent to connect to Telegram chats." />
+                  </label>
                   <input
                     style={inputStyle}
                     type="password"

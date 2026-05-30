@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router'
 import { listTasks, getTask, createTask, updateTask, deleteTask } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
-import { FiPlus, FiTrash2, FiClock } from 'react-icons/fi'
+import { FaPlus, FaTrash, FaClock } from 'react-icons/fa6'
 import type { Task } from '../interfaces/types'
 import DatePicker from '../components/DatePicker'
 
@@ -206,7 +206,7 @@ export default function TaskManagement() {
             <option value="inactive">Inactive</option>
           </select>
           <button className="btn btn-primary" onClick={handleCreateTask}>
-            <FiPlus size={16} />
+            <FaPlus size={16} />
             <span>New Task</span>
           </button>
         </div>
@@ -426,7 +426,7 @@ export default function TaskManagement() {
                     onClick={() => handleDeleteTask(selectedTask.slug)}
                     style={{ color: '#c00' }}
                   >
-                    <FiTrash2 size={16} />
+                    <FaTrash size={16} />
                     <span>Delete</span>
                   </button>
                 </div>

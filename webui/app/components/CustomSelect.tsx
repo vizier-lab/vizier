@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { FiChevronDown } from 'react-icons/fi'
+import { FaChevronDown } from 'react-icons/fa6'
 
 interface SelectOption {
   label: string
@@ -54,7 +54,7 @@ export default function CustomSelect({ value, onChange, options, style }: Custom
         }}
       >
         {selectedOption?.label || 'Select...'}
-        <FiChevronDown size={14} style={{ opacity: 0.6 }} />
+        <FaChevronDown size={14} style={{ opacity: 0.6 }} />
       </button>
 
       {isOpen && (

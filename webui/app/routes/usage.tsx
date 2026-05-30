@@ -5,7 +5,7 @@ import { useToastStore } from '../hooks/toastStore'
 import type { AgentUsageStats } from '../interfaces/types'
 import { UsageBarChart, ChannelTypeStackedChart, type UsageMetric, type DisplayMode } from '../components/UsageBarChart'
 import CustomSelect from '../components/CustomSelect'
-import { FiChevronDown, FiChevronRight, FiCalendar } from 'react-icons/fi'
+import { FaChevronDown, FaChevronRight, FaCalendar } from 'react-icons/fa6'
 
 const DATE_RANGE_OPTIONS = [
   { label: 'Last 7 days', value: 7 },
@@ -207,7 +207,7 @@ export default function UsageDashboard() {
                 fontSize: '14px',
               }}
             >
-              <FiCalendar size={16} />
+              <FaCalendar size={16} />
               {formatDateRange()}
             </button>
 
@@ -243,7 +243,7 @@ export default function UsageDashboard() {
                         style={{
                           padding: '4px 8px',
                           fontSize: '12px',
-                          background: dateRange === option.value ? 'var(--accent-primary)' : 'var(--bg-secondary)',
+                          background: dateRange === option.value ? 'var(--accent-primary)' : 'var(--hover)',
                           color: dateRange === option.value ? 'white' : 'var(--text-primary)',
                           border: 'none',
                           borderRadius: '4px',
@@ -268,7 +268,7 @@ export default function UsageDashboard() {
                       style={{
                         padding: '4px 8px',
                         fontSize: '12px',
-                        background: 'var(--bg-secondary)',
+                        background: 'var(--hover)',
                         border: '1px solid var(--border)',
                         borderRadius: '4px',
                         color: 'var(--text-primary)',
@@ -281,7 +281,7 @@ export default function UsageDashboard() {
                       style={{
                         padding: '4px 8px',
                         fontSize: '12px',
-                        background: 'var(--bg-secondary)',
+                        background: 'var(--hover)',
                         border: '1px solid var(--border)',
                         borderRadius: '4px',
                         color: 'var(--text-primary)',
@@ -324,7 +324,7 @@ export default function UsageDashboard() {
           <div className="flex gap-3 items-center"></div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 mt-2!">
           <div style={{ background: 'var(--surface)', borderRadius: '8px', padding: '16px' }}>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
               Total Tokens
@@ -359,8 +359,8 @@ export default function UsageDashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-          <div style={{ background: 'var(--surface)', borderRadius: '8px', padding: '16px' }}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+          <div style={{ background: 'var(--surface)', borderRadius: '8px', padding: '16px', marginTop: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h2 style={{ fontSize: '16px', fontWeight: 600 }}>Token Usage by Day (Input/Output)</h2>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -379,7 +379,7 @@ export default function UsageDashboard() {
             <UsageBarChart data={getDayChartData()} metric={dayMetric} displayMode={displayMode} />
           </div>
 
-          <div style={{ background: 'var(--surface)', borderRadius: '8px', padding: '16px' }}>
+          <div style={{ background: 'var(--surface)', borderRadius: '8px', padding: '16px', marginTop: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h2 style={{ fontSize: '16px', fontWeight: 600 }}>Token Usage by Day (Channel Type)</h2>
             </div>
@@ -397,7 +397,7 @@ export default function UsageDashboard() {
           </div>
         </div>
 
-        <div style={{ background: 'var(--surface)', borderRadius: '8px', padding: '16px' }}>
+        <div style={{ background: 'var(--surface)', borderRadius: '8px', padding: '16px', marginTop: '16px' }}>
           <h2 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>Channels</h2>
 
           {Object.keys(usage.by_channel_type || {}).length === 0 ? (
@@ -405,7 +405,7 @@ export default function UsageDashboard() {
               No channel data available
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {Object.entries(usage.by_channel_type).map(([channelType, data]) => (
                 <div
                   key={channelType}
@@ -423,12 +423,12 @@ export default function UsageDashboard() {
                       alignItems: 'center',
                       padding: '12px 16px',
                       cursor: 'pointer',
-                      background: 'var(--bg-secondary)',
+                      background: 'var(--hover)',
                       userSelect: 'none',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {expandedChannels[channelType] ? <FiChevronDown size={16} /> : <FiChevronRight size={16} />}
+                      {expandedChannels[channelType] ? <FaChevronDown size={16} /> : <FaChevronRight size={16} />}
                       <span style={{ fontWeight: 500, textTransform: 'capitalize' }}>{channelType}</span>
                       <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                         ({data.channels.length} channels)

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FiChevronLeft, FiChevronRight } from 'react-icons/fi'
+import { FaChevronLeft, FaChevronRight } from 'react-icons/fa6'
 
 interface DatePickerProps {
   value: string
@@ -158,7 +158,7 @@ export default function DatePicker({ value, onChange, label }: DatePickerProps) 
                     color: 'var(--text-secondary)',
                   }}
                 >
-                  <FiChevronLeft size={20} />
+                  <FaChevronLeft size={20} />
                 </button>
                 <span style={{ fontWeight: '600', color: 'var(--text)' }}>
                   {MONTHS[selectedDate.month]} {selectedDate.year}
@@ -174,7 +174,7 @@ export default function DatePicker({ value, onChange, label }: DatePickerProps) 
                     color: 'var(--text-secondary)',
                   }}
                 >
-                  <FiChevronRight size={20} />
+                  <FaChevronRight size={20} />
                 </button>
               </div>
 

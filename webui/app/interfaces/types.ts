@@ -94,6 +94,8 @@ export interface CreateAgentRequest {
     telegram?: boolean
     fetch?: boolean
     http_client?: boolean
+    timeout?: string
+    mcp_servers?: string[]
   }
   prompt_timeout?: string
   heartbeat_interval?: string
@@ -125,6 +127,8 @@ export interface AgentDetail {
   dream_interval: string
   discord_token?: string
   telegram_token?: string
+  tools_timeout: string
+  mcp_servers: string[]
 }
 
 // ============================================================================

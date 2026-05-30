@@ -6,7 +6,7 @@ import { motion, type Transition } from 'motion/react'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import Avatar from './avatar'
-import { FiCopy, FiCheck } from 'react-icons/fi'
+import { FaCopy, FaCheck } from 'react-icons/fa6'
 import { useToastStore } from '~/hooks/toastStore'
 
 interface ChatBubbleProps {
@@ -58,7 +58,7 @@ const ChatBubble = (props: ChatBubbleProps) => {
               className="absolute top-2 right-2 p-2 hover:bg-black/10 rounded cursor-pointer"
               title="Copy to clipboard"
             >
-              <FiCopy size={14} />
+              <FaCopy size={14} />
             </button>
             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
               {`**${props.chat.username}** ${formatChoice(props.chat.choice)}`}
@@ -97,7 +97,7 @@ const ChatBubble = (props: ChatBubbleProps) => {
                   className="mt-2 p-1 hover:bg-black/10 rounded cursor-pointer flex items-center gap-1 text-xs text-black/50"
                   title="Copy to clipboard"
                 >
-                  <FiCopy size={12} />
+                  <FaCopy size={12} />
                 </button>
               )}
               {props.chat.timestamp && (

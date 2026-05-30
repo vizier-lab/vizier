@@ -104,7 +104,7 @@ export default function DangerZone() {
                 padding: '0.5rem 0.75rem',
                 borderRadius: '0.375rem',
                 border: '1px solid var(--border)',
-                background: 'var(--bg-primary)',
+                background: 'var(--background)',
                 color: 'var(--text-primary)',
                 fontSize: '0.875rem',
                 marginBottom: '1rem',

@@ -5,7 +5,7 @@ import rehypeHighlight from 'rehype-highlight'
 import { useParams } from 'react-router'
 import { listMemories, getMemory, createMemory, updateMemory, deleteMemory } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
-import { FiPlus, FiTrash2, FiEdit2 } from 'react-icons/fi'
+import { FaPlus, FaTrash, FaPenToSquare } from 'react-icons/fa6'
 import { Skeleton, SkeletonMemoryCard } from '../components/Skeleton'
 import { useToastStore } from '../hooks/toastStore'
 import type { Memory, MemoryDetail } from '../interfaces/types'
@@ -131,7 +131,7 @@ export default function MemoryManagement() {
           <h3 style={{ margin: 0 }}>Memory Management</h3>
         </div>
         <button className="btn btn-primary" onClick={handleCreateMemory}>
-          <FiPlus size={16} />
+          <FaPlus size={16} />
           <span>New Memory</span>
         </button>
       </div>
@@ -163,7 +163,7 @@ export default function MemoryManagement() {
               className="btn btn-primary"
               onClick={handleCreateMemory}
             >
-              <FiPlus size={16} />
+              <FaPlus size={16} />
               Create Memory
             </button>
           </div>
@@ -193,7 +193,7 @@ export default function MemoryManagement() {
                     }}
                     style={{ padding: '4px' }}
                   >
-                    <FiEdit2 size={14} />
+                    <FaPenToSquare size={14} />
                   </button>
                 </div>
                 <p style={{
@@ -290,7 +290,7 @@ export default function MemoryManagement() {
                     className="btn btn-secondary"
                     onClick={() => handleEditMemory(selectedMemory)}
                   >
-                    <FiEdit2 size={16} />
+                    <FaPenToSquare size={16} />
                     Edit
                   </button>
                   <button
@@ -298,7 +298,7 @@ export default function MemoryManagement() {
                     onClick={() => handleDeleteMemory(selectedMemory.slug)}
                     style={{ color: '#ef4444', marginLeft: 'auto' }}
                   >
-                    <FiTrash2 size={16} />
+                    <FaTrash size={16} />
                     Delete
                   </button>
                 </div>

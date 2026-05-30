@@ -36,12 +36,19 @@ impl VizierChannels {
         let discord_agents: Vec<(String, String)> = agents
             .iter()
             .filter_map(|(id, config)| {
-                config.discord_token.as_ref().map(|t| (id.clone(), t.clone()))
+                config
+                    .discord_token
+                    .as_ref()
+                    .map(|t| (id.clone(), t.clone()))
             })
             .collect();
 
         if !discord_agents.is_empty() {
             for (agent_id, token) in &discord_agents {
+                if token.len() == 0 {
+                    continue;
+                }
+
                 let agent_id = agent_id.clone();
                 let token = token.clone();
                 let deps = self.deps.clone();
@@ -84,12 +91,19 @@ impl VizierChannels {
         let telegram_agents: Vec<(String, String)> = agents
             .iter()
             .filter_map(|(id, config)| {
-                config.telegram_token.as_ref().map(|t| (id.clone(), t.clone()))
+                config
+                    .telegram_token
+                    .as_ref()
+                    .map(|t| (id.clone(), t.clone()))
             })
             .collect();
 
         if !telegram_agents.is_empty() {
             for (agent_id, token) in &telegram_agents {
+                if token.len() == 0 {
+                    continue;
+                }
+
                 let agent_id = agent_id.clone();
                 let token = token.clone();
                 let deps = self.deps.clone();

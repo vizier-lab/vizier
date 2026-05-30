@@ -142,7 +142,7 @@ export default function DocumentManagement() {
       </div>
 
       {/* Tabs */}
-      <div className="main-body" style={{ paddingTop: 0 }}>
+      <div className="main-body" style={{ paddingTop: '16px' }}>
         <div style={{
           display: 'flex',
           gap: '4px',

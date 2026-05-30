@@ -1,13 +1,13 @@
 import { useEffect } from 'react'
-import { FiCheckCircle, FiAlertCircle, FiAlertTriangle, FiInfo } from 'react-icons/fi'
+import { FaCircleCheck, FaCircleExclamation, FaTriangleExclamation, FaCircleInfo } from 'react-icons/fa6'
 import { useToastStore, type Toast } from '../hooks/toastStore'
 import { motion, AnimatePresence } from 'motion/react'
 
 const toastIcons = {
-  success: FiCheckCircle,
-  error: FiAlertCircle,
-  warning: FiAlertTriangle,
-  info: FiInfo,
+  success: FaCircleCheck,
+  error: FaCircleExclamation,
+  warning: FaTriangleExclamation,
+  info: FaCircleInfo,
 }
 
 const toastColors = {

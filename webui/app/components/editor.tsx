@@ -7,7 +7,7 @@ import {
   thematicBreakPlugin,
 } from '@mdxeditor/editor'
 import { useRef, useState } from 'react'
-import { FaPaperPlane } from 'react-icons/fa'
+import { FaPaperPlane } from 'react-icons/fa6'
 
 const Editor = (props: { onSubmit: (value: string) => void }) => {
   let ref: any = useRef(null)

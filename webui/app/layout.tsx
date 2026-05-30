@@ -1,8 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
 import { listAgents, deleteAgent } from './services/vizier'
-import { FiSettings, FiCheckCircle, FiLogOut, FiTrendingUp, FiChevronDown, FiChevronLeft, FiMessageSquare, FiSun, FiMoon, FiMenu, FiPlus, FiTrash2, FiEdit3, FiAlertTriangle } from 'react-icons/fi'
-import { FaBook, FaFolder } from 'react-icons/fa'
+import { FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaTrash, FaPen, FaTriangleExclamation, FaBook, FaFolder } from 'react-icons/fa6'
 import Avatar from './components/avatar'
 import ToastContainer from './components/Toast'
 import { useConnectionStore } from './hooks/connectionStore'
@@ -14,12 +13,13 @@ export default function Layout() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [showAgentDropdown, setShowAgentDropdown] = useState(false)
+  const [lastAgentId, setLastAgentId] = useState<string | null>(() => localStorage.getItem('last_agent_id'))
   const navigate = useNavigate()
   const params = useParams()
   const location = useLocation()
   const agentCardRef = useRef<HTMLDivElement>(null)
 
-  const currentAgentId = params.agentId
+  const currentAgentId = params.agentId || lastAgentId
   const currentTopicId = params.topicId
 
   const { connected, connect, disconnect } = useConnectionStore()
@@ -49,6 +49,14 @@ export default function Layout() {
     }
     loadAgents()
   }, [])
+
+  // Sync URL agent param to localStorage
+  useEffect(() => {
+    if (params.agentId) {
+      localStorage.setItem('last_agent_id', params.agentId)
+      setLastAgentId(params.agentId)
+    }
+  }, [params.agentId])
 
   // WebSocket lifecycle — connect when on a chat route, keep alive on other routes
   useEffect(() => {
@@ -94,6 +102,8 @@ export default function Layout() {
     setShowAgentDropdown(false)
     closeMobile()
     disconnect()
+    localStorage.setItem('last_agent_id', agentId)
+    setLastAgentId(agentId)
     navigate(`/${agentId}/chat`)
   }
 
@@ -173,7 +183,7 @@ export default function Layout() {
                 <span className="agent-card-placeholder">Select an agent</span>
               </>
             )}
-            <FiChevronDown size={18} className={`agent-card-chevron ${showAgentDropdown ? 'open' : ''}`} />
+            <FaChevronDown size={18} className={`agent-card-chevron ${showAgentDropdown ? 'open' : ''}`} />
           </div>
 
           {showAgentDropdown && (
@@ -199,7 +209,7 @@ export default function Layout() {
                 }}
                 style={{ borderTop: '1px solid var(--border)', marginTop: '0.25rem', paddingTop: '0.5rem' }}
               >
-                <FiPlus size={18} />
+                <FaPlus size={18} />
                 <div className="agent-dropdown-info">
                   <span className="agent-dropdown-name">Create Agent</span>
                 </div>
@@ -212,13 +222,13 @@ export default function Layout() {
         <div className="nav-content">
           <div className="nav-section">
             {([
-              ['chat', 'Chat', FiMessageSquare],
+              ['chat', 'Chat', FaComment],
               ['memory', 'Memory', FaBook],
-              ['tasks', 'Tasks', FiCheckCircle],
+              ['tasks', 'Tasks', FaCircleCheck],
               ['documents', 'Documents', FaFolder],
-              ['usage', 'Usage', FiTrendingUp],
-              ['edit', 'Edit Agent', FiEdit3],
-              ['danger', 'Danger Zone', FiAlertTriangle],
+              ['usage', 'Usage', FaArrowTrendUp],
+              ['edit', 'Edit Agent', FaPen],
+              ['danger', 'Danger Zone', FaTriangleExclamation],
             ] as const).map(([view, label, Icon]) => (
               <div
                 key={view}
@@ -244,7 +254,7 @@ export default function Layout() {
             onClick={toggleSidebar}
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            <FiChevronLeft
+            <FaChevronLeft
               size={18}
               style={{
                 transition: 'transform 0.2s ease',
@@ -258,7 +268,7 @@ export default function Layout() {
             onClick={() => handleNavClick('/settings')}
             title={collapsed ? 'Settings' : undefined}
           >
-            <FiSettings size={18} />
+            <FaGear size={18} />
             <span>Settings</span>
           </div>
           <div
@@ -266,8 +276,8 @@ export default function Layout() {
             onClick={toggleTheme}
             title={collapsed ? `Switch to ${theme === 'dark' ? 'light' : 'dark'} mode` : undefined}
           >
-            <FiSun className="theme-icon-light" size={18} />
-            <FiMoon className="theme-icon-dark" size={18} />
+            <FaSun className="theme-icon-light" size={18} />
+            <FaMoon className="theme-icon-dark" size={18} />
             <span className="theme-label">Theme</span>
           </div>
           <div
@@ -275,7 +285,7 @@ export default function Layout() {
             onClick={handleLogout}
             title={collapsed ? 'Logout' : undefined}
           >
-            <FiLogOut size={18} />
+            <FaRightFromBracket size={18} />
             <span>Logout</span>
           </div>
         </div>
@@ -286,7 +296,7 @@ export default function Layout() {
         {/* Mobile-only header bar with hamburger */}
         <div className="flex items-center px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)] md:hidden">
           <button className="mobile-menu-btn" onClick={() => useSidebarStore.getState().toggleMobile()}>
-            <FiMenu size={22} />
+            <FaBars size={22} />
           </button>
           {currentAgent && (
             <span className="ml-3 font-semibold text-sm">{currentAgent.name}</span>

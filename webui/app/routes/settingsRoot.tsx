@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { listApiKeys, createApiKey, deleteApiKey, changePassword, listGlobalConfigs, upsertGlobalConfig, listProviders, upsertProvider, deleteProvider } from '../services/vizier'
-import { FiTrash2, FiPlus, FiEdit3 } from 'react-icons/fi'
+import { FaTrash, FaPlus, FaPen } from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
 import type { ApiKey, GlobalConfigEntry, McpServerConfig, ShellConfigData, ProviderResponse } from '../interfaces/types'
 
@@ -313,7 +313,7 @@ export default function Settings() {
 
   const pInputStyle: React.CSSProperties = {
     width: '100%', padding: '0.5rem 0.75rem', borderRadius: '0.375rem',
-    border: '1px solid var(--border)', background: 'var(--bg-primary)',
+    border: '1px solid var(--border)', background: 'var(--surface)',
     color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none',
   }
 
@@ -436,7 +436,7 @@ export default function Settings() {
                         </div>
                       </div>
                       <button className="btn btn-ghost" onClick={() => handleDeleteApiKey(key.id)} style={{ color: '#c00' }}>
-                        <FiTrash2 size={16} /><span>Delete</span>
+                        <FaTrash size={16} /><span>Delete</span>
                       </button>
                     </div>
                   ))}
@@ -463,7 +463,7 @@ export default function Settings() {
                     const unconfigured = ALL_VARIANTS.filter((v) => !configured.includes(v))
                     const provInputStyle: React.CSSProperties = {
                       width: '100%', padding: '0.5rem 0.75rem', borderRadius: '0.375rem',
-                      border: '1px solid var(--border)', background: 'var(--bg-primary)',
+                      border: '1px solid var(--border)', background: 'var(--surface)',
                       color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none',
                     }
 
@@ -477,8 +477,8 @@ export default function Settings() {
                                 {p.base_url && <span style={{ color: 'var(--text-tertiary)', marginLeft: '0.75rem', fontSize: '0.8rem' }}>{p.base_url}</span>}
                               </div>
                               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                <button onClick={() => { setEditingProvider(p.variant); setProviderForm({ api_key: '', base_url: '' }) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem' }}><FiEdit3 size={16} /></button>
-                                <button onClick={() => handleDeleteProvider(p.variant)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '0.25rem' }}><FiTrash2 size={16} /></button>
+                                <button onClick={() => { setEditingProvider(p.variant); setProviderForm({ api_key: '', base_url: '' }) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem' }}><FaPen size={16} /></button>
+                                <button onClick={() => handleDeleteProvider(p.variant)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '0.25rem' }}><FaTrash size={16} /></button>
                               </div>
                             </div>
                             <div style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
@@ -510,7 +510,7 @@ export default function Settings() {
                           <div key={variant} style={{ padding: '1rem', border: '1px dashed var(--border)', borderRadius: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <strong style={{ textTransform: 'capitalize', color: 'var(--text-tertiary)' }}>{variant}</strong>
-                              <button onClick={() => { setEditingProvider(variant); setProviderForm({ api_key: '', base_url: '' }) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', padding: '0.25rem' }}><FiPlus size={16} /></button>
+                              <button onClick={() => { setEditingProvider(variant); setProviderForm({ api_key: '', base_url: '' }) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', padding: '0.25rem' }}><FaPlus size={16} /></button>
                             </div>
                             {editingProvider === variant && (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -554,7 +554,7 @@ export default function Settings() {
                 </div>
                 {!showAddMcp && (
                   <button className="btn btn-primary" onClick={() => { setShowAddMcp(true); setEditingMcp(null); setMcpForm({ name: '', host: 'local', command: '', args: '', uri: '', env: '' }) }}>
-                    <FiPlus size={14} /> Add Server
+                    <FaPlus size={14} /> Add Server
                   </button>
                 )}
               </div>
@@ -633,7 +633,7 @@ export default function Settings() {
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
                         <button onClick={() => handleEditMcpServer(name)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem', fontSize: '0.8rem' }}>Edit</button>
                         <button onClick={() => handleDeleteMcpServer(name)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '0.25rem' }}>
-                          <FiTrash2 size={14} />
+                          <FaTrash size={14} />
                         </button>
                       </div>
                     </div>

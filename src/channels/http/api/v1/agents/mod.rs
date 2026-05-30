@@ -1,6 +1,5 @@
 use axum::{
-    Router,
-    Json,
+    Json, Router,
     extract::{Path, Query, State},
     routing::get,
 };
@@ -12,7 +11,7 @@ use crate::{
     channels::http::{
         models::{
             self,
-            response::{api_response, err_response, APIResponse},
+            response::{APIResponse, api_response, err_response},
         },
         state::HTTPState,
     },
@@ -20,7 +19,7 @@ use crate::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentSummary, AgentToolsConfig,
         AgentUsageStats, BraveSearchToolSettings, MemoryConfig, ToolConfig,
     },
-    storage::{agent::AgentStorage, history::HistoryStorage, VizierStorage},
+    storage::{VizierStorage, agent::AgentStorage, history::HistoryStorage},
 };
 
 pub mod channel;
@@ -97,6 +96,8 @@ pub struct AgentDetail {
     pub dream_interval: String,
     pub discord_token: Option<String>,
     pub telegram_token: Option<String>,
+    pub tools_timeout: String,
+    pub mcp_servers: Vec<String>,
 }
 
 #[utoipa::path(
@@ -146,6 +147,8 @@ async fn agent_detail(
                 dream_interval: config.dream_interval.to_string(),
                 discord_token: config.discord_token,
                 telegram_token: config.telegram_token,
+                tools_timeout: config.tools.timeout.to_string(),
+                mcp_servers: config.tools.mcp_servers.clone(),
             },
         ),
         Ok(None) => err_response(StatusCode::NOT_FOUND, "not found".into()),
@@ -200,6 +203,10 @@ pub struct CreateAgentTools {
     pub fetch: Option<bool>,
     #[serde(default)]
     pub http_client: Option<bool>,
+    #[serde(default)]
+    pub timeout: Option<String>,
+    #[serde(default)]
+    pub mcp_servers: Option<Vec<String>>,
 }
 
 impl CreateAgentRequest {
@@ -213,6 +220,8 @@ impl CreateAgentRequest {
             telegram: None,
             fetch: None,
             http_client: None,
+            timeout: None,
+            mcp_servers: None,
         });
 
         AgentConfig {
@@ -227,7 +236,10 @@ impl CreateAgentRequest {
             thinking_depth: self.thinking_depth.unwrap_or(10),
             max_tokens: self.max_tokens,
             tools: AgentToolsConfig {
-                timeout: duration_string::DurationString::from_string("1m".into()).unwrap(),
+                timeout: duration_string::DurationString::from_string(
+                    tools.timeout.unwrap_or_else(|| "1m".into()),
+                )
+                .unwrap_or(duration_string::DurationString::from_string("1m".into()).unwrap()),
                 programmatic_sandbox: false,
                 shell_access: tools.shell_access.unwrap_or(false),
                 brave_search: ToolConfig {
@@ -246,7 +258,10 @@ impl CreateAgentRequest {
                     enabled: tools.telegram.unwrap_or(false),
                     settings: (),
                 },
-                notify_primary_user: ToolConfig { enabled: true, settings: () },
+                notify_primary_user: ToolConfig {
+                    enabled: true,
+                    settings: (),
+                },
                 fetch: ToolConfig {
                     enabled: tools.fetch.unwrap_or(false),
                     settings: (),
@@ -255,7 +270,7 @@ impl CreateAgentRequest {
                     enabled: tools.http_client.unwrap_or(false),
                     settings: (),
                 },
-                mcp_servers: vec![],
+                mcp_servers: tools.mcp_servers.unwrap_or_default(),
             },
             silent_read_initiative_chance: 0.0,
             show_thinking: Some(false),
@@ -462,3 +477,4 @@ async fn agent_usage(
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
     }
 }
+

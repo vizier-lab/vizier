@@ -2,8 +2,7 @@ import { memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { FiCopy } from 'react-icons/fi'
-import { FaFile, FaFilePdf, FaFileImage, FaFileAlt } from 'react-icons/fa'
+import { FaCopy, FaFile, FaFilePdf, FaFileImage, FaFileLines } from 'react-icons/fa6'
 import type { VizierAttachment, VizierResponseStats } from '../interfaces/types'
 import { base_url } from '~/services/vizier'
 
@@ -31,7 +30,7 @@ function MessageItemComponent({
   const getFileIcon = (filename: string) => {
     if (/\.pdf$/i.test(filename)) return <FaFilePdf size={16} />
     if (/\.(jpg|jpeg|png|gif|webp)$/i.test(filename)) return <FaFileImage size={16} />
-    if (/\.(doc|docx|txt|rtf)$/i.test(filename)) return <FaFileAlt size={16} />
+    if (/\.(doc|docx|txt|rtf)$/i.test(filename)) return <FaFileLines size={16} />
     return <FaFile size={16} />
   }
 
@@ -77,7 +76,7 @@ function MessageItemComponent({
             }}
             title="Copy to clipboard"
           >
-            <FiCopy size={14} />
+            <FaCopy size={14} />
           </button>
         </div>
 

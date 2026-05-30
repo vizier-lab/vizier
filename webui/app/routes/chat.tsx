@@ -6,8 +6,7 @@ import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
 import type { Agent, ChatMessage, Topic, VizierAttachment, WebSocketMessage, WebSocketResponse, VizierResponseStats } from '../interfaces/types'
 import { getCurrentUsername } from '../utils/auth'
 import { Skeleton, SkeletonMessage } from '../components/Skeleton'
-import { FaPaperPlane, FaPaperclip } from 'react-icons/fa'
-import { FiX, FiChevronDown, FiTrash2 } from 'react-icons/fi'
+import { FaPaperPlane, FaPaperclip, FaXmark, FaChevronDown, FaTrash } from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
 import { useConnectionStore } from '../hooks/connectionStore'
 import { MessageItem } from '../components/MessageItem'
@@ -509,7 +508,7 @@ export default function Chat() {
             <span className="session-selector-title">
               {topicDetail ? topicDetail.title : resolvedTopicId}
             </span>
-            <FiChevronDown size={14} className={`session-selector-chevron ${showSessionDropdown ? 'open' : ''}`} />
+            <FaChevronDown size={14} className={`session-selector-chevron ${showSessionDropdown ? 'open' : ''}`} />
           </div>
           <button
             className="session-new-btn"
@@ -541,7 +540,7 @@ export default function Chat() {
                       onClick={(e) => handleDeleteSession(e, session.topic_id)}
                       title="Delete session"
                     >
-                      <FiTrash2 size={14} />
+                      <FaTrash size={14} />
                     </button>
                   </div>
                 ))
@@ -757,7 +756,7 @@ export default function Chat() {
                       color: 'var(--text-tertiary)',
                     }}
                   >
-                    <FiX size={12} />
+                    <FaXmark size={12} />
                   </button>
                 </div>
               ))}
