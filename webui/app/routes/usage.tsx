@@ -317,14 +317,14 @@ export default function UsageDashboard() {
 
       </div >
 
-      <div className='main-body' style={{ padding: '24px', maxWidth: '100%', }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <h1 style={{ fontSize: '24px', fontWeight: 600 }}>Usage Dashboard</h1>
+      <div className='main-body' style={{ maxWidth: '100%' }}>
+        <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+          <h1 className="text-xl font-semibold">Usage Dashboard</h1>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}></div>
+          <div className="flex gap-3 items-center"></div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div style={{ background: 'var(--surface)', borderRadius: '8px', padding: '16px' }}>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
               Total Tokens
@@ -359,7 +359,7 @@ export default function UsageDashboard() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '24px' }}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
           <div style={{ background: 'var(--surface)', borderRadius: '8px', padding: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h2 style={{ fontSize: '16px', fontWeight: 600 }}>Token Usage by Day (Input/Output)</h2>

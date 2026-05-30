@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
 import { listAgents } from './services/vizier'
-import { FiSettings, FiCheckCircle, FiLogOut, FiTrendingUp, FiChevronDown, FiChevronLeft, FiMessageSquare, FiSun, FiMoon } from 'react-icons/fi'
+import { FiSettings, FiCheckCircle, FiLogOut, FiTrendingUp, FiChevronDown, FiChevronLeft, FiMessageSquare, FiSun, FiMoon, FiMenu } from 'react-icons/fi'
 import { FaBook, FaFolder } from 'react-icons/fa'
 import Avatar from './components/avatar'
 import ToastContainer from './components/Toast'
@@ -23,7 +23,7 @@ export default function Layout() {
   const currentTopicId = params.topicId
 
   const { connected, connect, disconnect } = useConnectionStore()
-  const { collapsed, toggleSidebar } = useSidebarStore()
+  const { collapsed, toggleSidebar, mobileOpen, closeMobile } = useSidebarStore()
   const { theme, toggleTheme } = useThemeStore()
 
   // Check auth
@@ -79,6 +79,11 @@ export default function Layout() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [showAgentDropdown])
 
+  // Close mobile drawer on route change
+  useEffect(() => {
+    closeMobile()
+  }, [location.pathname, closeMobile])
+
   const handleLogout = () => {
     disconnect()
     localStorage.removeItem('auth_token')
@@ -87,6 +92,7 @@ export default function Layout() {
 
   const handleSelectAgent = (agentId: string) => {
     setShowAgentDropdown(false)
+    closeMobile()
     disconnect()
     navigate(`/${agentId}/chat`)
   }
@@ -99,6 +105,11 @@ export default function Layout() {
     if (location.pathname.includes('/settings')) return 'settings'
     if (location.pathname.includes('/chat')) return 'chat'
     return null
+  }
+
+  const handleNavClick = (path: string) => {
+    closeMobile()
+    navigate(path)
   }
 
   const currentView = getCurrentView()
@@ -125,8 +136,14 @@ export default function Layout() {
     <div className="layout-container">
       <ToastContainer />
 
+      {/* Backdrop for mobile drawer */}
+      <div
+        className={`sidebar-backdrop ${mobileOpen ? 'visible' : ''}`}
+        onClick={closeMobile}
+      />
+
       {/* Single sidebar */}
-      <div className={`nav-sidebar ${collapsed ? 'collapsed' : ''}`}>
+      <div className={`nav-sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>
         {/* Agent card with dropdown */}
         <div className="agent-card-wrapper" ref={agentCardRef}>
           <div
@@ -182,7 +199,7 @@ export default function Layout() {
             <div className="nav-section">
               <div
                 className={`nav-item ${currentView === 'chat' ? 'active' : ''}`}
-                onClick={() => navigate(`/${currentAgentId}/chat`)}
+                onClick={() => handleNavClick(`/${currentAgentId}/chat`)}
                 title={collapsed ? 'Chat' : undefined}
               >
                 <FiMessageSquare size={18} />
@@ -190,7 +207,7 @@ export default function Layout() {
               </div>
               <div
                 className={`nav-item ${currentView === 'memory' ? 'active' : ''}`}
-                onClick={() => navigate(`/${currentAgentId}/memory`)}
+                onClick={() => handleNavClick(`/${currentAgentId}/memory`)}
                 title={collapsed ? 'Memory' : undefined}
               >
                 <FaBook size={18} />
@@ -198,7 +215,7 @@ export default function Layout() {
               </div>
               <div
                 className={`nav-item ${currentView === 'tasks' ? 'active' : ''}`}
-                onClick={() => navigate(`/${currentAgentId}/tasks`)}
+                onClick={() => handleNavClick(`/${currentAgentId}/tasks`)}
                 title={collapsed ? 'Tasks' : undefined}
               >
                 <FiCheckCircle size={18} />
@@ -206,7 +223,7 @@ export default function Layout() {
               </div>
               <div
                 className={`nav-item ${currentView === 'documents' ? 'active' : ''}`}
-                onClick={() => navigate(`/${currentAgentId}/documents`)}
+                onClick={() => handleNavClick(`/${currentAgentId}/documents`)}
                 title={collapsed ? 'Documents' : undefined}
               >
                 <FaFolder size={18} />
@@ -214,7 +231,7 @@ export default function Layout() {
               </div>
               <div
                 className={`nav-item ${currentView === 'usage' ? 'active' : ''}`}
-                onClick={() => navigate(`/${currentAgentId}/usage`)}
+                onClick={() => handleNavClick(`/${currentAgentId}/usage`)}
                 title={collapsed ? 'Usage' : undefined}
               >
                 <FiTrendingUp size={18} />
@@ -242,7 +259,7 @@ export default function Layout() {
           </div>
           <div
             className={`nav-item ${currentView === 'settings' ? 'active' : ''}`}
-            onClick={() => navigate(currentAgentId ? `/${currentAgentId}/settings` : '/settings')}
+            onClick={() => handleNavClick(currentAgentId ? `/${currentAgentId}/settings` : '/settings')}
             title={collapsed ? 'Settings' : undefined}
           >
             <FiSettings size={18} />
@@ -270,6 +287,15 @@ export default function Layout() {
 
       {/* Main content area */}
       <div className="main-content">
+        {/* Mobile-only header bar with hamburger */}
+        <div className="flex items-center px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)] md:hidden">
+          <button className="mobile-menu-btn" onClick={() => useSidebarStore.getState().toggleMobile()}>
+            <FiMenu size={22} />
+          </button>
+          {currentAgent && (
+            <span className="ml-3 font-semibold text-sm">{currentAgent.name}</span>
+          )}
+        </div>
         <Outlet />
       </div>
     </div>

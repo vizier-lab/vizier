@@ -23,6 +23,7 @@ export default function DocumentManagement() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
 
   const { addToast } = useToastStore()
 
@@ -170,23 +171,34 @@ export default function DocumentManagement() {
         </div>
 
         {/* Tab description */}
-        <div style={{
-          marginBottom: '1rem',
-          fontSize: '14px',
-          color: 'var(--text-secondary)',
-        }}>
-          {tabs.find(t => t.key === activeTab)?.description}
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div style={{
+            fontSize: '14px',
+            color: 'var(--text-secondary)',
+          }}>
+            {tabs.find(t => t.key === activeTab)?.description}
+          </div>
+          {/* Mobile-only editor/preview toggle */}
+          <div className="flex md:hidden gap-1 rounded-md overflow-hidden border border-[var(--border)]">
+            <button
+              onClick={() => setShowPreview(false)}
+              className={`px-3 py-1 text-xs font-medium transition-colors ${!showPreview ? 'bg-[var(--surface)] text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]'}`}
+            >
+              Editor
+            </button>
+            <button
+              onClick={() => setShowPreview(true)}
+              className={`px-3 py-1 text-xs font-medium transition-colors ${showPreview ? 'bg-[var(--surface)] text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]'}`}
+            >
+              Preview
+            </button>
+          </div>
         </div>
 
         {/* Content area with two columns */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '1rem',
-          height: 'calc(100vh - 250px)',
-        }}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ height: 'calc(100vh - 250px)' }}>
           {/* Editor */}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <div className={`${showPreview ? 'hidden md:flex' : 'flex'} flex-col`}>
             <div style={{
               fontSize: '12px',
               fontWeight: '600',
@@ -217,7 +229,7 @@ export default function DocumentManagement() {
           </div>
 
           {/* Preview */}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <div className={`${showPreview ? 'flex' : 'hidden md:flex'} flex-col`}>
             <div style={{
               fontSize: '12px',
               fontWeight: '600',

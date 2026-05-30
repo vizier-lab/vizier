@@ -708,19 +708,9 @@ export default function Chat() {
       </div >
 
       {/* Input */}
-      < div style={{
-        borderTop: '1px solid var(--border)',
-        padding: '16px 24px',
-        background: 'var(--background)',
-      }}>
+      < div className="border-t border-[var(--border)] px-4 py-3 md:px-6 md:py-4 bg-[var(--background)]">
         <style>{textareaStyle}</style>
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-          maxWidth: '900px',
-          margin: '0 auto',
-        }}>
+        <div className="flex flex-col gap-3 max-w-[900px] mx-auto w-full">
           {/* Attachment chips */}
           {attachments.length > 0 && (
             <div style={{

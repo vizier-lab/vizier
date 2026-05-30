@@ -236,124 +236,6 @@
 }
 
 /* ============================================================================
-   CODE STYLES - Enhanced for Light/Dark Contrast
-   ============================================================================ */
-
-.prose code {
-  font-family: var(--font-mono);
-  font-size: 0.875em;
-  background: var(--surface);
-  padding: 0.2em 0.4em;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  font-weight: 500;
-}
-
-/* Light mode inline code - darker background for contrast */
-:not(.dark) .prose code {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  border-color: #d4d2cc;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-/* Dark mode inline code - lighter text for contrast */
-.dark .prose code {
-  background: transparent !important;
-  color: #e4e4e7;
-  border-color: #3f3f46;
-}
-
-.prose pre {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 16px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 1em 0;
-  box-shadow: var(--shadow-sm);
-}
-
-/* Light mode code blocks */
-:not(.dark) .prose pre {
-  background: #f0f0eb;
-  border-color: #d4d2cc;
-}
-
-/* Dark mode code blocks - better contrast */
-.dark .prose pre {
-  background: #18181b;
-  border-color: #27272a;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.prose pre code {
-  background: none;
-  padding: 0;
-  border: none;
-  font-size: 0.875em;
-  color: inherit;
-}
-
-/* Light mode pre code */
-:not(.dark) .prose pre code {
-  color: #3a3a3a;
-}
-
-/* Dark mode pre code - brighter for readability */
-.dark .prose pre code {
-  color: #d4d4d8;
-}
-
-.prose table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1em 0;
-  font-size: 0.875em;
-}
-
-.prose thead {
-  border-bottom: 2px solid var(--border);
-}
-
-.prose tbody tr {
-  border-bottom: 1px solid var(--border);
-}
-
-/* Light mode tables */
-:not(.dark) .prose thead th {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  font-weight: 600;
-}
-
-:not(.dark) .prose tbody tr:nth-child(even) {
-  background: #f0f0eb;
-}
-
-/* Dark mode tables */
-.dark .prose thead th {
-  background: #27272a;
-  color: #fafafa;
-  font-weight: 600;
-}
-
-.dark .prose tbody tr:nth-child(even) {
-  background: #18181b;
-}
-
-.prose th,
-.prose td {
-  padding: 8px 12px;
-  text-align: left;
-}
-
-.dark .prose td {
-  color: #e4e4e7;
-}
-
-
-/* ============================================================================
    BASE STYLES
    ============================================================================ */
 
@@ -465,124 +347,6 @@ textarea:focus {
   box-shadow: 0 0 0 3px var(--accent-light);
   background: var(--surface);
 }
-
-/* ============================================================================
-   CODE STYLES - Enhanced for Light/Dark Contrast
-   ============================================================================ */
-
-.prose code {
-  font-family: var(--font-mono);
-  font-size: 0.875em;
-  background: var(--surface);
-  padding: 0.2em 0.4em;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  font-weight: 500;
-}
-
-/* Light mode inline code - darker background for contrast */
-:not(.dark) .prose code {
-  background: transparent !important;
-  color: #2a2a2a;
-  border-color: #d4d2cc;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-/* Dark mode inline code - lighter text for contrast */
-.dark .prose code {
-  background: #27272a;
-  color: #e4e4e7;
-  border-color: #3f3f46;
-}
-
-.prose pre {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 16px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 1em 0;
-  box-shadow: var(--shadow-sm);
-}
-
-/* Light mode code blocks */
-:not(.dark) .prose pre {
-  background: #f0f0eb;
-  border-color: #d4d2cc;
-}
-
-/* Dark mode code blocks - better contrast */
-.dark .prose pre {
-  background: #18181b;
-  border-color: #27272a;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.prose pre code {
-  background: none;
-  padding: 0;
-  border: none;
-  font-size: 0.875em;
-  color: inherit;
-}
-
-/* Light mode pre code */
-:not(.dark) .prose pre code {
-  color: #3a3a3a;
-}
-
-/* Dark mode pre code - brighter for readability */
-.dark .prose pre code {
-  color: #d4d4d8;
-}
-
-.prose table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1em 0;
-  font-size: 0.875em;
-}
-
-.prose thead {
-  border-bottom: 2px solid var(--border);
-}
-
-.prose tbody tr {
-  border-bottom: 1px solid var(--border);
-}
-
-/* Light mode tables */
-:not(.dark) .prose thead th {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  font-weight: 600;
-}
-
-:not(.dark) .prose tbody tr:nth-child(even) {
-  background: #f0f0eb;
-}
-
-/* Dark mode tables */
-.dark .prose thead th {
-  background: #27272a;
-  color: #fafafa;
-  font-weight: 600;
-}
-
-.dark .prose tbody tr:nth-child(even) {
-  background: #18181b;
-}
-
-.prose th,
-.prose td {
-  padding: 8px 12px;
-  text-align: left;
-}
-
-.dark .prose td {
-  color: #e4e4e7;
-}
-
 
 /* ============================================================================
    UTILITY CLASSES
@@ -718,124 +482,6 @@ textarea:focus {
 }
 
 /* ============================================================================
-   CODE STYLES - Enhanced for Light/Dark Contrast
-   ============================================================================ */
-
-.prose code {
-  font-family: var(--font-mono);
-  font-size: 0.875em;
-  background: var(--surface);
-  padding: 0.2em 0.4em;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  font-weight: 500;
-}
-
-/* Light mode inline code - darker background for contrast */
-:not(.dark) .prose code {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  border-color: #d4d2cc;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-/* Dark mode inline code - lighter text for contrast */
-.dark .prose code {
-  background: #27272a;
-  color: #e4e4e7;
-  border-color: #3f3f46;
-}
-
-.prose pre {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 16px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 1em 0;
-  box-shadow: var(--shadow-sm);
-}
-
-/* Light mode code blocks */
-:not(.dark) .prose pre {
-  background: #f0f0eb;
-  border-color: #d4d2cc;
-}
-
-/* Dark mode code blocks - better contrast */
-.dark .prose pre {
-  background: #18181b;
-  border-color: #27272a;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.prose pre code {
-  background: none;
-  padding: 0;
-  border: none;
-  font-size: 0.875em;
-  color: inherit;
-}
-
-/* Light mode pre code */
-:not(.dark) .prose pre code {
-  color: #3a3a3a;
-}
-
-/* Dark mode pre code - brighter for readability */
-.dark .prose pre code {
-  color: #d4d4d8;
-}
-
-.prose table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1em 0;
-  font-size: 0.875em;
-}
-
-.prose thead {
-  border-bottom: 2px solid var(--border);
-}
-
-.prose tbody tr {
-  border-bottom: 1px solid var(--border);
-}
-
-/* Light mode tables */
-:not(.dark) .prose thead th {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  font-weight: 600;
-}
-
-:not(.dark) .prose tbody tr:nth-child(even) {
-  background: #f0f0eb;
-}
-
-/* Dark mode tables */
-.dark .prose thead th {
-  background: #27272a;
-  color: #fafafa;
-  font-weight: 600;
-}
-
-.dark .prose tbody tr:nth-child(even) {
-  background: #18181b;
-}
-
-.prose th,
-.prose td {
-  padding: 8px 12px;
-  text-align: left;
-}
-
-.dark .prose td {
-  color: #e4e4e7;
-}
-
-
-/* ============================================================================
    THEME TOGGLE
    ============================================================================ */
 
@@ -896,124 +542,6 @@ textarea:focus {
 .avatar-status-dot.online {
   background: #10b981;
 }
-
-/* ============================================================================
-   CODE STYLES - Enhanced for Light/Dark Contrast
-   ============================================================================ */
-
-.prose code {
-  font-family: var(--font-mono);
-  font-size: 0.875em;
-  background: var(--surface);
-  padding: 0.2em 0.4em;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  font-weight: 500;
-}
-
-/* Light mode inline code - darker background for contrast */
-:not(.dark) .prose code {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  border-color: #d4d2cc;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-/* Dark mode inline code - lighter text for contrast */
-.dark .prose code {
-  background: #27272a;
-  color: #e4e4e7;
-  border-color: #3f3f46;
-}
-
-.prose pre {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 16px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 1em 0;
-  box-shadow: var(--shadow-sm);
-}
-
-/* Light mode code blocks */
-:not(.dark) .prose pre {
-  background: #f0f0eb;
-  border-color: #d4d2cc;
-}
-
-/* Dark mode code blocks - better contrast */
-.dark .prose pre {
-  background: #18181b;
-  border-color: #27272a;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.prose pre code {
-  background: none;
-  padding: 0;
-  border: none;
-  font-size: 0.875em;
-  color: inherit;
-}
-
-/* Light mode pre code */
-:not(.dark) .prose pre code {
-  color: #3a3a3a;
-}
-
-/* Dark mode pre code - brighter for readability */
-.dark .prose pre code {
-  color: #d4d4d8;
-}
-
-.prose table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1em 0;
-  font-size: 0.875em;
-}
-
-.prose thead {
-  border-bottom: 2px solid var(--border);
-}
-
-.prose tbody tr {
-  border-bottom: 1px solid var(--border);
-}
-
-/* Light mode tables */
-:not(.dark) .prose thead th {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  font-weight: 600;
-}
-
-:not(.dark) .prose tbody tr:nth-child(even) {
-  background: #f0f0eb;
-}
-
-/* Dark mode tables */
-.dark .prose thead th {
-  background: #27272a;
-  color: #fafafa;
-  font-weight: 600;
-}
-
-.dark .prose tbody tr:nth-child(even) {
-  background: #18181b;
-}
-
-.prose th,
-.prose td {
-  padding: 8px 12px;
-  text-align: left;
-}
-
-.dark .prose td {
-  color: #e4e4e7;
-}
-
 
 /* ============================================================================
    LAYOUT CLASSES (Slack-inspired)
@@ -1498,123 +1026,128 @@ textarea:focus {
   padding: 24px;
 }
 
-/* ============================================================================
-   CODE STYLES - Enhanced for Light/Dark Contrast
-   ============================================================================ */
-
-.prose code {
-  font-family: var(--font-mono);
-  font-size: 0.875em;
-  background: var(--surface);
-  padding: 0.2em 0.4em;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  font-weight: 500;
+/* Sidebar backdrop (mobile overlay) */
+.sidebar-backdrop {
+  display: none;
 }
 
-/* Light mode inline code - darker background for contrast */
-:not(.dark) .prose code {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  border-color: #d4d2cc;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-/* Dark mode inline code - lighter text for contrast */
-.dark .prose code {
-  background: #27272a;
-  color: #e4e4e7;
-  border-color: #3f3f46;
-}
-
-.prose pre {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 16px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 1em 0;
-  box-shadow: var(--shadow-sm);
-}
-
-/* Light mode code blocks */
-:not(.dark) .prose pre {
-  background: #f0f0eb;
-  border-color: #d4d2cc;
-}
-
-/* Dark mode code blocks - better contrast */
-.dark .prose pre {
-  background: #18181b;
-  border-color: #27272a;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.prose pre code {
+/* Hamburger menu button (hidden on desktop) */
+.mobile-menu-btn {
+  display: none;
   background: none;
-  padding: 0;
   border: none;
-  font-size: 0.875em;
-  color: inherit;
+  cursor: pointer;
+  padding: 6px;
+  color: var(--text-primary);
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
 }
 
-/* Light mode pre code */
-:not(.dark) .prose pre code {
-  color: #3a3a3a;
+.mobile-menu-btn:hover {
+  background: var(--surface-hover);
 }
 
-/* Dark mode pre code - brighter for readability */
-.dark .prose pre code {
-  color: #d4d4d8;
-}
+/* Mobile responsive: sidebar drawer, reduced padding */
+@media (max-width: 767px) {
+  .nav-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: none;
+  }
 
-.prose table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1em 0;
-  font-size: 0.875em;
-}
+  .nav-sidebar.mobile-open {
+    transform: translateX(0);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
+  }
 
-.prose thead {
-  border-bottom: 2px solid var(--border);
-}
+  .nav-sidebar.collapsed {
+    width: 280px;
+  }
 
-.prose tbody tr {
-  border-bottom: 1px solid var(--border);
-}
+  /* Override collapsed styles — mobile drawer is always 280px */
+  .collapsed .agent-card {
+    justify-content: flex-start;
+    padding: 14px 16px;
+  }
 
-/* Light mode tables */
-:not(.dark) .prose thead th {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  font-weight: 600;
-}
+  .collapsed .agent-card-info {
+    display: flex;
+  }
 
-:not(.dark) .prose tbody tr:nth-child(even) {
-  background: #f0f0eb;
-}
+  .collapsed .agent-card-chevron {
+    display: block;
+  }
 
-/* Dark mode tables */
-.dark .prose thead th {
-  background: #27272a;
-  color: #fafafa;
-  font-weight: 600;
-}
+  .collapsed .agent-card-placeholder {
+    display: inline;
+  }
 
-.dark .prose tbody tr:nth-child(even) {
-  background: #18181b;
-}
+  .collapsed .nav-section-title {
+    display: block;
+  }
 
-.prose th,
-.prose td {
-  padding: 8px 12px;
-  text-align: left;
-}
+  .collapsed .nav-item {
+    justify-content: flex-start;
+    padding: 10px 16px;
+  }
 
-.dark .prose td {
-  color: #e4e4e7;
-}
+  .collapsed .nav-item span:not(.avatar-wrapper):not(.avatar-status-dot) {
+    display: inline;
+  }
 
+  .collapsed .nav-theme-row .theme-toggle {
+    width: auto;
+    height: auto;
+    justify-content: flex-start;
+    padding: 10px 16px;
+  }
+
+  .collapsed .nav-theme-row .theme-toggle .theme-label {
+    display: inline;
+  }
+
+  .collapsed .agent-dropdown {
+    position: static;
+    min-width: 0;
+    border-radius: 0;
+  }
+
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(2px);
+  }
+
+  .sidebar-backdrop.visible {
+    display: block;
+  }
+
+  .mobile-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .main-header {
+    padding: 0 16px;
+  }
+
+  .main-body {
+    padding: 16px;
+  }
+
+  .sidebar-toggle {
+    display: none;
+  }
+}
 
 /* ============================================================================
    PROSE (Medium-inspired)
@@ -1753,124 +1286,6 @@ textarea:focus {
 }
 
 /* ============================================================================
-   CODE STYLES - Enhanced for Light/Dark Contrast
-   ============================================================================ */
-
-.prose code {
-  font-family: var(--font-mono);
-  font-size: 0.875em;
-  background: var(--surface);
-  padding: 0.2em 0.4em;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  font-weight: 500;
-}
-
-/* Light mode inline code - darker background for contrast */
-:not(.dark) .prose code {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  border-color: #d4d2cc;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-/* Dark mode inline code - lighter text for contrast */
-.dark .prose code {
-  background: #27272a;
-  color: #e4e4e7;
-  border-color: #3f3f46;
-}
-
-.prose pre {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 16px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 1em 0;
-  box-shadow: var(--shadow-sm);
-}
-
-/* Light mode code blocks */
-:not(.dark) .prose pre {
-  background: #f0f0eb;
-  border-color: #d4d2cc;
-}
-
-/* Dark mode code blocks - better contrast */
-.dark .prose pre {
-  background: #18181b;
-  border-color: #27272a;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.prose pre code {
-  background: none;
-  padding: 0;
-  border: none;
-  font-size: 0.875em;
-  color: inherit;
-}
-
-/* Light mode pre code */
-:not(.dark) .prose pre code {
-  color: #3a3a3a;
-}
-
-/* Dark mode pre code - brighter for readability */
-.dark .prose pre code {
-  color: #d4d4d8;
-}
-
-.prose table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1em 0;
-  font-size: 0.875em;
-}
-
-.prose thead {
-  border-bottom: 2px solid var(--border);
-}
-
-.prose tbody tr {
-  border-bottom: 1px solid var(--border);
-}
-
-/* Light mode tables */
-:not(.dark) .prose thead th {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  font-weight: 600;
-}
-
-:not(.dark) .prose tbody tr:nth-child(even) {
-  background: #f0f0eb;
-}
-
-/* Dark mode tables */
-.dark .prose thead th {
-  background: #27272a;
-  color: #fafafa;
-  font-weight: 600;
-}
-
-.dark .prose tbody tr:nth-child(even) {
-  background: #18181b;
-}
-
-.prose th,
-.prose td {
-  padding: 8px 12px;
-  text-align: left;
-}
-
-.dark .prose td {
-  color: #e4e4e7;
-}
-
-
-/* ============================================================================
    THINKING INDICATOR
    ============================================================================ */
 
@@ -1906,124 +1321,6 @@ textarea:focus {
 }
 
 /* ============================================================================
-   CODE STYLES - Enhanced for Light/Dark Contrast
-   ============================================================================ */
-
-.prose code {
-  font-family: var(--font-mono);
-  font-size: 0.875em;
-  background: var(--surface);
-  padding: 0.2em 0.4em;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  font-weight: 500;
-}
-
-/* Light mode inline code - darker background for contrast */
-:not(.dark) .prose code {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  border-color: #d4d2cc;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-/* Dark mode inline code - lighter text for contrast */
-.dark .prose code {
-  background: #27272a;
-  color: #e4e4e7;
-  border-color: #3f3f46;
-}
-
-.prose pre {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 16px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 1em 0;
-  box-shadow: var(--shadow-sm);
-}
-
-/* Light mode code blocks */
-:not(.dark) .prose pre {
-  background: #f0f0eb;
-  border-color: #d4d2cc;
-}
-
-/* Dark mode code blocks - better contrast */
-.dark .prose pre {
-  background: #18181b;
-  border-color: #27272a;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.prose pre code {
-  background: none;
-  padding: 0;
-  border: none;
-  font-size: 0.875em;
-  color: inherit;
-}
-
-/* Light mode pre code */
-:not(.dark) .prose pre code {
-  color: #3a3a3a;
-}
-
-/* Dark mode pre code - brighter for readability */
-.dark .prose pre code {
-  color: #d4d4d8;
-}
-
-.prose table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1em 0;
-  font-size: 0.875em;
-}
-
-.prose thead {
-  border-bottom: 2px solid var(--border);
-}
-
-.prose tbody tr {
-  border-bottom: 1px solid var(--border);
-}
-
-/* Light mode tables */
-:not(.dark) .prose thead th {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  font-weight: 600;
-}
-
-:not(.dark) .prose tbody tr:nth-child(even) {
-  background: #f0f0eb;
-}
-
-/* Dark mode tables */
-.dark .prose thead th {
-  background: #27272a;
-  color: #fafafa;
-  font-weight: 600;
-}
-
-.dark .prose tbody tr:nth-child(even) {
-  background: #18181b;
-}
-
-.prose th,
-.prose td {
-  padding: 8px 12px;
-  text-align: left;
-}
-
-.dark .prose td {
-  color: #e4e4e7;
-}
-
-
-/* ============================================================================
    SCROLLBAR STYLING
    ============================================================================ */
 
@@ -2052,124 +1349,6 @@ textarea:focus {
 .dark ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-tertiary);
 }
-
-/* ============================================================================
-   CODE STYLES - Enhanced for Light/Dark Contrast
-   ============================================================================ */
-
-.prose code {
-  font-family: var(--font-mono);
-  font-size: 0.875em;
-  background: var(--surface);
-  padding: 0.2em 0.4em;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  font-weight: 500;
-}
-
-/* Light mode inline code - darker background for contrast */
-:not(.dark) .prose code {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  border-color: #d4d2cc;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
-}
-
-/* Dark mode inline code - lighter text for contrast */
-.dark .prose code {
-  background: #27272a;
-  color: #e4e4e7;
-  border-color: #3f3f46;
-}
-
-.prose pre {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 16px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 1em 0;
-  box-shadow: var(--shadow-sm);
-}
-
-/* Light mode code blocks */
-:not(.dark) .prose pre {
-  background: #f0f0eb;
-  border-color: #d4d2cc;
-}
-
-/* Dark mode code blocks - better contrast */
-.dark .prose pre {
-  background: #18181b;
-  border-color: #27272a;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.prose pre code {
-  background: none;
-  padding: 0;
-  border: none;
-  font-size: 0.875em;
-  color: inherit;
-}
-
-/* Light mode pre code */
-:not(.dark) .prose pre code {
-  color: #3a3a3a;
-}
-
-/* Dark mode pre code - brighter for readability */
-.dark .prose pre code {
-  color: #d4d4d8;
-}
-
-.prose table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1em 0;
-  font-size: 0.875em;
-}
-
-.prose thead {
-  border-bottom: 2px solid var(--border);
-}
-
-.prose tbody tr {
-  border-bottom: 1px solid var(--border);
-}
-
-/* Light mode tables */
-:not(.dark) .prose thead th {
-  background: #e8e8e3;
-  color: #2a2a2a;
-  font-weight: 600;
-}
-
-:not(.dark) .prose tbody tr:nth-child(even) {
-  background: #f0f0eb;
-}
-
-/* Dark mode tables */
-.dark .prose thead th {
-  background: #27272a;
-  color: #fafafa;
-  font-weight: 600;
-}
-
-.dark .prose tbody tr:nth-child(even) {
-  background: #18181b;
-}
-
-.prose th,
-.prose td {
-  padding: 8px 12px;
-  text-align: left;
-}
-
-.dark .prose td {
-  color: #e4e4e7;
-}
-
 
 /* ============================================================================
    SKELETON ANIMATIONS & TRANSITIONS

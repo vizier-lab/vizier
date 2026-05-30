@@ -141,7 +141,7 @@ export default function MemoryManagement() {
         {loading ? (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
             gap: '1rem',
           }}>
             {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -170,7 +170,7 @@ export default function MemoryManagement() {
         ) : (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
             gap: '1rem',
           }}>
             {memories.map((memory) => (
