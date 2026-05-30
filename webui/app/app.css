@@ -874,6 +874,30 @@ textarea:focus {
 }
 
 /* ============================================================================
+   AVATAR STATUS
+   ============================================================================ */
+
+.avatar-wrapper {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.avatar-status-dot {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  border-radius: 50%;
+  border: 2.5px solid var(--surface);
+  background: var(--text-tertiary);
+  transition: background-color var(--transition-base), border-color var(--transition-slow);
+}
+
+.avatar-status-dot.online {
+  background: #10b981;
+}
+
+/* ============================================================================
    CODE STYLES - Enhanced for Light/Dark Contrast
    ============================================================================ */
 
@@ -1010,7 +1034,76 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: background-color var(--transition-slow), border-color var(--transition-slow);
+  transition: width 0.2s ease, background-color var(--transition-slow), border-color var(--transition-slow);
+  flex-shrink: 0;
+}
+
+/* Collapsed sidebar */
+.nav-sidebar.collapsed {
+  width: 60px;
+}
+
+.collapsed .agent-card {
+  justify-content: center;
+  padding: 14px 8px;
+  height: 100%;
+}
+
+.collapsed .agent-card-info {
+  display: none;
+}
+
+.collapsed .agent-card-chevron {
+  display: none;
+}
+
+.collapsed .agent-card-placeholder {
+  display: none;
+}
+
+.collapsed .nav-section-title {
+  display: none;
+}
+
+.collapsed .nav-item {
+  justify-content: center;
+  padding: 10px;
+}
+
+.collapsed .nav-item span:not(.avatar-wrapper):not(.avatar-status-dot) {
+  display: none;
+}
+
+.collapsed .nav-theme-row .theme-toggle {
+  width: 100%;
+  height: auto;
+  justify-content: center;
+  padding: 10px;
+  background: transparent;
+}
+
+.collapsed .nav-theme-row .theme-toggle .theme-label {
+  display: none;
+}
+
+.collapsed .nav-theme-row .theme-toggle .theme-icon-light,
+.collapsed .nav-theme-row .theme-toggle .theme-icon-dark {
+  position: static;
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.collapsed .sidebar-toggle span {
+  display: none;
+}
+
+.collapsed .agent-dropdown {
+  position: absolute;
+  left: calc(100% + 4px);
+  top: 0;
+  min-width: 220px;
+  border-radius: 10px;
 }
 
 /* Agent card at top of sidebar */
@@ -1018,6 +1111,7 @@ textarea:focus {
   position: relative;
   border-bottom: 1px solid var(--border);
   transition: border-color var(--transition-slow);
+  height: 70px;
 }
 
 .agent-card {
@@ -1027,7 +1121,7 @@ textarea:focus {
   padding: 14px 16px;
   cursor: pointer;
   transition: background var(--transition-base);
-  min-height: 56px;
+  height: 100%;
 }
 
 .agent-card:hover {
@@ -1203,43 +1297,17 @@ textarea:focus {
 }
 
 /* Theme toggle row inside nav-bottom */
-.nav-theme-row {
-  padding: 0;
-}
-
-.nav-theme-row .theme-toggle {
-  width: 100%;
-  height: auto;
-  border-radius: 8px;
-  padding: 10px 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: transparent;
-  cursor: pointer;
-  transition: all var(--transition-base);
-  border-left: 3px solid transparent;
-  margin-left: -3px;
-}
-
-.nav-theme-row .theme-toggle:hover {
-  background: rgba(16, 185, 129, 0.08);
-  color: var(--accent-primary);
-  border-left-color: var(--accent-primary);
-}
-
-.nav-theme-row .theme-toggle .theme-icon-light,
-.nav-theme-row .theme-toggle .theme-icon-dark {
+.nav-theme-row .theme-icon-light,
+.nav-theme-row .theme-icon-dark {
   position: static;
-  width: 16px;
-  height: 16px;
 }
 
-.nav-theme-row .theme-toggle .theme-label {
+.nav-theme-row .theme-label {
   display: inline;
+}
+
+.collapsed .nav-theme-row .theme-label {
+  display: none;
 }
 
 /* Session selector in chat header */

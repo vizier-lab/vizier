@@ -1,11 +1,13 @@
 import { useEffect, useState, useRef } from 'react'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
 import { listAgents } from './services/vizier'
-import { FiSettings, FiCheckCircle, FiLogOut, FiTrendingUp, FiChevronDown, FiMessageSquare } from 'react-icons/fi'
+import { FiSettings, FiCheckCircle, FiLogOut, FiTrendingUp, FiChevronDown, FiChevronLeft, FiMessageSquare, FiSun, FiMoon } from 'react-icons/fi'
 import { FaBook, FaFolder } from 'react-icons/fa'
 import Avatar from './components/avatar'
-import ThemeToggle from './components/ThemeToggle'
 import ToastContainer from './components/Toast'
+import { useConnectionStore } from './hooks/connectionStore'
+import { useSidebarStore } from './hooks/sidebarStore'
+import { useThemeStore } from './hooks/themeStore'
 import type { Agent } from './interfaces/types'
 
 export default function Layout() {
@@ -18,14 +20,20 @@ export default function Layout() {
   const agentCardRef = useRef<HTMLDivElement>(null)
 
   const currentAgentId = params.agentId
+  const currentTopicId = params.topicId
+
+  const { connected, connect, disconnect } = useConnectionStore()
+  const { collapsed, toggleSidebar } = useSidebarStore()
+  const { theme, toggleTheme } = useThemeStore()
 
   // Check auth
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
     if (!token) {
+      disconnect()
       navigate('/login')
     }
-  }, [navigate])
+  }, [navigate, disconnect])
 
   // Load agents
   useEffect(() => {
@@ -42,6 +50,23 @@ export default function Layout() {
     loadAgents()
   }, [])
 
+  // WebSocket lifecycle — connect when on a chat route, keep alive on other routes
+  useEffect(() => {
+    if (!currentAgentId || !currentTopicId) return
+
+    const token = localStorage.getItem('auth_token')
+    if (!token) return
+
+    connect(currentAgentId, currentTopicId)
+  }, [currentAgentId, currentTopicId, connect])
+
+  // Disconnect on agent change (switching to a different agent)
+  useEffect(() => {
+    return () => {
+      // Only disconnect when the agent actually changes, not on every re-render
+    }
+  }, [currentAgentId])
+
   // Close dropdown on outside click
   useEffect(() => {
     if (!showAgentDropdown) return
@@ -55,12 +80,14 @@ export default function Layout() {
   }, [showAgentDropdown])
 
   const handleLogout = () => {
+    disconnect()
     localStorage.removeItem('auth_token')
     navigate('/login')
   }
 
   const handleSelectAgent = (agentId: string) => {
     setShowAgentDropdown(false)
+    disconnect()
     navigate(`/${agentId}/chat`)
   }
 
@@ -99,29 +126,39 @@ export default function Layout() {
       <ToastContainer />
 
       {/* Single sidebar */}
-      <div className="nav-sidebar">
+      <div className={`nav-sidebar ${collapsed ? 'collapsed' : ''}`}>
         {/* Agent card with dropdown */}
         <div className="agent-card-wrapper" ref={agentCardRef}>
           <div
             className="agent-card"
             onClick={() => setShowAgentDropdown(!showAgentDropdown)}
+            title={collapsed && currentAgent ? currentAgent.name : undefined}
           >
             {currentAgent ? (
               <>
-                <Avatar name={currentAgent.agent_id} rounded={false} size="sm" />
+                <Avatar
+                  name={currentAgent.agent_id}
+                  rounded={false}
+                  size="sm"
+                  showStatus
+                  online={connected}
+                />
                 <div className="agent-card-info">
                   <span className="agent-card-name">{currentAgent.name}</span>
                   <span className="agent-card-id">{currentAgent.agent_id}</span>
                 </div>
               </>
             ) : (
-              <span className="agent-card-placeholder">Select an agent</span>
+              <>
+                <Avatar name="empty" rounded={false} size="sm" />
+                <span className="agent-card-placeholder">Select an agent</span>
+              </>
             )}
-            <FiChevronDown size={16} className={`agent-card-chevron ${showAgentDropdown ? 'open' : ''}`} />
+            <FiChevronDown size={18} className={`agent-card-chevron ${showAgentDropdown ? 'open' : ''}`} />
           </div>
 
           {showAgentDropdown && (
-            <div className="agent-dropdown">
+            <div className={`agent-dropdown ${collapsed ? 'agent-dropdown-collapsed' : ''}`}>
               {agents.map((agent) => (
                 <div
                   key={agent.agent_id}
@@ -143,63 +180,89 @@ export default function Layout() {
         {currentAgentId && (
           <div className="nav-content">
             <div className="nav-section">
-              <div className="nav-section-title">Tools</div>
               <div
                 className={`nav-item ${currentView === 'chat' ? 'active' : ''}`}
                 onClick={() => navigate(`/${currentAgentId}/chat`)}
+                title={collapsed ? 'Chat' : undefined}
               >
-                <FiMessageSquare size={16} />
+                <FiMessageSquare size={18} />
                 <span>Chat</span>
               </div>
               <div
                 className={`nav-item ${currentView === 'memory' ? 'active' : ''}`}
                 onClick={() => navigate(`/${currentAgentId}/memory`)}
+                title={collapsed ? 'Memory' : undefined}
               >
-                <FaBook size={16} />
+                <FaBook size={18} />
                 <span>Memory</span>
               </div>
               <div
                 className={`nav-item ${currentView === 'tasks' ? 'active' : ''}`}
                 onClick={() => navigate(`/${currentAgentId}/tasks`)}
+                title={collapsed ? 'Tasks' : undefined}
               >
-                <FiCheckCircle size={16} />
+                <FiCheckCircle size={18} />
                 <span>Tasks</span>
               </div>
               <div
                 className={`nav-item ${currentView === 'documents' ? 'active' : ''}`}
                 onClick={() => navigate(`/${currentAgentId}/documents`)}
+                title={collapsed ? 'Documents' : undefined}
               >
-                <FaFolder size={16} />
+                <FaFolder size={18} />
                 <span>Documents</span>
               </div>
               <div
                 className={`nav-item ${currentView === 'usage' ? 'active' : ''}`}
                 onClick={() => navigate(`/${currentAgentId}/usage`)}
+                title={collapsed ? 'Usage' : undefined}
               >
-                <FiTrendingUp size={16} />
+                <FiTrendingUp size={18} />
                 <span>Usage</span>
               </div>
             </div>
           </div>
         )}
 
-        {/* Bottom: Settings, Theme, Logout */}
+        {/* Bottom: Toggle, Settings, Theme, Logout */}
         <div className="nav-bottom">
+          <div
+            className="nav-item sidebar-toggle"
+            onClick={toggleSidebar}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <FiChevronLeft
+              size={18}
+              style={{
+                transition: 'transform 0.2s ease',
+                transform: collapsed ? 'rotate(180deg)' : 'none',
+              }}
+            />
+            <span>Collapse</span>
+          </div>
           <div
             className={`nav-item ${currentView === 'settings' ? 'active' : ''}`}
             onClick={() => navigate(currentAgentId ? `/${currentAgentId}/settings` : '/settings')}
+            title={collapsed ? 'Settings' : undefined}
           >
-            <FiSettings size={16} />
+            <FiSettings size={18} />
             <span>Settings</span>
           </div>
-          <div className="nav-item nav-theme-row">
-            <ThemeToggle showLabel />
+          <div
+            className="nav-item nav-theme-row"
+            onClick={toggleTheme}
+            title={collapsed ? `Switch to ${theme === 'dark' ? 'light' : 'dark'} mode` : undefined}
+          >
+            <FiSun className="theme-icon-light" size={18} />
+            <FiMoon className="theme-icon-dark" size={18} />
+            <span className="theme-label">Theme</span>
           </div>
           <div
             className="nav-item"
             onClick={handleLogout}
+            title={collapsed ? 'Logout' : undefined}
           >
-            <FiLogOut size={16} />
+            <FiLogOut size={18} />
             <span>Logout</span>
           </div>
         </div>

@@ -1,8 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import type { FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router'
-import useWebSocket, { ReadyState } from 'react-use-websocket'
-import { getTopicHistory, getChatWebSocketUrl, listTopics, deleteTopic, getAgentDetail, listAgents, uploadFile, base_url } from '../services/vizier'
+import { getTopicHistory, listTopics, deleteTopic, getAgentDetail, listAgents, uploadFile, base_url } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
 import type { Agent, ChatMessage, Topic, VizierAttachment, WebSocketMessage, WebSocketResponse, VizierResponseStats } from '../interfaces/types'
 import { getCurrentUsername } from '../utils/auth'
@@ -10,6 +9,7 @@ import { Skeleton, SkeletonMessage } from '../components/Skeleton'
 import { FaPaperPlane, FaPaperclip } from 'react-icons/fa'
 import { FiX, FiChevronDown, FiTrash2 } from 'react-icons/fi'
 import { useToastStore } from '../hooks/toastStore'
+import { useConnectionStore } from '../hooks/connectionStore'
 import { MessageItem } from '../components/MessageItem'
 import { ThinkingIndicator } from '../components/ThinkingIndicator'
 import { debounce } from '../utils/debounce'
@@ -142,6 +142,7 @@ export default function Chat() {
   const thinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sessionSelectorRef = useRef<HTMLDivElement>(null)
   const { addToast } = useToastStore()
+  const { connected, lastMessage, messageCount, sendMessage, clearLastMessage } = useConnectionStore()
 
   const resolvedTopicId = topicId ?? 'DEFAULT'
 
@@ -152,23 +153,6 @@ export default function Chat() {
       target.style.height = Math.min(target.scrollHeight, window.innerHeight * 0.5) + 'px'
     }, 50),
     []
-  )
-
-  // WebSocket connection
-  const wsUrl = agentId
-    ? getChatWebSocketUrl(agentId, resolvedTopicId)
-    : null
-  console.log('WebSocket URL:', wsUrl)
-
-  const { sendJsonMessage, lastJsonMessage, readyState } = useWebSocket(
-    wsUrl,
-    {
-      shouldReconnect: () => true,
-      reconnectInterval: 3000,
-      onOpen: () => console.log('WebSocket connected'),
-      onClose: () => console.log('WebSocket disconnected'),
-      onError: (e) => console.error('WebSocket error:', e),
-    }
   )
 
   const [topicDetail, setTopicDetail] = useState<any | null>(null)
@@ -265,10 +249,9 @@ export default function Chat() {
 
   // Handle incoming WebSocket messages
   useEffect(() => {
-    console.log('WebSocket message received:', lastJsonMessage)
-    if (!lastJsonMessage) return
+    if (!lastMessage) return
 
-    const wsResponse = lastJsonMessage as WebSocketResponse
+    const wsResponse = lastMessage as WebSocketResponse
 
     if (typeof wsResponse !== 'object' || wsResponse === null) {
       return
@@ -328,7 +311,7 @@ export default function Chat() {
         return
       }
     }
-  }, [lastJsonMessage, agentId, resolvedTopicId])
+  }, [lastMessage, agentId, resolvedTopicId])
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -418,8 +401,8 @@ export default function Chat() {
     const currentInput = inputRef.current?.value || ''
     if (!currentInput.trim() || !agentId) return
 
-    if (readyState !== 1) {
-      console.error('WebSocket not ready, state:', readyState)
+    if (!connected) {
+      console.error('WebSocket not connected')
       return
     }
 
@@ -456,8 +439,8 @@ export default function Chat() {
     if (inputRef.current) {
       inputRef.current.style.height = 'auto'
     }
-    sendJsonMessage(message)
-  }, [agentId, resolvedTopicId, readyState, sendJsonMessage, attachments])
+    sendMessage(message)
+  }, [agentId, resolvedTopicId, connected, sendMessage, attachments])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -514,14 +497,6 @@ export default function Chat() {
     )
   }
 
-  const connectionStatus = {
-    [ReadyState.CONNECTING]: 'Connecting...',
-    [ReadyState.OPEN]: 'Connected',
-    [ReadyState.CLOSING]: 'Closing...',
-    [ReadyState.CLOSED]: 'Disconnected',
-    [ReadyState.UNINSTANTIATED]: 'Not connected',
-  }[readyState]
-
   return (
     <>
       {/* Header */}
@@ -573,22 +548,6 @@ export default function Chat() {
               )}
             </div>
           )}
-        </div>
-        <div style={{
-          fontSize: '12px',
-          color: readyState === ReadyState.OPEN ? 'var(--text-tertiary)' : 'var(--text-secondary)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-        }}>
-          <span style={{
-            width: '6px',
-            height: '6px',
-            borderRadius: '50%',
-            background: readyState === ReadyState.OPEN ? 'var(--accent-primary)' : '#f59e0b',
-            display: 'inline-block',
-          }} />
-          {connectionStatus}
         </div>
       </div>
 
@@ -829,7 +788,7 @@ export default function Chat() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={readyState !== ReadyState.OPEN || uploading}
+              disabled={!connected || uploading}
               style={{
                 width: '44px',
                 height: '44px',
@@ -839,8 +798,8 @@ export default function Chat() {
                 background: 'var(--surface)',
                 border: '1px solid var(--border)',
                 borderRadius: '8px',
-                cursor: readyState !== ReadyState.OPEN || uploading ? 'not-allowed' : 'pointer',
-                color: readyState !== ReadyState.OPEN || uploading ? 'var(--text-tertiary)' : 'var(--text-primary)',
+                cursor: !connected || uploading ? 'not-allowed' : 'pointer',
+                color: !connected || uploading ? 'var(--text-tertiary)' : 'var(--text-primary)',
                 opacity: uploading ? 0.7 : 1,
               }}
               title="Attach file"
@@ -860,8 +819,8 @@ export default function Chat() {
                 debouncedResize(e.target)
               }}
               onKeyDown={handleKeyDown}
-              placeholder={readyState === ReadyState.OPEN ? "Type a message..." : "Connecting..."}
-              disabled={readyState !== ReadyState.OPEN}
+              placeholder={connected ? "Type a message..." : "Connecting..."}
+              disabled={!connected}
               rows={1}
               style={{
                 flex: 1,
@@ -874,7 +833,7 @@ export default function Chat() {
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={!input.trim() || readyState !== ReadyState.OPEN}
+              disabled={!input.trim() || !connected}
               style={{ width: '44px', height: '44px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               <FaPaperPlane />
