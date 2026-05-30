@@ -1,4 +1,4 @@
-use rig::{embeddings, providers::openai};
+use rig_core::{embeddings, providers::openai};
 
 use crate::embedding::VizierEmbeddingModel;
 

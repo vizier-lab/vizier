@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use rig::client::{EmbeddingsClient, Nothing};
+use rig_core::client::{EmbeddingsClient, Nothing};
 
 use crate::config::{VizierConfig, embedding::EmbeddingConfig, provider::ProviderConfig};
 
@@ -46,7 +46,7 @@ impl VizierEmbedder {
 
                 crate::utils::ollama::ollama_pull_model(&base_url, &model).await?;
 
-                let model = rig::providers::ollama::Client::builder()
+                let model = rig_core::providers::ollama::Client::builder()
                     .base_url(base_url)
                     .api_key(Nothing)
                     .build()?
@@ -55,7 +55,7 @@ impl VizierEmbedder {
                 Self::build(model)
             }
             EmbeddingConfig::Openai { model } => {
-                let model = rig::providers::openai::Client::new(
+                let model = rig_core::providers::openai::Client::new(
                     providers.openai.clone().unwrap().api_key,
                 )?
                 .embedding_model(&model);
@@ -63,7 +63,7 @@ impl VizierEmbedder {
                 Self::build(model)
             }
             EmbeddingConfig::Gemini { model } => {
-                let model = rig::providers::gemini::Client::new(
+                let model = rig_core::providers::gemini::Client::new(
                     providers.gemini.clone().unwrap().api_key,
                 )?
                 .embedding_model(&model);
@@ -71,7 +71,7 @@ impl VizierEmbedder {
                 Self::build(model)
             }
             EmbeddingConfig::Openrouter { model } => {
-                let model = rig::providers::openrouter::Client::new(
+                let model = rig_core::providers::openrouter::Client::new(
                     providers.openrouter.clone().unwrap().api_key,
                 )?
                 .embedding_model(&model);

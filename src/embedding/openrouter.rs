@@ -1,4 +1,4 @@
-use rig::{embeddings, providers::openrouter};
+use rig_core::{embeddings, providers::openrouter};
 
 use crate::embedding::VizierEmbeddingModel;
 

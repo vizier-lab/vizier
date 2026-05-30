@@ -61,6 +61,7 @@ pub fn init_default_agent(path: PathBuf) {
         discord_token: None,
         telegram_token: None,
         show_tool_calls: None,
+        max_tokens: None,
     };
 
     let content = format!(

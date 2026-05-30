@@ -1,4 +1,4 @@
-use rig::{embeddings, providers::gemini};
+use rig_core::{embeddings, providers::gemini};
 
 use crate::embedding::VizierEmbeddingModel;
 

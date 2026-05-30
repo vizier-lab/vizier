@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use chrono::Utc;
-use rig::message::Message;
+use rig_core::message::Message;
 use tokio::sync::watch;
 use tokio::task::{JoinHandle, JoinSet};
 
@@ -173,8 +173,9 @@ pub async fn agent_process(
                     session_detail_request.to_prompt().unwrap()
                 );
                 let res = session_detail_agent
-                    .prompt(Message::system(prompt), vec![], 0, None, false)
+                    .prompt(Message::user(prompt), vec![], 0, None, false)
                     .await;
+
                 if let Ok((title, _)) = res {
                     let mut title = title.clone();
                     title.truncate(60);

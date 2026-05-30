@@ -1,7 +1,7 @@
 use anyhow::Result;
-use rig::{
+use rig_core::{
     client::Nothing,
-    providers::{anthropic, deepseek, gemini, ollama, openai, openrouter},
+    providers::{anthropic, deepseek, gemini, ollama, openai, openrouter, xiaomimimo},
 };
 
 use crate::{
@@ -55,12 +55,22 @@ impl VizierModelBuilder<deepseek::Client> for VizierModelImpl<deepseek::Client> 
 #[async_trait::async_trait]
 impl VizierModelBuilder<anthropic::Client> for VizierModelImpl<anthropic::Client> {
     async fn init_client(provider_config: &ProviderEntryConfig) -> Result<anthropic::Client> {
-        let api_key = match provider_config {
-            ProviderEntryConfig::Anthropic { api_key } => api_key.clone(),
+        let (api_key, base_url) = match provider_config {
+            ProviderEntryConfig::Anthropic { api_key, base_url } => {
+                (api_key.clone(), base_url.clone())
+            }
             _ => anyhow::bail!("expected Anthropic provider config"),
         };
 
-        let client: anthropic::Client = anthropic::Client::new(api_key)?;
+        let client: anthropic::Client = if let Some(base_url) = base_url {
+            anthropic::Client::builder()
+                .base_url(base_url)
+                .api_key(api_key)
+                .build()?
+        } else {
+            anthropic::Client::new(api_key)?
+        };
+
         Ok(client)
     }
 }
@@ -69,7 +79,9 @@ impl VizierModelBuilder<anthropic::Client> for VizierModelImpl<anthropic::Client
 impl VizierModelBuilder<openai::Client> for VizierModelImpl<openai::Client> {
     async fn init_client(provider_config: &ProviderEntryConfig) -> Result<openai::Client> {
         let (api_key, base_url) = match provider_config {
-            ProviderEntryConfig::Openai { api_key, base_url } => (api_key.clone(), base_url.clone()),
+            ProviderEntryConfig::Openai { api_key, base_url } => {
+                (api_key.clone(), base_url.clone())
+            }
             _ => anyhow::bail!("expected Openai provider config"),
         };
 
@@ -95,6 +107,19 @@ impl VizierModelBuilder<gemini::Client> for VizierModelImpl<gemini::Client> {
         };
 
         let client: gemini::Client = gemini::Client::new(api_key)?;
+        Ok(client)
+    }
+}
+
+#[async_trait::async_trait]
+impl VizierModelBuilder<xiaomimimo::Client> for VizierModelImpl<xiaomimimo::Client> {
+    async fn init_client(provider_config: &ProviderEntryConfig) -> Result<xiaomimimo::Client> {
+        let api_key = match provider_config {
+            ProviderEntryConfig::Mimo { api_key } => api_key.clone(),
+            _ => anyhow::bail!("expected Mimo provider config"),
+        };
+
+        let client: xiaomimimo::Client = xiaomimimo::Client::new(api_key)?;
         Ok(client)
     }
 }

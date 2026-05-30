@@ -68,6 +68,7 @@ export interface AgentConfig {
   silent_read_initiative_chance: number
   show_thinking?: boolean
   show_tool_calls?: boolean
+  max_tokens?: number
   include_documents?: string[]
   prompt_timeout: string
   heartbeat_interval: string
@@ -82,6 +83,7 @@ export interface CreateAgentRequest {
   model: string
   system_prompt?: string
   thinking_depth?: number
+  max_tokens?: number
   session_memory_capacity?: number
   tools?: {
     shell_access?: boolean
@@ -108,6 +110,7 @@ export interface AgentDetail {
   model: string
   system_prompt?: string
   thinking_depth: number
+  max_tokens?: number
   session_memory_capacity: number
   shell_access: boolean
   brave_search: boolean

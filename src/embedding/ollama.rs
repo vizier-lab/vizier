@@ -1,4 +1,4 @@
-use rig::{embeddings, providers::ollama};
+use rig_core::{embeddings, providers::ollama};
 
 use crate::embedding::VizierEmbeddingModel;
 

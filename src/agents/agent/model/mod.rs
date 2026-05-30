@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use rig::{
+use rig_core::{
     OneOrMany,
     completion::{CompletionModel, ToolDefinition, Usage},
     message::{AssistantContent, Message},
-    providers::{anthropic, deepseek, gemini, ollama, openai, openrouter},
+    providers::{anthropic, deepseek, gemini, ollama, openai, openrouter, xiaomimimo},
 };
 
 use crate::{
@@ -34,27 +34,39 @@ impl VizierModel {
             .storage
             .get_provider(&agent_config.provider)
             .await?
-            .ok_or_else(|| anyhow::anyhow!("provider {:?} not configured", agent_config.provider))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("provider {:?} not configured", agent_config.provider)
+            })?;
 
         Ok(match agent_config.provider {
-            ProviderVariant::ollama => {
-                Self::build(VizierModelImpl::<ollama::Client>::build(&provider_entry.config, agent_config).await?)
-            }
-            ProviderVariant::openai => {
-                Self::build(VizierModelImpl::<openai::Client>::build(&provider_entry.config, agent_config).await?)
-            }
-            ProviderVariant::anthropic => {
-                Self::build(VizierModelImpl::<anthropic::Client>::build(&provider_entry.config, agent_config).await?)
-            }
-            ProviderVariant::openrouter => {
-                Self::build(VizierModelImpl::<openrouter::Client>::build(&provider_entry.config, agent_config).await?)
-            }
-            ProviderVariant::gemini => {
-                Self::build(VizierModelImpl::<gemini::Client>::build(&provider_entry.config, agent_config).await?)
-            }
-            ProviderVariant::deepseek => {
-                Self::build(VizierModelImpl::<deepseek::Client>::build(&provider_entry.config, agent_config).await?)
-            }
+            ProviderVariant::ollama => Self::build(
+                VizierModelImpl::<ollama::Client>::build(&provider_entry.config, agent_config)
+                    .await?,
+            ),
+            ProviderVariant::openai => Self::build(
+                VizierModelImpl::<openai::Client>::build(&provider_entry.config, agent_config)
+                    .await?,
+            ),
+            ProviderVariant::anthropic => Self::build(
+                VizierModelImpl::<anthropic::Client>::build(&provider_entry.config, agent_config)
+                    .await?,
+            ),
+            ProviderVariant::openrouter => Self::build(
+                VizierModelImpl::<openrouter::Client>::build(&provider_entry.config, agent_config)
+                    .await?,
+            ),
+            ProviderVariant::gemini => Self::build(
+                VizierModelImpl::<gemini::Client>::build(&provider_entry.config, agent_config)
+                    .await?,
+            ),
+            ProviderVariant::deepseek => Self::build(
+                VizierModelImpl::<deepseek::Client>::build(&provider_entry.config, agent_config)
+                    .await?,
+            ),
+            ProviderVariant::mimo => Self::build(
+                VizierModelImpl::<xiaomimimo::Client>::build(&provider_entry.config, agent_config)
+                    .await?,
+            ),
         })
     }
 }
@@ -74,7 +86,7 @@ impl VizierModelTrait for VizierModel {
 #[async_trait::async_trait]
 pub trait VizierModelBuilder<Client>
 where
-    Client: rig::client::CompletionClient + Send + Sync,
+    Client: rig_core::client::CompletionClient + Send + Sync,
 {
     async fn init_client(provider_config: &ProviderEntryConfig) -> Result<Client>;
 
@@ -88,7 +100,10 @@ where
             .await?
             .completion_model(model);
 
-        Ok(VizierModelImpl::<Client>(model))
+        Ok(VizierModelImpl::<Client> {
+            model,
+            max_tokens: agent_config.max_tokens,
+        })
     }
 }
 
@@ -102,26 +117,35 @@ pub trait VizierModelTrait {
     ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)>;
 }
 
-pub struct VizierModelImpl<T>(T::CompletionModel)
+pub struct VizierModelImpl<T>
 where
-    T: rig::client::CompletionClient;
+    T: rig_core::client::CompletionClient,
+{
+    model: T::CompletionModel,
+    max_tokens: Option<u64>,
+}
 
 #[async_trait::async_trait]
-impl<T: rig::client::CompletionClient> VizierModelTrait for VizierModelImpl<T> {
+impl<T: rig_core::client::CompletionClient> VizierModelTrait for VizierModelImpl<T> {
     async fn completion(
         &self,
         message: Message,
         history: Vec<Message>,
         tools: Vec<ToolDefinition>,
     ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
-        let request = self
-            .0
+        let mut builder = self
+            .model
             .completion_request(message)
             .messages(history)
-            .tools(tools)
-            .build();
+            .tools(tools);
 
-        let response = self.0.completion(request).await?;
+        if let Some(max) = self.max_tokens {
+            builder = builder.max_tokens(max);
+        }
+
+        let request = builder.build();
+
+        let response = self.model.completion(request).await?;
 
         Ok((response.message_id, response.choice, response.usage))
     }

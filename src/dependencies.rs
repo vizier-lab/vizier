@@ -144,7 +144,7 @@ impl VizierDependencies {
             }),
             providers.anthropic.as_ref().map(|c| ProviderEntry {
                 variant: ProviderVariant::anthropic,
-                config: ProviderEntryConfig::Anthropic { api_key: c.api_key.clone() },
+                config: ProviderEntryConfig::Anthropic { api_key: c.api_key.clone(), base_url: c.base_url.clone() },
             }),
             providers.deepseek.as_ref().map(|c| ProviderEntry {
                 variant: ProviderVariant::deepseek,
@@ -157,6 +157,10 @@ impl VizierDependencies {
             providers.gemini.as_ref().map(|c| ProviderEntry {
                 variant: ProviderVariant::gemini,
                 config: ProviderEntryConfig::Gemini { api_key: c.api_key.clone() },
+            }),
+            providers.mimo.as_ref().map(|c| ProviderEntry {
+                variant: ProviderVariant::mimo,
+                config: ProviderEntryConfig::Mimo { api_key: c.api_key.clone() },
             }),
         ]
         .into_iter()

@@ -1,6 +1,6 @@
 use chrono::{Datelike, Local, Utc};
 
-pub fn boot_md() -> String {
+pub fn boot_md(name: String, description: String) -> String {
     let heartbeat_instruction = r#"## Heartbeat — Autonomous Background Tasks
 
 Write tasks to `HEARTBEAT.md` to execute them on a schedule. Clear the file to stop.
@@ -32,6 +32,8 @@ Write tasks to `HEARTBEAT.md` to execute them on a schedule. Clear the file to s
     let res = format!(
         r#"# BOOT.md - Operating Doctrine
 
+You are {}, {}
+
 ## Time
 
 **System Datetime (UTC)**: {}, {}
@@ -56,7 +58,7 @@ user most likely will use the actual the actual datetime, but you always use the
 4. **Memory** → long-term facts/context
 
 {}"#,
-        utc_day, utc_now, local_day, local_now, heartbeat_instruction,
+        name, description, utc_day, utc_now, local_day, local_now, heartbeat_instruction,
     );
 
     res

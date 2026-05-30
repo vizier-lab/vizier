@@ -20,7 +20,7 @@ export default [
     route(':agentId/tasks', 'routes/tasks.tsx'),
     route(':agentId/documents', 'routes/documents.tsx'),
     route(':agentId/usage', 'routes/usage.tsx'),
-    route(':agentId/settings', 'routes/settings.tsx'),
+    route(':agentId/danger', 'routes/danger.tsx'),
     route(':agentId/edit', 'routes/agent-edit.tsx'),
   ]),
 ] satisfies RouteConfig

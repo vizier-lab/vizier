@@ -3,10 +3,10 @@ use std::{path::PathBuf, sync::Arc};
 
 pub use fastembed::EmbeddingModel as FastembedModel;
 use fastembed::TextEmbedding;
-use rig::embeddings::{self, EmbeddingError};
+use rig_core::embeddings::{self, EmbeddingError};
 
 use fastembed::InitOptions;
-use rig::{Embed, embeddings::EmbeddingsBuilder};
+use rig_core::{Embed, embeddings::EmbeddingsBuilder};
 
 use crate::{embedding::VizierEmbeddingModel, utils::build_path};
 

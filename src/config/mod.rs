@@ -157,6 +157,7 @@ impl Default for VizierConfig {
                 anthropic: None,
                 openai: None,
                 gemini: None,
+                mimo: None,
             },
             embedding: Some(EmbeddingConfig::Local {
                 model: LocalEmbeddingModelVariant::AllMiniLml6V2,

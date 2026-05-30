@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
 import { listAgents, deleteAgent } from './services/vizier'
-import { FiSettings, FiCheckCircle, FiLogOut, FiTrendingUp, FiChevronDown, FiChevronLeft, FiMessageSquare, FiSun, FiMoon, FiMenu, FiPlus, FiTrash2, FiEdit3 } from 'react-icons/fi'
+import { FiSettings, FiCheckCircle, FiLogOut, FiTrendingUp, FiChevronDown, FiChevronLeft, FiMessageSquare, FiSun, FiMoon, FiMenu, FiPlus, FiTrash2, FiEdit3, FiAlertTriangle } from 'react-icons/fi'
 import { FaBook, FaFolder } from 'react-icons/fa'
 import Avatar from './components/avatar'
 import ToastContainer from './components/Toast'
@@ -103,6 +103,7 @@ export default function Layout() {
     if (location.pathname.includes('/documents')) return 'documents'
     if (location.pathname.includes('/usage')) return 'usage'
     if (location.pathname.includes('/settings')) return 'settings'
+    if (location.pathname.includes('/danger')) return 'danger'
     if (location.pathname.includes('/edit')) return 'edit'
     if (location.pathname.includes('/chat')) return 'chat'
     return null
@@ -217,13 +218,17 @@ export default function Layout() {
               ['documents', 'Documents', FaFolder],
               ['usage', 'Usage', FiTrendingUp],
               ['edit', 'Edit Agent', FiEdit3],
+              ['danger', 'Danger Zone', FiAlertTriangle],
             ] as const).map(([view, label, Icon]) => (
               <div
                 key={view}
                 className={`nav-item ${currentView === view ? 'active' : ''}`}
                 onClick={() => currentAgentId && handleNavClick(`/${currentAgentId}/${view}`)}
                 title={collapsed ? label : undefined}
-                style={!currentAgentId ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : undefined}
+                style={{
+                  ...(!currentAgentId ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}),
+                  ...(view === 'danger' ? { color: currentView === 'danger' ? '#ef4444' : undefined } : {}),
+                }}
               >
                 <Icon size={18} />
                 <span>{label}</span>
@@ -250,7 +255,7 @@ export default function Layout() {
           </div>
           <div
             className={`nav-item ${currentView === 'settings' ? 'active' : ''}`}
-            onClick={() => handleNavClick(currentAgentId ? `/${currentAgentId}/settings` : '/settings')}
+            onClick={() => handleNavClick('/settings')}
             title={collapsed ? 'Settings' : undefined}
           >
             <FiSettings size={18} />

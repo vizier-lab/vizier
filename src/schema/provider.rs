@@ -13,8 +13,9 @@ pub struct ProviderEntry {
 pub enum ProviderEntryConfig {
     Ollama { base_url: String },
     Openai { api_key: String, base_url: Option<String> },
-    Anthropic { api_key: String },
+    Anthropic { api_key: String, base_url: Option<String> },
     Deepseek { api_key: String },
     Openrouter { api_key: String },
     Gemini { api_key: String },
+    Mimo { api_key: String },
 }

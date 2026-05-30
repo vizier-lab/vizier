@@ -3,7 +3,7 @@ use std::fmt::Display;
 use anyhow::Result;
 use base64::Engine;
 use chrono::{DateTime, Utc};
-use rig::{
+use rig_core::{
     OneOrMany,
     message::{DocumentMediaType, ImageMediaType, Message, MimeType, UserContent},
 };

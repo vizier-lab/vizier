@@ -4,7 +4,7 @@ import { useToastStore } from '../hooks/toastStore'
 import { getAgentDetail, updateAgent } from '../services/vizier'
 import type { CreateAgentRequest, AgentDetail } from '../interfaces/types'
 
-const PROVIDERS = ['ollama', 'deepseek', 'openrouter', 'anthropic', 'openai', 'gemini']
+const PROVIDERS = ['ollama', 'deepseek', 'openrouter', 'anthropic', 'openai', 'gemini', 'mimo']
 
 export default function AgentEdit() {
   const { agentId } = useParams()
@@ -22,6 +22,7 @@ export default function AgentEdit() {
     system_prompt: '',
     thinking_depth: 10,
     session_memory_capacity: 10,
+    max_tokens: undefined,
     tools: {
       shell_access: false,
       brave_search: false,
@@ -52,6 +53,7 @@ export default function AgentEdit() {
           system_prompt: d.system_prompt || '',
           thinking_depth: d.thinking_depth,
           session_memory_capacity: d.session_memory_capacity,
+          max_tokens: d.max_tokens,
           tools: {
             shell_access: d.shell_access,
             brave_search: d.brave_search,
@@ -229,6 +231,17 @@ export default function AgentEdit() {
                 min={1}
                 value={form.thinking_depth || 10}
                 onChange={(e) => updateField('thinking_depth', parseInt(e.target.value) || 10)}
+              />
+            </section>
+            <section style={{ ...fieldStyle, flex: 1 }}>
+              <label style={labelStyle}>Max Tokens</label>
+              <input
+                style={inputStyle}
+                type="number"
+                min={1}
+                placeholder="No limit"
+                value={form.max_tokens ?? ''}
+                onChange={(e) => updateField('max_tokens', e.target.value ? parseInt(e.target.value) : undefined)}
               />
             </section>
             <section style={{ ...fieldStyle, flex: 1 }}>

@@ -56,6 +56,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
                 "anthropic".to_string(),
                 "openai".to_string(),
                 "gemini".to_string(),
+                "mimo".to_string(),
             ],
         )
         .prompt()?;
@@ -82,8 +83,18 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
             }
             "anthropic" => {
                 let api_key = Password::new("Anthropic API Key:").prompt()?;
+                let base_url = Text::new("Anthropic base URL (optional):")
+                    .with_default("")
+                    .prompt()?;
                 providers.anthropic =
-                    Some(crate::config::provider::AnthropicProviderConfig { api_key });
+                    Some(crate::config::provider::AnthropicProviderConfig {
+                        api_key,
+                        base_url: if base_url.is_empty() {
+                            None
+                        } else {
+                            Some(base_url)
+                        },
+                    });
                 ProviderVariant::anthropic
             }
             "openai" => {
@@ -105,6 +116,11 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
                 let api_key = Password::new("Gemini API Key:").prompt()?;
                 providers.gemini = Some(crate::config::provider::GeminiProviderConfig { api_key });
                 ProviderVariant::gemini
+            }
+            "mimo" => {
+                let api_key = Password::new("Xiaomi MiMo API Key:").prompt()?;
+                providers.mimo = Some(crate::config::provider::MimoProviderConfig { api_key });
+                ProviderVariant::mimo
             }
             _ => unreachable!(),
         };
@@ -134,6 +150,8 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         ProviderVariant::anthropic
     } else if primary_provider_str.contains("openai") {
         ProviderVariant::openai
+    } else if primary_provider_str.contains("mimo") {
+        ProviderVariant::mimo
     } else {
         ProviderVariant::gemini
     };
@@ -145,6 +163,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         ProviderVariant::anthropic => "claude-3-haiku-20240307",
         ProviderVariant::openai => "gpt-4o-mini",
         ProviderVariant::gemini => "gemini-2.0-flash",
+        ProviderVariant::mimo => "mimo-v2.5-pro",
     };
 
     let agent_name = Text::new("Agent name:").with_default("Vizier").prompt()?;
@@ -251,6 +270,9 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
     }
     if providers.gemini.is_some() {
         println!("  - gemini: [API KEY SET]");
+    }
+    if providers.mimo.is_some() {
+        println!("  - mimo: [API KEY SET]");
     }
     println!("\n--- Primary Provider ---");
     println!("  {:?}\n", primary_provider);
@@ -369,6 +391,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         show_tool_calls: None,
         discord_token: None,
         telegram_token: None,
+        max_tokens: None,
     };
 
     config.save(config_path.clone(), "".into())?;

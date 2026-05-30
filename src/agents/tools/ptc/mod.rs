@@ -91,7 +91,6 @@ All tool_call results are serialized as JSON strings matching the output schema.
             let scope: vm::scope::Scope = vm.new_scope_with_builtins();
             let tools = tools.clone();
             let print = vm.new_function("print", move |str: String| {
-                println!(">> {str}");
                 vm_console.lock().unwrap().push(str);
             });
 

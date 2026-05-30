@@ -9,6 +9,7 @@ pub enum ProviderVariant {
     gemini,
     openai,
     anthropic,
+    mimo,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -25,17 +26,22 @@ pub struct ProviderConfig {
     pub openrouter: Option<OpenRouterProviderConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ollama: Option<OllamaProviderConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mimo: Option<MimoProviderConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AnthropicProviderConfig {
     pub api_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
 }
 
 impl Default for AnthropicProviderConfig {
     fn default() -> Self {
         Self {
             api_key: "${ANTROPHIC_API_KEY}".into(),
+            base_url: None,
         }
     }
 }
@@ -103,6 +109,19 @@ impl Default for OpenRouterProviderConfig {
     fn default() -> Self {
         Self {
             api_key: "${OPENROUTER_API_KEY}".into(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MimoProviderConfig {
+    pub api_key: String,
+}
+
+impl Default for MimoProviderConfig {
+    fn default() -> Self {
+        Self {
+            api_key: "${XIAOMI_MIMO_API_KEY}".into(),
         }
     }
 }

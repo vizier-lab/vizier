@@ -3,7 +3,7 @@ use std::{fs, sync::Arc};
 use anyhow::Result;
 use chrono::Utc;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use rig::{
+use rig_core::{
     OneOrMany,
     message::{AssistantContent, Message},
 };
@@ -87,7 +87,13 @@ impl VizierAgent {
 
         let agent_md = read_md_file(self.workspace.clone(), "AGENT.md".into());
         let ident_md = read_md_file(self.workspace.clone(), "IDENTITY.md".into());
-        let boot = boot_md();
+        let boot = boot_md(
+            self.config.name.clone(),
+            self.config
+                .description
+                .clone()
+                .unwrap_or("a Digital Steward".into()),
+        );
 
         let mut res = vec![
             Message::system(boot),

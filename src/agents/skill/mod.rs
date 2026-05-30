@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use rig::completion::ToolDefinition;
+use rig_core::completion::ToolDefinition;
 use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 use serde_json;

@@ -36,10 +36,11 @@ fn provider_to_response(entry: &ProviderEntry) -> ProviderResponse {
     let (has_api_key, base_url) = match &entry.config {
         ProviderEntryConfig::Ollama { base_url } => (false, Some(base_url.clone())),
         ProviderEntryConfig::Openai { api_key, base_url } => (!api_key.is_empty(), base_url.clone()),
-        ProviderEntryConfig::Anthropic { api_key } => (!api_key.is_empty(), None),
+        ProviderEntryConfig::Anthropic { api_key, base_url } => (!api_key.is_empty(), base_url.clone()),
         ProviderEntryConfig::Deepseek { api_key } => (!api_key.is_empty(), None),
         ProviderEntryConfig::Openrouter { api_key } => (!api_key.is_empty(), None),
         ProviderEntryConfig::Gemini { api_key } => (!api_key.is_empty(), None),
+        ProviderEntryConfig::Mimo { api_key } => (!api_key.is_empty(), None),
     };
 
     ProviderResponse {
@@ -128,6 +129,7 @@ async fn upsert_provider(
         ProviderVariant::anthropic => {
             ProviderEntryConfig::Anthropic {
                 api_key: body.api_key.unwrap_or_default(),
+                base_url: body.base_url,
             }
         }
         ProviderVariant::deepseek => {
@@ -142,6 +144,11 @@ async fn upsert_provider(
         }
         ProviderVariant::gemini => {
             ProviderEntryConfig::Gemini {
+                api_key: body.api_key.unwrap_or_default(),
+            }
+        }
+        ProviderVariant::mimo => {
+            ProviderEntryConfig::Mimo {
                 api_key: body.api_key.unwrap_or_default(),
             }
         }

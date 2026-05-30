@@ -62,6 +62,7 @@ pub fn agent_new(args: AgentNewArgs) -> Result<()> {
         "anthropic".to_string(),
         "openai".to_string(),
         "gemini".to_string(),
+        "mimo".to_string(),
     ];
 
     let primary_provider_str = Select::new("Select provider:", provider_names.clone()).prompt()?;
@@ -76,6 +77,8 @@ pub fn agent_new(args: AgentNewArgs) -> Result<()> {
         ProviderVariant::anthropic
     } else if primary_provider_str.contains("openai") {
         ProviderVariant::openai
+    } else if primary_provider_str.contains("mimo") {
+        ProviderVariant::mimo
     } else {
         ProviderVariant::gemini
     };
@@ -87,6 +90,7 @@ pub fn agent_new(args: AgentNewArgs) -> Result<()> {
         ProviderVariant::anthropic => "claude-3-haiku-20240307",
         ProviderVariant::openai => "gpt-4o-mini",
         ProviderVariant::gemini => "gemini-2.0-flash",
+        ProviderVariant::mimo => "mimo-v2.5-pro",
     };
 
     let model = Text::new("Model:").with_default(default_model).prompt()?;
@@ -178,6 +182,7 @@ pub fn agent_new(args: AgentNewArgs) -> Result<()> {
         discord_token: None,
         telegram_token: None,
         show_tool_calls: None,
+        max_tokens: None,
     };
 
     println!("\n========== Agent Preview ==========\n");
