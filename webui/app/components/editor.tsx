@@ -1,81 +1,140 @@
 import {
   MDXEditor,
   headingsPlugin,
-  markdownShortcutPlugin,
   listsPlugin,
   quotePlugin,
   thematicBreakPlugin,
+  markdownShortcutPlugin,
+  linkPlugin,
+  codeBlockPlugin,
+  toolbarPlugin,
+  BoldItalicUnderlineToggles,
+  CodeToggle,
+  BlockTypeSelect,
+  ListsToggle,
+  InsertThematicBreak,
+  Separator,
+  ButtonWithTooltip,
 } from '@mdxeditor/editor'
-import { useRef, useState } from 'react'
-import { FaPaperPlane } from 'react-icons/fa6'
+import type { MDXEditorMethods } from '@mdxeditor/editor'
+import { useEffect, useRef } from 'react'
+import { FaPaperclip } from 'react-icons/fa6'
 
-const Editor = (props: { onSubmit: (value: string) => void }) => {
-  let ref: any = useRef(null)
-  const [value, setValue] = useState('')
-  const [onFocus, setOnFocus] = useState(false)
+interface EditorProps {
+  value: string
+  onChange: (value: string) => void
+  onSubmit: () => void
+  onAttach?: () => void
+  placeholder?: string
+  disabled?: boolean
+}
 
-  const submit = (value: string) => {
-    if (value.trim().length == 0) {
-      return
+export default function Editor({
+  value,
+  onChange,
+  onSubmit,
+  onAttach,
+  placeholder,
+  disabled,
+}: EditorProps) {
+  const editorRef = useRef<MDXEditorMethods>(null)
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current
+    if (!wrapper) return
+
+    let cleanup: (() => void) | null = null
+
+    const attachListener = (el: HTMLElement) => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+          const md = editorRef.current?.getMarkdown()
+          if (!md?.trim()) return
+
+          e.preventDefault()
+          e.stopPropagation()
+          onSubmit()
+        }
+      }
+
+      el.addEventListener('keydown', handleKeyDown, true)
+      cleanup = () => el.removeEventListener('keydown', handleKeyDown, true)
     }
 
-    props.onSubmit(value)
-    setValue('')
-    ref?.current?.setMarkdown('')
-  }
+    const contentEditable = wrapper.querySelector<HTMLElement>(
+      '[contenteditable="true"]'
+    )
+
+    if (contentEditable) {
+      attachListener(contentEditable)
+    } else {
+      const observer = new MutationObserver(() => {
+        const el = wrapper.querySelector<HTMLElement>(
+          '[contenteditable="true"]'
+        )
+        if (el) {
+          observer.disconnect()
+          attachListener(el)
+        }
+      })
+      observer.observe(wrapper, { childList: true, subtree: true })
+      cleanup = () => observer.disconnect()
+    }
+
+    return () => cleanup?.()
+  }, [onSubmit])
 
   return (
-    <div className="w-full">
-      <div
-        className="max-h-[25vh] h-full w-full bg-white rounded-4xl pl-5 pr-5  shadow-md flex justify-center items-center"
-        onKeyDown={(event) => {
-          if (!event.shiftKey && event.key === 'Enter') {
-            if (!value.trim()) {
-              return
-            }
-
-            // Prevent the default soft-break behavior
-            event.preventDefault()
-            submit(value)
-          }
-        }}
-        onFocus={() => {
-          setOnFocus(true)
-        }}
-      >
-        <div className="w-full max-h-[25vh] overflow-y-scroll no-scrollbar font-mono">
-          <MDXEditor
-            ref={ref}
-            className="max-h-[25vh] prose w-full font-mono"
-            markdown={value}
-            plugins={[
-              headingsPlugin(),
-              listsPlugin(),
-              quotePlugin(),
-              thematicBreakPlugin(),
-              markdownShortcutPlugin(),
-            ]}
-            contentEditableClassName="editor-content font-mono"
-            spellCheck={false}
-            placeholder="Type Something!"
-            onChange={setValue}
-            onBlur={() => setOnFocus(false)}
-          />
-        </div>
-        <div
-          className="h-full max-h-[25vh] flex pt-2.5 pb-2.5"
-          style={{ height: '-webkit-fill-available' }}
-        >
-          <div
-            className="active:inset-shadow-md hover:inset-shadow-xs h-10 w-10 flex justify-center items-center rounded-full text-gray-500 hover:text-black font-mono"
-            onClick={() => submit(value)}
-          >
-            <FaPaperPlane />
-          </div>
-        </div>
-      </div>
+    <div className="chat-mdx-editor" ref={wrapperRef}>
+      <MDXEditor
+        ref={editorRef}
+        className="chat-mdx-editor-instance"
+        markdown={value}
+        onChange={onChange}
+        placeholder={placeholder ?? 'Type a message...'}
+        readOnly={disabled}
+        plugins={[
+          headingsPlugin(),
+          listsPlugin(),
+          quotePlugin(),
+          thematicBreakPlugin(),
+          markdownShortcutPlugin(),
+          linkPlugin(),
+          codeBlockPlugin({ defaultCodeBlockLanguage: '' }),
+          toolbarPlugin({
+            toolbarClassName: 'chat-editor-toolbar',
+            toolbarContents: () => (
+              <>
+                {onAttach && (
+                  <>
+                    <ButtonWithTooltip
+                      onClick={onAttach}
+                      title="Attach file"
+                    >
+                      <FaPaperclip size={14} />
+                    </ButtonWithTooltip>
+                    <Separator />
+                  </>
+                )}
+                <BoldItalicUnderlineToggles
+                  options={['Bold', 'Italic']}
+                />
+                <Separator />
+                <CodeToggle />
+                <Separator />
+                <BlockTypeSelect />
+                <Separator />
+                <ListsToggle
+                  options={['bullet', 'number', 'check']}
+                />
+                <Separator />
+                <InsertThematicBreak />
+              </>
+            ),
+          }),
+        ]}
+      />
     </div>
   )
 }
-
-export default Editor

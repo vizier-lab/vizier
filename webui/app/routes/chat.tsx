@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import type { FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import {
@@ -22,7 +22,6 @@ import { getCurrentUsername } from '../utils/auth'
 import { Skeleton, SkeletonMessage } from '../components/Skeleton'
 import {
   FaPaperPlane,
-  FaPaperclip,
   FaXmark,
   FaChevronDown,
   FaTrash,
@@ -32,7 +31,7 @@ import { useToastStore } from '../hooks/toastStore'
 import { useConnectionStore } from '../hooks/connectionStore'
 import { MessageItem } from '../components/MessageItem'
 import { ThinkingIndicator } from '../components/ThinkingIndicator'
-import { debounce } from '../utils/debounce'
+import Editor from '../components/editor'
 import { useMeasure } from '@uidotdev/usehooks'
 
 interface InlineEvent {
@@ -142,6 +141,7 @@ export default function Chat() {
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
+  const [clearKey, setClearKey] = useState(0)
   const [loading, setLoading] = useState(true)
   const [inlineEvents, setInlineEvents] = useState<InlineEvent[]>([])
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null)
@@ -151,15 +151,14 @@ export default function Chat() {
   const [showNewSessionInput, setShowNewSessionInput] = useState(false)
   const [newSessionId, setNewSessionId] = useState('')
   const [isDragOver, setIsDragOver] = useState(false)
-  const [isFocused, setIsFocused] = useState(false)
   const [sendPulse, setSendPulse] = useState(false)
   const [imagePreviews, setImagePreviews] = useState<Record<string, string>>(
     {}
   )
   const prevInputRef = useRef('')
+  const currentInputRef = useRef('')
   const dragCounterRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const thinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -177,18 +176,6 @@ export default function Chat() {
   const [ref, { width: pageWidth }] = useMeasure()
 
   const resolvedTopicId = topicId ?? 'DEFAULT'
-
-  // Create debounced resize handler to prevent layout thrashing on every keystroke
-  const debouncedResize = useMemo(
-    () =>
-      debounce((target: HTMLTextAreaElement) => {
-        target.style.height = 'auto'
-        target.style.height =
-          Math.min(target.scrollHeight, window.innerHeight * 0.5) +
-          'px'
-      }, 50),
-    []
-  )
 
   // Pulse send button when input transitions from empty to non-empty
   useEffect(() => {
@@ -495,7 +482,7 @@ export default function Chat() {
   const handleSendMessage = useCallback(
     async (e: FormEvent) => {
       e.preventDefault()
-      const currentInput = inputRef.current?.value || ''
+      const currentInput = currentInputRef.current
       if (!currentInput.trim() || !agentId) return
 
       if (!connected) {
@@ -533,27 +520,31 @@ export default function Chat() {
 
       setMessages((prev) => [...prev, userMessage])
       setInput('')
+      currentInputRef.current = ''
+      setClearKey((k) => k + 1)
       setAttachments([])
       setImagePreviews((prev) => {
         Object.values(prev).forEach((url) => URL.revokeObjectURL(url))
         return {}
       })
-      if (inputRef.current) {
-        inputRef.current.style.height = 'auto'
-      }
       sendMessage(message)
     },
     [agentId, resolvedTopicId, connected, sendMessage, attachments]
   )
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
-        handleSendMessage(e as any)
-      }
-    },
+  const handleEditorSubmit = useCallback(
+    () => handleSendMessage(new Event('submit') as any),
     [handleSendMessage]
+  )
+
+  const handleEditorChange = useCallback((value: string) => {
+    setInput(value)
+    currentInputRef.current = value
+  }, [])
+
+  const handleAttachClick = useCallback(
+    () => fileInputRef.current?.click(),
+    []
   )
 
   const handleCopyMessage = useCallback(
@@ -1105,10 +1096,9 @@ export default function Chat() {
             )}
             {/* Keyboard hint */}
             <div
-              className={`chat-keyboard-hint${isFocused && !input.trim() ? ' visible' : ''}`}
+              className={`chat-keyboard-hint${input.trim() ? ' visible' : ''}`}
             >
-              Press <strong>Enter</strong> to send,{' '}
-              <strong>Shift+Enter</strong> for new line
+              Press <strong>Ctrl+Enter</strong> to send
             </div>
             {/* Input container */}
             <div
@@ -1117,8 +1107,10 @@ export default function Chat() {
               onDragLeave={handleDragLeave}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
+              onPaste={handlePaste}
               style={{
                 backdropFilter: 'blur(5px)',
+                position: 'relative',
               }}
             >
               {isDragOver && (
@@ -1131,9 +1123,7 @@ export default function Chat() {
                 onSubmit={handleSendMessage}
                 style={{
                   display: 'flex',
-                  gap: '8px',
-                  alignItems: 'center',
-                  padding: '4px 8px 4px 4px',
+                  flexDirection: 'column',
                 }}
               >
                 <input
@@ -1144,40 +1134,18 @@ export default function Chat() {
                   accept="image/*,.pdf,.doc,.docx,.txt"
                   style={{ display: 'none' }}
                 />
-                <button
-                  type="button"
-                  className="chat-attach-btn"
-                  onClick={() =>
-                    fileInputRef.current?.click()
-                  }
-                  disabled={!connected}
-                  title="Attach file"
-                >
-                  <FaPaperclip size={16} />
-                </button>
-                <textarea
-                  className="chat-input-textarea"
-                  ref={inputRef}
+                <Editor
+                  key={clearKey}
                   value={input}
-                  onChange={(e) => {
-                    setInput(e.target.value)
-                    debouncedResize(e.target)
-                  }}
-                  onKeyDown={handleKeyDown}
-                  onPaste={handlePaste}
-                  onFocus={() => setIsFocused(true)}
-                  onBlur={() => setIsFocused(false)}
-                  placeholder={
-                    connected
-                      ? 'Type a message...'
-                      : 'Connecting...'
-                  }
+                  onChange={handleEditorChange}
+                  onSubmit={handleEditorSubmit}
+                  onAttach={handleAttachClick}
+                  placeholder={connected ? 'Type a message...' : 'Connecting...'}
                   disabled={!connected}
-                  rows={1}
                 />
                 <button
                   type="submit"
-                  className={`chat-send-btn${input.trim() ? ' has-content' : ''}${sendPulse ? ' pulse' : ''}`}
+                  className={`chat-send-btn chat-send-btn-inline${input.trim() ? ' has-content' : ''}${sendPulse ? ' pulse' : ''}`}
                   disabled={!input.trim() || !connected}
                 >
                   <FaPaperPlane size={14} />
