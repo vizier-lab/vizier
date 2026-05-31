@@ -2,20 +2,16 @@ use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
 use clap::Args;
-use duration_string::DurationString;
-use inquire::{Confirm, CustomType, Password, Select, Text};
+use inquire::{Confirm, Password, Select, Text};
+use termimad::print_text;
 
-use crate::{
-    config::{
-        ChannelsConfig, DiscordChannelConfig, HTTPChannelConfig, TelegramChannelConfig,
-        VizierConfig,
-        provider::{ProviderConfig, ProviderVariant},
-        storage::{DocumentIndexerConfig, StorageConfig},
-        tools::{BraveSearchConfig, ToolsConfig},
-        user::UserConfig,
-    },
-    constant::AGENT_TEMPLATE,
-    schema::{AgentConfig, AgentToolsConfig, MemoryConfig, ToolConfig},
+use crate::config::{
+    ChannelsConfig, HTTPChannelConfig, VizierConfig,
+    embedding::{EmbeddingConfig, LocalEmbeddingModelVariant},
+    provider::ProviderConfig,
+    storage::{DocumentIndexerConfig, StorageConfig},
+    tools::ToolsConfig,
+    user::UserConfig,
 };
 
 #[derive(Debug, Args, Clone)]
@@ -25,6 +21,15 @@ pub struct OnboardArgs {
 }
 
 pub fn onboard(args: OnboardArgs) -> Result<()> {
+    crate::utils::logo::print_logo();
+
+    let d = "\x1b[2m";
+    let r = "\x1b[0m";
+
+    println!("  Welcome! Let's set up your agent workspace.");
+    println!("  This will generate a {d}.vizier.yaml{r} config and optionally");
+    println!("  create your primary user profile.");
+    println!();
     let workspace = match &args.path {
         Some(p) => p.clone(),
         None => Text::new("Workspace path:")
@@ -32,210 +37,351 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
             .prompt()?,
     };
 
-    let workspace_path = if workspace.starts_with("~") {
+    let workspace_path = if workspace.starts_with('~') {
         dirs::home_dir()
             .unwrap()
-            .join(workspace.strip_prefix("~").unwrap())
+            .join(workspace.strip_prefix('~').unwrap())
     } else {
         PathBuf::from(&workspace)
     };
 
-    let user_name = Text::new("Username").with_default("admin").prompt()?;
+    let user_name = Text::new("Username:").with_default("admin").prompt()?;
 
-    let mut providers = ProviderConfig::default();
-    let mut provider_names: Vec<String> = Vec::new();
-    let mut add_more = true;
-
-    while add_more {
-        let provider_type = Select::new(
-            "Select provider type:",
-            vec![
-                "ollama".to_string(),
-                "deepseek".to_string(),
-                "openrouter".to_string(),
-                "anthropic".to_string(),
-                "openai".to_string(),
-                "gemini".to_string(),
-                "mimo".to_string(),
-            ],
-        )
-        .prompt()?;
-
-        let variant = match provider_type.as_str() {
-            "ollama" => {
-                let base_url = Text::new("Ollama base URL:")
-                    .with_default("http://localhost:11434")
-                    .prompt()?;
-                providers.ollama = Some(crate::config::provider::OllamaProviderConfig { base_url });
-                ProviderVariant::ollama
-            }
-            "deepseek" => {
-                let api_key = Password::new("Deepseek API Key:").prompt()?;
-                providers.deepseek =
-                    Some(crate::config::provider::DeepseekProviderConfig { api_key });
-                ProviderVariant::deepseek
-            }
-            "openrouter" => {
-                let api_key = Password::new("OpenRouter API Key:").prompt()?;
-                providers.openrouter =
-                    Some(crate::config::provider::OpenRouterProviderConfig { api_key });
-                ProviderVariant::openrouter
-            }
-            "anthropic" => {
-                let api_key = Password::new("Anthropic API Key:").prompt()?;
-                let base_url = Text::new("Anthropic base URL (optional):")
-                    .with_default("")
-                    .prompt()?;
-                providers.anthropic =
-                    Some(crate::config::provider::AnthropicProviderConfig {
-                        api_key,
-                        base_url: if base_url.is_empty() {
-                            None
-                        } else {
-                            Some(base_url)
-                        },
-                    });
-                ProviderVariant::anthropic
-            }
-            "openai" => {
-                let api_key = Password::new("OpenAI API Key:").prompt()?;
-                let base_url = Text::new("OpenAI base URL (optional):")
-                    .with_default("")
-                    .prompt()?;
-                providers.openai = Some(crate::config::provider::OpenAIProviderConfig {
-                    api_key,
-                    base_url: if base_url.is_empty() {
-                        None
-                    } else {
-                        Some(base_url)
-                    },
-                });
-                ProviderVariant::openai
-            }
-            "gemini" => {
-                let api_key = Password::new("Gemini API Key:").prompt()?;
-                providers.gemini = Some(crate::config::provider::GeminiProviderConfig { api_key });
-                ProviderVariant::gemini
-            }
-            "mimo" => {
-                let api_key = Password::new("Xiaomi MiMo API Key:").prompt()?;
-                providers.mimo = Some(crate::config::provider::MimoProviderConfig { api_key });
-                ProviderVariant::mimo
-            }
-            _ => unreachable!(),
-        };
-
-        provider_names.push(format!("{} ({:?})", provider_type, variant));
-
-        add_more = Confirm::new("Add another provider?")
+    let fill_user_details =
+        Confirm::new("Fill additional primary user details (Discord, Telegram, alias)?")
             .with_default(false)
             .prompt()?;
-    }
 
-    if provider_names.is_empty() {
-        providers.ollama = Some(crate::config::provider::OllamaProviderConfig::default());
-        provider_names.push("ollama (ollama)".to_string());
-    }
-
-    let primary_provider_str =
-        Select::new("Select primary provider:", provider_names.clone()).prompt()?;
-
-    let primary_provider = if primary_provider_str.contains("ollama") {
-        ProviderVariant::ollama
-    } else if primary_provider_str.contains("deepseek") {
-        ProviderVariant::deepseek
-    } else if primary_provider_str.contains("openrouter") {
-        ProviderVariant::openrouter
-    } else if primary_provider_str.contains("anthropic") {
-        ProviderVariant::anthropic
-    } else if primary_provider_str.contains("openai") {
-        ProviderVariant::openai
-    } else if primary_provider_str.contains("mimo") {
-        ProviderVariant::mimo
+    let (discord_id, discord_username, telegram_username, alias) = if fill_user_details {
+        let discord_id = Text::new("Discord ID:").with_default("").prompt()?;
+        let discord_username = Text::new("Discord username:").with_default("").prompt()?;
+        let telegram_username = Text::new("Telegram username:").with_default("").prompt()?;
+        let alias_input = Text::new("Alias (comma-separated):")
+            .with_default("")
+            .prompt()?;
+        let alias: Vec<String> = alias_input
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        (discord_id, discord_username, telegram_username, alias)
     } else {
-        ProviderVariant::gemini
+        (String::new(), String::new(), String::new(), vec![])
     };
 
-    let default_model = match primary_provider {
-        ProviderVariant::ollama => "qwen3.5:4b",
-        ProviderVariant::deepseek => "deepseek-chat",
-        ProviderVariant::openrouter => "anthropic/claude-3-haiku",
-        ProviderVariant::anthropic => "claude-3-haiku-20240307",
-        ProviderVariant::openai => "gpt-4o-mini",
-        ProviderVariant::gemini => "gemini-2.0-flash",
-        ProviderVariant::mimo => "mimo-v2.5-pro",
-    };
+    let port: u32 = Text::new("HTTP port:")
+        .with_default("9999")
+        .prompt()?
+        .parse()
+        .unwrap_or(9999);
 
-    let agent_name = Text::new("Agent name:").with_default("Vizier").prompt()?;
-    let agent_id = agent_name
-        .to_lowercase()
-        .replace(' ', "_")
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
-        .collect::<String>();
-
-    let model = Text::new("Model:").with_default(default_model).prompt()?;
-    let agent_description = Text::new("Agent description (optional):")
-        .with_default("Digital Steward")
-        .prompt()?;
-    let thinking_depth: usize = CustomType::new("Thinking depth:")
-        .with_default(10)
-        .prompt()?;
-    let memory_capacity: usize = CustomType::new("Session memory capacity:")
-        .with_default(10)
+    let default_jwt = nanoid::nanoid!(32);
+    let jwt_secret = Text::new("JWT secret:")
+        .with_default(&default_jwt)
         .prompt()?;
 
-    let shell_access = Confirm::new("Enable shell access?")
-        .with_default(false)
-        .prompt()?;
+    let mut providers = ProviderConfig::default();
 
-    let brave_search_enabled = Confirm::new("Enable Brave search?")
-        .with_default(false)
-        .prompt()?;
+    print_text("\n> **Note:** You can add more providers later in the WebUI settings.\n");
 
-    let brave_search_api_key = if brave_search_enabled {
-        Some(Password::new("Brave API Key:").prompt()?)
-    } else {
-        None
-    };
-
-    let vector_memory_enabled = Confirm::new("Enable vector memory?")
-        .with_default(true)
-        .prompt()?;
-
-    let discord_enabled = Confirm::new("Enable Discord?")
-        .with_default(false)
-        .prompt()?;
-
-    let discord_token = if discord_enabled {
-        Some(Password::new("Discord bot token:").prompt()?)
-    } else {
-        None
-    };
-
-    let telegram_enabled = Confirm::new("Enable Telegram?")
-        .with_default(false)
-        .prompt()?;
-
-    let telegram_token = if telegram_enabled {
-        Some(Password::new("Telegram bot token:").prompt()?)
-    } else {
-        None
-    };
-
-    let storage_type = Select::new(
-        "Storage type:",
-        vec!["Filesystem".to_string(), "Surreal".to_string()],
+    let provider_type = Select::new(
+        "Select primary provider:",
+        vec![
+            "ollama",
+            "deepseek",
+            "openrouter",
+            "anthropic",
+            "openai",
+            "gemini",
+            "mimo",
+        ],
     )
     .prompt()?;
 
-    let storage = if storage_type == "Filesystem" {
-        StorageConfig::Filesystem(DocumentIndexerConfig::InMem)
-    } else {
-        StorageConfig::Surreal
+    match provider_type {
+        "ollama" => {
+            let base_url = Text::new("Ollama base URL:")
+                .with_default("http://localhost:11434")
+                .prompt()?;
+            providers.ollama = Some(crate::config::provider::OllamaProviderConfig { base_url });
+        }
+        "deepseek" => {
+            let api_key = Password::new("Deepseek API key:").prompt()?;
+            providers.deepseek = Some(crate::config::provider::DeepseekProviderConfig { api_key });
+        }
+        "openrouter" => {
+            let api_key = Password::new("OpenRouter API key:").prompt()?;
+            providers.openrouter =
+                Some(crate::config::provider::OpenRouterProviderConfig { api_key });
+        }
+        "anthropic" => {
+            let api_key = Password::new("Anthropic API key:").prompt()?;
+            let base_url = Text::new("Anthropic base URL (optional):")
+                .with_default("")
+                .prompt()?;
+            providers.anthropic = Some(crate::config::provider::AnthropicProviderConfig {
+                api_key,
+                base_url: if base_url.is_empty() {
+                    None
+                } else {
+                    Some(base_url)
+                },
+            });
+        }
+        "openai" => {
+            let api_key = Password::new("OpenAI API key:").prompt()?;
+            let base_url = Text::new("OpenAI base URL (optional):")
+                .with_default("")
+                .prompt()?;
+            providers.openai = Some(crate::config::provider::OpenAIProviderConfig {
+                api_key,
+                base_url: if base_url.is_empty() {
+                    None
+                } else {
+                    Some(base_url)
+                },
+            });
+        }
+        "gemini" => {
+            let api_key = Password::new("Gemini API key:").prompt()?;
+            providers.gemini = Some(crate::config::provider::GeminiProviderConfig { api_key });
+        }
+        "mimo" => {
+            let api_key = Password::new("Xiaomi MiMo API key:").prompt()?;
+            providers.mimo = Some(crate::config::provider::MimoProviderConfig { api_key });
+        }
+        _ => unreachable!(),
+    }
+
+    let embedding_type = Select::new(
+        "Embedding type:",
+        vec!["local", "openrouter", "ollama", "openai", "gemini"],
+    )
+    .prompt()?;
+
+    let embedding = match embedding_type {
+        "local" => {
+            let models: Vec<(&str, &str, LocalEmbeddingModelVariant)> = vec![
+                (
+                    "all_mini_lml6_v2",
+                    "lightweight",
+                    LocalEmbeddingModelVariant::AllMiniLml6V2,
+                ),
+                (
+                    "all_mini_lml6_v2q",
+                    "lightweight",
+                    LocalEmbeddingModelVariant::AllMiniLml6V2Q,
+                ),
+                (
+                    "all_mini_lml12_v2",
+                    "performance",
+                    LocalEmbeddingModelVariant::AllMiniLml12V2,
+                ),
+                (
+                    "all_mini_lml12_v2q",
+                    "balanced",
+                    LocalEmbeddingModelVariant::AllMiniLml12V2Q,
+                ),
+                (
+                    "bge_base_env15",
+                    "balanced",
+                    LocalEmbeddingModelVariant::BgeBaseEnv15,
+                ),
+                (
+                    "bge_base_env15q",
+                    "balanced",
+                    LocalEmbeddingModelVariant::BgeBaseEnv15Q,
+                ),
+                (
+                    "bge_large_env15",
+                    "performance",
+                    LocalEmbeddingModelVariant::BgeLargeEnv15,
+                ),
+                (
+                    "bge_large_env15q",
+                    "balanced",
+                    LocalEmbeddingModelVariant::BgeLargeEnv15Q,
+                ),
+                (
+                    "bge_small_env15",
+                    "lightweight",
+                    LocalEmbeddingModelVariant::BgeSmallEnv15,
+                ),
+                (
+                    "bge_small_env15q",
+                    "lightweight",
+                    LocalEmbeddingModelVariant::BgeSmallEnv15Q,
+                ),
+                (
+                    "nomic_embed_text_v1",
+                    "balanced",
+                    LocalEmbeddingModelVariant::NomicEmbedTextV1,
+                ),
+                (
+                    "nomic_embed_text_v15",
+                    "balanced",
+                    LocalEmbeddingModelVariant::NomicEmbedTextV15,
+                ),
+                (
+                    "nomic_embed_text_v15q",
+                    "balanced",
+                    LocalEmbeddingModelVariant::NomicEmbedTextV15Q,
+                ),
+                (
+                    "paraphrase_ml_mini_lml12_v2",
+                    "lightweight",
+                    LocalEmbeddingModelVariant::ParaphraseMlMiniLML12V2,
+                ),
+                (
+                    "paraphrase_ml_mini_lml12_v2q",
+                    "lightweight",
+                    LocalEmbeddingModelVariant::ParaphraseMlMiniLML12V2Q,
+                ),
+                (
+                    "paraphrase_ml_mpnet_base_v2",
+                    "balanced",
+                    LocalEmbeddingModelVariant::ParaphraseMlMpnetBaseV2,
+                ),
+                (
+                    "bge_small_zh_v15",
+                    "lightweight",
+                    LocalEmbeddingModelVariant::BgeSmallZhv15,
+                ),
+                (
+                    "bge_large_zh_v15",
+                    "performance",
+                    LocalEmbeddingModelVariant::BgeLargeZhv15,
+                ),
+                (
+                    "modernbert_embed_large",
+                    "performance",
+                    LocalEmbeddingModelVariant::ModernBertEmbedLarge,
+                ),
+                (
+                    "multilingual_e5_small",
+                    "lightweight",
+                    LocalEmbeddingModelVariant::MultilingualE5Small,
+                ),
+                (
+                    "multilingual_e5_base",
+                    "balanced",
+                    LocalEmbeddingModelVariant::MultilingualE5Base,
+                ),
+                (
+                    "multilingual_e5_large",
+                    "performance",
+                    LocalEmbeddingModelVariant::MultilingualE5Large,
+                ),
+                (
+                    "mxbai_embed_large_v1",
+                    "performance",
+                    LocalEmbeddingModelVariant::MxbaiEmbedLargeV1,
+                ),
+                (
+                    "mxbai_embed_large_v1q",
+                    "balanced",
+                    LocalEmbeddingModelVariant::MxbaiEmbedLargeV1Q,
+                ),
+                (
+                    "gte_base_env15",
+                    "balanced",
+                    LocalEmbeddingModelVariant::GteBaseEnv15,
+                ),
+                (
+                    "gte_base_env15q",
+                    "balanced",
+                    LocalEmbeddingModelVariant::GteBaseEnv15Q,
+                ),
+                (
+                    "gte_large_env15",
+                    "performance",
+                    LocalEmbeddingModelVariant::GteLargeEnv15,
+                ),
+                (
+                    "gte_large_env15q",
+                    "balanced",
+                    LocalEmbeddingModelVariant::GteLargeEnv15Q,
+                ),
+                (
+                    "clip_vit_b32",
+                    "balanced",
+                    LocalEmbeddingModelVariant::ClipVitB32,
+                ),
+                (
+                    "jina_embeddings_v2_base_code",
+                    "balanced",
+                    LocalEmbeddingModelVariant::JinaEmbeddingsV2BaseCode,
+                ),
+            ];
+
+            print_text("**Recommended models:**\n");
+            println!("  🟢 **lightweight**  →  `all_mini_lml6_v2`       _(fastest, smallest)_");
+            println!(
+                "  🔵 **balanced**     →  `nomic_embed_text_v15q`  _(best quality/size tradeoff)_"
+            );
+            println!(
+                "  🟡 **performance**  →  `bge_large_env15`        _(highest retrieval quality)_\n"
+            );
+
+            let model_names: Vec<&str> = models.iter().map(|(name, _, _)| *name).collect();
+            let selected = Select::new("Select embedding model:", model_names).prompt()?;
+            let variant = models
+                .into_iter()
+                .find(|(name, _, _)| *name == selected)
+                .unwrap()
+                .2;
+            EmbeddingConfig::Local { model: variant }
+        }
+        "openrouter" => {
+            let api_key = Password::new("OpenRouter API key:").prompt()?;
+            let model = Text::new("Model name:")
+                .with_default("nomic-ai/nomic-embed-text-v1.5")
+                .prompt()?;
+            EmbeddingConfig::Openrouter { model }
+        }
+        "ollama" => {
+            let base_url = Text::new("Ollama base URL:")
+                .with_default("http://localhost:11434")
+                .prompt()?;
+            let model = Text::new("Model name:")
+                .with_default("nomic-embed-text")
+                .prompt()?;
+            EmbeddingConfig::Ollama { model }
+        }
+        "openai" => {
+            let api_key = Password::new("OpenAI API key:").prompt()?;
+            let model = Text::new("Model name:")
+                .with_default("text-embedding-3-small")
+                .prompt()?;
+            EmbeddingConfig::Openai { model }
+        }
+        "gemini" => {
+            let api_key = Password::new("Gemini API key:").prompt()?;
+            let model = Text::new("Model name:")
+                .with_default("text-embedding-004")
+                .prompt()?;
+            EmbeddingConfig::Gemini { model }
+        }
+        _ => unreachable!(),
     };
 
-    let agent_file_name = format!("{}.agent.md", agent_id.clone(),);
+    let storage_type = Select::new("Storage type:", vec!["Filesystem", "Surreal"]).prompt()?;
+
+    let storage = if storage_type == "Surreal" {
+        StorageConfig::Surreal
+    } else {
+        StorageConfig::Filesystem(DocumentIndexerConfig::InMem)
+    };
+
+    let agent_file_name = format!(
+        "{}.agent.md",
+        user_name
+            .to_lowercase()
+            .replace(' ', "_")
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+            .collect::<String>()
+    );
 
     let mut config_path = workspace_path.clone();
     config_path.push(".vizier.yaml");
@@ -243,54 +389,35 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
     let mut agent_path = workspace_path.clone();
     agent_path.push(&agent_file_name);
 
-    println!("\n========== Configuration Preview ==========\n");
-    println!("Workspace: {}", workspace_path.display());
-    println!("Config file: {}", config_path.display());
-    println!("Agent file: {}\n", agent_path.display());
-    println!("--- User ---");
-    println!("Name: {}", user_name);
-    println!("\n--- Providers ---");
-    if providers.ollama.is_some() {
-        println!(
-            "  - ollama: {}",
-            providers.ollama.as_ref().unwrap().base_url
-        );
-    }
-    if providers.deepseek.is_some() {
-        println!("  - deepseek: [API KEY SET]");
-    }
-    if providers.openrouter.is_some() {
-        println!("  - openrouter: [API KEY SET]");
-    }
-    if providers.anthropic.is_some() {
-        println!("  - anthropic: [API KEY SET]");
-    }
-    if providers.openai.is_some() {
-        println!("  - openai: [API KEY SET]");
-    }
-    if providers.gemini.is_some() {
-        println!("  - gemini: [API KEY SET]");
-    }
-    if providers.mimo.is_some() {
-        println!("  - mimo: [API KEY SET]");
-    }
-    println!("\n--- Primary Provider ---");
-    println!("  {:?}\n", primary_provider);
-    println!("--- Agent: {} ---", agent_name);
-    println!("Model: {}", model);
-    if !agent_description.is_empty() {
-        println!("Description: {}", agent_description);
-    }
-    println!("Thinking depth: {}", thinking_depth);
-    println!("Memory capacity: {}", memory_capacity);
-    println!("\n--- Tools ---");
-    println!("Shell access: {}", shell_access);
-    println!("Brave search: {}", brave_search_enabled);
-    println!("Vector memory: {}", vector_memory_enabled);
-    println!("Discord: {}", discord_enabled);
-    println!("\n--- Storage ---");
-    println!("{}", storage_type);
-    println!("\n==========================================\n");
+    let embedding_model = match &embedding {
+        EmbeddingConfig::Local { model } => format!("{:?}", model),
+        EmbeddingConfig::Openrouter { model } => model.clone(),
+        EmbeddingConfig::Ollama { model } => model.clone(),
+        EmbeddingConfig::Openai { model } => model.clone(),
+        EmbeddingConfig::Gemini { model } => model.clone(),
+    };
+
+    print_text(&format!(
+        "\n---\n### Configuration Preview\n\n\
+        | | |\n\
+        |---|---|\n\
+        | **Workspace** | `{}` |\n\
+        | **Config file** | `{}` |\n\
+        | **User** | `{}` |\n\
+        | **HTTP port** | `{}` |\n\
+        | **Provider** | `{}` |\n\
+        | **Embedding** | `{} ({})` |\n\
+        | **Storage** | `{}` |\n\
+        ---\n",
+        workspace_path.display(),
+        config_path.display(),
+        user_name,
+        port,
+        provider_type,
+        embedding_type,
+        embedding_model,
+        storage_type,
+    ));
 
     let confirmed = Confirm::new("Save configuration?")
         .with_default(true)
@@ -303,40 +430,27 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
 
     let config = VizierConfig {
         workspace: workspace.clone(),
-        embedding: Some(crate::config::embedding::EmbeddingConfig::Local {
-            model: crate::config::embedding::LocalEmbeddingModelVariant::AllMiniLml6V2,
-        }),
+        embedding: Some(embedding),
         primary_user: UserConfig {
             username: user_name,
-            discord_id: "".into(),
-            discord_username: "".into(),
-            telegram_username: "".into(),
-            alias: vec![],
+            discord_id,
+            discord_username,
+            telegram_username,
+            alias,
         },
         providers,
         storage,
         channels: ChannelsConfig {
-            discord: discord_token.map(|token| {
-                HashMap::from([(agent_id.to_string(), DiscordChannelConfig { token })])
-            }),
+            discord: None,
             http: Some(HTTPChannelConfig {
-                port: 9999,
-                jwt_secret: "${VIZIER_JWT_SECRET}".into(),
+                port,
+                jwt_secret,
                 jwt_expiry_hours: 720,
             }),
-            telegram: telegram_token.map(|token| {
-                HashMap::from([(agent_id.to_string(), TelegramChannelConfig { token })])
-            }),
+            telegram: None,
         },
         tools: ToolsConfig {
-            brave_search: if brave_search_enabled {
-                Some(BraveSearchConfig {
-                    api_key: brave_search_api_key.unwrap(),
-                    safesearch: true,
-                })
-            } else {
-                None
-            },
+            brave_search: None,
             mcp_servers: HashMap::new(),
         },
         shell: crate::config::shell::ShellConfig::Local(crate::config::shell::LocalShellConfig {
@@ -345,71 +459,19 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         }),
     };
 
-    let agent = AgentConfig {
-        name: agent_name.clone(),
-        system_prompt: None,
-        description: if agent_description.is_empty() {
-            None
-        } else {
-            Some(agent_description)
-        },
-        provider: primary_provider,
-        model: model.clone(),
-        session_memory: MemoryConfig {
-            max_capacity: memory_capacity,
-        },
-        thinking_depth,
-        tools: AgentToolsConfig {
-            programmatic_sandbox: false,
-            timeout: DurationString::from_string("1m".into()).unwrap(),
-            shell_access,
-            brave_search: ToolConfig {
-                enabled: brave_search_enabled,
-                settings: Default::default(),
-            },
-            vector_memory: ToolConfig {
-                enabled: vector_memory_enabled,
-                settings: Default::default(),
-            },
-            discord: ToolConfig {
-                enabled: discord_enabled,
-                settings: Default::default(),
-            },
-            telegram: ToolConfig { enabled: false, settings: Default::default() },
-            notify_primary_user: ToolConfig { enabled: true, settings: Default::default() },
-            fetch: ToolConfig { enabled: false, settings: Default::default() },
-            http_client: ToolConfig { enabled: false, settings: Default::default() },
-            mcp_servers: vec![],
-        },
-        silent_read_initiative_chance: 0.,
-        show_thinking: Some(false),
-        documents: vec![],
-        include_documents: None,
-        prompt_timeout: DurationString::from_string("5m".into()).unwrap(),
-        heartbeat_interval: DurationString::from_string("30m".into()).unwrap(),
-        dream_interval: DurationString::from_string("24h".into()).unwrap(),
-        show_tool_calls: None,
-        discord_token: None,
-        telegram_token: None,
-        max_tokens: None,
-        avatar_url: None,
-    };
-
     config.save(config_path.clone(), "".into())?;
 
-    let agent_content = format!(
-        r#"# {}
-
-{}"#,
-        agent_name, AGENT_TEMPLATE
-    );
-
-    let _ = crate::utils::markdown::write_markdown(&agent, agent_content, agent_path);
-
-    println!(
-        "Successfully onboarded! Configuration saved to {}",
-        config_path.display()
-    );
+    print_text(&format!(
+        "\n### Onboarding complete!\n\n\
+        Configuration saved to `{}`\n\n\
+        | | |\n\
+        |---|---|\n\
+        | **Start server** | `vizier run` |\n\
+        | **WebUI** | `http://localhost:{}` |\n\
+        | **Default password** | `admin` |\n",
+        config_path.display(),
+        port,
+    ));
 
     Ok(())
 }
