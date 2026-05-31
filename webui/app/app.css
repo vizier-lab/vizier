@@ -1601,7 +1601,7 @@ select:focus {
 .chat-input-container {
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: var(--surface);
+  background: var(--surface)/99;
   box-shadow: var(--shadow-sm);
   transition: border-color var(--transition-base), box-shadow var(--transition-base);
   position: relative;

@@ -1,17 +1,39 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import type { FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router'
-import { getTopicHistory, listTopics, deleteTopic, getAgentDetail, listAgents } from '../services/vizier'
+import {
+  getTopicHistory,
+  listTopics,
+  deleteTopic,
+  getAgentDetail,
+  listAgents,
+} from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
-import type { Agent, ChatMessage, Topic, VizierAttachment, WebSocketMessage, WebSocketResponse, VizierResponseStats } from '../interfaces/types'
+import type {
+  Agent,
+  ChatMessage,
+  Topic,
+  VizierAttachment,
+  WebSocketMessage,
+  WebSocketResponse,
+  VizierResponseStats,
+} from '../interfaces/types'
 import { getCurrentUsername } from '../utils/auth'
 import { Skeleton, SkeletonMessage } from '../components/Skeleton'
-import { FaPaperPlane, FaPaperclip, FaXmark, FaChevronDown, FaTrash, FaCloudArrowUp } from 'react-icons/fa6'
+import {
+  FaPaperPlane,
+  FaPaperclip,
+  FaXmark,
+  FaChevronDown,
+  FaTrash,
+  FaCloudArrowUp,
+} from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
 import { useConnectionStore } from '../hooks/connectionStore'
 import { MessageItem } from '../components/MessageItem'
 import { ThinkingIndicator } from '../components/ThinkingIndicator'
 import { debounce } from '../utils/debounce'
+import { useMeasure } from '@uidotdev/usehooks'
 
 interface InlineEvent {
   id: string
@@ -20,7 +42,11 @@ interface InlineEvent {
   timestamp: number
 }
 
-const formatToolChoice = (name: string, args: Record<string, unknown>, agentNames: Record<string, string>): string => {
+const formatToolChoice = (
+  name: string,
+  args: Record<string, unknown>,
+  agentNames: Record<string, string>
+): string => {
   switch (name) {
     case 'think':
       return `💭 ${args.thought as string}`
@@ -127,25 +153,40 @@ export default function Chat() {
   const [isDragOver, setIsDragOver] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
   const [sendPulse, setSendPulse] = useState(false)
-  const [imagePreviews, setImagePreviews] = useState<Record<string, string>>({})
+  const [imagePreviews, setImagePreviews] = useState<Record<string, string>>(
+    {}
+  )
   const prevInputRef = useRef('')
   const dragCounterRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const thinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const thinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
   const sessionSelectorRef = useRef<HTMLDivElement>(null)
   const { addToast } = useToastStore()
-  const { connected, lastMessage, messageCount, sendMessage, clearLastMessage } = useConnectionStore()
+  const {
+    connected,
+    lastMessage,
+    // messageCount,
+    sendMessage,
+    // clearLastMessage,
+  } = useConnectionStore()
+
+  const [ref, { width: pageWidth }] = useMeasure()
 
   const resolvedTopicId = topicId ?? 'DEFAULT'
 
   // Create debounced resize handler to prevent layout thrashing on every keystroke
   const debouncedResize = useMemo(
-    () => debounce((target: HTMLTextAreaElement) => {
-      target.style.height = 'auto'
-      target.style.height = Math.min(target.scrollHeight, window.innerHeight * 0.5) + 'px'
-    }, 50),
+    () =>
+      debounce((target: HTMLTextAreaElement) => {
+        target.style.height = 'auto'
+        target.style.height =
+          Math.min(target.scrollHeight, window.innerHeight * 0.5) +
+          'px'
+      }, 50),
     []
   )
 
@@ -162,7 +203,9 @@ export default function Chat() {
   // Cleanup image preview object URLs on unmount
   useEffect(() => {
     return () => {
-      Object.values(imagePreviews).forEach(url => URL.revokeObjectURL(url))
+      Object.values(imagePreviews).forEach((url) =>
+        URL.revokeObjectURL(url)
+      )
     }
   }, [])
 
@@ -179,8 +222,10 @@ export default function Chat() {
   // Load topic detail
   useEffect(() => {
     if (!agentId) return
-    listTopics(agentId).then(topic => {
-      const detail = topic.data.find((item: any) => item.topic_id === resolvedTopicId)
+    listTopics(agentId).then((topic) => {
+      const detail = topic.data.find(
+        (item: any) => item.topic_id === resolvedTopicId
+      )
       setTopicDetail(detail || null)
     })
   }, [agentId, resolvedTopicId])
@@ -189,8 +234,8 @@ export default function Chat() {
   useEffect(() => {
     setInlineEvents([])
     setAttachments([])
-    setImagePreviews(prev => {
-      Object.values(prev).forEach(url => URL.revokeObjectURL(url))
+    setImagePreviews((prev) => {
+      Object.values(prev).forEach((url) => URL.revokeObjectURL(url))
       return {}
     })
     setShowSessionDropdown(false)
@@ -206,7 +251,7 @@ export default function Chat() {
   useEffect(() => {
     if (!agentId) return
 
-    getAgentDetail(agentId).then(data => {
+    getAgentDetail(agentId).then((data) => {
       setAgentDetail(data.data)
     })
 
@@ -227,7 +272,7 @@ export default function Chat() {
   }, [agentId, resolvedTopicId])
 
   useEffect(() => {
-    listAgents().then(res => {
+    listAgents().then((res) => {
       const names: Record<string, string> = {}
       res.data.forEach((agent: Agent) => {
         names[agent.agent_id] = agent.name
@@ -254,12 +299,17 @@ export default function Chat() {
   }
 
   const addInlineEvent = (type: InlineEvent['type'], content?: string) => {
-    setInlineEvents(prev => [...prev, {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-      type,
-      content,
-      timestamp: Date.now(),
-    }])
+    setInlineEvents((prev) => [
+      ...prev,
+      {
+        id:
+          Date.now().toString() +
+          Math.random().toString(36).substr(2, 9),
+        type,
+        content,
+        timestamp: Date.now(),
+      },
+    ])
   }
 
   // Handle incoming WebSocket messages
@@ -276,7 +326,13 @@ export default function Chat() {
 
     switch (content) {
       case 'thinking_start':
-        setInlineEvents([{ id: Date.now().toString(), type: 'start', timestamp: Date.now() }])
+        setInlineEvents([
+          {
+            id: Date.now().toString(),
+            type: 'start',
+            timestamp: Date.now(),
+          },
+        ])
         startThinkingTimeout()
         return
 
@@ -296,15 +352,23 @@ export default function Chat() {
       }
 
       if ('tool_choice' in content) {
-        const toolContent = formatToolChoice(content.tool_choice.name, content.tool_choice.args, agentNames)
+        const toolContent = formatToolChoice(
+          content.tool_choice.name,
+          content.tool_choice.args,
+          agentNames
+        )
         addInlineEvent('tool_choice', toolContent)
         return
       }
 
       if ('message' in content) {
         clearInlineEvents()
-        setMessages(prev => {
-          if (prev.some(m => m.content.Response?.timestamp === timestamp)) {
+        setMessages((prev) => {
+          if (
+            prev.some(
+              (m) => m.content.Response?.timestamp === timestamp
+            )
+          ) {
             return prev
           }
           const newMessage: ChatMessage = {
@@ -337,7 +401,10 @@ export default function Chat() {
   useEffect(() => {
     if (!showSessionDropdown) return
     const handleClick = (e: MouseEvent) => {
-      if (sessionSelectorRef.current && !sessionSelectorRef.current.contains(e.target as Node)) {
+      if (
+        sessionSelectorRef.current &&
+        !sessionSelectorRef.current.contains(e.target as Node)
+      ) {
         setShowSessionDropdown(false)
       }
     }
@@ -363,10 +430,13 @@ export default function Chat() {
     }
   }, [showSessionDropdown, loadSessionList])
 
-  const handleSelectSession = useCallback((sessionId: string) => {
-    setShowSessionDropdown(false)
-    navigate(`/${agentId}/chat/${sessionId}`)
-  }, [agentId, navigate])
+  const handleSelectSession = useCallback(
+    (sessionId: string) => {
+      setShowSessionDropdown(false)
+      navigate(`/${agentId}/chat/${sessionId}`)
+    },
+    [agentId, navigate]
+  )
 
   const handleNewSession = useCallback(() => {
     setShowSessionDropdown(false)
@@ -378,9 +448,13 @@ export default function Chat() {
     if (!agentId) return
     const slug = autoCorrectSlugStrict(newSessionId)
     if (!slug) return
-    const exists = sessionList.some(s => s.topic_id === slug)
+    const exists = sessionList.some((s) => s.topic_id === slug)
     if (exists) {
-      addToast('error', 'Session already exists', `"${slug}" already exists.`)
+      addToast(
+        'error',
+        'Session already exists',
+        `"${slug}" already exists.`
+      )
       return
     }
     setShowSessionDropdown(false)
@@ -394,84 +468,101 @@ export default function Chat() {
     setNewSessionId('')
   }, [])
 
-  const handleDeleteSession = useCallback(async (e: React.MouseEvent, sessionId: string) => {
-    e.stopPropagation()
-    if (!agentId) return
-    if (!confirm(`Delete session "${sessionId}"?`)) return
-    try {
-      await deleteTopic(agentId, sessionId)
-      addToast('success', 'Session deleted')
-      if (resolvedTopicId === sessionId) {
-        navigate(`/${agentId}/chat/DEFAULT`)
-      } else {
-        loadSessionList()
+  const handleDeleteSession = useCallback(
+    async (e: React.MouseEvent, sessionId: string) => {
+      e.stopPropagation()
+      if (!agentId) return
+      if (!confirm(`Delete session "${sessionId}"?`)) return
+      try {
+        await deleteTopic(agentId, sessionId)
+        addToast('success', 'Session deleted')
+        if (resolvedTopicId === sessionId) {
+          navigate(`/${agentId}/chat/DEFAULT`)
+        } else {
+          loadSessionList()
+        }
+      } catch (err: any) {
+        addToast(
+          'error',
+          'Failed to delete session',
+          err?.response?.data?.message || err?.message
+        )
       }
-    } catch (err: any) {
-      addToast('error', 'Failed to delete session', err?.response?.data?.message || err?.message)
-    }
-  }, [agentId, resolvedTopicId, navigate, addToast, loadSessionList])
+    },
+    [agentId, resolvedTopicId, navigate, addToast, loadSessionList]
+  )
 
-  const handleSendMessage = useCallback(async (e: FormEvent) => {
-    e.preventDefault()
-    const currentInput = inputRef.current?.value || ''
-    if (!currentInput.trim() || !agentId) return
-
-    if (!connected) {
-      console.error('WebSocket not connected')
-      return
-    }
-
-    const username = getCurrentUsername()
-
-    const message: WebSocketMessage = {
-      timestamp: new Date().toISOString(),
-      user: username,
-      content: { chat: currentInput.trim() },
-      metadata: null as any,
-      attachments: attachments.length > 0 ? attachments : undefined,
-    }
-
-    const userMessage: ChatMessage = {
-      uid: Date.now().toString(),
-      vizier_session: {
-        agent_id: agentId,
-        channel: 'vizier-webui',
-        topic: resolvedTopicId,
-      },
-      content: {
-        Request: {
-          timestamp: new Date().toISOString(),
-          user: username,
-          content: { chat: currentInput.trim() },
-          attachments: attachments.length > 0 ? attachments : undefined,
-        },
-      },
-    }
-
-    setMessages(prev => [...prev, userMessage])
-    setInput('')
-    setAttachments([])
-    setImagePreviews(prev => {
-      Object.values(prev).forEach(url => URL.revokeObjectURL(url))
-      return {}
-    })
-    if (inputRef.current) {
-      inputRef.current.style.height = 'auto'
-    }
-    sendMessage(message)
-  }, [agentId, resolvedTopicId, connected, sendMessage, attachments])
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+  const handleSendMessage = useCallback(
+    async (e: FormEvent) => {
       e.preventDefault()
-      handleSendMessage(e as any)
-    }
-  }, [handleSendMessage])
+      const currentInput = inputRef.current?.value || ''
+      if (!currentInput.trim() || !agentId) return
 
-  const handleCopyMessage = useCallback((content: string) => {
-    navigator.clipboard.writeText(content)
-    addToast('success', 'Copied!', 'Message copied to clipboard')
-  }, [addToast])
+      if (!connected) {
+        console.error('WebSocket not connected')
+        return
+      }
+
+      const username = getCurrentUsername()
+
+      const message: WebSocketMessage = {
+        timestamp: new Date().toISOString(),
+        user: username,
+        content: { chat: currentInput.trim() },
+        metadata: null as any,
+        attachments: attachments.length > 0 ? attachments : undefined,
+      }
+
+      const userMessage: ChatMessage = {
+        uid: Date.now().toString(),
+        vizier_session: {
+          agent_id: agentId,
+          channel: 'vizier-webui',
+          topic: resolvedTopicId,
+        },
+        content: {
+          Request: {
+            timestamp: new Date().toISOString(),
+            user: username,
+            content: { chat: currentInput.trim() },
+            attachments:
+              attachments.length > 0 ? attachments : undefined,
+          },
+        },
+      }
+
+      setMessages((prev) => [...prev, userMessage])
+      setInput('')
+      setAttachments([])
+      setImagePreviews((prev) => {
+        Object.values(prev).forEach((url) => URL.revokeObjectURL(url))
+        return {}
+      })
+      if (inputRef.current) {
+        inputRef.current.style.height = 'auto'
+      }
+      sendMessage(message)
+    },
+    [agentId, resolvedTopicId, connected, sendMessage, attachments]
+  )
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        handleSendMessage(e as any)
+      }
+    },
+    [handleSendMessage]
+  )
+
+  const handleCopyMessage = useCallback(
+    (content: string) => {
+      navigator.clipboard.writeText(content)
+      addToast('success', 'Copied!', 'Message copied to clipboard')
+    },
+    [addToast]
+  )
 
   const fileToBase64 = useCallback((file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -486,43 +577,53 @@ export default function Chat() {
     })
   }, [])
 
-  const processFiles = useCallback(async (files: File[]) => {
-    const imageFiles = files.filter(f => f.type.startsWith('image/'))
-    const newPreviews: Record<string, string> = {}
-    for (const file of imageFiles) {
-      newPreviews[file.name] = URL.createObjectURL(file)
-    }
-    setImagePreviews(prev => ({ ...prev, ...newPreviews }))
-
-    for (const file of files) {
-      try {
-        const base64 = await fileToBase64(file)
-        const newAttachment: VizierAttachment = {
-          filename: file.name,
-          content: { base64 },
-        }
-        setAttachments(prev => [...prev, newAttachment])
-      } catch (err: any) {
-        console.error('File read failed:', err)
-        addToast('error', 'File read failed', err?.message || 'Failed to read file')
+  const processFiles = useCallback(
+    async (files: File[]) => {
+      const imageFiles = files.filter((f) => f.type.startsWith('image/'))
+      const newPreviews: Record<string, string> = {}
+      for (const file of imageFiles) {
+        newPreviews[file.name] = URL.createObjectURL(file)
       }
-    }
-  }, [addToast, fileToBase64])
+      setImagePreviews((prev) => ({ ...prev, ...newPreviews }))
 
-  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files) return
-    await processFiles(Array.from(files))
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ''
-    }
-  }, [processFiles])
+      for (const file of files) {
+        try {
+          const base64 = await fileToBase64(file)
+          const newAttachment: VizierAttachment = {
+            filename: file.name,
+            content: { base64 },
+          }
+          setAttachments((prev) => [...prev, newAttachment])
+        } catch (err: any) {
+          console.error('File read failed:', err)
+          addToast(
+            'error',
+            'File read failed',
+            err?.message || 'Failed to read file'
+          )
+        }
+      }
+    },
+    [addToast, fileToBase64]
+  )
+
+  const handleFileSelect = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files
+      if (!files) return
+      await processFiles(Array.from(files))
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    },
+    [processFiles]
+  )
 
   const handleRemoveAttachment = useCallback((index: number) => {
-    setAttachments(prev => {
+    setAttachments((prev) => {
       const removed = prev[index]
       if (removed) {
-        setImagePreviews(p => {
+        setImagePreviews((p) => {
           const copy = { ...p }
           delete copy[removed.filename]
           return copy
@@ -555,34 +656,52 @@ export default function Chat() {
     e.stopPropagation()
   }, [])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragCounterRef.current = 0
-    setIsDragOver(false)
-    const files = Array.from(e.dataTransfer.files).filter(f => {
-      const ext = f.name.toLowerCase()
-      return f.type.startsWith('image/') || ext.endsWith('.pdf') || ext.endsWith('.doc') || ext.endsWith('.docx') || ext.endsWith('.txt')
-    })
-    if (files.length > 0) {
-      processFiles(files)
-    }
-  }, [processFiles])
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragCounterRef.current = 0
+      setIsDragOver(false)
+      const files = Array.from(e.dataTransfer.files).filter((f) => {
+        const ext = f.name.toLowerCase()
+        return (
+          f.type.startsWith('image/') ||
+          ext.endsWith('.pdf') ||
+          ext.endsWith('.doc') ||
+          ext.endsWith('.docx') ||
+          ext.endsWith('.txt')
+        )
+      })
+      if (files.length > 0) {
+        processFiles(files)
+      }
+    },
+    [processFiles]
+  )
 
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    const items = Array.from(e.clipboardData.items)
-    const imageItems = items.filter(item => item.type.startsWith('image/'))
-    if (imageItems.length === 0) return
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      const items = Array.from(e.clipboardData.items)
+      const imageItems = items.filter((item) =>
+        item.type.startsWith('image/')
+      )
+      if (imageItems.length === 0) return
 
-    e.preventDefault()
-    const files = imageItems
-      .map(item => item.getAsFile())
-      .filter((f): f is File => f !== null)
-    if (files.length > 0) {
-      processFiles(files)
-      addToast('info', 'Image pasted', 'Image uploaded from clipboard')
-    }
-  }, [processFiles, addToast])
+      e.preventDefault()
+      const files = imageItems
+        .map((item) => item.getAsFile())
+        .filter((f): f is File => f !== null)
+      if (files.length > 0) {
+        processFiles(files)
+        addToast(
+          'info',
+          'Image pasted',
+          'Image uploaded from clipboard'
+        )
+      }
+    },
+    [processFiles, addToast]
+  )
 
   if (loading) {
     return (
@@ -590,7 +709,14 @@ export default function Chat() {
         <div className="main-header">
           <Skeleton variant="text" width={200} height={24} />
         </div>
-        <div className="main-body" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        <div
+          className="main-body"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '2rem',
+          }}
+        >
           <SkeletonMessage />
           <SkeletonMessage />
           <SkeletonMessage />
@@ -603,7 +729,10 @@ export default function Chat() {
     <>
       {/* Header */}
       <div className="main-header">
-        <div className="session-selector-wrapper" ref={sessionSelectorRef}>
+        <div
+          className="session-selector-wrapper"
+          ref={sessionSelectorRef}
+        >
           <div
             className="session-selector"
             onClick={handleToggleSessionDropdown}
@@ -611,7 +740,10 @@ export default function Chat() {
             <span className="session-selector-title">
               {topicDetail ? topicDetail.title : resolvedTopicId}
             </span>
-            <FaChevronDown size={14} className={`session-selector-chevron ${showSessionDropdown ? 'open' : ''}`} />
+            <FaChevronDown
+              size={14}
+              className={`session-selector-chevron ${showSessionDropdown ? 'open' : ''}`}
+            />
           </div>
           <button
             className="session-new-btn"
@@ -624,23 +756,40 @@ export default function Chat() {
           {showSessionDropdown && (
             <div className="session-dropdown">
               {sessionList.length === 0 ? (
-                <div className="session-dropdown-empty">No sessions</div>
+                <div className="session-dropdown-empty">
+                  No sessions
+                </div>
               ) : (
                 sessionList.map((session) => (
                   <div
                     key={session.topic_id}
                     className={`session-dropdown-item ${resolvedTopicId === session.topic_id ? 'active' : ''}`}
-                    onClick={() => handleSelectSession(session.topic_id)}
+                    onClick={() =>
+                      handleSelectSession(
+                        session.topic_id
+                      )
+                    }
                   >
                     <div className="session-dropdown-item-info">
-                      <span className="session-dropdown-item-id">{session.topic_id}</span>
-                      {session.title && session.title !== session.topic_id && (
-                        <span className="session-dropdown-item-title">{session.title}</span>
-                      )}
+                      <span className="session-dropdown-item-id">
+                        {session.topic_id}
+                      </span>
+                      {session.title &&
+                        session.title !==
+                        session.topic_id && (
+                          <span className="session-dropdown-item-title">
+                            {session.title}
+                          </span>
+                        )}
                     </div>
                     <button
                       className="session-dropdown-delete"
-                      onClick={(e) => handleDeleteSession(e, session.topic_id)}
+                      onClick={(e) =>
+                        handleDeleteSession(
+                          e,
+                          session.topic_id
+                        )
+                      }
                       title="Delete session"
                     >
                       <FaTrash size={14} />
@@ -685,14 +834,22 @@ export default function Chat() {
               boxShadow: 'var(--shadow-xl)',
             }}
           >
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: '1.5rem',
-            }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '1.5rem',
+              }}
+            >
               <h2 style={{ margin: 0 }}>New Session</h2>
-              <button className="btn btn-ghost" onClick={handleCancelNewSession} style={{ padding: '8px' }}>✕</button>
+              <button
+                className="btn btn-ghost"
+                onClick={handleCancelNewSession}
+                style={{ padding: '8px' }}
+              >
+                ✕
+              </button>
             </div>
 
             <div className="input-group">
@@ -701,22 +858,42 @@ export default function Chat() {
                 id="new-session-id"
                 type="text"
                 value={newSessionId}
-                onChange={(e) => setNewSessionId(autoCorrectSlug(e.target.value))}
+                onChange={(e) =>
+                  setNewSessionId(
+                    autoCorrectSlug(e.target.value)
+                  )
+                }
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleCreateSession()
-                  if (e.key === 'Escape') handleCancelNewSession()
+                  if (e.key === 'Escape')
+                    handleCancelNewSession()
                 }}
                 placeholder="my-session-name"
                 autoFocus
               />
               {newSessionId && (
-                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
-                  → {autoCorrectSlugStrict(newSessionId) || '...'}
+                <div
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--text-tertiary)',
+                    marginTop: '4px',
+                    fontFamily: 'var(--font-mono)',
+                  }}
+                >
+                  →{' '}
+                  {autoCorrectSlugStrict(newSessionId) ||
+                    '...'}
                 </div>
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: '8px', marginTop: '1.5rem' }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: '8px',
+                marginTop: '1.5rem',
+              }}
+            >
               <button
                 className="btn btn-primary"
                 onClick={handleCreateSession}
@@ -738,196 +915,278 @@ export default function Chat() {
 
       {/* Messages */}
       <div
-        className="main-body no-scrollbar"
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1.5rem',
-        }}
+        className="h-full overflow-y-scroll no-scrollbar w-full main-body"
+        ref={ref}
       >
-        {messages.length === 0 && inlineEvents.length === 0 ? (
-          <div style={{
+        <div
+          className="no-scrollbar "
+          style={{
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: 'var(--text-tertiary)',
             flexDirection: 'column',
-            gap: '1rem',
-          }}>
-            <div style={{ fontSize: '48px', opacity: 0.5 }}>💬</div>
-            <p>No messages yet. Start the conversation!</p>
-          </div>
-        ) : (
-          <>
-            {messages.map((msg) => {
-              const isUserMessage = msg.content.Request !== undefined
-              let content: string | undefined
-              let senderName: string = 'Unknown'
-              let stats: VizierResponseStats | undefined
-              let msgAttachments: VizierAttachment[] | undefined
+            gap: '1.5rem',
+          }}
+        >
+          {messages.length === 0 && inlineEvents.length === 0 ? (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                color: 'var(--text-tertiary)',
+                flexDirection: 'column',
+                gap: '1rem',
+              }}
+            >
+              <div style={{ fontSize: '48px', opacity: 0.5 }}>
+                💬
+              </div>
+              <p>No messages yet. Start the conversation!</p>
+            </div>
+          ) : (
+            <>
+              {messages.map((msg) => {
+                const isUserMessage =
+                  msg.content.Request !== undefined
+                let content: string | undefined
+                let senderName: string = 'Unknown'
+                let stats: VizierResponseStats | undefined
+                let msgAttachments:
+                  | VizierAttachment[]
+                  | undefined
 
-              if (isUserMessage && msg.content.Request) {
-                const request = msg.content.Request as any
-                if (request.content?.chat) {
-                  content = request.content.chat
+                if (isUserMessage && msg.content.Request) {
+                  const request = msg.content.Request as any
+                  if (request.content?.chat) {
+                    content = request.content.chat
+                  }
+                  senderName = request.user || 'You'
+                  msgAttachments = request.attachments
+                } else if (
+                  !isUserMessage &&
+                  msg.content.Response
+                ) {
+                  const response = msg.content.Response as any
+                  if (response?.content?.message?.content) {
+                    content =
+                      response.content.message.content
+                  }
+                  senderName = agentDetail?.name || 'Agent'
+                  stats = response?.content?.message
+                    ?.stats as
+                    | VizierResponseStats
+                    | undefined
                 }
-                senderName = request.user || 'You'
-                msgAttachments = request.attachments
-              } else if (!isUserMessage && msg.content.Response) {
-                const response = msg.content.Response as any
-                if (response?.content?.message?.content) {
-                  content = response.content.message.content
-                }
-                senderName = agentDetail?.name || 'Agent'
-                stats = response?.content?.message?.stats as VizierResponseStats | undefined
-              }
 
-              if (!content) return null
+                if (!content) return null
 
-              return (
-                <MessageItem
-                  key={msg.uid}
-                  uid={msg.uid}
-                  isUserMessage={isUserMessage}
-                  senderName={senderName}
-                  content={content}
-                  stats={stats}
-                  attachments={msgAttachments}
-                  onCopy={handleCopyMessage}
-                />
-              )
-            })}
-
-            {/* Thinking indicator with inline events */}
-            <ThinkingIndicator
-              inlineEvents={inlineEvents}
-              agentName={agentDetail?.name || 'Agent'}
-            />
-          </>
-        )}
-        <div ref={messagesEndRef} />
-      </div >
-
-      {/* Input */}
-      <div style={{
-        padding: '0.75rem 1.5rem 1rem',
-        background: 'var(--background)',
-      }}>
-        <div style={{
-          maxWidth: '800px',
-          margin: '0 auto',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.5rem',
-          width: '100%',
-        }}>
-          {/* Attachment chips */}
-          {attachments.length > 0 && (
-            <div style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '6px',
-              alignItems: 'center',
-            }}>
-              {attachments.map((att, idx) => {
-                const isImage = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(att.filename)
-                const preview = imagePreviews[att.filename]
-                const base64 = 'base64' in att.content ? att.content.base64 : undefined
-                const ext = att.filename.split('.').pop()?.toLowerCase() || 'png'
-                const mimeMap: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp' }
-                const base64Src = base64 ? `data:${mimeMap[ext] || 'image/png'};base64,${base64}` : undefined
                 return (
-                  <div key={idx} className="chat-attachment-chip">
-                    {isImage && preview ? (
-                      <img src={preview} alt={att.filename} className="chat-attachment-chip-thumbnail" />
-                    ) : isImage && base64Src ? (
-                      <img src={base64Src} alt={att.filename} className="chat-attachment-chip-thumbnail" />
-                    ) : null}
-                    <span>{att.filename}</span>
-                    <button
-                      onClick={() => handleRemoveAttachment(idx)}
-                      className="chat-attachment-chip-remove"
-                    >
-                      <FaXmark size={10} />
-                    </button>
-                  </div>
+                  <MessageItem
+                    key={msg.uid}
+                    uid={msg.uid}
+                    isUserMessage={isUserMessage}
+                    senderName={senderName}
+                    content={content}
+                    stats={stats}
+                    attachments={msgAttachments}
+                    onCopy={handleCopyMessage}
+                  />
                 )
               })}
-              <button
-                onClick={() => {
-                  setAttachments([])
-                  setImagePreviews({})
-                }}
-                className="chat-clear-all-btn"
-              >
-                Clear all
-              </button>
-            </div>
+
+              {/* Thinking indicator with inline events */}
+              <ThinkingIndicator
+                inlineEvents={inlineEvents}
+                agentName={agentDetail?.name || 'Agent'}
+              />
+            </>
           )}
-          {/* Keyboard hint */}
-          <div className={`chat-keyboard-hint${isFocused && !input.trim() ? ' visible' : ''}`}>
-            Press <strong>Enter</strong> to send, <strong>Shift+Enter</strong> for new line
-          </div>
-          {/* Input container */}
+          <div ref={messagesEndRef} />
+          <div className="h-15"></div>
+        </div>
+      </div>
+
+      {/* Input */}
+      <div className="no-scrollbar">
+        <div
+          className="absolute bottom-0 shadow-2xs bg-linear-to-t from-background from-20% to-transparent"
+          style={{
+            width: `${pageWidth}px`,
+            padding: '1rem 1.5rem 1rem',
+          }}
+        >
           <div
-            className={`chat-input-container${isDragOver ? ' drag-over' : ''}`}
-            onDragEnter={handleDragEnter}
-            onDragLeave={handleDragLeave}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
+            style={{
+              minWidth: '90%',
+              margin: '0 auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.5rem',
+              width: '100%',
+            }}
           >
-            {isDragOver && (
-              <div className="chat-drop-overlay">
-                <FaCloudArrowUp size={20} />
-                Drop files here
+            {/* Attachment chips */}
+            {attachments.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '6px',
+                  alignItems: 'center',
+                }}
+              >
+                {attachments.map((att, idx) => {
+                  const isImage =
+                    /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(
+                      att.filename
+                    )
+                  const preview = imagePreviews[att.filename]
+                  const base64 =
+                    'base64' in att.content
+                      ? att.content.base64
+                      : undefined
+                  const ext =
+                    att.filename
+                      .split('.')
+                      .pop()
+                      ?.toLowerCase() || 'png'
+                  const mimeMap: Record<string, string> = {
+                    jpg: 'image/jpeg',
+                    jpeg: 'image/jpeg',
+                    png: 'image/png',
+                    gif: 'image/gif',
+                    webp: 'image/webp',
+                    svg: 'image/svg+xml',
+                    bmp: 'image/bmp',
+                  }
+                  const base64Src = base64
+                    ? `data:${mimeMap[ext] || 'image/png'};base64,${base64}`
+                    : undefined
+                  return (
+                    <div
+                      key={idx}
+                      className="chat-attachment-chip"
+                    >
+                      {isImage && preview ? (
+                        <img
+                          src={preview}
+                          alt={att.filename}
+                          className="chat-attachment-chip-thumbnail"
+                        />
+                      ) : isImage && base64Src ? (
+                        <img
+                          src={base64Src}
+                          alt={att.filename}
+                          className="chat-attachment-chip-thumbnail"
+                        />
+                      ) : null}
+                      <span>{att.filename}</span>
+                      <button
+                        onClick={() =>
+                          handleRemoveAttachment(idx)
+                        }
+                        className="chat-attachment-chip-remove"
+                      >
+                        <FaXmark size={10} />
+                      </button>
+                    </div>
+                  )
+                })}
+                <button
+                  onClick={() => {
+                    setAttachments([])
+                    setImagePreviews({})
+                  }}
+                  className="chat-clear-all-btn"
+                >
+                  Clear all
+                </button>
               </div>
             )}
-            <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '4px 8px 4px 4px' }}>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileSelect}
-                multiple
-                accept="image/*,.pdf,.doc,.docx,.txt"
-                style={{ display: 'none' }}
-              />
-              <button
-                type="button"
-                className="chat-attach-btn"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={!connected}
-                title="Attach file"
-              >
-                <FaPaperclip size={16} />
-              </button>
-              <textarea
-                className="chat-input-textarea"
-                ref={inputRef}
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value)
-                  debouncedResize(e.target)
+            {/* Keyboard hint */}
+            <div
+              className={`chat-keyboard-hint${isFocused && !input.trim() ? ' visible' : ''}`}
+            >
+              Press <strong>Enter</strong> to send,{' '}
+              <strong>Shift+Enter</strong> for new line
+            </div>
+            {/* Input container */}
+            <div
+              className={`chat-input-container${isDragOver ? ' drag-over' : ''}`}
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              style={{
+                backdropFilter: 'blur(5px)',
+              }}
+            >
+              {isDragOver && (
+                <div className="chat-drop-overlay">
+                  <FaCloudArrowUp size={20} />
+                  Drop files here
+                </div>
+              )}
+              <form
+                onSubmit={handleSendMessage}
+                style={{
+                  display: 'flex',
+                  gap: '8px',
+                  alignItems: 'center',
+                  padding: '4px 8px 4px 4px',
                 }}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
-                placeholder={connected ? "Type a message..." : "Connecting..."}
-                disabled={!connected}
-                rows={1}
-              />
-              <button
-                type="submit"
-                className={`chat-send-btn${input.trim() ? ' has-content' : ''}${sendPulse ? ' pulse' : ''}`}
-                disabled={!input.trim() || !connected}
               >
-                <FaPaperPlane size={14} />
-              </button>
-            </form>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  multiple
+                  accept="image/*,.pdf,.doc,.docx,.txt"
+                  style={{ display: 'none' }}
+                />
+                <button
+                  type="button"
+                  className="chat-attach-btn"
+                  onClick={() =>
+                    fileInputRef.current?.click()
+                  }
+                  disabled={!connected}
+                  title="Attach file"
+                >
+                  <FaPaperclip size={16} />
+                </button>
+                <textarea
+                  className="chat-input-textarea"
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => {
+                    setInput(e.target.value)
+                    debouncedResize(e.target)
+                  }}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                  onFocus={() => setIsFocused(true)}
+                  onBlur={() => setIsFocused(false)}
+                  placeholder={
+                    connected
+                      ? 'Type a message...'
+                      : 'Connecting...'
+                  }
+                  disabled={!connected}
+                  rows={1}
+                />
+                <button
+                  type="submit"
+                  className={`chat-send-btn${input.trim() ? ' has-content' : ''}${sendPulse ? ' pulse' : ''}`}
+                  disabled={!input.trim() || !connected}
+                >
+                  <FaPaperPlane size={14} />
+                </button>
+              </form>
+            </div>
           </div>
         </div>
-      </div >
+      </div>
     </>
   )
 }
