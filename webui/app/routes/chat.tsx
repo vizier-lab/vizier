@@ -176,7 +176,7 @@ export default function Chat() {
   const [pageRef, { width: pageWidth }] = useMeasure()
   const [inputRef, { height: inputHeight }] = useMeasure()
 
-  const resolvedTopicId = topicId ?? 'DEFAULT'
+  const resolvedTopicId = topicId ?? 'General'
 
   // Pulse send button when input transitions from empty to non-empty
   useEffect(() => {
@@ -200,12 +200,19 @@ export default function Chat() {
   const [topicDetail, setTopicDetail] = useState<any | null>(null)
   const [agentNames, setAgentNames] = useState<Record<string, string>>({})
 
-  // Redirect to DEFAULT if no topicId
+  // Redirect to General if no topicId
   useEffect(() => {
     if (agentId && !topicId) {
-      navigate(`/${agentId}/chat/DEFAULT`, { replace: true })
+      navigate(`/${agentId}/chat/General`, { replace: true })
     }
   }, [agentId, topicId, navigate])
+
+  // Persist current topic per agent
+  useEffect(() => {
+    if (agentId && topicId) {
+      localStorage.setItem(`last_topic_${agentId}`, topicId)
+    }
+  }, [agentId, topicId])
 
   // Load topic detail
   useEffect(() => {
@@ -465,7 +472,7 @@ export default function Chat() {
         await deleteTopic(agentId, sessionId)
         addToast('success', 'Session deleted')
         if (resolvedTopicId === sessionId) {
-          navigate(`/${agentId}/chat/DEFAULT`)
+          navigate(`/${agentId}/chat/General`)
         } else {
           loadSessionList()
         }

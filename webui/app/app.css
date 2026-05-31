@@ -958,20 +958,16 @@ select:focus {
   font-size: 14px;
   font-weight: 500;
   transition: all var(--transition-base);
-  border-left: 3px solid transparent;
-  margin-left: -3px;
 }
 
 .nav-item:hover {
   background: rgba(16, 185, 129, 0.08);
   color: var(--accent-primary);
-  border-left-color: var(--accent-primary);
 }
 
 .nav-item.active {
   background: var(--accent-light);
   color: var(--accent-dark);
-  border-left-color: var(--accent-primary);
   font-weight: 600;
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
 import { listAgents } from './services/vizier'
 import { FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook } from 'react-icons/fa6'
@@ -13,6 +14,7 @@ export default function Layout() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [showAgentDropdown, setShowAgentDropdown] = useState(false)
+  const [dropdownRect, setDropdownRect] = useState<DOMRect | null>(null)
   const [lastAgentId, setLastAgentId] = useState<string | null>(() => localStorage.getItem('last_agent_id'))
   const navigate = useNavigate()
   const params = useParams()
@@ -24,7 +26,7 @@ export default function Layout() {
 
   const { connected, connect, disconnect } = useConnectionStore()
   const { collapsed, toggleSidebar, mobileOpen, closeMobile } = useSidebarStore()
-  const { theme, toggleTheme } = useThemeStore()
+  const { toggleTheme } = useThemeStore()
 
   // Check auth
   useEffect(() => {
@@ -104,7 +106,8 @@ export default function Layout() {
     disconnect()
     localStorage.setItem('last_agent_id', agentId)
     setLastAgentId(agentId)
-    navigate(`/${agentId}/chat`)
+    const lastTopic = localStorage.getItem(`last_topic_${agentId}`)
+    navigate(`/${agentId}/chat/${lastTopic || 'General'}`)
   }
 
   const getCurrentView = () => {
@@ -158,8 +161,12 @@ export default function Layout() {
         <div className="agent-card-wrapper" ref={agentCardRef}>
           <div
             className="agent-card"
-            onClick={() => setShowAgentDropdown(!showAgentDropdown)}
-            title={collapsed && currentAgent ? currentAgent.name : undefined}
+            onClick={() => {
+              if (!showAgentDropdown && agentCardRef.current) {
+                setDropdownRect(agentCardRef.current.getBoundingClientRect())
+              }
+              setShowAgentDropdown(!showAgentDropdown)
+            }}
           >
             {currentAgent ? (
               <>
@@ -184,8 +191,23 @@ export default function Layout() {
             <FaChevronDown size={18} className={`agent-card-chevron ${showAgentDropdown ? 'open' : ''}`} />
           </div>
 
-          {showAgentDropdown && (
-            <div className={`agent-dropdown ${collapsed ? 'agent-dropdown-collapsed' : ''}`}>
+          {showAgentDropdown && dropdownRect && createPortal(
+            <div
+              style={{
+                position: 'fixed',
+                left: dropdownRect.right + 4,
+                top: dropdownRect.top,
+                minWidth: 220,
+                maxHeight: 320,
+                overflowY: 'auto',
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 10,
+                boxShadow: 'var(--shadow-lg)',
+                zIndex: 1000,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
               {agents.map((agent) => (
                 <div
                   key={agent.agent_id}
@@ -212,7 +234,8 @@ export default function Layout() {
                   <span className="agent-dropdown-name">Create Agent</span>
                 </div>
               </div>
-            </div>
+            </div>,
+            document.body
           )}
         </div>
 
@@ -230,7 +253,6 @@ export default function Layout() {
                 key={view}
                 className={`nav-item ${currentView === view ? 'active' : ''}`}
                 onClick={() => currentAgentId && handleNavClick(`/${currentAgentId}/${view}`)}
-                title={collapsed ? label : undefined}
                 style={{
                   ...(!currentAgentId ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}),
                 }}
@@ -247,7 +269,6 @@ export default function Layout() {
           <div
             className="nav-item sidebar-toggle"
             onClick={toggleSidebar}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             <FaChevronLeft
               size={18}
@@ -261,7 +282,6 @@ export default function Layout() {
           <div
             className={`nav-item ${currentView === 'global-settings' ? 'active' : ''}`}
             onClick={() => handleNavClick('/settings')}
-            title={collapsed ? 'Settings' : undefined}
           >
             <FaGear size={18} />
             <span>Settings</span>
@@ -269,7 +289,6 @@ export default function Layout() {
           <div
             className="nav-item nav-theme-row"
             onClick={toggleTheme}
-            title={collapsed ? `Switch to ${theme === 'dark' ? 'light' : 'dark'} mode` : undefined}
           >
             <FaSun className="theme-icon-light" size={18} />
             <FaMoon className="theme-icon-dark" size={18} />
@@ -278,7 +297,6 @@ export default function Layout() {
           <div
             className="nav-item"
             onClick={handleLogout}
-            title={collapsed ? 'Logout' : undefined}
           >
             <FaRightFromBracket size={18} />
             <span>Logout</span>
