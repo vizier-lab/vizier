@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
-import { listAgents, deleteAgent } from './services/vizier'
-import { FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaTrash, FaPen, FaTriangleExclamation, FaBook, FaFolder } from 'react-icons/fa6'
+import { listAgents } from './services/vizier'
+import { FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook } from 'react-icons/fa6'
 import Avatar from './components/avatar'
 import ToastContainer from './components/Toast'
 import { useConnectionStore } from './hooks/connectionStore'
@@ -110,11 +110,9 @@ export default function Layout() {
   const getCurrentView = () => {
     if (location.pathname.includes('/memory')) return 'memory'
     if (location.pathname.includes('/tasks')) return 'tasks'
-    if (location.pathname.includes('/documents')) return 'documents'
     if (location.pathname.includes('/usage')) return 'usage'
+    if (location.pathname === '/settings') return 'global-settings'
     if (location.pathname.includes('/settings')) return 'settings'
-    if (location.pathname.includes('/danger')) return 'danger'
-    if (location.pathname.includes('/edit')) return 'edit'
     if (location.pathname.includes('/chat')) return 'chat'
     return null
   }
@@ -225,10 +223,8 @@ export default function Layout() {
               ['chat', 'Chat', FaComment],
               ['memory', 'Memory', FaBook],
               ['tasks', 'Tasks', FaCircleCheck],
-              ['documents', 'Documents', FaFolder],
               ['usage', 'Usage', FaArrowTrendUp],
-              ['edit', 'Edit Agent', FaPen],
-              ['danger', 'Danger Zone', FaTriangleExclamation],
+              ['settings', 'Agent Config', FaGear],
             ] as const).map(([view, label, Icon]) => (
               <div
                 key={view}
@@ -237,7 +233,6 @@ export default function Layout() {
                 title={collapsed ? label : undefined}
                 style={{
                   ...(!currentAgentId ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}),
-                  ...(view === 'danger' ? { color: currentView === 'danger' ? '#ef4444' : undefined } : {}),
                 }}
               >
                 <Icon size={18} />
@@ -264,7 +259,7 @@ export default function Layout() {
             <span>Collapse</span>
           </div>
           <div
-            className={`nav-item ${currentView === 'settings' ? 'active' : ''}`}
+            className={`nav-item ${currentView === 'global-settings' ? 'active' : ''}`}
             onClick={() => handleNavClick('/settings')}
             title={collapsed ? 'Settings' : undefined}
           >

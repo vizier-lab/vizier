@@ -997,7 +997,7 @@ export default function Chat() {
       <div className="no-scrollbar">
         <div
           ref={inputRef}
-          className="absolute bottom-0 shadow-2xs bg-linear-to-t from-background from-20% to-transparent"
+          className="absolute bottom-0 shadow-2xs bg-linear-to-t from-background from-30% to-transparent"
           style={{
             width: `${pageWidth}px`,
             padding: '1rem 1.5rem 1rem',

@@ -2,10 +2,20 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router'
 import { listTasks, getTask, createTask, updateTask, deleteTask } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
-import { FaPlus, FaTrash, FaClock } from 'react-icons/fa6'
+import { FaPlus, FaTrash, FaPenToSquare } from 'react-icons/fa6'
+import { Skeleton } from '../components/Skeleton'
+import { useToastStore } from '../hooks/toastStore'
 import type { Task } from '../interfaces/types'
 import DatePicker from '../components/DatePicker'
 import MarkdownEditor from '../components/MarkdownEditor'
+
+function getErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'response' in err) {
+    const resp = (err as { response?: { data?: { message?: string } } }).response
+    return resp?.data?.message || 'An error occurred'
+  }
+  return 'An error occurred'
+}
 
 type ModalMode = 'create' | 'edit' | 'view' | null
 type ScheduleType = 'Cron' | 'OneTime'
@@ -27,13 +37,13 @@ const CRON_TEMPLATES = [
 
 export default function TaskManagement() {
   const { agentId } = useParams()
+  const addToast = useToastStore((s) => s.addToast)
   const [tasks, setTasks] = useState<Task[]>([])
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [loading, setLoading] = useState(true)
   const [modalMode, setModalMode] = useState<ModalMode>(null)
   const [filterActive, setFilterActive] = useState<boolean | undefined>(undefined)
 
-  // Form state
   const [formSlug, setFormSlug] = useState('')
   const [formUser, setFormUser] = useState('user')
   const [formTitle, setFormTitle] = useState('')
@@ -48,7 +58,6 @@ export default function TaskManagement() {
 
   const loadTasks = async () => {
     if (!agentId) return
-
     try {
       setLoading(true)
       const response = await listTasks(agentId, filterActive)
@@ -62,7 +71,6 @@ export default function TaskManagement() {
 
   const handleViewTask = async (slug: string) => {
     if (!agentId) return
-
     try {
       const response = await getTask(agentId, slug)
       setSelectedTask(response.data)
@@ -78,7 +86,6 @@ export default function TaskManagement() {
     setFormUser(task.user)
     setFormTitle(task.title)
     setFormInstruction(task.instruction)
-
     if ('CronTask' in task.schedule) {
       setFormScheduleType('Cron')
       setFormScheduleValue(task.schedule.CronTask)
@@ -86,7 +93,6 @@ export default function TaskManagement() {
       setFormScheduleType('OneTime')
       setFormScheduleValue(task.schedule.OneTimeTask)
     }
-
     setModalMode('edit')
   }
 
@@ -102,13 +108,10 @@ export default function TaskManagement() {
 
   const handleSubmit = async () => {
     if (!agentId || !formSlug.trim() || !formTitle.trim() || !formInstruction.trim() || !formScheduleValue.trim()) return
-
     setSubmitting(true)
     try {
-      // Apply strict validation to finalize slug
       const finalSlug = autoCorrectSlugStrict(formSlug)
       if (!finalSlug) return
-
       const taskData = {
         slug: finalSlug,
         user: formUser,
@@ -116,36 +119,37 @@ export default function TaskManagement() {
         instruction: formInstruction,
         schedule: formScheduleType === 'Cron'
           ? { type: 'Cron' as const, expression: formScheduleValue }
-          : { type: 'OneTime' as const, datetime: formScheduleValue }
+          : { type: 'OneTime' as const, datetime: formScheduleValue },
       }
-
       if (modalMode === 'create') {
         await createTask(agentId, taskData)
+        addToast('success', 'Task created')
       } else if (modalMode === 'edit' && selectedTask) {
         await updateTask(agentId, selectedTask.slug, taskData)
+        addToast('success', 'Task updated')
       }
-
       await loadTasks()
       closeModal()
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to save task:', error)
-      alert('Failed to save task')
+      addToast('error', 'Failed to save task', getErrorMessage(error))
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleDeleteTask = async (slug: string) => {
+  const handleDeleteTask = async (slug: string, e: React.MouseEvent) => {
+    e.stopPropagation()
     if (!agentId) return
     if (!confirm('Are you sure you want to delete this task?')) return
-
     try {
       await deleteTask(agentId, slug)
+      addToast('success', 'Task deleted')
       await loadTasks()
       closeModal()
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to delete task:', error)
-      alert('Failed to delete task')
+      addToast('error', 'Failed to delete task', getErrorMessage(error))
     }
   }
 
@@ -161,29 +165,13 @@ export default function TaskManagement() {
   }
 
   const getScheduleDisplay = (schedule: Task['schedule']) => {
-    if ('CronTask' in schedule) {
-      return `Cron: ${schedule.CronTask}`
-    } else if ('OneTimeTask' in schedule) {
-      return `One-time: ${new Date(schedule.OneTimeTask).toLocaleString()}`
-    }
+    if ('CronTask' in schedule) return schedule.CronTask
+    if ('OneTimeTask' in schedule) return new Date(schedule.OneTimeTask).toLocaleString()
     return 'Unknown'
-  }
-
-  if (loading) {
-    return (
-      <div className="main-body" style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}>
-        Loading tasks...
-      </div>
-    )
   }
 
   return (
     <>
-      {/* Header */}
       <div className="main-header">
         <div style={{ flex: 1 }}>
           <h3 style={{ margin: 0 }}>Task Management</h3>
@@ -195,12 +183,7 @@ export default function TaskManagement() {
               if (e.target.value === 'all') setFilterActive(undefined)
               else setFilterActive(e.target.value === 'active')
             }}
-            style={{
-              padding: '8px 16px',
-              borderRadius: '4px',
-              border: '1px solid var(--border)',
-              background: 'var(--background)',
-            }}
+            style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--background)' }}
           >
             <option value="all">All Tasks</option>
             <option value="active">Active</option>
@@ -213,198 +196,141 @@ export default function TaskManagement() {
         </div>
       </div>
 
-      {/* Task List */}
       <div className="main-body">
-        {tasks.length === 0 ? (
-          <div style={{
-            textAlign: 'center',
-            color: 'var(--text-tertiary)',
-            padding: '3rem',
-          }}>
+        {loading ? (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Slug</th>
+                <th>Schedule</th>
+                <th>Status</th>
+                <th>Last Executed</th>
+                <th style={{ width: '80px' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[1, 2, 3, 4, 5].map((i) => (
+                <tr key={i} style={{ cursor: 'default' }}>
+                  <td><Skeleton variant="text" width="60%" /></td>
+                  <td><Skeleton variant="text" width="40%" /></td>
+                  <td><Skeleton variant="text" width="50%" /></td>
+                  <td><Skeleton variant="text" width="50px" /></td>
+                  <td><Skeleton variant="text" width="50%" /></td>
+                  <td><Skeleton variant="text" width="60px" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : tasks.length === 0 ? (
+          <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '3rem' }}>
             <p>No tasks yet.</p>
-            <button
-              className="btn btn-primary"
-              onClick={handleCreateTask}
-              style={{ marginTop: '1rem' }}
-            >
+            <button className="btn btn-primary" onClick={handleCreateTask} style={{ marginTop: '1rem' }}>
               Create your first task
             </button>
           </div>
         ) : (
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '1rem',
-          }}>
-            {tasks.map((task) => (
-              <div
-                key={task.slug}
-                className="card"
-                style={{
-                  cursor: 'pointer',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                }}
-                onClick={() => handleViewTask(task.slug)}
-              >
-                <div style={{ flex: 1 }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    marginBottom: '0.5rem',
-                  }}>
-                    <h4 style={{ margin: 0 }}>{task.title}</h4>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Slug</th>
+                <th>Schedule</th>
+                <th>Status</th>
+                <th>Last Executed</th>
+                <th style={{ width: '80px' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map((task) => (
+                <tr key={task.slug} onClick={() => handleViewTask(task.slug)}>
+                  <td style={{ fontWeight: 500 }}>{task.title}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>{task.slug}</td>
+                  <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{getScheduleDisplay(task.schedule)}</td>
+                  <td>
                     <span style={{
                       padding: '2px 8px',
                       borderRadius: '12px',
                       fontSize: '11px',
-                      fontWeight: '600',
+                      fontWeight: 600,
                       background: task.is_active ? '#e8f5e9' : '#ffebee',
                       color: task.is_active ? '#2e7d32' : '#c62828',
                     }}>
                       {task.is_active ? 'Active' : 'Inactive'}
                     </span>
-                  </div>
-                  <p style={{
-                    fontSize: '14px',
-                    color: 'var(--text-secondary)',
-                    marginBottom: '0.5rem',
-                  }}>
-                    {task.instruction}
-                  </p>
-                  <div style={{
-                    fontSize: '12px',
-                    color: 'var(--text-tertiary)',
-                  }}>
-                    <div>{getScheduleDisplay(task.schedule)}</div>
-                    {task.last_executed_at && (
-                      <div>Last executed: {new Date(task.last_executed_at).toLocaleString()}</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+                  </td>
+                  <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    {task.last_executed_at ? new Date(task.last_executed_at).toLocaleString() : '\u2014'}
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        className="btn btn-ghost"
+                        style={{ padding: '4px 6px' }}
+                        onClick={(e) => { e.stopPropagation(); handleEditTask(task) }}
+                      >
+                        <FaPenToSquare size={14} />
+                      </button>
+                      <button
+                        className="btn btn-ghost"
+                        style={{ padding: '4px 6px', color: '#ef4444' }}
+                        onClick={(e) => handleDeleteTask(task.slug, e)}
+                      >
+                        <FaTrash size={14} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 
       {/* Modal */}
       {modalMode && (
         <>
-          {/* Backdrop */}
           <div
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0, 0, 0, 0.5)',
-              zIndex: 1000,
-            }}
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.5)', zIndex: 1000 }}
             onClick={closeModal}
           />
-
-          {/* Modal Content */}
           <div
             style={{
-              position: 'fixed',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              background: 'var(--background)',
-              borderRadius: '8px',
-              padding: '2rem',
-              maxWidth: '700px',
-              width: '90%',
-              maxHeight: '80vh',
-              overflow: 'auto',
-              zIndex: 1001,
-              border: '1px solid var(--border)',
+              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+              background: 'var(--background)', borderRadius: '8px', padding: '2rem',
+              maxWidth: '700px', width: '90%', maxHeight: '80vh', overflow: 'auto',
+              zIndex: 1001, border: '1px solid var(--border)',
             }}
           >
             {modalMode === 'view' && selectedTask && (
               <>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  marginBottom: '1.5rem',
-                }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      marginBottom: '0.5rem',
-                    }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.5rem' }}>
                       <h2 style={{ margin: 0 }}>{selectedTask.title}</h2>
                       <span style={{
-                        padding: '4px 12px',
-                        borderRadius: '12px',
-                        fontSize: '12px',
-                        fontWeight: '600',
+                        padding: '4px 12px', borderRadius: '12px', fontSize: '12px', fontWeight: 600,
                         background: selectedTask.is_active ? '#e8f5e9' : '#ffebee',
                         color: selectedTask.is_active ? '#2e7d32' : '#c62828',
                       }}>
                         {selectedTask.is_active ? 'Active' : 'Inactive'}
                       </span>
                     </div>
-                    <p style={{
-                      fontSize: '12px',
-                      color: 'var(--text-tertiary)',
-                    }}>
-                      {selectedTask.slug}
-                    </p>
+                    <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{selectedTask.slug}</p>
                   </div>
-                  <button className="btn btn-ghost" onClick={closeModal}>✕</button>
+                  <button className="btn btn-ghost" onClick={closeModal}>&#10005;</button>
                 </div>
-
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '1rem',
-                  marginBottom: '1.5rem',
-                }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
                   <div>
-                    <div style={{
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      color: 'var(--text-secondary)',
-                      marginBottom: '4px',
-                    }}>
-                      Instruction
-                    </div>
-                    <div className="prose" style={{
-                      whiteSpace: 'pre-wrap',
-                    }}>
-                      {selectedTask.instruction}
-                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>Instruction</div>
+                    <div className="prose" style={{ whiteSpace: 'pre-wrap' }}>{selectedTask.instruction}</div>
                   </div>
-
                   <div>
-                    <div style={{
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      color: 'var(--text-secondary)',
-                      marginBottom: '4px',
-                    }}>
-                      Schedule
-                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>Schedule</div>
                     <div>{getScheduleDisplay(selectedTask.schedule)}</div>
                   </div>
-
                   <div>
-                    <div style={{
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      color: 'var(--text-secondary)',
-                      marginBottom: '4px',
-                    }}>
-                      Details
-                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>Details</div>
                     <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
                       <div>User: {selectedTask.user}</div>
                       <div>Created: {new Date(selectedTask.timestamp).toLocaleString()}</div>
@@ -414,19 +340,9 @@ export default function TaskManagement() {
                     </div>
                   </div>
                 </div>
-
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => handleEditTask(selectedTask)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="btn btn-ghost"
-                    onClick={() => handleDeleteTask(selectedTask.slug)}
-                    style={{ color: '#c00' }}
-                  >
+                  <button className="btn btn-secondary" onClick={() => handleEditTask(selectedTask)}>Edit</button>
+                  <button className="btn btn-ghost" onClick={(e) => handleDeleteTask(selectedTask.slug, e)} style={{ color: '#c00' }}>
                     <FaTrash size={16} />
                     <span>Delete</span>
                   </button>
@@ -436,91 +352,42 @@ export default function TaskManagement() {
 
             {(modalMode === 'create' || modalMode === 'edit') && (
               <>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '1.5rem',
-                }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                   <h2>{modalMode === 'create' ? 'Create Task' : 'Edit Task'}</h2>
-                  <button className="btn btn-ghost" onClick={closeModal}>✕</button>
+                  <button className="btn btn-ghost" onClick={closeModal}>&#10005;</button>
                 </div>
-
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '1rem',
-                }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <div className="input-group">
                     <label htmlFor="slug">Slug</label>
-                    <input
-                      id="slug"
-                      type="text"
-                      value={formSlug}
-                      onChange={(e) => setFormSlug(autoCorrectSlug(e.target.value))}
-                      required
-                      disabled={modalMode === 'edit'}
-                      placeholder="my-task-slug"
-                    />
-                    {formSlug && (
-                      <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                        Slug: {formSlug}
-                      </div>
-                    )}
+                    <input id="slug" type="text" value={formSlug} onChange={(e) => setFormSlug(autoCorrectSlug(e.target.value))} required disabled={modalMode === 'edit'} placeholder="my-task-slug" />
+                    {formSlug && <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Slug: {formSlug}</div>}
                   </div>
-
                   <div className="input-group">
                     <label htmlFor="user">User</label>
-                    <input
-                      id="user"
-                      type="text"
-                      value={formUser}
-                      onChange={(e) => setFormUser(e.target.value)}
-                      required
-                    />
+                    <input id="user" type="text" value={formUser} onChange={(e) => setFormUser(e.target.value)} required />
                   </div>
-
                   <div className="input-group">
                     <label htmlFor="title">Title</label>
-                    <input
-                      id="title"
-                      type="text"
-                      value={formTitle}
-                      onChange={(e) => setFormTitle(e.target.value)}
-                      required
-                    />
+                    <input id="title" type="text" value={formTitle} onChange={(e) => setFormTitle(e.target.value)} required />
                   </div>
-
                   <div className="input-group">
                     <label htmlFor="instruction">Instruction</label>
                     <div style={{ height: '200px' }}>
-                      <MarkdownEditor
-                        value={formInstruction}
-                        onChange={setFormInstruction}
-                        placeholder="Enter task instruction..."
-                        className="modal-mdx-editor"
-                      />
+                      <MarkdownEditor value={formInstruction} onChange={setFormInstruction} placeholder="Enter task instruction..." className="modal-mdx-editor" />
                     </div>
                   </div>
-
                   <div className="input-group">
                     <label htmlFor="schedule-type">Schedule Type</label>
                     <select
                       id="schedule-type"
                       value={formScheduleType}
                       onChange={(e) => setFormScheduleType(e.target.value as ScheduleType)}
-                      style={{
-                        padding: '8px 16px',
-                        borderRadius: '4px',
-                        border: '1px solid var(--border)',
-                        background: 'var(--background)',
-                      }}
+                      style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--background)' }}
                     >
                       <option value="Cron">Cron (Recurring)</option>
                       <option value="OneTime">One-Time</option>
                     </select>
                   </div>
-
                   {formScheduleType === 'Cron' ? (
                     <>
                       <div className="input-group">
@@ -528,69 +395,28 @@ export default function TaskManagement() {
                         <select
                           id="cron-template"
                           value={CRON_TEMPLATES.find(t => t.value === formScheduleValue)?.value ?? ''}
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              setFormScheduleValue(e.target.value)
-                            }
-                          }}
-                          style={{
-                            padding: '8px 16px',
-                            borderRadius: '4px',
-                            border: '1px solid var(--border)',
-                            background: 'var(--background)',
-                          }}
+                          onChange={(e) => { if (e.target.value) setFormScheduleValue(e.target.value) }}
+                          style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--background)' }}
                         >
-                          {CRON_TEMPLATES.map(t => (
-                            <option key={t.value} value={t.value}>{t.label}</option>
-                          ))}
+                          {CRON_TEMPLATES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                         </select>
                       </div>
-
                       <div className="input-group">
                         <label htmlFor="schedule-value">Cron Expression</label>
-                        <input
-                          id="schedule-value"
-                          type="text"
-                          value={formScheduleValue}
-                          onChange={(e) => setFormScheduleValue(e.target.value)}
-                          required
-                          placeholder="0 0 * * *"
-                        />
-                        <p style={{
-                          fontSize: '12px',
-                          color: 'var(--text-tertiary)',
-                          marginTop: '4px',
-                        }}>
-                          {formScheduleType === 'Cron'
-                            ? 'Example: "0 0 * * *" (daily at midnight)'
-                            : 'Example: "2026-04-04T14:00:00Z"'
-                          }
+                        <input id="schedule-value" type="text" value={formScheduleValue} onChange={(e) => setFormScheduleValue(e.target.value)} required placeholder="0 0 * * *" />
+                        <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                          Example: "0 0 * * *" (daily at midnight)
                         </p>
                       </div>
                     </>
                   ) : (
-                    <DatePicker
-                      label="Datetime (UTC)"
-                      value={formScheduleValue}
-                      onChange={setFormScheduleValue}
-                    />
+                    <DatePicker label="Datetime (UTC)" value={formScheduleValue} onChange={setFormScheduleValue} />
                   )}
-
                   <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>
-                    <button
-                      className="btn btn-primary"
-                      onClick={handleSubmit}
-                      disabled={!formSlug.trim() || !formTitle.trim() || !formInstruction.trim() || !formScheduleValue.trim() || submitting}
-                    >
+                    <button className="btn btn-primary" onClick={handleSubmit} disabled={!formSlug.trim() || !formTitle.trim() || !formInstruction.trim() || !formScheduleValue.trim() || submitting}>
                       {submitting ? 'Saving...' : 'Save'}
                     </button>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={closeModal}
-                      disabled={submitting}
-                    >
-                      Cancel
-                    </button>
+                    <button className="btn btn-secondary" onClick={closeModal} disabled={submitting}>Cancel</button>
                   </div>
                 </div>
               </>

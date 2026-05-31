@@ -85,6 +85,9 @@ export interface CreateAgentRequest {
   thinking_depth?: number
   max_tokens?: number
   session_memory_capacity?: number
+  show_thinking?: boolean
+  show_tool_calls?: boolean
+  silent_read_initiative_chance?: number
   tools?: {
     shell_access?: boolean
     brave_search?: boolean
@@ -94,6 +97,7 @@ export interface CreateAgentRequest {
     telegram?: boolean
     fetch?: boolean
     http_client?: boolean
+    programmatic_sandbox?: boolean
     timeout?: string
     mcp_servers?: string[]
   }
@@ -114,6 +118,9 @@ export interface AgentDetail {
   thinking_depth: number
   max_tokens?: number
   session_memory_capacity: number
+  show_thinking?: boolean
+  show_tool_calls?: boolean
+  silent_read_initiative_chance?: number
   shell_access: boolean
   brave_search: boolean
   brave_search_settings?: BraveSearchToolSettings
@@ -122,6 +129,7 @@ export interface AgentDetail {
   telegram: boolean
   fetch: boolean
   http_client: boolean
+  programmatic_sandbox?: boolean
   prompt_timeout: string
   heartbeat_interval: string
   dream_interval: string

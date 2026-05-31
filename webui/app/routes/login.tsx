@@ -1,4 +1,5 @@
-import { useState, FormEvent, useEffect } from 'react'
+import { useState, useEffect } from 'react'
+import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { login } from '../services/vizier'
 import { useToastStore } from '../hooks/toastStore'

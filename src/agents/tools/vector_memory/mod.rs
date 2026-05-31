@@ -169,7 +169,7 @@ impl VizierTool for MemoryWrite {
         let slug = slugify!(&args.title).to_string();
 
         let content = format!(
-            "#{}\n\n{}\n\n timestamp: {}",
+            "# {}\n\n{}\n\n timestamp: {}",
             args.title,
             args.content,
             Utc::now()
