@@ -42,7 +42,7 @@ You are Vizier, a helpful AI assistant. You serve as the right hand of your user
 |-------|------|---------|-------------|
 | `name` | string | required | Display name for the agent |
 | `description` | string | `null` | Brief description of the agent's purpose |
-| `provider` | enum | required | AI provider: `openrouter`, `deepseek`, `ollama`, `anthropic`, `openai`, `gemini` |
+| `provider` | enum | required | AI provider: `openrouter`, `deepseek`, `ollama`, `anthropic`, `openai`, `gemini` , `llama_cpp` |
 | `model` | string | required | Model identifier (provider-specific) |
 | `session_memory.max_capacity` | number | required | Max messages in short-term memory |
 | `thinking_depth` | number | required | How many previous messages to include in context |

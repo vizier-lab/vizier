@@ -57,6 +57,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
                 "openai".to_string(),
                 "gemini".to_string(),
                 "mimo".to_string(),
+                "llama_cpp".to_string(),
             ],
         )
         .prompt()?;
@@ -86,15 +87,14 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
                 let base_url = Text::new("Anthropic base URL (optional):")
                     .with_default("")
                     .prompt()?;
-                providers.anthropic =
-                    Some(crate::config::provider::AnthropicProviderConfig {
-                        api_key,
-                        base_url: if base_url.is_empty() {
-                            None
-                        } else {
-                            Some(base_url)
-                        },
-                    });
+                providers.anthropic = Some(crate::config::provider::AnthropicProviderConfig {
+                    api_key,
+                    base_url: if base_url.is_empty() {
+                        None
+                    } else {
+                        Some(base_url)
+                    },
+                });
                 ProviderVariant::anthropic
             }
             "openai" => {
@@ -121,6 +121,14 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
                 let api_key = Password::new("Xiaomi MiMo API Key:").prompt()?;
                 providers.mimo = Some(crate::config::provider::MimoProviderConfig { api_key });
                 ProviderVariant::mimo
+            }
+            "llama_cpp" => {
+                let base_url = Text::new("Llama.cpp base URL:")
+                    .with_default("http://localhost:8080")
+                    .prompt()?;
+                providers.llama_cpp =
+                    Some(crate::config::provider::LlamaCppProviderConfig { base_url });
+                ProviderVariant::llama_cpp
             }
             _ => unreachable!(),
         };
@@ -152,6 +160,8 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         ProviderVariant::openai
     } else if primary_provider_str.contains("mimo") {
         ProviderVariant::mimo
+    } else if primary_provider_str.contains("llama_cpp") {
+        ProviderVariant::llama_cpp
     } else {
         ProviderVariant::gemini
     };
@@ -164,6 +174,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         ProviderVariant::openai => "gpt-4o-mini",
         ProviderVariant::gemini => "gemini-2.0-flash",
         ProviderVariant::mimo => "mimo-v2.5-pro",
+        ProviderVariant::llama_cpp => "google_gemma-4-E4B-it-Q4_K_M",
     };
 
     let agent_name = Text::new("Agent name:").with_default("Vizier").prompt()?;
@@ -274,6 +285,12 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
     if providers.mimo.is_some() {
         println!("  - mimo: [API KEY SET]");
     }
+    if providers.llama_cpp.is_some() {
+        println!(
+            "  - llama_cpp: {}",
+            providers.llama_cpp.as_ref().unwrap().base_url
+        );
+    }
     println!("\n--- Primary Provider ---");
     println!("  {:?}\n", primary_provider);
     println!("--- Agent: {} ---", agent_name);
@@ -375,10 +392,22 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
                 enabled: discord_enabled,
                 settings: Default::default(),
             },
-            telegram: ToolConfig { enabled: false, settings: Default::default() },
-            notify_primary_user: ToolConfig { enabled: true, settings: Default::default() },
-            fetch: ToolConfig { enabled: false, settings: Default::default() },
-            http_client: ToolConfig { enabled: false, settings: Default::default() },
+            telegram: ToolConfig {
+                enabled: false,
+                settings: Default::default(),
+            },
+            notify_primary_user: ToolConfig {
+                enabled: true,
+                settings: Default::default(),
+            },
+            fetch: ToolConfig {
+                enabled: false,
+                settings: Default::default(),
+            },
+            http_client: ToolConfig {
+                enabled: false,
+                settings: Default::default(),
+            },
             mcp_servers: vec![],
         },
         silent_read_initiative_chance: 0.,

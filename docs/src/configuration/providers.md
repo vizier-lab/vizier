@@ -14,6 +14,9 @@ providers:
   
   ollama:
     base_url: "http://localhost:11434"  # Default Ollama URL
+    
+  llama_cpp:
+    base_url: "http://localhost:8080"  # Default llama.cpp URL
 ```
 
 ## Supported Providers
@@ -26,6 +29,7 @@ providers:
 | `anthropic` | `api_key` | [Anthropic Claude](https://anthropic.com) models |
 | `openai` | `api_key`, `base_url` | OpenAI models (custom base_url for compatibility with OpenAI-compatible APIs) |
 | `gemini` | `api_key` | [Google Gemini](https://ai.google.dev) models |
+| `llama.cpp` | `base_url` | Local Llama.cpp instance (default: `http://localhost:8080`) |
 
 ## Example Configuration
 
@@ -49,4 +53,7 @@ providers:
   
   gemini:
     api_key: "${GEMINI_API_KEY}"
+    
+  llama_cpp:
+    base_url: "http://localhost:8080"
 ```

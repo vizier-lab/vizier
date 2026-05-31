@@ -6,10 +6,7 @@ use duration_string::DurationString;
 use inquire::{Confirm, CustomType, Select, Text};
 
 use crate::{
-    config::{
-        VizierConfig,
-        provider::ProviderVariant,
-    },
+    config::{VizierConfig, provider::ProviderVariant},
     constant::AGENT_TEMPLATE,
     schema::{AgentConfig, AgentToolsConfig, MemoryConfig, ToolConfig},
 };
@@ -63,6 +60,7 @@ pub fn agent_new(args: AgentNewArgs) -> Result<()> {
         "openai".to_string(),
         "gemini".to_string(),
         "mimo".to_string(),
+        "llama_cpp".to_string(),
     ];
 
     let primary_provider_str = Select::new("Select provider:", provider_names.clone()).prompt()?;
@@ -79,6 +77,8 @@ pub fn agent_new(args: AgentNewArgs) -> Result<()> {
         ProviderVariant::openai
     } else if primary_provider_str.contains("mimo") {
         ProviderVariant::mimo
+    } else if primary_provider_str.contains("llama_cpp") {
+        ProviderVariant::llama_cpp
     } else {
         ProviderVariant::gemini
     };
@@ -91,6 +91,7 @@ pub fn agent_new(args: AgentNewArgs) -> Result<()> {
         ProviderVariant::openai => "gpt-4o-mini",
         ProviderVariant::gemini => "gemini-2.0-flash",
         ProviderVariant::mimo => "mimo-v2.5-pro",
+        ProviderVariant::llama_cpp => "google_gemma-4-E4B-it-Q4_K_M",
     };
 
     let model = Text::new("Model:").with_default(default_model).prompt()?;
@@ -166,10 +167,22 @@ pub fn agent_new(args: AgentNewArgs) -> Result<()> {
                 enabled: discord_enabled,
                 settings: Default::default(),
             },
-            telegram: ToolConfig { enabled: false, settings: Default::default() },
-            notify_primary_user: ToolConfig { enabled: true, settings: Default::default() },
-            fetch: ToolConfig { enabled: false, settings: Default::default() },
-            http_client: ToolConfig { enabled: false, settings: Default::default() },
+            telegram: ToolConfig {
+                enabled: false,
+                settings: Default::default(),
+            },
+            notify_primary_user: ToolConfig {
+                enabled: true,
+                settings: Default::default(),
+            },
+            fetch: ToolConfig {
+                enabled: false,
+                settings: Default::default(),
+            },
+            http_client: ToolConfig {
+                enabled: false,
+                settings: Default::default(),
+            },
             mcp_servers: vec![],
         },
         silent_read_initiative_chance: 0.,
