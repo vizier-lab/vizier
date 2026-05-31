@@ -195,11 +195,13 @@ export default function Chat() {
     {}
   )
   const [queuedMessages, setQueuedMessages] = useState<ChatMessage[]>([])
+  const [showScrollButton, setShowScrollButton] = useState(false)
   const isThinking = inlineEvents.length > 0
   const prevInputRef = useRef('')
   const currentInputRef = useRef('')
   const dragCounterRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const thinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -441,10 +443,27 @@ export default function Chat() {
     }
   }, [lastMessage, agentId, resolvedTopicId])
 
-  // Auto-scroll to bottom
+  // Scroll detection
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    setShowScrollButton(distanceFromBottom > 200)
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
+    setShowScrollButton(false)
+  }, [])
+
+  // Auto-scroll to bottom when near bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    if (!showScrollButton && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
+  }, [messages, inlineEvents, queuedMessages, showScrollButton])
 
   // Close session dropdown on outside click
   useEffect(() => {
@@ -987,13 +1006,16 @@ export default function Chat() {
 
       {/* Messages */}
       <div
-        className="h-full overflow-y-clip! no-scrollbar w-full main-body flex justify-center"
-        style={{ paddingTop: 0, }}
+        className="no-scrollbar w-full main-body flex justify-center min-h-0"
+        style={{ paddingTop: 0 }}
         ref={pageRef}
       >
         <div
-          className="no-scrollbar w-full! overflow-y-scroll"
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="no-scrollbar w-full! overflow-y-auto"
           style={{
+            paddingTop: '24px',
             paddingLeft: '5%',
             paddingRight: '5%',
             paddingBottom: `${inputHeight}px`,
@@ -1135,6 +1157,16 @@ export default function Chat() {
               width: '100%',
             }}
           >
+            {showScrollButton && (
+              <div className="scroll-to-bottom-row">
+                <button
+                  onClick={scrollToBottom}
+                  className="scroll-to-bottom-btn"
+                >
+                  Scroll to Bottom
+                </button>
+              </div>
+            )}
             {/* Input container */}
             <div
               className={`chat-input-container${isDragOver ? ' drag-over' : ''}`}

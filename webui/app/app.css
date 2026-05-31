@@ -2409,3 +2409,30 @@ select:focus {
   opacity: 1;
   height: auto;
 }
+
+/* ============================================================================
+   SCROLL TO BOTTOM BUTTON
+   ============================================================================ */
+
+.scroll-to-bottom-row {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 8px;
+}
+
+.scroll-to-bottom-btn {
+  padding: 4px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+
+.scroll-to-bottom-btn:hover {
+  background: rgba(16, 185, 129, 0.2);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+}
