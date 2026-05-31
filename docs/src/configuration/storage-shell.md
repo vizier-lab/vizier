@@ -10,6 +10,8 @@ storage:
   indexer: in_mem
 ```
 
+> **Note:** Storage config is **not** migrated to storage — it remains file-based and is read once at startup. You cannot change the storage backend after first run without resetting the workspace.
+
 ### Storage Types
 
 | Type | Description |
@@ -33,6 +35,8 @@ shell:
   environment: local
   path: "."
 ```
+
+> **Note:** Shell config is auto-migrated to storage on first run. After migration, shell settings are managed via WebUI (Settings > Shell) or HTTP API (`PUT /api/v1/global-config/shell`). Changes hot-reload without restart.
 
 ### Local Environment
 
@@ -66,3 +70,12 @@ shell:
     name: "my-custom-image"   # Image name to build
   container_name: "vizier"
 ```
+
+## Managing Shell Config at Runtime
+
+After the initial seed config is migrated, shell settings are managed via:
+
+- **WebUI**: Settings > Shell
+- **API**: `PUT /api/v1/global-config/shell`
+
+Shell changes are hot-reloaded — the shell instance is atomically swapped without restarting the agent.

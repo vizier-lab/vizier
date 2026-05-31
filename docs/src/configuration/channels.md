@@ -2,7 +2,7 @@
 
 ## `channels`
 
-Configure communication channels:
+Configure communication channels in `.vizier.yaml`:
 
 ```yaml
 channels:
@@ -15,12 +15,14 @@ channels:
   telegram:                             # Telegram bot configuration
     vizier:                             # Agent-specific Telegram config
       token: "${TELEGRAM_BOT_TOKEN}"
-    assistant:                          # Another agent's Telegram config
-      token: "${TELEGRAM_BOT_TOKEN_2}"
 
   http:                                 # HTTP/WebSocket server
     port: 9999                          # Default port
+    jwt_secret: "${VIZIER_JWT_SECRET}"  # Secret for JWT signing
+    jwt_expiry_hours: 720               # Token expiry (default: 30 days)
 ```
+
+> **Note:** Discord and Telegram tokens are auto-migrated to per-agent configs on first run. After migration, tokens are managed via the WebUI agent settings, not the YAML file.
 
 ## Discord Channel
 
@@ -32,6 +34,14 @@ channels:
     <agent_name>:
       token: "${DISCORD_TOKEN}"
 ```
+
+### Discord Tools
+
+When enabled, agents can use these tools to interact with Discord:
+
+- `discord_send_message` - Send a message to a Discord channel
+- `discord_react_message` - React to a message with an emoji
+- `discord_get_message_by_id` - Retrieve a message by its ID
 
 ## Telegram Channel
 
@@ -81,3 +91,12 @@ The HTTP channel uses JWT (JSON Web Token) authentication:
 ### WebUI Access
 
 When HTTP channel is enabled, the WebUI is served at `http://localhost:<port>`.
+
+## Managing Channel Tokens at Runtime
+
+After the initial seed config is migrated, channel tokens are managed per-agent:
+
+- **WebUI**: Agent settings > Channels
+- **API**: `PUT /api/v1/agents/{agent_id}` with `discord_token` or `telegram_token`
+
+When you update an agent's channel token via the API, the channel automatically reconciles — disconnecting the old bot connection and establishing a new one with the updated token.

@@ -2,9 +2,9 @@
 
 ## Prerequisites
 
-### Ollama (Required for Default Configuration)
+### Ollama (Optional — for Local Models)
 
-The default `vizier init` configuration uses Ollama as the AI provider. Install Ollama:
+If you want to use local models, install Ollama:
 
 **macOS:**
 ```sh
@@ -21,23 +21,38 @@ ollama serve
 **Windows:**
 Download from [ollama.com](https://ollama.com/download/windows)
 
-> **Note:** If you prefer using OpenRouter or other providers instead, you can skip Ollama and configure those providers. See [2. Configuration](../configuration/index.md).
+> **Note:** You can use any supported provider (OpenRouter, DeepSeek, Anthropic, etc.) instead of Ollama. Configure your preferred provider during onboard or later in the WebUI.
 
 ## Initialize Your Workspace
 
-Generate configuration and workspace:
+Run the interactive onboard wizard:
 
 ```sh
-vizier init
+vizier onboard
 ```
 
-This will create a minimal config and sample agent to run in your directory.
+This will walk you through:
+- Workspace path
+- Username and primary user details
+- HTTP port and JWT secret
+- Provider selection (Ollama, OpenRouter, DeepSeek, Anthropic, OpenAI, Gemini, MiMo)
+- Embedding model selection
+- Storage backend (Filesystem or SurrealDB)
 
-## Run Your First Agent
+## Run Your Agent
 
 ```sh
 vizier run
 ```
+
+Then open `http://localhost:9999` in your browser to access the WebUI.
+
+## Create Your First Agent
+
+1. Open the WebUI at `http://localhost:9999`
+2. Navigate to Agents and click "Create Agent"
+3. Configure your agent's name, provider, model, and system prompt
+4. Start chatting!
 
 ## Development Quick Start
 
@@ -60,13 +75,13 @@ just build
 |---------|-------------|
 | `just install` | Install all dependencies (Rust crates + webui npm packages) |
 | `just dev` | Run in development mode with hot-reload |
-| `just run` | Run in release mode |
+| `just run` | Run in attached mode |
+| `just shutdown` | Stop a running daemonized instance |
 | `just release` | Build release binary |
-| `just tui` | Start the terminal user interface (WIP) |
 | `just docker` | Start Docker services (database, etc.) |
 | `just build` | Build the webui frontend |
 
 ## Next Steps
 
 - Configure your agent: See [2. Configuration](../configuration/index.md)
-<!-- - Learn about development: See [3. Development](../development/overview.md) -->
+- [API Integration](../api-integration/rest-api.md) - Connect programmatically

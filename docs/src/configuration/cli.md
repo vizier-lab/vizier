@@ -1,19 +1,60 @@
 # 2.8 CLI Commands
 
-## Generating Configuration
+## Subcommands
 
-### Initialize a New Project
+### `vizier onboard`
+
+Interactive wizard to generate the seed configuration file (`.vizier.yaml`).
 
 ```sh
-vizier init
+vizier onboard --path /path/to/workspace
 ```
 
-Creates:
-- `.vizier.yaml` - Main configuration
-- `vizier.agent.md` - Sample agent definition
-- `.vizier/` directory - Workspace for database and files
+| Flag | Description |
+|------|-------------|
+| `-p, --path <PATH>` | Workspace path (where `.vizier.yaml` will be created) |
 
-## Loading Configuration
+The wizard walks you through:
+- Workspace path
+- Username and primary user details
+- HTTP port and JWT secret
+- Provider selection and API keys
+- Embedding model selection
+- Storage backend choice
+
+> **Note:** After onboarding, agents are created and managed via the WebUI, not via this command.
+
+### `vizier run`
+
+Start agents, server, and channels.
+
+```sh
+vizier run --config /path/to/.vizier.yaml
+```
+
+| Flag | Description |
+|------|-------------|
+| `-c, --config <PATH>` | Path to `.vizier.yaml` config file |
+| `-a, --attached` | Run in foreground (no daemonization) |
+
+By default, `vizier run` daemonizes the process:
+- PID is written to `/tmp/vizier.pid`
+- Logs go to `.vizier/.runtime/logs/`
+- Use `-a` / `--attached` to run in the foreground (useful for development)
+
+### `vizier shutdown`
+
+Stop a running daemonized instance.
+
+```sh
+vizier shutdown --config /path/to/.vizier.yaml
+```
+
+| Flag | Description |
+|------|-------------|
+| `-c, --config <PATH>` | Path to `.vizier.yaml` config file |
+
+## Configuration Loading
 
 Vizier automatically looks for `.vizier.yaml` in the current directory. You can specify a custom path:
 
@@ -21,12 +62,12 @@ Vizier automatically looks for `.vizier.yaml` in the current directory. You can 
 vizier run --config /path/to/.vizier.yaml
 ```
 
-## Configuration Loading Order
+### Loading Order
 
 1. Load `.vizier.yaml` from current directory (or specified path)
-2. Scan for all `*.agent.md` files in the same directory
-3. Parse agent configurations from frontmatter
-4. Create `.vizier/` workspace directory for runtime data
+2. Initialize storage backend
+3. Auto-migrate seed config to storage (providers, MCP servers, shell, channel tokens)
+4. Start HTTP server, agents, and channels
 
 ## Environment Variable Expansion
 
