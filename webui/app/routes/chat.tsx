@@ -959,11 +959,11 @@ export default function Chat() {
 
       {/* Messages */}
       <div
-        className="h-full overflow-y-scroll no-scrollbar w-full main-body"
+        className="h-full overflow-y-scroll no-scrollbar w-full main-body flex justify-center"
         ref={pageRef}
       >
         <div
-          className="no-scrollbar "
+          className="no-scrollbar px-10!"
           style={{
             display: 'flex',
             flexDirection: 'column',
@@ -977,6 +977,7 @@ export default function Chat() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 height: '100%',
+                width: '100%',
                 color: 'var(--text-tertiary)',
                 flexDirection: 'column',
                 gap: '1rem',

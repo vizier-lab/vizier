@@ -8,15 +8,15 @@ pub fn print_logo() {
     let sm = format!("{GREEN}{DIM}. {RESET}");
 
     println!();
-    println!("  {big}{big}{sm}{sm}{sm}{sm}{big}{big}");
-    println!("  {big}{big}{sm}{sm}{sm}{sm}{big}{big}");
-    println!("  {big}{big}{big}{sm}{sm}{big}{big}{big}");
-    println!("  {sm}{big}{big}{sm}{sm}{big}{big}{sm}");
-    println!("  {sm}{big}{big}{sm}{sm}{big}{big}{sm}");
-    println!("  {sm}{sm}{big}{big}{big}{big}{sm}{sm}");
-    println!("  {sm}{sm}{big}{big}{big}{big}{sm}{sm}");
-    println!("  {sm}{sm}{sm}{big}{big}{sm}{sm}{sm}");
+    println!("\t\t{big}{big}{sm}{sm}{sm}{sm}{big}{big}");
+    println!("\t\t{big}{big}{sm}{sm}{sm}{sm}{big}{big}");
+    println!("\t\t{big}{big}{big}{sm}{sm}{big}{big}{big}");
+    println!("\t\t{sm}{big}{big}{sm}{sm}{big}{big}{sm}");
+    println!("\t\t{sm}{big}{big}{sm}{sm}{big}{big}{sm}");
+    println!("\t\t{sm}{sm}{big}{big}{big}{big}{sm}{sm}");
+    println!("\t\t{sm}{sm}{big}{big}{big}{big}{sm}{sm}");
+    println!("\t\t{sm}{sm}{sm}{big}{big}{sm}{sm}{sm}");
     println!();
-    println!("  {GREEN}Vizier{RESET}  {DIM}AI Agent Framework{RESET}");
+    println!("\t    {GREEN}Vizier{RESET}  {DIM}AI Agent Framework{RESET}");
     println!();
 }

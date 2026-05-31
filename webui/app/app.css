@@ -1214,6 +1214,10 @@ select:focus {
 
 /* Mobile responsive: sidebar drawer, reduced padding */
 @media (max-width: 767px) {
+  .mdx-editor .mdxeditor [class*="toolbarRoot"] {
+    display: none !important;
+  }
+
   .nav-sidebar {
     position: fixed;
     top: 0;

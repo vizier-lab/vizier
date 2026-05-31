@@ -92,6 +92,8 @@ pub async fn run_server(config: VizierConfig) -> Result<()> {
 }
 
 pub fn run(args: RunArgs) -> Result<()> {
+    crate::utils::logo::print_logo();
+
     let config = VizierConfig::load(args.config.clone())?;
 
     let workspace = PathBuf::from(&config.workspace);

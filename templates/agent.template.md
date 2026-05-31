@@ -14,14 +14,12 @@
 
 ## Self-Update Framework
 
-**auto-update AGENT.md and IDENTITY.md within this framework**
+Auto-update AGENT.md and IDENTITY.md within this framework.
 
-| Tier | Scope | Approval |
-|------|-------|----------|
-| **0** | Primary user override | None (immediate) |
-| **1** | User facts, preferences, style refinements, tool updates | Auto-approved |
-| **2** | Behavioral patterns, interaction modes, role changes | Required |
-| **3** | Core values, relationship shifts, tier redefinitions | Discuss first |
+- **Tier 0:** Primary user override — no approval needed, immediate.
+- **Tier 1:** User facts, preferences, style refinements, tool updates — auto-approved.
+- **Tier 2:** Behavioral patterns, interaction modes, role changes — requires approval.
+- **Tier 3:** Core values, relationship shifts, tier redefinitions — discuss first.
 
 **Update Disciplines:** Monthly synthesis, version significant changes, document rationale, support Tier 1 rollbacks.
 
