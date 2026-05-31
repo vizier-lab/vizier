@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import type { FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import {
@@ -43,6 +43,40 @@ interface InlineEvent {
   content?: string
   timestamp: number
 }
+
+const PLACEHOLDERS = [
+  'What counsel do you seek?',
+  'How may I advise?',
+  'What wisdom do you need?',
+  'Speak, and I shall advise...',
+  'What troubles your mind?',
+  'Seeking counsel?',
+  'What shall we deliberate?',
+  'What knowledge do you seek?',
+  'Present your inquiry...',
+  'The court is yours...',
+  'What matter requires attention?',
+  'How may I serve?',
+  'What strategy shall we devise?',
+  'What decree shall I draft?',
+  'The sage awaits...',
+  'Ask me anything...',
+  "What's on your mind?",
+  'How can I help?',
+  'Ask away...',
+  "Let's chat...",
+  "I'm all ears...",
+  'Got a question?',
+  'Talk to me...',
+  "What's the question?",
+  'Anything on your mind?',
+  'Lay it on me...',
+  'Surprise me...',
+  'Pick my brain...',
+  'Fire away...',
+  "What's the plan?",
+  'Ready when you are...',
+]
 
 const formatToolChoice = (
   name: string,
@@ -156,6 +190,7 @@ export default function Chat() {
   const [newSessionId, setNewSessionId] = useState('')
   const [isDragOver, setIsDragOver] = useState(false)
   const [sendPulse, setSendPulse] = useState(false)
+  const [placeholderSeed, setPlaceholderSeed] = useState(() => Math.random())
   const [imagePreviews, setImagePreviews] = useState<Record<string, string>>(
     {}
   )
@@ -168,6 +203,11 @@ export default function Chat() {
     null
   )
   const sessionSelectorRef = useRef<HTMLDivElement>(null)
+
+  const placeholder = useMemo(
+    () => PLACEHOLDERS[Math.floor(placeholderSeed * PLACEHOLDERS.length)],
+    [placeholderSeed]
+  )
   const { addToast } = useToastStore()
   const {
     connected,
@@ -555,6 +595,7 @@ export default function Chat() {
         return {}
       })
       sendMessage(message)
+      setPlaceholderSeed(Math.random())
     },
     [agentId, resolvedTopicId, connected, sendMessage, attachments, addToast]
   )
@@ -725,7 +766,7 @@ export default function Chat() {
             className="session-selector"
             onClick={handleToggleSessionDropdown}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
               <span className="session-selector-title">
                 {topicDetail?.title || resolvedTopicId}
               </span>
@@ -740,19 +781,27 @@ export default function Chat() {
               className={`session-selector-chevron ${showSessionDropdown ? 'open' : ''}`}
             />
           </div>
-          <button
-            className="session-new-btn"
-            onClick={handleNewSession}
-            title="Create new topic"
-          >
-            <FaPlus size={14} />
-          </button>
 
           {showSessionDropdown && (
             <div className="session-dropdown">
+              <div
+                className="session-dropdown-item"
+                onClick={() => {
+                  setShowSessionDropdown(false)
+                  handleNewSession()
+                }}
+                style={{ borderBottom: '1px solid var(--border)', marginBottom: '4px' }}
+              >
+                <FaPlus size={14} style={{ color: 'var(--accent-primary)' }} />
+                <div className="session-dropdown-item-info">
+                  <span className="session-dropdown-item-id" style={{ color: 'var(--accent-primary)' }}>
+                    Create New Topic
+                  </span>
+                </div>
+              </div>
               {sessionList.length === 0 ? (
                 <div className="session-dropdown-empty">
-                  No sessions
+                  No topics yet
                 </div>
               ) : (
                 sessionList.map((session) => (
@@ -1006,7 +1055,7 @@ export default function Chat() {
       <div className="no-scrollbar">
         <div
           ref={inputRef}
-          className="absolute bottom-0 shadow-2xs bg-linear-to-t from-background from-30% to-transparent"
+          className="absolute bottom-0 shadow-2xs bg-linear-to-t from-background from-20% to-transparent"
           style={{
             width: `${pageWidth}px`,
             padding: '1rem 1.5rem 1rem',
@@ -1068,7 +1117,7 @@ export default function Chat() {
                   onChange={handleEditorChange}
                   onAttach={handleAttachClick}
                   className="chat-mdx-editor"
-                  placeholder={connected ? 'Type a message...' : 'Connecting...'}
+                  placeholder={connected ? placeholder : 'Connecting...'}
                   disabled={!connected}
                 />
                 {/* Bottom bar: chips + hint + send */}

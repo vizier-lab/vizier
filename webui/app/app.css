@@ -722,7 +722,7 @@ select:focus {
 /* Navigation sidebar (single sidebar) */
 .nav-sidebar {
   width: 280px;
-  background: var(--surface);
+  background: linear-gradient(to top, var(--background), var(--surface));
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -1018,6 +1018,7 @@ select:focus {
   border-radius: 8px;
   transition: background var(--transition-base);
   min-width: 0;
+  flex: 1;
 }
 
 .session-selector:hover {
@@ -1031,12 +1032,15 @@ select:focus {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
 }
 
 .session-selector-chevron {
   color: var(--text-tertiary);
   transition: transform var(--transition-base);
   flex-shrink: 0;
+  order: 1;
 }
 
 .session-selector-chevron.open {
@@ -1070,8 +1074,8 @@ select:focus {
   position: absolute;
   top: 100%;
   left: 0;
-  min-width: 280px;
-  max-width: 400px;
+  right: 0;
+  width: 100%;
   max-height: 320px;
   overflow-y: auto;
   background: var(--surface);

@@ -22,11 +22,13 @@ export default function AgentNew() {
         <h3 style={{ margin: 0 }}>Create New Agent</h3>
       </div>
 
-      <AgentForm
-        mode="create"
-        onSubmit={handleSubmit}
-        onCancel={() => navigate('/')}
-      />
+      <div className="main-body" style={{ padding: 0 }}>
+        <AgentForm
+          mode="create"
+          onSubmit={handleSubmit}
+          onCancel={() => navigate('/')}
+        />
+      </div>
     </>
   )
 }

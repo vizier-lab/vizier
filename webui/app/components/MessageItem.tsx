@@ -121,56 +121,32 @@ function MessageItemComponent({
           <div style={{
             marginTop: '12px',
             display: 'flex',
-            flexDirection: 'column',
+            flexDirection: 'row',
+            flexWrap: 'wrap',
             gap: '8px',
+            width: 'fit-content',
           }}>
             {attachments.map((att, idx) => {
               const src = getAttachmentSrc(att)
-              if (isImage(att.filename) && src) {
-                return (
-                  <div
-                    key={idx}
-                    style={{ display: 'flex', flexDirection: 'column', gap: '4px', cursor: onPreviewAttachment ? 'pointer' : 'default' }}
-                    onClick={() => onPreviewAttachment?.(att)}
-                  >
-                    <img
-                      src={src}
-                      alt={att.filename}
-                      style={{
-                        maxWidth: '300px',
-                        maxHeight: '200px',
-                        borderRadius: '8px',
-                        objectFit: 'cover',
-                      }}
-                    />
-                    <span style={{
-                      fontSize: '12px',
-                      color: 'var(--text-tertiary)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}>
-                      📎 {att.filename}
-                    </span>
-                  </div>
-                )
-              }
+              const isImg = isImage(att.filename)
               return (
                 <div
                   key={idx}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '8px 12px',
-                    background: 'var(--surface)',
-                    borderRadius: '6px',
-                    fontSize: '13px',
-                    cursor: onPreviewAttachment ? 'pointer' : 'default',
-                  }}
+                  className="chat-attachment-chip"
+                  style={{ cursor: onPreviewAttachment ? 'pointer' : 'default' }}
                   onClick={() => onPreviewAttachment?.(att)}
                 >
-                  {getFileIcon(att.filename)}
+                  {isImg && src ? (
+                    <img
+                      src={src}
+                      alt={att.filename}
+                      className="chat-attachment-chip-thumbnail"
+                    />
+                  ) : (
+                    <span style={{ display: 'flex', alignItems: 'center', padding: '4px', color: 'var(--text-tertiary)' }}>
+                      {getFileIcon(att.filename)}
+                    </span>
+                  )}
                   <span>{att.filename}</span>
                 </div>
               )

@@ -1,7 +1,64 @@
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
+
+const THINKING_WORDS = [
+  'thinking',
+  'pondering',
+  'reasoning',
+  'considering',
+  'processing',
+  'analyzing',
+  'contemplating',
+  'deliberating',
+  'reflecting',
+  'musing',
+  'figuring out',
+  'working on it',
+  'brewing ideas',
+  'cooking up a response',
+  'consulting the archives',
+  'doing some brain yoga',
+  'fetching wisdom',
+  'gathering thoughts',
+  'having a think',
+  'let me think',
+  'loading brain cells',
+  'mapping it out',
+  'one moment',
+  'putting pieces together',
+  'reading between the lines',
+  'rewiring neurons',
+  'rubbing my chin',
+  'searching the void',
+  'stirring the pot',
+  'taking a moment',
+  'thinking really hard',
+  'tracing the logic',
+  'unpacking this',
+  'warming up the brain',
+  'weighing options',
+  'wrestling with ideas',
+  'consulting the grand vizier',
+  'deciphering royal scrolls',
+  'distilling ancient wisdom',
+  'drawing from the treasury of knowledge',
+  'entering the oracle chamber',
+  'gazing into the crystal ball',
+  'heeding the inner counsel',
+  'inverting the pyramid of thought',
+  'journeying through knowledge',
+  'learning from the sages',
+  'peering through the astrolabe',
+  'piloting the ship of wisdom',
+  'pondering the riddle',
+  'seeking the council of elders',
+  'sharpening the vizier\'s blade',
+  'sorting the palace archives',
+  'unraveling the mystery',
+  'weighing the scrolls',
+]
 
 interface InlineEvent {
   id: string
@@ -16,6 +73,11 @@ interface ThinkingIndicatorProps {
 }
 
 function ThinkingIndicatorComponent({ inlineEvents, agentName }: ThinkingIndicatorProps) {
+  const thinkingWord = useMemo(
+    () => THINKING_WORDS[Math.floor(Math.random() * THINKING_WORDS.length)],
+    []
+  )
+
   if (inlineEvents.length === 0) {
     return null
   }
@@ -47,7 +109,7 @@ function ThinkingIndicatorComponent({ inlineEvents, agentName }: ThinkingIndicat
           alignItems: 'center',
           color: 'var(--text-tertiary)',
         }}>
-          thinking
+          {thinkingWord}
           <div className="thinking-dots">
             <span>.</span>
             <span>.</span>

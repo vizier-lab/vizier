@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
-import { FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook } from 'react-icons/fa6'
+import { FaRobot, FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook } from 'react-icons/fa6'
 import Avatar from './components/avatar'
 import ToastContainer from './components/Toast'
 import { useConnectionStore } from './hooks/connectionStore'
@@ -239,7 +239,7 @@ export default function Layout() {
               ['memory', 'Memory', FaBook],
               ['tasks', 'Tasks', FaCircleCheck],
               ['usage', 'Usage', FaArrowTrendUp],
-              ['settings', 'Agent Config', FaGear],
+              ['settings', 'Agent Config', FaRobot],
             ] as const).map(([view, label, Icon]) => (
               <div
                 key={view}
