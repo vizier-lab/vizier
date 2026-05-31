@@ -63,7 +63,7 @@ pub async fn run_server(config: VizierConfig) -> Result<()> {
         }
     });
 
-    let channels = VizierChannels::new(config.channels.http.clone(), deps.clone())?;
+    let mut channels = VizierChannels::new(config.channels.http.clone(), deps.clone())?;
     set.spawn(async move {
         if let Err(err) = channels.run().await {
             tracing::error!("{}", err);

@@ -331,36 +331,41 @@ impl TelegramChannelReader {
 }
 
 pub struct TelegramChannelWriter {
+    agent_id: String,
+    bot: Bot,
     transport: VizierTransport,
-    bots: HashMap<String, Bot>,
 }
 
 impl TelegramChannelWriter {
-    pub fn new(transport: VizierTransport, config: HashMap<String, String>) -> Self {
-        let bots = config
-            .into_iter()
-            .map(|(agent_id, token)| (agent_id, Bot::new(token)))
-            .collect();
-
-        Self { transport, bots }
+    pub fn new(agent_id: String, token: String, transport: VizierTransport) -> Self {
+        let bot = Bot::new(token);
+        Self {
+            agent_id,
+            bot,
+            transport,
+        }
     }
 }
 
 impl VizierChannel for TelegramChannelWriter {
     async fn run(&mut self) -> Result<()> {
         let mut recv = self.transport.subscribe_response().await?;
-        let bots = self.bots.clone();
+        let bot = self.bot.clone();
+        let agent_id = self.agent_id.clone();
 
         let mut typing_handles: HashMap<i64, tokio::task::JoinHandle<()>> = HashMap::new();
 
         let _ = tokio::spawn(async move {
             loop {
                 if let Ok((
-                    VizierSession(agent_id, VizierChannelId::TelegramChannel(chat_id), _),
+                    VizierSession(session_agent_id, VizierChannelId::TelegramChannel(chat_id), _),
                     res,
                 )) = recv.recv().await
                 {
-                    let bot = bots.get(&agent_id).unwrap().clone();
+                    if session_agent_id != agent_id {
+                        continue;
+                    }
+                    let bot = bot.clone();
                     let chat_id = ChatId(chat_id);
 
                     match res {
