@@ -988,7 +988,7 @@ export default function Chat() {
       {/* Messages */}
       <div
         className="h-full overflow-y-clip! no-scrollbar w-full main-body flex justify-center"
-        style={{ paddingTop: 0 }}
+        style={{ paddingTop: 0, }}
         ref={pageRef}
       >
         <div
@@ -996,6 +996,7 @@ export default function Chat() {
           style={{
             paddingLeft: '5%',
             paddingRight: '5%',
+            paddingBottom: `${inputHeight}px`,
             display: 'flex',
             flexDirection: 'column',
             gap: '1.5rem',
@@ -1113,7 +1114,6 @@ export default function Chat() {
           <div ref={messagesEndRef} />
         </div>
       </div>
-      <div style={{ height: `${inputHeight}px` }}></div>
 
       {/* Input */}
       <div className="no-scrollbar">
