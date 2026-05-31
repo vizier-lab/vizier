@@ -1,6 +1,5 @@
 use anyhow::Result;
 use axum::{Router, routing::get};
-use tower_http::limit::RequestBodyLimitLayer;
 use reqwest::{
     Method,
     header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
@@ -59,7 +58,6 @@ impl VizierChannel for HTTPChannel {
             .route("/", get(webui::index))
             .route("/{*path}", get(webui::assets))
             .layer(cors)
-            .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024))
             .with_state(state);
 
         app = app.merge(SwaggerUi::new("/swagger").url("/openapi.json", ApiDoc::openapi()));

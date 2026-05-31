@@ -1,4 +1,5 @@
 import BoringAvatar from "boring-avatars"
+import { base_url } from '../services/vizier'
 
 type AvatarVariant = 'beam' | 'marble' | 'pixel' | 'ring' | 'beam_emerald'
 
@@ -10,6 +11,11 @@ const colorPalettes = {
   beam_emerald: ["#10B981", "#14B8A6", "#059669", "#047857", "#10B981"],
 }
 
+function resolveUrl(url: string): string {
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) return url
+  return `http://${base_url}${url}`
+}
+
 interface AvatarProps {
   name: string
   rounded?: boolean
@@ -17,6 +23,7 @@ interface AvatarProps {
   size?: 'sm' | 'md' | 'lg'
   showStatus?: boolean
   online?: boolean
+  avatarUrl?: string
 }
 
 const sizeMap = {
@@ -38,6 +45,7 @@ const Avatar = ({
   size = 'md',
   showStatus = false,
   online = false,
+  avatarUrl,
 }: AvatarProps) => {
   const colors = colorPalettes[variant]
   const avatarSize = sizeMap[size]
@@ -45,14 +53,27 @@ const Avatar = ({
 
   return (
     <span className="avatar-wrapper">
-      <BoringAvatar
-        className={`${rounded ? 'rounded-full' : 'rounded-xl'}`}
-        name={name}
-        variant={variant === 'beam_emerald' ? 'beam' : variant}
-        colors={colors}
-        square
-        size={avatarSize}
-      />
+      {avatarUrl ? (
+        <img
+          src={resolveUrl(avatarUrl)}
+          alt={name}
+          style={{
+            width: avatarSize,
+            height: avatarSize,
+            objectFit: 'cover',
+            borderRadius: rounded ? '50%' : '8px',
+          }}
+        />
+      ) : (
+        <BoringAvatar
+          className={`${rounded ? 'rounded-full' : 'rounded-xl'}`}
+          name={name}
+          variant={variant === 'beam_emerald' ? 'beam' : variant}
+          colors={colors}
+          square
+          size={avatarSize}
+        />
+      )}
       {showStatus && (
         <span
           className={`avatar-status-dot ${online ? 'online' : ''}`}

@@ -13,6 +13,7 @@ interface MessageItemProps {
   content: string
   stats?: VizierResponseStats
   onCopy: (content: string) => void
+  onPreviewAttachment?: (attachment: VizierAttachment) => void
   attachments?: VizierAttachment[]
 }
 
@@ -23,6 +24,7 @@ function MessageItemComponent({
   content,
   stats,
   onCopy,
+  onPreviewAttachment,
   attachments,
 }: MessageItemProps) {
   const isImage = (filename: string) => /\.(jpg|jpeg|png|gif|webp)$/i.test(filename)
@@ -126,7 +128,11 @@ function MessageItemComponent({
               const src = getAttachmentSrc(att)
               if (isImage(att.filename) && src) {
                 return (
-                  <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div
+                    key={idx}
+                    style={{ display: 'flex', flexDirection: 'column', gap: '4px', cursor: onPreviewAttachment ? 'pointer' : 'default' }}
+                    onClick={() => onPreviewAttachment?.(att)}
+                  >
                     <img
                       src={src}
                       alt={att.filename}
@@ -160,7 +166,9 @@ function MessageItemComponent({
                     background: 'var(--surface)',
                     borderRadius: '6px',
                     fontSize: '13px',
+                    cursor: onPreviewAttachment ? 'pointer' : 'default',
                   }}
+                  onClick={() => onPreviewAttachment?.(att)}
                 >
                   {getFileIcon(att.filename)}
                   <span>{att.filename}</span>

@@ -33,6 +33,8 @@ pub struct AgentConfig {
     pub discord_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub telegram_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

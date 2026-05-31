@@ -7,6 +7,7 @@ import {
   deleteTopic,
   getAgentDetail,
   listAgents,
+  uploadFile,
 } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
 import type {
@@ -26,12 +27,14 @@ import {
   FaChevronDown,
   FaTrash,
   FaCloudArrowUp,
+  FaPlus,
 } from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
 import { useConnectionStore } from '../hooks/connectionStore'
 import { MessageItem } from '../components/MessageItem'
 import { ThinkingIndicator } from '../components/ThinkingIndicator'
 import MarkdownEditor from '../components/MarkdownEditor'
+import AttachmentPreviewModal from '../components/AttachmentPreviewModal'
 import { useMeasure } from '@uidotdev/usehooks'
 
 interface InlineEvent {
@@ -145,7 +148,8 @@ export default function Chat() {
   const [loading, setLoading] = useState(true)
   const [inlineEvents, setInlineEvents] = useState<InlineEvent[]>([])
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null)
-  const [attachments, setAttachments] = useState<VizierAttachment[]>([])
+  const [attachments, setAttachments] = useState<{ file: File; previewUrl: string | null }[]>([])
+  const [previewAttachment, setPreviewAttachment] = useState<VizierAttachment | null>(null)
   const [showSessionDropdown, setShowSessionDropdown] = useState(false)
   const [sessionList, setSessionList] = useState<Topic[]>([])
   const [showNewSessionInput, setShowNewSessionInput] = useState(false)
@@ -500,12 +504,28 @@ export default function Chat() {
 
       const username = getCurrentUsername()
 
+      // Upload attachments first
+      let uploadedAttachments: VizierAttachment[] | undefined
+      if (attachments.length > 0) {
+        const results: VizierAttachment[] = []
+        for (const att of attachments) {
+          try {
+            const res = await uploadFile(att.file)
+            results.push({ filename: att.file.name, content: { url: res.url } })
+          } catch (err) {
+            console.error('File upload failed:', err)
+            addToast('error', 'File upload failed', att.file.name)
+          }
+        }
+        uploadedAttachments = results.length > 0 ? results : undefined
+      }
+
       const message: WebSocketMessage = {
         timestamp: new Date().toISOString(),
         user: username,
         content: { chat: currentInput.trim() },
         metadata: null as any,
-        attachments: attachments.length > 0 ? attachments : undefined,
+        attachments: uploadedAttachments,
       }
 
       const userMessage: ChatMessage = {
@@ -520,8 +540,7 @@ export default function Chat() {
             timestamp: new Date().toISOString(),
             user: username,
             content: { chat: currentInput.trim() },
-            attachments:
-              attachments.length > 0 ? attachments : undefined,
+            attachments: uploadedAttachments,
           },
         },
       }
@@ -537,7 +556,7 @@ export default function Chat() {
       })
       sendMessage(message)
     },
-    [agentId, resolvedTopicId, connected, sendMessage, attachments]
+    [agentId, resolvedTopicId, connected, sendMessage, attachments, addToast]
   )
 
   const handleEditorChange = useCallback((value: string) => {
@@ -558,47 +577,21 @@ export default function Chat() {
     [addToast]
   )
 
-  const fileToBase64 = useCallback((file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const result = reader.result as string
-        const base64 = result.split(',')[1] || ''
-        resolve(base64)
-      }
-      reader.onerror = reject
-      reader.readAsDataURL(file)
-    })
-  }, [])
-
   const processFiles = useCallback(
-    async (files: File[]) => {
-      const imageFiles = files.filter((f) => f.type.startsWith('image/'))
+    (files: File[]) => {
       const newPreviews: Record<string, string> = {}
-      for (const file of imageFiles) {
-        newPreviews[file.name] = URL.createObjectURL(file)
-      }
-      setImagePreviews((prev) => ({ ...prev, ...newPreviews }))
+      const newAttachments: { file: File; previewUrl: string | null }[] = []
 
       for (const file of files) {
-        try {
-          const base64 = await fileToBase64(file)
-          const newAttachment: VizierAttachment = {
-            filename: file.name,
-            content: { base64 },
-          }
-          setAttachments((prev) => [...prev, newAttachment])
-        } catch (err: any) {
-          console.error('File read failed:', err)
-          addToast(
-            'error',
-            'File read failed',
-            err?.message || 'Failed to read file'
-          )
-        }
+        const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+        if (previewUrl) newPreviews[file.name] = previewUrl
+        newAttachments.push({ file, previewUrl })
       }
+
+      setImagePreviews((prev) => ({ ...prev, ...newPreviews }))
+      setAttachments((prev) => [...prev, ...newAttachments])
     },
-    [addToast, fileToBase64]
+    []
   )
 
   const handleFileSelect = useCallback(
@@ -616,10 +609,11 @@ export default function Chat() {
   const handleRemoveAttachment = useCallback((index: number) => {
     setAttachments((prev) => {
       const removed = prev[index]
-      if (removed) {
+      if (removed?.previewUrl) {
+        URL.revokeObjectURL(removed.previewUrl)
         setImagePreviews((p) => {
           const copy = { ...p }
-          delete copy[removed.filename]
+          delete copy[removed.file.name]
           return copy
         })
       }
@@ -731,9 +725,16 @@ export default function Chat() {
             className="session-selector"
             onClick={handleToggleSessionDropdown}
           >
-            <span className="session-selector-title">
-              {topicDetail ? topicDetail.title : resolvedTopicId}
-            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              <span className="session-selector-title">
+                {topicDetail?.title || resolvedTopicId}
+              </span>
+              {topicDetail?.title && (
+                <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+                  {resolvedTopicId}
+                </span>
+              )}
+            </div>
             <FaChevronDown
               size={14}
               className={`session-selector-chevron ${showSessionDropdown ? 'open' : ''}`}
@@ -742,9 +743,9 @@ export default function Chat() {
           <button
             className="session-new-btn"
             onClick={handleNewSession}
-            title="New session"
+            title="Create new topic"
           >
-            +
+            <FaPlus size={14} />
           </button>
 
           {showSessionDropdown && (
@@ -984,6 +985,7 @@ export default function Chat() {
                     stats={stats}
                     attachments={msgAttachments}
                     onCopy={handleCopyMessage}
+                    onPreviewAttachment={setPreviewAttachment}
                   />
                 )
               })}
@@ -1075,51 +1077,20 @@ export default function Chat() {
                   {attachments.length > 0 && (
                     <div className="chat-input-chips">
                       {attachments.map((att, idx) => {
-                        const isImage =
-                          /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(
-                            att.filename
-                          )
-                        const preview = imagePreviews[att.filename]
-                        const base64 =
-                          'base64' in att.content
-                            ? att.content.base64
-                            : undefined
-                        const ext =
-                          att.filename
-                            .split('.')
-                            .pop()
-                            ?.toLowerCase() || 'png'
-                        const mimeMap: Record<string, string> = {
-                          jpg: 'image/jpeg',
-                          jpeg: 'image/jpeg',
-                          png: 'image/png',
-                          gif: 'image/gif',
-                          webp: 'image/webp',
-                          svg: 'image/svg+xml',
-                          bmp: 'image/bmp',
-                        }
-                        const base64Src = base64
-                          ? `data:${mimeMap[ext] || 'image/png'};base64,${base64}`
-                          : undefined
+                        const isImage = att.file.type.startsWith('image/')
                         return (
                           <div
                             key={idx}
                             className="chat-attachment-chip"
                           >
-                            {isImage && preview ? (
+                            {isImage && att.previewUrl && (
                               <img
-                                src={preview}
-                                alt={att.filename}
+                                src={att.previewUrl}
+                                alt={att.file.name}
                                 className="chat-attachment-chip-thumbnail"
                               />
-                            ) : isImage && base64Src ? (
-                              <img
-                                src={base64Src}
-                                alt={att.filename}
-                                className="chat-attachment-chip-thumbnail"
-                              />
-                            ) : null}
-                            <span>{att.filename}</span>
+                            )}
+                            <span>{att.file.name}</span>
                             <button
                               onClick={() =>
                                 handleRemoveAttachment(idx)
@@ -1133,6 +1104,9 @@ export default function Chat() {
                       })}
                       <button
                         onClick={() => {
+                          attachments.forEach((att) => {
+                            if (att.previewUrl) URL.revokeObjectURL(att.previewUrl)
+                          })
                           setAttachments([])
                           setImagePreviews({})
                         }}
@@ -1163,6 +1137,11 @@ export default function Chat() {
           </div>
         </div>
       </div>
+
+      <AttachmentPreviewModal
+        attachment={previewAttachment}
+        onClose={() => setPreviewAttachment(null)}
+      />
     </>
   )
 }

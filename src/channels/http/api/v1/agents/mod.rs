@@ -64,6 +64,7 @@ async fn list_agents(
                     agent_id: id,
                     name: config.name,
                     description: config.description,
+                    avatar_url: config.avatar_url,
                 })
                 .collect();
             api_response(StatusCode::OK, res)
@@ -98,6 +99,7 @@ pub struct AgentDetail {
     pub telegram_token: Option<String>,
     pub tools_timeout: String,
     pub mcp_servers: Vec<String>,
+    pub avatar_url: Option<String>,
 }
 
 #[utoipa::path(
@@ -149,6 +151,7 @@ async fn agent_detail(
                 telegram_token: config.telegram_token,
                 tools_timeout: config.tools.timeout.to_string(),
                 mcp_servers: config.tools.mcp_servers.clone(),
+                avatar_url: config.avatar_url,
             },
         ),
         Ok(None) => err_response(StatusCode::NOT_FOUND, "not found".into()),
@@ -183,6 +186,8 @@ pub struct CreateAgentRequest {
     pub discord_token: Option<String>,
     #[serde(default)]
     pub telegram_token: Option<String>,
+    #[serde(default)]
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
@@ -291,6 +296,7 @@ impl CreateAgentRequest {
             .unwrap(),
             discord_token: self.discord_token,
             telegram_token: self.telegram_token,
+            avatar_url: self.avatar_url,
         }
     }
 }

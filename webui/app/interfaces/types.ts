@@ -30,6 +30,7 @@ export interface Agent {
   agent_id: string
   name: string
   description?: string
+  avatar_url?: string
 }
 
 export interface AgentToolConfig {
@@ -106,6 +107,7 @@ export interface CreateAgentRequest {
   dream_interval?: string
   discord_token?: string
   telegram_token?: string
+  avatar_url?: string
 }
 
 export interface AgentDetail {
@@ -137,6 +139,7 @@ export interface AgentDetail {
   telegram_token?: string
   tools_timeout: string
   mcp_servers: string[]
+  avatar_url?: string
 }
 
 // ============================================================================

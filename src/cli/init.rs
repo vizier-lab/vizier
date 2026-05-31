@@ -62,6 +62,7 @@ pub fn init_default_agent(path: PathBuf) {
         telegram_token: None,
         show_tool_calls: None,
         max_tokens: None,
+        avatar_url: None,
     };
 
     let content = format!(

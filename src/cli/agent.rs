@@ -183,6 +183,7 @@ pub fn agent_new(args: AgentNewArgs) -> Result<()> {
         telegram_token: None,
         show_tool_calls: None,
         max_tokens: None,
+        avatar_url: None,
     };
 
     println!("\n========== Agent Preview ==========\n");

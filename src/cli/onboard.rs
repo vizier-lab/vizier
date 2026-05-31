@@ -392,6 +392,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         discord_token: None,
         telegram_token: None,
         max_tokens: None,
+        avatar_url: None,
     };
 
     config.save(config_path.clone(), "".into())?;

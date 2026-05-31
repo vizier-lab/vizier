@@ -2,12 +2,12 @@ use std::path::PathBuf;
 
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{Json, Path, State},
     http::{StatusCode, header::CONTENT_TYPE},
     response::{IntoResponse, Response},
 };
-use axum_extra::extract::Multipart;
-use serde::Serialize;
+use base64::Engine;
+use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use utoipa::ToSchema;
@@ -26,19 +26,28 @@ pub struct UploadResponse {
     pub url: String,
 }
 
+#[derive(Debug, Deserialize, Clone, ToSchema)]
+pub struct UploadRequest {
+    /// Base64-encoded file content
+    pub file: String,
+    /// Original filename
+    pub filename: String,
+}
+
 #[utoipa::path(
     post,
     path = "/files/upload",
-    request_body(content_type = "multipart/form-data"),
+    request_body = UploadRequest,
     responses(
         (status = 201, description = "File uploaded successfully", body = APIResponse<UploadResponse>),
         (status = 401, description = "Unauthorized", body = APIResponse<String>),
+        (status = 400, description = "Bad request", body = APIResponse<String>),
         (status = 500, description = "Internal server error", body = APIResponse<String>)
     )
 )]
 pub async fn upload_file(
     State(state): State<HTTPState>,
-    mut multipart: Multipart,
+    Json(body): Json<UploadRequest>,
 ) -> impl IntoResponse {
     let workspace = &state.config.workspace;
     let uploads_dir = PathBuf::from(workspace).join(UPLOADS_DIR);
@@ -51,45 +60,26 @@ pub async fn upload_file(
         );
     }
 
-    let mut file_id = String::new();
-    let mut original_filename = String::new();
-    let mut file_data: Vec<u8> = Vec::new();
-
-    loop {
-        let field = match multipart.next_field().await {
-            Ok(Some(f)) => f,
-            Ok(None) => break,
-            Err(e) => {
-                tracing::error!("Error reading multipart field: {}", e);
-                break;
-            }
-        };
-
-        let name = field.name().unwrap_or("file").to_string();
-
-        if name == "file" {
-            file_id = nanoid::nanoid!(10);
-            original_filename = field.file_name().unwrap_or("unnamed").to_string();
-
-            let bytes_result = field.bytes().await;
-            match bytes_result {
-                Ok(b) => {
-                    file_data = b.to_vec();
-                }
-                Err(e) => {
-                    tracing::error!("Error reading file bytes: {}", e);
-                    return err_response(
-                        StatusCode::BAD_REQUEST,
-                        format!("Error reading file: {}", e),
-                    );
-                }
-            }
-        }
-    }
-
-    if file_data.is_empty() {
+    if body.file.is_empty() {
         return err_response(StatusCode::BAD_REQUEST, "No file provided".to_string());
     }
+
+    let file_data = match base64::engine::general_purpose::STANDARD.decode(&body.file) {
+        Ok(data) => data,
+        Err(e) => {
+            return err_response(
+                StatusCode::BAD_REQUEST,
+                format!("Invalid base64: {}", e),
+            );
+        }
+    };
+
+    if file_data.is_empty() {
+        return err_response(StatusCode::BAD_REQUEST, "Empty file content".to_string());
+    }
+
+    let file_id = nanoid::nanoid!(10);
+    let original_filename = body.filename;
 
     let file_dir = uploads_dir.join(&file_id);
     if let Err(e) = fs::create_dir_all(&file_dir).await {

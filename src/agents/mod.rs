@@ -140,6 +140,7 @@ impl VizierAgents {
                     agent_id: agent_id.to_string(),
                     name: config.name.clone(),
                     description: config.description.clone(),
+                    avatar_url: config.avatar_url.clone(),
                 };
                 self.processes.insert(agent_id.to_string(), process);
                 AgentCommandResult::Ok(summary)
@@ -171,6 +172,7 @@ impl VizierAgents {
                     agent_id: agent_id.to_string(),
                     name: config.name.clone(),
                     description: config.description.clone(),
+                    avatar_url: config.avatar_url.clone(),
                 };
                 self.processes.insert(agent_id.to_string(), process);
                 AgentCommandResult::Ok(summary)
@@ -210,6 +212,7 @@ impl VizierAgents {
             agent_id: agent_id.to_string(),
             name: String::new(),
             description: None,
+            avatar_url: None,
         })
     }
 }

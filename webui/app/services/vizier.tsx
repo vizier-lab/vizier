@@ -359,14 +359,24 @@ export interface UploadResponse {
   url: string
 }
 
-export const uploadFile = async (file: File): Promise<UploadResponse> => {
-  const formData = new FormData()
-  formData.append('file', file)
+export const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      const base64 = result.split(',')[1] || ''
+      resolve(base64)
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
 
-  const res = await apiClient.post('/files/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
+export const uploadFile = async (file: File): Promise<UploadResponse> => {
+  const base64 = await fileToBase64(file)
+  const res = await apiClient.post('/files/upload', {
+    file: base64,
+    filename: file.name,
   })
   return res.data.data
 }

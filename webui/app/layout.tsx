@@ -1,18 +1,16 @@
 import { useEffect, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
-import { listAgents } from './services/vizier'
 import { FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook } from 'react-icons/fa6'
 import Avatar from './components/avatar'
 import ToastContainer from './components/Toast'
 import { useConnectionStore } from './hooks/connectionStore'
 import { useSidebarStore } from './hooks/sidebarStore'
 import { useThemeStore } from './hooks/themeStore'
-import type { Agent } from './interfaces/types'
+import { useAgentStore } from './hooks/agentStore'
 
 export default function Layout() {
-  const [agents, setAgents] = useState<Agent[]>([])
-  const [loading, setLoading] = useState(true)
+  const { agents, loading, loadAgents } = useAgentStore()
   const [showAgentDropdown, setShowAgentDropdown] = useState(false)
   const [dropdownRect, setDropdownRect] = useState<DOMRect | null>(null)
   const [lastAgentId, setLastAgentId] = useState<string | null>(() => localStorage.getItem('last_agent_id'))
@@ -20,6 +18,7 @@ export default function Layout() {
   const params = useParams()
   const location = useLocation()
   const agentCardRef = useRef<HTMLDivElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   const currentAgentId = params.agentId || lastAgentId
   const currentTopicId = params.topicId
@@ -39,18 +38,8 @@ export default function Layout() {
 
   // Load agents
   useEffect(() => {
-    const loadAgents = async () => {
-      try {
-        const response = await listAgents()
-        setAgents(response.data || [])
-        setLoading(false)
-      } catch (error) {
-        console.error('Failed to load agents:', error)
-        setLoading(false)
-      }
-    }
     loadAgents()
-  }, [])
+  }, [loadAgents])
 
   // Sync URL agent param to localStorage
   useEffect(() => {
@@ -81,9 +70,10 @@ export default function Layout() {
   useEffect(() => {
     if (!showAgentDropdown) return
     const handleClick = (e: MouseEvent) => {
-      if (agentCardRef.current && !agentCardRef.current.contains(e.target as Node)) {
-        setShowAgentDropdown(false)
-      }
+      const target = e.target as Node
+      if (agentCardRef.current?.contains(target)) return
+      if (dropdownRef.current?.contains(target)) return
+      setShowAgentDropdown(false)
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
@@ -176,6 +166,7 @@ export default function Layout() {
                   size="sm"
                   showStatus
                   online={connected}
+                  avatarUrl={currentAgent.avatar_url}
                 />
                 <div className="agent-card-info">
                   <span className="agent-card-name">{currentAgent.name}</span>
@@ -193,11 +184,12 @@ export default function Layout() {
 
           {showAgentDropdown && dropdownRect && createPortal(
             <div
+              ref={dropdownRef}
               style={{
                 position: 'fixed',
-                left: dropdownRect.right + 4,
-                top: dropdownRect.top,
-                minWidth: 220,
+                left: collapsed ? dropdownRect.right + 4 : dropdownRect.left,
+                top: collapsed ? dropdownRect.top : dropdownRect.bottom + 4,
+                minWidth: collapsed ? 220 : dropdownRect.width,
                 maxHeight: 320,
                 overflowY: 'auto',
                 background: 'var(--surface)',
@@ -214,7 +206,7 @@ export default function Layout() {
                   className={`agent-dropdown-item ${currentAgentId === agent.agent_id ? 'active' : ''}`}
                   onClick={() => handleSelectAgent(agent.agent_id)}
                 >
-                  <Avatar name={agent.agent_id} rounded={false} size="sm" />
+                  <Avatar name={agent.agent_id} rounded={false} size="sm" avatarUrl={agent.avatar_url} />
                   <div className="agent-dropdown-info">
                     <span className="agent-dropdown-name">{agent.name}</span>
                     <span className="agent-dropdown-id">{agent.agent_id}</span>

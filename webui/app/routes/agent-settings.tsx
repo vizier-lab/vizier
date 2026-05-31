@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import { FaGear, FaFolder, FaTriangleExclamation, FaCode } from 'react-icons/fa6'
 import {
@@ -12,10 +12,14 @@ import {
   getHeartbeatDocument,
   updateHeartbeatDocument,
   deleteAgent,
+  uploadFile,
 } from '../services/vizier'
 import TooltipLabel from '../components/TooltipLabel'
 import MarkdownEditor from '../components/MarkdownEditor'
+import Avatar from '../components/avatar'
+import AvatarCropModal from '../components/AvatarCropModal'
 import { useToastStore } from '../hooks/toastStore'
+import { useAgentStore } from '../hooks/agentStore'
 import type { CreateAgentRequest, AgentDetail, GlobalConfigEntry } from '../interfaces/types'
 
 function getErrorMessage(err: unknown): string {
@@ -67,6 +71,7 @@ export default function AgentSettings() {
   const { agentId } = useParams()
   const navigate = useNavigate()
   const addToast = useToastStore((s) => s.addToast)
+  const loadAgents = useAgentStore((s) => s.loadAgents)
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('config')
 
@@ -117,6 +122,12 @@ export default function AgentSettings() {
   const [deleting, setDeleting] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
+  // ── Avatar state ──
+  const [cropFile, setCropFile] = useState<File | null>(null)
+  const [avatarBlob, setAvatarBlob] = useState<Blob | null>(null)
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+
   // ── Load agent config ──
   useEffect(() => {
     if (!agentId) return
@@ -155,6 +166,7 @@ export default function AgentSettings() {
           dream_interval: d.dream_interval,
           discord_token: d.discord_token || '',
           telegram_token: d.telegram_token || '',
+          avatar_url: d.avatar_url,
         })
       } catch {
         addToast('error', 'Failed to load agent config')
@@ -214,6 +226,26 @@ export default function AgentSettings() {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
+  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) setCropFile(file)
+    if (avatarInputRef.current) avatarInputRef.current.value = ''
+  }
+
+  const handleAvatarCropped = (blob: Blob) => {
+    setCropFile(null)
+    setAvatarBlob(blob)
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview)
+    setAvatarPreview(URL.createObjectURL(blob))
+  }
+
+  const handleRemoveAvatar = () => {
+    setAvatarBlob(null)
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview)
+    setAvatarPreview(null)
+    setForm((prev) => ({ ...prev, avatar_url: undefined }))
+  }
+
   const updateTool = (key: keyof NonNullable<CreateAgentRequest['tools']>, value: boolean) => {
     setForm((prev) => ({ ...prev, tools: { ...prev.tools, [key]: value } }))
   }
@@ -237,8 +269,21 @@ export default function AgentSettings() {
     }
     setSaving(true)
     try {
-      await updateAgent(agentId, form)
+      // Upload avatar if a new one was selected
+      let avatarUrl = form.avatar_url
+      if (avatarBlob) {
+        const file = new File([avatarBlob], 'avatar.png', { type: 'image/png' })
+        const res = await uploadFile(file)
+        avatarUrl = res.url
+      }
+
+      await updateAgent(agentId, { ...form, avatar_url: avatarUrl })
+      setForm((prev) => ({ ...prev, avatar_url: avatarUrl }))
+      setAvatarBlob(null)
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview)
+      setAvatarPreview(null)
       addToast('success', `Agent "${form.name}" updated`)
+      loadAgents()
     } catch (err: unknown) {
       addToast('error', getErrorMessage(err) || 'Failed to update agent')
     } finally {
@@ -340,6 +385,51 @@ export default function AgentSettings() {
           {/* ─── Config Tab ─── */}
           {activeTab === 'config' && (
             <div style={{ maxWidth: '720px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {/* Avatar */}
+              <div>
+                <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>Avatar</h4>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <Avatar name={form.agent_id || 'agent'} size="lg" avatarUrl={avatarPreview || form.avatar_url} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+                        onClick={() => avatarInputRef.current?.click()}
+                      >
+                        Choose Image
+                      </button>
+                      {(avatarPreview || form.avatar_url) && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ fontSize: '0.8rem', padding: '6px 12px', color: '#ef4444' }}
+                          onClick={handleRemoveAvatar}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                      Leave empty for generated avatar
+                    </span>
+                  </div>
+                </div>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarSelect}
+                  style={{ display: 'none' }}
+                />
+                <AvatarCropModal
+                  file={cropFile}
+                  onClose={() => setCropFile(null)}
+                  onCropped={handleAvatarCropped}
+                />
+              </div>
+
               {/* Basic Info */}
               <div>
                 <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>Basic Info</h4>

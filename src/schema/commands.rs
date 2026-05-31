@@ -57,6 +57,7 @@ pub struct AgentSummary {
     pub agent_id: String,
     pub name: String,
     pub description: Option<String>,
+    pub avatar_url: Option<String>,
 }
 
 pub enum GlobalCommand {

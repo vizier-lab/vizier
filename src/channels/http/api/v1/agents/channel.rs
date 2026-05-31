@@ -207,13 +207,14 @@ pub async fn chat(
     let transport = state.transport.clone();
     let session = VizierSession(agent_id, VizierChannelId::HTTP(channel_id), Some(topic_id));
 
-    ws.on_upgrade(move |socket| handle_socket(socket, session, transport))
+    ws.on_upgrade(move |socket| handle_socket(socket, session, transport, state.config.workspace.clone()))
 }
 
 pub async fn handle_socket(
     socket: WebSocket,
     curr_session: VizierSession,
     transport: VizierTransport,
+    workspace: String,
 ) {
     let (mut writer, mut reader) = socket.split();
 
@@ -240,6 +241,20 @@ pub async fn handle_socket(
                         let mut request = request.clone();
                         for attachment in request.attachments.iter_mut() {
                             if let VizierAttachmentContent::Url(url) = &attachment.content {
+                                // Try local filesystem first for /api/v1/files/ paths
+                                if url.starts_with("/api/v1/files/") {
+                                    let file_id = url.trim_start_matches("/api/v1/files/");
+                                    let uploads_dir = std::path::PathBuf::from(&workspace).join("uploads").join(file_id);
+                                    if let Ok(mut entries) = tokio::fs::read_dir(&uploads_dir).await {
+                                        if let Ok(Some(entry)) = entries.next_entry().await {
+                                            if let Ok(bytes) = tokio::fs::read(entry.path()).await {
+                                                attachment.content = VizierAttachmentContent::Bytes(bytes);
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+                                // Fallback to HTTP fetch
                                 if let Ok(response) = reqwest::get(url).await {
                                     if response.status().is_success() {
                                         if let Ok(bytes) = response.bytes().await {
