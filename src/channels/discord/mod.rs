@@ -53,33 +53,38 @@ impl VizierChannel for DiscordChannelReader {
 }
 
 pub struct DiscordChannelWriter {
+    agent_id: String,
+    http: Arc<Http>,
     transport: VizierTransport,
-    config: HashMap<String, String>,
 }
 
 impl DiscordChannelWriter {
-    pub fn new(transport: VizierTransport, config: HashMap<String, String>) -> Self {
-        Self { transport, config }
+    pub fn new(agent_id: String, token: String, transport: VizierTransport) -> Self {
+        Self {
+            agent_id,
+            http: Arc::new(Http::new(&token)),
+            transport,
+        }
     }
 }
 
 impl VizierChannel for DiscordChannelWriter {
     async fn run(&mut self) -> Result<()> {
-        let mut token_map = HashMap::new();
-        for (agent_id, token) in self.config.iter() {
-            token_map.insert(agent_id.clone(), Arc::new(Http::new(token)));
-        }
-
+        let http = self.http.clone();
+        let agent_id = self.agent_id.clone();
         let mut recv = self.transport.subscribe_response().await?;
         let _ = tokio::spawn(async move {
             let mut typing_state = HashMap::<u64, Typing>::new();
             loop {
                 if let Ok((
-                    VizierSession(agent_id, VizierChannelId::DiscordChanel(channel_id), _),
+                    VizierSession(session_agent_id, VizierChannelId::DiscordChanel(channel_id), _),
                     res,
                 )) = recv.recv().await
                 {
-                    let http = token_map.get(&agent_id).unwrap().clone();
+                    if session_agent_id != agent_id {
+                        continue;
+                    }
+                    let http = http.clone();
                     let discord_channel_id = ChannelId::new(channel_id);
 
                     match res {
@@ -189,6 +194,9 @@ impl EventHandler for Handler {
 
         let _ = Command::create_global_command(ctx.http.clone(), new).await;
         let _ = Command::create_global_command(ctx.http.clone(), session).await;
+
+        let abort = CreateCommand::new("abort").description("abort current thinking");
+        let _ = Command::create_global_command(ctx.http.clone(), abort).await;
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
@@ -298,7 +306,7 @@ impl EventHandler for Handler {
                     if let Ok(sessions) = self
                         .1
                         .storage
-                        .get_session_list(agent_id, Some(channel))
+                        .get_session_list(agent_id.clone(), Some(channel))
                         .await
                     {
                         let mut res = vec![];
@@ -341,6 +349,43 @@ If I am halucinating, feel free to `/lobotomy` me
                 {
                     tracing::error!("{}", err)
                 }
+            }
+
+            if command.data.name == "abort" {
+                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
+                let key = format!("{}__{}", agent_id, channel.to_slug());
+                let topic_id = if let Ok(Some(value)) = self.1.storage.get_state(key).await {
+                    serde_json::from_value::<ChannelState>(value)
+                        .ok()
+                        .and_then(|s| s.active_topic)
+                } else {
+                    None
+                };
+
+                let session = VizierSession(agent_id.clone(), channel, topic_id);
+                let _ = self
+                    .1
+                    .transport
+                    .send_request(
+                        session,
+                        VizierRequest {
+                            timestamp: Utc::now(),
+                            user: agent_id.clone(),
+                            content: VizierRequestContent::Command("abort".to_string()),
+                            metadata: serde_json::json!({}),
+                            attachments: vec![],
+                        },
+                    )
+                    .await;
+
+                let _ = command
+                    .create_response(
+                        ctx.http.clone(),
+                        serenity::all::CreateInteractionResponse::Message(
+                            CreateInteractionResponseMessage::new().content("aborting..."),
+                        ),
+                    )
+                    .await;
             }
         }
     }

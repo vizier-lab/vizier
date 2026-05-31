@@ -402,15 +402,377 @@ export default function AgentSettings() {
                 <h3 style={{ margin: 0 }}>Agent Config</h3>
             </div>
 
-            {/* Mobile tab nav */}
-            <div className="flex md:hidden border-b border-[var(--border)] px-4 gap-2 py-2 overflow-x-auto">
-                {TABS.map(({ key, label }) => (
-                    <button
-                        key={key}
-                        onClick={() => setActiveTab(key)}
-                        className={`px-3 py-1.5 text-sm font-medium rounded-t transition-colors whitespace-nowrap ${activeTab === key ? 'bg-[var(--surface)] text-[var(--text-primary)] border-b-2 border-[var(--accent-primary)]' : 'text-[var(--text-tertiary)]'}`}
-                    >
-                        {label}
+        {/* Content */}
+        <div className="flex-1 overflow-auto" style={{ padding: '24px' }}>
+
+          {/* ─── Config Tab ─── */}
+          {activeTab === 'config' && (
+            <div style={{ maxWidth: '720px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {/* Avatar */}
+              <div>
+                <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>Avatar</h4>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <Avatar name={form.agent_id || 'agent'} size="lg" avatarUrl={avatarPreview || form.avatar_url} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+                        onClick={() => avatarInputRef.current?.click()}
+                      >
+                        Choose Image
+                      </button>
+                      {(avatarPreview || form.avatar_url) && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ fontSize: '0.8rem', padding: '6px 12px', color: '#ef4444' }}
+                          onClick={handleRemoveAvatar}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                      Leave empty for generated avatar
+                    </span>
+                  </div>
+                </div>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarSelect}
+                  style={{ display: 'none' }}
+                />
+                <AvatarCropModal
+                  file={cropFile}
+                  onClose={() => setCropFile(null)}
+                  onCropped={handleAvatarCropped}
+                />
+              </div>
+
+              {/* Basic Info */}
+              <div>
+                <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>Basic Info</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <section style={fieldStyle}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Agent ID" tooltip="Unique identifier. Lowercase letters, numbers, hyphens, and underscores only. Cannot be changed after creation." />
+                    </label>
+                    <input style={{ ...inputStyle, opacity: 0.6 }} value={form.agent_id} disabled />
+                  </section>
+                  <section style={fieldStyle}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Name" tooltip="Display name for this agent." />
+                      {' *'}
+                    </label>
+                    <input style={inputStyle} placeholder="My Agent" value={form.name} onChange={(e) => updateField('name', e.target.value)} />
+                  </section>
+                  <section style={fieldStyle}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Description" tooltip="Optional description of what this agent does." />
+                    </label>
+                    <input style={inputStyle} placeholder="A helpful assistant" value={form.description || ''} onChange={(e) => updateField('description', e.target.value)} />
+                  </section>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Provider" tooltip="The AI provider to use for completions." />
+                      </label>
+                      <select style={inputStyle} value={form.provider} onChange={(e) => updateField('provider', e.target.value)}>
+                        {PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </section>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Model" tooltip="The model identifier for the selected provider." />
+                      </label>
+                      <input style={inputStyle} value={form.model} onChange={(e) => updateField('model', e.target.value)} />
+                    </section>
+                  </div>
+                </div>
+              </div>
+
+              {/* Model Parameters */}
+              <div>
+                <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>Model Parameters</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Thinking Depth" tooltip="Maximum LLM reasoning turns per request. Set to 0 for unlimited." />
+                      </label>
+                      <input style={inputStyle} type="number" min={1} value={form.thinking_depth || 10} onChange={(e) => updateField('thinking_depth', parseInt(e.target.value) || 10)} />
+                    </section>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Max Tokens" tooltip="Maximum output tokens per LLM completion request." />
+                      </label>
+                      <input style={inputStyle} type="number" min={1} placeholder="No limit" value={form.max_tokens ?? ''} onChange={(e) => updateField('max_tokens', e.target.value ? parseInt(e.target.value) : undefined)} />
+                    </section>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Memory Capacity" tooltip="Maximum recent conversation messages loaded as context." />
+                      </label>
+                      <input style={inputStyle} type="number" min={1} value={form.session_memory_capacity || 10} onChange={(e) => updateField('session_memory_capacity', parseInt(e.target.value) || 10)} />
+                    </section>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Show Thinking" tooltip="Display the agent's reasoning/thinking process in chat." />
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={form.show_thinking ?? false} onChange={(e) => updateField('show_thinking', e.target.checked)} />
+                        Show thinking output
+                      </label>
+                    </section>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Show Tool Calls" tooltip="Display tool call details in chat responses." />
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={form.show_tool_calls ?? false} onChange={(e) => updateField('show_tool_calls', e.target.checked)} />
+                        Show tool call details
+                      </label>
+                    </section>
+                  </div>
+                  <section style={fieldStyle}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Silent Read Chance" tooltip="Probability (0.0-1.0) that the agent proactively reads silent/channel messages." />
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <input
+                        style={{ ...inputStyle, flex: 1 }}
+                        type="range" min={0} max={1} step={0.05}
+                        value={form.silent_read_initiative_chance ?? 0.0}
+                        onChange={(e) => updateField('silent_read_initiative_chance', parseFloat(e.target.value))}
+                      />
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', minWidth: '2.5rem', textAlign: 'right' }}>
+                        {(form.silent_read_initiative_chance ?? 0.0).toFixed(2)}
+                      </span>
+                    </div>
+                  </section>
+                </div>
+              </div>
+
+              {/* Tools */}
+              <div>
+                <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>Tools</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <section style={fieldStyle}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                      {([
+                        ['shell_access', 'Shell Access'],
+                        ['vector_memory', 'Vector Memory'],
+                        ['discord', 'Discord'],
+                        ['telegram', 'Telegram'],
+                        ['fetch', 'Fetch Webpage'],
+                        ['http_client', 'HTTP Client'],
+                      ] as const).map(([key, label]) => (
+                        <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={form.tools?.[key] ?? false} onChange={(e) => updateTool(key, e.target.checked)} />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </section>
+
+                  {/* Brave Search */}
+                  <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: '0.5rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer', marginBottom: form.tools?.brave_search ? '0.75rem' : 0 }}>
+                      <input type="checkbox" checked={form.tools?.brave_search ?? false} onChange={(e) => updateTool('brave_search', e.target.checked)} />
+                      Brave Search
+                    </label>
+                    {form.tools?.brave_search && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingLeft: '1.5rem' }}>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>API Key (optional, falls back to global)</label>
+                          <input style={inputStyle} type="password" placeholder="Leave empty to use global config" value={form.tools?.brave_search_settings?.api_key || ''} onChange={(e) => setForm((prev) => ({ ...prev, tools: { ...prev.tools!, brave_search_settings: { ...prev.tools?.brave_search_settings, api_key: e.target.value || undefined } } }))} />
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={form.tools?.brave_search_settings?.safesearch ?? true} onChange={(e) => setForm((prev) => ({ ...prev, tools: { ...prev.tools!, brave_search_settings: { ...prev.tools?.brave_search_settings, safesearch: e.target.checked } } }))} />
+                          Safe Search
+                        </label>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Programmatic Sandbox */}
+                  <section style={fieldStyle}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Programmatic Sandbox" tooltip="Enable sandboxed execution for programmatic tools." />
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={form.tools?.programmatic_sandbox ?? false} onChange={(e) => updateTool('programmatic_sandbox', e.target.checked)} />
+                      Enable sandboxed execution
+                    </label>
+                  </section>
+
+                  {/* Tool Timeout + MCP */}
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Tool Timeout" tooltip="Maximum time for a single tool execution (e.g. 1m, 30s)." />
+                      </label>
+                      <input style={inputStyle} placeholder="1m" value={form.tools?.timeout || ''} onChange={(e) => updateToolField('timeout', e.target.value)} />
+                    </section>
+                    {availableMcpServers.length > 0 && (
+                      <section style={{ ...fieldStyle, flex: 1 }}>
+                        <label style={labelStyle}>
+                          <TooltipLabel label="MCP Servers" tooltip="Select globally configured MCP servers to attach." />
+                        </label>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', padding: '0.25rem 0' }}>
+                          {availableMcpServers.map((name) => (
+                            <label key={name} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                              <input type="checkbox" checked={form.tools?.mcp_servers?.includes(name) ?? false} onChange={() => toggleMcpServer(name)} />
+                              {name}
+                            </label>
+                          ))}
+                        </div>
+                      </section>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Timing */}
+              <div>
+                <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>Timing</h4>
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <section style={{ ...fieldStyle, flex: 1 }}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Prompt Timeout" tooltip="Maximum wall-clock duration for a single request." />
+                    </label>
+                    <input style={inputStyle} placeholder="5m" value={form.prompt_timeout || ''} onChange={(e) => updateField('prompt_timeout', e.target.value)} />
+                  </section>
+                  <section style={{ ...fieldStyle, flex: 1 }}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Heartbeat Interval" tooltip="How often the agent's background task loop runs." />
+                    </label>
+                    <input style={inputStyle} placeholder="30m" value={form.heartbeat_interval || ''} onChange={(e) => updateField('heartbeat_interval', e.target.value)} />
+                  </section>
+                  <section style={{ ...fieldStyle, flex: 1 }}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Dream Interval" tooltip="How often the agent runs self-reflection." />
+                    </label>
+                    <input style={inputStyle} placeholder="24h" value={form.dream_interval || ''} onChange={(e) => updateField('dream_interval', e.target.value)} />
+                  </section>
+                </div>
+              </div>
+
+              {/* Channel Tokens */}
+              <div>
+                <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>Channel Tokens</h4>
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <section style={{ ...fieldStyle, flex: 1 }}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Discord Bot Token" tooltip="Bot token from the Discord Developer Portal." />
+                    </label>
+                    <input style={inputStyle} type="password" placeholder="Optional" value={form.discord_token || ''} onChange={(e) => updateField('discord_token', e.target.value || undefined)} />
+                  </section>
+                  <section style={{ ...fieldStyle, flex: 1 }}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Telegram Bot Token" tooltip="Bot token from @BotFather." />
+                    </label>
+                    <input style={inputStyle} type="password" placeholder="Optional" value={form.telegram_token || ''} onChange={(e) => updateField('telegram_token', e.target.value || undefined)} />
+                  </section>
+                </div>
+              </div>
+
+              {/* Save */}
+              <div style={{ paddingTop: '0.5rem' }}>
+                <button
+                  onClick={handleSaveConfig}
+                  disabled={saving}
+                  style={{
+                    padding: '0.6rem 1.5rem',
+                    borderRadius: '0.375rem',
+                    border: 'none',
+                    background: saving ? 'var(--border)' : 'var(--accent-primary)',
+                    color: '#fff',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: 500,
+                  }}
+                >
+                  {saving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ─── System Prompt Tab ─── */}
+          {activeTab === 'prompt' && (
+            <div style={{ maxWidth: '900px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '0.5rem' }}>
+                Instructions that define the agent's behavior, personality, and capabilities. Supports full Markdown formatting.
+              </p>
+              <div style={{ border: '1px solid var(--border)', borderRadius: '0.5rem', overflow: 'hidden', height: 'calc(100vh - 220px)' }}>
+                <MarkdownEditor
+                  value={form.system_prompt || ''}
+                  onChange={(v) => updateField('system_prompt', v)}
+                  placeholder="You are a helpful assistant..."
+                />
+              </div>
+              <div>
+                <button
+                  onClick={handleSaveConfig}
+                  disabled={saving}
+                  style={{
+                    padding: '0.6rem 1.5rem',
+                    borderRadius: '0.375rem',
+                    border: 'none',
+                    background: saving ? 'var(--border)' : 'var(--accent-primary)',
+                    color: '#fff',
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: 500,
+                  }}
+                >
+                  {saving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ─── Documents Tab ─── */}
+          {activeTab === 'documents' && (
+            <div>
+              {/* Doc sub-tabs */}
+              <div style={{
+                display: 'flex',
+                gap: '4px',
+                marginBottom: '1rem',
+                borderBottom: '1px solid var(--border)',
+                paddingBottom: '4px',
+              }}>
+                {docTabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveDoc(tab.key)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '4px 4px 0 0',
+                      border: 'none',
+                      background: activeDoc === tab.key ? 'var(--surface)' : 'transparent',
+                      color: activeDoc === tab.key ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                      cursor: 'pointer',
+                      fontWeight: activeDoc === tab.key ? '600' : '400',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+                {docContent !== docOriginal && (
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Unsaved changes</span>
+                    <button className="btn btn-ghost" onClick={() => setDocContent(docOriginal)}>Reset</button>
+                    <button className="btn btn-primary" onClick={handleSaveDoc} disabled={docSaving}>
+                      {docSaving ? 'Saving...' : 'Save'}
                     </button>
                 ))}
             </div>

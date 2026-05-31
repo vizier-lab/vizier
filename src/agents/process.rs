@@ -1,9 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::Utc;
 use rig_core::message::Message;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::{
@@ -145,148 +146,258 @@ pub async fn agent_process(
         }
     });
 
-    while let Ok((session, request)) = recv.recv().await {
-        if session.0 != agent_id {
-            continue;
-        }
+    let mut session_queues = HashMap::<VizierSession, VecDeque<VizierRequest>>::new();
+    let (complete_tx, mut complete_rx) = mpsc::unbounded_channel::<VizierSession>();
 
-        // handle session_detail creator
-        let session_detail_storage = deps.storage.clone();
-        let session_detail_session = session.clone();
-        let session_detail_agent = agent.clone();
-        let session_detail_request = request.clone();
-        detail_tasks.spawn(async move {
-            let agent_id = session_detail_session.0;
-            let channel = session_detail_session.1;
-            let topic = session_detail_session.2;
+    loop {
+        tokio::select! {
+            result = recv.recv() => {
+                let Ok((session, request)) = result else { break };
+                if session.0 != agent_id {
+                    continue;
+                }
 
-            if let None = session_detail_storage
-                .get_session_detail_by_topic(agent_id.clone(), channel.clone(), topic.clone())
-                .await
-                .unwrap_or(None)
-            {
-                let prompt = format!(
-                    r#"summarize (don't execute) the prompt below into a 60 character title: 
+                // handle session_detail creator
+                let session_detail_storage = deps.storage.clone();
+                let session_detail_session = session.clone();
+                let session_detail_agent = agent.clone();
+                let session_detail_request = request.clone();
+                detail_tasks.spawn(async move {
+                    let agent_id = session_detail_session.0;
+                    let channel = session_detail_session.1;
+                    let topic = session_detail_session.2;
+
+                    if let None = session_detail_storage
+                        .get_session_detail_by_topic(agent_id.clone(), channel.clone(), topic.clone())
+                        .await
+                        .unwrap_or(None)
+                    {
+                        let prompt = format!(
+                            r#"summarize (don't execute) the prompt below into a 60 character title: 
 "{}"
 
 **only response the summarize title**"#,
-                    session_detail_request.to_prompt().unwrap()
-                );
-                let res = session_detail_agent
-                    .prompt(Message::user(prompt), vec![], 0, None, false)
-                    .await;
+                            session_detail_request.to_prompt().unwrap()
+                        );
+                        let res = session_detail_agent
+                            .prompt(Message::user(prompt), vec![], 0, None, false)
+                            .await;
 
-                if let Ok((title, _)) = res {
-                    let mut title = title.clone();
-                    title.truncate(60);
+                        if let Ok((title, _)) = res {
+                            let mut title = title.clone();
+                            title.truncate(60);
 
-                    if title.starts_with('"') {
-                        title.remove(0);
+                            if title.starts_with('"') {
+                                title.remove(0);
+                            }
+
+                            if title.ends_with('"') {
+                                title.pop();
+                            }
+
+                            let detail = VizierSessionDetail {
+                                agent_id,
+                                channel,
+                                topic,
+                                title,
+                            };
+                            let _ = session_detail_storage.save_session_detail(detail).await;
+                        }
                     }
+                });
 
-                    if title.ends_with('"') {
-                        title.pop();
+                // Handle abort command
+                if let VizierRequestContent::Command(ref cmd) = request.content {
+                    if cmd == "abort" {
+                        // Abort active task for this session
+                        if let Some(handle) = main_handles.get(&session) {
+                            if !handle.is_finished() {
+                                handle.abort();
+                                let _ = deps
+                                    .transport
+                                    .send_response(
+                                        session.clone(),
+                                        crate::schema::VizierResponse {
+                                            timestamp: chrono::Utc::now(),
+                                            content: crate::schema::VizierResponseContent::Abort,
+                                            attachments: vec![],
+                                        },
+                                    )
+                                    .await;
+                            }
+                        }
+                        // Abort thinking indicator
+                        if let Some(handle) = thinking_handles.remove(&session) {
+                            handle.abort();
+                        }
+                        // Clear queued messages
+                        session_queues.remove(&session);
+                        continue;
                     }
-
-                    let detail = VizierSessionDetail {
-                        agent_id,
-                        channel,
-                        topic,
-                        title,
-                    };
-                    let _ = session_detail_storage.save_session_detail(detail).await;
                 }
-            }
-        });
 
-        if let Some(handle) = main_handles.get(&session) {
-            if !handle.is_finished() {
-                let _ = deps
-                    .transport
-                    .send_response(
-                        session.clone(),
-                        crate::schema::VizierResponse {
-                            timestamp: chrono::Utc::now(),
-                            content: crate::schema::VizierResponseContent::Abort,
-                            attachments: vec![],
-                        },
-                    )
-                    .await;
-            }
-            handle.abort();
-        }
+                // Queue message if a task is already running for this session
+                if let Some(handle) = main_handles.get(&session) {
+                    if !handle.is_finished() {
+                        session_queues.entry(session.clone()).or_default().push_back(request);
+                        continue;
+                    }
+                }
 
-        let agent_session = if let Some(agent_session) = agent_sessions.get(&session) {
-            agent_session.clone()
-        } else {
-            let agent_session =
-                AgentSession::new(agent_config.clone(), session.clone(), deps.clone())?;
-            agent_sessions.insert(session.clone(), agent_session.clone());
+                // Process immediately — no active task
+                let agent_session = if let Some(agent_session) = agent_sessions.get(&session) {
+                    agent_session.clone()
+                } else {
+                    let agent_session =
+                        AgentSession::new(agent_config.clone(), session.clone(), deps.clone())?;
+                    agent_sessions.insert(session.clone(), agent_session.clone());
+                    agent_session
+                };
 
-            agent_session
-        };
-
-        // handle thinking
-        if let Some(handle) = thinking_handles.get(&session) {
-            handle.abort();
-        }
-        let thinking_transport = deps.transport.clone();
-        let thinking_request = request.clone();
-        let thinking_session = session.clone();
-        let thinking_handle = Arc::new(tokio::spawn(async move {
-            if let VizierRequestContent::Chat(_) = thinking_request.content {
-                let _ = thinking_transport
-                    .send_response(
-                        thinking_session.clone(),
-                        crate::schema::VizierResponse {
-                            timestamp: chrono::Utc::now(),
-                            content: crate::schema::VizierResponseContent::ThinkingStart,
-                            attachments: vec![],
-                        },
-                    )
-                    .await;
-            }
-        }));
-        thinking_handles.insert(session.clone(), thinking_handle.clone());
-
-        let agent = agent.clone();
-        let agent_config = agent_config.clone();
-        let session = session.clone();
-        let transport = deps.transport.clone();
-        let storage = deps.storage.clone();
-        main_handles.insert(
-            session.clone(),
-            tokio::spawn(async move {
-                if let Err(err) = handle_request(
-                    agent.clone(),
-                    agent_config.clone(),
-                    session.clone(),
-                    request.clone(),
-                    transport.clone(),
-                    storage.clone(),
-                    agent_session.hooks.clone(),
-                )
-                .await
-                {
-                    tracing::error!("{}", err);
-                    let _ = transport
-                        .send_response(
-                            session.clone(),
-                            crate::schema::VizierResponse {
-                                timestamp: chrono::Utc::now(),
-                                content: crate::schema::VizierResponseContent::Message {
-                                    content: format!("ERR: {}", err),
-                                    stats: None,
+                // handle thinking
+                if let Some(handle) = thinking_handles.get(&session) {
+                    handle.abort();
+                }
+                let thinking_transport = deps.transport.clone();
+                let thinking_request = request.clone();
+                let thinking_session = session.clone();
+                let thinking_handle = Arc::new(tokio::spawn(async move {
+                    if let VizierRequestContent::Chat(_) = thinking_request.content {
+                        let _ = thinking_transport
+                            .send_response(
+                                thinking_session.clone(),
+                                crate::schema::VizierResponse {
+                                    timestamp: chrono::Utc::now(),
+                                    content: crate::schema::VizierResponseContent::ThinkingStart,
+                                    attachments: vec![],
                                 },
-                                attachments: vec![],
-                            },
-                        )
-                        .await;
-                }
+                            )
+                            .await;
+                    }
+                }));
+                thinking_handles.insert(session.clone(), thinking_handle.clone());
 
-                thinking_handle.abort();
-            }),
-        );
+                let agent = agent.clone();
+                let agent_config = agent_config.clone();
+                let session = session.clone();
+                let transport = deps.transport.clone();
+                let storage = deps.storage.clone();
+                let complete_tx = complete_tx.clone();
+                main_handles.insert(
+                    session.clone(),
+                    tokio::spawn(async move {
+                        if let Err(err) = handle_request(
+                            agent.clone(),
+                            agent_config.clone(),
+                            session.clone(),
+                            request.clone(),
+                            transport.clone(),
+                            storage.clone(),
+                            agent_session.hooks.clone(),
+                        )
+                        .await
+                        {
+                            tracing::error!("{}", err);
+                            let _ = transport
+                                .send_response(
+                                    session.clone(),
+                                    crate::schema::VizierResponse {
+                                        timestamp: chrono::Utc::now(),
+                                        content: crate::schema::VizierResponseContent::Message {
+                                            content: format!("ERR: {}", err),
+                                            stats: None,
+                                        },
+                                        attachments: vec![],
+                                    },
+                                )
+                                .await;
+                        }
+
+                        thinking_handle.abort();
+                        let _ = complete_tx.send(session);
+                    }),
+                );
+            }
+            // Handle task completions — process next queued message
+            Some(completed_session) = complete_rx.recv() => {
+                if let Some(queue) = session_queues.get_mut(&completed_session) {
+                    if let Some(next_request) = queue.pop_front() {
+                        let agent_session = if let Some(agent_session) = agent_sessions.get(&completed_session) {
+                            agent_session.clone()
+                        } else {
+                            let agent_session =
+                                AgentSession::new(agent_config.clone(), completed_session.clone(), deps.clone())?;
+                            agent_sessions.insert(completed_session.clone(), agent_session.clone());
+                            agent_session
+                        };
+
+                        // handle thinking
+                        if let Some(handle) = thinking_handles.get(&completed_session) {
+                            handle.abort();
+                        }
+                        let thinking_transport = deps.transport.clone();
+                        let thinking_request = next_request.clone();
+                        let thinking_session = completed_session.clone();
+                        let thinking_handle = Arc::new(tokio::spawn(async move {
+                            if let VizierRequestContent::Chat(_) = thinking_request.content {
+                                let _ = thinking_transport
+                                    .send_response(
+                                        thinking_session.clone(),
+                                        crate::schema::VizierResponse {
+                                            timestamp: chrono::Utc::now(),
+                                            content: crate::schema::VizierResponseContent::ThinkingStart,
+                                            attachments: vec![],
+                                        },
+                                    )
+                                    .await;
+                            }
+                        }));
+                        thinking_handles.insert(completed_session.clone(), thinking_handle.clone());
+
+                        let agent = agent.clone();
+                        let agent_config = agent_config.clone();
+                        let session = completed_session.clone();
+                        let transport = deps.transport.clone();
+                        let storage = deps.storage.clone();
+                        let complete_tx = complete_tx.clone();
+                        main_handles.insert(
+                            session.clone(),
+                            tokio::spawn(async move {
+                                if let Err(err) = handle_request(
+                                    agent.clone(),
+                                    agent_config.clone(),
+                                    session.clone(),
+                                    next_request.clone(),
+                                    transport.clone(),
+                                    storage.clone(),
+                                    agent_session.hooks.clone(),
+                                )
+                                .await
+                                {
+                                    tracing::error!("{}", err);
+                                    let _ = transport
+                                        .send_response(
+                                            session.clone(),
+                                            crate::schema::VizierResponse {
+                                                timestamp: chrono::Utc::now(),
+                                                content: crate::schema::VizierResponseContent::Message {
+                                                    content: format!("ERR: {}", err),
+                                                    stats: None,
+                                                },
+                                                attachments: vec![],
+                                            },
+                                        )
+                                        .await;
+                                }
+
+                                thinking_handle.abort();
+                                let _ = complete_tx.send(session);
+                            }),
+                        );
+                    }
+                }
+            }
+        }
     }
 
     heartbeat.abort();
@@ -361,7 +472,9 @@ pub async fn handle_request(
             let res = agent.chat(request, history, vec![], Some(hooks)).await?;
             transport.send_response(session, res).await?;
         }
-        VizierRequestContent::Command(_) => unimplemented!(),
+        VizierRequestContent::Command(cmd) => {
+            tracing::warn!("unhandled command: {}", cmd);
+        }
     }
 
     Ok(())

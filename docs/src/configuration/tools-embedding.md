@@ -2,23 +2,29 @@
 
 ## `tools`
 
-Global tool settings:
+Global tool settings in `.vizier.yaml`:
 
 ```yaml
 tools:
-  dangerously_enable_cli_access: false  # Allow shell command execution
   brave_search:
-    api_key: "${BRAVE_SEARCH_API_KEY}"
-    safesearch: true                    # Enable safe search
+    api_key: "${BRAVE_API_KEY}"
+    safesearch: true
+  mcp_servers:
+    my_server:
+      host: local
+      command: "python"
+      args: ["/path/to/server.py"]
 ```
+
+> **Note:** MCP servers and shell config are auto-migrated to storage on first run, then managed via WebUI (Settings > MCP Servers, Settings > Shell). Brave Search API key can be set globally in YAML or per-agent in the WebUI.
 
 ### Tool Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `dangerously_enable_cli_access` | bool | `false` | Enable shell command execution globally |
-| `brave_search.api_key` | string | `"${BRAVE_API_KEY}"` | Brave Search API key |
+| `brave_search.api_key` | string | `"${BRAVE_API_KEY}"` | Brave Search API key (global default) |
 | `brave_search.safesearch` | bool | `true` | Enable safe search filtering |
+| `mcp_servers` | map | `{}` | MCP server definitions (see [MCP Servers](./mcp.md)) |
 
 ## `embedding`
 
@@ -30,9 +36,11 @@ embedding:
   model: all_mini_lml6_v2
 ```
 
+> **Note:** Embedding config is **not** migrated to storage — it remains file-based and is read once at startup.
+
 ### Local Models
 
-Set `type: local` and choose from 31+ local models (via fastembed):
+Set `type: local` and choose from 29+ local models (via fastembed):
 
 | Model | Size | Use Case |
 |-------|------|----------|
@@ -52,3 +60,16 @@ embedding:
 ```
 
 Supported cloud providers: `openrouter`, `ollama`, `openai`, `gemini`
+
+### Per-Agent Tool Settings
+
+Most tool settings are configured per-agent via the WebUI or API. See [Agent Configuration](./agents.md) for the full list of per-agent tool options including:
+
+- `shell_access` — shell command execution
+- `programmatic_sandbox` — Python sandbox for tool calls
+- `brave_search` — per-agent API key and settings
+- `fetch` — web page fetching
+- `http_client` — arbitrary HTTP requests
+- `vector_memory` — vector-based memory access
+- `discord` / `telegram` — channel-specific tools
+- `notify_primary_user` — notification tools

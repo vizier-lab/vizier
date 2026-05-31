@@ -376,16 +376,10 @@ select:focus {
 }
 
 /* Tooltip */
-.tooltip-wrapper {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  position: relative;
-}
-
 .tooltip-icon {
   display: inline-flex;
   align-items: center;
+  margin-left: 4px;
   color: var(--text-tertiary);
   cursor: help;
   transition: color var(--transition-fast);
@@ -393,44 +387,6 @@ select:focus {
 
 .tooltip-icon:hover {
   color: var(--text-secondary);
-}
-
-.tooltip-content {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--sidebar-bg, #18181b);
-  color: #fafafa;
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.4;
-  white-space: normal;
-  width: max-content;
-  max-width: 280px;
-  pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.15s ease, visibility 0.15s ease;
-  z-index: 1000;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.tooltip-content::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  border: 5px solid transparent;
-  border-top-color: var(--sidebar-bg, #18181b);
-}
-
-.tooltip-wrapper:hover .tooltip-content {
-  opacity: 1;
-  visibility: visible;
 }
 
 /* Card */
@@ -1214,6 +1170,10 @@ select:focus {
 
 /* Mobile responsive: sidebar drawer, reduced padding */
 @media (max-width: 767px) {
+  .mdx-editor .mdxeditor [class*="toolbarRoot"] {
+    display: none !important;
+  }
+
   .nav-sidebar {
     position: fixed;
     top: 0;
@@ -1457,6 +1417,7 @@ select:focus {
 .thinking-dots {
   display: inline-flex;
   gap: 2px;
+  color: #10b981;
 }
 
 .thinking-dots span {
@@ -1483,6 +1444,49 @@ select:focus {
   40% {
     opacity: 1;
   }
+}
+
+.thinking-abort-btn {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  font-size: 12px;
+  width: fit-content;
+}
+
+.thinking-abort-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* ============================================================================
+   QUEUED MESSAGE BADGE
+   ============================================================================ */
+
+.queued-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  font-size: 11px;
+  color: #10b981;
+  vertical-align: middle;
+}
+
+.queued-badge-icon {
+  font-size: 10px;
 }
 
 /* ============================================================================
@@ -2360,4 +2364,32 @@ select:focus {
 .chat-input-bottom-row .chat-keyboard-hint.visible {
   opacity: 1;
   height: auto;
+}
+
+/* ============================================================================
+   SCROLL TO BOTTOM BUTTON
+   ============================================================================ */
+
+.scroll-to-bottom-row {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 8px;
+}
+
+.scroll-to-bottom-btn {
+  backdrop-filter: blur(10px);
+  padding: 4px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+
+.scroll-to-bottom-btn:hover {
+  background: rgba(16, 185, 129, 0.2);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
 }

@@ -60,6 +60,20 @@ pub struct AgentSummary {
     pub avatar_url: Option<String>,
 }
 
+pub enum ChannelCommand {
+    AgentCreated {
+        agent_id: String,
+        config: AgentConfig,
+    },
+    AgentUpdated {
+        agent_id: String,
+        config: AgentConfig,
+    },
+    AgentDeleted {
+        agent_id: String,
+    },
+}
+
 pub enum GlobalCommand {
     ReloadMcp {
         config: HashMap<String, McpClientConfig>,

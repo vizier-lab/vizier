@@ -284,8 +284,158 @@ export default function AgentForm({
                             className={`nav-item ${activeTab === key ? 'active' : ''}`}
                             onClick={() => setActiveTab(key)}
                         >
-                            <Icon size={16} />
-                            <span>{label}</span>
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                      Leave empty for generated avatar
+                    </span>
+                  </div>
+                </div>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarSelect}
+                  style={{ display: 'none' }}
+                />
+                <AvatarCropModal
+                  file={cropFile}
+                  onClose={() => setCropFile(null)}
+                  onCropped={handleAvatarCropped}
+                />
+              </div>
+
+              {/* Basic Info */}
+              <div>
+                <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>Basic Info</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <section style={fieldStyle}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Agent ID" tooltip="Unique identifier. Lowercase letters, numbers, hyphens, and underscores only. Cannot be changed after creation." />
+                      {mode === 'create' && ' *'}
+                    </label>
+                    <input
+                      style={{ ...inputStyle, opacity: mode === 'edit' ? 0.6 : 1 }}
+                      placeholder="my-agent"
+                      value={form.agent_id}
+                      disabled={mode === 'edit'}
+                      onChange={(e) => updateField('agent_id', e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, '-'))}
+                    />
+                  </section>
+                  <section style={fieldStyle}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Name" tooltip="Display name for this agent." />
+                      {' *'}
+                    </label>
+                    <input style={inputStyle} placeholder="My Agent" value={form.name} onChange={(e) => updateField('name', e.target.value)} />
+                  </section>
+                  <section style={fieldStyle}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Description" tooltip="Optional description of what this agent does." />
+                    </label>
+                    <input style={inputStyle} placeholder="A helpful assistant" value={form.description || ''} onChange={(e) => updateField('description', e.target.value)} />
+                  </section>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Provider" tooltip="The AI provider to use for completions." />
+                      </label>
+                      <select style={inputStyle} value={form.provider} onChange={(e) => { updateField('provider', e.target.value); if (mode === 'create') updateField('model', DEFAULT_MODELS[e.target.value] || '') }}>
+                        {PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    </section>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Model" tooltip="The model identifier for the selected provider." />
+                      </label>
+                      <input style={inputStyle} value={form.model} onChange={(e) => updateField('model', e.target.value)} />
+                    </section>
+                  </div>
+                </div>
+              </div>
+
+              {/* Model Parameters */}
+              <div>
+                <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>Model Parameters</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Thinking Depth" tooltip="Maximum LLM reasoning turns per request. Set to 0 for unlimited." />
+                      </label>
+                      <input style={inputStyle} type="number" min={1} value={form.thinking_depth || 10} onChange={(e) => updateField('thinking_depth', parseInt(e.target.value) || 10)} />
+                    </section>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Max Tokens" tooltip="Maximum output tokens per LLM completion request." />
+                      </label>
+                      <input style={inputStyle} type="number" min={1} placeholder="No limit" value={form.max_tokens ?? ''} onChange={(e) => updateField('max_tokens', e.target.value ? parseInt(e.target.value) : undefined)} />
+                    </section>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Memory Capacity" tooltip="Maximum recent conversation messages loaded as context." />
+                      </label>
+                      <input style={inputStyle} type="number" min={1} value={form.session_memory_capacity || 10} onChange={(e) => updateField('session_memory_capacity', parseInt(e.target.value) || 10)} />
+                    </section>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Show Thinking" tooltip="Display the agent's reasoning/thinking process in chat." />
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={form.show_thinking ?? false} onChange={(e) => updateField('show_thinking', e.target.checked)} />
+                        Show thinking output
+                      </label>
+                    </section>
+                    <section style={{ ...fieldStyle, flex: 1 }}>
+                      <label style={labelStyle}>
+                        <TooltipLabel label="Show Tool Calls" tooltip="Display tool call details in chat responses." />
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={form.show_tool_calls ?? false} onChange={(e) => updateField('show_tool_calls', e.target.checked)} />
+                        Show tool call details
+                      </label>
+                    </section>
+                  </div>
+                  <section style={fieldStyle}>
+                    <label style={labelStyle}>
+                      <TooltipLabel label="Silent Read Chance" tooltip="Probability (0.0-1.0) that the agent proactively reads silent/channel messages." />
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <input style={{ ...inputStyle, flex: 1 }} type="range" min={0} max={1} step={0.05} value={form.silent_read_initiative_chance ?? 0.0} onChange={(e) => updateField('silent_read_initiative_chance', parseFloat(e.target.value))} />
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', minWidth: '2.5rem', textAlign: 'right' }}>{(form.silent_read_initiative_chance ?? 0.0).toFixed(2)}</span>
+                    </div>
+                  </section>
+                </div>
+              </div>
+
+              {/* Tools */}
+              <div>
+                <h4 style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>Tools</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <section style={fieldStyle}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                      {([['shell_access', 'Shell Access'], ['vector_memory', 'Vector Memory'], ['discord', 'Discord'], ['telegram', 'Telegram'], ['fetch', 'Fetch Webpage'], ['http_client', 'HTTP Client']] as const).map(([key, label]) => (
+                        <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={form.tools?.[key] ?? false} onChange={(e) => updateTool(key, e.target.checked)} />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </section>
+                  <div style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: '0.5rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer', marginBottom: form.tools?.brave_search ? '0.75rem' : 0 }}>
+                      <input type="checkbox" checked={form.tools?.brave_search ?? false} onChange={(e) => updateTool('brave_search', e.target.checked)} />
+                      Brave Search
+                    </label>
+                    {form.tools?.brave_search && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingLeft: '1.5rem' }}>
+                        <div>
+                          <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>API Key (optional, falls back to global)</label>
+                          <input style={inputStyle} type="password" placeholder="Leave empty to use global config" value={form.tools?.brave_search_settings?.api_key || ''} onChange={(e) => setForm((prev) => ({ ...prev, tools: { ...prev.tools!, brave_search_settings: { ...prev.tools?.brave_search_settings, api_key: e.target.value || undefined } } }))} />
                         </div>
                     ))}
                 </div>

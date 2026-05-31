@@ -9,9 +9,11 @@ Single binary, embedded SurrealDB (kv-rocksdb), async tokio runtime.
 just install          # cargo fetch + npm i in webui/
 just dev              # cargo watch -s "just run"
 just run              # cargo run -- run --config dev.vizier.yaml
+just run-a            # cargo run -- run -a --config dev.vizier.yaml (attached mode)
+just shutdown         # cargo run -- shutdown --config dev.vizier.yaml
 just build            # cd webui && npm run build
 just release          # cargo build --release
-just docker           # docker-compose up
+just docker           # docker-compose down && docker-compose up -d
 
 cargo test            # run tests
 cargo clippy          # lint (CI expectation: zero warnings)
@@ -19,6 +21,17 @@ cargo clippy          # lint (CI expectation: zero warnings)
 
 **No `just test` or `just lint` targets exist.** Use `cargo test` and
 `cargo clippy` directly.
+
+## CLI subcommands
+
+| Subcommand | Flags | Description |
+|------------|-------|-------------|
+| `run` | `-c/--config <PATH>`, `-a/--attached` | Run agents, server, and channels. Without `-a`, daemonizes (PID at `/tmp/vizier.pid`, logs to `.vizier/.runtime/logs/`). |
+| `shutdown` | `-c/--config <PATH>` | Stop a running daemonized instance. |
+| `onboard` | `-p/--path <PATH>` | Interactive wizard to generate `.vizier.yaml` seed config. |
+
+There is no `init`, `configure`, or `agent` subcommand. Agents are
+created and managed at runtime via the WebUI or HTTP API.
 
 ## Build gotcha: `build.rs` auto-builds WebUI
 
@@ -34,29 +47,60 @@ Fix: run `just install` first, or ensure pre-built files exist in
 ```
 src/
 ├── main.rs              # entrypoint, log init, cli::start()
-├── cli/                 # clap CLI: run, init, configure, agent, onboard
-├── config/              # VizierConfig deserialized from YAML
+├── cli/                 # clap CLI: run, shutdown, onboard
+├── command/             # command handling
+├── config/              # VizierConfig deserialized from YAML (seed config)
+├── schema/              # shared types (VizierResponse, AgentId, ProviderEntry, etc.)
 ├── agents/
 │   ├── agent/           # agent process loop, LLM interaction
+│   │   ├── model/       # provider abstraction (ollama, openai, anthropic, gemini, deepseek, openrouter, mimo)
+│   │   └── system_prompt/ # system prompt construction, workspace init
 │   ├── tools/           # all built-in tools (register here for new tools)
-│   ├── hook/            # agent lifecycle hooks
+│   ├── hook/            # agent lifecycle hooks (debug, thinking, history, tool_calls)
 │   └── skill/           # reusable agent behaviors
 ├── channels/
 │   ├── discord/         # serenity-based
 │   ├── telegram/        # teloxide-based
 │   └── http/            # axum REST + WebSocket + static WebUI serving
+│       ├── api/v1/      # agents, providers, global_config, files endpoints
+│       ├── auth/        # JWT authentication, middleware
+│       └── webui/       # serves built WebUI static files
 ├── storage/
 │   ├── fs/              # filesystem storage backend
 │   ├── surreal/         # SurrealDB storage backend
-│   └── *.rs             # storage traits (MemoryStorage, TaskStorage, etc.)
+│   ├── indexer/         # document indexing (in-mem, surreal)
+│   └── *.rs             # storage traits (MemoryStorage, TaskStorage, AgentStorage, ProviderStorage, GlobalConfigStorage, etc.)
 ├── scheduler/           # cron + one-time task scheduler
-├── mcp/                 # MCP client + server integration
+├── mcp/                 # MCP client + server integration (rmcp crate)
 ├── embedding/           # fastembed local embeddings
 ├── shell/               # shell execution abstraction
-└── schema/              # shared types (VizierResponse, AgentId, etc.)
+│   ├── local/           # local shell
+│   └── docker/          # docker shell (bollard)
+├── transport/           # command transport (agent, channel, global commands)
+├── global_resources.rs  # MCP clients + shell hot-reload (ArcSwap)
+└── utils/               # utility functions
 webui/                   # React Router v7 + Tailwind v4 + TypeScript
 templates/               # agent.md / IDENTITY.md templates (include_str!'d)
 ```
+
+## Runtime config architecture
+
+`.vizier.yaml` is **seed config** — it provides initial values that are
+auto-migrated to storage on first run. After migration, most config is
+managed at runtime via WebUI or HTTP API.
+
+| Config | File-based (seed) | Runtime (WebUI/API) | Migration |
+|--------|-------------------|---------------------|-----------|
+| `embedding` | YES (active) | No | — |
+| `storage` | YES (active) | No | — |
+| `channels.http` | YES (active) | No | — |
+| `primary_user` | YES (seed) | Password/API keys via auth API | Auto-migrate to user table |
+| `providers` | YES (seed) | YES — `/api/v1/providers` | Auto-migrate to providers table |
+| `agents` | No | YES — `/api/v1/agents` | Created via API, stored in DB |
+| `tools.mcp_servers` | YES (seed) | YES — `/api/v1/global-config/mcp_servers` | Auto-migrate to global_config |
+| `shell` | YES (seed) | YES — `/api/v1/global-config/shell` | Auto-migrate to global_config |
+| `channels.discord/telegram` | YES (seed) | Per-agent token in agent config | Auto-migrate to agent configs |
+| `tools.brave_search` | YES (still there) | Per-agent setting via agents API | Not auto-migrated |
 
 ## Key patterns
 
@@ -81,14 +125,23 @@ in `src/channels/<name>/`, register spawn in `VizierChannels::run()`.
 SkillStorage, SessionStorage, StateStorage, DocumentIndexer, UserStorage,
 SharedDocumentStorage), then implement `VizierStorageProvider` for it.
 
+**Hot-reload pattern**: Global resources (MCP clients, shell) use
+`Arc<ArcSwap<T>>`. When config is updated via API, a `GlobalCommand`
+is sent through `VizierTransport` to `VizierGlobalResources`, which
+atomically swaps the resource.
+
+**Agent lifecycle**: `AgentCommand::Create/Update/Delete` flows from
+HTTP API → `VizierTransport` → `VizierAgents` manager → aborts old
+process, spawns new one → sends `ChannelCommand` to `VizierChannels`
+for channel reconciliation.
+
 ## Config
 
-- Config file: `.vizier.yaml` (YAML, top-level key `vizier:`)
+- Seed config file: `.vizier.yaml` (YAML, top-level key `vizier:`)
 - Supports `${ENV_VAR}` expansion via `shellexpand`
 - Dev config: `dev.vizier.yaml` (committed, has real keys — don't mirror)
 - `.vizier.yaml` uses `${VIZIER_JWT_SECRET}` placeholder
-- Agent config: `*.agent.md` files with YAML frontmatter, discovered
-  from config file directory
+- Agents are managed at runtime via WebUI or API (no more `.agent.md` files)
 
 ## Logging
 
@@ -111,7 +164,9 @@ Publishes to crates.io. Version lives in `Cargo.toml`.
 
 ## WebUI
 
-React Router v7, TypeScript, Tailwind CSS v4, Zustand for state.
+React Router v7, React 19, TypeScript, Tailwind CSS v4, Zustand for state.
+Motion (framer-motion successor) for animations, recharts for charts,
+highlight.js for syntax highlighting, MDX editor for markdown editing.
 Typecheck: `cd webui && npx react-router typegen && npx tsc` (or
 `npm run typecheck`).
 Built output goes to `webui/build/client/` — served by axum at runtime.

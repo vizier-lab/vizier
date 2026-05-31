@@ -1,22 +1,18 @@
 # Vizier
 
-> [!WARNING]
-> **Disclaimer:** this project currently on high-speed development mode; Readmes and Documentations may not properly updated yet
-
 > 21st Century Digital Steward; Right-hand agent for you majesty
 
-Vizier is a Rust-based AI agent framework that provides a unified interface for AI assistants across multiple communication channels (Discord, Telegram, HTTP, etc.) with memory, tool usage, and extensible architecture.
+Vizier is a Rust-based AI agent framework that provides a unified interface for AI assistants across multiple communication channels (Discord, Telegram, HTTP, WebUI) with memory, tool usage, and extensible architecture.
 
 ## Features
 
 - **Multi-Channel Support**: Connect to Discord, Telegram, HTTP (REST API & WebSocket), and WebUI
-- **AI Model Integration**: Support for multiple AI providers (DeepSeek, OpenRouter, Ollama, etc.)
+- **AI Model Integration**: Support for multiple AI providers (DeepSeek, OpenRouter, Ollama, Anthropic, OpenAI, Gemini, Xiaomi MiMo)
 - **Memory System**: Session-based short-term memory, configurable recall depth, and vector-based long-term memory
-- **Tool System**: Extensible tool framework including CLI access, web search (Brave Search), scheduler (cron & one-time tasks), vector memory, and workspace document management
+- **Tool System**: Extensible tool framework including shell execution, web search (Brave Search), HTTP client, web fetch, scheduler (cron & one-time tasks), vector memory, workspace document management, sub-agent spawning, Python sandbox, and inter-agent communication
 - **Scheduler**: Built-in task scheduler for automated agent execution
 - **WebUI**: Modern React-based web interface for interaction and management
-- **TUI Interface**: Built-in terminal user interface for local interaction (WIP)
-- **Configuration Driven**: Flexible configuration via YAML files with environment-specific overrides
+- **Configuration Driven**: YAML seed config with runtime management via WebUI
 
 ## Installation and Configuration
 
@@ -44,26 +40,16 @@ No prerequisites required for standard installation. The install script handles 
 
 2. **Generate configuration and workspace:**
    ```sh
-   vizier init
+   vizier onboard
    ```
-   This will create a minimal config and sample agent to run in your directory.
+   This will walk you through provider selection, embedding config, storage backend, and HTTP server setup.
 
 3. **Run the agent:**
    ```sh
    vizier run
    ```
 
-#### Quick Start with Python
-
-If you need the Python interpreter tool:
-
-```sh
-# Install with Python feature
-cargo install vizier --features python
-
-# Or from source
-cargo build --release --features python
-```
+4. **Open the WebUI** at `http://localhost:9999` to create and manage agents.
 
 ### Development Setup
 
@@ -115,23 +101,31 @@ curl -fFSL https://get.vizier.rs | sh
 - [x] Brave Search integration
 - [x] Local embedding model support
 - [x] Docker Sandbox
-- [x] Simple TUI (terminal user interface)
-- [x] Additional AI providers (Google Gemini, OpenAI, Anthropic, etc.)
+- [x] Additional AI providers (Google Gemini, OpenAI, Anthropic, Xiaomi MiMo, etc.)
 - [x] Sub-agent spawning for parallel task execution
 - [x] Model Context Protocol (MCP) integration
 - [x] Skill system for reusable agent behaviors
+- [x] Built-in HTTP client tool
 - [ ] WASM-based plugin system
-- [ ] Built-in HTTP client tool
 
 ## Development
 
 ### Project Structure
 
-- `src/`: Rust source code (agents, channels, tools, scheduler, database, etc.)
-- `webui/`: React-based web interface (built with Vite + React Router)
+- `src/`: Rust source code
+  - `agents/`: Agent process loop, LLM interaction, tools, hooks, skills
+  - `channels/`: Discord, Telegram, HTTP (REST + WebSocket + WebUI serving)
+  - `storage/`: Filesystem and SurrealDB storage backends
+  - `config/`: YAML seed config deserialization
+  - `schema/`: Shared types (responses, agent IDs, provider entries)
+  - `mcp/`: MCP client + server integration
+  - `embedding/`: Local embedding models (fastembed)
+  - `shell/`: Shell execution abstraction (local + Docker)
+  - `scheduler/`: Cron and one-time task scheduler
+  - `transport/`: Command transport for agent/channel/global commands
+- `webui/`: React-based web interface (React Router v7 + Tailwind v4 + TypeScript)
 - `templates/`: Template files for agent configuration and identity
 - `.vizier/`: Workspace directory for runtime data (config, database, agent workspaces)
-- `migrations/`: Database migrations (SurrealDB schemas)
 
 ### Available Commands
 
@@ -141,9 +135,8 @@ See the [`Justfile`](Justfile) for available commands:
 |---------|-------------|
 | `just install` | Install all dependencies (Rust crates + webui npm packages) |
 | `just dev` | Run in development mode with hot-reload |
-| `just run` | Run in release mode |
+| `just run` | Run in attached mode |
 | `just release` | Build release binary |
-| `just tui` | Start the terminal user interface (WIP) |
 | `just docker` | Start Docker services (database, etc.) |
 | `just build` | Build the webui frontend |
 
@@ -151,16 +144,17 @@ See the [`Justfile`](Justfile) for available commands:
 
 The `vizier` binary provides these subcommands:
 
-- `vizier run --config <path>`: Start the agent with given config
-- `vizier tui`: Launch the TUI client (requires running agent)
-- `vizier init`: Initialize a new vizier workspace
-- `vizier configure`: Generate a new config non-interactively
+- `vizier run --config <path>`: Start agents, server, and channels (daemonizes by default; use `-a` for attached mode)
+- `vizier shutdown --config <path>`: Stop a running daemonized instance
+- `vizier onboard --path <path>`: Interactive wizard to generate seed config
+
+Agents are created and managed at runtime via the WebUI or HTTP API — there is no CLI subcommand for agent management.
 
 ### Adding New Features
 
-1. **New Tools**: Add to `src/agent/tools/` and register in `src/agent/tools/mod.rs`
-2. **New Channels**: Add to `src/channels/` and implement the `Channel` trait
-3. **New Models**: Extend the provider system in `src/agent/agent_impl/provider.rs`
+1. **New Tools**: Add to `src/agents/tools/` and register in `src/agents/tools/mod.rs`
+2. **New Channels**: Add to `src/channels/` and implement the `VizierChannel` trait
+3. **New Models**: Extend the provider system in `src/agents/agent/model/`
 4. **New Schedules**: Add to `src/scheduler/` and integrate with task database
 
 ## License

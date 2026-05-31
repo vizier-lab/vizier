@@ -5,8 +5,8 @@ use async_broadcast::{Receiver, Sender, broadcast};
 use tokio::task::JoinSet;
 
 use crate::schema::{
-    AgentCommand, CommandRequest, CommandResponse, GlobalCommand, VizierRequest, VizierResponse,
-    VizierSession,
+    AgentCommand, ChannelCommand, CommandRequest, CommandResponse, GlobalCommand, VizierRequest,
+    VizierResponse, VizierSession,
 };
 
 #[derive(Debug, Clone)]
@@ -41,6 +41,11 @@ pub struct VizierTransport {
         flume::Receiver<GlobalCommand>,
     )>,
 
+    channel_command_channel: Arc<(
+        flume::Sender<ChannelCommand>,
+        flume::Receiver<ChannelCommand>,
+    )>,
+
     exit_channel: Arc<(flume::Sender<bool>, flume::Receiver<bool>)>,
 }
 
@@ -58,6 +63,7 @@ impl VizierTransport {
         let command_response_channel = Arc::new(flume::unbounded());
         let agent_command_channel = Arc::new(flume::unbounded());
         let global_command_channel = Arc::new(flume::unbounded());
+        let channel_command_channel = Arc::new(flume::unbounded());
 
         let exit_channel = Arc::new(flume::unbounded());
 
@@ -70,6 +76,7 @@ impl VizierTransport {
 
             agent_command_channel,
             global_command_channel,
+            channel_command_channel,
 
             exit_channel,
         }
@@ -123,6 +130,14 @@ impl VizierTransport {
 
     pub async fn recv_global_command(&self) -> Result<GlobalCommand> {
         Ok(self.global_command_channel.1.recv_async().await?)
+    }
+
+    pub async fn send_channel_command(&self, cmd: ChannelCommand) -> Result<()> {
+        Ok(self.channel_command_channel.0.send_async(cmd).await?)
+    }
+
+    pub async fn recv_channel_command(&self) -> Result<ChannelCommand> {
+        Ok(self.channel_command_channel.1.recv_async().await?)
     }
 
     pub async fn exit_signal(&self) -> Result<bool> {

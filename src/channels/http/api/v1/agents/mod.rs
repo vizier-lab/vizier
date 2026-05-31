@@ -100,6 +100,10 @@ pub struct AgentDetail {
     pub tools_timeout: String,
     pub mcp_servers: Vec<String>,
     pub avatar_url: Option<String>,
+    pub show_thinking: Option<bool>,
+    pub show_tool_calls: Option<bool>,
+    pub silent_read_initiative_chance: f32,
+    pub programmatic_sandbox: bool,
 }
 
 #[utoipa::path(
@@ -152,6 +156,10 @@ async fn agent_detail(
                 tools_timeout: config.tools.timeout.to_string(),
                 mcp_servers: config.tools.mcp_servers.clone(),
                 avatar_url: config.avatar_url,
+                show_thinking: config.show_thinking,
+                show_tool_calls: config.show_tool_calls,
+                silent_read_initiative_chance: config.silent_read_initiative_chance,
+                programmatic_sandbox: config.tools.programmatic_sandbox,
             },
         ),
         Ok(None) => err_response(StatusCode::NOT_FOUND, "not found".into()),
@@ -188,6 +196,12 @@ pub struct CreateAgentRequest {
     pub telegram_token: Option<String>,
     #[serde(default)]
     pub avatar_url: Option<String>,
+    #[serde(default)]
+    pub show_thinking: Option<bool>,
+    #[serde(default)]
+    pub show_tool_calls: Option<bool>,
+    #[serde(default)]
+    pub silent_read_initiative_chance: Option<f32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
@@ -212,6 +226,8 @@ pub struct CreateAgentTools {
     pub timeout: Option<String>,
     #[serde(default)]
     pub mcp_servers: Option<Vec<String>>,
+    #[serde(default)]
+    pub programmatic_sandbox: Option<bool>,
 }
 
 impl CreateAgentRequest {
@@ -227,6 +243,7 @@ impl CreateAgentRequest {
             http_client: None,
             timeout: None,
             mcp_servers: None,
+            programmatic_sandbox: None,
         });
 
         AgentConfig {
@@ -245,7 +262,7 @@ impl CreateAgentRequest {
                     tools.timeout.unwrap_or_else(|| "1m".into()),
                 )
                 .unwrap_or(duration_string::DurationString::from_string("1m".into()).unwrap()),
-                programmatic_sandbox: false,
+                programmatic_sandbox: tools.programmatic_sandbox.unwrap_or(false),
                 shell_access: tools.shell_access.unwrap_or(false),
                 brave_search: ToolConfig {
                     enabled: tools.brave_search.unwrap_or(false),
@@ -277,9 +294,9 @@ impl CreateAgentRequest {
                 },
                 mcp_servers: tools.mcp_servers.unwrap_or_default(),
             },
-            silent_read_initiative_chance: 0.0,
-            show_thinking: Some(false),
-            show_tool_calls: None,
+            silent_read_initiative_chance: self.silent_read_initiative_chance.unwrap_or(0.0),
+            show_thinking: self.show_thinking,
+            show_tool_calls: self.show_tool_calls,
             include_documents: None,
             prompt_timeout: duration_string::DurationString::from_string(
                 self.prompt_timeout.unwrap_or("5m".into()),

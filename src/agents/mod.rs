@@ -7,7 +7,8 @@ use crate::agents::process::agent_process;
 use crate::config::provider::ProviderVariant;
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
-    AgentCommand, AgentCommandResult, AgentConfig, AgentId, AgentSummary, ProviderEntryConfig,
+    AgentCommand, AgentCommandResult, AgentConfig, AgentId, AgentSummary, ChannelCommand,
+    ProviderEntryConfig,
 };
 use crate::storage::agent::AgentStorage;
 use crate::storage::provider::ProviderStorage;
@@ -143,6 +144,14 @@ impl VizierAgents {
                     avatar_url: config.avatar_url.clone(),
                 };
                 self.processes.insert(agent_id.to_string(), process);
+                let _ = self
+                    .deps
+                    .transport
+                    .send_channel_command(ChannelCommand::AgentCreated {
+                        agent_id: agent_id.to_string(),
+                        config,
+                    })
+                    .await;
                 AgentCommandResult::Ok(summary)
             }
             Err(e) => {
@@ -175,6 +184,14 @@ impl VizierAgents {
                     avatar_url: config.avatar_url.clone(),
                 };
                 self.processes.insert(agent_id.to_string(), process);
+                let _ = self
+                    .deps
+                    .transport
+                    .send_channel_command(ChannelCommand::AgentUpdated {
+                        agent_id: agent_id.to_string(),
+                        config,
+                    })
+                    .await;
                 AgentCommandResult::Ok(summary)
             }
             Err(e) => AgentCommandResult::Error(format!("failed to restart agent: {}", e)),
@@ -198,6 +215,14 @@ impl VizierAgents {
             let _ = process.shutdown.send(true);
             process.handle.abort();
         }
+
+        let _ = self
+            .deps
+            .transport
+            .send_channel_command(ChannelCommand::AgentDeleted {
+                agent_id: agent_id.to_string(),
+            })
+            .await;
 
         if delete_workspace {
             let workspace = agent_workspace(&self.deps.config.workspace, agent_id);

@@ -2,6 +2,7 @@ use regex::Regex;
 use std::path::PathBuf;
 
 pub mod discord;
+pub mod logo;
 pub mod markdown;
 pub mod ollama;
 pub mod tar;

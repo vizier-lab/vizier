@@ -1,87 +1,49 @@
-# Welcome to React Router!
+# Vizier WebUI
 
-A modern, production-ready template for building full-stack React applications using React Router.
+The Vizier web interface provides a modern UI for managing agents, providers, and configuration.
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/remix-run/react-router-templates/tree/main/default)
+## Tech Stack
 
-## Features
+- **Framework**: React Router v7
+- **React**: 19
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS v4
+- **State**: Zustand
+- **Build**: Vite 7
+- **Animations**: Motion (framer-motion successor)
+- **Charts**: Recharts
+- **Syntax Highlighting**: highlight.js
+- **Markdown**: MDX Editor
 
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
+## Development
 
-## Getting Started
-
-### Installation
-
-Install the dependencies:
-
-```bash
+```sh
+# Install dependencies
 npm install
-```
 
-### Development
-
-Start the development server with HMR:
-
-```bash
+# Start dev server (proxied to backend)
 npm run dev
-```
 
-Your application will be available at `http://localhost:5173`.
+# Typecheck
+npm run typecheck
 
-## Building for Production
-
-Create a production build:
-
-```bash
+# Build for production
 npm run build
 ```
 
-## Deployment
+The dev server runs at `http://localhost:5173` and proxies API requests to the Vizier backend.
 
-### Docker Deployment
+## Production
 
-To build and run using Docker:
+The built output goes to `build/client/` and is served by the Vizier axum server at runtime. The build is triggered automatically by `cargo build` via `build.rs` when `node_modules/` exists.
 
-```bash
-docker build -t my-app .
-
-# Run the container
-docker run -p 3000:3000 my-app
-```
-
-The containerized application can be deployed to any platform that supports Docker, including:
-
-- AWS ECS
-- Google Cloud Run
-- Azure Container Apps
-- Digital Ocean App Platform
-- Fly.io
-- Railway
-
-### DIY Deployment
-
-If you're familiar with deploying Node applications, the built-in app server is production-ready.
-
-Make sure to deploy the output of `npm run build`
+## Project Structure
 
 ```
-├── package.json
-├── package-lock.json (or pnpm-lock.yaml, or bun.lockb)
-├── build/
-│   ├── client/    # Static assets
-│   └── server/    # Server-side code
+app/
+├── routes/          # Page routes (agents, settings, login)
+├── components/      # Reusable UI components
+├── services/        # API client (vizier.tsx)
+├── stores/          # Zustand state stores
+└── lib/             # Utilities and helpers
 ```
-
-## Styling
-
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
-
----
-
-Built with ❤️ using React Router.

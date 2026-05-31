@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
+import { FaStop } from 'react-icons/fa6'
 
 const THINKING_WORDS = [
   'thinking',
@@ -70,9 +71,10 @@ interface InlineEvent {
 interface ThinkingIndicatorProps {
   inlineEvents: InlineEvent[]
   agentName: string
+  onAbort?: () => void
 }
 
-function ThinkingIndicatorComponent({ inlineEvents, agentName }: ThinkingIndicatorProps) {
+function ThinkingIndicatorComponent({ inlineEvents, agentName, onAbort }: ThinkingIndicatorProps) {
   const thinkingWord = useMemo(
     () => THINKING_WORDS[Math.floor(Math.random() * THINKING_WORDS.length)],
     []
@@ -139,6 +141,16 @@ function ThinkingIndicatorComponent({ inlineEvents, agentName }: ThinkingIndicat
             )}
           </div>
         ))}
+        {onAbort && (
+          <button
+            onClick={onAbort}
+            className="thinking-abort-btn"
+            title="Abort"
+          >
+            <FaStop size={10} />
+            <span>Abort</span>
+          </button>
+        )}
       </div>
     </div>
   )

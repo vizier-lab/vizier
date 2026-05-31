@@ -194,10 +194,14 @@ export default function Chat() {
   const [imagePreviews, setImagePreviews] = useState<Record<string, string>>(
     {}
   )
+  const [queuedMessages, setQueuedMessages] = useState<ChatMessage[]>([])
+  const [showScrollButton, setShowScrollButton] = useState(false)
+  const isThinking = inlineEvents.length > 0
   const prevInputRef = useRef('')
   const currentInputRef = useRef('')
   const dragCounterRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const thinkingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -381,6 +385,7 @@ export default function Chat() {
 
       case 'abort':
         clearInlineEvents()
+        setQueuedMessages([])
         return
     }
 
@@ -426,15 +431,39 @@ export default function Chat() {
           }
           return [...prev, newMessage]
         })
+        // Move first queued message to normal messages
+        setQueuedMessages((prev) => {
+          if (prev.length === 0) return prev
+          const [first, ...rest] = prev
+          setMessages((msgs) => [...msgs, first])
+          return rest
+        })
         return
       }
     }
   }, [lastMessage, agentId, resolvedTopicId])
 
-  // Auto-scroll to bottom
+  // Scroll detection
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    setShowScrollButton(distanceFromBottom > 200)
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
+    setShowScrollButton(false)
+  }, [])
+
+  // Auto-scroll to bottom when near bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    if (!showScrollButton && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
+  }, [messages, inlineEvents, queuedMessages, showScrollButton])
 
   // Close session dropdown on outside click
   useEffect(() => {
@@ -585,7 +614,12 @@ export default function Chat() {
         },
       }
 
-      setMessages((prev) => [...prev, userMessage])
+      // If agent is thinking, queue the message; otherwise add to messages
+      if (inlineEvents.length > 0) {
+        setQueuedMessages((prev) => [...prev, userMessage])
+      } else {
+        setMessages((prev) => [...prev, userMessage])
+      }
       setInput('')
       currentInputRef.current = ''
       setClearKey((k) => k + 1)
@@ -597,7 +631,7 @@ export default function Chat() {
       sendMessage(message)
       setPlaceholderSeed(Math.random())
     },
-    [agentId, resolvedTopicId, connected, sendMessage, attachments, addToast]
+    [agentId, resolvedTopicId, connected, sendMessage, attachments, addToast, inlineEvents]
   )
 
   const handleEditorChange = useCallback((value: string) => {
@@ -617,6 +651,19 @@ export default function Chat() {
     },
     [addToast]
   )
+
+  const handleAbort = useCallback(() => {
+    if (!connected) return
+    const username = getCurrentUsername()
+    const message: WebSocketMessage = {
+      timestamp: new Date().toISOString(),
+      user: username,
+      content: { command: 'abort' },
+      metadata: null as any,
+    }
+    sendMessage(message)
+    setQueuedMessages([])
+  }, [connected, sendMessage])
 
   const processFiles = useCallback(
     (files: File[]) => {
@@ -959,12 +1006,19 @@ export default function Chat() {
 
       {/* Messages */}
       <div
-        className="h-full overflow-y-scroll no-scrollbar w-full main-body"
+        className="no-scrollbar w-full main-body flex justify-center min-h-0"
+        style={{ paddingTop: 0 }}
         ref={pageRef}
       >
         <div
-          className="no-scrollbar "
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="no-scrollbar w-full! overflow-y-auto"
           style={{
+            paddingTop: '24px',
+            paddingLeft: '5%',
+            paddingRight: '5%',
+            paddingBottom: `${inputHeight}px`,
             display: 'flex',
             flexDirection: 'column',
             gap: '1.5rem',
@@ -977,6 +1031,7 @@ export default function Chat() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 height: '100%',
+                width: '100%',
                 color: 'var(--text-tertiary)',
                 flexDirection: 'column',
                 gap: '1rem',
@@ -1043,11 +1098,42 @@ export default function Chat() {
               <ThinkingIndicator
                 inlineEvents={inlineEvents}
                 agentName={agentDetail?.name || 'Agent'}
+                onAbort={isThinking ? handleAbort : undefined}
               />
+
+              {/* Queued messages */}
+              {queuedMessages.map((msg) => {
+                const request = msg.content.Request as any
+                const content = request?.content?.chat
+                if (!content) return null
+                return (
+                  <div key={msg.uid} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ fontWeight: '600', fontSize: '14px', color: 'var(--text-primary)' }}>
+                        {request.user || 'You'}
+                      </div>
+                      <span className="queued-badge">
+                        <span className="queued-badge-icon">⏳</span>
+                        Queued
+                      </span>
+                    </div>
+                    <div style={{
+                      padding: '12px 16px',
+                      background: 'var(--surface)',
+                      borderRadius: '8px',
+                      boxShadow: 'var(--shadow-sm)',
+                      opacity: 0.7,
+                    }}>
+                      <div className="prose">
+                        {content}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </>
           )}
           <div ref={messagesEndRef} />
-          <div style={{ height: `${inputHeight}px` }}></div>
         </div>
       </div>
 
@@ -1071,6 +1157,16 @@ export default function Chat() {
               width: '100%',
             }}
           >
+            {showScrollButton && (
+              <div className="scroll-to-bottom-row">
+                <button
+                  onClick={scrollToBottom}
+                  className="scroll-to-bottom-btn"
+                >
+                  Scroll to Bottom
+                </button>
+              </div>
+            )}
             {/* Input container */}
             <div
               className={`chat-input-container${isDragOver ? ' drag-over' : ''}`}
