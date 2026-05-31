@@ -1846,11 +1846,7 @@ select:focus {
 
 /* Send button — absolutely positioned, aligned with first line of content */
 .chat-send-btn-inline {
-  position: absolute;
-  top: 48px; /* toolbar (36px) + border (1px) + content padding-top (10px) + 1px */
-  right: 8px;
-  margin-bottom: 4px;
-  z-index: 10;
+  position: static;
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -1983,7 +1979,7 @@ select:focus {
 
 /* Content editable area */
 .chat-mdx-editor .mdxeditor [class*="contentEditable"] {
-  padding: 10px 52px 10px 12px !important;
+  padding: 10px 12px !important;
   min-height: 44px;
   max-height: 50vh;
   overflow-y: auto;
@@ -2191,4 +2187,41 @@ select:focus {
 .chat-mdx-editor .mdxeditor [class*="placeholder"] {
   color: var(--text-tertiary) !important;
   font-style: italic;
+}
+
+/* ============================================================================
+   INPUT BOTTOM BAR (chips + hint + send)
+   ============================================================================ */
+
+.chat-input-bottom-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 8px 8px;
+}
+
+.chat-input-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.chat-input-bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-input-bottom-row .chat-keyboard-hint {
+  opacity: 0;
+  height: 0;
+  overflow: hidden;
+  transition: opacity var(--transition-base), height var(--transition-base);
+}
+
+.chat-input-bottom-row .chat-keyboard-hint.visible {
+  opacity: 1;
+  height: auto;
 }

@@ -173,7 +173,8 @@ export default function Chat() {
     // clearLastMessage,
   } = useConnectionStore()
 
-  const [ref, { width: pageWidth }] = useMeasure()
+  const [pageRef, { width: pageWidth }] = useMeasure()
+  const [inputRef, { height: inputHeight }] = useMeasure()
 
   const resolvedTopicId = topicId ?? 'DEFAULT'
 
@@ -907,7 +908,7 @@ export default function Chat() {
       {/* Messages */}
       <div
         className="h-full overflow-y-scroll no-scrollbar w-full main-body"
-        ref={ref}
+        ref={pageRef}
       >
         <div
           className="no-scrollbar "
@@ -993,13 +994,14 @@ export default function Chat() {
             </>
           )}
           <div ref={messagesEndRef} />
-          <div className="h-15"></div>
+          <div style={{ height: `${inputHeight}px` }}></div>
         </div>
       </div>
 
       {/* Input */}
       <div className="no-scrollbar">
         <div
+          ref={inputRef}
           className="absolute bottom-0 shadow-2xs bg-linear-to-t from-background from-20% to-transparent"
           style={{
             width: `${pageWidth}px`,
@@ -1016,90 +1018,6 @@ export default function Chat() {
               width: '100%',
             }}
           >
-            {/* Attachment chips */}
-            {attachments.length > 0 && (
-              <div
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: '6px',
-                  alignItems: 'center',
-                }}
-              >
-                {attachments.map((att, idx) => {
-                  const isImage =
-                    /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(
-                      att.filename
-                    )
-                  const preview = imagePreviews[att.filename]
-                  const base64 =
-                    'base64' in att.content
-                      ? att.content.base64
-                      : undefined
-                  const ext =
-                    att.filename
-                      .split('.')
-                      .pop()
-                      ?.toLowerCase() || 'png'
-                  const mimeMap: Record<string, string> = {
-                    jpg: 'image/jpeg',
-                    jpeg: 'image/jpeg',
-                    png: 'image/png',
-                    gif: 'image/gif',
-                    webp: 'image/webp',
-                    svg: 'image/svg+xml',
-                    bmp: 'image/bmp',
-                  }
-                  const base64Src = base64
-                    ? `data:${mimeMap[ext] || 'image/png'};base64,${base64}`
-                    : undefined
-                  return (
-                    <div
-                      key={idx}
-                      className="chat-attachment-chip"
-                    >
-                      {isImage && preview ? (
-                        <img
-                          src={preview}
-                          alt={att.filename}
-                          className="chat-attachment-chip-thumbnail"
-                        />
-                      ) : isImage && base64Src ? (
-                        <img
-                          src={base64Src}
-                          alt={att.filename}
-                          className="chat-attachment-chip-thumbnail"
-                        />
-                      ) : null}
-                      <span>{att.filename}</span>
-                      <button
-                        onClick={() =>
-                          handleRemoveAttachment(idx)
-                        }
-                        className="chat-attachment-chip-remove"
-                      >
-                        <FaXmark size={10} />
-                      </button>
-                    </div>
-                  )
-                })}
-                <button
-                  onClick={() => {
-                    setAttachments([])
-                    setImagePreviews({})
-                  }}
-                  className="chat-clear-all-btn"
-                >
-                  Clear all
-                </button>
-              </div>
-            )}
-            {/* Keyboard hint */}
-            <div
-              className={`chat-keyboard-hint${input.trim() ? ' visible' : ''}`}
-            >
-              Press <strong>Ctrl+Enter</strong> to send
-            </div>
             {/* Input container */}
             <div
               className={`chat-input-container${isDragOver ? ' drag-over' : ''}`}
@@ -1143,13 +1061,95 @@ export default function Chat() {
                   placeholder={connected ? 'Type a message...' : 'Connecting...'}
                   disabled={!connected}
                 />
-                <button
-                  type="submit"
-                  className={`chat-send-btn chat-send-btn-inline${input.trim() ? ' has-content' : ''}${sendPulse ? ' pulse' : ''}`}
-                  disabled={!input.trim() || !connected}
-                >
-                  <FaPaperPlane size={14} />
-                </button>
+                {/* Bottom bar: chips + hint + send */}
+                <div className="chat-input-bottom-bar">
+                  {/* Attachment chips */}
+                  {attachments.length > 0 && (
+                    <div className="chat-input-chips">
+                      {attachments.map((att, idx) => {
+                        const isImage =
+                          /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(
+                            att.filename
+                          )
+                        const preview = imagePreviews[att.filename]
+                        const base64 =
+                          'base64' in att.content
+                            ? att.content.base64
+                            : undefined
+                        const ext =
+                          att.filename
+                            .split('.')
+                            .pop()
+                            ?.toLowerCase() || 'png'
+                        const mimeMap: Record<string, string> = {
+                          jpg: 'image/jpeg',
+                          jpeg: 'image/jpeg',
+                          png: 'image/png',
+                          gif: 'image/gif',
+                          webp: 'image/webp',
+                          svg: 'image/svg+xml',
+                          bmp: 'image/bmp',
+                        }
+                        const base64Src = base64
+                          ? `data:${mimeMap[ext] || 'image/png'};base64,${base64}`
+                          : undefined
+                        return (
+                          <div
+                            key={idx}
+                            className="chat-attachment-chip"
+                          >
+                            {isImage && preview ? (
+                              <img
+                                src={preview}
+                                alt={att.filename}
+                                className="chat-attachment-chip-thumbnail"
+                              />
+                            ) : isImage && base64Src ? (
+                              <img
+                                src={base64Src}
+                                alt={att.filename}
+                                className="chat-attachment-chip-thumbnail"
+                              />
+                            ) : null}
+                            <span>{att.filename}</span>
+                            <button
+                              onClick={() =>
+                                handleRemoveAttachment(idx)
+                              }
+                              className="chat-attachment-chip-remove"
+                            >
+                              <FaXmark size={10} />
+                            </button>
+                          </div>
+                        )
+                      })}
+                      <button
+                        onClick={() => {
+                          setAttachments([])
+                          setImagePreviews({})
+                        }}
+                        className="chat-clear-all-btn"
+                      >
+                        Clear all
+                      </button>
+                    </div>
+                  )}
+                  <div className="chat-input-bottom-row">
+                    {/* Keyboard hint */}
+                    <div
+                      className={`chat-keyboard-hint${input.trim() ? ' visible' : ''}`}
+                    >
+                      <strong>Ctrl+Enter</strong> to send
+                    </div>
+                    <button
+                      type="submit"
+                      className={`chat-send-btn chat-send-btn-inline${input.trim() ? ' has-content' : ''}${sendPulse ? ' pulse' : ''}`}
+                      disabled={!input.trim() || !connected}
+                    >
+                      <FaPaperPlane size={14} />
+                    </button>
+                  </div>
+                </div>
               </form>
             </div>
           </div>
