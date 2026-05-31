@@ -247,6 +247,27 @@ impl TelegramChannelReader {
             return Ok(());
         }
 
+        if text.starts_with("/abort") {
+            let session = VizierSession(
+                self.agent_id.clone(),
+                channel.clone(),
+                topic_id.clone(),
+            );
+            let _ = transport
+                .send_request(
+                    session,
+                    VizierRequest {
+                        timestamp: Utc::now(),
+                        user: user.clone(),
+                        content: VizierRequestContent::Command("abort".to_string()),
+                        metadata: serde_json::json!({}),
+                        attachments: vec![],
+                    },
+                )
+                .await;
+            return Ok(());
+        }
+
         let should_respond = is_mention || text.starts_with(&format!("/{}", bot_username)) || is_dm;
 
         if should_respond {

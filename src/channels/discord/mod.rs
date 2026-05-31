@@ -189,6 +189,9 @@ impl EventHandler for Handler {
 
         let _ = Command::create_global_command(ctx.http.clone(), new).await;
         let _ = Command::create_global_command(ctx.http.clone(), session).await;
+
+        let abort = CreateCommand::new("abort").description("abort current thinking");
+        let _ = Command::create_global_command(ctx.http.clone(), abort).await;
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
@@ -298,7 +301,7 @@ impl EventHandler for Handler {
                     if let Ok(sessions) = self
                         .1
                         .storage
-                        .get_session_list(agent_id, Some(channel))
+                        .get_session_list(agent_id.clone(), Some(channel))
                         .await
                     {
                         let mut res = vec![];
@@ -341,6 +344,43 @@ If I am halucinating, feel free to `/lobotomy` me
                 {
                     tracing::error!("{}", err)
                 }
+            }
+
+            if command.data.name == "abort" {
+                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
+                let key = format!("{}__{}", agent_id, channel.to_slug());
+                let topic_id = if let Ok(Some(value)) = self.1.storage.get_state(key).await {
+                    serde_json::from_value::<ChannelState>(value)
+                        .ok()
+                        .and_then(|s| s.active_topic)
+                } else {
+                    None
+                };
+
+                let session = VizierSession(agent_id.clone(), channel, topic_id);
+                let _ = self
+                    .1
+                    .transport
+                    .send_request(
+                        session,
+                        VizierRequest {
+                            timestamp: Utc::now(),
+                            user: agent_id.clone(),
+                            content: VizierRequestContent::Command("abort".to_string()),
+                            metadata: serde_json::json!({}),
+                            attachments: vec![],
+                        },
+                    )
+                    .await;
+
+                let _ = command
+                    .create_response(
+                        ctx.http.clone(),
+                        serenity::all::CreateInteractionResponse::Message(
+                            CreateInteractionResponseMessage::new().content("aborting..."),
+                        ),
+                    )
+                    .await;
             }
         }
     }

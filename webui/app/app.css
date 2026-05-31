@@ -1461,6 +1461,7 @@ select:focus {
 .thinking-dots {
   display: inline-flex;
   gap: 2px;
+  color: #10b981;
 }
 
 .thinking-dots span {
@@ -1487,6 +1488,49 @@ select:focus {
   40% {
     opacity: 1;
   }
+}
+
+.thinking-abort-btn {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  font-size: 12px;
+  width: fit-content;
+}
+
+.thinking-abort-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* ============================================================================
+   QUEUED MESSAGE BADGE
+   ============================================================================ */
+
+.queued-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  font-size: 11px;
+  color: #10b981;
+  vertical-align: middle;
+}
+
+.queued-badge-icon {
+  font-size: 10px;
 }
 
 /* ============================================================================

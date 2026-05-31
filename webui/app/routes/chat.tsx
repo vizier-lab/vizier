@@ -194,6 +194,8 @@ export default function Chat() {
   const [imagePreviews, setImagePreviews] = useState<Record<string, string>>(
     {}
   )
+  const [queuedMessages, setQueuedMessages] = useState<ChatMessage[]>([])
+  const isThinking = inlineEvents.length > 0
   const prevInputRef = useRef('')
   const currentInputRef = useRef('')
   const dragCounterRef = useRef(0)
@@ -381,6 +383,7 @@ export default function Chat() {
 
       case 'abort':
         clearInlineEvents()
+        setQueuedMessages([])
         return
     }
 
@@ -425,6 +428,13 @@ export default function Chat() {
             },
           }
           return [...prev, newMessage]
+        })
+        // Move first queued message to normal messages
+        setQueuedMessages((prev) => {
+          if (prev.length === 0) return prev
+          const [first, ...rest] = prev
+          setMessages((msgs) => [...msgs, first])
+          return rest
         })
         return
       }
@@ -585,7 +595,12 @@ export default function Chat() {
         },
       }
 
-      setMessages((prev) => [...prev, userMessage])
+      // If agent is thinking, queue the message; otherwise add to messages
+      if (inlineEvents.length > 0) {
+        setQueuedMessages((prev) => [...prev, userMessage])
+      } else {
+        setMessages((prev) => [...prev, userMessage])
+      }
       setInput('')
       currentInputRef.current = ''
       setClearKey((k) => k + 1)
@@ -597,7 +612,7 @@ export default function Chat() {
       sendMessage(message)
       setPlaceholderSeed(Math.random())
     },
-    [agentId, resolvedTopicId, connected, sendMessage, attachments, addToast]
+    [agentId, resolvedTopicId, connected, sendMessage, attachments, addToast, inlineEvents]
   )
 
   const handleEditorChange = useCallback((value: string) => {
@@ -617,6 +632,19 @@ export default function Chat() {
     },
     [addToast]
   )
+
+  const handleAbort = useCallback(() => {
+    if (!connected) return
+    const username = getCurrentUsername()
+    const message: WebSocketMessage = {
+      timestamp: new Date().toISOString(),
+      user: username,
+      content: { command: 'abort' },
+      metadata: null as any,
+    }
+    sendMessage(message)
+    setQueuedMessages([])
+  }, [connected, sendMessage])
 
   const processFiles = useCallback(
     (files: File[]) => {
@@ -963,7 +991,7 @@ export default function Chat() {
         ref={pageRef}
       >
         <div
-          className="no-scrollbar px-10!"
+          className="no-scrollbar w-full! p-10%"
           style={{
             display: 'flex',
             flexDirection: 'column',
@@ -1044,13 +1072,45 @@ export default function Chat() {
               <ThinkingIndicator
                 inlineEvents={inlineEvents}
                 agentName={agentDetail?.name || 'Agent'}
+                onAbort={isThinking ? handleAbort : undefined}
               />
+
+              {/* Queued messages */}
+              {queuedMessages.map((msg) => {
+                const request = msg.content.Request as any
+                const content = request?.content?.chat
+                if (!content) return null
+                return (
+                  <div key={msg.uid} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ fontWeight: '600', fontSize: '14px', color: 'var(--text-primary)' }}>
+                        {request.user || 'You'}
+                      </div>
+                      <span className="queued-badge">
+                        <span className="queued-badge-icon">⏳</span>
+                        Queued
+                      </span>
+                    </div>
+                    <div style={{
+                      padding: '12px 16px',
+                      background: 'var(--surface)',
+                      borderRadius: '8px',
+                      boxShadow: 'var(--shadow-sm)',
+                      opacity: 0.7,
+                    }}>
+                      <div className="prose">
+                        {content}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </>
           )}
           <div ref={messagesEndRef} />
-          <div style={{ height: `${inputHeight}px` }}></div>
         </div>
       </div>
+      <div style={{ height: `${inputHeight}px` }}></div>
 
       {/* Input */}
       <div className="no-scrollbar">
