@@ -987,12 +987,15 @@ export default function Chat() {
 
       {/* Messages */}
       <div
-        className="h-full overflow-y-scroll no-scrollbar w-full main-body flex justify-center"
+        className="h-full overflow-y-clip! no-scrollbar w-full main-body flex justify-center"
+        style={{ paddingTop: 0 }}
         ref={pageRef}
       >
         <div
-          className="no-scrollbar w-full! p-10%"
+          className="no-scrollbar w-full! overflow-y-scroll"
           style={{
+            paddingLeft: '5%',
+            paddingRight: '5%',
             display: 'flex',
             flexDirection: 'column',
             gap: '1.5rem',
