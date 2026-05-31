@@ -31,7 +31,7 @@ import { useToastStore } from '../hooks/toastStore'
 import { useConnectionStore } from '../hooks/connectionStore'
 import { MessageItem } from '../components/MessageItem'
 import { ThinkingIndicator } from '../components/ThinkingIndicator'
-import Editor from '../components/editor'
+import MarkdownEditor from '../components/MarkdownEditor'
 import { useMeasure } from '@uidotdev/usehooks'
 
 interface InlineEvent {
@@ -533,11 +533,6 @@ export default function Chat() {
     [agentId, resolvedTopicId, connected, sendMessage, attachments]
   )
 
-  const handleEditorSubmit = useCallback(
-    () => handleSendMessage(new Event('submit') as any),
-    [handleSendMessage]
-  )
-
   const handleEditorChange = useCallback((value: string) => {
     setInput(value)
     currentInputRef.current = value
@@ -1026,6 +1021,12 @@ export default function Chat() {
               onDragOver={handleDragOver}
               onDrop={handleDrop}
               onPaste={handlePaste}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault()
+                  handleSendMessage(e as any)
+                }
+              }}
               style={{
                 backdropFilter: 'blur(5px)',
                 position: 'relative',
@@ -1052,12 +1053,12 @@ export default function Chat() {
                   accept="image/*,.pdf,.doc,.docx,.txt"
                   style={{ display: 'none' }}
                 />
-                <Editor
+                <MarkdownEditor
                   key={clearKey}
                   value={input}
                   onChange={handleEditorChange}
-                  onSubmit={handleEditorSubmit}
                   onAttach={handleAttachClick}
+                  className="chat-mdx-editor"
                   placeholder={connected ? 'Type a message...' : 'Connecting...'}
                   disabled={!connected}
                 />

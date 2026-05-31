@@ -9,6 +9,7 @@ import { FaPlus, FaTrash, FaPenToSquare } from 'react-icons/fa6'
 import { Skeleton, SkeletonMemoryCard } from '../components/Skeleton'
 import { useToastStore } from '../hooks/toastStore'
 import type { Memory, MemoryDetail } from '../interfaces/types'
+import MarkdownEditor from '../components/MarkdownEditor'
 
 type ModalMode = 'create' | 'edit' | 'view' | null
 
@@ -355,15 +356,14 @@ export default function MemoryManagement() {
 
                   <div className="input-group">
                     <label htmlFor="content">Content</label>
-                    <textarea
-                      id="content"
-                      value={formContent}
-                      onChange={(e) => setFormContent(e.target.value)}
-                      required
-                      rows={10}
-                      style={{ fontFamily: 'var(--font-mono)' }}
-                      placeholder="Enter memory content..."
-                    />
+                    <div style={{ height: '300px' }}>
+                      <MarkdownEditor
+                        value={formContent}
+                        onChange={setFormContent}
+                        placeholder="Enter memory content..."
+                        className="modal-mdx-editor"
+                      />
+                    </div>
                   </div>
 
                   <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>

@@ -17,82 +17,36 @@ import {
   ButtonWithTooltip,
 } from '@mdxeditor/editor'
 import type { MDXEditorMethods } from '@mdxeditor/editor'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import { FaPaperclip } from 'react-icons/fa6'
 
-interface EditorProps {
+interface MarkdownEditorProps {
   value: string
   onChange: (value: string) => void
-  onSubmit: () => void
-  onAttach?: () => void
   placeholder?: string
   disabled?: boolean
+  className?: string
+  onAttach?: () => void
 }
 
-export default function Editor({
+export default function MarkdownEditor({
   value,
   onChange,
-  onSubmit,
-  onAttach,
   placeholder,
   disabled,
-}: EditorProps) {
+  className,
+  onAttach,
+}: MarkdownEditorProps) {
   const editorRef = useRef<MDXEditorMethods>(null)
-  const wrapperRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const wrapper = wrapperRef.current
-    if (!wrapper) return
-
-    let cleanup: (() => void) | null = null
-
-    const attachListener = (el: HTMLElement) => {
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-          const md = editorRef.current?.getMarkdown()
-          if (!md?.trim()) return
-
-          e.preventDefault()
-          e.stopPropagation()
-          onSubmit()
-        }
-      }
-
-      el.addEventListener('keydown', handleKeyDown, true)
-      cleanup = () => el.removeEventListener('keydown', handleKeyDown, true)
-    }
-
-    const contentEditable = wrapper.querySelector<HTMLElement>(
-      '[contenteditable="true"]'
-    )
-
-    if (contentEditable) {
-      attachListener(contentEditable)
-    } else {
-      const observer = new MutationObserver(() => {
-        const el = wrapper.querySelector<HTMLElement>(
-          '[contenteditable="true"]'
-        )
-        if (el) {
-          observer.disconnect()
-          attachListener(el)
-        }
-      })
-      observer.observe(wrapper, { childList: true, subtree: true })
-      cleanup = () => observer.disconnect()
-    }
-
-    return () => cleanup?.()
-  }, [onSubmit])
 
   return (
-    <div className="chat-mdx-editor" ref={wrapperRef}>
+    <div className={`mdx-editor${className ? ` ${className}` : ''}`}>
       <MDXEditor
         ref={editorRef}
-        className="chat-mdx-editor-instance"
+        className="mdx-editor-instance"
         markdown={value}
         onChange={onChange}
-        placeholder={placeholder ?? 'Type a message...'}
+        placeholder={placeholder ?? 'Type something...'}
         readOnly={disabled}
         plugins={[
           headingsPlugin(),
@@ -103,7 +57,7 @@ export default function Editor({
           linkPlugin(),
           codeBlockPlugin({ defaultCodeBlockLanguage: '' }),
           toolbarPlugin({
-            toolbarClassName: 'chat-editor-toolbar',
+            toolbarClassName: 'mdx-editor-toolbar',
             toolbarContents: () => (
               <>
                 {onAttach && (

@@ -5,6 +5,7 @@ import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
 import { FaPlus, FaTrash, FaClock } from 'react-icons/fa6'
 import type { Task } from '../interfaces/types'
 import DatePicker from '../components/DatePicker'
+import MarkdownEditor from '../components/MarkdownEditor'
 
 type ModalMode = 'create' | 'edit' | 'view' | null
 type ScheduleType = 'Cron' | 'OneTime'
@@ -492,13 +493,14 @@ export default function TaskManagement() {
 
                   <div className="input-group">
                     <label htmlFor="instruction">Instruction</label>
-                    <textarea
-                      id="instruction"
-                      value={formInstruction}
-                      onChange={(e) => setFormInstruction(e.target.value)}
-                      required
-                      rows={5}
-                    />
+                    <div style={{ height: '200px' }}>
+                      <MarkdownEditor
+                        value={formInstruction}
+                        onChange={setFormInstruction}
+                        placeholder="Enter task instruction..."
+                        className="modal-mdx-editor"
+                      />
+                    </div>
                   </div>
 
                   <div className="input-group">

@@ -1834,13 +1834,13 @@ select:focus {
    ============================================================================ */
 
 /* Wrapper — fills available space in the input container */
-.chat-mdx-editor {
+.mdx-editor {
   flex: 1;
   min-width: 0;
 }
 
 /* Body wrapper — positions content area */
-.chat-mdx-editor-body {
+.mdx-editor-body {
   position: relative;
 }
 
@@ -1886,7 +1886,7 @@ select:focus {
 }
 
 /* Override MDXEditor CSS custom properties to match Vizier theme */
-.chat-mdx-editor .mdxeditor {
+.mdx-editor .mdxeditor {
   --baseBg: transparent;
   --baseBgActive: var(--hover);
   --baseBgHover: var(--hover);
@@ -1914,7 +1914,7 @@ select:focus {
 }
 
 /* Toolbar — always visible, compact, transparent */
-.chat-mdx-editor .mdxeditor [class*="toolbarRoot"] {
+.mdx-editor .mdxeditor [class*="toolbarRoot"] {
   background: transparent !important;
   border-bottom: 1px solid var(--border) !important;
   padding: 4px 8px !important;
@@ -1923,9 +1923,9 @@ select:focus {
 }
 
 /* Toolbar toggle buttons */
-.chat-mdx-editor .mdxeditor [class*="toolbarToggleItem"],
-.chat-mdx-editor .mdxeditor [class*="toolbarButton"],
-.chat-mdx-editor .mdxeditor [class*="toolbarButtonSelectTrigger"] {
+.mdx-editor .mdxeditor [class*="toolbarToggleItem"],
+.mdx-editor .mdxeditor [class*="toolbarButton"],
+.mdx-editor .mdxeditor [class*="toolbarButtonSelectTrigger"] {
   width: 28px !important;
   height: 28px !important;
   min-width: 28px !important;
@@ -1942,26 +1942,26 @@ select:focus {
   font-size: 13px !important;
 }
 
-.chat-mdx-editor .mdxeditor [class*="toolbarToggleItem"]:hover,
-.chat-mdx-editor .mdxeditor [class*="toolbarButton"]:hover,
-.chat-mdx-editor .mdxeditor [class*="toolbarButtonSelectTrigger"]:hover {
+.mdx-editor .mdxeditor [class*="toolbarToggleItem"]:hover,
+.mdx-editor .mdxeditor [class*="toolbarButton"]:hover,
+.mdx-editor .mdxeditor [class*="toolbarButtonSelectTrigger"]:hover {
   background: var(--hover) !important;
   color: var(--text-primary) !important;
 }
 
 /* Active/pressed toolbar buttons */
-.chat-mdx-editor .mdxeditor [class*="toolbarToggleItem"][data-state="on"],
-.chat-mdx-editor .mdxeditor [class*="toolbarButton"][data-state="on"],
-.chat-mdx-editor .mdxeditor [class*="toolbarToggleItem"]:active,
-.chat-mdx-editor .mdxeditor [class*="toolbarButton"]:active,
-.chat-mdx-editor .mdxeditor [class*="activeToolbarButton"],
-.chat-mdx-editor .mdxeditor button[aria-pressed="true"] {
+.mdx-editor .mdxeditor [class*="toolbarToggleItem"][data-state="on"],
+.mdx-editor .mdxeditor [class*="toolbarButton"][data-state="on"],
+.mdx-editor .mdxeditor [class*="toolbarToggleItem"]:active,
+.mdx-editor .mdxeditor [class*="toolbarButton"]:active,
+.mdx-editor .mdxeditor [class*="activeToolbarButton"],
+.mdx-editor .mdxeditor button[aria-pressed="true"] {
   background-color: var(--accent-light) !important;
   color: var(--accent-primary) !important;
 }
 
 /* Block type select dropdown */
-.chat-mdx-editor .mdxeditor [class*="toolbarButtonSelectTrigger"] {
+.mdx-editor .mdxeditor [class*="toolbarButtonSelectTrigger"] {
   width: auto !important;
   min-width: 60px !important;
   padding: 0 8px !important;
@@ -1970,7 +1970,7 @@ select:focus {
 }
 
 /* Toolbar separator */
-.chat-mdx-editor .mdxeditor [class*="separator"] {
+.mdx-editor .mdxeditor [class*="separator"] {
   width: 1px !important;
   height: 20px !important;
   background: var(--border) !important;
@@ -1978,7 +1978,7 @@ select:focus {
 }
 
 /* Content editable area */
-.chat-mdx-editor .mdxeditor [class*="contentEditable"] {
+.mdx-editor .mdxeditor [class*="contentEditable"] {
   padding: 10px 12px !important;
   min-height: 44px;
   max-height: 50vh;
@@ -1990,18 +1990,18 @@ select:focus {
   outline: none;
 }
 
-.chat-mdx-editor .mdxeditor [class*="contentEditable"]:empty::before {
+.mdx-editor .mdxeditor [class*="contentEditable"]:empty::before {
   content: attr(data-placeholder);
   color: var(--text-tertiary);
   pointer-events: none;
 }
 
 /* Hide scrollbar in content area */
-.chat-mdx-editor .mdxeditor [class*="contentEditable"]::-webkit-scrollbar {
+.mdx-editor .mdxeditor [class*="contentEditable"]::-webkit-scrollbar {
   display: none;
 }
 
-.chat-mdx-editor .mdxeditor [class*="contentEditable"] {
+.mdx-editor .mdxeditor [class*="contentEditable"] {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
@@ -2009,21 +2009,21 @@ select:focus {
 /* --- Inline markdown element styling --- */
 
 /* Headings */
-.chat-mdx-editor .mdxeditor h1 {
+.mdx-editor .mdxeditor h1 {
   font-size: 1.5em;
   font-weight: 600;
   margin: 0.5em 0 0.25em;
   color: var(--text-primary);
 }
 
-.chat-mdx-editor .mdxeditor h2 {
+.mdx-editor .mdxeditor h2 {
   font-size: 1.3em;
   font-weight: 600;
   margin: 0.5em 0 0.25em;
   color: var(--text-primary);
 }
 
-.chat-mdx-editor .mdxeditor h3 {
+.mdx-editor .mdxeditor h3 {
   font-size: 1.1em;
   font-weight: 600;
   margin: 0.5em 0 0.25em;
@@ -2031,16 +2031,16 @@ select:focus {
 }
 
 /* Bold & italic */
-.chat-mdx-editor .mdxeditor strong {
+.mdx-editor .mdxeditor strong {
   font-weight: 600;
 }
 
-.chat-mdx-editor .mdxeditor em {
+.mdx-editor .mdxeditor em {
   font-style: italic;
 }
 
 /* Inline code */
-.chat-mdx-editor .mdxeditor code {
+.mdx-editor .mdxeditor code {
   font-family: var(--font-mono);
   font-size: 0.875em;
   background: var(--surface);
@@ -2049,20 +2049,20 @@ select:focus {
   border: 1px solid var(--border);
 }
 
-:not(.dark) .chat-mdx-editor .mdxeditor code {
+:not(.dark) .mdx-editor .mdxeditor code {
   background: #e8e8e3;
   color: #2a2a2a;
   border-color: #d4d2cc;
 }
 
-.dark .chat-mdx-editor .mdxeditor code {
+.dark .mdx-editor .mdxeditor code {
   background: #27272a;
   color: #e4e4e7;
   border-color: #3f3f46;
 }
 
 /* Code blocks */
-.chat-mdx-editor .mdxeditor pre {
+.mdx-editor .mdxeditor pre {
   background: var(--surface);
   border: 1px solid var(--border);
   padding: 12px;
@@ -2071,17 +2071,17 @@ select:focus {
   margin: 0.5em 0;
 }
 
-:not(.dark) .chat-mdx-editor .mdxeditor pre {
+:not(.dark) .mdx-editor .mdxeditor pre {
   background: #f0f0eb;
   border-color: #d4d2cc;
 }
 
-.dark .chat-mdx-editor .mdxeditor pre {
+.dark .mdx-editor .mdxeditor pre {
   background: #18181b;
   border-color: #27272a;
 }
 
-.chat-mdx-editor .mdxeditor pre code {
+.mdx-editor .mdxeditor pre code {
   background: none;
   border: none;
   padding: 0;
@@ -2090,7 +2090,7 @@ select:focus {
 }
 
 /* Blockquote */
-.chat-mdx-editor .mdxeditor blockquote {
+.mdx-editor .mdxeditor blockquote {
   border-left: 3px solid var(--border);
   padding-left: 1em;
   margin: 0.5em 0;
@@ -2099,66 +2099,66 @@ select:focus {
 }
 
 /* Lists */
-.chat-mdx-editor .mdxeditor ul,
-.chat-mdx-editor .mdxeditor ol {
+.mdx-editor .mdxeditor ul,
+.mdx-editor .mdxeditor ol {
   margin: 0.5em 0;
   padding-left: 1.5em;
 }
 
-.chat-mdx-editor .mdxeditor ul {
+.mdx-editor .mdxeditor ul {
   list-style-type: disc !important;
 }
 
-.chat-mdx-editor .mdxeditor ol {
+.mdx-editor .mdxeditor ol {
   list-style-type: decimal !important;
 }
 
-.chat-mdx-editor .mdxeditor li,
-.chat-mdx-editor .mdxeditor li[class*="listitem"] {
+.mdx-editor .mdxeditor li,
+.mdx-editor .mdxeditor li[class*="listitem"] {
   margin: 0.15em 0;
   list-style-type: inherit !important;
 }
 
-.chat-mdx-editor .mdxeditor li[class*="nestedListItem"] {
+.mdx-editor .mdxeditor li[class*="nestedListItem"] {
   list-style-type: inherit !important;
 }
 
-.chat-mdx-editor .mdxeditor li[class*="nestedListItem"]::before,
-.chat-mdx-editor .mdxeditor li[class*="nestedListItem"]::after {
+.mdx-editor .mdxeditor li[class*="nestedListItem"]::before,
+.mdx-editor .mdxeditor li[class*="nestedListItem"]::after {
   display: revert !important;
 }
 
 /* Links */
-.chat-mdx-editor .mdxeditor a {
+.mdx-editor .mdxeditor a {
   color: var(--accent-primary);
   text-decoration: underline;
 }
 
-.chat-mdx-editor .mdxeditor a:hover {
+.mdx-editor .mdxeditor a:hover {
   color: var(--accent-dark);
 }
 
 /* Thematic break (hr) */
-.chat-mdx-editor .mdxeditor hr {
+.mdx-editor .mdxeditor hr {
   border: none;
   border-top: 1px solid var(--border);
   margin: 1em 0;
 }
 
 /* Strikethrough */
-.chat-mdx-editor .mdxeditor del {
+.mdx-editor .mdxeditor del {
   text-decoration: line-through;
   color: var(--text-tertiary);
 }
 
 /* Task list checkboxes */
-.chat-mdx-editor .mdxeditor input[type="checkbox"] {
+.mdx-editor .mdxeditor input[type="checkbox"] {
   accent-color: var(--accent-primary);
   margin-right: 0.5em;
 }
 
 /* Dropdown menus (block type select, list toggle) */
-.chat-mdx-editor .mdxeditor [class*="popoverContent"] {
+.mdx-editor .mdxeditor [class*="popoverContent"] {
   background: var(--surface) !important;
   border: 1px solid var(--border) !important;
   border-radius: 8px !important;
@@ -2167,26 +2167,57 @@ select:focus {
   z-index: 50 !important;
 }
 
-.chat-mdx-editor .mdxeditor [class*="selectItem"] {
+.mdx-editor .mdxeditor [class*="selectItem"] {
   color: var(--text-primary) !important;
   font-size: 13px !important;
   border-radius: 4px !important;
 }
 
-.chat-mdx-editor .mdxeditor [class*="selectItem"][data-highlighted] {
+.mdx-editor .mdxeditor [class*="selectItem"][data-highlighted] {
   background: var(--hover) !important;
   color: var(--text-primary) !important;
 }
 
-.chat-mdx-editor .mdxeditor [class*="selectItem"][data-state="checked"] {
+.mdx-editor .mdxeditor [class*="selectItem"][data-state="checked"] {
   color: var(--accent-primary) !important;
   font-weight: 600;
 }
 
 /* Placeholder text */
-.chat-mdx-editor .mdxeditor [class*="placeholder"] {
+.mdx-editor .mdxeditor [class*="placeholder"] {
   color: var(--text-tertiary) !important;
   font-style: italic;
+}
+
+/* ============================================================================
+   CONTEXT-SPECIFIC EDITOR STYLES
+   ============================================================================ */
+
+/* Document editor — full height */
+.document-mdx-editor,
+.document-mdx-editor .mdxeditor {
+  height: 100%;
+}
+
+.document-mdx-editor .mdxeditor [class*="contentEditable"] {
+  min-height: 100%;
+  max-height: none !important;
+}
+
+/* Chat editor — compact, grows up to 50vh */
+.chat-mdx-editor .mdxeditor [class*="contentEditable"] {
+  max-height: 50vh;
+}
+
+/* Modal editor — fits fixed-height container */
+.modal-mdx-editor,
+.modal-mdx-editor .mdxeditor {
+  height: 100%;
+}
+
+.modal-mdx-editor .mdxeditor [class*="contentEditable"] {
+  min-height: 100%;
+  max-height: none !important;
 }
 
 /* ============================================================================

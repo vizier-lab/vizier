@@ -1,7 +1,4 @@
 import { useEffect, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
 import { useParams } from 'react-router'
 import {
   getAgentDocument,
@@ -12,6 +9,7 @@ import {
   updateHeartbeatDocument,
 } from '../services/vizier'
 import { useToastStore } from '../hooks/toastStore'
+import MarkdownEditor from '../components/MarkdownEditor'
 
 type DocumentType = 'agent' | 'identity' | 'heartbeat'
 
@@ -23,7 +21,6 @@ export default function DocumentManagement() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
-  const [showPreview, setShowPreview] = useState(false)
 
   const { addToast } = useToastStore()
 
@@ -178,93 +175,17 @@ export default function DocumentManagement() {
           }}>
             {tabs.find(t => t.key === activeTab)?.description}
           </div>
-          {/* Mobile-only editor/preview toggle */}
-          <div className="flex md:hidden gap-1 rounded-md overflow-hidden border border-[var(--border)]">
-            <button
-              onClick={() => setShowPreview(false)}
-              className={`px-3 py-1 text-xs font-medium transition-colors ${!showPreview ? 'bg-[var(--surface)] text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]'}`}
-            >
-              Editor
-            </button>
-            <button
-              onClick={() => setShowPreview(true)}
-              className={`px-3 py-1 text-xs font-medium transition-colors ${showPreview ? 'bg-[var(--surface)] text-[var(--text-primary)]' : 'text-[var(--text-tertiary)]'}`}
-            >
-              Preview
-            </button>
-          </div>
         </div>
 
-        {/* Content area with two columns */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ height: 'calc(100vh - 250px)' }}>
-          {/* Editor */}
-          <div className={`${showPreview ? 'hidden md:flex' : 'flex'} flex-col`}>
-            <div style={{
-              fontSize: '12px',
-              fontWeight: '600',
-              color: 'var(--text-secondary)',
-              marginBottom: '8px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}>
-              Editor
-            </div>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              style={{
-                flex: 1,
-                padding: '1rem',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                color: 'var(--text-primary)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: '14px',
-                lineHeight: '1.6',
-                resize: 'none',
-              }}
-              placeholder={`Enter ${activeTab.toUpperCase()}.md content...`}
-            />
-          </div>
-
-          {/* Preview */}
-          <div className={`${showPreview ? 'flex' : 'hidden md:flex'} flex-col`}>
-            <div style={{
-              fontSize: '12px',
-              fontWeight: '600',
-              color: 'var(--text-secondary)',
-              marginBottom: '8px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}>
-              Preview
-            </div>
-            <div
-              style={{
-                flex: 1,
-                padding: '1rem',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                background: 'var(--surface)',
-                overflow: 'auto',
-              }}
-              className="prose"
-            >
-              {content ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                  {content}
-                </ReactMarkdown>
-              ) : (
-                <div style={{
-                  color: 'var(--text-tertiary)',
-                  fontStyle: 'italic',
-                }}>
-                  No content to preview
-                </div>
-              )}
-            </div>
-          </div>
+        {/* Editor */}
+        <div style={{ height: 'calc(100vh - 250px)' }}>
+          <MarkdownEditor
+            key={activeTab}
+            value={content}
+            onChange={setContent}
+            placeholder={`Enter ${activeTab.toUpperCase()}.md content...`}
+            className="document-mdx-editor"
+          />
         </div>
       </div>
     </>
