@@ -376,16 +376,10 @@ select:focus {
 }
 
 /* Tooltip */
-.tooltip-wrapper {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  position: relative;
-}
-
 .tooltip-icon {
   display: inline-flex;
   align-items: center;
+  margin-left: 4px;
   color: var(--text-tertiary);
   cursor: help;
   transition: color var(--transition-fast);
@@ -393,44 +387,6 @@ select:focus {
 
 .tooltip-icon:hover {
   color: var(--text-secondary);
-}
-
-.tooltip-content {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--sidebar-bg, #18181b);
-  color: #fafafa;
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.4;
-  white-space: normal;
-  width: max-content;
-  max-width: 280px;
-  pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.15s ease, visibility 0.15s ease;
-  z-index: 1000;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.tooltip-content::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  border: 5px solid transparent;
-  border-top-color: var(--sidebar-bg, #18181b);
-}
-
-.tooltip-wrapper:hover .tooltip-content {
-  opacity: 1;
-  visibility: visible;
 }
 
 /* Card */

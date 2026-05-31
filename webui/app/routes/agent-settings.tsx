@@ -436,7 +436,7 @@ export default function AgentSettings() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <section style={fieldStyle}>
                     <label style={labelStyle}>
-                      <TooltipLabel label="Agent ID" tooltip="Unique identifier. Cannot be changed after creation." />
+                      <TooltipLabel label="Agent ID" tooltip="Unique identifier. Lowercase letters, numbers, hyphens, and underscores only. Cannot be changed after creation." />
                     </label>
                     <input style={{ ...inputStyle, opacity: 0.6 }} value={form.agent_id} disabled />
                   </section>

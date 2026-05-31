@@ -378,7 +378,7 @@ export default function AgentForm({ mode, initialData, onSubmit, onCancel }: Age
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
                     <section style={{ ...fieldStyle, flex: 1 }}>
                       <label style={labelStyle}>
-                        <TooltipLabel label="Show Thinking" tooltip="Display the agent's reasoning in chat." />
+                        <TooltipLabel label="Show Thinking" tooltip="Display the agent's reasoning/thinking process in chat." />
                       </label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
                         <input type="checkbox" checked={form.show_thinking ?? false} onChange={(e) => updateField('show_thinking', e.target.checked)} />
@@ -387,7 +387,7 @@ export default function AgentForm({ mode, initialData, onSubmit, onCancel }: Age
                     </section>
                     <section style={{ ...fieldStyle, flex: 1 }}>
                       <label style={labelStyle}>
-                        <TooltipLabel label="Show Tool Calls" tooltip="Display tool call details in chat." />
+                        <TooltipLabel label="Show Tool Calls" tooltip="Display tool call details in chat responses." />
                       </label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
                         <input type="checkbox" checked={form.show_tool_calls ?? false} onChange={(e) => updateField('show_tool_calls', e.target.checked)} />
