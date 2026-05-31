@@ -2421,6 +2421,7 @@ select:focus {
 }
 
 .scroll-to-bottom-btn {
+  backdrop-filter: blur(10px);
   padding: 4px 12px;
   border-radius: 12px;
   border: 1px solid rgba(16, 185, 129, 0.3);
