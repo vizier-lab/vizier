@@ -36,7 +36,6 @@ These settings are **active file-based config** (read once at startup):
 | `embedding` | Embedding model selection |
 | `storage` | Storage backend (filesystem vs SurrealDB) |
 | `channels.http` | HTTP port, JWT secret, JWT expiry |
-| `primary_user` | User identity (auto-migrated to user table) |
 
 ## What Migrates to Runtime
 

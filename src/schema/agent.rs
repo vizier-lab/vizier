@@ -10,6 +10,8 @@ pub type AgentConfigs = HashMap<String, AgentConfig>;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AgentConfig {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<String>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub provider: ProviderVariant,
@@ -57,8 +59,6 @@ pub struct AgentToolsConfig {
     pub discord: ToolConfig<()>,
     #[serde(default)]
     pub telegram: ToolConfig<()>,
-    #[serde(default)]
-    pub notify_primary_user: ToolConfig<()>,
     #[serde(default)]
     pub fetch: ToolConfig<()>,
     #[serde(default)]

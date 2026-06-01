@@ -8,12 +8,17 @@ import { useConnectionStore } from './hooks/connectionStore'
 import { useSidebarStore } from './hooks/sidebarStore'
 import { useThemeStore } from './hooks/themeStore'
 import { useAgentStore } from './hooks/agentStore'
+import { useUserStore } from './hooks/userStore'
 
 export default function Layout() {
   const { agents, loading, loadAgents } = useAgentStore()
+  const { user, loadUser } = useUserStore()
   const [showAgentDropdown, setShowAgentDropdown] = useState(false)
   const [dropdownRect, setDropdownRect] = useState<DOMRect | null>(null)
-  const [lastAgentId, setLastAgentId] = useState<string | null>(() => localStorage.getItem('last_agent_id'))
+  const [lastAgentId, setLastAgentId] = useState<string | null>(() => {
+    const userId = useUserStore.getState().user?.user_id
+    return userId ? localStorage.getItem(`vizier_last_agent_${userId}`) : null
+  })
   const navigate = useNavigate()
   const params = useParams()
   const location = useLocation()
@@ -41,13 +46,18 @@ export default function Layout() {
     loadAgents()
   }, [loadAgents])
 
+  // Load current user
+  useEffect(() => {
+    loadUser()
+  }, [loadUser])
+
   // Sync URL agent param to localStorage
   useEffect(() => {
-    if (params.agentId) {
-      localStorage.setItem('last_agent_id', params.agentId)
+    if (params.agentId && user?.user_id) {
+      localStorage.setItem(`vizier_last_agent_${user.user_id}`, params.agentId)
       setLastAgentId(params.agentId)
     }
-  }, [params.agentId])
+  }, [params.agentId, user?.user_id])
 
   // WebSocket lifecycle — connect when on a chat route, keep alive on other routes
   useEffect(() => {
@@ -94,9 +104,11 @@ export default function Layout() {
     setShowAgentDropdown(false)
     closeMobile()
     disconnect()
-    localStorage.setItem('last_agent_id', agentId)
+    if (user?.user_id) {
+      localStorage.setItem(`vizier_last_agent_${user.user_id}`, agentId)
+    }
     setLastAgentId(agentId)
-    const lastTopic = localStorage.getItem(`last_topic_${agentId}`)
+    const lastTopic = user?.user_id ? localStorage.getItem(`vizier_last_topic_${user.user_id}_${agentId}`) : null
     navigate(`/${agentId}/chat/${lastTopic || 'General'}`)
   }
 
@@ -171,7 +183,12 @@ export default function Layout() {
                 />
                 <div className="agent-card-info">
                   <span className="agent-card-name">{currentAgent.name}</span>
-                  <span className="agent-card-id">{currentAgent.agent_id}</span>
+                  <span className="agent-card-id">
+                    {currentAgent.agent_id}
+                    {currentAgent.owner_username && (
+                      <> <span className="agent-card-owner">· @{currentAgent.owner_username}</span></>
+                    )}
+                  </span>
                 </div>
               </>
             ) : (
@@ -210,7 +227,12 @@ export default function Layout() {
                   <Avatar name={agent.agent_id} rounded={false} size="sm" avatarUrl={agent.avatar_url} />
                   <div className="agent-dropdown-info">
                     <span className="agent-dropdown-name">{agent.name}</span>
-                    <span className="agent-dropdown-id">{agent.agent_id}</span>
+                    <span className="agent-dropdown-id">
+                      {agent.agent_id}
+                      {agent.owner_username && (
+                        <> <span className="agent-dropdown-owner">@{agent.owner_username}</span></>
+                      )}
+                    </span>
                   </div>
                 </div>
               ))}

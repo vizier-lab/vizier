@@ -97,7 +97,6 @@ managed at runtime via WebUI or HTTP API.
 | `embedding` | YES (active) | No | — |
 | `storage` | YES (active) | No | — |
 | `channels.http` | YES (active) | No | — |
-| `primary_user` | YES (seed) | Password/API keys via auth API | Auto-migrate to user table |
 | `providers` | YES (seed) | YES — `/api/v1/providers` | Auto-migrate to providers table |
 | `agents` | No | YES — `/api/v1/agents` | Created via API, stored in DB |
 | `tools.mcp_servers` | YES (seed) | YES — `/api/v1/global-config/mcp_servers` | Auto-migrate to global_config |

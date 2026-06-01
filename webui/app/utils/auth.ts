@@ -2,7 +2,7 @@
  * Decode JWT token to extract user information
  * Note: This does NOT validate the token - validation happens on the backend
  */
-export function decodeJWT(token: string): { sub: string; username: string } | null {
+export function decodeJWT(token: string): { sub: string; username: string; permissions: string[] } | null {
   try {
     const base64Url = token.split('.')[1]
     if (!base64Url) return null
@@ -31,4 +31,35 @@ export function getCurrentUsername(): string {
   
   const decoded = decodeJWT(token)
   return decoded?.username || 'user'
+}
+
+/**
+ * Check if the current user has a specific permission
+ */
+export function hasPermission(permission: string): boolean {
+  const token = localStorage.getItem('auth_token')
+  if (!token) return false
+  
+  const decoded = decodeJWT(token)
+  if (!decoded?.permissions) return false
+  
+  return decoded.permissions.includes(permission)
+}
+
+/**
+ * Check if the current user has any of the specified permissions
+ */
+export function hasAnyPermission(permissions: string[]): boolean {
+  return permissions.some(p => hasPermission(p))
+}
+
+/**
+ * Get all permissions for the current user
+ */
+export function getCurrentPermissions(): string[] {
+  const token = localStorage.getItem('auth_token')
+  if (!token) return []
+  
+  const decoded = decodeJWT(token)
+  return decoded?.permissions || []
 }

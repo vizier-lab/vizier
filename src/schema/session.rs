@@ -47,7 +47,7 @@ impl VizierSession {
 pub enum VizierChannelId {
     DiscordChanel(u64),
     TelegramChannel(i64),
-    HTTP(String),
+    HTTP(String, String),
     Task(String, DateTime<Utc>),
     InterAgent(Vec<String>),
     Heartbeat(DateTime<Utc>),
@@ -61,7 +61,7 @@ impl VizierChannelId {
         match self {
             Self::DiscordChanel(id) => format!("discord__{}", id),
             Self::TelegramChannel(id) => format!("telegram__{}", id),
-            Self::HTTP(id) => format!("http__{}", id),
+            Self::HTTP(user, id) => format!("http__{}__{}", user, id),
             Self::Task(id, datetime) => {
                 format!("task__{}__{}", id, datetime.timestamp_subsec_nanos())
             }

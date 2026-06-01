@@ -1,18 +1,5 @@
 # 2.2 Main Configuration
 
-## `primary_user`
-
-Defines the primary user who interacts with agents:
-
-```yaml
-primary_user:
-  name: "Your Name"                    # Your name
-  discord_id: "123456789"              # Your Discord user ID (optional)
-  discord_username: "username"        # Your Discord username (optional)
-  telegram_username: "username"       # Your Telegram username (optional)
-  alias: ["you", "master", "boss"]    # Aliases the agent can use for you
-```
-
 ## Environment Variable Expansion
 
 Vizier supports environment variable expansion in configuration files using the `${VAR}` syntax:

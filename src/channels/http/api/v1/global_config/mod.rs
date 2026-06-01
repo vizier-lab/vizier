@@ -1,17 +1,16 @@
 use axum::{
     Router,
-    extract::{Path, State},
-    routing::get,
+    extract::State,
+    routing::{delete, get, put},
 };
 use reqwest::StatusCode;
-use serde::Deserialize;
 use std::collections::HashMap;
 
 use crate::{
     channels::http::{
         models::{
             self,
-            response::{api_response, err_response, APIResponse},
+            response::{api_response, err_response},
         },
         state::HTTPState,
     },
@@ -20,86 +19,37 @@ use crate::{
     storage::global_config::GlobalConfigStorage,
 };
 
-pub fn global_config() -> Router<HTTPState> {
+pub fn mcp_servers_routes() -> Router<HTTPState> {
     Router::new()
-        .route("/", get(list_global_configs))
-        .route(
-            "/{key}",
-            get(get_global_config)
-                .put(upsert_global_config)
-                .delete(delete_global_config),
-        )
+        .route("/", get(get_mcp_servers).put(upsert_mcp_servers).delete(delete_mcp_servers))
 }
 
-#[utoipa::path(
-    get,
-    path = "/global-config",
-    responses(
-        (status = 200, description = "List of global configs", body = APIResponse<Vec<GlobalConfigEntry>>)
-    )
-)]
-async fn list_global_configs(
-    State(state): State<HTTPState>,
-) -> models::response::Response<Vec<GlobalConfigEntry>> {
-    match state.storage.list_global_configs().await {
-        Ok(entries) => api_response(StatusCode::OK, entries),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
-    }
+pub fn shell_routes() -> Router<HTTPState> {
+    Router::new()
+        .route("/", get(get_shell_config).put(upsert_shell_config).delete(delete_shell_config))
 }
 
-#[utoipa::path(
-    get,
-    path = "/global-config/{key}",
-    params(
-        ("key" = String, Path, description = "Config key")
-    ),
-    responses(
-        (status = 200, description = "Global config entry", body = APIResponse<GlobalConfigEntry>),
-        (status = 404, description = "Config not found", body = APIResponse<String>)
-    )
-)]
-async fn get_global_config(
-    Path(key): Path<String>,
+// ============================================================================
+// MCP SERVERS
+// ============================================================================
+
+async fn get_mcp_servers(
     State(state): State<HTTPState>,
 ) -> models::response::Response<GlobalConfigEntry> {
-    match state.storage.get_global_config(&key).await {
+    match state.storage.get_global_config("mcp_servers").await {
         Ok(Some(entry)) => api_response(StatusCode::OK, entry),
-        Ok(None) => err_response(StatusCode::NOT_FOUND, "config not found".into()),
+        Ok(None) => err_response(StatusCode::NOT_FOUND, "MCP servers config not found".into()),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
     }
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
-#[serde(tag = "type", content = "data")]
-pub enum UpsertGlobalConfigRequest {
-    McpServers(HashMap<String, McpClientConfig>),
-    Shell(ShellConfig),
-}
-
-#[utoipa::path(
-    put,
-    path = "/global-config/{key}",
-    params(
-        ("key" = String, Path, description = "Config key")
-    ),
-    request_body = UpsertGlobalConfigRequest,
-    responses(
-        (status = 200, description = "Global config upserted", body = APIResponse<GlobalConfigEntry>),
-        (status = 400, description = "Bad request", body = APIResponse<String>)
-    )
-)]
-async fn upsert_global_config(
-    Path(key): Path<String>,
+async fn upsert_mcp_servers(
     State(state): State<HTTPState>,
-    axum::Json(body): axum::Json<UpsertGlobalConfigRequest>,
+    axum::Json(servers): axum::Json<HashMap<String, McpClientConfig>>,
 ) -> models::response::Response<GlobalConfigEntry> {
-    let value = match body {
-        UpsertGlobalConfigRequest::McpServers(servers) => GlobalConfigValue::McpServers(servers),
-        UpsertGlobalConfigRequest::Shell(shell) => GlobalConfigValue::Shell(shell),
-    };
-
+    let value = GlobalConfigValue::McpServers(servers.clone());
     let entry = GlobalConfigEntry {
-        key: key.clone(),
+        key: "mcp_servers".to_string(),
         value: value.clone(),
     };
 
@@ -110,39 +60,19 @@ async fn upsert_global_config(
         );
     }
 
-    // Send reload command via transport
-    let reload_result = match &value {
-        GlobalConfigValue::McpServers(servers) => {
-            let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-            let cmd = GlobalCommand::ReloadMcp {
-                config: servers.clone(),
-                resp: resp_tx,
-            };
-            if let Err(e) = state.transport.send_global_command(cmd).await {
-                return err_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("failed to send reload command: {}", e),
-                );
-            }
-            resp_rx.await
-        }
-        GlobalConfigValue::Shell(shell) => {
-            let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-            let cmd = GlobalCommand::ReloadShell {
-                config: shell.clone(),
-                resp: resp_tx,
-            };
-            if let Err(e) = state.transport.send_global_command(cmd).await {
-                return err_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("failed to send reload command: {}", e),
-                );
-            }
-            resp_rx.await
-        }
+    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+    let cmd = GlobalCommand::ReloadMcp {
+        config: servers,
+        resp: resp_tx,
     };
+    if let Err(e) = state.transport.send_global_command(cmd).await {
+        return err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to send reload command: {}", e),
+        );
+    }
 
-    match reload_result {
+    match resp_rx.await {
         Ok(GlobalCommandResult::Ok(_)) => api_response(StatusCode::OK, entry),
         Ok(GlobalCommandResult::Error(e)) => {
             err_response(StatusCode::INTERNAL_SERVER_ERROR, e.into())
@@ -154,22 +84,74 @@ async fn upsert_global_config(
     }
 }
 
-#[utoipa::path(
-    delete,
-    path = "/global-config/{key}",
-    params(
-        ("key" = String, Path, description = "Config key")
-    ),
-    responses(
-        (status = 200, description = "Global config deleted", body = APIResponse<String>),
-        (status = 404, description = "Config not found", body = APIResponse<String>)
-    )
-)]
-async fn delete_global_config(
-    Path(key): Path<String>,
+async fn delete_mcp_servers(
     State(state): State<HTTPState>,
 ) -> models::response::Response<String> {
-    match state.storage.delete_global_config(&key).await {
+    match state.storage.delete_global_config("mcp_servers").await {
+        Ok(()) => api_response(StatusCode::OK, "deleted".into()),
+        Err(e) => err_response(StatusCode::BAD_REQUEST, e.to_string().into()),
+    }
+}
+
+// ============================================================================
+// SHELL CONFIG
+// ============================================================================
+
+async fn get_shell_config(
+    State(state): State<HTTPState>,
+) -> models::response::Response<GlobalConfigEntry> {
+    match state.storage.get_global_config("shell").await {
+        Ok(Some(entry)) => api_response(StatusCode::OK, entry),
+        Ok(None) => err_response(StatusCode::NOT_FOUND, "Shell config not found".into()),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
+    }
+}
+
+async fn upsert_shell_config(
+    State(state): State<HTTPState>,
+    axum::Json(shell): axum::Json<ShellConfig>,
+) -> models::response::Response<GlobalConfigEntry> {
+    let value = GlobalConfigValue::Shell(shell.clone());
+    let entry = GlobalConfigEntry {
+        key: "shell".to_string(),
+        value: value.clone(),
+    };
+
+    if let Err(e) = state.storage.upsert_global_config(&entry).await {
+        return err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to persist config: {}", e),
+        );
+    }
+
+    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+    let cmd = GlobalCommand::ReloadShell {
+        config: shell,
+        resp: resp_tx,
+    };
+    if let Err(e) = state.transport.send_global_command(cmd).await {
+        return err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to send reload command: {}", e),
+        );
+    }
+
+    match resp_rx.await {
+        Ok(GlobalCommandResult::Ok(_)) => api_response(StatusCode::OK, entry),
+        Ok(GlobalCommandResult::Error(e)) => {
+            err_response(StatusCode::INTERNAL_SERVER_ERROR, e.into())
+        }
+        Err(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "global resource manager unavailable".into(),
+        ),
+    }
+}
+
+async fn delete_shell_config(
+    State(state): State<HTTPState>,
+) -> models::response::Response<String> {
+    match state.storage.delete_global_config("shell").await {
         Ok(()) => api_response(StatusCode::OK, "deleted".into()),
         Err(e) => err_response(StatusCode::BAD_REQUEST, e.to_string().into()),
     }

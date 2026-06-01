@@ -8,7 +8,6 @@ pub mod provider;
 pub mod shell;
 pub mod storage;
 pub mod tools;
-pub mod user;
 
 use crate::{
     config::{
@@ -17,7 +16,6 @@ use crate::{
         shell::{LocalShellConfig, ShellConfig},
         storage::StorageConfig,
         tools::{BraveSearchConfig, ToolsConfig},
-        user::UserConfig,
     },
     constant,
 };
@@ -72,7 +70,6 @@ pub struct VizierConfig {
     #[serde(skip)]
     pub workspace: String,
     pub embedding: Option<EmbeddingConfig>,
-    pub primary_user: UserConfig,
     pub providers: ProviderConfig,
     pub storage: StorageConfig,
     pub channels: ChannelsConfig,
@@ -142,13 +139,6 @@ impl Default for VizierConfig {
     fn default() -> Self {
         VizierConfig {
             workspace: "~/.vizier".into(),
-            primary_user: UserConfig {
-                username: "admin".into(),
-                discord_id: "".into(),
-                discord_username: "".into(),
-                telegram_username: "".into(),
-                alias: vec![],
-            },
             storage: StorageConfig::Filesystem(storage::DocumentIndexerConfig::InMem),
             providers: ProviderConfig {
                 ollama: Some(OllamaProviderConfig::default()),

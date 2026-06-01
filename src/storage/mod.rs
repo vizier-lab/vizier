@@ -83,8 +83,24 @@ impl UserStorage for VizierStorage {
         self.0.get_user(username).await
     }
 
-    async fn create_user(&self, username: &str, password_hash: &str) -> Result<crate::storage::user::User> {
-        self.0.create_user(username, password_hash).await
+    async fn get_user_by_id(&self, user_id: &str) -> Result<Option<crate::storage::user::User>> {
+        self.0.get_user_by_id(user_id).await
+    }
+
+    async fn create_user(&self, username: &str, password_hash: &str, role_id: &str) -> Result<crate::storage::user::User> {
+        self.0.create_user(username, password_hash, role_id).await
+    }
+
+    async fn update_user(&self, user_id: &str, username: Option<&str>, role_id: Option<&str>) -> Result<()> {
+        self.0.update_user(user_id, username, role_id).await
+    }
+
+    async fn delete_user(&self, user_id: &str) -> Result<()> {
+        self.0.delete_user(user_id).await
+    }
+
+    async fn list_users(&self) -> Result<Vec<crate::storage::user::User>> {
+        self.0.list_users().await
     }
 
     async fn update_password(&self, user_id: &str, password_hash: &str) -> Result<()> {
@@ -93,6 +109,38 @@ impl UserStorage for VizierStorage {
 
     async fn user_exists(&self) -> Result<bool> {
         self.0.user_exists().await
+    }
+
+    async fn create_role(&self, name: &str, permissions: Vec<String>, is_system: bool) -> Result<crate::storage::user::Role> {
+        self.0.create_role(name, permissions, is_system).await
+    }
+
+    async fn get_role(&self, role_id: &str) -> Result<Option<crate::storage::user::Role>> {
+        self.0.get_role(role_id).await
+    }
+
+    async fn list_roles(&self) -> Result<Vec<crate::storage::user::Role>> {
+        self.0.list_roles().await
+    }
+
+    async fn update_role(&self, role_id: &str, name: &str, permissions: Vec<String>) -> Result<()> {
+        self.0.update_role(role_id, name, permissions).await
+    }
+
+    async fn delete_role(&self, role_id: &str) -> Result<()> {
+        self.0.delete_role(role_id).await
+    }
+
+    async fn get_system_role(&self) -> Result<Option<crate::storage::user::Role>> {
+        self.0.get_system_role().await
+    }
+
+    async fn get_user_profile(&self, user_id: &str) -> Result<Option<crate::storage::user::UserProfile>> {
+        self.0.get_user_profile(user_id).await
+    }
+
+    async fn upsert_user_profile(&self, user_id: &str, profile: &crate::storage::user::UserProfile) -> Result<()> {
+        self.0.upsert_user_profile(user_id, profile).await
     }
 
     async fn create_api_key(

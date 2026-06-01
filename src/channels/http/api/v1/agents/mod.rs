@@ -1,5 +1,5 @@
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{Path, Query, State},
     routing::get,
 };
@@ -19,7 +19,7 @@ use crate::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentSummary, AgentToolsConfig,
         AgentUsageStats, BraveSearchToolSettings, MemoryConfig, ToolConfig,
     },
-    storage::{VizierStorage, agent::AgentStorage, history::HistoryStorage},
+    storage::{VizierStorage, agent::AgentStorage, history::HistoryStorage, user::UserStorage},
 };
 
 pub mod channel;
@@ -58,18 +58,43 @@ pub fn agents() -> Router<HTTPState> {
 )]
 async fn list_agents(
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<Vec<AgentSummary>> {
+    let can_view_all = user.role.is_system || user.permissions.contains(&"all_agents:view".to_string());
+    let can_view_owned = user.permissions.contains(&"owned_agents:view".to_string());
+
+    if !can_view_all && !can_view_owned {
+        return api_response(StatusCode::OK, Vec::new());
+    }
+
     match state.storage.list_agents().await {
         Ok(agents) => {
-            let res: Vec<AgentSummary> = agents
-                .into_iter()
-                .map(|(id, config)| AgentSummary {
+            let mut res = Vec::new();
+            for (id, config) in agents {
+                // Filter based on permissions
+                if !can_view_all {
+                    if let Some(ref owner_id) = config.owner_id {
+                        if *owner_id != user.user_id {
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    }
+                }
+
+                let owner_username = if let Some(ref owner_id) = config.owner_id {
+                    state.storage.get_user_by_id(owner_id).await.ok().flatten().map(|u| u.username)
+                } else {
+                    None
+                };
+                res.push(AgentSummary {
                     agent_id: id,
                     name: config.name,
                     description: config.description,
                     avatar_url: config.avatar_url,
-                })
-                .collect();
+                    owner_username,
+                });
+            }
             api_response(StatusCode::OK, res)
         }
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
@@ -123,11 +148,27 @@ pub struct AgentDetail {
 async fn agent_detail(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<AgentDetail> {
+    let can_view_all = user.role.is_system || user.permissions.contains(&"all_agents:view".to_string());
+    let can_view_owned = user.permissions.contains(&"owned_agents:view".to_string());
+
     match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => api_response(
-            StatusCode::OK,
-            AgentDetail {
+        Ok(Some(config)) => {
+            // Check permission
+            if !can_view_all {
+                if let Some(ref owner_id) = config.owner_id {
+                    if *owner_id != user.user_id && !can_view_owned {
+                        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+                    }
+                } else if !can_view_owned {
+                    return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+                }
+            }
+
+            api_response(
+                StatusCode::OK,
+                AgentDetail {
                 agent_id,
                 name: config.name,
                 description: config.description,
@@ -164,7 +205,8 @@ async fn agent_detail(
                 silent_read_initiative_chance: config.silent_read_initiative_chance,
                 programmatic_sandbox: config.tools.programmatic_sandbox,
             },
-        ),
+        )
+        }
         Ok(None) => err_response(StatusCode::NOT_FOUND, "not found".into()),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
     }
@@ -251,6 +293,7 @@ impl CreateAgentRequest {
 
         AgentConfig {
             name: self.name,
+            owner_id: None,
             system_prompt: self.system_prompt,
             description: self.description,
             provider: self.provider,
@@ -281,10 +324,6 @@ impl CreateAgentRequest {
                 },
                 telegram: ToolConfig {
                     enabled: tools.telegram.unwrap_or(false),
-                    settings: (),
-                },
-                notify_primary_user: ToolConfig {
-                    enabled: true,
                     settings: (),
                 },
                 fetch: ToolConfig {
@@ -332,10 +371,12 @@ impl CreateAgentRequest {
 )]
 async fn create_agent(
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<CreateAgentRequest>,
 ) -> models::response::Response<AgentSummary> {
     let agent_id = body.agent_id.clone();
-    let config = body.into_config();
+    let mut config = body.into_config();
+    config.owner_id = Some(user.user_id);
 
     let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
 
@@ -377,9 +418,33 @@ async fn create_agent(
 async fn update_agent(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<CreateAgentRequest>,
 ) -> models::response::Response<AgentSummary> {
-    let config = body.into_config();
+    let can_edit_all = user.role.is_system || user.permissions.contains(&"all_agents:edit".to_string());
+    let can_edit_owned = user.permissions.contains(&"owned_agents:edit".to_string());
+
+    let mut config = body.into_config();
+
+    // Preserve existing owner_id when updating
+    let existing = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(existing)) => existing,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    // Check permission
+    if !can_edit_all {
+        if let Some(ref owner_id) = existing.owner_id {
+            if *owner_id != user.user_id && !can_edit_owned {
+                return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+            }
+        } else if !can_edit_owned {
+            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+        }
+    }
+
+    config.owner_id = existing.owner_id;
 
     let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
 
@@ -427,7 +492,28 @@ async fn delete_agent(
     Path(agent_id): Path<String>,
     Query(query): Query<DeleteAgentQuery>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<String> {
+    let can_delete_all = user.role.is_system || user.permissions.contains(&"all_agents:delete".to_string());
+    let can_delete_owned = user.permissions.contains(&"owned_agents:delete".to_string());
+
+    // Check permission
+    if !can_delete_all {
+        let agent = match state.storage.get_agent(&agent_id).await {
+            Ok(Some(agent)) => agent,
+            Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
+            Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        };
+
+        if let Some(ref owner_id) = agent.owner_id {
+            if *owner_id != user.user_id && !can_delete_owned {
+                return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+            }
+        } else if !can_delete_owned {
+            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+        }
+    }
+
     let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
 
     let cmd = AgentCommand::Delete {

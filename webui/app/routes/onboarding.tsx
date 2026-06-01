@@ -1,15 +1,16 @@
 import { useState, useEffect } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router'
-import { login, getSetupStatus } from '../services/vizier'
+import { setupFirstUser, getSetupStatus } from '../services/vizier'
 import { useToastStore } from '../hooks/toastStore'
 import { useThemeStore } from '../hooks/themeStore'
 import ToastContainer from '../components/Toast'
 import ThemeToggle from '../components/ThemeToggle'
 
-export default function Login() {
+export default function Onboarding() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
@@ -17,31 +18,53 @@ export default function Login() {
   const { addToast } = useToastStore()
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme)
 
-  // Check if already logged in or if setup is needed
+  // Check if setup is needed
   useEffect(() => {
-    const checkAuth = async () => {
-      const token = localStorage.getItem('auth_token')
-      if (token) {
-        navigate('/')
-        return
-      }
-
-      // Check if setup is needed
+    const checkSetup = async () => {
       try {
         const res = await getSetupStatus()
-        if (res.data?.needs_setup) {
-          navigate('/onboarding')
-          return
+        if (!res.data?.needs_setup) {
+          // Setup already completed, redirect to login
+          navigate('/login')
         }
       } catch (err) {
-        // If we can't check, continue to login
+        // If we can't check, assume setup is needed
         console.error('Failed to check setup status:', err)
+      } finally {
+        setChecking(false)
       }
-
-      setChecking(false)
     }
-    checkAuth()
+    checkSetup()
   }, [navigate])
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    setError('')
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match')
+      return
+    }
+
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters')
+      return
+    }
+
+    setLoading(true)
+
+    try {
+      await setupFirstUser(username, password)
+      addToast('success', 'Welcome!', 'Your account has been created successfully')
+      navigate('/')
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.message || 'Setup failed. Please try again.'
+      setError(errorMsg)
+      addToast('error', 'Setup failed', errorMsg)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   if (checking) {
     return (
@@ -57,24 +80,6 @@ export default function Login() {
         </div>
       </div>
     )
-  }
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-
-    try {
-      await login(username, password)
-      addToast('success', 'Welcome back!', 'Successfully logged in')
-      navigate('/')
-    } catch (err: any) {
-      const errorMsg = err.response?.data?.message || 'Login failed. Please try again.'
-      setError(errorMsg)
-      addToast('error', 'Login failed', errorMsg)
-    } finally {
-      setLoading(false)
-    }
   }
 
   return (
@@ -149,14 +154,14 @@ export default function Login() {
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
               backgroundClip: 'text',
-            }}>Vizier</h1>
+            }}>Welcome to Vizier</h1>
             <p style={{
               color: 'var(--text-secondary)',
               fontSize: '14px',
-            }}>Sign in to your digital steward</p>
+            }}>Create your admin account to get started</p>
           </div>
 
-          {/* Login Form */}
+          {/* Onboarding Form */}
           <form onSubmit={handleSubmit} style={{
             display: 'flex',
             flexDirection: 'column',
@@ -193,7 +198,7 @@ export default function Login() {
                 required
                 autoFocus
                 disabled={loading}
-                placeholder="Enter your username"
+                placeholder="Choose a username"
                 style={{
                   padding: '12px 16px',
                   fontSize: '15px',
@@ -214,7 +219,28 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={loading}
-                placeholder="Enter your password"
+                placeholder="Create a password (min 8 characters)"
+                style={{
+                  padding: '12px 16px',
+                  fontSize: '15px',
+                }}
+              />
+            </div>
+
+            <div className="input-group">
+              <label htmlFor="confirmPassword" style={{
+                fontSize: '14px',
+                fontWeight: '600',
+                color: 'var(--text-primary)',
+              }}>Confirm Password</label>
+              <input
+                id="confirmPassword"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                disabled={loading}
+                placeholder="Confirm your password"
                 style={{
                   padding: '12px 16px',
                   fontSize: '15px',
@@ -244,10 +270,10 @@ export default function Login() {
                   <span className="thinking-dots">
                     <span>.</span><span>.</span><span>.</span>
                   </span>
-                  Signing in...
+                  Creating account...
                 </span>
               ) : (
-                'Sign In'
+                'Create Account'
               )}
             </button>
           </form>

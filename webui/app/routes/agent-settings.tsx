@@ -9,7 +9,7 @@ import {
 import {
     getAgentDetail,
     updateAgent,
-    listGlobalConfigs,
+    getMcpServers,
     getAgentDocument,
     updateAgentDocument,
     getIdentityDocument,
@@ -202,11 +202,9 @@ export default function AgentSettings() {
     useEffect(() => {
         const loadMcpServers = async () => {
             try {
-                const response = await listGlobalConfigs()
-                const entries: GlobalConfigEntry[] = response.data || []
-                const mcpEntry = entries.find((e) => e.key === 'mcp_servers')
-                if (mcpEntry && mcpEntry.value.type === 'McpServers') {
-                    setAvailableMcpServers(Object.keys(mcpEntry.value.data))
+                const response = await getMcpServers()
+                if (response.data && response.data.value.type === 'McpServers') {
+                    setAvailableMcpServers(Object.keys(response.data.value.data))
                 }
             } catch {
                 // silently ignore

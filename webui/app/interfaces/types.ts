@@ -13,6 +13,10 @@ export interface LoginResponse {
   token: string
 }
 
+export interface SetupStatus {
+  needs_setup: boolean
+}
+
 export interface ApiKey {
   id: string
   name: string
@@ -20,6 +24,49 @@ export interface ApiKey {
   expires_at?: string
   created_at: string
   last_used_at?: string
+}
+
+// ============================================================================
+// RBAC (Role-Based Access Control)
+// ============================================================================
+
+export interface Role {
+  role_id: string
+  name: string
+  permissions: string[]
+  is_system: boolean
+  created_at: string
+}
+
+export interface User {
+  user_id: string
+  username: string
+  role_id: string
+  role_name?: string
+  created_at: string
+}
+
+export interface CurrentUser {
+  user_id: string
+  username: string
+  role_name: string
+  permissions: string[]
+}
+
+export interface CreateUserRequest {
+  username: string
+  password: string
+  role_id?: string
+}
+
+export interface UpdateUserRequest {
+  username?: string
+  role_id?: string
+  password?: string
+}
+
+export interface AvailablePermissions {
+  permissions: string[]
 }
 
 // ============================================================================
@@ -31,6 +78,7 @@ export interface Agent {
   name: string
   description?: string
   avatar_url?: string
+  owner_username?: string
 }
 
 export interface AgentToolConfig {
@@ -51,7 +99,6 @@ export interface AgentToolsConfig {
   vector_memory: AgentToolConfig
   discord: AgentToolConfig
   telegram: AgentToolConfig
-  notify_primary_user: AgentToolConfig
   fetch: AgentToolConfig
   http_client: AgentToolConfig
   mcp_servers: string[]

@@ -9,7 +9,7 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode}
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::config::HTTPChannelConfig;
+use crate::{config::HTTPChannelConfig, storage::user::Role};
 
 pub mod middleware;
 
@@ -17,6 +17,7 @@ pub mod middleware;
 pub struct Claims {
     pub sub: String,
     pub username: String,
+    pub permissions: Vec<String>,
     pub iat: usize,
     pub exp: usize,
 }
@@ -56,13 +57,14 @@ impl AuthService {
     }
 
     /// Generate a JWT token
-    pub fn generate_token(&self, user_id: &str, username: &str) -> Result<String> {
+    pub fn generate_token(&self, user_id: &str, username: &str, permissions: Vec<String>) -> Result<String> {
         let now = Utc::now();
         let exp = now + Duration::hours(self.jwt_expiry_hours);
 
         let claims = Claims {
             sub: user_id.to_string(),
             username: username.to_string(),
+            permissions,
             iat: now.timestamp() as usize,
             exp: exp.timestamp() as usize,
         };
@@ -110,4 +112,6 @@ impl AuthService {
 pub struct AuthenticatedUser {
     pub user_id: String,
     pub username: String,
+    pub role: Role,
+    pub permissions: Vec<String>,
 }

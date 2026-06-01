@@ -1,15 +1,41 @@
-use crate::config::user::UserConfig;
+use crate::storage::user::UserProfile;
 
-pub fn primary_user_md(config: &UserConfig) -> String {
+pub fn owner_md(profile: &UserProfile) -> String {
+    let mut parts = Vec::new();
+
+    if let Some(ref discord_id) = profile.discord_id {
+        if !discord_id.is_empty() {
+            parts.push(format!("discord_id: \"{}\"", discord_id));
+        }
+    }
+    if let Some(ref discord_username) = profile.discord_username {
+        if !discord_username.is_empty() {
+            parts.push(format!("discord_username: \"{}\"", discord_username));
+        }
+    }
+    if let Some(ref telegram_username) = profile.telegram_username {
+        if !telegram_username.is_empty() {
+            parts.push(format!("telegram_username: \"{}\"", telegram_username));
+        }
+    }
+    if !profile.alias.is_empty() {
+        parts.push(format!("alias: {:?}", profile.alias));
+    }
+
+    let data = if parts.is_empty() {
+        "No additional profile data available.".to_string()
+    } else {
+        parts.join("\n")
+    };
+
     format!(
-        r#"# PRIMARY_USER.md -- Your Primary Master
+        r#"# OWNER.md -- Your Owner
 
-below is the data of your primary user:
+Below is the data of your owner:
 {},
 
-always refer to this document as your main source of truth for anything regarding your primary user,
-you can't update this document. if you have new information about the user save it as memory.
+This is the user who created and owns you. Refer to this for owner-specific context.
 "#,
-        serde_yaml::to_string(config).unwrap()
+        data
     )
 }

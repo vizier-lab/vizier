@@ -802,6 +802,12 @@ select:focus {
   text-overflow: ellipsis;
 }
 
+.agent-card-owner {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  opacity: 0.7;
+}
+
 .agent-card-placeholder {
   flex: 1;
   font-size: 14px;
@@ -882,6 +888,12 @@ select:focus {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.agent-dropdown-owner {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  opacity: 0.7;
 }
 
 .nav-content {

@@ -8,6 +8,7 @@ import {
 export default [
   // Public routes (no auth)
   route('login', 'routes/login.tsx'),
+  route('onboarding', 'routes/onboarding.tsx'),
   
   // Protected routes with layout
   layout('layout.tsx', [

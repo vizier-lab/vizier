@@ -15,18 +15,18 @@ use crate::{
     agents::{
         agent::{
             model::{VizierModel, VizierModelTrait},
-            system_prompt::{boot::boot_md, init_workspace, user::primary_user_md},
+            system_prompt::{boot::boot_md, init_workspace, user::owner_md},
         },
         hook::{VizierSessionHook, VizierSessionHooks},
         skill::VizierSkills,
         tools::VizierTools,
     },
-    config::user::UserConfig,
     dependencies::VizierDependencies,
     schema::{
         AgentConfig, Memory, SessionHistory, SessionHistoryContent, VizierRequest,
         VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
     },
+    storage::user::{UserProfile, UserStorage},
     utils::{agent_workspace, build_path},
 };
 
@@ -53,7 +53,7 @@ pub struct VizierAgent {
     tools: VizierTools,
     skills: VizierSkills,
     config: AgentConfig,
-    primary_user: UserConfig,
+    owner_profile: Option<UserProfile>,
 }
 
 impl VizierAgent {
@@ -71,12 +71,19 @@ impl VizierAgent {
             .to_string();
         init_workspace(workspace.clone());
 
+        // Fetch owner profile if owner_id is set
+        let owner_profile = if let Some(ref owner_id) = agent_config.owner_id {
+            deps.storage.get_user_profile(owner_id).await.unwrap_or(None)
+        } else {
+            None
+        };
+
         Ok(Self {
             model,
             tools,
             skills,
             config: agent_config.clone(),
-            primary_user: deps.config.primary_user.clone(),
+            owner_profile,
             workspace,
         })
     }
@@ -103,10 +110,15 @@ impl VizierAgent {
                     .clone()
                     .unwrap_or("You are a helpful and capable assistant. Follow the operating doctrine in BOOT.md.".into()),
             ),
-            Message::system(primary_user_md(&self.primary_user)),
-            Message::system(agent_md),
-            Message::system(ident_md),
         ];
+
+        // Add owner info if available
+        if let Some(ref owner) = self.owner_profile {
+            res.push(Message::system(owner_md(owner)));
+        }
+
+        res.push(Message::system(agent_md));
+        res.push(Message::system(ident_md));
 
         // Inject Always skills into system prompt
         if let Ok(always_skills) = self.skills.get_always_skills().await {

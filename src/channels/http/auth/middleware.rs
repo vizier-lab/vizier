@@ -9,13 +9,14 @@ use crate::channels::http::{
     auth::{AuthService, AuthenticatedUser},
     state::HTTPState,
 };
-use crate::storage::user::UserStorage;
+use crate::storage::user::{Role, UserStorage};
 
 #[derive(Debug, Clone)]
 pub enum AuthError {
     MissingCredentials,
     InvalidCredentials,
     InvalidToken,
+    Forbidden,
     InternalError,
 }
 
@@ -25,6 +26,7 @@ impl std::fmt::Display for AuthError {
             AuthError::MissingCredentials => write!(f, "Missing authentication credentials"),
             AuthError::InvalidCredentials => write!(f, "Invalid authentication credentials"),
             AuthError::InvalidToken => write!(f, "Invalid or expired token"),
+            AuthError::Forbidden => write!(f, "Forbidden: insufficient permissions"),
             AuthError::InternalError => write!(f, "Internal authentication error"),
         }
     }
@@ -38,6 +40,7 @@ impl axum::response::IntoResponse for AuthError {
             AuthError::MissingCredentials => (StatusCode::UNAUTHORIZED, "Missing authentication credentials"),
             AuthError::InvalidCredentials => (StatusCode::UNAUTHORIZED, "Invalid authentication credentials"),
             AuthError::InvalidToken => (StatusCode::UNAUTHORIZED, "Invalid or expired token"),
+            AuthError::Forbidden => (StatusCode::FORBIDDEN, "Forbidden: insufficient permissions"),
             AuthError::InternalError => (StatusCode::INTERNAL_SERVER_ERROR, "Internal authentication error"),
         };
 
@@ -49,6 +52,24 @@ impl axum::response::IntoResponse for AuthError {
 
         (status, body).into_response()
     }
+}
+
+async fn resolve_user_role(state: &HTTPState, user_id: &str) -> Result<(Role, Vec<String>), AuthError> {
+    let user = state
+        .storage
+        .get_user_by_id(user_id)
+        .await
+        .map_err(|_| AuthError::InternalError)?
+        .ok_or(AuthError::InvalidCredentials)?;
+
+    let role = state
+        .storage
+        .get_role(&user.role_id)
+        .await
+        .map_err(|_| AuthError::InternalError)?
+        .ok_or(AuthError::InternalError)?;
+
+    Ok((role.clone(), role.permissions.clone()))
 }
 
 pub async fn require_auth(
@@ -96,9 +117,13 @@ pub async fn require_auth(
                 .validate_token(&credentials)
                 .map_err(|_| AuthError::InvalidToken)?;
             
+            let (role, permissions) = resolve_user_role(&state, &claims.sub).await?;
+
             AuthenticatedUser {
                 user_id: claims.sub,
                 username: claims.username,
+                role,
+                permissions,
             }
         }
         "apikey" => {
@@ -118,16 +143,13 @@ pub async fn require_auth(
                 .await;
 
             // Get the user associated with this API key
-            let user = state
-                .storage
-                .get_user(&api_key.user_id)
-                .await
-                .map_err(|_| AuthError::InternalError)?
-                .ok_or(AuthError::InvalidCredentials)?;
+            let (role, permissions) = resolve_user_role(&state, &api_key.user_id).await?;
 
             AuthenticatedUser {
-                user_id: user.user_id,
-                username: user.username,
+                user_id: api_key.user_id,
+                username: String::new(),
+                role,
+                permissions,
             }
         }
         _ => return Err(AuthError::MissingCredentials),
@@ -137,6 +159,30 @@ pub async fn require_auth(
     request.extensions_mut().insert(user);
 
     Ok(next.run(request).await)
+}
+
+/// Middleware state for permission checking
+#[derive(Clone)]
+pub struct PermissionState {
+    pub permission: String,
+}
+
+/// Middleware function that checks if the authenticated user has a specific permission
+pub async fn require_permission(
+    State(state): State<PermissionState>,
+    request: Request,
+    next: Next,
+) -> Result<Response, AuthError> {
+    let user = request
+        .extensions()
+        .get::<AuthenticatedUser>()
+        .ok_or(AuthError::InvalidCredentials)?;
+
+    if user.role.is_system || user.permissions.contains(&state.permission) {
+        Ok(next.run(request).await)
+    } else {
+        Err(AuthError::Forbidden)
+    }
 }
 
 /// Extract token from query parameter

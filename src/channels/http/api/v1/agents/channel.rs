@@ -1,5 +1,5 @@
 use axum::{
-    Router,
+    Extension, Router,
     extract::{
         Path, Query, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
@@ -81,12 +81,13 @@ pub async fn get_topic_history(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     Query(params): Query<HistoryQuery>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<Vec<SessionHistory>> {
     if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
-    let session = VizierSession(agent_id, VizierChannelId::HTTP(channel_id), Some(topic_id));
+    let session = VizierSession(agent_id, VizierChannelId::HTTP(user.username, channel_id), Some(topic_id));
 
     let response = state
         .storage
@@ -116,12 +117,13 @@ pub async fn get_topic_history(
 pub async fn list_topics(
     Path((agent_id, channel_id)): Path<(String, String)>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<Vec<TopicEntry>> {
     if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
-    let channel = VizierChannelId::HTTP(channel_id);
+    let channel = VizierChannelId::HTTP(user.username, channel_id);
 
     let response = state
         .storage
@@ -160,12 +162,13 @@ pub async fn list_topics(
 pub async fn delete_topic(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<String> {
     if !state.is_agent_exists(&agent_id).await {
         return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
     }
 
-    let channel = VizierChannelId::HTTP(channel_id);
+    let channel = VizierChannelId::HTTP(user.username, channel_id);
 
     let response = state
         .storage
@@ -196,6 +199,7 @@ pub async fn chat(
     Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
     ws: WebSocketUpgrade,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> axum::response::Response {
     if !state.is_agent_exists(&agent_id).await {
         return axum::response::Response::builder()
@@ -205,7 +209,7 @@ pub async fn chat(
     }
 
     let transport = state.transport.clone();
-    let session = VizierSession(agent_id, VizierChannelId::HTTP(channel_id), Some(topic_id));
+    let session = VizierSession(agent_id, VizierChannelId::HTTP(user.username, channel_id), Some(topic_id));
 
     ws.on_upgrade(move |socket| handle_socket(socket, session, transport, state.config.workspace.clone()))
 }

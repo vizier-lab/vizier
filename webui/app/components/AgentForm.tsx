@@ -4,11 +4,10 @@ import TooltipLabel from './TooltipLabel'
 import MarkdownEditor from './MarkdownEditor'
 import Avatar from './avatar'
 import AvatarCropModal from './AvatarCropModal'
-import { listGlobalConfigs, uploadFile } from '../services/vizier'
+import { getMcpServers, uploadFile } from '../services/vizier'
 import type {
     CreateAgentRequest,
     AgentDetail,
-    GlobalConfigEntry,
 } from '../interfaces/types'
 import defaultPrompt from '../../../templates/agent.template.md?raw'
 
@@ -164,11 +163,9 @@ export default function AgentForm({
     useEffect(() => {
         const loadMcpServers = async () => {
             try {
-                const response = await listGlobalConfigs()
-                const entries: GlobalConfigEntry[] = response.data || []
-                const mcpEntry = entries.find((e) => e.key === 'mcp_servers')
-                if (mcpEntry && mcpEntry.value.type === 'McpServers') {
-                    setAvailableMcpServers(Object.keys(mcpEntry.value.data))
+                const response = await getMcpServers()
+                if (response.data && response.data.value.type === 'McpServers') {
+                    setAvailableMcpServers(Object.keys(response.data.value.data))
                 }
             } catch {
                 // silently ignore

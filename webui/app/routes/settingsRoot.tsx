@@ -5,8 +5,10 @@ import {
     createApiKey,
     deleteApiKey,
     changePassword,
-    listGlobalConfigs,
-    upsertGlobalConfig,
+    getMcpServers,
+    upsertMcpServers,
+    getShellConfig,
+    upsertShellConfig,
     listProviders,
     upsertProvider,
     deleteProvider,
@@ -20,8 +22,11 @@ import type {
     ShellConfigData,
     ProviderResponse,
 } from '../interfaces/types'
+import { hasPermission } from '../utils/auth'
+import UsersSection from '../components/UsersSection'
+import RolesSection from '../components/RolesSection'
 
-type Section = 'password' | 'api-keys' | 'providers' | 'mcp-servers' | 'shell'
+type Section = 'password' | 'api-keys' | 'providers' | 'mcp-servers' | 'shell' | 'users' | 'roles'
 
 export default function Settings() {
     const addToast = useToastStore((s) => s.addToast)
@@ -154,12 +159,10 @@ export default function Settings() {
     const loadMcpServers = async () => {
         try {
             setLoadingMcp(true)
-            const response = await listGlobalConfigs()
-            const entries: GlobalConfigEntry[] = response.data || []
-            const mcpEntry = entries.find((e) => e.key === 'mcp_servers')
-            if (mcpEntry && mcpEntry.value.type === 'McpServers') {
+            const response = await getMcpServers()
+            if (response.data && response.data.value.type === 'McpServers') {
                 setMcpServers(
-                    mcpEntry.value.data as Record<string, McpServerConfig>
+                    response.data.value.data as Record<string, McpServerConfig>
                 )
             } else {
                 setMcpServers({})
@@ -174,20 +177,10 @@ export default function Settings() {
     const loadShellConfig = async () => {
         try {
             setLoadingShell(true)
-            const response = await listGlobalConfigs()
-            const entries: GlobalConfigEntry[] = response.data || []
-            const shellEntry = entries.find((e) => e.key === 'shell')
-            if (shellEntry && shellEntry.value.type === 'Shell') {
-                const cfg = shellEntry.value.data as ShellConfigData
-                setShellConfig(cfg)
-                setShellForm(cfg)
-            } else {
-                const defaultCfg: ShellConfigData = {
-                    environment: 'local',
-                    path: '.',
-                }
-                setShellConfig(defaultCfg)
-                setShellForm(defaultCfg)
+            const response = await getShellConfig()
+            if (response.data && response.data.value.type === 'Shell') {
+                setShellConfig(response.data.value.data as ShellConfigData)
+                setShellForm(response.data.value.data as ShellConfigData)
             }
         } catch (error) {
             console.error('Failed to load shell config:', error)
@@ -330,10 +323,7 @@ export default function Settings() {
 
         setSavingMcp(true)
         try {
-            await upsertGlobalConfig('mcp_servers', {
-                type: 'McpServers',
-                data: updated,
-            })
+            await upsertMcpServers(updated)
             setMcpServers(updated)
             setShowAddMcp(false)
             setEditingMcp(null)
@@ -363,10 +353,7 @@ export default function Settings() {
 
         setSavingMcp(true)
         try {
-            await upsertGlobalConfig('mcp_servers', {
-                type: 'McpServers',
-                data: updated,
-            })
+            await upsertMcpServers(updated)
             setMcpServers(updated)
             addToast('success', 'MCP server removed. Restart to take effect.')
         } catch (err: any) {
@@ -396,10 +383,7 @@ export default function Settings() {
     const handleSaveShell = async () => {
         setSavingShell(true)
         try {
-            await upsertGlobalConfig('shell', {
-                type: 'Shell',
-                data: shellForm,
-            })
+            await upsertShellConfig(shellForm)
             setShellConfig(shellForm)
             addToast('success', 'Shell config saved. Restart to take effect.')
         } catch (err: any) {
@@ -435,11 +419,13 @@ export default function Settings() {
             <div className="flex md:hidden border-b border-[var(--border)] px-4 gap-2 py-2 overflow-x-auto">
                 {(
                     [
-                        ['password', 'Password'],
-                        ['api-keys', 'API Keys'],
-                        ['providers', 'Providers'],
-                        ['mcp-servers', 'MCP Servers'],
-                        ['shell', 'Shell'],
+                        ...(hasPermission('settings:password') ? [['password', 'Password'] as const] : []),
+                        ...(hasPermission('settings:api_keys') ? [['api-keys', 'API Keys'] as const] : []),
+                        ...(hasPermission('settings:providers') ? [['providers', 'Providers'] as const] : []),
+                        ...(hasPermission('settings:mcp_servers') ? [['mcp-servers', 'MCP Servers'] as const] : []),
+                        ...(hasPermission('settings:shell') ? [['shell', 'Shell'] as const] : []),
+                        ...(hasPermission('users:manage') ? [['users', 'Users'] as const] : []),
+                        ...(hasPermission('roles:manage') ? [['roles', 'Roles'] as const] : []),
                     ] as const
                 ).map(([key, label]) => (
                     <button
@@ -464,11 +450,13 @@ export default function Settings() {
                 >
                     {(
                         [
-                            ['password', 'Password'],
-                            ['api-keys', 'API Keys'],
-                            ['providers', 'Providers'],
-                            ['mcp-servers', 'MCP Servers'],
-                            ['shell', 'Shell Config'],
+                            ...(hasPermission('settings:password') ? [['password', 'Password'] as const] : []),
+                            ...(hasPermission('settings:api_keys') ? [['api-keys', 'API Keys'] as const] : []),
+                            ...(hasPermission('settings:providers') ? [['providers', 'Providers'] as const] : []),
+                            ...(hasPermission('settings:mcp_servers') ? [['mcp-servers', 'MCP Servers'] as const] : []),
+                            ...(hasPermission('settings:shell') ? [['shell', 'Shell Config'] as const] : []),
+                            ...(hasPermission('users:manage') ? [['users', 'Users'] as const] : []),
+                            ...(hasPermission('roles:manage') ? [['roles', 'Roles'] as const] : []),
                         ] as const
                     ).map(([key, label]) => (
                         <div
@@ -2041,6 +2029,16 @@ export default function Settings() {
                                 </div>
                             )}
                         </div>
+                    )}
+
+                    {/* Users Section */}
+                    {activeSection === 'users' && (
+                        <UsersSection />
+                    )}
+
+                    {/* Roles Section */}
+                    {activeSection === 'roles' && (
+                        <RolesSection />
                     )}
                 </div>
             </div>

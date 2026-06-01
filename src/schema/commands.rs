@@ -58,6 +58,7 @@ pub struct AgentSummary {
     pub name: String,
     pub description: Option<String>,
     pub avatar_url: Option<String>,
+    pub owner_username: Option<String>,
 }
 
 pub enum ChannelCommand {

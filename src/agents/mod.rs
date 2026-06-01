@@ -12,6 +12,7 @@ use crate::schema::{
 };
 use crate::storage::agent::AgentStorage;
 use crate::storage::provider::ProviderStorage;
+use crate::storage::user::UserStorage;
 use crate::utils::agent_workspace;
 
 pub mod agent;
@@ -137,11 +138,17 @@ impl VizierAgents {
 
         match Self::spawn_agent(&self.deps, agent_id, &config).await {
             Ok(process) => {
+                let owner_username = if let Some(ref owner_id) = config.owner_id {
+                    self.deps.storage.get_user_by_id(owner_id).await.ok().flatten().map(|u| u.username)
+                } else {
+                    None
+                };
                 let summary = AgentSummary {
                     agent_id: agent_id.to_string(),
                     name: config.name.clone(),
                     description: config.description.clone(),
                     avatar_url: config.avatar_url.clone(),
+                    owner_username,
                 };
                 self.processes.insert(agent_id.to_string(), process);
                 let _ = self
@@ -177,11 +184,17 @@ impl VizierAgents {
 
         match Self::spawn_agent(&self.deps, agent_id, &config).await {
             Ok(process) => {
+                let owner_username = if let Some(ref owner_id) = config.owner_id {
+                    self.deps.storage.get_user_by_id(owner_id).await.ok().flatten().map(|u| u.username)
+                } else {
+                    None
+                };
                 let summary = AgentSummary {
                     agent_id: agent_id.to_string(),
                     name: config.name.clone(),
                     description: config.description.clone(),
                     avatar_url: config.avatar_url.clone(),
+                    owner_username,
                 };
                 self.processes.insert(agent_id.to_string(), process);
                 let _ = self
@@ -238,6 +251,7 @@ impl VizierAgents {
             name: String::new(),
             description: None,
             avatar_url: None,
+            owner_username: None,
         })
     }
 }

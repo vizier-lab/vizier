@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::storage::{
     surreal::SurrealStorage,
-    user::{ApiKey, User, UserStorage},
+    user::{ApiKey, Role, User, UserProfile, UserStorage},
 };
 
 #[async_trait::async_trait]
@@ -20,11 +20,17 @@ impl UserStorage for SurrealStorage {
         Ok(users.into_iter().next())
     }
 
-    async fn create_user(&self, username: &str, password_hash: &str) -> Result<User> {
+    async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>> {
+        let user: Option<User> = self.conn.select(("user", user_id.to_string())).await?;
+        Ok(user)
+    }
+
+    async fn create_user(&self, username: &str, password_hash: &str, role_id: &str) -> Result<User> {
         let user = User {
             user_id: Uuid::new_v4().to_string(),
             username: username.to_string(),
             password_hash: password_hash.to_string(),
+            role_id: role_id.to_string(),
             created_at: Utc::now(),
         };
 
@@ -35,6 +41,35 @@ impl UserStorage for SurrealStorage {
             .await?;
 
         created.ok_or_else(|| anyhow::anyhow!("Failed to create user"))
+    }
+
+    async fn update_user(&self, user_id: &str, username: Option<&str>, role_id: Option<&str>) -> Result<()> {
+        let mut update = serde_json::json!({});
+        if let Some(username) = username {
+            update["username"] = serde_json::json!(username);
+        }
+        if let Some(role_id) = role_id {
+            update["role_id"] = serde_json::json!(role_id);
+        }
+
+        let _: Option<User> = self
+            .conn
+            .update(("user", user_id.to_string()))
+            .merge(update)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn delete_user(&self, user_id: &str) -> Result<()> {
+        let _: Option<User> = self.conn.delete(("user", user_id.to_string())).await?;
+        Ok(())
+    }
+
+    async fn list_users(&self) -> Result<Vec<User>> {
+        let mut result = self.conn.query("SELECT * FROM user").await?;
+        let users: Vec<User> = result.take(0)?;
+        Ok(users)
     }
 
     async fn update_password(&self, user_id: &str, password_hash: &str) -> Result<()> {
@@ -54,6 +89,90 @@ impl UserStorage for SurrealStorage {
             .await?;
         let count: Option<i64> = result.take((0, "count"))?;
         Ok(count.map_or(false, |c| c > 0))
+    }
+
+    async fn create_role(&self, name: &str, permissions: Vec<String>, is_system: bool) -> Result<Role> {
+        let role = Role {
+            role_id: Uuid::new_v4().to_string(),
+            name: name.to_string(),
+            permissions,
+            is_system,
+            created_at: Utc::now(),
+        };
+
+        let created: Option<Role> = self
+            .conn
+            .create(("role", role.role_id.clone()))
+            .content(role)
+            .await?;
+
+        created.ok_or_else(|| anyhow::anyhow!("Failed to create role"))
+    }
+
+    async fn get_role(&self, role_id: &str) -> Result<Option<Role>> {
+        let role: Option<Role> = self.conn.select(("role", role_id.to_string())).await?;
+        Ok(role)
+    }
+
+    async fn list_roles(&self) -> Result<Vec<Role>> {
+        let mut result = self.conn.query("SELECT * FROM role").await?;
+        let roles: Vec<Role> = result.take(0)?;
+        Ok(roles)
+    }
+
+    async fn update_role(&self, role_id: &str, name: &str, permissions: Vec<String>) -> Result<()> {
+        let _: Option<Role> = self
+            .conn
+            .update(("role", role_id.to_string()))
+            .merge(serde_json::json!({ "name": name, "permissions": permissions }))
+            .await?;
+
+        Ok(())
+    }
+
+    async fn delete_role(&self, role_id: &str) -> Result<()> {
+        let _: Option<Role> = self.conn.delete(("role", role_id.to_string())).await?;
+        Ok(())
+    }
+
+    async fn get_system_role(&self) -> Result<Option<Role>> {
+        let mut result = self
+            .conn
+            .query("SELECT * FROM role WHERE is_system = true LIMIT 1")
+            .await?;
+        let roles: Vec<Role> = result.take(0)?;
+        Ok(roles.into_iter().next())
+    }
+
+    async fn get_user_profile(&self, user_id: &str) -> Result<Option<UserProfile>> {
+        let mut result = self
+            .conn
+            .query("SELECT * FROM user_profile WHERE user_id = $user_id")
+            .bind(("user_id", user_id.to_string()))
+            .await?;
+
+        let profiles: Vec<UserProfile> = result.take(0)?;
+        Ok(profiles.into_iter().next())
+    }
+
+    async fn upsert_user_profile(&self, user_id: &str, profile: &UserProfile) -> Result<()> {
+        let existing = self.get_user_profile(user_id).await?;
+        if existing.is_some() {
+            let _: Option<UserProfile> = self
+                .conn
+                .query("UPDATE user_profile WHERE user_id = $user_id MERGE $profile")
+                .bind(("user_id", user_id.to_string()))
+                .bind(("profile", profile.clone()))
+                .await?
+                .take(0)?;
+        } else {
+            let _: Option<UserProfile> = self
+                .conn
+                .create("user_profile")
+                .content(profile.clone())
+                .await?;
+        }
+        Ok(())
     }
 
     async fn create_api_key(

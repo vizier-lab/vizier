@@ -72,4 +72,3 @@ Most tool settings are configured per-agent via the WebUI or API. See [Agent Con
 - `http_client` — arbitrary HTTP requests
 - `vector_memory` — vector-based memory access
 - `discord` / `telegram` — channel-specific tools
-- `notify_primary_user` — notification tools

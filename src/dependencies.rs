@@ -4,7 +4,6 @@ use anyhow::Result;
 use arc_swap::ArcSwap;
 
 use crate::{
-    channels::http::auth::AuthService,
     config::{
         VizierConfig,
         provider::ProviderVariant,
@@ -22,7 +21,7 @@ use crate::{
         indexer::{VizierIndexer, inmem::InMemIndexer},
         provider::ProviderStorage,
         surreal::SurrealStorage,
-        user::UserStorage,
+        user::{AVAILABLE_PERMISSIONS, UserStorage},
     },
     transport::VizierTransport,
 };
@@ -77,8 +76,8 @@ impl VizierDependencies {
             VizierMcpClients::new(config.clone()).await?,
         )));
 
-        // Initialize default user if no users exist
-        Self::initialize_default_user(&config, &storage).await?;
+        // Migrate existing users to have roles
+        Self::migrate_users(&storage).await?;
 
         // Auto-migrate providers from YAML config if storage is empty
         Self::migrate_providers(&config, &storage).await?;
@@ -99,31 +98,38 @@ impl VizierDependencies {
         })
     }
 
-    async fn initialize_default_user(config: &VizierConfig, storage: &VizierStorage) -> Result<()> {
+    async fn migrate_users(storage: &VizierStorage) -> Result<()> {
+        // Create system role if it doesn't exist
+        let system_role = match storage.get_system_role().await? {
+            Some(role) => role,
+            None => {
+                tracing::info!("Creating system role (superadmin)");
+                storage
+                    .create_role(
+                        "superadmin",
+                        AVAILABLE_PERMISSIONS.to_vec().into_iter().map(String::from).collect(),
+                        true,
+                    )
+                    .await?
+            }
+        };
+
         // Check if any users exist
-        if !storage.user_exists().await? {
-            // Get the primary user name from config
-            let username = &config.primary_user.username;
-
-            // Create default password hash
-            // We need to create a temporary AuthService for this
-            // Since we don't have the HTTP config here, we'll use a default
-            let default_http_config = crate::config::HTTPChannelConfig {
-                port: 0,
-                jwt_secret: "temp".to_string(),
-                jwt_expiry_hours: 720,
-            };
-            let auth_service = AuthService::new(&default_http_config);
-
-            let password_hash = auth_service.hash_password("admin")?;
-
-            // Create the user
-            storage.create_user(username, &password_hash).await?;
-
-            tracing::warn!(
-                "Default user '{}' created with password 'admin'. Please change immediately!",
-                username
-            );
+        if storage.user_exists().await? {
+            // Migrate existing users without role_id to superadmin role
+            let users = storage.list_users().await?;
+            for user in users {
+                // Check if user has a valid role_id
+                if storage.get_role(&user.role_id).await?.is_none() {
+                    tracing::info!(
+                        "Migrating user '{}' to superadmin role",
+                        user.username
+                    );
+                    storage
+                        .update_user(&user.user_id, None, Some(&system_role.role_id))
+                        .await?;
+                }
+            }
         }
 
         Ok(())

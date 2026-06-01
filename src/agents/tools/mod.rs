@@ -13,9 +13,6 @@ use crate::{
         discord::new_discord_tools,
         fetch::FetchWebpage,
         http_client::HttpClient,
-        notify::{
-            DiscordDmPrimaryUser, NotifyPrimaryUser, TelegramDmPrimaryUser, WebUiNotifyPrimaryUser,
-        },
         ptc::ProgramaticSandbox,
         scheduler::{DeleteTask, GetTaskDetail, ListTask, ScheduleCronTask, ScheduleOneTimeTask},
         shared_document::init_shared_document_tools,
@@ -43,7 +40,6 @@ mod consult;
 mod discord;
 mod fetch;
 mod http_client;
-mod notify;
 mod ptc;
 mod scheduler;
 mod shared_document;
@@ -321,27 +317,6 @@ impl VizierTools {
             let shell = deps.shell.load();
             default_toolset = default_toolset.tool(ShellExec(shell.clone()));
         }
-
-        default_toolset = default_toolset
-            .tool(DiscordDmPrimaryUser::new(
-                agent_config.discord_token.clone(),
-                deps.config.primary_user.discord_id.clone(),
-            ))
-            .tool(TelegramDmPrimaryUser::new(
-                agent_config.telegram_token.clone(),
-                deps.config.primary_user.telegram_username.clone(),
-            ))
-            .tool(WebUiNotifyPrimaryUser::new(
-                agent_id.clone(),
-                deps.transport.clone(),
-            ))
-            .tool(NotifyPrimaryUser::new(
-                agent_config.discord_token.clone(),
-                agent_config.telegram_token.clone(),
-                deps.config.primary_user.clone(),
-                agent_id.clone(),
-                deps.transport.clone(),
-            ));
 
         if agent_config.tools.discord.enabled {
             if let Some(token) = &agent_config.discord_token {

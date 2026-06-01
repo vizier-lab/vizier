@@ -31,6 +31,7 @@ import {
 } from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
 import { useConnectionStore } from '../hooks/connectionStore'
+import { useUserStore } from '../hooks/userStore'
 import { MessageItem } from '../components/MessageItem'
 import { ThinkingIndicator } from '../components/ThinkingIndicator'
 import MarkdownEditor from '../components/MarkdownEditor'
@@ -152,14 +153,6 @@ const formatToolChoice = (
       return `👍 Reacting on Telegram`
     case 'telegram_get_message_by_id':
       return `📩 Getting Telegram message`
-    case 'discord_dm_primary_user':
-      return `💬 DM on Discord`
-    case 'telegram_dm_primary_user':
-      return `✈️ DM on Telegram`
-    case 'webui_notify_primary_user':
-      return `🔔 WebUI notification`
-    case 'notify_primary_user':
-      return `🔔 Notifying user`
     default:
       if (name.startsWith('mcp_')) {
         const parts = name.replace('mcp_', '').split('__')
@@ -207,6 +200,7 @@ export default function Chat() {
     null
   )
   const sessionSelectorRef = useRef<HTMLDivElement>(null)
+  const { user } = useUserStore()
 
   const placeholder = useMemo(
     () => PLACEHOLDERS[Math.floor(placeholderSeed * PLACEHOLDERS.length)],
@@ -257,10 +251,10 @@ export default function Chat() {
 
   // Persist current topic per agent
   useEffect(() => {
-    if (agentId && topicId) {
-      localStorage.setItem(`last_topic_${agentId}`, topicId)
+    if (agentId && topicId && user?.user_id) {
+      localStorage.setItem(`vizier_last_topic_${user.user_id}_${agentId}`, topicId)
     }
-  }, [agentId, topicId])
+  }, [agentId, topicId, user?.user_id])
 
   // Load topic detail
   useEffect(() => {

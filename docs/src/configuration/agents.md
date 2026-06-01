@@ -59,7 +59,6 @@ Each tool can be configured per-agent:
 | `http_client` | Enable HTTP client | Allow tools to make HTTP requests | Arbitrary REST API calls |
 | `discord` | Enable Discord actions | Allow tools to use Discord | Requires Discord token |
 | `telegram` | Enable Telegram actions | Allow tools to use Telegram | Requires Telegram token |
-| `notify_primary_user` | Enable notifications | Allow tools to send notifications | Sends via Discord DM, Telegram DM, or WebUI |
 
 ## Agent Documents
 
@@ -97,8 +96,7 @@ These are edited through the WebUI's markdown editor and stored as files on disk
     "fetch": { "enabled": true },
     "http_client": { "enabled": false },
     "discord": { "enabled": false },
-    "telegram": { "enabled": false },
-    "notify_primary_user": { "enabled": true }
+    "telegram": { "enabled": false }
   },
   "show_thinking": true,
   "system_prompt": "You are a helpful coding assistant specialized in Rust."

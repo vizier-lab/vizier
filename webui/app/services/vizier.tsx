@@ -74,6 +74,85 @@ export const deleteApiKey = async (keyId: string) => {
 }
 
 // ============================================================================
+// SETUP ENDPOINTS
+// ============================================================================
+
+export const getSetupStatus = async () => {
+  const res = await apiClient.get('/auth/setup-status')
+  return res.data
+}
+
+export const setupFirstUser = async (username: string, password: string) => {
+  const res = await apiClient.post('/auth/setup', { username, password })
+  if (res.data?.data?.token) {
+    localStorage.setItem('auth_token', res.data.data.token)
+  }
+  return res.data
+}
+
+// ============================================================================
+// USER ENDPOINTS
+// ============================================================================
+
+export const getCurrentUser = async () => {
+  const res = await apiClient.get('/auth/users/me')
+  return res.data
+}
+
+// ============================================================================
+// ROLE ENDPOINTS
+// ============================================================================
+
+export const listRoles = async () => {
+  const res = await apiClient.get('/auth/roles')
+  return res.data
+}
+
+export const createRole = async (name: string, permissions: string[]) => {
+  const res = await apiClient.post('/auth/roles', { name, permissions })
+  return res.data
+}
+
+export const updateRole = async (roleId: string, name: string, permissions: string[]) => {
+  const res = await apiClient.put(`/auth/roles/${roleId}`, { name, permissions })
+  return res.data
+}
+
+export const deleteRole = async (roleId: string) => {
+  const res = await apiClient.delete(`/auth/roles/${roleId}`)
+  return res.data
+}
+
+export const getAvailablePermissions = async () => {
+  const res = await apiClient.get('/auth/roles/available-permissions')
+  return res.data
+}
+
+// ============================================================================
+// USER ENDPOINTS
+// ============================================================================
+
+export const listUsers = async () => {
+  const res = await apiClient.get('/auth/users')
+  return res.data
+}
+
+export const createUser = async (username: string, password: string, roleId?: string) => {
+  const res = await apiClient.post('/auth/users', { username, password, role_id: roleId })
+  return res.data
+}
+
+export const updateUser = async (userId: string, data: { username?: string; role_id?: string; password?: string }) => {
+  const res = await apiClient.put(`/auth/users/${userId}`, data)
+  return res.data
+}
+
+export const deleteUser = async (userId: string) => {
+  const res = await apiClient.delete(`/auth/users/${userId}`)
+  return res.data
+}
+
+// ============================================================================
 // AGENT ENDPOINTS
 // ============================================================================
 
@@ -326,26 +405,40 @@ export const ping = async () => {
 }
 
 // ============================================================================
-// GLOBAL CONFIG ENDPOINTS
+// MCP SERVERS ENDPOINTS
 // ============================================================================
 
-export const listGlobalConfigs = async () => {
-  const res = await apiClient.get('/global-config')
+export const getMcpServers = async () => {
+  const res = await apiClient.get('/global-config/mcp-servers')
   return res.data
 }
 
-export const getGlobalConfig = async (key: string) => {
-  const res = await apiClient.get(`/global-config/${key}`)
+export const upsertMcpServers = async (data: unknown) => {
+  const res = await apiClient.put('/global-config/mcp-servers', data)
   return res.data
 }
 
-export const upsertGlobalConfig = async (key: string, data: Record<string, unknown>) => {
-  const res = await apiClient.put(`/global-config/${key}`, data)
+export const deleteMcpServers = async () => {
+  const res = await apiClient.delete('/global-config/mcp-servers')
   return res.data
 }
 
-export const deleteGlobalConfig = async (key: string) => {
-  const res = await apiClient.delete(`/global-config/${key}`)
+// ============================================================================
+// SHELL CONFIG ENDPOINTS
+// ============================================================================
+
+export const getShellConfig = async () => {
+  const res = await apiClient.get('/global-config/shell')
+  return res.data
+}
+
+export const upsertShellConfig = async (data: unknown) => {
+  const res = await apiClient.put('/global-config/shell', data)
+  return res.data
+}
+
+export const deleteShellConfig = async () => {
+  const res = await apiClient.delete('/global-config/shell')
   return res.data
 }
 

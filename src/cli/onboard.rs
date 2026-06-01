@@ -11,7 +11,6 @@ use crate::config::{
     provider::ProviderConfig,
     storage::{DocumentIndexerConfig, StorageConfig},
     tools::ToolsConfig,
-    user::UserConfig,
 };
 
 #[derive(Debug, Args, Clone)]
@@ -27,8 +26,8 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
     let r = "\x1b[0m";
 
     println!("  Welcome! Let's set up your agent workspace.");
-    println!("  This will generate a {d}.vizier.yaml{r} config and optionally");
-    println!("  create your primary user profile.");
+    println!("  This will generate a {d}.vizier.yaml{r} config.");
+    println!("  You can create your user account later via the WebUI.");
     println!();
     let workspace = match &args.path {
         Some(p) => p.clone(),
@@ -43,30 +42,6 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
             .join(workspace.strip_prefix('~').unwrap())
     } else {
         PathBuf::from(&workspace)
-    };
-
-    let user_name = Text::new("Username:").with_default("admin").prompt()?;
-
-    let fill_user_details =
-        Confirm::new("Fill additional primary user details (Discord, Telegram, alias)?")
-            .with_default(false)
-            .prompt()?;
-
-    let (discord_id, discord_username, telegram_username, alias) = if fill_user_details {
-        let discord_id = Text::new("Discord ID:").with_default("").prompt()?;
-        let discord_username = Text::new("Discord username:").with_default("").prompt()?;
-        let telegram_username = Text::new("Telegram username:").with_default("").prompt()?;
-        let alias_input = Text::new("Alias (comma-separated):")
-            .with_default("")
-            .prompt()?;
-        let alias: Vec<String> = alias_input
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        (discord_id, discord_username, telegram_username, alias)
-    } else {
-        (String::new(), String::new(), String::new(), vec![])
     };
 
     let port: u32 = Text::new("HTTP port:")
@@ -381,21 +356,8 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         StorageConfig::Filesystem(DocumentIndexerConfig::InMem)
     };
 
-    let agent_file_name = format!(
-        "{}.agent.md",
-        user_name
-            .to_lowercase()
-            .replace(' ', "_")
-            .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
-            .collect::<String>()
-    );
-
     let mut config_path = workspace_path.clone();
     config_path.push(".vizier.yaml");
-
-    let mut agent_path = workspace_path.clone();
-    agent_path.push(&agent_file_name);
 
     let embedding_model = match &embedding {
         EmbeddingConfig::Local { model } => format!("{:?}", model),
@@ -411,7 +373,6 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         |---|---|\n\
         | **Workspace** | `{}` |\n\
         | **Config file** | `{}` |\n\
-        | **User** | `{}` |\n\
         | **HTTP port** | `{}` |\n\
         | **Provider** | `{}` |\n\
         | **Embedding** | `{} ({})` |\n\
@@ -419,7 +380,6 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         ---\n",
         workspace_path.display(),
         config_path.display(),
-        user_name,
         port,
         provider_type,
         embedding_type,
@@ -439,13 +399,6 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
     let config = VizierConfig {
         workspace: workspace.clone(),
         embedding: Some(embedding),
-        primary_user: UserConfig {
-            username: user_name,
-            discord_id,
-            discord_username,
-            telegram_username,
-            alias,
-        },
         providers,
         storage,
         channels: ChannelsConfig {
@@ -475,8 +428,8 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         | | |\n\
         |---|---|\n\
         | **Start server** | `vizier run` |\n\
-        | **WebUI** | `http://localhost:{}` |\n\
-        | **Default password** | `admin` |\n",
+        | **WebUI** | `http://localhost:{}` |\n\n\
+        Open the WebUI and follow the onboarding flow to create your first user account.\n",
         config_path.display(),
         port,
     ));
