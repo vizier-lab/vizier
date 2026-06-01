@@ -2,11 +2,55 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-05-31
+
+### 🚀 Features
+
+- Add daemonize run mode (#11)
+- Implement new unified sidebar layout (#12)
+- Implement runtime agent configuration
+- Move some config to runtime
+- Move mcp and shell config to runtime
+- Bump rig and add xiaomi provider
+- Add missing fields and standardized icon
+- Enhance input style and UX
+- Add glass effect to input
+- Implement wyiwyg input in chat
+- Standardize markdown editor
+- Rearrange tools
+- Refine sidebar behaviour
+- Enhance upload process and add custom avatar upload
+- Add placholder and thinking word variations
+- Update onboarding command
+- Add abort and message queue logic
+- Enhanced scroll to bottom behaviour
+- Presistant selected agent and topic
+- Auto reconcile channel update
+- Adjust tooltip description
+
+### 🐛 Bug Fixes
+
+- Input now properly apply modifier
+- Glassmorphism on input
+- Cropped scroll fix
+
+### 💼 Other
+
+- Minor design enhancement
+
+### 📚 Documentation
+
+- Add AGENTS.md
+- Update docs
 ## [0.5.5] - 2026-05-02
 
 ### 🐛 Bug Fixes
 
 - Crash when model halucinating mcp function_name
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.5.5
 ## [0.5.4] - 2026-04-28
 
 ### 🚀 Features
