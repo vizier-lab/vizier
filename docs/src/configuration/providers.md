@@ -14,6 +14,9 @@ providers:
   
   ollama:
     base_url: "http://localhost:11434"  # Default Ollama URL
+    
+  llama_cpp:
+    base_url: "http://localhost:8080"  # Default llama.cpp URL
 ```
 
 > **Note:** Provider configurations are auto-migrated to storage on first run. After migration, providers are managed via the WebUI (Settings > Providers) or HTTP API (`/api/v1/providers`).
@@ -29,6 +32,7 @@ providers:
 | `openai` | `api_key`, `base_url` | OpenAI models (custom base_url for compatibility with OpenAI-compatible APIs) |
 | `gemini` | `api_key` | [Google Gemini](https://ai.google.dev) models |
 | `mimo` | `api_key` | [Xiaomi MiMo](https://mimo.xiaomi.com) models |
+| `llama_cpp` | `base_url` | Local Llama.cpp instance (default: `http://localhost:8080`) |
 
 ## Example Configuration
 
@@ -55,6 +59,9 @@ providers:
 
   mimo:
     api_key: "${XIAOMI_MIMO_API_KEY}"
+    
+  llama_cpp:
+    base_url: "http://localhost:8080"
 ```
 
 ## Managing Providers at Runtime

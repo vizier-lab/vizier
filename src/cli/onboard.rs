@@ -94,6 +94,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
             "openai",
             "gemini",
             "mimo",
+            "llama_cpp",
         ],
     )
     .prompt()?;
@@ -149,6 +150,13 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         "mimo" => {
             let api_key = Password::new("Xiaomi MiMo API key:").prompt()?;
             providers.mimo = Some(crate::config::provider::MimoProviderConfig { api_key });
+        }
+        "llama_cpp" => {
+            let base_url = Text::new("Llama.cpp base URL:")
+                .with_default("http://localhost:8080")
+                .prompt()?;
+            providers.llama_cpp =
+                Some(crate::config::provider::LlamaCppProviderConfig { base_url });
         }
         _ => unreachable!(),
     }

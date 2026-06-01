@@ -53,7 +53,7 @@ src/
 ├── schema/              # shared types (VizierResponse, AgentId, ProviderEntry, etc.)
 ├── agents/
 │   ├── agent/           # agent process loop, LLM interaction
-│   │   ├── model/       # provider abstraction (ollama, openai, anthropic, gemini, deepseek, openrouter, mimo)
+│   │   ├── model/       # provider abstraction (ollama, openai, anthropic, gemini, deepseek, openrouter, mimo, llama_cpp)
 │   │   └── system_prompt/ # system prompt construction, workspace init
 │   ├── tools/           # all built-in tools (register here for new tools)
 │   ├── hook/            # agent lifecycle hooks (debug, thinking, history, tool_calls)
