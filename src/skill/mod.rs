@@ -89,6 +89,10 @@ pub struct SkillManager {
 }
 
 impl SkillManager {
+    pub fn skill_dir(&self, slug: &str) -> PathBuf {
+        self.skills_dir.join(slug)
+    }
+
     pub fn new(workspace: &str) -> Self {
         let skills_dir = build_path(workspace, &["skills"]);
         Self { skills_dir, agent_id: None }

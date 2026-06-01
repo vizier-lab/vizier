@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+use super::{SkillResource, write_resource_files};
 use crate::agents::tools::VizierTool;
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
@@ -34,6 +35,9 @@ pub struct UpdateSkillArgs {
 
     #[schemars(description = "new activation mode (optional)")]
     pub activation: Option<SkillActivation>,
+
+    #[schemars(description = "resource files to add or update (optional, replaces all resources)")]
+    pub resources: Option<Vec<SkillResource>>,
 }
 
 #[async_trait::async_trait]
@@ -46,7 +50,7 @@ impl VizierTool for UpdateSkill {
     }
 
     fn description(&self) -> String {
-        "update an existing skill's content, description, keywords, or activation mode".into()
+        "update an existing skill's content, description, keywords, activation mode, or resource files".into()
     }
 
     async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
@@ -65,6 +69,12 @@ impl VizierTool for UpdateSkill {
         }
         if let Some(activation) = args.activation {
             skill.activation = activation;
+        }
+
+        if let Some(resources) = &args.resources {
+            let skill_dir = self.0.skill_dir(&args.slug);
+            write_resource_files(&skill_dir, resources)?;
+            skill.resources = resources.iter().map(|r| r.path.clone()).collect();
         }
 
         skill.version += 1;

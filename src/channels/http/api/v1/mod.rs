@@ -126,8 +126,8 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
         .nest(
             "/providers",
             providers::providers()
-                .layer(middleware::from_fn_with_state(state.clone(), require_auth))
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "settings:providers".to_string() }, require_permission)),
+                .layer(middleware::from_fn_with_state(PermissionState { permission: "settings:providers".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .nest(
             "/global-config/mcp-servers",
