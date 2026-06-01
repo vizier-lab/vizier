@@ -85,17 +85,18 @@ impl From<SkillFrontMatter> for Skill {
 #[derive(Clone)]
 pub struct SkillManager {
     skills_dir: PathBuf,
+    agent_id: Option<String>,
 }
 
 impl SkillManager {
     pub fn new(workspace: &str) -> Self {
         let skills_dir = build_path(workspace, &["skills"]);
-        Self { skills_dir }
+        Self { skills_dir, agent_id: None }
     }
 
     pub fn for_agent(workspace: &str, agent_id: &str) -> Self {
         let skills_dir = build_path(workspace, &["agents", agent_id, "skills"]);
-        Self { skills_dir }
+        Self { skills_dir, agent_id: Some(agent_id.to_string()) }
     }
 
     pub fn skills_dir(&self) -> &Path {
@@ -255,6 +256,7 @@ impl SkillManager {
         let mut skill: Skill = frontmatter.into();
         skill.name = slug.to_string();
         skill.content = content;
+        skill.agent_id = self.agent_id.clone();
 
         // Populate resources
         let mut resources = Vec::new();

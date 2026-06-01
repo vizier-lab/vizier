@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeHighlight from 'rehype-highlight'
 import { useParams } from 'react-router'
 import { FaPlus, FaTrash, FaPenToSquare } from 'react-icons/fa6'
 import { Skeleton } from '../components/Skeleton'
@@ -42,14 +45,25 @@ export default function SkillsManagement() {
   })
 
   const handleViewSkill = async (slug: string) => {
-    await selectSkill(slug, agentId)
+    // Check if this is a global skill (no agent_id)
+    const skill = skills.find(s => s.name === slug)
+    if (skill && !skill.agent_id) {
+      await selectSkill(slug)  // Fetch from global endpoint
+    } else {
+      await selectSkill(slug, agentId)  // Fetch from agent endpoint
+    }
     setModalMode('view')
   }
 
   const handleEditSkill = async (skill: Skill) => {
     // Fetch full skill content if not already loaded
-    if (!skill.content && agentId) {
-      await selectSkill(skill.name, agentId)
+    if (!skill.content) {
+      // Use global endpoint for global skills, agent endpoint for agent skills
+      if (!skill.agent_id) {
+        await selectSkill(skill.name)
+      } else {
+        await selectSkill(skill.name, agentId)
+      }
       const fullSkill = useSkillStore.getState().selectedSkill
       if (fullSkill) {
         skill = fullSkill
@@ -345,18 +359,17 @@ export default function SkillsManagement() {
                 </div>
                 <div style={{ marginBottom: '1.5rem' }}>
                   <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Content</div>
-                  <div style={{
+                  <div className="prose" style={{
                     padding: '12px',
                     borderRadius: '4px',
                     background: 'var(--surface)',
                     border: '1px solid var(--border)',
                     maxHeight: '300px',
                     overflow: 'auto',
-                    whiteSpace: 'pre-wrap',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '13px',
                   }}>
-                    {selectedSkill.content || 'No content'}
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                      {selectedSkill.content || 'No content'}
+                    </ReactMarkdown>
                   </div>
                 </div>
                 {selectedSkill.resources.length > 0 && (
