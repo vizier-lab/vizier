@@ -16,6 +16,7 @@ pub mod auth;
 pub mod files;
 pub mod global_config;
 pub mod providers;
+pub mod skills;
 
 pub fn v1(state: HTTPState) -> Router<HTTPState> {
     Router::new()
@@ -62,6 +63,10 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
             "/global-config",
             global_config::global_config()
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .nest(
+            "/skills",
+            skills::skills().layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
 }
 

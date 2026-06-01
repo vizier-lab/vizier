@@ -380,3 +380,68 @@ export const uploadFile = async (file: File): Promise<UploadResponse> => {
   })
   return res.data.data
 }
+
+// ============================================================================
+// SKILL ENDPOINTS
+// ============================================================================
+
+export const listSkills = async () => {
+  const res = await apiClient.get('/skills')
+  return res.data
+}
+
+export const getSkill = async (slug: string) => {
+  const res = await apiClient.get(`/skills/${slug}`)
+  return res.data
+}
+
+export const createSkill = async (data: import('../interfaces/types').CreateSkillRequest) => {
+  const res = await apiClient.post('/skills', data)
+  return res.data
+}
+
+export const updateSkill = async (slug: string, data: import('../interfaces/types').UpdateSkillRequest) => {
+  const res = await apiClient.put(`/skills/${slug}`, data)
+  return res.data
+}
+
+export const deleteSkill = async (slug: string) => {
+  const res = await apiClient.delete(`/skills/${slug}`)
+  return res.data
+}
+
+export const listSkillResources = async (slug: string) => {
+  const res = await apiClient.get(`/skills/${slug}/resources`)
+  return res.data
+}
+
+export const getSkillResource = async (slug: string, path: string) => {
+  const res = await apiClient.get(`/skills/${slug}/resources/${path}`)
+  return res.data
+}
+
+// Agent skills
+export const listAgentSkills = async (agentId: string) => {
+  const res = await apiClient.get(`/agents/${agentId}/skills`)
+  return res.data
+}
+
+export const getAgentSkill = async (agentId: string, slug: string) => {
+  const res = await apiClient.get(`/agents/${agentId}/skills/${slug}`)
+  return res.data
+}
+
+export const createAgentSkill = async (agentId: string, data: import('../interfaces/types').CreateSkillRequest) => {
+  const res = await apiClient.post(`/agents/${agentId}/skills`, data)
+  return res.data
+}
+
+export const updateAgentSkill = async (agentId: string, slug: string, data: import('../interfaces/types').UpdateSkillRequest) => {
+  const res = await apiClient.put(`/agents/${agentId}/skills/${slug}`, data)
+  return res.data
+}
+
+export const deleteAgentSkill = async (agentId: string, slug: string) => {
+  const res = await apiClient.delete(`/agents/${agentId}/skills/${slug}`)
+  return res.data
+}

@@ -15,7 +15,6 @@ pub mod provider;
 pub mod query;
 pub mod session;
 pub mod shared_document;
-pub mod skill;
 pub mod state;
 pub mod task;
 pub mod user;

@@ -297,13 +297,14 @@ export default function TaskManagement() {
           <div
             style={{
               position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-              background: 'var(--background)', borderRadius: '8px', padding: '2rem',
-              maxWidth: '700px', width: '90%', maxHeight: '80vh', overflow: 'auto',
+              background: 'var(--background)', borderRadius: '12px',
+              maxWidth: '700px', width: '90%', maxHeight: '90vh',
+              display: 'flex', flexDirection: 'column',
               zIndex: 1001, border: '1px solid var(--border)',
             }}
           >
             {modalMode === 'view' && selectedTask && (
-              <>
+              <div style={{ padding: '2rem', overflow: 'auto', flex: 1 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.5rem' }}>
@@ -347,36 +348,33 @@ export default function TaskManagement() {
                     <span>Delete</span>
                   </button>
                 </div>
-              </>
+              </div>
             )}
 
             {(modalMode === 'create' || modalMode === 'edit') && (
               <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                  <h2>{modalMode === 'create' ? 'Create Task' : 'Edit Task'}</h2>
-                  <button className="btn btn-ghost" onClick={closeModal}>&#10005;</button>
+                <div style={{ padding: '2rem', paddingBottom: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 style={{ margin: 0 }}>{modalMode === 'create' ? 'Create Task' : 'Edit Task'}</h2>
+                    <button className="btn btn-ghost" onClick={closeModal}>&#10005;</button>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div className="input-group">
+                <div style={{ padding: '0 2rem', overflow: 'auto', flex: 1 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div className="input-group" style={{ marginBottom: 0 }}>
                     <label htmlFor="slug">Slug</label>
                     <input id="slug" type="text" value={formSlug} onChange={(e) => setFormSlug(autoCorrectSlug(e.target.value))} required disabled={modalMode === 'edit'} placeholder="my-task-slug" />
                     {formSlug && <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Slug: {formSlug}</div>}
                   </div>
-                  <div className="input-group">
+                  <div className="input-group" style={{ marginBottom: 0 }}>
                     <label htmlFor="user">User</label>
                     <input id="user" type="text" value={formUser} onChange={(e) => setFormUser(e.target.value)} required />
                   </div>
-                  <div className="input-group">
+                  <div className="input-group" style={{ marginBottom: 0 }}>
                     <label htmlFor="title">Title</label>
                     <input id="title" type="text" value={formTitle} onChange={(e) => setFormTitle(e.target.value)} required />
                   </div>
-                  <div className="input-group">
-                    <label htmlFor="instruction">Instruction</label>
-                    <div style={{ height: '200px' }}>
-                      <MarkdownEditor value={formInstruction} onChange={setFormInstruction} placeholder="Enter task instruction..." className="modal-mdx-editor" />
-                    </div>
-                  </div>
-                  <div className="input-group">
+                  <div className="input-group" style={{ marginBottom: 0 }}>
                     <label htmlFor="schedule-type">Schedule Type</label>
                     <select
                       id="schedule-type"
@@ -390,7 +388,7 @@ export default function TaskManagement() {
                   </div>
                   {formScheduleType === 'Cron' ? (
                     <>
-                      <div className="input-group">
+                      <div className="input-group" style={{ marginBottom: 0 }}>
                         <label htmlFor="cron-template">Template</label>
                         <select
                           id="cron-template"
@@ -401,7 +399,7 @@ export default function TaskManagement() {
                           {CRON_TEMPLATES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                         </select>
                       </div>
-                      <div className="input-group">
+                      <div className="input-group" style={{ marginBottom: 0 }}>
                         <label htmlFor="schedule-value">Cron Expression</label>
                         <input id="schedule-value" type="text" value={formScheduleValue} onChange={(e) => setFormScheduleValue(e.target.value)} required placeholder="0 0 * * *" />
                         <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
@@ -412,12 +410,19 @@ export default function TaskManagement() {
                   ) : (
                     <DatePicker label="Datetime (UTC)" value={formScheduleValue} onChange={setFormScheduleValue} />
                   )}
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>
-                    <button className="btn btn-primary" onClick={handleSubmit} disabled={!formSlug.trim() || !formTitle.trim() || !formInstruction.trim() || !formScheduleValue.trim() || submitting}>
-                      {submitting ? 'Saving...' : 'Save'}
-                    </button>
-                    <button className="btn btn-secondary" onClick={closeModal} disabled={submitting}>Cancel</button>
+                  <div className="input-group" style={{ marginBottom: 0 }}>
+                    <label htmlFor="instruction">Instruction</label>
+                    <div style={{ height: '150px' }}>
+                      <MarkdownEditor value={formInstruction} onChange={setFormInstruction} placeholder="Enter task instruction..." className="modal-mdx-editor" />
+                    </div>
                   </div>
+                  </div>
+                </div>
+                <div style={{ padding: '1rem 2rem', borderTop: '1px solid var(--border)', display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-primary" onClick={handleSubmit} disabled={!formSlug.trim() || !formTitle.trim() || !formInstruction.trim() || !formScheduleValue.trim() || submitting}>
+                    {submitting ? 'Saving...' : 'Save'}
+                  </button>
+                  <button className="btn btn-secondary" onClick={closeModal} disabled={submitting}>Cancel</button>
                 </div>
               </>
             )}

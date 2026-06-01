@@ -17,7 +17,6 @@ mod memory;
 mod provider;
 mod session;
 mod shared_document;
-mod skill;
 mod state;
 mod task;
 mod user;

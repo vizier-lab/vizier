@@ -9603,6 +9603,7 @@ dependencies = [
  "surrealdb-types",
  "tar",
  "teloxide",
+ "tempfile",
  "termimad",
  "text-splitter",
  "tokio",

@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 mod onboard;
 mod run;
 mod shutdown;
+mod skill;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about=None)]
@@ -22,6 +23,8 @@ enum Commands {
     Shutdown(shutdown::ShutdownArgs),
     /// Onboard new user, and generate configurations
     Onboard(onboard::OnboardArgs),
+    /// Manage skills (install, list, uninstall, update)
+    Skill(skill::SkillArgs),
 }
 
 pub fn start() -> Result<()> {
@@ -31,6 +34,7 @@ pub fn start() -> Result<()> {
         Commands::Onboard(args) => onboard::onboard(args.clone())?,
         Commands::Run(args) => run::run(args.clone())?,
         Commands::Shutdown(args) => shutdown::shutdown(args.clone())?,
+        Commands::Skill(args) => skill::skill(args.clone())?,
     }
 
     Ok(())

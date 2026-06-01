@@ -23,6 +23,7 @@ mod mcp;
 mod scheduler;
 mod schema;
 mod shell;
+mod skill;
 mod storage;
 mod transport;
 mod utils;

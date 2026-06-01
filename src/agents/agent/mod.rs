@@ -101,12 +101,19 @@ impl VizierAgent {
                 self.config
                     .system_prompt
                     .clone()
-                    .unwrap_or("you are a helpful assistant".into()),
+                    .unwrap_or("You are a helpful and capable assistant. Follow the operating doctrine in BOOT.md.".into()),
             ),
             Message::system(primary_user_md(&self.primary_user)),
             Message::system(agent_md),
             Message::system(ident_md),
         ];
+
+        // Inject Always skills into system prompt
+        if let Ok(always_skills) = self.skills.get_always_skills().await {
+            for skill_content in always_skills {
+                res.push(Message::system(skill_content));
+            }
+        }
 
         for document in &self.config.documents {
             res.push(Message::system(document.clone()));
@@ -123,7 +130,20 @@ impl VizierAgent {
         hooks: Option<Arc<VizierSessionHooks>>,
     ) -> Result<VizierResponse> {
         let mut tools = self.tools.tools().await?;
-        tools.extend(self.skills.get_skills().await?);
+        tools.extend(self.skills.get_ondemand_skills().await?);
+
+        // Match contextual skills against the task
+        let task_text = match &req.content {
+            VizierRequestContent::Chat(text) => text.clone(),
+            VizierRequestContent::Prompt(text) => text.clone(),
+            VizierRequestContent::Task(text) => text.clone(),
+            VizierRequestContent::Command(text) => text.clone(),
+            _ => String::new(),
+        };
+        if !task_text.is_empty() {
+            let contextual_skills = self.skills.get_contextual_skills(&task_text).await?;
+            tools.extend(contextual_skills);
+        }
 
         let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
         let initiative_factor = rng.random_range(0_f32..=1_f32);
@@ -213,7 +233,7 @@ impl VizierAgent {
             let mut turn_depth = turn_depth;
             let max_turn_depth = self.config.thinking_depth;
             let mut tools = self.tools.tools().await?;
-            tools.extend(self.skills.get_skills().await?);
+            tools.extend(self.skills.get_ondemand_skills().await?);
 
             let output: String;
 

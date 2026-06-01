@@ -222,13 +222,14 @@ export default function MemoryManagement() {
           <div
             style={{
               position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-              background: 'var(--background)', borderRadius: '12px', padding: '2rem',
-              maxWidth: '700px', width: '90%', maxHeight: '80vh', overflow: 'auto',
+              background: 'var(--background)', borderRadius: '12px',
+              maxWidth: '700px', width: '90%', maxHeight: '90vh',
+              display: 'flex', flexDirection: 'column',
               zIndex: 1001, border: '1px solid var(--border)', boxShadow: 'var(--shadow-xl)',
             }}
           >
             {modalMode === 'view' && selectedMemory && (
-              <>
+              <div style={{ padding: '2rem', overflow: 'auto', flex: 1 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
                   <div>
                     <h2 style={{ marginBottom: '0.5rem' }}>{selectedMemory.title}</h2>
@@ -251,45 +252,49 @@ export default function MemoryManagement() {
                     Delete
                   </button>
                 </div>
-              </>
+              </div>
             )}
 
             {(modalMode === 'create' || modalMode === 'edit') && (
               <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                  <h2>{modalMode === 'create' ? 'Create Memory' : 'Edit Memory'}</h2>
-                  <button className="btn btn-ghost" onClick={closeModal} style={{ padding: '8px' }}>&#10005;</button>
+                <div style={{ padding: '2rem', paddingBottom: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h2 style={{ margin: 0 }}>{modalMode === 'create' ? 'Create Memory' : 'Edit Memory'}</h2>
+                    <button className="btn btn-ghost" onClick={closeModal} style={{ padding: '8px' }}>&#10005;</button>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  {modalMode === 'create' && (
-                    <div className="input-group">
-                      <label htmlFor="slug">Slug (optional)</label>
-                      <input id="slug" type="text" value={formSlug} onChange={(e) => setFormSlug(autoCorrectSlug(e.target.value))} placeholder="auto-generated if empty" />
-                      {formSlug && (
-                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
-                          Slug: {formSlug}
-                        </div>
-                      )}
+                <div style={{ padding: '0 2rem', overflow: 'auto', flex: 1 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {modalMode === 'create' && (
+                      <div className="input-group" style={{ marginBottom: 0 }}>
+                        <label htmlFor="slug">Slug (optional)</label>
+                        <input id="slug" type="text" value={formSlug} onChange={(e) => setFormSlug(autoCorrectSlug(e.target.value))} placeholder="auto-generated if empty" />
+                        {formSlug && (
+                          <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+                            Slug: {formSlug}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                      <label htmlFor="title">Title</label>
+                      <input id="title" type="text" value={formTitle} onChange={(e) => setFormTitle(e.target.value)} required autoFocus placeholder="Enter memory title" />
                     </div>
-                  )}
-                  <div className="input-group">
-                    <label htmlFor="title">Title</label>
-                    <input id="title" type="text" value={formTitle} onChange={(e) => setFormTitle(e.target.value)} required autoFocus placeholder="Enter memory title" />
-                  </div>
-                  <div className="input-group">
-                    <label htmlFor="content">Content</label>
-                    <div style={{ height: '300px' }}>
-                      <MarkdownEditor value={formContent} onChange={setFormContent} placeholder="Enter memory content..." className="modal-mdx-editor" />
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                      <label htmlFor="content">Content</label>
+                      <div style={{ height: '200px' }}>
+                        <MarkdownEditor value={formContent} onChange={setFormContent} placeholder="Enter memory content..." className="modal-mdx-editor" />
+                      </div>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>
-                    <button className="btn btn-primary" onClick={handleSubmit} disabled={!formTitle.trim() || !formContent.trim() || submitting} style={{ flex: 1, justifyContent: 'center' }}>
-                      {submitting ? 'Saving...' : 'Save'}
-                    </button>
-                    <button className="btn btn-secondary" onClick={closeModal} disabled={submitting}>
-                      Cancel
-                    </button>
-                  </div>
+                </div>
+                <div style={{ padding: '1rem 2rem', borderTop: '1px solid var(--border)', display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-primary" onClick={handleSubmit} disabled={!formTitle.trim() || !formContent.trim() || submitting} style={{ flex: 1, justifyContent: 'center' }}>
+                    {submitting ? 'Saving...' : 'Save'}
+                  </button>
+                  <button className="btn btn-secondary" onClick={closeModal} disabled={submitting}>
+                    Cancel
+                  </button>
                 </div>
               </>
             )}

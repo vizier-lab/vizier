@@ -20,7 +20,7 @@ use crate::{
         scheduler::{DeleteTask, GetTaskDetail, ListTask, ScheduleCronTask, ScheduleOneTimeTask},
         shared_document::init_shared_document_tools,
         shell::ShellExec,
-        skill::CreateSkill,
+        skill::{CreateSkill, DeleteSkill, ExecuteSkillResource, ListSkills, ReadSkillResource, UpdateSkill},
         subtasks::SubtasksTool,
         telegram::new_telegram_tools,
         think::ThinkTool,
@@ -310,7 +310,12 @@ impl VizierTools {
             .tool(ConsultAgent::new(agent_id.clone(), other_agents.clone(), deps.transport.clone()))
             .tool(DelegateAgent::new(agent_id.clone(), other_agents.clone(), deps.transport.clone()))
             .tool(SubtasksTool::new(agent_id.clone(), deps.clone()))
-            .tool(CreateSkill::new(agent_id.clone(), deps.clone()));
+            .tool(CreateSkill::new(agent_id.clone(), deps.clone()))
+            .tool(UpdateSkill::new(deps.clone()))
+            .tool(DeleteSkill::new(deps.clone()))
+            .tool(ListSkills::new(deps.clone()))
+            .tool(ReadSkillResource::new(Some(agent_id.clone()), deps.clone()))
+            .tool(ExecuteSkillResource::new(Some(agent_id.clone()), deps.clone()));
 
         if agent_config.tools.shell_access {
             let shell = deps.shell.load();

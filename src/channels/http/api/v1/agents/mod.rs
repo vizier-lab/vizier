@@ -25,11 +25,13 @@ use crate::{
 pub mod channel;
 pub mod documents;
 pub mod memory;
+pub mod skills;
 pub mod task;
 
 use channel::channel;
 use documents::documents;
 use memory::memory;
+use skills::agent_skills;
 use task::task;
 
 pub fn agents() -> Router<HTTPState> {
@@ -43,6 +45,7 @@ pub fn agents() -> Router<HTTPState> {
         .nest("/{agent_id}/channel", channel())
         .nest("/{agent_id}/documents", documents())
         .nest("/{agent_id}/memory", memory())
+        .nest("/{agent_id}/skills", agent_skills())
         .nest("/{agent_id}/tasks", task())
 }
 

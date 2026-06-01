@@ -375,3 +375,35 @@ export interface ShellConfigData {
   image?: { source: 'pull'; name: string } | { source: 'dockerfile'; path: string; name: string }
   container_name?: string
 }
+
+// ============================================================================
+// SKILL
+// ============================================================================
+
+export type SkillActivation = 'Always' | 'OnDemand' | 'Contextual'
+
+export interface Skill {
+  name: string
+  description: string
+  keywords: string[]
+  activation: SkillActivation
+  version: number
+  resources: string[]
+  content?: string
+  agent_id?: string
+}
+
+export interface CreateSkillRequest {
+  name: string
+  description: string
+  content: string
+  keywords?: string[]
+  activation?: SkillActivation
+}
+
+export interface UpdateSkillRequest {
+  description?: string
+  content?: string
+  keywords?: string[]
+  activation?: SkillActivation
+}

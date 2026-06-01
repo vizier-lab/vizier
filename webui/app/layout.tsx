@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
-import { FaRobot, FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook } from 'react-icons/fa6'
+import { FaRobot, FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook, FaWandMagicSparkles } from 'react-icons/fa6'
 import Avatar from './components/avatar'
 import ToastContainer from './components/Toast'
 import { useConnectionStore } from './hooks/connectionStore'
@@ -103,6 +103,7 @@ export default function Layout() {
   const getCurrentView = () => {
     if (location.pathname.includes('/memory')) return 'memory'
     if (location.pathname.includes('/tasks')) return 'tasks'
+    if (location.pathname.includes('/skills')) return 'skills'
     if (location.pathname.includes('/usage')) return 'usage'
     if (location.pathname === '/settings') return 'global-settings'
     if (location.pathname.includes('/settings')) return 'settings'
@@ -238,6 +239,7 @@ export default function Layout() {
               ['chat', 'Chat', FaComment],
               ['memory', 'Memory', FaBook],
               ['tasks', 'Tasks', FaCircleCheck],
+              ['skills', 'Skills', FaWandMagicSparkles],
               ['usage', 'Usage', FaArrowTrendUp],
               ['settings', 'Agent Config', FaRobot],
             ] as const).map(([view, label, Icon]) => (

@@ -21,6 +21,22 @@ pub struct DocumentIndex {
     pub context: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, schemars::JsonSchema, SurrealValue)]
+pub enum SkillActivation {
+    #[serde(rename = "always")]
+    Always,
+    #[serde(rename = "on_demand")]
+    OnDemand,
+    #[serde(rename = "contextual")]
+    Contextual,
+}
+
+impl Default for SkillActivation {
+    fn default() -> Self {
+        Self::OnDemand
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
 pub struct Skill {
     pub name: String,
@@ -28,6 +44,22 @@ pub struct Skill {
     pub author: String,
     pub description: String,
     pub content: String,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    #[serde(default = "default_activation")]
+    pub activation: SkillActivation,
+    #[serde(default = "default_version")]
+    pub version: u32,
+    #[serde(default)]
+    pub resources: Vec<String>,
+}
+
+fn default_activation() -> SkillActivation {
+    SkillActivation::OnDemand
+}
+
+fn default_version() -> u32 {
+    1
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]

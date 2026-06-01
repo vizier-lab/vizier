@@ -2024,7 +2024,7 @@ select:focus {
 
 /* Toolbar — always visible, compact, transparent */
 .mdx-editor .mdxeditor [class*="toolbarRoot"] {
-  background: transparent !important;
+  background: var(--background) !important;
   border-bottom: 1px solid var(--border) !important;
   padding: 4px 8px !important;
   min-height: 36px;
