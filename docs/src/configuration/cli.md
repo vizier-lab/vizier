@@ -54,6 +54,75 @@ vizier shutdown --config /path/to/.vizier.yaml
 |------|-------------|
 | `-c, --config <PATH>` | Path to `.vizier.yaml` config file |
 
+### `vizier skill`
+
+Manage skills — install, list, uninstall, and update.
+
+#### `vizier skill install <source>`
+
+Install a skill from registry, git repository, or local path.
+
+```sh
+# Install from registry (vizier-lab/vizier)
+vizier skill install code-review
+
+# Install from git repository
+vizier skill install https://github.com/user/custom-skills.git
+
+# Install from local path
+vizier skill install ./my-local-skill
+
+# Install for a specific agent
+vizier skill install code-review --agent my-agent
+```
+
+| Flag | Description |
+|------|-------------|
+| `-a, --agent <ID>` | Install for a specific agent (optional) |
+
+**Source detection:**
+- Plain slug (e.g., `calculator`) → fetches from vizier-lab/vizier registry
+- Git URL (e.g., `https://github.com/...`) → clones and installs
+- Local path (e.g., `./my-skill`) → copies files
+
+> **Note:** Requires `git` to be installed for registry and git sources.
+
+#### `vizier skill list`
+
+List installed skills.
+
+```sh
+vizier skill list
+vizier skill list --activation contextual
+```
+
+| Flag | Description |
+|------|-------------|
+| `-a, --activation <MODE>` | Filter by activation mode (`always`, `on_demand`, `contextual`) |
+
+#### `vizier skill uninstall <slug>`
+
+Remove a skill.
+
+```sh
+vizier skill uninstall code-review
+vizier skill uninstall code-review --agent my-agent
+```
+
+| Flag | Description |
+|------|-------------|
+| `-a, --agent <ID>` | Uninstall from a specific agent (optional) |
+
+#### `vizier skill update <slug>`
+
+Update a skill from its registry source.
+
+```sh
+vizier skill update code-review
+```
+
+> **Note:** Only skills installed from the registry can be updated. Skills created locally or from external git repos cannot be updated via CLI.
+
 ## Configuration Loading
 
 Vizier automatically looks for `.vizier.yaml` in the current directory. You can specify a custom path:

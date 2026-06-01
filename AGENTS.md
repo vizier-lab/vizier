@@ -29,6 +29,7 @@ cargo clippy          # lint (CI expectation: zero warnings)
 | `run` | `-c/--config <PATH>`, `-a/--attached` | Run agents, server, and channels. Without `-a`, daemonizes (PID at `/tmp/vizier.pid`, logs to `.vizier/.runtime/logs/`). |
 | `shutdown` | `-c/--config <PATH>` | Stop a running daemonized instance. |
 | `onboard` | `-p/--path <PATH>` | Interactive wizard to generate `.vizier.yaml` seed config. |
+| `skill` | `install`, `list`, `uninstall`, `update` | Manage skills — install from registry/git/local, list, uninstall, update. |
 
 There is no `init`, `configure`, or `agent` subcommand. Agents are
 created and managed at runtime via the WebUI or HTTP API.
@@ -47,7 +48,7 @@ Fix: run `just install` first, or ensure pre-built files exist in
 ```
 src/
 ├── main.rs              # entrypoint, log init, cli::start()
-├── cli/                 # clap CLI: run, shutdown, onboard
+├── cli/                 # clap CLI: run, shutdown, onboard, skill
 ├── command/             # command handling
 ├── config/              # VizierConfig deserialized from YAML (seed config)
 ├── schema/              # shared types (VizierResponse, AgentId, ProviderEntry, etc.)
@@ -62,7 +63,7 @@ src/
 │   ├── discord/         # serenity-based
 │   ├── telegram/        # teloxide-based
 │   └── http/            # axum REST + WebSocket + static WebUI serving
-│       ├── api/v1/      # agents, providers, global_config, files endpoints
+│       ├── api/v1/      # agents, providers, global_config, files, skills endpoints
 │       ├── auth/        # JWT authentication, middleware
 │       └── webui/       # serves built WebUI static files
 ├── storage/
@@ -70,6 +71,7 @@ src/
 │   ├── surreal/         # SurrealDB storage backend
 │   ├── indexer/         # document indexing (in-mem, surreal)
 │   └── *.rs             # storage traits (MemoryStorage, TaskStorage, AgentStorage, ProviderStorage, GlobalConfigStorage, etc.)
+├── skill/               # SkillManager, install logic, contextual matching
 ├── scheduler/           # cron + one-time task scheduler
 ├── mcp/                 # MCP client + server integration (rmcp crate)
 ├── embedding/           # fastembed local embeddings
@@ -81,6 +83,7 @@ src/
 └── utils/               # utility functions
 webui/                   # React Router v7 + Tailwind v4 + TypeScript
 templates/               # agent.md / IDENTITY.md templates (include_str!'d)
+skills/                  # seed skills (calculator, code-review, designer)
 ```
 
 ## Runtime config architecture
