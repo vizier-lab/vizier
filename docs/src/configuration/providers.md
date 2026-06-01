@@ -32,7 +32,7 @@ providers:
 | `openai` | `api_key`, `base_url` | OpenAI models (custom base_url for compatibility with OpenAI-compatible APIs) |
 | `gemini` | `api_key` | [Google Gemini](https://ai.google.dev) models |
 | `mimo` | `api_key` | [Xiaomi MiMo](https://mimo.xiaomi.com) models |
-| `llama.cpp` | `base_url` | Local Llama.cpp instance (default: `http://localhost:8080`) |
+| `llama_cpp` | `base_url` | Local Llama.cpp instance (default: `http://localhost:8080`) |
 
 ## Example Configuration
 
