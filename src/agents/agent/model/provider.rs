@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rig_core::{
     client::Nothing,
-    providers::{anthropic, deepseek, gemini, ollama, openai, openrouter, xiaomimimo},
+    providers::{anthropic, deepseek, gemini, llamafile, ollama, openai, openrouter, xiaomimimo},
 };
 
 use crate::{
@@ -120,6 +120,23 @@ impl VizierModelBuilder<xiaomimimo::Client> for VizierModelImpl<xiaomimimo::Clie
         };
 
         let client: xiaomimimo::Client = xiaomimimo::Client::new(api_key)?;
+        Ok(client)
+    }
+}
+
+#[async_trait::async_trait]
+impl VizierModelBuilder<llamafile::Client> for VizierModelImpl<llamafile::Client> {
+    async fn init_client(provider_config: &ProviderEntryConfig) -> Result<llamafile::Client> {
+        let base_url = match provider_config {
+            ProviderEntryConfig::LlamaCpp { base_url } => base_url.clone(),
+            _ => anyhow::bail!("expected Llama.cpp provider config"),
+        };
+
+        let client: llamafile::Client = llamafile::Client::builder()
+            .base_url(base_url)
+            .api_key(Nothing)
+            .build()?;
+
         Ok(client)
     }
 }

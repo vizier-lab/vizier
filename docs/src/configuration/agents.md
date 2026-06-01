@@ -27,7 +27,7 @@ See [REST API](../api-integration/rest-api.md) for details.
 | `name` | string | required | Display name for the agent |
 | `description` | string | `null` | Brief description of the agent's purpose |
 | `avatar_url` | string | `null` | Custom avatar URL for the agent |
-| `provider` | enum | required | AI provider: `ollama`, `openrouter`, `deepseek`, `anthropic`, `openai`, `gemini`, `mimo` |
+| `provider` | enum | required | AI provider: `ollama`, `openrouter`, `deepseek`, `anthropic`, `openai`, `gemini`, `mimo` , `llama_cpp` |
 | `model` | string | required | Model identifier (provider-specific) |
 | `system_prompt` | string | `null` | Full markdown system prompt (edited via WebUI) |
 | `session_memory.max_capacity` | number | required | Max messages in short-term memory |

@@ -35,7 +35,7 @@ This will walk you through:
 - Workspace path
 - Username and primary user details
 - HTTP port and JWT secret
-- Provider selection (Ollama, OpenRouter, DeepSeek, Anthropic, OpenAI, Gemini, MiMo)
+- Provider selection (Ollama, OpenRouter, DeepSeek, Anthropic, OpenAI, Gemini, MiMo, Llama.cpp)
 - Embedding model selection
 - Storage backend (Filesystem or SurrealDB)
 

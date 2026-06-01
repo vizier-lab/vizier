@@ -13,7 +13,7 @@ pub mod user;
 use crate::{
     config::{
         embedding::{EmbeddingConfig, LocalEmbeddingModelVariant},
-        provider::{OllamaProviderConfig, ProviderConfig},
+        provider::{LlamaCppProviderConfig, OllamaProviderConfig, ProviderConfig},
         shell::{LocalShellConfig, ShellConfig},
         storage::StorageConfig,
         tools::{BraveSearchConfig, ToolsConfig},
@@ -158,6 +158,7 @@ impl Default for VizierConfig {
                 openai: None,
                 gemini: None,
                 mimo: None,
+                llama_cpp: Some(LlamaCppProviderConfig::default()),
             },
             embedding: Some(EmbeddingConfig::Local {
                 model: LocalEmbeddingModelVariant::AllMiniLml6V2,
