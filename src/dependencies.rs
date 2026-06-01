@@ -69,9 +69,13 @@ impl VizierDependencies {
             }
         };
 
-        let shell = Arc::new(ArcSwap::new(Arc::new(VizierShell::new(&config.shell).await?)));
+        let shell = Arc::new(ArcSwap::new(Arc::new(
+            VizierShell::new(&config.shell).await?,
+        )));
 
-        let mcp_clients = Arc::new(ArcSwap::new(Arc::new(VizierMcpClients::new(config.clone()).await?)));
+        let mcp_clients = Arc::new(ArcSwap::new(Arc::new(
+            VizierMcpClients::new(config.clone()).await?,
+        )));
 
         // Initialize default user if no users exist
         Self::initialize_default_user(&config, &storage).await?;
@@ -136,31 +140,53 @@ impl VizierDependencies {
         let entries: Vec<ProviderEntry> = [
             providers.ollama.as_ref().map(|c| ProviderEntry {
                 variant: ProviderVariant::ollama,
-                config: ProviderEntryConfig::Ollama { base_url: c.base_url.clone() },
+                config: ProviderEntryConfig::Ollama {
+                    base_url: c.base_url.clone(),
+                },
             }),
             providers.openai.as_ref().map(|c| ProviderEntry {
                 variant: ProviderVariant::openai,
-                config: ProviderEntryConfig::Openai { api_key: c.api_key.clone(), base_url: c.base_url.clone() },
+                config: ProviderEntryConfig::Openai {
+                    api_key: c.api_key.clone(),
+                    base_url: c.base_url.clone(),
+                },
             }),
             providers.anthropic.as_ref().map(|c| ProviderEntry {
                 variant: ProviderVariant::anthropic,
-                config: ProviderEntryConfig::Anthropic { api_key: c.api_key.clone(), base_url: c.base_url.clone() },
+                config: ProviderEntryConfig::Anthropic {
+                    api_key: c.api_key.clone(),
+                    base_url: c.base_url.clone(),
+                },
             }),
             providers.deepseek.as_ref().map(|c| ProviderEntry {
                 variant: ProviderVariant::deepseek,
-                config: ProviderEntryConfig::Deepseek { api_key: c.api_key.clone() },
+                config: ProviderEntryConfig::Deepseek {
+                    api_key: c.api_key.clone(),
+                },
             }),
             providers.openrouter.as_ref().map(|c| ProviderEntry {
                 variant: ProviderVariant::openrouter,
-                config: ProviderEntryConfig::Openrouter { api_key: c.api_key.clone() },
+                config: ProviderEntryConfig::Openrouter {
+                    api_key: c.api_key.clone(),
+                },
             }),
             providers.gemini.as_ref().map(|c| ProviderEntry {
                 variant: ProviderVariant::gemini,
-                config: ProviderEntryConfig::Gemini { api_key: c.api_key.clone() },
+                config: ProviderEntryConfig::Gemini {
+                    api_key: c.api_key.clone(),
+                },
             }),
             providers.mimo.as_ref().map(|c| ProviderEntry {
                 variant: ProviderVariant::mimo,
-                config: ProviderEntryConfig::Mimo { api_key: c.api_key.clone() },
+                config: ProviderEntryConfig::Mimo {
+                    api_key: c.api_key.clone(),
+                },
+            }),
+            providers.llama_cpp.as_ref().map(|c| ProviderEntry {
+                variant: ProviderVariant::llama_cpp,
+                config: ProviderEntryConfig::LlamaCpp {
+                    base_url: c.base_url.clone(),
+                },
             }),
         ]
         .into_iter()
@@ -195,8 +221,16 @@ impl VizierDependencies {
         }
 
         // Check if there are channel tokens in YAML config to migrate
-        let has_discord = config.channels.discord.as_ref().map_or(false, |d| !d.is_empty());
-        let has_telegram = config.channels.telegram.as_ref().map_or(false, |t| !t.is_empty());
+        let has_discord = config
+            .channels
+            .discord
+            .as_ref()
+            .map_or(false, |d| !d.is_empty());
+        let has_telegram = config
+            .channels
+            .telegram
+            .as_ref()
+            .map_or(false, |t| !t.is_empty());
 
         if !has_discord && !has_telegram {
             return Ok(());
@@ -223,7 +257,11 @@ impl VizierDependencies {
 
             if changed {
                 if let Err(e) = storage.update_agent(&agent_id, &agent_config).await {
-                    tracing::warn!("failed to migrate channel tokens for agent '{}': {}", agent_id, e);
+                    tracing::warn!(
+                        "failed to migrate channel tokens for agent '{}': {}",
+                        agent_id,
+                        e
+                    );
                 }
             }
         }

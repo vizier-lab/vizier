@@ -10,7 +10,7 @@ use crate::{
     channels::http::{
         models::{
             self,
-            response::{api_response, err_response, APIResponse},
+            response::{APIResponse, api_response, err_response},
         },
         state::HTTPState,
     },
@@ -20,9 +20,12 @@ use crate::{
 };
 
 pub fn providers() -> Router<HTTPState> {
-    Router::new()
-        .route("/", get(list_providers))
-        .route("/{variant}", get(get_provider).put(upsert_provider).delete(delete_provider))
+    Router::new().route("/", get(list_providers)).route(
+        "/{variant}",
+        get(get_provider)
+            .put(upsert_provider)
+            .delete(delete_provider),
+    )
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
@@ -35,12 +38,17 @@ pub struct ProviderResponse {
 fn provider_to_response(entry: &ProviderEntry) -> ProviderResponse {
     let (has_api_key, base_url) = match &entry.config {
         ProviderEntryConfig::Ollama { base_url } => (false, Some(base_url.clone())),
-        ProviderEntryConfig::Openai { api_key, base_url } => (!api_key.is_empty(), base_url.clone()),
-        ProviderEntryConfig::Anthropic { api_key, base_url } => (!api_key.is_empty(), base_url.clone()),
+        ProviderEntryConfig::Openai { api_key, base_url } => {
+            (!api_key.is_empty(), base_url.clone())
+        }
+        ProviderEntryConfig::Anthropic { api_key, base_url } => {
+            (!api_key.is_empty(), base_url.clone())
+        }
         ProviderEntryConfig::Deepseek { api_key } => (!api_key.is_empty(), None),
         ProviderEntryConfig::Openrouter { api_key } => (!api_key.is_empty(), None),
         ProviderEntryConfig::Gemini { api_key } => (!api_key.is_empty(), None),
         ProviderEntryConfig::Mimo { api_key } => (!api_key.is_empty(), None),
+        ProviderEntryConfig::LlamaCpp { base_url } => (false, Some(base_url.clone())),
     };
 
     ProviderResponse {
@@ -115,43 +123,36 @@ async fn upsert_provider(
     axum::Json(body): axum::Json<UpsertProviderRequest>,
 ) -> models::response::Response<ProviderResponse> {
     let config = match variant {
-        ProviderVariant::ollama => {
-            ProviderEntryConfig::Ollama {
-                base_url: body.base_url.unwrap_or_else(|| "http://localhost:11434".into()),
-            }
-        }
-        ProviderVariant::openai => {
-            ProviderEntryConfig::Openai {
-                api_key: body.api_key.unwrap_or_default(),
-                base_url: body.base_url,
-            }
-        }
-        ProviderVariant::anthropic => {
-            ProviderEntryConfig::Anthropic {
-                api_key: body.api_key.unwrap_or_default(),
-                base_url: body.base_url,
-            }
-        }
-        ProviderVariant::deepseek => {
-            ProviderEntryConfig::Deepseek {
-                api_key: body.api_key.unwrap_or_default(),
-            }
-        }
-        ProviderVariant::openrouter => {
-            ProviderEntryConfig::Openrouter {
-                api_key: body.api_key.unwrap_or_default(),
-            }
-        }
-        ProviderVariant::gemini => {
-            ProviderEntryConfig::Gemini {
-                api_key: body.api_key.unwrap_or_default(),
-            }
-        }
-        ProviderVariant::mimo => {
-            ProviderEntryConfig::Mimo {
-                api_key: body.api_key.unwrap_or_default(),
-            }
-        }
+        ProviderVariant::ollama => ProviderEntryConfig::Ollama {
+            base_url: body
+                .base_url
+                .unwrap_or_else(|| "http://localhost:11434".into()),
+        },
+        ProviderVariant::openai => ProviderEntryConfig::Openai {
+            api_key: body.api_key.unwrap_or_default(),
+            base_url: body.base_url,
+        },
+        ProviderVariant::anthropic => ProviderEntryConfig::Anthropic {
+            api_key: body.api_key.unwrap_or_default(),
+            base_url: body.base_url,
+        },
+        ProviderVariant::deepseek => ProviderEntryConfig::Deepseek {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::openrouter => ProviderEntryConfig::Openrouter {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::gemini => ProviderEntryConfig::Gemini {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::mimo => ProviderEntryConfig::Mimo {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::llama_cpp => ProviderEntryConfig::LlamaCpp {
+            base_url: body
+                .base_url
+                .unwrap_or_else(|| "http://localhost:8080".into()),
+        },
     };
 
     let entry = ProviderEntry { variant, config };

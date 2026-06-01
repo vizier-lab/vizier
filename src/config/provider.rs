@@ -10,6 +10,7 @@ pub enum ProviderVariant {
     openai,
     anthropic,
     mimo,
+    llama_cpp,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -28,6 +29,8 @@ pub struct ProviderConfig {
     pub ollama: Option<OllamaProviderConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mimo: Option<MimoProviderConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llama_cpp: Option<LlamaCppProviderConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -122,6 +125,19 @@ impl Default for MimoProviderConfig {
     fn default() -> Self {
         Self {
             api_key: "${XIAOMI_MIMO_API_KEY}".into(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LlamaCppProviderConfig {
+    pub base_url: String,
+}
+
+impl Default for LlamaCppProviderConfig {
+    fn default() -> Self {
+        Self {
+            base_url: "http://localhost:8080".into(),
         }
     }
 }

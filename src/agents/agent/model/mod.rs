@@ -5,7 +5,7 @@ use rig_core::{
     OneOrMany,
     completion::{CompletionModel, ToolDefinition, Usage},
     message::{AssistantContent, Message},
-    providers::{anthropic, deepseek, gemini, ollama, openai, openrouter, xiaomimimo},
+    providers::{anthropic, deepseek, gemini, llamafile, ollama, openai, openrouter, xiaomimimo},
 };
 
 use crate::{
@@ -65,6 +65,10 @@ impl VizierModel {
             ),
             ProviderVariant::mimo => Self::build(
                 VizierModelImpl::<xiaomimimo::Client>::build(&provider_entry.config, agent_config)
+                    .await?,
+            ),
+            ProviderVariant::llama_cpp => Self::build(
+                VizierModelImpl::<llamafile::Client>::build(&provider_entry.config, agent_config)
                     .await?,
             ),
         })
