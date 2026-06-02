@@ -4,11 +4,15 @@ export const base_url = import.meta.env.DEV
   ? 'localhost:9999'
   : window.location.host
 
+export const api_protocol = import.meta.env.DEV
+  ? 'http'
+  : window.location.protocol.replace(':', '')
+
 export const CHANNEL_ID = 'vizier-webui' // Hardcoded channel_id
 
 // Create axios instance
 const apiClient = axios.create({
-  baseURL: `http://${base_url}/api/v1`,
+  baseURL: `${api_protocol}://${base_url}/api/v1`,
   headers: {
     'Content-Type': 'application/json',
   },

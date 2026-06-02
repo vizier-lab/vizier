@@ -1,5 +1,5 @@
 import BoringAvatar from "boring-avatars"
-import { base_url } from '../services/vizier'
+import { base_url, api_protocol } from '../services/vizier'
 
 type AvatarVariant = 'beam' | 'marble' | 'pixel' | 'ring' | 'beam_emerald'
 
@@ -13,7 +13,7 @@ const colorPalettes = {
 
 function resolveUrl(url: string): string {
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) return url
-  return `http://${base_url}${url}`
+  return `${api_protocol}://${base_url}${url}`
 }
 
 interface AvatarProps {

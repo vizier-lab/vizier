@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { FaCopy, FaFile, FaFilePdf, FaFileImage, FaFileLines } from 'react-icons/fa6'
 import type { VizierAttachment, VizierResponseStats } from '../interfaces/types'
-import { base_url } from '~/services/vizier'
+import { base_url, api_protocol } from '~/services/vizier'
 
 interface MessageItemProps {
   uid: string
@@ -53,7 +53,7 @@ function MessageItemComponent({
     const mime = getMimeType(att.filename)
     if ('url' in att.content) {
       const url = att.content.url
-      return (url.startsWith(`http://${base_url}`) ? '' : `http://${base_url}`) + url
+      return (url.startsWith(`http://${base_url}`) || url.startsWith(`https://${base_url}`) ? '' : `${api_protocol}://${base_url}`) + url
     }
     if ('base64' in att.content) {
       return `data:${mime};base64,${att.content.base64}`

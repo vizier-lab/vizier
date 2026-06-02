@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { FaXmark } from 'react-icons/fa6'
 import type { VizierAttachment } from '../interfaces/types'
-import { base_url } from '~/services/vizier'
+import { base_url, api_protocol } from '~/services/vizier'
 
 interface AttachmentPreviewModalProps {
   attachment: VizierAttachment | null
@@ -32,7 +32,7 @@ function getAttachmentSrc(att: VizierAttachment): string | undefined {
   const mime = getMimeType(att.filename)
   if ('url' in att.content) {
     const url = att.content.url
-    return (url.startsWith('http://') || url.startsWith('https://') ? '' : `http://${base_url}`) + url
+    return (url.startsWith('http://') || url.startsWith('https://') ? '' : `${api_protocol}://${base_url}`) + url
   }
   if ('base64' in att.content) {
     return `data:${mime};base64,${att.content.base64}`
