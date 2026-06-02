@@ -38,6 +38,7 @@ impl SurrealStorage {
         db.query("DEFINE TABLE skill SCHEMALESS;").await?;
         db.query("DEFINE TABLE session_detail SCHEMALESS;").await?;
         db.query("DEFINE TABLE user SCHEMALESS;").await?;
+        db.query("DEFINE TABLE role SCHEMALESS;").await?;
         db.query("DEFINE TABLE api_key SCHEMALESS;").await?;
         db.query("DEFINE TABLE shared_document SCHEMALESS;").await?;
         db.query("DEFINE TABLE agent_config SCHEMALESS;").await?;

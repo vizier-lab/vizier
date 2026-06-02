@@ -131,7 +131,9 @@ pub fn run(args: RunArgs) -> Result<()> {
         let _ = daemonize.start()?;
     }
 
-    let _ = run_server(config);
+    if let Err(err) = run_server(config) {
+        tracing::error!("server exited with error: {}", err);
+    }
 
     Ok(())
 }
