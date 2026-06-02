@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-06-02
+
+### 🚀 Features
+
+- Implement llama cpp support (#14)
+- Add skill-maker skill
+- Fix wrong skill category
+- Implement user and RBAC
+- Allow agent to create skills with resouces
+- Add agent sharing functionality
+- Add user profile settings
+- Add agent memory visibility
+
+### 📚 Documentation
+
+- Update docs with skills
 ## [0.7.0] - 2026-05-31
 
 ### 🚀 Features
@@ -27,6 +43,7 @@ All notable changes to this project will be documented in this file.
 - Presistant selected agent and topic
 - Auto reconcile channel update
 - Adjust tooltip description
+- Implement skill system
 
 ### 🐛 Bug Fixes
 
@@ -42,6 +59,10 @@ All notable changes to this project will be documented in this file.
 
 - Add AGENTS.md
 - Update docs
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.7.0
 ## [0.5.5] - 2026-05-02
 
 ### 🐛 Bug Fixes
