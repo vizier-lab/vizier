@@ -356,6 +356,12 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         StorageConfig::Filesystem(DocumentIndexerConfig::InMem)
     };
 
+    let worker_threads: usize = Text::new("Worker threads:")
+        .with_default("4")
+        .prompt()?
+        .parse()
+        .unwrap_or(4);
+
     let mut config_path = workspace_path.clone();
     config_path.push(".vizier.yaml");
 
@@ -377,6 +383,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         | **Provider** | `{}` |\n\
         | **Embedding** | `{} ({})` |\n\
         | **Storage** | `{}` |\n\
+        | **Worker threads** | `{}` |\n\
         ---\n",
         workspace_path.display(),
         config_path.display(),
@@ -385,6 +392,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         embedding_type,
         embedding_model,
         storage_type,
+        worker_threads,
     ));
 
     let confirmed = Confirm::new("Save configuration?")
@@ -418,6 +426,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
             path: ".".into(),
             env: None,
         }),
+        worker_threads,
     };
 
     config.save(config_path.clone(), "".into())?;

@@ -75,6 +75,12 @@ pub struct VizierConfig {
     pub channels: ChannelsConfig,
     pub tools: ToolsConfig,
     pub shell: ShellConfig,
+    #[serde(default = "default_worker_threads")]
+    pub worker_threads: usize,
+}
+
+fn default_worker_threads() -> usize {
+    4
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -174,6 +180,7 @@ impl Default for VizierConfig {
                 path: ".".into(),
                 env: None,
             }),
+            worker_threads: 4,
         }
     }
 }

@@ -34,61 +34,67 @@ pub struct RunArgs {
     attached: bool,
 }
 
-#[tokio::main(flavor = "multi_thread")]
-pub async fn run_server(config: VizierConfig) -> Result<()> {
-    let deps = VizierDependencies::new(config.clone()).await?;
-    let exit_transport = deps.clone().transport;
-    let exit_signal = exit_transport.exit_signal();
+pub fn run_server(config: VizierConfig) -> Result<()> {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.worker_threads(config.worker_threads);
 
-    let mut set = JoinSet::new();
+    let runtime = builder.enable_all().build()?;
 
-    let mut scheduler = VizierScheduler::new(deps.clone()).await?;
-    set.spawn(async move {
-        if let Err(err) = scheduler.run().await {
-            tracing::error!("{}", err);
-        }
-    });
+    runtime.block_on(async move {
+        let deps = VizierDependencies::new(config.clone()).await?;
+        let exit_transport = deps.clone().transport;
+        let exit_signal = exit_transport.exit_signal();
 
-    let mut agents = VizierAgents::new(deps.clone()).await?;
-    set.spawn(async move {
-        if let Err(err) = agents.run().await {
-            tracing::error!("{}", err);
-        }
-    });
+        let mut set = JoinSet::new();
 
-    let mut global_resources = VizierGlobalResources::new(deps.clone());
-    set.spawn(async move {
-        if let Err(err) = global_resources.run().await {
-            tracing::error!("{}", err);
-        }
-    });
+        let mut scheduler = VizierScheduler::new(deps.clone()).await?;
+        set.spawn(async move {
+            if let Err(err) = scheduler.run().await {
+                tracing::error!("{}", err);
+            }
+        });
 
-    let mut channels = VizierChannels::new(config.channels.http.clone(), deps.clone())?;
-    set.spawn(async move {
-        if let Err(err) = channels.run().await {
-            tracing::error!("{}", err);
-        }
-    });
+        let mut agents = VizierAgents::new(deps.clone()).await?;
+        set.spawn(async move {
+            if let Err(err) = agents.run().await {
+                tracing::error!("{}", err);
+            }
+        });
 
-    let commands = VizierCommandServer::new(deps.clone())?;
-    set.spawn(async move {
-        if let Err(err) = commands.run().await {
-            tracing::error!("{}", err);
-        }
-    });
+        let mut global_resources = VizierGlobalResources::new(deps.clone());
+        set.spawn(async move {
+            if let Err(err) = global_resources.run().await {
+                tracing::error!("{}", err);
+            }
+        });
 
-    set.spawn(async move {
-        if let Err(err) = deps.run().await {
-            tracing::error!("{}", err);
-        }
-    });
+        let mut channels = VizierChannels::new(config.channels.http.clone(), deps.clone())?;
+        set.spawn(async move {
+            if let Err(err) = channels.run().await {
+                tracing::error!("{}", err);
+            }
+        });
 
-    tracing::info!("vizier is running!");
+        let commands = VizierCommandServer::new(deps.clone())?;
+        set.spawn(async move {
+            if let Err(err) = commands.run().await {
+                tracing::error!("{}", err);
+            }
+        });
 
-    let _ = exit_signal.await;
-    set.abort_all();
+        set.spawn(async move {
+            if let Err(err) = deps.run().await {
+                tracing::error!("{}", err);
+            }
+        });
 
-    std::process::exit(0);
+        tracing::info!("vizier is running!");
+
+        let _ = exit_signal.await;
+        set.abort_all();
+
+        std::process::exit(0);
+    })
 }
 
 pub fn run(args: RunArgs) -> Result<()> {
