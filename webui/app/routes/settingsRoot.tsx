@@ -12,6 +12,8 @@ import {
     listProviders,
     upsertProvider,
     deleteProvider,
+    getMyProfile,
+    updateMyProfile,
 } from '../services/vizier'
 import { FaTrash, FaPlus, FaPen } from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
@@ -21,16 +23,29 @@ import type {
     McpServerConfig,
     ShellConfigData,
     ProviderResponse,
+    UserProfile,
 } from '../interfaces/types'
 import { hasPermission } from '../utils/auth'
 import UsersSection from '../components/UsersSection'
 import RolesSection from '../components/RolesSection'
 
-type Section = 'password' | 'api-keys' | 'providers' | 'mcp-servers' | 'shell' | 'users' | 'roles'
+type Section = 'profile' | 'password' | 'api-keys' | 'providers' | 'mcp-servers' | 'shell' | 'users' | 'roles'
 
 export default function Settings() {
     const addToast = useToastStore((s) => s.addToast)
-    const [activeSection, setActiveSection] = useState<Section>('password')
+    const [activeSection, setActiveSection] = useState<Section>('profile')
+
+    // Profile state
+    const [profile, setProfile] = useState<UserProfile | null>(null)
+    const [loadingProfile, setLoadingProfile] = useState(false)
+    const [savingProfile, setSavingProfile] = useState(false)
+    const [profileForm, setProfileForm] = useState({
+        discord_id: '',
+        discord_username: '',
+        telegram_id: '',
+        telegram_username: '',
+        alias: '',
+    })
 
     // Password change state
     const [currentPassword, setCurrentPassword] = useState('')
@@ -94,6 +109,7 @@ export default function Settings() {
     })
 
     useEffect(() => {
+        if (activeSection === 'profile') loadProfile()
         if (activeSection === 'api-keys') loadApiKeys()
         if (activeSection === 'providers') loadProviders()
         if (activeSection === 'mcp-servers') loadMcpServers()
@@ -109,6 +125,52 @@ export default function Settings() {
             console.error('Failed to load API keys:', error)
         } finally {
             setLoadingKeys(false)
+        }
+    }
+
+    const loadProfile = async () => {
+        try {
+            setLoadingProfile(true)
+            const response = await getMyProfile()
+            const p = response.data
+            setProfile(p)
+            setProfileForm({
+                discord_id: p.discord_id || '',
+                discord_username: p.discord_username || '',
+                telegram_id: p.telegram_id || '',
+                telegram_username: p.telegram_username || '',
+                alias: (p.alias || []).join(', '),
+            })
+        } catch (error) {
+            console.error('Failed to load profile:', error)
+        } finally {
+            setLoadingProfile(false)
+        }
+    }
+
+    const handleSaveProfile = async () => {
+        setSavingProfile(true)
+        try {
+            const aliasList = profileForm.alias
+                .split(',')
+                .map((a) => a.trim())
+                .filter(Boolean)
+            const res = await updateMyProfile({
+                discord_id: profileForm.discord_id || null,
+                discord_username: profileForm.discord_username || null,
+                telegram_id: profileForm.telegram_id || null,
+                telegram_username: profileForm.telegram_username || null,
+                alias: aliasList,
+            })
+            setProfile(res.data)
+            addToast('success', 'Profile saved')
+        } catch (err: any) {
+            addToast(
+                'error',
+                err?.response?.data?.message || 'Failed to save profile'
+            )
+        } finally {
+            setSavingProfile(false)
         }
     }
 
@@ -419,6 +481,7 @@ export default function Settings() {
             <div className="flex md:hidden border-b border-[var(--border)] px-4 gap-2 py-2 overflow-x-auto">
                 {(
                     [
+                        ['profile', 'Profile'] as const,
                         ...(hasPermission('settings:password') ? [['password', 'Password'] as const] : []),
                         ...(hasPermission('settings:api_keys') ? [['api-keys', 'API Keys'] as const] : []),
                         ...(hasPermission('settings:providers') ? [['providers', 'Providers'] as const] : []),
@@ -450,6 +513,7 @@ export default function Settings() {
                 >
                     {(
                         [
+                            ['profile', 'Profile'] as const,
                             ...(hasPermission('settings:password') ? [['password', 'Password'] as const] : []),
                             ...(hasPermission('settings:api_keys') ? [['api-keys', 'API Keys'] as const] : []),
                             ...(hasPermission('settings:providers') ? [['providers', 'Providers'] as const] : []),
@@ -474,6 +538,150 @@ export default function Settings() {
                     className="flex-1 overflow-auto"
                     style={{ padding: '24px' }}
                 >
+                    {/* Profile Section */}
+                    {activeSection === 'profile' && (
+                        <div style={{ maxWidth: '600px' }}>
+                            <h2 style={{ marginBottom: '1rem' }}>
+                                Profile
+                            </h2>
+                            <p
+                                style={{
+                                    color: 'var(--text-secondary)',
+                                    marginBottom: '2rem',
+                                    fontSize: '14px',
+                                }}
+                            >
+                                Your profile data is injected into agent
+                                system prompts when you speak to them.
+                            </p>
+
+                            {loadingProfile ? (
+                                <p
+                                    style={{
+                                        color: 'var(--text-tertiary)',
+                                    }}
+                                >
+                                    Loading...
+                                </p>
+                            ) : (
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '1rem',
+                                    }}
+                                >
+                                    <div className="input-group">
+                                        <label htmlFor="discord-id">
+                                            Discord ID
+                                        </label>
+                                        <input
+                                            id="discord-id"
+                                            type="text"
+                                            value={profileForm.discord_id}
+                                            onChange={(e) =>
+                                                setProfileForm({
+                                                    ...profileForm,
+                                                    discord_id: e.target.value,
+                                                })
+                                            }
+                                            placeholder="e.g. 123456789012345678"
+                                            disabled={savingProfile}
+                                        />
+                                    </div>
+                                    <div className="input-group">
+                                        <label htmlFor="discord-username">
+                                            Discord Username
+                                        </label>
+                                        <input
+                                            id="discord-username"
+                                            type="text"
+                                            value={
+                                                profileForm.discord_username
+                                            }
+                                            onChange={(e) =>
+                                                setProfileForm({
+                                                    ...profileForm,
+                                                    discord_username:
+                                                        e.target.value,
+                                                })
+                                            }
+                                            placeholder="e.g. username"
+                                            disabled={savingProfile}
+                                        />
+                                    </div>
+                                    <div className="input-group">
+                                        <label htmlFor="telegram-id">
+                                            Telegram ID
+                                        </label>
+                                        <input
+                                            id="telegram-id"
+                                            type="text"
+                                            value={profileForm.telegram_id}
+                                            onChange={(e) =>
+                                                setProfileForm({
+                                                    ...profileForm,
+                                                    telegram_id: e.target.value,
+                                                })
+                                            }
+                                            placeholder="e.g. 123456789"
+                                            disabled={savingProfile}
+                                        />
+                                    </div>
+                                    <div className="input-group">
+                                        <label htmlFor="telegram-username">
+                                            Telegram Username
+                                        </label>
+                                        <input
+                                            id="telegram-username"
+                                            type="text"
+                                            value={
+                                                profileForm.telegram_username
+                                            }
+                                            onChange={(e) =>
+                                                setProfileForm({
+                                                    ...profileForm,
+                                                    telegram_username:
+                                                        e.target.value,
+                                                })
+                                            }
+                                            placeholder="e.g. username"
+                                            disabled={savingProfile}
+                                        />
+                                    </div>
+                                    <div className="input-group">
+                                        <label htmlFor="aliases">
+                                            Aliases (comma-separated)
+                                        </label>
+                                        <input
+                                            id="aliases"
+                                            type="text"
+                                            value={profileForm.alias}
+                                            onChange={(e) =>
+                                                setProfileForm({
+                                                    ...profileForm,
+                                                    alias: e.target.value,
+                                                })
+                                            }
+                                            placeholder="e.g. nick1, nick2"
+                                            disabled={savingProfile}
+                                        />
+                                    </div>
+                                    <button
+                                        className="btn btn-primary"
+                                        onClick={handleSaveProfile}
+                                        disabled={savingProfile}
+                                        style={{ alignSelf: 'flex-start' }}
+                                    >
+                                        {savingProfile
+                                            ? 'Saving...'
+                                            : 'Save Profile'}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* Password Section */}
                     {activeSection === 'password' && (
                         <div style={{ maxWidth: '600px' }}>

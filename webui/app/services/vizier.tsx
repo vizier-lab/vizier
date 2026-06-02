@@ -100,6 +100,20 @@ export const getCurrentUser = async () => {
 }
 
 // ============================================================================
+// USER PROFILE ENDPOINTS
+// ============================================================================
+
+export const getMyProfile = async () => {
+  const res = await apiClient.get('/auth/users/me/profile')
+  return res.data
+}
+
+export const updateMyProfile = async (data: import('../interfaces/types').UpdateUserProfileRequest) => {
+  const res = await apiClient.put('/auth/users/me/profile', data)
+  return res.data
+}
+
+// ============================================================================
 // ROLE ENDPOINTS
 // ============================================================================
 

@@ -13,6 +13,11 @@ pub fn owner_md(profile: &UserProfile) -> String {
             parts.push(format!("discord_username: \"{}\"", discord_username));
         }
     }
+    if let Some(ref telegram_id) = profile.telegram_id {
+        if !telegram_id.is_empty() {
+            parts.push(format!("telegram_id: \"{}\"", telegram_id));
+        }
+    }
     if let Some(ref telegram_username) = profile.telegram_username {
         if !telegram_username.is_empty() {
             parts.push(format!("telegram_username: \"{}\"", telegram_username));

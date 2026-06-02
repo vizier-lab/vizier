@@ -28,6 +28,16 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
             get(auth::get_current_user)
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
+        .route(
+            "/auth/users/me/profile",
+            get(auth::get_my_profile)
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .route(
+            "/auth/users/me/profile",
+            put(auth::update_my_profile)
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
         // Setup routes (public - only works when no users exist)
         .route("/auth/setup-status", get(auth::setup_status))
         .route("/auth/setup", post(auth::setup_first_user))

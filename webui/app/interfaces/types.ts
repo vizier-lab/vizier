@@ -53,6 +53,23 @@ export interface CurrentUser {
   permissions: string[]
 }
 
+export interface UserProfile {
+  user_id: string
+  discord_id: string | null
+  discord_username: string | null
+  telegram_id: string | null
+  telegram_username: string | null
+  alias: string[]
+}
+
+export interface UpdateUserProfileRequest {
+  discord_id?: string | null
+  discord_username?: string | null
+  telegram_id?: string | null
+  telegram_username?: string | null
+  alias?: string[]
+}
+
 export interface CreateUserRequest {
   username: string
   password: string

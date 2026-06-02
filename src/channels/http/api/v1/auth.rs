@@ -11,7 +11,7 @@ use crate::channels::http::{
     models::{self, response::{api_response, APIResponse}},
     state::HTTPState,
 };
-use crate::storage::user::{AVAILABLE_PERMISSIONS, UserStorage};
+use crate::storage::user::{AVAILABLE_PERMISSIONS, UserProfile, UserStorage};
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct LoginRequest {
@@ -120,6 +120,25 @@ pub struct CurrentUserResponse {
     pub username: String,
     pub role_name: String,
     pub permissions: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Clone, utoipa::ToSchema)]
+pub struct UserProfileResponse {
+    pub user_id: String,
+    pub discord_id: Option<String>,
+    pub discord_username: Option<String>,
+    pub telegram_id: Option<String>,
+    pub telegram_username: Option<String>,
+    pub alias: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct UpdateUserProfileRequest {
+    pub discord_id: Option<String>,
+    pub discord_username: Option<String>,
+    pub telegram_id: Option<String>,
+    pub telegram_username: Option<String>,
+    pub alias: Option<Vec<String>>,
 }
 
 #[utoipa::path(
@@ -1102,6 +1121,105 @@ pub async fn delete_user(
             models::response::err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to delete user".to_string(),
+            )
+        }
+    }
+}
+
+pub async fn get_my_profile(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<AuthenticatedUser>,
+) -> models::response::Response<UserProfileResponse> {
+    let profile = match state.storage.get_user_profile(&user.user_id).await {
+        Ok(profile) => profile,
+        Err(e) => {
+            tracing::error!("Failed to get user profile: {}", e);
+            return models::response::err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to get profile".to_string(),
+            );
+        }
+    };
+
+    let profile = profile.unwrap_or_else(|| UserProfile {
+        user_id: user.user_id.clone(),
+        discord_id: None,
+        discord_username: None,
+        telegram_id: None,
+        telegram_username: None,
+        alias: Vec::new(),
+    });
+
+    api_response(
+        StatusCode::OK,
+        UserProfileResponse {
+            user_id: profile.user_id,
+            discord_id: profile.discord_id,
+            discord_username: profile.discord_username,
+            telegram_id: profile.telegram_id,
+            telegram_username: profile.telegram_username,
+            alias: profile.alias,
+        },
+    )
+}
+
+pub async fn update_my_profile(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(req): Json<UpdateUserProfileRequest>,
+) -> models::response::Response<UserProfileResponse> {
+    // Get existing profile or create default
+    let existing = match state.storage.get_user_profile(&user.user_id).await {
+        Ok(profile) => profile,
+        Err(e) => {
+            tracing::error!("Failed to get user profile: {}", e);
+            return models::response::err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to get profile".to_string(),
+            );
+        }
+    };
+
+    let existing = existing.unwrap_or_else(|| UserProfile {
+        user_id: user.user_id.clone(),
+        discord_id: None,
+        discord_username: None,
+        telegram_id: None,
+        telegram_username: None,
+        alias: Vec::new(),
+    });
+
+    // Merge: use provided values or keep existing
+    let updated = UserProfile {
+        user_id: user.user_id.clone(),
+        discord_id: req.discord_id.or(existing.discord_id),
+        discord_username: req.discord_username.or(existing.discord_username),
+        telegram_id: req.telegram_id.or(existing.telegram_id),
+        telegram_username: req.telegram_username.or(existing.telegram_username),
+        alias: req.alias.unwrap_or(existing.alias),
+    };
+
+    match state
+        .storage
+        .upsert_user_profile(&user.user_id, &updated)
+        .await
+    {
+        Ok(_) => api_response(
+            StatusCode::OK,
+            UserProfileResponse {
+                user_id: updated.user_id,
+                discord_id: updated.discord_id,
+                discord_username: updated.discord_username,
+                telegram_id: updated.telegram_id,
+                telegram_username: updated.telegram_username,
+                alias: updated.alias,
+            },
+        ),
+        Err(e) => {
+            tracing::error!("Failed to update user profile: {}", e);
+            models::response::err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to update profile".to_string(),
             )
         }
     }

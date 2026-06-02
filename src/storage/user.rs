@@ -43,6 +43,7 @@ pub struct UserProfile {
     pub user_id: String,
     pub discord_id: Option<String>,
     pub discord_username: Option<String>,
+    pub telegram_id: Option<String>,
     pub telegram_username: Option<String>,
     #[serde(default)]
     pub alias: Vec<String>,
