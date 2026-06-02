@@ -9,6 +9,7 @@ import { useSidebarStore } from './hooks/sidebarStore'
 import { useThemeStore } from './hooks/themeStore'
 import { useAgentStore } from './hooks/agentStore'
 import { useUserStore } from './hooks/userStore'
+import { hasPermission } from './utils/auth'
 
 export default function Layout() {
   const { agents, loading, loadAgents } = useAgentStore()
@@ -264,19 +265,26 @@ export default function Layout() {
               ['skills', 'Skills', FaWandMagicSparkles],
               ['usage', 'Usage', FaArrowTrendUp],
               ['settings', 'Agent Config', FaRobot],
-            ] as const).map(([view, label, Icon]) => (
-              <div
-                key={view}
-                className={`nav-item ${currentView === view ? 'active' : ''}`}
-                onClick={() => currentAgentId && handleNavClick(`/${currentAgentId}/${view}`)}
-                style={{
-                  ...(!currentAgentId ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}),
-                }}
-              >
-                <Icon size={18} />
-                <span>{label}</span>
-              </div>
-            ))}
+            ] as const).map(([view, label, Icon]) => {
+              const isSettings = view === 'settings'
+              const canEditAgent = hasPermission('all_agents:edit') || currentAgent?.owner_id === user?.user_id
+              const isDisabled = !currentAgentId || (isSettings && !canEditAgent)
+
+              return (
+                <div
+                  key={view}
+                  className={`nav-item ${currentView === view ? 'active' : ''}`}
+                  onClick={() => !isDisabled && handleNavClick(`/${currentAgentId}/${view}`)}
+                  style={{
+                    ...(isDisabled ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}),
+                  }}
+                  title={isSettings && !canEditAgent ? 'Only the agent owner can edit config' : undefined}
+                >
+                  <Icon size={18} />
+                  <span>{label}</span>
+                </div>
+              )
+            })}
           </div>
         </div>
 

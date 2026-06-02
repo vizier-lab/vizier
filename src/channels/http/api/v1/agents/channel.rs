@@ -23,9 +23,11 @@ use crate::{
         SessionHistory, TopicId, VizierAttachmentContent, VizierChannelId, VizierRequest,
         VizierSession, VizierSessionDetail,
     },
-    storage::{history::HistoryStorage, session::SessionStorage},
+    storage::{agent::AgentStorage, history::HistoryStorage, session::SessionStorage},
     transport::VizierTransport,
 };
+
+use super::user_can_view_agent;
 
 pub fn channel() -> Router<HTTPState> {
     Router::new()
@@ -83,8 +85,14 @@ pub async fn get_topic_history(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<Vec<SessionHistory>> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     let session = VizierSession(agent_id, VizierChannelId::HTTP(user.username, channel_id), Some(topic_id));
@@ -119,8 +127,14 @@ pub async fn list_topics(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<Vec<TopicEntry>> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     let channel = VizierChannelId::HTTP(user.username, channel_id);
@@ -164,8 +178,14 @@ pub async fn delete_topic(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<String> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     let channel = VizierChannelId::HTTP(user.username, channel_id);
@@ -201,9 +221,26 @@ pub async fn chat(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> axum::response::Response {
-    if !state.is_agent_exists(&agent_id).await {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => {
+            return axum::response::Response::builder()
+                .status(404)
+                .body(axum::body::Body::empty())
+                .unwrap();
+        }
+        Err(e) => {
+            tracing::error!("failed to get agent: {}", e);
+            return axum::response::Response::builder()
+                .status(500)
+                .body(axum::body::Body::empty())
+                .unwrap();
+        }
+    };
+
+    if !user_can_view_agent(&user, &config) {
         return axum::response::Response::builder()
-            .status(404)
+            .status(403)
             .body(axum::body::Body::empty())
             .unwrap();
     }

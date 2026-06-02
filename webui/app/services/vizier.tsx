@@ -195,6 +195,23 @@ export const deleteAgent = async (agentId: string, deleteWorkspace: boolean = fa
 }
 
 // ============================================================================
+// AGENT SHARING ENDPOINTS
+// ============================================================================
+
+export const getAgentSharing = async (agentId: string) => {
+  const res = await apiClient.get(`/agents/${agentId}/sharing`)
+  return res.data
+}
+
+export const updateAgentSharing = async (
+  agentId: string,
+  data: import('../interfaces/types').UpdateSharingRequest
+) => {
+  const res = await apiClient.patch(`/agents/${agentId}/sharing`, data)
+  return res.data
+}
+
+// ============================================================================
 // PROVIDER ENDPOINTS
 // ============================================================================
 

@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use axum::{
-    Router,
+    Extension, Router,
     extract::{Path, Query, State},
     routing::{delete, get, post, put},
     Json,
@@ -20,8 +20,10 @@ use crate::{
         state::HTTPState,
     },
     schema::{Task, TaskSchedule},
-    storage::task::TaskStorage,
+    storage::{agent::AgentStorage, task::TaskStorage},
 };
+
+use super::user_can_view_agent;
 
 fn validate_schedule(schedule: &ScheduleRequest) -> Result<(), String> {
     match schedule {
@@ -127,9 +129,16 @@ pub async fn get_tasks(
     Path(agent_id): Path<String>,
     Query(params): Query<GetTasksQuery>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<Vec<TaskResponse>> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     match state
@@ -161,9 +170,16 @@ pub async fn get_tasks(
 pub async fn get_task(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<TaskResponse> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     match state.storage.get_task_list(Some(agent_id), None).await {
@@ -195,10 +211,17 @@ pub async fn get_task(
 pub async fn create_task(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<CreateTaskRequest>,
 ) -> models::response::Response<TaskResponse> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     // Validate schedule
@@ -242,10 +265,17 @@ pub async fn create_task(
 pub async fn update_task(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<CreateTaskRequest>,
 ) -> models::response::Response<TaskResponse> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     // Validate schedule
@@ -297,9 +327,16 @@ pub async fn update_task(
 pub async fn delete_task(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<String> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     match state.storage.delete_task(agent_id, slug.clone()).await {

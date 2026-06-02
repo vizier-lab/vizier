@@ -1,7 +1,7 @@
 use axum::{
     Extension, Json, Router,
     extract::{Path, Query, State},
-    routing::get,
+    routing::{get, patch},
 };
 use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
@@ -34,6 +34,39 @@ use memory::memory;
 use skills::agent_skills;
 use task::task;
 
+pub fn user_can_view_agent(
+    user: &crate::channels::http::auth::AuthenticatedUser,
+    config: &AgentConfig,
+) -> bool {
+    if user.role.is_system || user.permissions.contains(&"all_agents:view".to_string()) {
+        return true;
+    }
+    if let Some(ref owner_id) = config.owner_id {
+        if *owner_id == user.user_id {
+            return true;
+        }
+    }
+    if config.shared_to.contains(&user.user_id) {
+        return true;
+    }
+    false
+}
+
+fn user_can_edit_agent(
+    user: &crate::channels::http::auth::AuthenticatedUser,
+    config: &AgentConfig,
+) -> bool {
+    if user.role.is_system || user.permissions.contains(&"all_agents:edit".to_string()) {
+        return true;
+    }
+    if let Some(ref owner_id) = config.owner_id {
+        if *owner_id == user.user_id {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn agents() -> Router<HTTPState> {
     Router::new()
         .route("/", get(list_agents).post(create_agent))
@@ -42,6 +75,10 @@ pub fn agents() -> Router<HTTPState> {
             get(agent_detail).put(update_agent).delete(delete_agent),
         )
         .route("/{agent_id}/usage", get(agent_usage))
+        .route(
+            "/{agent_id}/sharing",
+            get(get_sharing).patch(update_sharing),
+        )
         .nest("/{agent_id}/channel", channel())
         .nest("/{agent_id}/documents", documents())
         .nest("/{agent_id}/memory", memory())
@@ -60,26 +97,12 @@ async fn list_agents(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<Vec<AgentSummary>> {
-    let can_view_all = user.role.is_system || user.permissions.contains(&"all_agents:view".to_string());
-    let can_view_owned = user.permissions.contains(&"owned_agents:view".to_string());
-
-    if !can_view_all && !can_view_owned {
-        return api_response(StatusCode::OK, Vec::new());
-    }
-
     match state.storage.list_agents().await {
         Ok(agents) => {
             let mut res = Vec::new();
             for (id, config) in agents {
-                // Filter based on permissions
-                if !can_view_all {
-                    if let Some(ref owner_id) = config.owner_id {
-                        if *owner_id != user.user_id {
-                            continue;
-                        }
-                    } else {
-                        continue;
-                    }
+                if !user_can_view_agent(&user, &config) {
+                    continue;
                 }
 
                 let owner_username = if let Some(ref owner_id) = config.owner_id {
@@ -93,6 +116,8 @@ async fn list_agents(
                     description: config.description,
                     avatar_url: config.avatar_url,
                     owner_username,
+                    owner_id: config.owner_id.clone(),
+                    shared_to: config.shared_to,
                 });
             }
             api_response(StatusCode::OK, res)
@@ -150,20 +175,10 @@ async fn agent_detail(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<AgentDetail> {
-    let can_view_all = user.role.is_system || user.permissions.contains(&"all_agents:view".to_string());
-    let can_view_owned = user.permissions.contains(&"owned_agents:view".to_string());
-
     match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => {
-            // Check permission
-            if !can_view_all {
-                if let Some(ref owner_id) = config.owner_id {
-                    if *owner_id != user.user_id && !can_view_owned {
-                        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-                    }
-                } else if !can_view_owned {
-                    return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-                }
+            if !user_can_view_agent(&user, &config) {
+                return err_response(StatusCode::FORBIDDEN, "Access denied".into());
             }
 
             api_response(
@@ -294,6 +309,7 @@ impl CreateAgentRequest {
         AgentConfig {
             name: self.name,
             owner_id: None,
+            shared_to: Vec::new(),
             system_prompt: self.system_prompt,
             description: self.description,
             provider: self.provider,
@@ -421,30 +437,21 @@ async fn update_agent(
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<CreateAgentRequest>,
 ) -> models::response::Response<AgentSummary> {
-    let can_edit_all = user.role.is_system || user.permissions.contains(&"all_agents:edit".to_string());
-    let can_edit_owned = user.permissions.contains(&"owned_agents:edit".to_string());
-
     let mut config = body.into_config();
 
-    // Preserve existing owner_id when updating
+    // Preserve existing owner_id and shared_to when updating
     let existing = match state.storage.get_agent(&agent_id).await {
         Ok(Some(existing)) => existing,
         Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
         Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
 
-    // Check permission
-    if !can_edit_all {
-        if let Some(ref owner_id) = existing.owner_id {
-            if *owner_id != user.user_id && !can_edit_owned {
-                return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-            }
-        } else if !can_edit_owned {
-            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-        }
+    if !user_can_edit_agent(&user, &existing) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     config.owner_id = existing.owner_id;
+    config.shared_to = existing.shared_to;
 
     let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
 
@@ -588,5 +595,101 @@ async fn agent_usage(
         Ok(stats) => api_response(StatusCode::OK, stats),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
     }
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct SharingResponse {
+    pub shared_to: Vec<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/sharing",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID")
+    ),
+    responses(
+        (status = 200, description = "Agent sharing list", body = APIResponse<SharingResponse>),
+        (status = 403, description = "Access denied", body = APIResponse<String>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>)
+    )
+)]
+async fn get_sharing(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<SharingResponse> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_edit_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
+    api_response(
+        StatusCode::OK,
+        SharingResponse {
+            shared_to: config.shared_to,
+        },
+    )
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct UpdateSharingRequest {
+    #[serde(default)]
+    pub add: Vec<String>,
+    #[serde(default)]
+    pub remove: Vec<String>,
+}
+
+#[utoipa::path(
+    patch,
+    path = "/agents/{agent_id}/sharing",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID")
+    ),
+    request_body = UpdateSharingRequest,
+    responses(
+        (status = 200, description = "Agent sharing updated", body = APIResponse<SharingResponse>),
+        (status = 403, description = "Access denied", body = APIResponse<String>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>)
+    )
+)]
+async fn update_sharing(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Json(body): Json<UpdateSharingRequest>,
+) -> models::response::Response<SharingResponse> {
+    let mut config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_edit_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
+    for user_id in &body.add {
+        if !config.shared_to.contains(user_id) {
+            config.shared_to.push(user_id.clone());
+        }
+    }
+    config.shared_to.retain(|id| !body.remove.contains(id));
+
+    if let Err(e) = state.storage.update_agent(&agent_id, &config).await {
+        return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
+    }
+
+    api_response(
+        StatusCode::OK,
+        SharingResponse {
+            shared_to: config.shared_to,
+        },
+    )
 }
 

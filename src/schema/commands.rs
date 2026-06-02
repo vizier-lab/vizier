@@ -59,6 +59,10 @@ pub struct AgentSummary {
     pub description: Option<String>,
     pub avatar_url: Option<String>,
     pub owner_username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shared_to: Vec<String>,
 }
 
 pub enum ChannelCommand {

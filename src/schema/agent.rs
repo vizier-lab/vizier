@@ -12,6 +12,8 @@ pub struct AgentConfig {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shared_to: Vec<String>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
     pub provider: ProviderVariant,

@@ -1,5 +1,5 @@
 use axum::{
-    Router, Json,
+    Extension, Router, Json,
     extract::{Path, State},
     routing::{get, post, put, delete},
 };
@@ -13,7 +13,10 @@ use crate::{
     },
     schema::{Skill, SkillActivation},
     skill::SkillManager,
+    storage::agent::AgentStorage,
 };
+
+use super::user_can_view_agent;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateSkillRequest {
@@ -74,7 +77,18 @@ pub fn agent_skills() -> Router<HTTPState> {
 async fn list_agent_skills(
     State(state): State<HTTPState>,
     Path(agent_id): Path<String>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> Response<Vec<SkillResponse>> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
     let workspace = &state.config.workspace;
     let manager = SkillManager::for_agent(workspace, &agent_id);
 
@@ -90,8 +104,19 @@ async fn list_agent_skills(
 async fn create_agent_skill(
     State(state): State<HTTPState>,
     Path(agent_id): Path<String>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(request): Json<CreateSkillRequest>,
 ) -> Response<SkillResponse> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
     let workspace = &state.config.workspace;
     let manager = SkillManager::for_agent(workspace, &agent_id);
 
@@ -118,7 +143,18 @@ async fn create_agent_skill(
 async fn get_agent_skill(
     State(state): State<HTTPState>,
     Path((agent_id, slug)): Path<(String, String)>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> Response<SkillResponse> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
     let workspace = &state.config.workspace;
     let manager = SkillManager::for_agent(workspace, &agent_id);
 
@@ -142,8 +178,19 @@ async fn get_agent_skill(
 async fn update_agent_skill(
     State(state): State<HTTPState>,
     Path((agent_id, slug)): Path<(String, String)>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(request): Json<UpdateSkillRequest>,
 ) -> Response<SkillResponse> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
     let workspace = &state.config.workspace;
     let manager = SkillManager::for_agent(workspace, &agent_id);
 
@@ -181,7 +228,18 @@ async fn update_agent_skill(
 async fn delete_agent_skill(
     State(state): State<HTTPState>,
     Path((agent_id, slug)): Path<(String, String)>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> Response<String> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
     let workspace = &state.config.workspace;
     let manager = SkillManager::for_agent(workspace, &agent_id);
 

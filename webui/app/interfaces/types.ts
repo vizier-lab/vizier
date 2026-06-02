@@ -79,6 +79,8 @@ export interface Agent {
   description?: string
   avatar_url?: string
   owner_username?: string
+  owner_id?: string
+  shared_to?: string[]
 }
 
 export interface AgentToolConfig {
@@ -453,4 +455,17 @@ export interface UpdateSkillRequest {
   content?: string
   keywords?: string[]
   activation?: SkillActivation
+}
+
+// ============================================================================
+// SHARING
+// ============================================================================
+
+export interface SharingResponse {
+  shared_to: string[]
+}
+
+export interface UpdateSharingRequest {
+  add?: string[]
+  remove?: string[]
 }

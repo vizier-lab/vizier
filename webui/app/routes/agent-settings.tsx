@@ -5,6 +5,7 @@ import {
     FaFolder,
     FaTriangleExclamation,
     FaCode,
+    FaUserGroup,
 } from 'react-icons/fa6'
 import {
     getAgentDetail,
@@ -18,6 +19,9 @@ import {
     updateHeartbeatDocument,
     deleteAgent,
     uploadFile,
+    getAgentSharing,
+    updateAgentSharing,
+    listUsers,
 } from '../services/vizier'
 import TooltipLabel from '../components/TooltipLabel'
 import MarkdownEditor from '../components/MarkdownEditor'
@@ -29,6 +33,7 @@ import type {
     CreateAgentRequest,
     AgentDetail,
     GlobalConfigEntry,
+    User,
 } from '../interfaces/types'
 
 function getErrorMessage(err: unknown): string {
@@ -40,13 +45,14 @@ function getErrorMessage(err: unknown): string {
     return 'An error occurred'
 }
 
-type SettingsTab = 'config' | 'prompt' | 'documents' | 'danger'
+type SettingsTab = 'config' | 'prompt' | 'documents' | 'sharing' | 'danger'
 type DocumentType = 'agent' | 'identity' | 'heartbeat'
 
 const TABS: { key: SettingsTab; label: string; icon: typeof FaGear }[] = [
     { key: 'config', label: 'Config', icon: FaGear },
     { key: 'prompt', label: 'System Prompt', icon: FaCode },
     { key: 'documents', label: 'Documents', icon: FaFolder },
+    { key: 'sharing', label: 'Sharing', icon: FaUserGroup },
     { key: 'danger', label: 'Danger Zone', icon: FaTriangleExclamation },
 ]
 
@@ -140,6 +146,13 @@ export default function AgentSettings() {
     const [deleteWorkspace, setDeleteWorkspace] = useState(false)
     const [deleting, setDeleting] = useState(false)
     const [deleteConfirm, setDeleteConfirm] = useState('')
+
+    // ── Sharing state ──
+    const [sharedTo, setSharedTo] = useState<string[]>([])
+    const [sharingLoading, setSharingLoading] = useState(false)
+    const [sharingSaving, setSharingSaving] = useState(false)
+    const [allUsers, setAllUsers] = useState<User[]>([])
+    const [newUserUsername, setNewUserUsername] = useState('')
 
     // ── Avatar state ──
     const [cropFile, setCropFile] = useState<File | null>(null)
@@ -248,6 +261,27 @@ export default function AgentSettings() {
         loadDoc()
     }, [agentId, activeTab, activeDoc])
 
+    // ── Load sharing data ──
+    useEffect(() => {
+        if (activeTab !== 'sharing' || !agentId) return
+        const loadSharing = async () => {
+            setSharingLoading(true)
+            try {
+                const [sharingRes, usersRes] = await Promise.all([
+                    getAgentSharing(agentId),
+                    listUsers(),
+                ])
+                setSharedTo(sharingRes.data?.shared_to || [])
+                setAllUsers(usersRes.data || [])
+            } catch {
+                addToast('error', 'Failed to load sharing data')
+            } finally {
+                setSharingLoading(false)
+            }
+        }
+        loadSharing()
+    }, [agentId, activeTab])
+
     // ── Config helpers ──
     const updateField = <K extends keyof CreateAgentRequest>(
         key: K,
@@ -354,6 +388,49 @@ export default function AgentSettings() {
             )
         } finally {
             setDocSaving(false)
+        }
+    }
+
+    // ── Sharing helpers ──
+    const handleAddSharedUser = async () => {
+        if (!agentId || !newUserUsername.trim()) return
+        const user = allUsers.find((u) => u.username === newUserUsername.trim())
+        if (!user) {
+            addToast('error', 'User not found')
+            return
+        }
+        if (sharedTo.includes(user.user_id)) {
+            addToast('error', 'User already has access')
+            return
+        }
+        setSharingSaving(true)
+        try {
+            const res = await updateAgentSharing(agentId, {
+                add: [user.user_id],
+            })
+            setSharedTo(res.data?.shared_to || [])
+            setNewUserUsername('')
+            addToast('success', `Shared with ${user.username}`)
+        } catch (err: unknown) {
+            addToast('error', getErrorMessage(err) || 'Failed to share agent')
+        } finally {
+            setSharingSaving(false)
+        }
+    }
+
+    const handleRemoveSharedUser = async (userId: string) => {
+        if (!agentId) return
+        setSharingSaving(true)
+        try {
+            const res = await updateAgentSharing(agentId, {
+                remove: [userId],
+            })
+            setSharedTo(res.data?.shared_to || [])
+            addToast('success', 'Access removed')
+        } catch (err: unknown) {
+            addToast('error', getErrorMessage(err) || 'Failed to remove access')
+        } finally {
+            setSharingSaving(false)
         }
     }
 
@@ -1564,6 +1641,165 @@ export default function AgentSettings() {
                                         placeholder={`Enter ${activeDoc.toUpperCase()}.md content...`}
                                         className="document-mdx-editor"
                                     />
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* ─── Sharing Tab ─── */}
+                    {activeTab === 'sharing' && (
+                        <div style={{ maxWidth: '720px' }}>
+                            <p
+                                style={{
+                                    color: 'var(--text-secondary)',
+                                    marginBottom: '1.5rem',
+                                    fontSize: '14px',
+                                }}
+                            >
+                                Share this agent with other users. Shared users can view and use the agent but cannot edit its configuration.
+                            </p>
+
+                            {sharingLoading ? (
+                                <p style={{ color: 'var(--text-tertiary)' }}>
+                                    Loading sharing data...
+                                </p>
+                            ) : (
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '1.5rem',
+                                    }}
+                                >
+                                    {/* Add user section */}
+                                    <div>
+                                        <h4
+                                            style={{
+                                                fontSize: '0.85rem',
+                                                fontWeight: 600,
+                                                color: 'var(--text-primary)',
+                                                marginBottom: '0.75rem',
+                                                paddingBottom: '0.5rem',
+                                                borderBottom: '1px solid var(--border)',
+                                            }}
+                                        >
+                                            Add User
+                                        </h4>
+                                        <div
+                                            style={{
+                                                display: 'flex',
+                                                gap: '0.5rem',
+                                                alignItems: 'flex-end',
+                                            }}
+                                        >
+                                            <div style={{ flex: 1, ...fieldStyle }}>
+                                                <label style={labelStyle}>Username</label>
+                                                <input
+                                                    style={inputStyle}
+                                                    placeholder="Enter username"
+                                                    value={newUserUsername}
+                                                    onChange={(e) =>
+                                                        setNewUserUsername(e.target.value)
+                                                    }
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault()
+                                                            handleAddSharedUser()
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
+                                            <button
+                                                className="btn btn-primary"
+                                                onClick={handleAddSharedUser}
+                                                disabled={sharingSaving || !newUserUsername.trim()}
+                                                style={{
+                                                    padding: '0.5rem 1rem',
+                                                    fontSize: '0.85rem',
+                                                    height: 'fit-content',
+                                                }}
+                                            >
+                                                {sharingSaving ? 'Adding...' : 'Add'}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Shared users list */}
+                                    <div>
+                                        <h4
+                                            style={{
+                                                fontSize: '0.85rem',
+                                                fontWeight: 600,
+                                                color: 'var(--text-primary)',
+                                                marginBottom: '0.75rem',
+                                                paddingBottom: '0.5rem',
+                                                borderBottom: '1px solid var(--border)',
+                                            }}
+                                        >
+                                            Shared With ({sharedTo.length})
+                                        </h4>
+                                        {sharedTo.length === 0 ? (
+                                            <p
+                                                style={{
+                                                    color: 'var(--text-tertiary)',
+                                                    fontSize: '0.85rem',
+                                                }}
+                                            >
+                                                This agent is not shared with anyone yet.
+                                            </p>
+                                        ) : (
+                                            <div
+                                                style={{
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    gap: '0.5rem',
+                                                }}
+                                            >
+                                                {sharedTo.map((userId) => {
+                                                    const user = allUsers.find(
+                                                        (u) => u.user_id === userId
+                                                    )
+                                                    return (
+                                                        <div
+                                                            key={userId}
+                                                            style={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'space-between',
+                                                                padding: '0.5rem 0.75rem',
+                                                                border: '1px solid var(--border)',
+                                                                borderRadius: '0.375rem',
+                                                                background: 'var(--surface)',
+                                                            }}
+                                                        >
+                                                            <span
+                                                                style={{
+                                                                    fontSize: '0.85rem',
+                                                                    color: 'var(--text-primary)',
+                                                                }}
+                                                            >
+                                                                {user?.username || userId}
+                                                            </span>
+                                                            <button
+                                                                className="btn btn-ghost"
+                                                                onClick={() =>
+                                                                    handleRemoveSharedUser(userId)
+                                                                }
+                                                                disabled={sharingSaving}
+                                                                style={{
+                                                                    fontSize: '0.8rem',
+                                                                    padding: '4px 8px',
+                                                                    color: '#ef4444',
+                                                                }}
+                                                            >
+                                                                Remove
+                                                            </button>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </div>

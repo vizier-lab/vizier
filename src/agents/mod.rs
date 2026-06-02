@@ -149,6 +149,8 @@ impl VizierAgents {
                     description: config.description.clone(),
                     avatar_url: config.avatar_url.clone(),
                     owner_username,
+                    owner_id: config.owner_id.clone(),
+                    shared_to: config.shared_to.clone(),
                 };
                 self.processes.insert(agent_id.to_string(), process);
                 let _ = self
@@ -195,6 +197,8 @@ impl VizierAgents {
                     description: config.description.clone(),
                     avatar_url: config.avatar_url.clone(),
                     owner_username,
+                    owner_id: config.owner_id.clone(),
+                    shared_to: config.shared_to.clone(),
                 };
                 self.processes.insert(agent_id.to_string(), process);
                 let _ = self
@@ -252,6 +256,8 @@ impl VizierAgents {
             description: None,
             avatar_url: None,
             owner_username: None,
+            owner_id: None,
+            shared_to: Vec::new(),
         })
     }
 }

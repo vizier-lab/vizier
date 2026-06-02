@@ -1,5 +1,5 @@
 use axum::{
-    Router,
+    Extension, Router,
     extract::{Path, State},
     routing::get,
     Json,
@@ -15,8 +15,11 @@ use crate::{
         },
         state::HTTPState,
     },
+    storage::agent::AgentStorage,
     utils::build_path,
 };
+
+use super::user_can_view_agent;
 
 pub fn documents() -> Router<HTTPState> {
     Router::new()
@@ -66,9 +69,16 @@ fn write_document(path: &str, content: &str) -> Result<(), std::io::Error> {
 pub async fn get_agent_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<DocumentContentResponse> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     let path = get_document_path(&state.config.workspace, &agent_id, "AGENT.md");
@@ -94,10 +104,17 @@ pub async fn get_agent_doc(
 pub async fn update_agent_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<UpdateDocumentRequest>,
 ) -> models::response::Response<DocumentUpdateResponse> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     let path = get_document_path(&state.config.workspace, &agent_id, "AGENT.md");
@@ -121,9 +138,16 @@ pub async fn update_agent_doc(
 pub async fn get_identity_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<DocumentContentResponse> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     let path = get_document_path(&state.config.workspace, &agent_id, "IDENTITY.md");
@@ -149,10 +173,17 @@ pub async fn get_identity_doc(
 pub async fn update_identity_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<UpdateDocumentRequest>,
 ) -> models::response::Response<DocumentUpdateResponse> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     let path = get_document_path(&state.config.workspace, &agent_id, "IDENTITY.md");
@@ -176,9 +207,16 @@ pub async fn update_identity_doc(
 pub async fn get_heartbeat_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<DocumentContentResponse> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     let path = get_document_path(&state.config.workspace, &agent_id, "HEARTBEAT.md");
@@ -204,10 +242,17 @@ pub async fn get_heartbeat_doc(
 pub async fn update_heartbeat_doc(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<UpdateDocumentRequest>,
 ) -> models::response::Response<DocumentUpdateResponse> {
-    if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
     let path = get_document_path(&state.config.workspace, &agent_id, "HEARTBEAT.md");
