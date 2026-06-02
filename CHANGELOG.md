@@ -15,9 +15,18 @@ All notable changes to this project will be documented in this file.
 - Add user profile settings
 - Add agent memory visibility
 
+### 🐛 Bug Fixes
+
+- Run error when using surreal
+- Https api not working
+
 ### 📚 Documentation
 
 - Update docs with skills
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.8.0
 ## [0.7.0] - 2026-05-31
 
 ### 🚀 Features
