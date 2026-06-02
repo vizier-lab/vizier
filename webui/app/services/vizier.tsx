@@ -298,12 +298,16 @@ export const createMemory = async (
   agentId: string,
   title: string,
   content: string,
-  slug?: string
+  slug?: string,
+  visibility?: string,
+  sharedTo?: string[]
 ) => {
   const res = await apiClient.post(`/agents/${agentId}/memory`, {
     title,
     content,
     slug,
+    visibility,
+    shared_to: sharedTo,
   })
   return res.data
 }
@@ -312,11 +316,15 @@ export const updateMemory = async (
   agentId: string,
   slug: string,
   title: string,
-  content: string
+  content: string,
+  visibility?: string,
+  sharedTo?: string[]
 ) => {
   const res = await apiClient.put(`/agents/${agentId}/memory/${slug}`, {
     title,
     content,
+    visibility,
+    shared_to: sharedTo,
   })
   return res.data
 }

@@ -4,7 +4,7 @@ use chrono::Utc;
 use crate::{
     embedding::VizierEmbeddingModel,
     error::VizierError,
-    schema::Memory,
+    schema::{Memory, MemoryVisibility},
     storage::{
         memory::MemoryStorage,
         surreal::{DistanceFunction, SurrealStorage},
@@ -12,6 +12,8 @@ use crate::{
 };
 
 use slugify::slugify;
+
+const GLOBAL_AGENT_ID: &str = "_global";
 
 #[async_trait::async_trait]
 impl MemoryStorage for SurrealStorage {
@@ -21,6 +23,8 @@ impl MemoryStorage for SurrealStorage {
         slug: Option<String>,
         title: String,
         content: String,
+        visibility: MemoryVisibility,
+        shared_to: Vec<String>,
     ) -> Result<()> {
         let embedder = self
             .embedder
@@ -28,13 +32,19 @@ impl MemoryStorage for SurrealStorage {
             .ok_or(VizierError("embedder is not set".into()))?;
 
         let slug = slug.unwrap_or_else(|| slugify!(&title));
+        let store_agent_id = match visibility {
+            MemoryVisibility::Global => GLOBAL_AGENT_ID.to_string(),
+            _ => agent_id.clone(),
+        };
         let mut memory = Memory {
             slug: slug.clone(),
-            agent_id: agent_id.clone(),
+            agent_id: store_agent_id.clone(),
             title,
             content: content.clone(),
             timestamp: Utc::now(),
             embedding: vec![],
+            visibility,
+            shared_to,
         };
 
         let embedding = embedder.embed_text(&content.clone()).await?;
@@ -42,7 +52,7 @@ impl MemoryStorage for SurrealStorage {
 
         let _: Option<Memory> = self
             .conn
-            .upsert(("memory", format!("{}/{}", agent_id, slug)))
+            .upsert(("memory", format!("{}/{}", store_agent_id, slug)))
             .content(memory)
             .await?;
 
@@ -70,7 +80,12 @@ impl MemoryStorage for SurrealStorage {
             .query(format!(
                 r#"SELECT * 
                     FROM type::table($table) 
-                    WHERE {distance_function}($query, embedding) >= $threshold AND agent_id = $agent_id
+                    WHERE {distance_function}($query, embedding) >= $threshold 
+                        AND (
+                            visibility = 'private' AND agent_id = $agent_id
+                            OR visibility = 'global'
+                            OR (visibility = 'shared' AND array::contains(shared_to, $agent_id))
+                        )
                     ORDER BY distance ASC 
                     LIMIT $limit"#
             ))
@@ -89,7 +104,12 @@ impl MemoryStorage for SurrealStorage {
     async fn get_all_agent_memory(&self, agent_id: String) -> Result<Vec<Memory>> {
         let mut response = self
             .conn
-            .query("SELECT * FROM type::table(memory) WHERE agent_id = $agent_id")
+            .query(
+                r#"SELECT * FROM type::table(memory) 
+                    WHERE visibility = 'private' AND agent_id = $agent_id
+                    OR visibility = 'global'
+                    OR (visibility = 'shared' AND array::contains(shared_to, $agent_id))"#,
+            )
             .bind(("agent_id", agent_id))
             .await?;
 
@@ -101,7 +121,15 @@ impl MemoryStorage for SurrealStorage {
     async fn get_memory_detail(&self, agent_id: String, slug: String) -> Result<Option<Memory>> {
         let mut response = self
             .conn
-            .query("SELECT * FROM type::table(memory) WHERE slug = $slug AND agent_id = $agent_id")
+            .query(
+                r#"SELECT * FROM type::table(memory) 
+                    WHERE slug = $slug 
+                        AND (
+                            visibility = 'private' AND agent_id = $agent_id
+                            OR visibility = 'global'
+                            OR (visibility = 'shared' AND array::contains(shared_to, $agent_id))
+                        )"#,
+            )
             .bind(("slug", slug))
             .bind(("agent_id", agent_id))
             .await?;

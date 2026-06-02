@@ -8,7 +8,7 @@ use slugify::slugify;
 use crate::agents::tools::VizierTool;
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
-use crate::schema::AgentId;
+use crate::schema::{AgentId, MemoryVisibility};
 use crate::storage::VizierStorage;
 use crate::storage::memory::MemoryStorage;
 
@@ -57,6 +57,7 @@ pub struct MemorySummary {
     pub slug: String,
     pub title: String,
     pub timestamp: chrono::DateTime<Utc>,
+    pub visibility: String,
 }
 
 pub type MemoryList = ListVectorMemory;
@@ -99,6 +100,7 @@ impl VizierTool for MemoryList {
                 slug: m.slug,
                 title: m.title,
                 timestamp: m.timestamp,
+                visibility: m.visibility.to_string(),
             })
             .collect())
     }
@@ -150,6 +152,18 @@ pub struct MemoryWriteArgs {
 
     #[schemars(description = "details of the memory")]
     pub content: String,
+
+    #[schemars(description = "visibility: 'private' (default, only you), 'global' (all agents), or 'shared' (specific agents)")]
+    #[serde(default = "default_visibility")]
+    pub visibility: String,
+
+    #[schemars(description = "list of agent IDs to share with (only when visibility is 'shared')")]
+    #[serde(default)]
+    pub shared_to: Vec<String>,
+}
+
+fn default_visibility() -> String {
+    "private".to_string()
 }
 
 #[async_trait::async_trait]
@@ -167,6 +181,10 @@ impl VizierTool for MemoryWrite {
 
     async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let slug = slugify!(&args.title).to_string();
+        let visibility: MemoryVisibility = args
+            .visibility
+            .parse()
+            .map_err(|e: String| VizierError(e))?;
 
         let content = format!(
             "# {}\n\n{}\n\n timestamp: {}",
@@ -177,10 +195,19 @@ impl VizierTool for MemoryWrite {
 
         let _ = self
             .1
-            .write_memory(self.0.clone(), Some(slug.clone()), args.title, content)
+            .write_memory(
+                self.0.clone(),
+                Some(slug.clone()),
+                args.title,
+                content,
+                visibility.clone(),
+                args.shared_to.clone(),
+            )
             .await;
 
-        Ok(format!("memory {slug} is written"))
+        Ok(format!(
+            "memory {slug} is written with {visibility} visibility"
+        ))
     }
 }
 
@@ -206,6 +233,8 @@ pub struct MemoryDetailOutput {
     pub content: String,
     pub timestamp: chrono::DateTime<Utc>,
     pub agent_id: String,
+    pub visibility: String,
+    pub shared_to: Vec<String>,
 }
 
 #[async_trait::async_trait]
@@ -234,6 +263,8 @@ impl VizierTool for MemoryDetail {
             content: m.content,
             timestamp: m.timestamp,
             agent_id: m.agent_id,
+            visibility: m.visibility.to_string(),
+            shared_to: m.shared_to,
         }))
     }
 }

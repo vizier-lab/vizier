@@ -4,6 +4,40 @@ use surrealdb_types::SurrealValue;
 
 use crate::schema::AgentId;
 
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, SurrealValue)]
+pub enum MemoryVisibility {
+    #[serde(rename = "private")]
+    #[default]
+    Private,
+    #[serde(rename = "global")]
+    Global,
+    #[serde(rename = "shared")]
+    Shared,
+}
+
+impl std::fmt::Display for MemoryVisibility {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Private => write!(f, "private"),
+            Self::Global => write!(f, "global"),
+            Self::Shared => write!(f, "shared"),
+        }
+    }
+}
+
+impl std::str::FromStr for MemoryVisibility {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "private" => Ok(Self::Private),
+            "global" => Ok(Self::Global),
+            "shared" => Ok(Self::Shared),
+            _ => Err(format!("invalid visibility: {s}")),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
 pub struct Memory {
     pub slug: String,
@@ -12,6 +46,10 @@ pub struct Memory {
     pub timestamp: DateTime<Utc>,
     pub embedding: Vec<f64>,
     pub agent_id: String,
+    #[serde(default)]
+    pub visibility: MemoryVisibility,
+    #[serde(default)]
+    pub shared_to: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]

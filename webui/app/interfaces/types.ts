@@ -311,12 +311,16 @@ export interface WebSocketResponse {
 // MEMORY
 // ============================================================================
 
+export type MemoryVisibility = 'private' | 'global' | 'shared'
+
 export interface Memory {
   agent_id: string
   slug: string
   title: string
   content?: string
   timestamp: string
+  visibility: MemoryVisibility
+  shared_to: string[]
 }
 
 export interface MemoryDetail extends Memory {
@@ -327,11 +331,15 @@ export interface CreateMemoryRequest {
   title: string
   content: string
   slug?: string
+  visibility?: MemoryVisibility
+  shared_to?: string[]
 }
 
 export interface UpdateMemoryRequest {
   title: string
   content: string
+  visibility?: MemoryVisibility
+  shared_to?: string[]
 }
 
 // ============================================================================

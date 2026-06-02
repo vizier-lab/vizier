@@ -1,6 +1,9 @@
 use anyhow::Result;
 
-use crate::{schema::Memory, storage::VizierStorage};
+use crate::{
+    schema::{Memory, MemoryVisibility},
+    storage::VizierStorage,
+};
 
 #[async_trait::async_trait]
 pub trait MemoryStorage {
@@ -10,6 +13,8 @@ pub trait MemoryStorage {
         slug: Option<String>,
         title: String,
         content: String,
+        visibility: MemoryVisibility,
+        shared_to: Vec<String>,
     ) -> Result<()>;
 
     async fn query_memory(
@@ -33,8 +38,12 @@ impl MemoryStorage for VizierStorage {
         slug: Option<String>,
         title: String,
         content: String,
+        visibility: MemoryVisibility,
+        shared_to: Vec<String>,
     ) -> Result<()> {
-        self.0.write_memory(agent_id, slug, title, content).await
+        self.0
+            .write_memory(agent_id, slug, title, content, visibility, shared_to)
+            .await
     }
 
     async fn query_memory(

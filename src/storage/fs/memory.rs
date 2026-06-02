@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
 use crate::{
-    schema::Memory,
+    schema::{Memory, MemoryVisibility},
     storage::{
         fs::{FileSystemStorage, MEMORY_PATH},
         indexer::DocumentIndexer,
@@ -15,12 +15,18 @@ use crate::{
     utils::{self, build_glob_path, build_path},
 };
 
+const GLOBAL_AGENT_ID: &str = "_global";
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct MemoryFrontMatter {
     pub slug: String,
     pub title: String,
     pub timestamp: chrono::DateTime<Utc>,
     pub agent_id: String,
+    #[serde(default)]
+    pub visibility: MemoryVisibility,
+    #[serde(default)]
+    pub shared_to: Vec<String>,
 }
 
 impl From<Memory> for MemoryFrontMatter {
@@ -30,6 +36,8 @@ impl From<Memory> for MemoryFrontMatter {
             title: value.title,
             timestamp: value.timestamp,
             agent_id: value.agent_id,
+            visibility: value.visibility,
+            shared_to: value.shared_to,
         }
     }
 }
@@ -56,6 +64,14 @@ impl FileSystemStorage {
 
         Ok(())
     }
+
+    fn can_access_memory(agent_id: &str, frontmatter: &MemoryFrontMatter) -> bool {
+        match frontmatter.visibility {
+            MemoryVisibility::Private => frontmatter.agent_id == agent_id,
+            MemoryVisibility::Global => true,
+            MemoryVisibility::Shared => frontmatter.shared_to.contains(&agent_id.to_string()),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -66,6 +82,8 @@ impl MemoryStorage for FileSystemStorage {
         slug: Option<String>,
         title: String,
         content: String,
+        visibility: MemoryVisibility,
+        shared_to: Vec<String>,
     ) -> Result<()> {
         let slug = slug.unwrap_or_else(|| slugify!(&title));
         let slug = if slug.ends_with(".md") {
@@ -73,11 +91,15 @@ impl MemoryStorage for FileSystemStorage {
         } else {
             format!("{}.md", slug)
         };
+
+        let store_agent_id = match visibility {
+            MemoryVisibility::Global => GLOBAL_AGENT_ID.to_string(),
+            _ => agent_id.clone(),
+        };
+
         let path_str = format!(
             "{}/agents/{}/{}",
-            self.workspace,
-            agent_id.clone(),
-            MEMORY_PATH
+            self.workspace, store_agent_id, MEMORY_PATH
         );
         let mut path = PathBuf::from(path_str.clone());
 
@@ -92,7 +114,9 @@ impl MemoryStorage for FileSystemStorage {
                 slug,
                 title,
                 timestamp: Utc::now(),
-                agent_id,
+                agent_id: store_agent_id,
+                visibility,
+                shared_to,
             },
             content.clone(),
             path.clone(),
@@ -114,7 +138,7 @@ impl MemoryStorage for FileSystemStorage {
     ) -> Result<Vec<Memory>> {
         let documents = self
             .indices
-            .search_document_index("memory".into(), query, limit, threshold)
+            .search_document_index("memory".into(), query, limit * 3, threshold)
             .await?;
 
         let mut res = vec![];
@@ -124,9 +148,7 @@ impl MemoryStorage for FileSystemStorage {
                 PathBuf::from(index.path.clone()),
             )?;
 
-            // TODO: need better handling to check agent_id on index level
-            // especially on multi agent workflow
-            if frontmatter.agent_id != agent_id {
+            if !Self::can_access_memory(&agent_id, &frontmatter) {
                 continue;
             }
 
@@ -137,34 +159,49 @@ impl MemoryStorage for FileSystemStorage {
                 title: frontmatter.title,
                 timestamp: frontmatter.timestamp,
                 embedding: index.embedding.clone(),
+                visibility: frontmatter.visibility,
+                shared_to: frontmatter.shared_to,
             });
+
+            if res.len() >= limit {
+                break;
+            }
         }
 
         Ok(res)
     }
 
     async fn get_all_agent_memory(&self, agent_id: String) -> Result<Vec<Memory>> {
-        let path = build_glob_path(&self.workspace, &["agents", &agent_id, MEMORY_PATH, "*"]);
-
         let mut res = vec![];
-        for entry in glob::glob(&path)? {
-            let entry = entry?;
 
-            if !entry.is_file() {
-                continue;
+        for agent_dir in [&agent_id, GLOBAL_AGENT_ID] {
+            let path = build_glob_path(&self.workspace, &["agents", agent_dir, MEMORY_PATH, "*"]);
+
+            for entry in glob::glob(&path)? {
+                let entry = entry?;
+
+                if !entry.is_file() {
+                    continue;
+                }
+
+                let (frontmatter, content) =
+                    utils::markdown::read_markdown::<MemoryFrontMatter>(entry)?;
+
+                if !Self::can_access_memory(&agent_id, &frontmatter) {
+                    continue;
+                }
+
+                res.push(Memory {
+                    slug: frontmatter.slug,
+                    agent_id: frontmatter.agent_id,
+                    content,
+                    title: frontmatter.title,
+                    timestamp: frontmatter.timestamp,
+                    embedding: vec![],
+                    visibility: frontmatter.visibility,
+                    shared_to: frontmatter.shared_to,
+                });
             }
-
-            let (frontmatter, content) =
-                utils::markdown::read_markdown::<MemoryFrontMatter>(entry)?;
-
-            res.push(Memory {
-                slug: frontmatter.slug,
-                agent_id: frontmatter.agent_id,
-                content,
-                title: frontmatter.title,
-                timestamp: frontmatter.timestamp,
-                embedding: vec![],
-            });
         }
 
         Ok(res)
@@ -177,28 +214,35 @@ impl MemoryStorage for FileSystemStorage {
             format!("{}.md", slug)
         };
 
-        let path = format!(
-            "{}/agents/{}/{}/{}",
-            self.workspace,
-            agent_id.clone(),
-            MEMORY_PATH,
-            slug
-        );
+        for agent_dir in [&agent_id, GLOBAL_AGENT_ID] {
+            let path = format!(
+                "{}/agents/{}/{}/{}",
+                self.workspace, agent_dir, MEMORY_PATH, slug
+            );
 
-        let (frontmatter, content) = utils::markdown::read_markdown::<MemoryFrontMatter>(
-            PathBuf::from(PathBuf::from(path.clone())),
-        )?;
+            if !PathBuf::from(path.clone()).exists() {
+                continue;
+            }
 
-        let res = Memory {
-            slug: frontmatter.slug,
-            agent_id: frontmatter.agent_id,
-            content,
-            title: frontmatter.title,
-            timestamp: frontmatter.timestamp,
-            embedding: vec![],
-        };
+            let (frontmatter, content) = utils::markdown::read_markdown::<MemoryFrontMatter>(
+                PathBuf::from(path.clone()),
+            )?;
 
-        Ok(Some(res))
+            if Self::can_access_memory(&agent_id, &frontmatter) {
+                return Ok(Some(Memory {
+                    slug: frontmatter.slug,
+                    agent_id: frontmatter.agent_id,
+                    content,
+                    title: frontmatter.title,
+                    timestamp: frontmatter.timestamp,
+                    embedding: vec![],
+                    visibility: frontmatter.visibility,
+                    shared_to: frontmatter.shared_to,
+                }));
+            }
+        }
+
+        Ok(None)
     }
 
     async fn delete_memory(&self, agent_id: String, slug: String) -> Result<()> {

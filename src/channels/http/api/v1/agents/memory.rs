@@ -16,6 +16,7 @@ use crate::{
         },
         state::HTTPState,
     },
+    schema::MemoryVisibility,
     storage::{agent::AgentStorage, memory::MemoryStorage},
 };
 
@@ -36,12 +37,24 @@ pub struct CreateMemoryRequest {
     title: String,
     content: String,
     slug: Option<String>,
+    #[serde(default = "default_visibility")]
+    visibility: String,
+    #[serde(default)]
+    shared_to: Vec<String>,
+}
+
+fn default_visibility() -> String {
+    "private".to_string()
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateMemoryRequest {
     title: String,
     content: String,
+    #[serde(default = "default_visibility")]
+    visibility: String,
+    #[serde(default)]
+    shared_to: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -67,6 +80,8 @@ pub struct MemorySummary {
     pub slug: String,
     pub title: String,
     pub timestamp: DateTime<Utc>,
+    pub visibility: String,
+    pub shared_to: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
@@ -76,6 +91,8 @@ pub struct MemoryDetail {
     pub title: String,
     pub content: String,
     pub timestamp: DateTime<Utc>,
+    pub visibility: String,
+    pub shared_to: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
@@ -127,6 +144,8 @@ pub async fn get_all_memories(
                     slug: memory.slug.clone(),
                     title: memory.title.clone(),
                     timestamp: memory.timestamp,
+                    visibility: memory.visibility.to_string(),
+                    shared_to: memory.shared_to.clone(),
                 })
                 .collect();
 
@@ -165,9 +184,21 @@ pub async fn create_memory(
         return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
+    let visibility: MemoryVisibility = match body.visibility.parse() {
+        Ok(v) => v,
+        Err(e) => return err_response(StatusCode::BAD_REQUEST, e),
+    };
+
     match state
         .storage
-        .write_memory(agent_id.clone(), body.slug, body.title.clone(), body.content)
+        .write_memory(
+            agent_id.clone(),
+            body.slug,
+            body.title.clone(),
+            body.content,
+            visibility,
+            body.shared_to,
+        )
         .await
     {
         Ok(_) => api_response(
@@ -220,9 +251,21 @@ pub async fn update_memory(
         _ => {}
     }
 
+    let visibility: MemoryVisibility = match body.visibility.parse() {
+        Ok(v) => v,
+        Err(e) => return err_response(StatusCode::BAD_REQUEST, e),
+    };
+
     match state
         .storage
-        .write_memory(agent_id.clone(), Some(slug.clone()), body.title, body.content)
+        .write_memory(
+            agent_id.clone(),
+            Some(slug.clone()),
+            body.title,
+            body.content,
+            visibility,
+            body.shared_to,
+        )
         .await
     {
         Ok(_) => api_response(
@@ -280,6 +323,8 @@ pub async fn query_memories(
                     title: memory.title.clone(),
                     content: memory.content.clone(),
                     timestamp: memory.timestamp,
+                    visibility: memory.visibility.to_string(),
+                    shared_to: memory.shared_to.clone(),
                 })
                 .collect();
 
@@ -325,6 +370,8 @@ pub async fn get_memory_detail(
                 title: memory.title,
                 content: memory.content,
                 timestamp: memory.timestamp,
+                visibility: memory.visibility.to_string(),
+                shared_to: memory.shared_to,
             },
         ),
         _ => err_response(StatusCode::NOT_FOUND, "Not Found".into()),
