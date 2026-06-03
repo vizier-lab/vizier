@@ -414,18 +414,20 @@ impl MemoryStorage for FileSystemStorage {
             format!("{}.md", slug)
         };
 
-        let path = format!(
-            "{}/agents/{}/{}/{}",
-            self.workspace,
-            agent_id.clone(),
-            MEMORY_PATH,
-            slug
-        );
-
-        self.indices
-            .delete_index("memory".into(), path.clone())
-            .await?;
-        std::fs::remove_file(path)?;
+        for agent_dir in [&agent_id, GLOBAL_AGENT_ID] {
+            let path = format!(
+                "{}/agents/{}/{}/{}",
+                self.workspace,
+                agent_dir,
+                MEMORY_PATH,
+                slug
+            );
+            let pb = PathBuf::from(&path);
+            if pb.exists() {
+                let _ = self.indices.delete_index("memory".into(), path).await;
+                let _ = std::fs::remove_file(&pb);
+            }
+        }
 
         Ok(())
     }

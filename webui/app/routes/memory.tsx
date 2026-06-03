@@ -202,11 +202,13 @@ export default function MemoryManagement() {
         .map((s) => s.trim())
         .filter((s) => s.length > 0)
 
+      const sanitizedContent = formContent.replace(/\\\[\\\[(.+?)\]\]/g, '[[$1]]')
+
       if (modalMode === 'create') {
-        await createMemory(agentId, formTitle, formContent, finalSlug || undefined, formVisibility, sharedTo, tags)
+        await createMemory(agentId, formTitle, sanitizedContent, finalSlug || undefined, formVisibility, sharedTo, tags)
         addToast('success', 'Memory created successfully')
       } else if (modalMode === 'edit' && selectedMemory) {
-        await updateMemory(agentId, selectedMemory.slug, formTitle, formContent, formVisibility, sharedTo, tags)
+        await updateMemory(agentId, selectedMemory.slug, formTitle, sanitizedContent, formVisibility, sharedTo, tags)
         addToast('success', 'Memory updated successfully')
       }
       await loadMemories()

@@ -49,6 +49,17 @@ impl MemoryStorage for SurrealStorage {
             _ => agent_id.clone(),
         };
 
+        let new_key = format!("{}/{}", store_agent_id, slug);
+        for old_agent_dir in [&agent_id, GLOBAL_AGENT_ID] {
+            let old_key = format!("{}/{}", old_agent_dir, slug);
+            if old_key != new_key {
+                let _ = self
+                    .conn
+                    .delete::<Option<Memory>>(("memory", old_key))
+                    .await;
+            }
+        }
+
         let relations = parse_wikilinks(&content);
 
         let mut memory = Memory {
@@ -320,9 +331,14 @@ impl MemoryStorage for SurrealStorage {
     }
 
     async fn delete_memory(&self, agent_id: String, slug: String) -> Result<()> {
+        let detail = self.get_memory_detail(agent_id.clone(), slug.clone()).await?;
+        let actual_agent_id = match detail {
+            Some(m) => m.agent_id,
+            None => agent_id,
+        };
         let _ = self
             .conn
-            .delete::<Option<Memory>>(("memory", format!("{}/{}", agent_id, slug.clone())))
+            .delete::<Option<Memory>>(("memory", format!("{}/{}", actual_agent_id, slug)))
             .await?;
 
         Ok(())
