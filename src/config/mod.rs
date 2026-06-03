@@ -59,10 +59,16 @@ pub struct HTTPChannelConfig {
     pub jwt_secret: String,
     #[serde(default = "default_jwt_expiry")]
     pub jwt_expiry_hours: u64,
+    #[serde(default = "default_ws_idle_timeout_secs")]
+    pub ws_idle_timeout_secs: u64,
 }
 
 fn default_jwt_expiry() -> u64 {
     720 // 30 days
+}
+
+fn default_ws_idle_timeout_secs() -> u64 {
+    300 // 5 minutes
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -169,6 +175,7 @@ impl Default for VizierConfig {
                     port: 9999,
                     jwt_secret: "${VIZIER_JWT_SECRET}".into(),
                     jwt_expiry_hours: 720,
+                    ws_idle_timeout_secs: 300,
                 }),
                 telegram: None,
             },

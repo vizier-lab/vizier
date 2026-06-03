@@ -362,6 +362,12 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         .parse()
         .unwrap_or(4);
 
+    let ws_idle_timeout_secs: u64 = Text::new("WebSocket idle timeout (seconds):")
+        .with_default("300")
+        .prompt()?
+        .parse()
+        .unwrap_or(300);
+
     let mut config_path = workspace_path.clone();
     config_path.push(".vizier.yaml");
 
@@ -384,6 +390,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         | **Embedding** | `{} ({})` |\n\
         | **Storage** | `{}` |\n\
         | **Worker threads** | `{}` |\n\
+        | **WS idle timeout** | `{}s` |\n\
         ---\n",
         workspace_path.display(),
         config_path.display(),
@@ -393,6 +400,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         embedding_model,
         storage_type,
         worker_threads,
+        ws_idle_timeout_secs,
     ));
 
     let confirmed = Confirm::new("Save configuration?")
@@ -415,6 +423,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
                 port,
                 jwt_secret,
                 jwt_expiry_hours: 720,
+                ws_idle_timeout_secs,
             }),
             telegram: None,
         },

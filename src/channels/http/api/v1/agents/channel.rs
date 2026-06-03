@@ -10,6 +10,8 @@ use chrono::Utc;
 use futures::{SinkExt, StreamExt};
 use reqwest::StatusCode;
 use serde::Deserialize;
+use std::time::Duration;
+use tokio::sync::mpsc;
 
 use crate::{
     channels::http::{
@@ -247,8 +249,15 @@ pub async fn chat(
 
     let transport = state.transport.clone();
     let session = VizierSession(agent_id, VizierChannelId::HTTP(user.username, channel_id), Some(topic_id));
+    let ws_idle_timeout_secs = state
+        .config
+        .channels
+        .http
+        .as_ref()
+        .map(|c| c.ws_idle_timeout_secs)
+        .unwrap_or(300);
 
-    ws.on_upgrade(move |socket| handle_socket(socket, session, transport, state.config.workspace.clone()))
+    ws.on_upgrade(move |socket| handle_socket(socket, session, transport, state.config.workspace.clone(), ws_idle_timeout_secs))
 }
 
 pub async fn handle_socket(
@@ -256,65 +265,118 @@ pub async fn handle_socket(
     curr_session: VizierSession,
     transport: VizierTransport,
     workspace: String,
+    ws_idle_timeout_secs: u64,
 ) {
     let (mut writer, mut reader) = socket.split();
+    let idle_timeout = Duration::from_secs(ws_idle_timeout_secs);
 
+    let (write_tx, mut write_rx) = mpsc::channel::<Message>(64);
+
+    // Writer task: handles all outgoing messages
+    let write_handle = tokio::spawn(async move {
+        while let Some(msg) = write_rx.recv().await {
+            if writer.send(msg).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Response listener: forwards agent responses to writer
     let mut recv = transport.subscribe_response().await.unwrap();
     let req_session = curr_session.clone();
-    let handle = tokio::spawn(async move {
+    let resp_tx = write_tx.clone();
+    let resp_handle = tokio::spawn(async move {
         while let Ok((session, response)) = recv.recv().await {
             if session != req_session {
                 continue;
             }
-            let _ = writer
-                .send(axum::extract::ws::Message::Text(
+            if resp_tx
+                .send(Message::Text(
                     serde_json::to_string(&response).unwrap().into(),
                 ))
-                .await;
+                .await
+                .is_err()
+            {
+                break;
+            }
         }
     });
 
+    let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
+    let mut last_activity = tokio::time::Instant::now();
+    let mut idle_deadline = tokio::time::sleep(idle_timeout);
+    tokio::pin!(idle_deadline);
+
     loop {
-        if let Some(Ok(message)) = reader.next().await {
-            match message {
-                Message::Text(text) => {
-                    if let Ok(request) = serde_json::from_str::<VizierRequest>(&text.to_string()) {
-                        let mut request = request.clone();
-                        for attachment in request.attachments.iter_mut() {
-                            if let VizierAttachmentContent::Url(url) = &attachment.content {
-                                // Try local filesystem first for /api/v1/files/ paths
-                                if url.starts_with("/api/v1/files/") {
-                                    let file_id = url.trim_start_matches("/api/v1/files/");
-                                    let uploads_dir = std::path::PathBuf::from(&workspace).join("uploads").join(file_id);
-                                    if let Ok(mut entries) = tokio::fs::read_dir(&uploads_dir).await {
-                                        if let Ok(Some(entry)) = entries.next_entry().await {
-                                            if let Ok(bytes) = tokio::fs::read(entry.path()).await {
-                                                attachment.content = VizierAttachmentContent::Bytes(bytes);
-                                                continue;
+        tokio::select! {
+            _ = ping_interval.tick() => {
+                let _ = write_tx.send(Message::Ping(vec![].into())).await;
+            }
+            msg = reader.next() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        if let Ok(request) = serde_json::from_str::<VizierRequest>(&text.to_string()) {
+                            let mut request = request.clone();
+                            for attachment in request.attachments.iter_mut() {
+                                if let VizierAttachmentContent::Url(url) = &attachment.content {
+                                    if url.starts_with("/api/v1/files/") {
+                                        let file_id = url.trim_start_matches("/api/v1/files/");
+                                        let uploads_dir = std::path::PathBuf::from(&workspace).join("uploads").join(file_id);
+                                        if let Ok(mut entries) = tokio::fs::read_dir(&uploads_dir).await {
+                                            if let Ok(Some(entry)) = entries.next_entry().await {
+                                                if let Ok(bytes) = tokio::fs::read(entry.path()).await {
+                                                    attachment.content = VizierAttachmentContent::Bytes(bytes);
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if let Ok(response) = reqwest::get(url).await {
+                                        if response.status().is_success() {
+                                            if let Ok(bytes) = response.bytes().await {
+                                                attachment.content =
+                                                    VizierAttachmentContent::Bytes(bytes.to_vec());
                                             }
                                         }
                                     }
                                 }
-                                // Fallback to HTTP fetch
-                                if let Ok(response) = reqwest::get(url).await {
-                                    if response.status().is_success() {
-                                        if let Ok(bytes) = response.bytes().await {
-                                            attachment.content =
-                                                VizierAttachmentContent::Bytes(bytes.to_vec());
-                                        }
-                                    }
-                                }
                             }
-                        }
 
-                        let _ = transport.send_request(curr_session.clone(), request).await;
+                            let _ = transport.send_request(curr_session.clone(), request).await;
+                        }
                     }
+                    Some(Ok(Message::Close(_))) => break,
+                    Some(Ok(Message::Pong(_))) => {
+                        last_activity = tokio::time::Instant::now();
+                        idle_deadline.as_mut().reset(last_activity + idle_timeout);
+                    }
+                    Some(Ok(Message::Ping(data))) => {
+                        let _ = write_tx.send(Message::Pong(data)).await;
+                        last_activity = tokio::time::Instant::now();
+                        idle_deadline.as_mut().reset(last_activity + idle_timeout);
+                    }
+                    Some(Ok(Message::Binary(_))) => {
+                        last_activity = tokio::time::Instant::now();
+                        idle_deadline.as_mut().reset(last_activity + idle_timeout);
+                    }
+                    Some(Err(e)) => {
+                        tracing::warn!("websocket read error: {:?}", e);
+                        break;
+                    }
+                    None => break,
                 }
-                Message::Close(_) => break,
-                _ => {}
+                last_activity = tokio::time::Instant::now();
+                idle_deadline.as_mut().reset(last_activity + idle_timeout);
+            }
+            _ = &mut idle_deadline => {
+                tracing::warn!("websocket idle timeout for session {:?}", curr_session);
+                let _ = write_tx.send(Message::Close(None)).await;
+                break;
             }
         }
     }
 
-    handle.abort();
+    resp_handle.abort();
+    drop(write_tx);
+    let _ = write_handle.await;
 }
