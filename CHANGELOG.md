@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.3] - 2026-06-03
+
+### 🐛 Bug Fixes
+
+- Optimize blocking in websocket
+## [0.8.2] - 2026-06-02
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.8.2
 ## [0.8.1] - 2026-06-02
 
 ### 🚀 Features
