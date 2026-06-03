@@ -16,7 +16,7 @@ use crate::{
         },
         state::HTTPState,
     },
-    schema::MemoryVisibility,
+    schema::{MemoryGraph, MemoryQueryParams, MemoryVisibility},
     storage::{agent::AgentStorage, memory::MemoryStorage},
 };
 
@@ -27,9 +27,11 @@ pub fn memory() -> Router<HTTPState> {
         .route("/", get(get_all_memories))
         .route("/", post(create_memory))
         .route("/query", get(query_memories))
+        .route("/graph", get(get_memory_graph))
         .route("/{slug}", get(get_memory_detail))
         .route("/{slug}", put(update_memory))
         .route("/{slug}", delete(delete_memory))
+        .route("/{slug}/related", get(get_related_memories))
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -41,6 +43,8 @@ pub struct CreateMemoryRequest {
     visibility: String,
     #[serde(default)]
     shared_to: Vec<String>,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 fn default_visibility() -> String {
@@ -55,6 +59,8 @@ pub struct UpdateMemoryRequest {
     visibility: String,
     #[serde(default)]
     shared_to: Vec<String>,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -74,6 +80,30 @@ fn default_threshold() -> f64 {
     0.5
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ListMemoryParams {
+    #[serde(default)]
+    pub tags: Option<String>,
+    #[serde(default)]
+    pub visibility: Option<String>,
+    #[serde(default = "default_list_offset")]
+    pub offset: usize,
+    #[serde(default = "default_list_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub sort_by: Option<String>,
+    #[serde(default)]
+    pub sort_order: Option<String>,
+}
+
+fn default_list_offset() -> usize {
+    0
+}
+
+fn default_list_limit() -> usize {
+    50
+}
+
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct MemorySummary {
     pub agent_id: String,
@@ -82,6 +112,8 @@ pub struct MemorySummary {
     pub timestamp: DateTime<Utc>,
     pub visibility: String,
     pub shared_to: Vec<String>,
+    pub tags: Vec<String>,
+    pub relations: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
@@ -93,13 +125,18 @@ pub struct MemoryDetail {
     pub timestamp: DateTime<Utc>,
     pub visibility: String,
     pub shared_to: Vec<String>,
+    pub tags: Vec<String>,
+    pub relations: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct CreateMemoryResponse {
     pub agent_id: String,
     pub title: String,
+    pub slug: String,
     pub message: String,
+    pub tags: Vec<String>,
+    pub relations: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
@@ -107,6 +144,16 @@ pub struct UpdateMemoryResponse {
     pub agent_id: String,
     pub slug: String,
     pub message: String,
+    pub tags: Vec<String>,
+    pub relations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct PaginatedMemoryResponse {
+    pub memories: Vec<MemorySummary>,
+    pub total: usize,
+    pub offset: usize,
+    pub limit: usize,
 }
 
 #[utoipa::path(
@@ -124,7 +171,8 @@ pub async fn get_all_memories(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
-) -> models::response::Response<Vec<MemorySummary>> {
+    Query(params): Query<ListMemoryParams>,
+) -> models::response::Response<PaginatedMemoryResponse> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
         Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
@@ -135,9 +183,29 @@ pub async fn get_all_memories(
         return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
-    match state.storage.get_all_agent_memory(agent_id).await {
-        Ok(memory) => {
-            let response: Vec<MemorySummary> = memory
+    let tags = params.tags.map(|t| {
+        t.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+    });
+
+    let visibility = params.visibility.and_then(|v| v.parse().ok());
+
+    let query_params = MemoryQueryParams {
+        agent_id: agent_id.clone(),
+        tags,
+        visibility,
+        offset: params.offset,
+        limit: params.limit,
+        sort_by: params.sort_by,
+        sort_order: params.sort_order,
+    };
+
+    match state.storage.get_filtered_memories(query_params).await {
+        Ok(result) => {
+            let memories: Vec<MemorySummary> = result
+                .memories
                 .iter()
                 .map(|memory| MemorySummary {
                     agent_id: memory.agent_id.clone(),
@@ -146,12 +214,22 @@ pub async fn get_all_memories(
                     timestamp: memory.timestamp,
                     visibility: memory.visibility.to_string(),
                     shared_to: memory.shared_to.clone(),
+                    tags: memory.tags.clone(),
+                    relations: memory.relations.clone(),
                 })
                 .collect();
 
-            api_response(StatusCode::OK, response)
+            api_response(
+                StatusCode::OK,
+                PaginatedMemoryResponse {
+                    memories,
+                    total: result.total,
+                    offset: result.offset,
+                    limit: result.limit,
+                },
+            )
         }
-        _ => err_response(StatusCode::NOT_FOUND, "Not Found".into()),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
 
@@ -198,15 +276,19 @@ pub async fn create_memory(
             body.content,
             visibility,
             body.shared_to,
+            body.tags.clone(),
         )
         .await
     {
-        Ok(_) => api_response(
+        Ok(memory) => api_response(
             StatusCode::CREATED,
             CreateMemoryResponse {
                 agent_id,
                 title: body.title,
+                slug: memory.slug,
                 message: "memory created successfully".to_string(),
+                tags: memory.tags,
+                relations: memory.relations,
             },
         ),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
@@ -265,15 +347,18 @@ pub async fn update_memory(
             body.content,
             visibility,
             body.shared_to,
+            body.tags.clone(),
         )
         .await
     {
-        Ok(_) => api_response(
+        Ok(memory) => api_response(
             StatusCode::OK,
             UpdateMemoryResponse {
                 agent_id,
                 slug,
                 message: "memory updated successfully".to_string(),
+                tags: memory.tags,
+                relations: memory.relations,
             },
         ),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
@@ -325,11 +410,46 @@ pub async fn query_memories(
                     timestamp: memory.timestamp,
                     visibility: memory.visibility.to_string(),
                     shared_to: memory.shared_to.clone(),
+                    tags: memory.tags.clone(),
+                    relations: memory.relations.clone(),
                 })
                 .collect();
 
             api_response(StatusCode::OK, response)
         }
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/memory/graph",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID")
+    ),
+    responses(
+        (status = 200, description = "Memory graph", body = APIResponse<MemoryGraph>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>),
+        (status = 500, description = "Internal server error", body = APIResponse<String>)
+    )
+)]
+pub async fn get_memory_graph(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<MemoryGraph> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
+    match state.storage.get_memory_graph(agent_id).await {
+        Ok(graph) => api_response(StatusCode::OK, graph),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
@@ -372,9 +492,61 @@ pub async fn get_memory_detail(
                 timestamp: memory.timestamp,
                 visibility: memory.visibility.to_string(),
                 shared_to: memory.shared_to,
+                tags: memory.tags,
+                relations: memory.relations,
             },
         ),
         _ => err_response(StatusCode::NOT_FOUND, "Not Found".into()),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/memory/{slug}/related",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("slug" = String, Path, description = "Memory slug")
+    ),
+    responses(
+        (status = 200, description = "Related memories", body = APIResponse<Vec<MemoryDetail>>),
+        (status = 404, description = "Agent or memory not found", body = APIResponse<String>)
+    )
+)]
+pub async fn get_related_memories(
+    Path((agent_id, slug)): Path<(String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<Vec<MemoryDetail>> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
+    match state.storage.get_related_memories(agent_id, slug).await {
+        Ok(memories) => {
+            let response: Vec<MemoryDetail> = memories
+                .iter()
+                .map(|memory| MemoryDetail {
+                    agent_id: memory.agent_id.clone(),
+                    slug: memory.slug.clone(),
+                    title: memory.title.clone(),
+                    content: memory.content.clone(),
+                    timestamp: memory.timestamp,
+                    visibility: memory.visibility.to_string(),
+                    shared_to: memory.shared_to.clone(),
+                    tags: memory.tags.clone(),
+                    relations: memory.relations.clone(),
+                })
+                .collect();
+
+            api_response(StatusCode::OK, response)
+        }
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
 

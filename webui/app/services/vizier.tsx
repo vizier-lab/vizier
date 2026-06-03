@@ -288,8 +288,28 @@ export const deleteTopic = async (agentId: string, topicId: string) => {
 // MEMORY ENDPOINTS
 // ============================================================================
 
-export const listMemories = async (agentId: string) => {
-  const res = await apiClient.get(`/agents/${agentId}/memory`)
+export const listMemories = async (
+  agentId: string,
+  params?: {
+    tags?: string
+    visibility?: string
+    offset?: number
+    limit?: number
+    sort_by?: string
+    sort_order?: string
+  }
+) => {
+  const searchParams = new URLSearchParams()
+  if (params?.tags) searchParams.append('tags', params.tags)
+  if (params?.visibility) searchParams.append('visibility', params.visibility)
+  if (params?.offset !== undefined) searchParams.append('offset', params.offset.toString())
+  if (params?.limit !== undefined) searchParams.append('limit', params.limit.toString())
+  if (params?.sort_by) searchParams.append('sort_by', params.sort_by)
+  if (params?.sort_order) searchParams.append('sort_order', params.sort_order)
+
+  const queryString = searchParams.toString()
+  const url = `/agents/${agentId}/memory${queryString ? `?${queryString}` : ''}`
+  const res = await apiClient.get(url)
   return res.data
 }
 
@@ -304,7 +324,8 @@ export const createMemory = async (
   content: string,
   slug?: string,
   visibility?: string,
-  sharedTo?: string[]
+  sharedTo?: string[],
+  tags?: string[]
 ) => {
   const res = await apiClient.post(`/agents/${agentId}/memory`, {
     title,
@@ -312,6 +333,7 @@ export const createMemory = async (
     slug,
     visibility,
     shared_to: sharedTo,
+    tags,
   })
   return res.data
 }
@@ -322,13 +344,15 @@ export const updateMemory = async (
   title: string,
   content: string,
   visibility?: string,
-  sharedTo?: string[]
+  sharedTo?: string[],
+  tags?: string[]
 ) => {
   const res = await apiClient.put(`/agents/${agentId}/memory/${slug}`, {
     title,
     content,
     visibility,
     shared_to: sharedTo,
+    tags,
   })
   return res.data
 }
@@ -350,6 +374,16 @@ export const queryMemories = async (
   if (threshold) params.append('threshold', threshold.toString())
 
   const res = await apiClient.get(`/agents/${agentId}/memory/query?${params}`)
+  return res.data
+}
+
+export const getMemoryGraph = async (agentId: string) => {
+  const res = await apiClient.get(`/agents/${agentId}/memory/graph`)
+  return res.data
+}
+
+export const getRelatedMemories = async (agentId: string, slug: string) => {
+  const res = await apiClient.get(`/agents/${agentId}/memory/${slug}/related`)
   return res.data
 }
 

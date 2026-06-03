@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::{
-    schema::{Memory, MemoryVisibility},
+    schema::{Memory, MemoryGraph, MemoryQueryParams, MemoryVisibility, PaginatedMemory},
     storage::VizierStorage,
 };
 
@@ -15,7 +15,8 @@ pub trait MemoryStorage {
         content: String,
         visibility: MemoryVisibility,
         shared_to: Vec<String>,
-    ) -> Result<()>;
+        tags: Vec<String>,
+    ) -> Result<Memory>;
 
     async fn query_memory(
         &self,
@@ -26,7 +27,22 @@ pub trait MemoryStorage {
     ) -> Result<Vec<Memory>>;
 
     async fn get_all_agent_memory(&self, agent_id: String) -> Result<Vec<Memory>>;
+
+    async fn get_filtered_memories(
+        &self,
+        params: MemoryQueryParams,
+    ) -> Result<PaginatedMemory>;
+
     async fn get_memory_detail(&self, agent_id: String, slug: String) -> Result<Option<Memory>>;
+
+    async fn get_related_memories(
+        &self,
+        agent_id: String,
+        slug: String,
+    ) -> Result<Vec<Memory>>;
+
+    async fn get_memory_graph(&self, agent_id: String) -> Result<MemoryGraph>;
+
     async fn delete_memory(&self, agent_id: String, slug: String) -> Result<()>;
 }
 
@@ -40,9 +56,10 @@ impl MemoryStorage for VizierStorage {
         content: String,
         visibility: MemoryVisibility,
         shared_to: Vec<String>,
-    ) -> Result<()> {
+        tags: Vec<String>,
+    ) -> Result<Memory> {
         self.0
-            .write_memory(agent_id, slug, title, content, visibility, shared_to)
+            .write_memory(agent_id, slug, title, content, visibility, shared_to, tags)
             .await
     }
 
@@ -60,8 +77,27 @@ impl MemoryStorage for VizierStorage {
         self.0.get_all_agent_memory(agent_id).await
     }
 
+    async fn get_filtered_memories(
+        &self,
+        params: MemoryQueryParams,
+    ) -> Result<PaginatedMemory> {
+        self.0.get_filtered_memories(params).await
+    }
+
     async fn get_memory_detail(&self, agent_id: String, slug: String) -> Result<Option<Memory>> {
         self.0.get_memory_detail(agent_id, slug).await
+    }
+
+    async fn get_related_memories(
+        &self,
+        agent_id: String,
+        slug: String,
+    ) -> Result<Vec<Memory>> {
+        self.0.get_related_memories(agent_id, slug).await
+    }
+
+    async fn get_memory_graph(&self, agent_id: String) -> Result<MemoryGraph> {
+        self.0.get_memory_graph(agent_id).await
     }
 
     async fn delete_memory(&self, agent_id: String, slug: String) -> Result<()> {

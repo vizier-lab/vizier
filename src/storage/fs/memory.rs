@@ -2,11 +2,15 @@ use std::path::PathBuf;
 
 use anyhow::{Ok, Result};
 use chrono::Utc;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
 use crate::{
-    schema::{Memory, MemoryVisibility},
+    schema::{
+        Memory, MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams,
+        MemoryVisibility, PaginatedMemory,
+    },
     storage::{
         fs::{FileSystemStorage, MEMORY_PATH},
         indexer::DocumentIndexer,
@@ -16,6 +20,13 @@ use crate::{
 };
 
 const GLOBAL_AGENT_ID: &str = "_global";
+
+fn parse_wikilinks(content: &str) -> Vec<String> {
+    let re = Regex::new(r"\[\[([^\]]+)\]\]").unwrap();
+    re.captures_iter(content)
+        .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+        .collect()
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct MemoryFrontMatter {
@@ -27,6 +38,12 @@ struct MemoryFrontMatter {
     pub visibility: MemoryVisibility,
     #[serde(default)]
     pub shared_to: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    #[serde(default)]
+    pub relations: Vec<String>,
 }
 
 impl From<Memory> for MemoryFrontMatter {
@@ -38,6 +55,9 @@ impl From<Memory> for MemoryFrontMatter {
             agent_id: value.agent_id,
             visibility: value.visibility,
             shared_to: value.shared_to,
+            tags: value.tags,
+            keywords: value.keywords,
+            relations: value.relations,
         }
     }
 }
@@ -72,6 +92,40 @@ impl FileSystemStorage {
             MemoryVisibility::Shared => frontmatter.shared_to.contains(&agent_id.to_string()),
         }
     }
+
+    fn load_memory_from_path(
+        path: PathBuf,
+        agent_id: &str,
+    ) -> Result<Option<(MemoryFrontMatter, String)>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let (frontmatter, content) =
+            utils::markdown::read_markdown::<MemoryFrontMatter>(path)?;
+
+        if !Self::can_access_memory(agent_id, &frontmatter) {
+            return Ok(None);
+        }
+
+        Ok(Some((frontmatter, content)))
+    }
+
+    fn memory_from_frontmatter(frontmatter: MemoryFrontMatter, content: String) -> Memory {
+        Memory {
+            slug: frontmatter.slug,
+            agent_id: frontmatter.agent_id,
+            content,
+            title: frontmatter.title,
+            timestamp: frontmatter.timestamp,
+            embedding: vec![],
+            visibility: frontmatter.visibility,
+            shared_to: frontmatter.shared_to,
+            tags: frontmatter.tags,
+            keywords: frontmatter.keywords,
+            relations: frontmatter.relations,
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -84,13 +138,9 @@ impl MemoryStorage for FileSystemStorage {
         content: String,
         visibility: MemoryVisibility,
         shared_to: Vec<String>,
-    ) -> Result<()> {
+        tags: Vec<String>,
+    ) -> Result<Memory> {
         let slug = slug.unwrap_or_else(|| slugify!(&title));
-        let slug = if slug.ends_with(".md") {
-            slug
-        } else {
-            format!("{}.md", slug)
-        };
 
         let store_agent_id = match visibility {
             MemoryVisibility::Global => GLOBAL_AGENT_ID.to_string(),
@@ -107,26 +157,56 @@ impl MemoryStorage for FileSystemStorage {
             std::fs::create_dir_all(&path)?;
         }
 
-        path.push(format!("{}", slug));
+        path.push(format!("{}.md", slug));
 
-        utils::markdown::write_markdown(
-            &MemoryFrontMatter {
-                slug,
-                title,
-                timestamp: Utc::now(),
-                agent_id: store_agent_id,
-                visibility,
-                shared_to,
-            },
-            content.clone(),
-            path.clone(),
-        )?;
+        let slug_with_ext = format!("{}.md", slug);
+        for agent_dir in [&agent_id, GLOBAL_AGENT_ID] {
+            let old_path = format!(
+                "{}/agents/{}/{}/{}",
+                self.workspace, agent_dir, MEMORY_PATH, slug_with_ext
+            );
+            if old_path != path.to_string_lossy().to_string() {
+                let pb = PathBuf::from(&old_path);
+                if pb.exists() {
+                    let _ = self.indices.delete_index("memory".into(), old_path.clone()).await;
+                    let _ = std::fs::remove_file(&pb);
+                }
+            }
+        }
+
+        let relations = parse_wikilinks(&content);
+
+        let frontmatter = MemoryFrontMatter {
+            slug: slug.clone(),
+            title: title.clone(),
+            timestamp: Utc::now(),
+            agent_id: store_agent_id.clone(),
+            visibility: visibility.clone(),
+            shared_to: shared_to.clone(),
+            tags: tags.clone(),
+            keywords: vec![],
+            relations: relations.clone(),
+        };
+
+        utils::markdown::write_markdown(&frontmatter, content.clone(), path.clone())?;
 
         self.indices
-            .add_document_index("memory".into(), path_str.clone())
+            .add_document_index("memory".into(), path.to_string_lossy().to_string())
             .await?;
 
-        Ok(())
+        Ok(Memory {
+            slug,
+            agent_id: store_agent_id,
+            content,
+            title,
+            timestamp: frontmatter.timestamp,
+            embedding: vec![],
+            visibility,
+            shared_to,
+            tags,
+            keywords: vec![],
+            relations,
+        })
     }
 
     async fn query_memory(
@@ -143,25 +223,10 @@ impl MemoryStorage for FileSystemStorage {
 
         let mut res = vec![];
         for index in documents.iter() {
-            tracing::debug!("{:?}", index);
-            let (frontmatter, content) = utils::markdown::read_markdown::<MemoryFrontMatter>(
-                PathBuf::from(index.path.clone()),
-            )?;
-
-            if !Self::can_access_memory(&agent_id, &frontmatter) {
-                continue;
+            let path = PathBuf::from(index.path.clone());
+            if let Some((frontmatter, content)) = Self::load_memory_from_path(path, &agent_id)? {
+                res.push(Self::memory_from_frontmatter(frontmatter, content));
             }
-
-            res.push(Memory {
-                slug: frontmatter.slug,
-                agent_id: frontmatter.agent_id,
-                content,
-                title: frontmatter.title,
-                timestamp: frontmatter.timestamp,
-                embedding: index.embedding.clone(),
-                visibility: frontmatter.visibility,
-                shared_to: frontmatter.shared_to,
-            });
 
             if res.len() >= limit {
                 break;
@@ -184,27 +249,69 @@ impl MemoryStorage for FileSystemStorage {
                     continue;
                 }
 
-                let (frontmatter, content) =
-                    utils::markdown::read_markdown::<MemoryFrontMatter>(entry)?;
-
-                if !Self::can_access_memory(&agent_id, &frontmatter) {
-                    continue;
+                if let Some((frontmatter, content)) =
+                    Self::load_memory_from_path(entry, &agent_id)?
+                {
+                    res.push(Self::memory_from_frontmatter(frontmatter, content));
                 }
-
-                res.push(Memory {
-                    slug: frontmatter.slug,
-                    agent_id: frontmatter.agent_id,
-                    content,
-                    title: frontmatter.title,
-                    timestamp: frontmatter.timestamp,
-                    embedding: vec![],
-                    visibility: frontmatter.visibility,
-                    shared_to: frontmatter.shared_to,
-                });
             }
         }
 
         Ok(res)
+    }
+
+    async fn get_filtered_memories(
+        &self,
+        params: MemoryQueryParams,
+    ) -> Result<PaginatedMemory> {
+        let all_memories = self.get_all_agent_memory(params.agent_id.clone()).await?;
+
+        let mut filtered: Vec<Memory> = all_memories
+            .into_iter()
+            .filter(|m| {
+                if let Some(ref visibility) = params.visibility {
+                    if &m.visibility != visibility {
+                        return false;
+                    }
+                }
+
+                if let Some(ref tags) = params.tags {
+                    if !tags.is_empty() && !tags.iter().any(|t| m.tags.contains(t)) {
+                        return false;
+                    }
+                }
+
+                true
+            })
+            .collect();
+
+        let total = filtered.len();
+
+        filtered.sort_by(|a, b| {
+            let ord = match params.sort_by.as_deref() {
+                Some("title") => a.title.cmp(&b.title),
+                Some("slug") => a.slug.cmp(&b.slug),
+                _ => b.timestamp.cmp(&a.timestamp),
+            };
+            if params.sort_order.as_deref() == Some("asc") {
+                ord.reverse()
+            } else {
+                ord
+            }
+        });
+
+        filtered = filtered
+            .into_iter()
+            .skip(params.offset)
+            .take(params.limit)
+            .collect();
+
+        Ok(PaginatedMemory {
+            memories: filtered,
+            total,
+            offset: params.offset,
+            limit: params.limit,
+        })
     }
 
     async fn get_memory_detail(&self, agent_id: String, slug: String) -> Result<Option<Memory>> {
@@ -220,29 +327,84 @@ impl MemoryStorage for FileSystemStorage {
                 self.workspace, agent_dir, MEMORY_PATH, slug
             );
 
-            if !PathBuf::from(path.clone()).exists() {
-                continue;
-            }
-
-            let (frontmatter, content) = utils::markdown::read_markdown::<MemoryFrontMatter>(
-                PathBuf::from(path.clone()),
-            )?;
-
-            if Self::can_access_memory(&agent_id, &frontmatter) {
-                return Ok(Some(Memory {
-                    slug: frontmatter.slug,
-                    agent_id: frontmatter.agent_id,
-                    content,
-                    title: frontmatter.title,
-                    timestamp: frontmatter.timestamp,
-                    embedding: vec![],
-                    visibility: frontmatter.visibility,
-                    shared_to: frontmatter.shared_to,
-                }));
+            if let Some((frontmatter, content)) =
+                Self::load_memory_from_path(PathBuf::from(path), &agent_id)?
+            {
+                return Ok(Some(Self::memory_from_frontmatter(frontmatter, content)));
             }
         }
 
         Ok(None)
+    }
+
+    async fn get_related_memories(
+        &self,
+        agent_id: String,
+        slug: String,
+    ) -> Result<Vec<Memory>> {
+        let source = self.get_memory_detail(agent_id.clone(), slug.clone()).await?;
+        let source = match source {
+            Some(s) => s,
+            None => return Ok(vec![]),
+        };
+
+        let mut related = vec![];
+        for rel_slug in &source.relations {
+            if let Some(memory) = self
+                .get_memory_detail(agent_id.clone(), rel_slug.clone())
+                .await?
+            {
+                related.push(memory);
+            }
+        }
+
+        let all_memories = self.get_all_agent_memory(agent_id.clone()).await?;
+        for mem in all_memories {
+            if mem.relations.contains(&slug) && !related.iter().any(|m| m.slug == mem.slug) {
+                related.push(mem);
+            }
+        }
+
+        Ok(related)
+    }
+
+    async fn get_memory_graph(&self, agent_id: String) -> Result<MemoryGraph> {
+        let memories = self.get_all_agent_memory(agent_id.clone()).await?;
+
+        let mut nodes: Vec<MemoryGraphNode> = memories
+            .iter()
+            .map(|m| MemoryGraphNode {
+                slug: m.slug.trim_end_matches(".md").to_string(),
+                title: m.title.clone(),
+                tags: m.tags.clone(),
+                visibility: m.visibility.clone(),
+                agent_id: m.agent_id.clone(),
+            })
+            .collect();
+
+        let slugs: std::collections::HashSet<String> = memories
+            .iter()
+            .map(|m| m.slug.trim_end_matches(".md").to_string())
+            .collect();
+
+        let mut edges = Vec::new();
+        for memory in &memories {
+            let source_slug = memory.slug.trim_end_matches(".md").to_string();
+            for rel_slug in &memory.relations {
+                let target_slug = rel_slug.trim_end_matches(".md").to_string();
+                let broken = !slugs.contains(&target_slug);
+                edges.push(MemoryGraphEdge {
+                    source: source_slug.clone(),
+                    target: target_slug,
+                    broken,
+                });
+            }
+        }
+
+        nodes.sort_by(|a, b| a.slug.cmp(&b.slug));
+        edges.sort_by(|a, b| a.source.cmp(&b.source).then(a.target.cmp(&b.target)));
+
+        Ok(MemoryGraph { nodes, edges })
     }
 
     async fn delete_memory(&self, agent_id: String, slug: String) -> Result<()> {

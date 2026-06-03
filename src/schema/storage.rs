@@ -4,7 +4,7 @@ use surrealdb_types::SurrealValue;
 
 use crate::schema::AgentId;
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, SurrealValue)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, SurrealValue, utoipa::ToSchema)]
 pub enum MemoryVisibility {
     #[serde(rename = "private")]
     #[default]
@@ -50,6 +50,53 @@ pub struct Memory {
     pub visibility: MemoryVisibility,
     #[serde(default)]
     pub shared_to: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    #[serde(default)]
+    pub relations: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MemoryQueryParams {
+    pub agent_id: String,
+    pub tags: Option<Vec<String>>,
+    pub visibility: Option<MemoryVisibility>,
+    pub offset: usize,
+    pub limit: usize,
+    pub sort_by: Option<String>,
+    pub sort_order: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PaginatedMemory {
+    pub memories: Vec<Memory>,
+    pub total: usize,
+    pub offset: usize,
+    pub limit: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+pub struct MemoryGraphNode {
+    pub slug: String,
+    pub title: String,
+    pub tags: Vec<String>,
+    pub visibility: MemoryVisibility,
+    pub agent_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+pub struct MemoryGraphEdge {
+    pub source: String,
+    pub target: String,
+    pub broken: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
+pub struct MemoryGraph {
+    pub nodes: Vec<MemoryGraphNode>,
+    pub edges: Vec<MemoryGraphEdge>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]

@@ -22,7 +22,7 @@ pub use provider::{ProviderEntry, ProviderEntryConfig};
 pub use request::{VizierAttachment, VizierAttachmentContent, VizierRequest, VizierRequestContent};
 pub use response::{VizierResponse, VizierResponseContent, VizierResponseStats};
 pub use session::{AgentId, TopicId, VizierChannelId, VizierSession, VizierSessionDetail};
-pub use storage::{DocumentIndex, Memory, MemoryVisibility, SharedDocument, SharedDocumentSummary, Skill, SkillActivation};
+pub use storage::{DocumentIndex, Memory, MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams, MemoryVisibility, PaginatedMemory, SharedDocument, SharedDocumentSummary, Skill, SkillActivation};
 pub use task::{Task, TaskSchedule};
 
 use serde::{Deserialize, Serialize};

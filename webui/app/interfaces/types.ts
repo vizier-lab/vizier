@@ -321,6 +321,9 @@ export interface Memory {
   timestamp: string
   visibility: MemoryVisibility
   shared_to: string[]
+  tags: string[]
+  keywords: string[]
+  relations: string[]
 }
 
 export interface MemoryDetail extends Memory {
@@ -333,6 +336,7 @@ export interface CreateMemoryRequest {
   slug?: string
   visibility?: MemoryVisibility
   shared_to?: string[]
+  tags?: string[]
 }
 
 export interface UpdateMemoryRequest {
@@ -340,6 +344,33 @@ export interface UpdateMemoryRequest {
   content: string
   visibility?: MemoryVisibility
   shared_to?: string[]
+  tags?: string[]
+}
+
+export interface PaginatedMemoryResponse {
+  memories: Memory[]
+  total: number
+  offset: number
+  limit: number
+}
+
+export interface MemoryGraph {
+  nodes: MemoryGraphNode[]
+  edges: MemoryGraphEdge[]
+}
+
+export interface MemoryGraphNode {
+  slug: string
+  title: string
+  tags: string[]
+  visibility: MemoryVisibility
+  agent_id: string
+}
+
+export interface MemoryGraphEdge {
+  source: string
+  target: string
+  broken: boolean
 }
 
 // ============================================================================

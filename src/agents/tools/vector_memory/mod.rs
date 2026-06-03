@@ -15,12 +15,21 @@ use crate::storage::memory::MemoryStorage;
 pub fn init_vector_memory(
     agent_id: String,
     deps: VizierDependencies,
-) -> Result<(MemoryRead, MemoryWrite, MemoryList, MemoryDetail)> {
+) -> Result<(
+    MemoryRead,
+    MemoryWrite,
+    MemoryList,
+    MemoryDetail,
+    MemoryFollow,
+    MemoryGraphTool,
+)> {
     Ok((
         MemoryRead::new(agent_id.clone(), deps.storage.clone()),
         MemoryWrite::new(agent_id.clone(), deps.storage.clone()),
         MemoryList::new(agent_id.clone(), deps.storage.clone()),
         MemoryDetail::new(agent_id.clone(), deps.storage.clone()),
+        MemoryFollow::new(agent_id.clone(), deps.storage.clone()),
+        MemoryGraphTool::new(agent_id.clone(), deps.storage.clone()),
     ))
 }
 
@@ -58,6 +67,8 @@ pub struct MemorySummary {
     pub title: String,
     pub timestamp: chrono::DateTime<Utc>,
     pub visibility: String,
+    pub tags: Vec<String>,
+    pub relations: Vec<String>,
 }
 
 pub type MemoryList = ListVectorMemory;
@@ -79,7 +90,7 @@ impl VizierTool for MemoryList {
     }
 
     fn description(&self) -> String {
-        "List all available memories".into()
+        "List your memories with pagination. Returns slug, title, tags, and visibility for each memory. Use memory_detail to read full content.".into()
     }
 
     async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
@@ -101,6 +112,8 @@ impl VizierTool for MemoryList {
                 title: m.title,
                 timestamp: m.timestamp,
                 visibility: m.visibility.to_string(),
+                tags: m.tags,
+                relations: m.relations,
             })
             .collect())
     }
@@ -122,7 +135,7 @@ impl VizierTool for MemoryRead {
     }
 
     fn description(&self) -> String {
-        "Search your memory for informations".into()
+        "Semantic search across your memories. Returns content that matches the query. Memory content may contain [[slug]] links to related memories — use memory_detail to explore them.".into()
     }
 
     async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
@@ -150,8 +163,12 @@ pub struct MemoryWriteArgs {
     #[schemars(description = "title of the memory")]
     pub title: String,
 
-    #[schemars(description = "details of the memory")]
+    #[schemars(description = "memory content in markdown. Use [[slug]] to link to other memories, e.g. 'related to [[project-setup]] and [[api-reference]]'. Links are automatically tracked for the knowledge graph.")]
     pub content: String,
+
+    #[schemars(description = "tags for categorization, e.g. ['rust', 'architecture', 'project-x']")]
+    #[serde(default)]
+    pub tags: Vec<String>,
 
     #[schemars(description = "visibility: 'private' (default, only you), 'global' (all agents), or 'shared' (specific agents)")]
     #[serde(default = "default_visibility")]
@@ -176,7 +193,7 @@ impl VizierTool for MemoryWrite {
     }
 
     fn description(&self) -> String {
-        "write or update a new memory".into()
+        "Write or update a memory. Use [[slug]] syntax in content to link to other memories (e.g. 'see [[project-architecture]] for details'). Tags can be added for categorization.".into()
     }
 
     async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
@@ -193,7 +210,7 @@ impl VizierTool for MemoryWrite {
             Utc::now()
         );
 
-        let _ = self
+        let memory = self
             .1
             .write_memory(
                 self.0.clone(),
@@ -202,11 +219,23 @@ impl VizierTool for MemoryWrite {
                 content,
                 visibility.clone(),
                 args.shared_to.clone(),
+                args.tags.clone(),
             )
-            .await;
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
+
+        let relations_info = if memory.relations.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " Links: [{}]",
+                memory.relations.join(", ")
+            )
+        };
 
         Ok(format!(
-            "memory {slug} is written with {visibility} visibility"
+            "memory {} is written with {} visibility{}",
+            slug, visibility, relations_info
         ))
     }
 }
@@ -235,6 +264,8 @@ pub struct MemoryDetailOutput {
     pub agent_id: String,
     pub visibility: String,
     pub shared_to: Vec<String>,
+    pub tags: Vec<String>,
+    pub relations: Vec<String>,
 }
 
 #[async_trait::async_trait]
@@ -247,7 +278,7 @@ impl VizierTool for MemoryDetail {
     }
 
     fn description(&self) -> String {
-        "Get memory details by slug".into()
+        "Get full memory content by slug. Content may contain [[slug]] links to other memories — call this tool with those slugs to traverse the knowledge graph.".into()
     }
 
     async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
@@ -265,6 +296,185 @@ impl VizierTool for MemoryDetail {
             agent_id: m.agent_id,
             visibility: m.visibility.to_string(),
             shared_to: m.shared_to,
+            tags: m.tags,
+            relations: m.relations,
         }))
+    }
+}
+
+pub type MemoryFollow = FollowVectorMemory;
+pub struct FollowVectorMemory(AgentId, Arc<VizierStorage>);
+
+impl MemoryFollow {
+    fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
+        Self(agent_id, store)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemoryFollowArgs {
+    #[schemars(description = "slug of the memory to start from")]
+    pub slug: String,
+
+    #[schemars(description = "traversal depth (1 = immediate links only, 2 = links of links, etc.). Default is 1.")]
+    #[serde(default = "default_depth")]
+    pub depth: Option<usize>,
+}
+
+fn default_depth() -> Option<usize> {
+    Some(1)
+}
+
+#[async_trait::async_trait]
+impl VizierTool for MemoryFollow {
+    type Input = MemoryFollowArgs;
+    type Output = Vec<MemoryDetailOutput>;
+
+    fn name() -> String {
+        "memory_follow".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Follow [[slug]] links from a memory to traverse the knowledge graph. Returns related memories at the specified depth. Use this to explore connections between memories.".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+        let depth = args.depth.unwrap_or(1);
+
+        let mut visited = std::collections::HashSet::new();
+        let mut result = Vec::new();
+        let mut current_slugs = vec![args.slug.clone()];
+
+        for _ in 0..depth {
+            let mut next_slugs = Vec::new();
+
+            for slug in &current_slugs {
+                if visited.contains(slug) {
+                    continue;
+                }
+                visited.insert(slug.clone());
+
+                let related = self
+                    .1
+                    .get_related_memories(self.0.clone(), slug.clone())
+                    .await
+                    .map_err(|err| VizierError(err.to_string()))?;
+
+                for memory in related {
+                    if !visited.contains(&memory.slug) {
+                        result.push(MemoryDetailOutput {
+                            slug: memory.slug.clone(),
+                            title: memory.title,
+                            content: memory.content,
+                            timestamp: memory.timestamp,
+                            agent_id: memory.agent_id,
+                            visibility: memory.visibility.to_string(),
+                            shared_to: memory.shared_to,
+                            tags: memory.tags,
+                            relations: memory.relations,
+                        });
+                        next_slugs.push(memory.slug);
+                    }
+                }
+            }
+
+            current_slugs = next_slugs;
+        }
+
+        Ok(result)
+    }
+}
+
+pub type MemoryGraphTool = GetMemoryGraph;
+pub struct GetMemoryGraph(AgentId, Arc<VizierStorage>);
+
+impl MemoryGraphTool {
+    fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
+        Self(agent_id, store)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemoryGraphArgs {
+    #[schemars(description = "filter by tags (optional)")]
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemoryGraphOutput {
+    pub nodes: Vec<MemoryGraphNodeOutput>,
+    pub edges: Vec<MemoryGraphEdgeOutput>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemoryGraphNodeOutput {
+    pub slug: String,
+    pub title: String,
+    pub tags: Vec<String>,
+    pub visibility: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemoryGraphEdgeOutput {
+    pub source: String,
+    pub target: String,
+    pub broken: bool,
+}
+
+#[async_trait::async_trait]
+impl VizierTool for MemoryGraphTool {
+    type Input = MemoryGraphArgs;
+    type Output = MemoryGraphOutput;
+
+    fn name() -> String {
+        "memory_graph".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Get the knowledge graph structure of your memories. Returns nodes (memories) and edges (links between them). Use this to understand how your memories are connected.".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+        let graph = self
+            .1
+            .get_memory_graph(self.0.clone())
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
+
+        let mut nodes: Vec<MemoryGraphNodeOutput> = graph
+            .nodes
+            .into_iter()
+            .filter(|n| {
+                if let Some(ref tags) = args.tags {
+                    if !tags.is_empty() {
+                        return tags.iter().any(|t| n.tags.contains(t));
+                    }
+                }
+                true
+            })
+            .map(|n| MemoryGraphNodeOutput {
+                slug: n.slug,
+                title: n.title,
+                tags: n.tags,
+                visibility: n.visibility.to_string(),
+            })
+            .collect();
+
+        let node_slugs: std::collections::HashSet<String> =
+            nodes.iter().map(|n| n.slug.clone()).collect();
+
+        let edges: Vec<MemoryGraphEdgeOutput> = graph
+            .edges
+            .into_iter()
+            .filter(|e| node_slugs.contains(&e.source) || node_slugs.contains(&e.target))
+            .map(|e| MemoryGraphEdgeOutput {
+                source: e.source,
+                target: e.target,
+                broken: e.broken,
+            })
+            .collect();
+
+        Ok(MemoryGraphOutput { nodes, edges })
     }
 }

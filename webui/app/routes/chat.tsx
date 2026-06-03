@@ -95,6 +95,10 @@ const formatToolChoice = (
       return `📚 Listing memories`
     case 'memory_detail':
       return `🔎 Getting memory detail for '${args.slug as string}'`
+    case 'memory_follow':
+      return `🔗 Following links from '${args.slug as string}' (depth: ${args.depth || 1})`
+    case 'memory_graph':
+      return `📊 Loading knowledge graph`
     case 'web_search':
       return `🌐 Searching the web for '${args.query as string}'`
     case 'news_search':

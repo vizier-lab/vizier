@@ -1,15 +1,30 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { useParams } from 'react-router'
-import { listMemories, getMemory, createMemory, updateMemory, deleteMemory } from '../services/vizier'
+import {
+  listMemories,
+  getMemory,
+  createMemory,
+  updateMemory,
+  deleteMemory,
+  getMemoryGraph,
+  getRelatedMemories,
+} from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
-import { FaPlus, FaTrash, FaPenToSquare } from 'react-icons/fa6'
+import { FaPlus, FaTrash, FaPenToSquare, FaMagnifyingGlass, FaList, FaDiagramProject } from 'react-icons/fa6'
 import { Skeleton } from '../components/Skeleton'
 import { useToastStore } from '../hooks/toastStore'
-import type { Memory, MemoryDetail, MemoryVisibility } from '../interfaces/types'
+import type {
+  Memory,
+  MemoryDetail,
+  MemoryVisibility,
+  MemoryGraph as MemoryGraphType,
+  PaginatedMemoryResponse,
+} from '../interfaces/types'
 import MarkdownEditor from '../components/MarkdownEditor'
+import MemoryGraph from '../components/MemoryGraph'
 
 function getErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'response' in err) {
@@ -20,6 +35,7 @@ function getErrorMessage(err: unknown): string {
 }
 
 type ModalMode = 'create' | 'edit' | 'view' | null
+type ViewMode = 'list' | 'graph'
 
 function VisibilityBadge({ visibility }: { visibility: MemoryVisibility }) {
   const styles: Record<MemoryVisibility, { bg: string; text: string; label: string }> = {
@@ -51,26 +67,48 @@ export default function MemoryManagement() {
   const [selectedMemory, setSelectedMemory] = useState<MemoryDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [modalMode, setModalMode] = useState<ModalMode>(null)
+  const [viewMode, setViewMode] = useState<ViewMode>('list')
 
   const [formTitle, setFormTitle] = useState('')
   const [formContent, setFormContent] = useState('')
   const [formSlug, setFormSlug] = useState('')
   const [formVisibility, setFormVisibility] = useState<MemoryVisibility>('private')
   const [formSharedTo, setFormSharedTo] = useState('')
+  const [formTags, setFormTags] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterVisibility, setFilterVisibility] = useState<MemoryVisibility | 'all'>('all')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalMemories, setTotalMemories] = useState(0)
+  const pageSize = 20
+
+  const [graph, setGraph] = useState<MemoryGraphType | null>(null)
+  const [graphLoading, setGraphLoading] = useState(false)
 
   const { addToast } = useToastStore()
 
   useEffect(() => {
     loadMemories()
-  }, [agentId])
+  }, [agentId, filterVisibility, currentPage])
+
+  useEffect(() => {
+    if (viewMode === 'graph' && agentId) {
+      loadGraph()
+    }
+  }, [viewMode, agentId])
 
   const loadMemories = async () => {
     if (!agentId) return
     try {
       setLoading(true)
-      const response = await listMemories(agentId)
-      setMemories(response.data || [])
+      const response: { data: PaginatedMemoryResponse } = await listMemories(agentId, {
+        visibility: filterVisibility === 'all' ? undefined : filterVisibility,
+        offset: (currentPage - 1) * pageSize,
+        limit: pageSize,
+      })
+      setMemories(response.data?.memories || [])
+      setTotalMemories(response.data?.total || 0)
     } catch (error) {
       console.error('Failed to load memories:', error)
       addToast('error', 'Failed to load memories', 'Please try again')
@@ -78,6 +116,33 @@ export default function MemoryManagement() {
       setLoading(false)
     }
   }
+
+  const loadGraph = async () => {
+    if (!agentId) return
+    try {
+      setGraphLoading(true)
+      const response = await getMemoryGraph(agentId)
+      setGraph(response.data)
+    } catch (error) {
+      console.error('Failed to load graph:', error)
+      addToast('error', 'Failed to load graph', 'Please try again')
+    } finally {
+      setGraphLoading(false)
+    }
+  }
+
+  const filteredMemories = useMemo(() => {
+    if (!searchQuery.trim()) return memories
+    const q = searchQuery.toLowerCase()
+    return memories.filter(
+      (m) =>
+        m.title.toLowerCase().includes(q) ||
+        m.slug.toLowerCase().includes(q) ||
+        m.tags?.some((t) => t.toLowerCase().includes(q))
+    )
+  }, [memories, searchQuery])
+
+  const totalPages = Math.ceil(totalMemories / pageSize)
 
   const handleViewMemory = async (slug: string) => {
     if (!agentId) return
@@ -91,13 +156,25 @@ export default function MemoryManagement() {
     }
   }
 
-  const handleEditMemory = (memory: MemoryDetail) => {
-    setSelectedMemory(memory)
-    setFormTitle(memory.title)
-    setFormContent(memory.content)
-    setFormSlug(memory.slug)
-    setFormVisibility(memory.visibility)
-    setFormSharedTo(memory.shared_to?.join(', ') || '')
+  const handleEditMemory = async (memory: MemoryDetail) => {
+    let detail = memory
+    if (!memory.content && agentId) {
+      try {
+        const response = await getMemory(agentId, memory.slug)
+        detail = response.data
+      } catch (error) {
+        console.error('Failed to load memory:', error)
+        addToast('error', 'Failed to load memory', 'Please try again')
+        return
+      }
+    }
+    setSelectedMemory(detail)
+    setFormTitle(detail.title)
+    setFormContent(detail.content)
+    setFormSlug(detail.slug)
+    setFormVisibility(detail.visibility)
+    setFormSharedTo(detail.shared_to?.join(', ') || '')
+    setFormTags(detail.tags?.join(', ') || '')
     setModalMode('edit')
   }
 
@@ -107,6 +184,7 @@ export default function MemoryManagement() {
     setFormSlug('')
     setFormVisibility('private')
     setFormSharedTo('')
+    setFormTags('')
     setModalMode('create')
   }
 
@@ -119,12 +197,16 @@ export default function MemoryManagement() {
         .split(',')
         .map((s) => s.trim())
         .filter((s) => s.length > 0)
+      const tags = formTags
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
 
       if (modalMode === 'create') {
-        await createMemory(agentId, formTitle, formContent, finalSlug || undefined, formVisibility, sharedTo)
+        await createMemory(agentId, formTitle, formContent, finalSlug || undefined, formVisibility, sharedTo, tags)
         addToast('success', 'Memory created successfully')
       } else if (modalMode === 'edit' && selectedMemory) {
-        await updateMemory(agentId, selectedMemory.slug, formTitle, formContent, formVisibility, sharedTo)
+        await updateMemory(agentId, selectedMemory.slug, formTitle, formContent, formVisibility, sharedTo, tags)
         addToast('success', 'Memory updated successfully')
       }
       await loadMemories()
@@ -160,7 +242,12 @@ export default function MemoryManagement() {
     setFormSlug('')
     setFormVisibility('private')
     setFormSharedTo('')
+    setFormTags('')
   }
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value)
+  }, [])
 
   return (
     <>
@@ -168,6 +255,75 @@ export default function MemoryManagement() {
         <div style={{ flex: 1 }}>
           <h3 style={{ margin: 0 }}>Memory Management</h3>
         </div>
+
+        <div className="pill-tabs">
+          <button
+            className={`pill-tab ${viewMode === 'list' ? 'active' : ''}`}
+            onClick={() => setViewMode('list')}
+          >
+            <FaList size={14} />
+            List
+          </button>
+          <button
+            className={`pill-tab ${viewMode === 'graph' ? 'active' : ''}`}
+            onClick={() => setViewMode('graph')}
+          >
+            <FaDiagramProject size={14} />
+            Graph
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ position: 'relative' }}>
+            <FaMagnifyingGlass
+              size={14}
+              style={{
+                position: 'absolute',
+                left: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--text-tertiary)',
+              }}
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search memories..."
+              style={{
+                padding: '8px 12px 8px 32px',
+                borderRadius: '6px',
+                border: '1px solid var(--border)',
+                background: 'var(--background)',
+                color: 'var(--text)',
+                width: '200px',
+                fontSize: '13px',
+              }}
+            />
+          </div>
+
+          <select
+            value={filterVisibility}
+            onChange={(e) => {
+              setFilterVisibility(e.target.value as MemoryVisibility | 'all')
+              setCurrentPage(1)
+            }}
+            style={{
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: '1px solid var(--border)',
+              background: 'var(--background)',
+              color: 'var(--text)',
+              fontSize: '13px',
+            }}
+          >
+            <option value="all">All Visibility</option>
+            <option value="private">Private</option>
+            <option value="global">Global</option>
+            <option value="shared">Shared</option>
+          </select>
+        </div>
+
         <button className="btn btn-primary" onClick={handleCreateMemory}>
           <FaPlus size={16} />
           <span>New Memory</span>
@@ -175,110 +331,247 @@ export default function MemoryManagement() {
       </div>
 
       <div className="main-body">
-        {loading ? (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Slug</th>
-                <th>Visibility</th>
-                <th>Updated</th>
-                <th style={{ width: '80px' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[1, 2, 3, 4, 5].map((i) => (
-                <tr key={i} style={{ cursor: 'default' }}>
-                  <td><Skeleton variant="text" width="60%" /></td>
-                  <td><Skeleton variant="text" width="40%" /></td>
-                  <td><Skeleton variant="text" width="60px" /></td>
-                  <td><Skeleton variant="text" width="50%" /></td>
-                  <td><Skeleton variant="text" width="60px" /></td>
+        {viewMode === 'list' ? (
+          loading ? (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th>Slug</th>
+                  <th>Tags</th>
+                  <th>Visibility</th>
+                  <th>Updated</th>
+                  <th style={{ width: '80px' }}>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : memories.length === 0 ? (
-          <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '3rem' }}>
-            <p style={{ fontSize: '16px', marginBottom: '0.5rem' }}>No memories yet</p>
-            <p style={{ fontSize: '14px', marginBottom: '1.5rem' }}>Create your first memory to get started</p>
-            <button className="btn btn-primary" onClick={handleCreateMemory}>
-              <FaPlus size={16} />
-              Create Memory
-            </button>
-          </div>
+              </thead>
+              <tbody>
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <tr key={i} style={{ cursor: 'default' }}>
+                    <td><Skeleton variant="text" width="60%" /></td>
+                    <td><Skeleton variant="text" width="40%" /></td>
+                    <td><Skeleton variant="text" width="60px" /></td>
+                    <td><Skeleton variant="text" width="60px" /></td>
+                    <td><Skeleton variant="text" width="50%" /></td>
+                    <td><Skeleton variant="text" width="60px" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : filteredMemories.length === 0 ? (
+            <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '3rem' }}>
+              <p style={{ fontSize: '16px', marginBottom: '0.5rem' }}>
+                {searchQuery || filterVisibility !== 'all'
+                  ? 'No matching memories'
+                  : 'No memories yet'}
+              </p>
+              <p style={{ fontSize: '14px', marginBottom: '1.5rem' }}>
+                {searchQuery || filterVisibility !== 'all'
+                  ? 'Try adjusting your filters'
+                  : 'Create your first memory to get started'}
+              </p>
+              {!searchQuery && filterVisibility === 'all' && (
+                <button className="btn btn-primary" onClick={handleCreateMemory}>
+                  <FaPlus size={16} />
+                  Create Memory
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Slug</th>
+                    <th>Tags</th>
+                    <th>Visibility</th>
+                    <th>Updated</th>
+                    <th style={{ width: '80px' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredMemories.map((memory) => (
+                    <tr key={memory.slug} onClick={() => handleViewMemory(memory.slug)}>
+                      <td style={{ fontWeight: 500 }}>{memory.title}</td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
+                        {memory.slug}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                          {memory.tags?.slice(0, 2).map((tag) => (
+                            <span
+                              key={tag}
+                              style={{
+                                fontSize: '10px',
+                                padding: '2px 6px',
+                                borderRadius: '8px',
+                                background: 'var(--surface)',
+                                color: 'var(--text-secondary)',
+                              }}
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                          {memory.tags?.length > 2 && (
+                            <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
+                              +{memory.tags.length - 2}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td><VisibilityBadge visibility={memory.visibility} /></td>
+                      <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                        {new Date(memory.timestamp).toLocaleString()}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button
+                            className="btn btn-ghost"
+                            style={{ padding: '4px 6px' }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEditMemory({ ...memory, content: '' } as MemoryDetail)
+                            }}
+                          >
+                            <FaPenToSquare size={14} />
+                          </button>
+                          <button
+                            className="btn btn-ghost"
+                            style={{ padding: '4px 6px', color: '#ef4444' }}
+                            onClick={(e) => handleDeleteMemory(memory.slug, e)}
+                          >
+                            <FaTrash size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {totalPages > 1 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '16px',
+                    fontSize: '13px',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  <button
+                    className="btn btn-ghost"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((p) => p - 1)}
+                    style={{ padding: '6px 12px' }}
+                  >
+                    Prev
+                  </button>
+                  <span>
+                    Page {currentPage} of {totalPages} ({totalMemories} memories)
+                  </span>
+                  <button
+                    className="btn btn-ghost"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage((p) => p + 1)}
+                    style={{ padding: '6px 12px' }}
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </>
+          )
         ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Slug</th>
-                <th>Visibility</th>
-                <th>Updated</th>
-                <th style={{ width: '80px' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {memories.map((memory) => (
-                <tr key={memory.slug} onClick={() => handleViewMemory(memory.slug)}>
-                  <td style={{ fontWeight: 500 }}>{memory.title}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>{memory.slug}</td>
-                  <td><VisibilityBadge visibility={memory.visibility} /></td>
-                  <td style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{new Date(memory.timestamp).toLocaleString()}</td>
-                  <td>
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      <button
-                        className="btn btn-ghost"
-                        style={{ padding: '4px 6px' }}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleEditMemory({ ...memory, content: '' } as MemoryDetail)
-                        }}
-                      >
-                        <FaPenToSquare size={14} />
-                      </button>
-                      <button
-                        className="btn btn-ghost"
-                        style={{ padding: '4px 6px', color: '#ef4444' }}
-                        onClick={(e) => handleDeleteMemory(memory.slug, e)}
-                      >
-                        <FaTrash size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ height: '100%', minHeight: '500px' }}>
+            {graphLoading ? (
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                <Skeleton variant="text" width="200px" />
+              </div>
+            ) : graph ? (
+              <MemoryGraph
+                graph={graph}
+                searchQuery={searchQuery}
+                onNodeClick={handleViewMemory}
+              />
+            ) : (
+              <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '3rem' }}>
+                <p>Failed to load graph</p>
+                <button className="btn btn-secondary" onClick={loadGraph}>
+                  Retry
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
-      {/* Modal */}
       {modalMode && (
         <>
           <div
-            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.5)', zIndex: 1000, backdropFilter: 'blur(4px)' }}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 1000,
+              backdropFilter: 'blur(4px)',
+            }}
             onClick={closeModal}
           />
           <div
             style={{
-              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-              background: 'var(--background)', borderRadius: '12px',
-              maxWidth: '700px', width: '90%', maxHeight: '90vh',
-              display: 'flex', flexDirection: 'column',
-              zIndex: 1001, border: '1px solid var(--border)', boxShadow: 'var(--shadow-xl)',
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: 'var(--background)',
+              borderRadius: '12px',
+              maxWidth: '700px',
+              width: '90%',
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              zIndex: 1001,
+              border: '1px solid var(--border)',
+              boxShadow: 'var(--shadow-xl)',
             }}
           >
             {modalMode === 'view' && selectedMemory && (
               <div style={{ padding: '2rem', overflow: 'auto', flex: 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    marginBottom: '1.5rem',
+                  }}
+                >
                   <div>
                     <h2 style={{ marginBottom: '0.5rem' }}>{selectedMemory.title}</h2>
                     <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
                       {selectedMemory.slug} &bull; {new Date(selectedMemory.timestamp).toLocaleString()}
                     </p>
-                    <div style={{ marginTop: '0.5rem', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <div style={{ marginTop: '0.5rem', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                       <VisibilityBadge visibility={selectedMemory.visibility} />
+                      {selectedMemory.tags?.map((tag) => (
+                        <span
+                          key={tag}
+                          style={{
+                            fontSize: '11px',
+                            padding: '2px 8px',
+                            borderRadius: '8px',
+                            background: 'var(--surface)',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          {tag}
+                        </span>
+                      ))}
                       {selectedMemory.visibility === 'shared' && selectedMemory.shared_to?.length > 0 && (
                         <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
                           Shared with: {selectedMemory.shared_to.join(', ')}
@@ -286,17 +579,55 @@ export default function MemoryManagement() {
                       )}
                     </div>
                   </div>
-                  <button className="btn btn-ghost" onClick={closeModal} style={{ padding: '8px' }}>&#10005;</button>
+                  <button className="btn btn-ghost" onClick={closeModal} style={{ padding: '8px' }}>
+                    &#10005;
+                  </button>
                 </div>
-                <div className="prose" style={{ marginBottom: '1.5rem', background: 'var(--surface)', padding: '1.5rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>{selectedMemory.content}</ReactMarkdown>
+                <div
+                  className="prose"
+                  style={{
+                    marginBottom: '1.5rem',
+                    background: 'var(--surface)',
+                    padding: '1.5rem',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                    {selectedMemory.content}
+                  </ReactMarkdown>
                 </div>
+
+                {selectedMemory.relations && selectedMemory.relations.length > 0 && (
+                  <div style={{ marginBottom: '1.5rem' }}>
+                    <h4 style={{ marginBottom: '0.5rem', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      Linked Memories
+                    </h4>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {selectedMemory.relations.map((relSlug) => (
+                        <button
+                          key={relSlug}
+                          className="btn btn-ghost"
+                          style={{ padding: '4px 10px', fontSize: '12px', fontFamily: 'var(--font-mono)' }}
+                          onClick={() => handleViewMemory(relSlug)}
+                        >
+                          [[{relSlug}]]
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button className="btn btn-secondary" onClick={() => handleEditMemory(selectedMemory)}>
                     <FaPenToSquare size={16} />
                     Edit
                   </button>
-                  <button className="btn btn-ghost" onClick={() => handleDeleteMemory(selectedMemory.slug, {} as React.MouseEvent)} style={{ color: '#ef4444', marginLeft: 'auto' }}>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => handleDeleteMemory(selectedMemory.slug, {} as React.MouseEvent)}
+                    style={{ color: '#ef4444', marginLeft: 'auto' }}
+                  >
                     <FaTrash size={16} />
                     Delete
                   </button>
@@ -307,9 +638,18 @@ export default function MemoryManagement() {
             {(modalMode === 'create' || modalMode === 'edit') && (
               <>
                 <div style={{ padding: '2rem', paddingBottom: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '1rem',
+                    }}
+                  >
                     <h2 style={{ margin: 0 }}>{modalMode === 'create' ? 'Create Memory' : 'Edit Memory'}</h2>
-                    <button className="btn btn-ghost" onClick={closeModal} style={{ padding: '8px' }}>&#10005;</button>
+                    <button className="btn btn-ghost" onClick={closeModal} style={{ padding: '8px' }}>
+                      &#10005;
+                    </button>
                   </div>
                 </div>
                 <div style={{ padding: '0 2rem', overflow: 'auto', flex: 1 }}>
@@ -317,9 +657,22 @@ export default function MemoryManagement() {
                     {modalMode === 'create' && (
                       <div className="input-group" style={{ marginBottom: 0 }}>
                         <label htmlFor="slug">Slug (optional)</label>
-                        <input id="slug" type="text" value={formSlug} onChange={(e) => setFormSlug(autoCorrectSlug(e.target.value))} placeholder="auto-generated if empty" />
+                        <input
+                          id="slug"
+                          type="text"
+                          value={formSlug}
+                          onChange={(e) => setFormSlug(autoCorrectSlug(e.target.value))}
+                          placeholder="auto-generated if empty"
+                        />
                         {formSlug && (
-                          <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+                          <div
+                            style={{
+                              fontSize: '12px',
+                              color: 'var(--text-tertiary)',
+                              marginTop: '4px',
+                              fontFamily: 'var(--font-mono)',
+                            }}
+                          >
                             Slug: {formSlug}
                           </div>
                         )}
@@ -327,13 +680,46 @@ export default function MemoryManagement() {
                     )}
                     <div className="input-group" style={{ marginBottom: 0 }}>
                       <label htmlFor="title">Title</label>
-                      <input id="title" type="text" value={formTitle} onChange={(e) => setFormTitle(e.target.value)} required autoFocus placeholder="Enter memory title" />
+                      <input
+                        id="title"
+                        type="text"
+                        value={formTitle}
+                        onChange={(e) => setFormTitle(e.target.value)}
+                        required
+                        autoFocus
+                        placeholder="Enter memory title"
+                      />
                     </div>
                     <div className="input-group" style={{ marginBottom: 0 }}>
-                      <label htmlFor="content">Content</label>
-                      <div style={{ height: '200px' }}>
-                        <MarkdownEditor value={formContent} onChange={setFormContent} placeholder="Enter memory content..." className="modal-mdx-editor" />
+                      <label htmlFor="content">
+                        Content
+                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginLeft: '8px' }}>
+                          Use [[slug]] to link memories
+                        </span>
+                      </label>
+                      <div style={{ height: '200px', overflow: 'hidden' }}>
+                        <MarkdownEditor
+                          value={formContent}
+                          onChange={setFormContent}
+                          placeholder="Enter memory content... Use [[slug]] to link to other memories"
+                          className="modal-mdx-editor"
+                        />
                       </div>
+                    </div>
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                      <label htmlFor="tags">
+                        Tags
+                        <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginLeft: '8px' }}>
+                          Comma-separated
+                        </span>
+                      </label>
+                      <input
+                        id="tags"
+                        type="text"
+                        value={formTags}
+                        onChange={(e) => setFormTags(e.target.value)}
+                        placeholder="e.g. rust, architecture, project-x"
+                      />
                     </div>
                     <div className="input-group" style={{ marginBottom: 0 }}>
                       <label htmlFor="visibility">Visibility</label>
@@ -371,8 +757,20 @@ export default function MemoryManagement() {
                     )}
                   </div>
                 </div>
-                <div style={{ padding: '1rem 2rem', borderTop: '1px solid var(--border)', display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-primary" onClick={handleSubmit} disabled={!formTitle.trim() || !formContent.trim() || submitting} style={{ flex: 1, justifyContent: 'center' }}>
+                <div
+                  style={{
+                    padding: '1rem 2rem',
+                    borderTop: '1px solid var(--border)',
+                    display: 'flex',
+                    gap: '8px',
+                  }}
+                >
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleSubmit}
+                    disabled={!formTitle.trim() || !formContent.trim() || submitting}
+                    style={{ flex: 1, justifyContent: 'center' }}
+                  >
                     {submitting ? 'Saving...' : 'Save'}
                   </button>
                   <button className="btn btn-secondary" onClick={closeModal} disabled={submitting}>

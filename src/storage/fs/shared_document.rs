@@ -60,11 +60,6 @@ impl SharedDocumentStorage for FileSystemStorage {
         content: String,
     ) -> Result<()> {
         let slug = slug.unwrap_or_else(|| slugify!(&title));
-        let slug = if slug.ends_with(".md") {
-            slug
-        } else {
-            format!("{}.md", slug)
-        };
         let path_str = format!("{}/{}", self.workspace, SHARED_DOCUMENT_PATH);
         let mut path = PathBuf::from(path_str.clone());
 
@@ -72,7 +67,7 @@ impl SharedDocumentStorage for FileSystemStorage {
             std::fs::create_dir_all(&path)?;
         }
 
-        path.push(format!("{}", slug));
+        path.push(format!("{}.md", slug));
 
         utils::markdown::write_markdown(
             &SharedDocumentFrontMatter {
