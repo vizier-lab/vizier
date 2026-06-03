@@ -35,9 +35,10 @@ impl SurrealStorage {
         db.query("DEFINE TABLE task SCHEMALESS;").await?;
         db.query("DEFINE TABLE session_history SCHEMALESS;").await?;
         db.query("DEFINE TABLE document_index SCHEMALESS;").await?;
-        db.query("DEFINE TABLE skill SCHEMALESS;").await?;
         db.query("DEFINE TABLE session_detail SCHEMALESS;").await?;
+        db.query("DEFINE TABLE state SCHEMALESS;").await?;
         db.query("DEFINE TABLE user SCHEMALESS;").await?;
+        db.query("DEFINE TABLE user_profile SCHEMALESS;").await?;
         db.query("DEFINE TABLE role SCHEMALESS;").await?;
         db.query("DEFINE TABLE api_key SCHEMALESS;").await?;
         db.query("DEFINE TABLE shared_document SCHEMALESS;").await?;
