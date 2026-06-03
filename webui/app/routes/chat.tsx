@@ -137,14 +137,6 @@ const formatToolChoice = (
       return `💗 Updating heartbeat`
     case 'READ_HEARTBEAT_MD_FILE':
       return `💗 Reading heartbeat`
-    case 'shared_document_read':
-      return `📄 Searching shared docs for '${args.query as string}'`
-    case 'shared_document_write':
-      return `📄 Writing shared doc: '${args.title as string}'`
-    case 'shared_document_get':
-      return `📄 Getting shared doc: '${args.slug as string}'`
-    case 'shared_document_list':
-      return `📁 Listing shared docs`
     case 'discord_send_message':
       return `💬 Sending Discord message`
     case 'discord_react_message':

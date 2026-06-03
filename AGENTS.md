@@ -125,7 +125,7 @@ in `src/channels/<name>/`, register spawn in `VizierChannels::run()`.
 **Adding a storage backend**: Implement all traits composed by
 `VizierStorageProvider` (MemoryStorage, TaskStorage, HistoryStorage,
 SkillStorage, SessionStorage, StateStorage, DocumentIndexer, UserStorage,
-SharedDocumentStorage), then implement `VizierStorageProvider` for it.
+), then implement `VizierStorageProvider` for it.
 
 **Hot-reload pattern**: Global resources (MCP clients, shell) use
 `Arc<ArcSwap<T>>`. When config is updated via API, a `GlobalCommand`

@@ -62,9 +62,8 @@ Use the **system datetime (UTC)** for all tool interactions and scheduling. The 
 
 1. **AGENT.md & IDENTITY.md** — Your core operating rules and identity
 2. **Skills** — Specialized instructions loaded via SKILL__ tools; follow them when relevant to the task
-3. **Shared Documents** — Collaborative documents across agents in this session
-4. **Memory** — Long-term facts and context from past interactions
-5. **User Request** — The immediate task; always prioritize the user's explicit request
+3. **Memory** — Long-term facts and context from past interactions
+4. **User Request** — The immediate task; always prioritize the user's explicit request
 
 ## Memory Management
 

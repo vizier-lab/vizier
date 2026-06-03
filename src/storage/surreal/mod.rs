@@ -14,7 +14,6 @@ pub mod memory;
 pub mod provider;
 pub mod query;
 pub mod session;
-pub mod shared_document;
 pub mod state;
 pub mod task;
 pub mod user;
@@ -41,7 +40,6 @@ impl SurrealStorage {
         db.query("DEFINE TABLE user_profile SCHEMALESS;").await?;
         db.query("DEFINE TABLE role SCHEMALESS;").await?;
         db.query("DEFINE TABLE api_key SCHEMALESS;").await?;
-        db.query("DEFINE TABLE shared_document SCHEMALESS;").await?;
         db.query("DEFINE TABLE agent_config SCHEMALESS;").await?;
         db.query("DEFINE TABLE provider_config SCHEMALESS;").await?;
         db.query("DEFINE TABLE global_config SCHEMALESS;").await?;

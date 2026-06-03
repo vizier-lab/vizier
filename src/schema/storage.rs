@@ -146,21 +146,3 @@ fn default_activation() -> SkillActivation {
 fn default_version() -> u32 {
     1
 }
-
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
-pub struct SharedDocument {
-    pub slug: String,
-    pub title: String,
-    pub content: String,
-    pub author_agent_id: AgentId,
-    pub timestamp: DateTime<Utc>,
-    pub embedding: Vec<f64>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
-pub struct SharedDocumentSummary {
-    pub slug: String,
-    pub title: String,
-    pub author_agent_id: AgentId,
-    pub timestamp: DateTime<Utc>,
-}

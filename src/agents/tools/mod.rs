@@ -15,7 +15,6 @@ use crate::{
         http_client::HttpClient,
         ptc::ProgramaticSandbox,
         scheduler::{DeleteTask, GetTaskDetail, ListTask, ScheduleCronTask, ScheduleOneTimeTask},
-        shared_document::init_shared_document_tools,
         shell::ShellExec,
         skill::{CreateSkill, DeleteSkill, ExecuteSkillResource, ListSkills, ReadSkillResource, UpdateSkill},
         subtasks::SubtasksTool,
@@ -42,7 +41,6 @@ mod fetch;
 mod http_client;
 mod ptc;
 mod scheduler;
-mod shared_document;
 mod shell;
 mod skill;
 mod subtasks;
@@ -383,14 +381,6 @@ impl VizierTools {
                     .tool(graph_memory);
             }
         }
-
-        let (shared_doc_read, shared_doc_write, shared_doc_get, shared_doc_list) =
-            init_shared_document_tools(agent_id.clone(), deps.clone())?;
-        user_toolset = user_toolset
-            .tool(shared_doc_read)
-            .tool(shared_doc_write)
-            .tool(shared_doc_get)
-            .tool(shared_doc_list);
 
         let mut mcp = HashMap::new();
         let mcp_clients = deps.mcp_clients.load();

@@ -16,7 +16,6 @@ mod history;
 mod memory;
 mod provider;
 mod session;
-mod shared_document;
 mod state;
 mod task;
 mod user;
@@ -42,7 +41,6 @@ impl FileSystemStorage {
 
         if reindex {
             storage.reindex_memory().await?;
-            storage.reindex_shared_documents().await?;
         }
 
         Ok(storage)

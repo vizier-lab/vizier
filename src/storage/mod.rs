@@ -8,8 +8,7 @@ use crate::{
     storage::{
         agent::AgentStorage, global_config::GlobalConfigStorage, history::HistoryStorage,
         indexer::DocumentIndexer, memory::MemoryStorage, provider::ProviderStorage,
-        session::SessionStorage, shared_document::SharedDocumentStorage,
-        state::StateStorage, task::TaskStorage, user::UserStorage,
+        session::SessionStorage, state::StateStorage, task::TaskStorage, user::UserStorage,
     },
 };
 
@@ -20,7 +19,6 @@ pub mod indexer;
 pub mod memory;
 pub mod provider;
 pub mod session;
-pub mod shared_document;
 pub mod state;
 pub mod task;
 pub mod user;
@@ -37,7 +35,6 @@ where
         + StateStorage
         + DocumentIndexer
         + UserStorage
-        + SharedDocumentStorage
         + AgentStorage
         + ProviderStorage
         + GlobalConfigStorage,
