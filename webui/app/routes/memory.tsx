@@ -591,7 +591,7 @@ export default function MemoryManagement() {
               </button>
               <button
                 className="btn btn-ghost"
-                onClick={() => handleDeleteMemory(selectedMemory.slug, {} as React.MouseEvent)}
+                onClick={(e) => handleDeleteMemory(selectedMemory.slug, e)}
                 style={{ color: '#ef4444', marginLeft: 'auto' }}
               >
                 <FaTrash size={16} />

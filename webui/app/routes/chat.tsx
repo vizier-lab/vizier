@@ -196,6 +196,7 @@ export default function Chat() {
     null
   )
   const sessionSelectorRef = useRef<HTMLDivElement>(null)
+  const currentTopicRef = useRef<string | null>(null)
   const { user } = useUserStore()
 
   const placeholder = useMemo(
@@ -215,6 +216,11 @@ export default function Chat() {
   const [inputRef, { height: inputHeight }] = useMeasure()
 
   const resolvedTopicId = topicId ?? 'General'
+
+  // Initialize currentTopicRef
+  useEffect(() => {
+    currentTopicRef.current = resolvedTopicId
+  }, [])
 
   // Pulse send button when input transitions from empty to non-empty
   useEffect(() => {
@@ -238,12 +244,15 @@ export default function Chat() {
   const [topicDetail, setTopicDetail] = useState<any | null>(null)
   const [agentNames, setAgentNames] = useState<Record<string, string>>({})
 
-  // Redirect to General if no topicId
+  // Redirect to last topic (or General) if no topicId
   useEffect(() => {
     if (agentId && !topicId) {
-      navigate(`/${agentId}/chat/General`, { replace: true })
+      const lastTopic = user?.user_id
+        ? localStorage.getItem(`vizier_last_topic_${user.user_id}_${agentId}`)
+        : null
+      navigate(`/${agentId}/chat/${lastTopic || 'General'}`, { replace: true })
     }
-  }, [agentId, topicId, navigate])
+  }, [agentId, topicId, navigate, user?.user_id])
 
   // Persist current topic per agent
   useEffect(() => {
@@ -263,10 +272,12 @@ export default function Chat() {
     })
   }, [agentId, resolvedTopicId])
 
-  // Clear inline events and attachments when topic changes
+  // Clear inline events, attachments, and queued messages when topic changes
   useEffect(() => {
+    currentTopicRef.current = resolvedTopicId
     setInlineEvents([])
     setAttachments([])
+    setQueuedMessages([])
     setImagePreviews((prev) => {
       Object.values(prev).forEach((url) => URL.revokeObjectURL(url))
       return {}
@@ -278,7 +289,7 @@ export default function Chat() {
       clearTimeout(thinkingTimeoutRef.current)
       thinkingTimeoutRef.current = null
     }
-  }, [topicId])
+  }, [topicId, resolvedTopicId])
 
   // Load chat history
   useEffect(() => {
@@ -410,7 +421,7 @@ export default function Chat() {
             vizier_session: {
               agent_id: agentId!,
               channel: 'vizier-webui',
-              topic: resolvedTopicId,
+              topic: currentTopicRef.current!,
             },
             content: {
               Response: {
@@ -431,7 +442,7 @@ export default function Chat() {
         return
       }
     }
-  }, [lastMessage, agentId, resolvedTopicId])
+  }, [lastMessage, agentId])
 
   // Scroll detection
   const handleScroll = useCallback(() => {

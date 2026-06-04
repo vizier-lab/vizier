@@ -32,17 +32,20 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       return
     }
 
-    // Close existing connection
+    // Tear down existing connection
     if (ws) {
       if (reconnectTimeout) {
         clearTimeout(reconnectTimeout)
         reconnectTimeout = null
       }
+      ws.onmessage = null
+      ws.onclose = null
+      ws.onerror = null
       ws.close()
       ws = null
     }
 
-    set({ agentId, topicId, connected: false })
+    set({ agentId, topicId, connected: false, lastMessage: null, messageCount: 0 })
 
     const url = getChatWebSocketUrl(agentId, topicId)
     const token = localStorage.getItem('auth_token')
