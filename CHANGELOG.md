@@ -2,12 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0-rc.1] - 2026-06-04
+
+### 🚀 Features
+
+- Implement graph memory view
+- Add message when running server in background
+- Rewrite and improve agent transport layer
+
+### 🐛 Bug Fixes
+
+- Broken links
+
+### 💼 Other
+
+- Remove shared_document features in favor of global memory
 ## [0.8.3] - 2026-06-03
 
 ### 🐛 Bug Fixes
 
 - Optimize blocking in websocket
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.8.3
 ## [0.8.2] - 2026-06-02
+
+### 🚀 Features
+
+- Add missing migrations
 
 ### ⚙️ Miscellaneous Tasks
 
