@@ -73,7 +73,10 @@ impl VizierAgent {
 
         // Fetch owner profile if owner_id is set
         let owner_profile = if let Some(ref owner_id) = agent_config.owner_id {
-            deps.storage.get_user_profile(owner_id).await.unwrap_or(None)
+            deps.storage
+                .get_user_profile(owner_id)
+                .await
+                .unwrap_or(None)
         } else {
             None
         };
@@ -339,13 +342,10 @@ impl VizierAgent {
                         }
                     } else {
                         let tool_server = self.tools.clone();
-                        match timeout(
-                            *self.config.tools.timeout,
-                            tokio::spawn(async move {
-                                tool_server.call(function_name.clone(), args).await
-                            }),
-                        )
-                        .await??
+                        match timeout(*self.config.tools.timeout, async {
+                            tool_server.call(function_name.clone(), args).await
+                        })
+                        .await?
                         {
                             Err(err) => VizierResponse {
                                 timestamp: Utc::now(),

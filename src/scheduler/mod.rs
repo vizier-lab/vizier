@@ -137,6 +137,7 @@ impl VizierScheduler {
 
                             ..Default::default()
                         },
+                        None,
                     )
                     .await
                 {

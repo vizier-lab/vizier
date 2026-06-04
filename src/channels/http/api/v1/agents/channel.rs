@@ -281,27 +281,6 @@ pub async fn handle_socket(
         }
     });
 
-    // Response listener: forwards agent responses to writer
-    let mut recv = transport.subscribe_response().await.unwrap();
-    let req_session = curr_session.clone();
-    let resp_tx = write_tx.clone();
-    let resp_handle = tokio::spawn(async move {
-        while let Ok((session, response)) = recv.recv().await {
-            if session != req_session {
-                continue;
-            }
-            if resp_tx
-                .send(Message::Text(
-                    serde_json::to_string(&response).unwrap().into(),
-                ))
-                .await
-                .is_err()
-            {
-                break;
-            }
-        }
-    });
-
     let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
     let mut last_activity = tokio::time::Instant::now();
     let mut idle_deadline = tokio::time::sleep(idle_timeout);
@@ -342,7 +321,23 @@ pub async fn handle_socket(
                                 }
                             }
 
-                            let _ = transport.send_request(curr_session.clone(), request).await;
+                            let (response_tx, response_rx) = flume::unbounded();
+                            let session = curr_session.clone();
+                            if let Err(err) = transport.send_request(session.clone(), request, Some(response_tx)).await {
+                                tracing::error!("failed to send request: {}", err);
+                                continue;
+                            }
+
+                            let resp_tx = write_tx.clone();
+                            tokio::spawn(async move {
+                                while let Ok(response) = response_rx.recv_async().await {
+                                    if let Ok(json) = serde_json::to_string(&response) {
+                                        if resp_tx.send(Message::Text(json.into())).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                }
+                            });
                         }
                     }
                     Some(Ok(Message::Close(_))) => break,
@@ -376,7 +371,6 @@ pub async fn handle_socket(
         }
     }
 
-    resp_handle.abort();
     drop(write_tx);
     let _ = write_handle.await;
 }

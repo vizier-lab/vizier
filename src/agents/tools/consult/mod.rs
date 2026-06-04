@@ -54,11 +54,7 @@ impl VizierTool for ConsultAgent {
     }
 
     async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
-        let mut recv = self
-            .transport
-            .subscribe_response()
-            .await
-            .map_err(|err| VizierError(err.to_string()))?;
+        let (response_tx, response_rx) = flume::unbounded();
 
         let curr_session = VizierSession(
             args.agent_id.clone(),
@@ -78,19 +74,16 @@ impl VizierTool for ConsultAgent {
 
                     ..Default::default()
                 },
+                Some(response_tx),
             )
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
         loop {
-            let (session, response) = recv
-                .recv()
+            let response = response_rx
+                .recv_async()
                 .await
                 .map_err(|err| VizierError(err.to_string()))?;
-
-            if session != curr_session {
-                continue;
-            }
 
             if let VizierResponse {
                 content: VizierResponseContent::Message { content, stats: _ },
@@ -177,6 +170,7 @@ impl VizierTool for DelegateAgent {
                     metadata: json!({}),
                     ..Default::default()
                 },
+                None,
             )
             .await
             .map_err(|err| VizierError(err.to_string()))?;

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -263,6 +261,7 @@ impl TelegramChannelReader {
                         metadata: serde_json::json!({}),
                         attachments: vec![],
                     },
+                    None,
                 )
                 .await;
             return Ok(());
@@ -270,8 +269,14 @@ impl TelegramChannelReader {
 
         let should_respond = is_mention || text.starts_with(&format!("/{}", bot_username)) || is_dm;
 
-        if should_respond {
-            let content = if is_mention {
+        let session = VizierSession(
+            self.agent_id.clone(),
+            channel.clone(),
+            topic_id.clone(),
+        );
+
+        let (content, request_content) = if should_respond {
+            let cleaned = if is_mention {
                 text.replace(&format!("@{}", bot_username), "")
                     .trim()
                     .to_string()
@@ -280,172 +285,110 @@ impl TelegramChannelReader {
                     .trim()
                     .to_string()
             };
-
-            let transport = transport.clone();
-            let agent_id = self.agent_id.clone();
-            let channel = channel.clone();
-            let attachments = attachments.clone();
-            tokio::spawn(async move {
-                if let Err(err) = transport
-                    .send_request(
-                        VizierSession(agent_id, channel, topic_id),
-                        VizierRequest {
-                            timestamp: chrono::Utc::now(),
-                            user,
-                            content: VizierRequestContent::Chat(content),
-                            metadata,
-                            attachments,
-                        },
-                    )
-                    .await
-                {
-                    tracing::error!("{}", err);
-                }
-            });
+            (cleaned.clone(), VizierRequestContent::Chat(cleaned))
         } else {
-            let transport = transport.clone();
-            let agent_id = self.agent_id.clone();
-            let channel = channel.clone();
-            let attachments = attachments.clone();
-            tokio::spawn(async move {
-                if let Err(err) = transport
-                    .send_request(
-                        VizierSession(agent_id, channel, topic_id),
-                        VizierRequest {
-                            timestamp: chrono::Utc::now(),
-                            user,
-                            content: VizierRequestContent::SilentRead(text),
-                            metadata,
-                            attachments,
-                        },
-                    )
-                    .await
-                {
-                    tracing::error!("{}", err);
-                }
-            });
-        }
+            (text.clone(), VizierRequestContent::SilentRead(text))
+        };
 
-        Ok(())
-    }
-}
+        let request = VizierRequest {
+            timestamp: chrono::Utc::now(),
+            user,
+            content: request_content,
+            metadata,
+            attachments,
+        };
 
-pub struct TelegramChannelWriter {
-    agent_id: String,
-    bot: Bot,
-    transport: VizierTransport,
-}
-
-impl TelegramChannelWriter {
-    pub fn new(agent_id: String, token: String, transport: VizierTransport) -> Self {
-        let bot = Bot::new(token);
-        Self {
-            agent_id,
-            bot,
-            transport,
-        }
-    }
-}
-
-impl VizierChannel for TelegramChannelWriter {
-    async fn run(&mut self) -> Result<()> {
-        let mut recv = self.transport.subscribe_response().await?;
         let bot = self.bot.clone();
-        let agent_id = self.agent_id.clone();
+        let chat_id_copy = chat_id;
 
-        let mut typing_handles: HashMap<i64, tokio::task::JoinHandle<()>> = HashMap::new();
+        tokio::spawn(async move {
+            let (response_tx, response_rx) = flume::unbounded();
 
-        let _ = tokio::spawn(async move {
-            loop {
-                if let Ok((
-                    VizierSession(session_agent_id, VizierChannelId::TelegramChannel(chat_id), _),
-                    res,
-                )) = recv.recv().await
-                {
-                    if session_agent_id != agent_id {
-                        continue;
+            if let Err(err) = transport
+                .send_request(session.clone(), request, Some(response_tx))
+                .await
+            {
+                tracing::error!("{}", err);
+                return;
+            }
+
+            let mut typing_handle: Option<tokio::task::JoinHandle<()>> = None;
+
+            while let Ok(response) = response_rx.recv_async().await {
+                match response {
+                    VizierResponse {
+                        content: VizierResponseContent::ThinkingStart,
+                        ..
+                    } => {
+                        if let Some(handle) = typing_handle.take() {
+                            handle.abort();
+                        }
+                        let typing_bot = bot.clone();
+                        let typing_chat_id = chat_id_copy;
+                        let handle = tokio::spawn(async move {
+                            loop {
+                                let _ = typing_bot
+                                    .send_chat_action(typing_chat_id, ChatAction::Typing)
+                                    .await;
+                                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                            }
+                        });
+                        typing_handle = Some(handle);
                     }
-                    let bot = bot.clone();
-                    let chat_id = ChatId(chat_id);
-
-                    match res {
-                        VizierResponse {
-                            content: VizierResponseContent::ThinkingStart,
-                            timestamp: _,
-                            attachments: _,
-                        } => {
-                            if let Some(handle) = typing_handles.remove(&chat_id.0) {
-                                handle.abort();
-                            }
-                            let typing_bot = bot.clone();
-                            let typing_chat_id = chat_id;
-                            let typing_task = tokio::spawn(async move {
-                                loop {
-                                    let _ = typing_bot
-                                        .send_chat_action(typing_chat_id, ChatAction::Typing)
-                                        .await;
-                                    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-                                }
-                            });
-                            typing_handles.insert(chat_id.0, typing_task);
-                        }
-                        VizierResponse {
-                            content: VizierResponseContent::ToolChoice { name, args },
-                            timestamp: _,
-                            attachments: _,
-                        } => {
-                            let _ = crate::utils::telegram::send_message(
-                                &bot,
-                                chat_id,
-                                crate::utils::format_thinking(&name, &args),
-                            )
-                            .await;
-                        }
-                        VizierResponse {
-                            content: VizierResponseContent::Thinking(thought),
-                            timestamp: _,
-                            attachments: _,
-                        } => {
-                            let _ = crate::utils::telegram::send_message(
-                                &bot,
-                                chat_id,
-                                format!("> {}", thought),
-                            )
-                            .await;
-                        }
-                        VizierResponse {
-                            content: VizierResponseContent::Message { content, stats: _ },
-                            timestamp: _,
-                            attachments: _,
-                        } => {
-                            if let Some(handle) = typing_handles.remove(&chat_id.0) {
-                                handle.abort();
-                            }
-                            let content = remove_think_tags(&content.clone());
-                            let _ =
-                                crate::utils::telegram::send_message(&bot, chat_id, content).await;
-                        }
-                        VizierResponse {
-                            content: VizierResponseContent::Abort,
-                            timestamp: _,
-                            attachments: _,
-                        } => {
-                            if let Some(handle) = typing_handles.remove(&chat_id.0) {
-                                handle.abort();
-                            }
-                            let _ = crate::utils::telegram::send_message(
-                                &bot,
-                                chat_id,
-                                "thinking aborted".to_string(),
-                            )
-                            .await;
-                        }
-                        _ => {}
+                    VizierResponse {
+                        content: VizierResponseContent::ToolChoice { name, args },
+                        ..
+                    } => {
+                        let _ = crate::utils::telegram::send_message(
+                            &bot,
+                            chat_id_copy,
+                            crate::utils::format_thinking(&name, &args),
+                        )
+                        .await;
                     }
+                    VizierResponse {
+                        content: VizierResponseContent::Thinking(thought),
+                        ..
+                    } => {
+                        let _ = crate::utils::telegram::send_message(
+                            &bot,
+                            chat_id_copy,
+                            format!("> {}", thought),
+                        )
+                        .await;
+                    }
+                    VizierResponse {
+                        content:
+                            VizierResponseContent::Message {
+                                content, stats: _
+                            },
+                        ..
+                    } => {
+                        if let Some(handle) = typing_handle.take() {
+                            handle.abort();
+                        }
+                        let content = remove_think_tags(&content);
+                        let _ =
+                            crate::utils::telegram::send_message(&bot, chat_id_copy, content).await;
+                    }
+                    VizierResponse {
+                        content: VizierResponseContent::Abort,
+                        ..
+                    } => {
+                        if let Some(handle) = typing_handle.take() {
+                            handle.abort();
+                        }
+                        let _ = crate::utils::telegram::send_message(
+                            &bot,
+                            chat_id_copy,
+                            "thinking aborted".to_string(),
+                        )
+                        .await;
+                    }
+                    _ => {}
                 }
             }
-        })
-        .await;
+        });
 
         Ok(())
     }

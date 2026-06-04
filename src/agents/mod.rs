@@ -233,6 +233,8 @@ impl VizierAgents {
             process.handle.abort();
         }
 
+        self.deps.transport.unregister_agent(&agent_id.to_string()).await;
+
         let _ = self
             .deps
             .transport

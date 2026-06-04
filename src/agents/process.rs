@@ -23,7 +23,6 @@ use crate::{
     storage::{
         VizierStorage, history::HistoryStorage, memory::MemoryStorage, session::SessionStorage,
     },
-    transport::VizierTransport,
 };
 
 pub async fn agent_process(
@@ -34,8 +33,7 @@ pub async fn agent_process(
 ) -> Result<()> {
     let agent = Arc::new(VizierAgent::new(agent_id.clone(), &deps, &agent_config).await?);
 
-    let mut recv = deps.transport.subscribe_request().await?;
-    let mut agent_sessions = HashMap::<VizierSession, AgentSession>::new();
+    let recv = deps.transport.register_agent(agent_id.clone()).await;
 
     let mut main_handles = HashMap::<VizierSession, JoinHandle<()>>::new();
     let mut thinking_handles = HashMap::<VizierSession, Arc<JoinHandle<()>>>::new();
@@ -69,6 +67,7 @@ pub async fn agent_process(
 
                             ..Default::default()
                         },
+                        None,
                     )
                     .await
                 {
@@ -136,6 +135,7 @@ pub async fn agent_process(
 
                                 ..Default::default()
                             },
+                            None,
                         )
                         .await
                     {
@@ -151,11 +151,11 @@ pub async fn agent_process(
 
     loop {
         tokio::select! {
-            result = recv.recv() => {
-                let Ok((session, request)) = result else { break };
-                if session.0 != agent_id {
-                    continue;
-                }
+            result = recv.recv_async() => {
+                let Ok(envelope) = result else { break };
+                let session = envelope.session;
+                let request = envelope.request;
+                let response_tx = envelope.response_tx;
 
                 // handle session_detail creator
                 let session_detail_storage = deps.storage.clone();
@@ -173,7 +173,7 @@ pub async fn agent_process(
                         .unwrap_or(None)
                     {
                         let prompt = format!(
-                            r#"summarize (don't execute) the prompt below into a 60 character title: 
+                            r#"summarize (don't execute) the prompt below into a 60 character title:
 "{}"
 
 **only response the summarize title**"#,
@@ -213,17 +213,15 @@ pub async fn agent_process(
                         if let Some(handle) = main_handles.get(&session) {
                             if !handle.is_finished() {
                                 handle.abort();
-                                let _ = deps
-                                    .transport
-                                    .send_response(
-                                        session.clone(),
-                                        crate::schema::VizierResponse {
+                                if let Some(ref tx) = response_tx {
+                                    let _ = tx
+                                        .send_async(VizierResponse {
                                             timestamp: chrono::Utc::now(),
                                             content: crate::schema::VizierResponseContent::Abort,
                                             attachments: vec![],
-                                        },
-                                    )
-                                    .await;
+                                        })
+                                        .await;
+                                }
                             }
                         }
                         // Abort thinking indicator
@@ -244,35 +242,24 @@ pub async fn agent_process(
                     }
                 }
 
-                // Process immediately — no active task
-                let agent_session = if let Some(agent_session) = agent_sessions.get(&session) {
-                    agent_session.clone()
-                } else {
-                    let agent_session =
-                        AgentSession::new(agent_config.clone(), session.clone(), deps.clone())?;
-                    agent_sessions.insert(session.clone(), agent_session.clone());
-                    agent_session
-                };
-
                 // handle thinking
                 if let Some(handle) = thinking_handles.get(&session) {
                     handle.abort();
                 }
-                let thinking_transport = deps.transport.clone();
+                let thinking_response_tx = response_tx.clone();
                 let thinking_request = request.clone();
                 let thinking_session = session.clone();
                 let thinking_handle = Arc::new(tokio::spawn(async move {
                     if let VizierRequestContent::Chat(_) = thinking_request.content {
-                        let _ = thinking_transport
-                            .send_response(
-                                thinking_session.clone(),
-                                crate::schema::VizierResponse {
+                        if let Some(ref tx) = thinking_response_tx {
+                            let _ = tx
+                                .send_async(VizierResponse {
                                     timestamp: chrono::Utc::now(),
                                     content: crate::schema::VizierResponseContent::ThinkingStart,
                                     attachments: vec![],
-                                },
-                            )
-                            .await;
+                                })
+                                .await;
+                        }
                     }
                 }));
                 thinking_handles.insert(session.clone(), thinking_handle.clone());
@@ -280,7 +267,6 @@ pub async fn agent_process(
                 let agent = agent.clone();
                 let agent_config = agent_config.clone();
                 let session = session.clone();
-                let transport = deps.transport.clone();
                 let storage = deps.storage.clone();
                 let complete_tx = complete_tx.clone();
                 main_handles.insert(
@@ -291,26 +277,24 @@ pub async fn agent_process(
                             agent_config.clone(),
                             session.clone(),
                             request.clone(),
-                            transport.clone(),
+                            response_tx.clone(),
                             storage.clone(),
-                            agent_session.hooks.clone(),
                         )
                         .await
                         {
                             tracing::error!("{}", err);
-                            let _ = transport
-                                .send_response(
-                                    session.clone(),
-                                    crate::schema::VizierResponse {
+                            if let Some(ref tx) = response_tx {
+                                let _ = tx
+                                    .send_async(VizierResponse {
                                         timestamp: chrono::Utc::now(),
                                         content: crate::schema::VizierResponseContent::Message {
                                             content: format!("ERR: {}", err),
                                             stats: None,
                                         },
                                         attachments: vec![],
-                                    },
-                                )
-                                .await;
+                                    })
+                                    .await;
+                            }
                         }
 
                         thinking_handle.abort();
@@ -322,34 +306,15 @@ pub async fn agent_process(
             Some(completed_session) = complete_rx.recv() => {
                 if let Some(queue) = session_queues.get_mut(&completed_session) {
                     if let Some(next_request) = queue.pop_front() {
-                        let agent_session = if let Some(agent_session) = agent_sessions.get(&completed_session) {
-                            agent_session.clone()
-                        } else {
-                            let agent_session =
-                                AgentSession::new(agent_config.clone(), completed_session.clone(), deps.clone())?;
-                            agent_sessions.insert(completed_session.clone(), agent_session.clone());
-                            agent_session
-                        };
-
                         // handle thinking
                         if let Some(handle) = thinking_handles.get(&completed_session) {
                             handle.abort();
                         }
-                        let thinking_transport = deps.transport.clone();
                         let thinking_request = next_request.clone();
                         let thinking_session = completed_session.clone();
                         let thinking_handle = Arc::new(tokio::spawn(async move {
                             if let VizierRequestContent::Chat(_) = thinking_request.content {
-                                let _ = thinking_transport
-                                    .send_response(
-                                        thinking_session.clone(),
-                                        crate::schema::VizierResponse {
-                                            timestamp: chrono::Utc::now(),
-                                            content: crate::schema::VizierResponseContent::ThinkingStart,
-                                            attachments: vec![],
-                                        },
-                                    )
-                                    .await;
+                                tracing::info!("thinking started for {:?}", thinking_session);
                             }
                         }));
                         thinking_handles.insert(completed_session.clone(), thinking_handle.clone());
@@ -357,7 +322,6 @@ pub async fn agent_process(
                         let agent = agent.clone();
                         let agent_config = agent_config.clone();
                         let session = completed_session.clone();
-                        let transport = deps.transport.clone();
                         let storage = deps.storage.clone();
                         let complete_tx = complete_tx.clone();
                         main_handles.insert(
@@ -368,26 +332,12 @@ pub async fn agent_process(
                                     agent_config.clone(),
                                     session.clone(),
                                     next_request.clone(),
-                                    transport.clone(),
+                                    None,
                                     storage.clone(),
-                                    agent_session.hooks.clone(),
                                 )
                                 .await
                                 {
                                     tracing::error!("{}", err);
-                                    let _ = transport
-                                        .send_response(
-                                            session.clone(),
-                                            crate::schema::VizierResponse {
-                                                timestamp: chrono::Utc::now(),
-                                                content: crate::schema::VizierResponseContent::Message {
-                                                    content: format!("ERR: {}", err),
-                                                    stats: None,
-                                                },
-                                                attachments: vec![],
-                                            },
-                                        )
-                                        .await;
                                 }
 
                                 thinking_handle.abort();
@@ -411,10 +361,27 @@ pub async fn handle_request(
     agent_config: AgentConfig,
     session: VizierSession,
     request: VizierRequest,
-    transport: VizierTransport,
+    response_tx: Option<flume::Sender<VizierResponse>>,
     storage: Arc<VizierStorage>,
-    hooks: Arc<VizierSessionHooks>,
 ) -> Result<()> {
+    let mut hooks = VizierSessionHooks::new()
+        .hook(DebugHook(session.clone()))
+        .hook(HistoryHook::new(storage.clone(), session.clone()));
+
+    if let Some(true) = agent_config.show_thinking {
+        if let Some(ref tx) = response_tx {
+            hooks = hooks.hook(ThinkingHook::new(tx.clone(), session.clone()));
+        }
+    }
+
+    if let Some(true) = agent_config.show_tool_calls {
+        if let Some(ref tx) = response_tx {
+            hooks = hooks.hook(ToolCallsHook::new(tx.clone(), session.clone()));
+        }
+    }
+
+    let hooks = Arc::new(hooks);
+
     match &request.content {
         VizierRequestContent::Chat(prompt) => {
             let history = storage
@@ -429,7 +396,9 @@ pub async fn handle_request(
                 .query_memory(session.0.clone(), prompt.clone(), 10, 0.5)
                 .await?;
             let res = agent.chat(request, history, memory, Some(hooks)).await?;
-            transport.send_response(session, res).await?;
+            if let Some(ref tx) = response_tx {
+                let _ = tx.send_async(res).await;
+            }
         }
         VizierRequestContent::SilentRead(_) => {
             let history = storage
@@ -440,7 +409,9 @@ pub async fn handle_request(
                 )
                 .await?;
             let res = agent.chat(request, history, vec![], Some(hooks)).await?;
-            transport.send_response(session, res).await?;
+            if let Some(ref tx) = response_tx {
+                let _ = tx.send_async(res).await;
+            }
         }
         VizierRequestContent::Prompt(_) | VizierRequestContent::Task(_) => {
             let history = match &session.1 {
@@ -454,13 +425,14 @@ pub async fn handle_request(
 
                     // skip dreaming if history is empty
                     if history.is_empty() {
-                        let res = VizierResponse {
-                            timestamp: end.clone(),
-                            content: VizierResponseContent::Abort,
-                            attachments: vec![],
-                        };
-
-                        transport.send_response(session, res).await?;
+                        if let Some(ref tx) = response_tx {
+                            let res = VizierResponse {
+                                timestamp: end.clone(),
+                                content: VizierResponseContent::Abort,
+                                attachments: vec![],
+                            };
+                            let _ = tx.send_async(res).await;
+                        }
                         return Ok(());
                     }
 
@@ -470,7 +442,9 @@ pub async fn handle_request(
             };
 
             let res = agent.chat(request, history, vec![], Some(hooks)).await?;
-            transport.send_response(session, res).await?;
+            if let Some(ref tx) = response_tx {
+                let _ = tx.send_async(res).await;
+            }
         }
         VizierRequestContent::Command(cmd) => {
             tracing::warn!("unhandled command: {}", cmd);
@@ -478,33 +452,4 @@ pub async fn handle_request(
     }
 
     Ok(())
-}
-
-#[derive(Clone)]
-pub struct AgentSession {
-    hooks: Arc<VizierSessionHooks>,
-}
-
-impl AgentSession {
-    pub fn new(
-        agent_config: AgentConfig,
-        session: VizierSession,
-        deps: VizierDependencies,
-    ) -> Result<Self> {
-        let mut hooks = VizierSessionHooks::new()
-            .hook(DebugHook(session.clone()))
-            .hook(HistoryHook::new(deps.storage.clone(), session.clone()));
-
-        if let Some(true) = agent_config.show_thinking {
-            hooks = hooks.hook(ThinkingHook::new(deps.transport.clone(), session.clone()));
-        }
-
-        if let Some(true) = agent_config.show_tool_calls {
-            hooks = hooks.hook(ToolCallsHook::new(deps.transport.clone(), session.clone()));
-        }
-
-        let hooks = Arc::new(hooks);
-
-        Ok(Self { hooks })
-    }
 }

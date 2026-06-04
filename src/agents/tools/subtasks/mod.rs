@@ -49,21 +49,16 @@ impl VizierTool for SubtasksTool {
     }
 
     async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
-        let mut recv = self
-            .transport
-            .subscribe_response()
-            .await
-            .map_err(|err| VizierError(err.to_string()))?;
+        let mut response_rxs = Vec::new();
 
-        let mut sessions = HashMap::new();
-
-        let mut res = vec![];
         for task in &args.tasks {
             let session = VizierSession(
                 self.agent_id.clone(),
                 crate::schema::VizierChannelId::Subagent,
                 Some(uuid::Uuid::new_v4().to_string().to_string()),
             );
+
+            let (response_tx, response_rx) = flume::unbounded();
 
             let _ = self
                 .transport
@@ -77,24 +72,23 @@ impl VizierTool for SubtasksTool {
 
                         ..Default::default()
                     },
+                    Some(response_tx),
                 )
                 .await;
 
-            sessions.insert(session, true);
+            response_rxs.push(response_rx);
         }
 
-        loop {
-            if res.len() == args.tasks.len() {
-                break;
-            }
-
-            if let Ok((session, response)) = recv.recv().await {
-                if sessions.get(&session).is_none() {
-                    continue;
-                }
-
-                if let VizierResponseContent::Message { content, stats: _ } = response.content {
-                    res.push(content);
+        let mut res = vec![];
+        for rx in response_rxs {
+            loop {
+                if let Ok(response) = rx.recv_async().await {
+                    if let VizierResponseContent::Message { content, stats: _ } = response.content {
+                        res.push(content);
+                        break;
+                    }
+                } else {
+                    break;
                 }
             }
         }

@@ -52,121 +52,6 @@ impl VizierChannel for DiscordChannelReader {
     }
 }
 
-pub struct DiscordChannelWriter {
-    agent_id: String,
-    http: Arc<Http>,
-    transport: VizierTransport,
-}
-
-impl DiscordChannelWriter {
-    pub fn new(agent_id: String, token: String, transport: VizierTransport) -> Self {
-        Self {
-            agent_id,
-            http: Arc::new(Http::new(&token)),
-            transport,
-        }
-    }
-}
-
-impl VizierChannel for DiscordChannelWriter {
-    async fn run(&mut self) -> Result<()> {
-        let http = self.http.clone();
-        let agent_id = self.agent_id.clone();
-        let mut recv = self.transport.subscribe_response().await?;
-        let _ = tokio::spawn(async move {
-            let mut typing_state = HashMap::<u64, Typing>::new();
-            loop {
-                if let Ok((
-                    VizierSession(session_agent_id, VizierChannelId::DiscordChanel(channel_id), _),
-                    res,
-                )) = recv.recv().await
-                {
-                    if session_agent_id != agent_id {
-                        continue;
-                    }
-                    let http = http.clone();
-                    let discord_channel_id = ChannelId::new(channel_id);
-
-                    match res {
-                        VizierResponse {
-                            content: VizierResponseContent::ThinkingStart,
-                            timestamp: _,
-                            attachments: _,
-                        } => {
-                            typing_state.insert(
-                                channel_id,
-                                Typing::start(http.clone(), discord_channel_id),
-                            );
-                        }
-                        VizierResponse {
-                            content: VizierResponseContent::ToolChoice { name, args },
-                            timestamp: _,
-                            attachments: _,
-                        } => {
-                            let _ = crate::utils::discord::send_message(
-                                http.clone(),
-                                &discord_channel_id,
-                                crate::utils::format_thinking(&name, &args),
-                            )
-                            .await;
-                        }
-                        VizierResponse {
-                            content: VizierResponseContent::Thinking(thought),
-                            timestamp: _,
-                            attachments: _,
-                        } => {
-                            let _ = crate::utils::discord::send_message(
-                                http.clone(),
-                                &discord_channel_id,
-                                format!("> {}", thought),
-                            )
-                            .await;
-                        }
-                        VizierResponse {
-                            content: VizierResponseContent::Message { content, stats: _ },
-                            timestamp: _,
-                            attachments: _,
-                        } => {
-                            if let Some(typing) = typing_state.remove(&channel_id) {
-                                typing.stop();
-                            }
-
-                            let content = remove_think_tags(&content.clone());
-                            let _ = crate::utils::discord::send_message(
-                                http.clone(),
-                                &discord_channel_id,
-                                content,
-                            )
-                            .await;
-                        }
-                        VizierResponse {
-                            content: VizierResponseContent::Abort,
-                            timestamp: _,
-                            attachments: _,
-                        } => {
-                            if let Some(typing) = typing_state.remove(&channel_id) {
-                                typing.stop();
-                            }
-
-                            let _ = crate::utils::discord::send_message(
-                                http.clone(),
-                                &discord_channel_id,
-                                "thinking aborted".into(),
-                            )
-                            .await;
-                        }
-
-                        _ => {}
-                    }
-                }
-            }
-        })
-        .await;
-
-        Ok(())
-    }
-}
-
 struct Handler(String, VizierDependencies);
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -178,7 +63,6 @@ struct ChannelState {
 impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, _ready: Ready) {
         let ping = CreateCommand::new("ping").description("a simple ping");
-        // let help = CreateCommand::new("help").description("How to use me");
 
         let new = CreateCommand::new("new").description("create fresh new session");
         let session = CreateCommand::new("session")
@@ -190,7 +74,6 @@ impl EventHandler for Handler {
             ));
 
         let _ = Command::create_global_command(ctx.http.clone(), ping).await;
-        // let _ = Command::create_global_command(ctx.http.clone(), help).await;
 
         let _ = Command::create_global_command(ctx.http.clone(), new).await;
         let _ = Command::create_global_command(ctx.http.clone(), session).await;
@@ -375,6 +258,7 @@ If I am halucinating, feel free to `/lobotomy` me
                             metadata: serde_json::json!({}),
                             attachments: vec![],
                         },
+                        None,
                     )
                     .await;
 
@@ -405,7 +289,7 @@ If I am halucinating, feel free to `/lobotomy` me
 
         let is_dm = msg.guild_id.is_none();
 
-        if let Ok(is_mention) = msg.mentions_me(ctx.http).await {
+        if let Ok(is_mention) = msg.mentions_me(&ctx.http).await {
             let mut attachments = vec![];
             for attachment in &msg.attachments {
                 attachments.push(VizierAttachment {
@@ -416,10 +300,12 @@ If I am halucinating, feel free to `/lobotomy` me
 
             let agent_id = self.0.clone();
             let transport = self.1.transport.clone();
+            let http = ctx.http.clone();
             let current_user = ctx.cache.current_user().discriminator;
             if msg.author.discriminator == current_user {
                 return;
             }
+            let bot_name = ctx.cache.current_user().name.clone();
 
             let replied_to = match msg.referenced_message {
                 None => None,
@@ -435,63 +321,122 @@ If I am halucinating, feel free to `/lobotomy` me
                 "is_dm": is_dm,
             });
 
-            if !is_mention && !is_dm {
-                tokio::spawn(async move {
-                    if let Err(err) = transport
-                        .send_request(
-                            VizierSession(
-                                agent_id,
-                                VizierChannelId::DiscordChanel(msg.channel_id.get()),
-                                topic_id,
-                            ),
-                            VizierRequest {
-                                timestamp: chrono::Utc::now(),
-                                user: format!(
-                                    "@{} (DiscordId: {})",
-                                    msg.author.display_name(),
-                                    msg.author.id.to_string()
-                                ),
-                                content: VizierRequestContent::SilentRead(msg.content),
-                                metadata,
-                                attachments,
+            let session = VizierSession(
+                agent_id.clone(),
+                VizierChannelId::DiscordChanel(msg.channel_id.get()),
+                topic_id,
+            );
 
-                                ..Default::default()
-                            },
-                        )
-                        .await
-                    {
-                        tracing::error!("{}", err)
-                    }
-                });
+            let (content, request_content) = if !is_mention && !is_dm {
+                (
+                    msg.content.clone(),
+                    VizierRequestContent::SilentRead(msg.content),
+                )
+            } else {
+                let cleaned = if is_mention {
+                    msg.content
+                        .replace(&format!("@{}", bot_name), "")
+                        .trim()
+                        .to_string()
+                } else {
+                    msg.content.clone()
+                };
+                (cleaned.clone(), VizierRequestContent::Chat(cleaned))
+            };
 
-                return;
-            }
+            let request = VizierRequest {
+                timestamp: chrono::Utc::now(),
+                user: format!(
+                    "@{} (DiscordId: {})",
+                    msg.author.display_name(),
+                    msg.author.id.to_string()
+                ),
+                content: request_content,
+                metadata,
+                attachments,
+                ..Default::default()
+            };
+
+            let discord_channel_id = ChannelId::new(msg.channel_id.get());
+            let is_chat = matches!(request.content, VizierRequestContent::Chat(_));
 
             tokio::spawn(async move {
-                if let Err(err) = transport
-                    .send_request(
-                        VizierSession(
-                            agent_id,
-                            VizierChannelId::DiscordChanel(msg.channel_id.get()),
-                            topic_id,
-                        ),
-                        VizierRequest {
-                            timestamp: chrono::Utc::now(),
-                            user: format!(
-                                "@{} (DiscordId: {})",
-                                msg.author.display_name(),
-                                msg.author.id.to_string()
-                            ),
-                            content: VizierRequestContent::Chat(msg.content),
-                            metadata,
-                            attachments,
+                let (response_tx, response_rx) = flume::unbounded();
 
-                            ..Default::default()
-                        },
-                    )
+                if let Err(err) = transport
+                    .send_request(session.clone(), request, Some(response_tx))
                     .await
                 {
-                    tracing::error!("{}", err)
+                    tracing::error!("{}", err);
+                    return;
+                }
+
+                let mut typing_state: Option<Typing> = None;
+
+                while let Ok(response) = response_rx.recv_async().await {
+                    match response {
+                        VizierResponse {
+                            content: VizierResponseContent::ThinkingStart,
+                            ..
+                        } => {
+                            typing_state = Some(Typing::start(http.clone(), discord_channel_id));
+                        }
+                        VizierResponse {
+                            content: VizierResponseContent::ToolChoice { name, args },
+                            ..
+                        } => {
+                            let _ = crate::utils::discord::send_message(
+                                http.clone(),
+                                &discord_channel_id,
+                                crate::utils::format_thinking(&name, &args),
+                            )
+                            .await;
+                        }
+                        VizierResponse {
+                            content: VizierResponseContent::Thinking(thought),
+                            ..
+                        } => {
+                            let _ = crate::utils::discord::send_message(
+                                http.clone(),
+                                &discord_channel_id,
+                                format!("> {}", thought),
+                            )
+                            .await;
+                        }
+                        VizierResponse {
+                            content:
+                                VizierResponseContent::Message {
+                                    content, stats: _
+                                },
+                            ..
+                        } => {
+                            if let Some(typing) = typing_state.take() {
+                                typing.stop();
+                            }
+                            let content = remove_think_tags(&content);
+                            let _ = crate::utils::discord::send_message(
+                                http.clone(),
+                                &discord_channel_id,
+                                content,
+                            )
+                            .await;
+                        }
+                        VizierResponse {
+                            content: VizierResponseContent::Abort,
+                            ..
+                        } => {
+                            if let Some(typing) = typing_state.take() {
+                                typing.stop();
+                            }
+                            let _ = crate::utils::discord::send_message(
+                                http.clone(),
+                                &discord_channel_id,
+                                "thinking aborted".into(),
+                            )
+                            .await;
+                        }
+                        _ => {}
+                    }
                 }
             });
         }

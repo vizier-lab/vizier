@@ -1,25 +1,26 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-use async_broadcast::{Receiver, Sender, broadcast};
+use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 
 use crate::schema::{
-    AgentCommand, ChannelCommand, CommandRequest, CommandResponse, GlobalCommand, VizierRequest,
-    VizierResponse, VizierSession,
+    AgentCommand, AgentId, ChannelCommand, CommandRequest, CommandResponse, GlobalCommand,
+    VizierRequest, VizierResponse, VizierSession,
 };
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VizierRequestEnvelope {
+    pub session: VizierSession,
+    pub request: VizierRequest,
+    #[serde(skip)]
+    pub response_tx: Option<flume::Sender<VizierResponse>>,
+}
 
 #[derive(Debug, Clone)]
 pub struct VizierTransport {
-    request_channel: Arc<(
-        Sender<(VizierSession, VizierRequest)>,
-        Receiver<(VizierSession, VizierRequest)>,
-    )>,
-
-    response_channel: Arc<(
-        Sender<(VizierSession, VizierResponse)>,
-        Receiver<(VizierSession, VizierResponse)>,
-    )>,
+    agent_channels: Arc<RwLock<HashMap<AgentId, flume::Sender<VizierRequestEnvelope>>>>,
 
     command_request_channel: Arc<(
         flume::Sender<CommandRequest>,
@@ -51,53 +52,54 @@ pub struct VizierTransport {
 
 impl VizierTransport {
     pub fn new() -> Self {
-        let mut request_channel = broadcast(1000);
-        request_channel.0.set_overflow(true);
-        request_channel.1.set_overflow(true);
-
-        let mut response_channel = broadcast(1000);
-        response_channel.0.set_overflow(true);
-        response_channel.1.set_overflow(true);
-
         let command_request_channel = Arc::new(flume::unbounded());
         let command_response_channel = Arc::new(flume::unbounded());
         let agent_command_channel = Arc::new(flume::unbounded());
         let global_command_channel = Arc::new(flume::unbounded());
         let channel_command_channel = Arc::new(flume::unbounded());
-
         let exit_channel = Arc::new(flume::unbounded());
 
         Self {
-            request_channel: Arc::new(request_channel),
-            response_channel: Arc::new(response_channel),
-
+            agent_channels: Arc::new(RwLock::new(HashMap::new())),
             command_request_channel,
             command_response_channel,
-
             agent_command_channel,
             global_command_channel,
             channel_command_channel,
-
             exit_channel,
         }
     }
 
-    pub async fn send_request(&self, session: VizierSession, req: VizierRequest) -> Result<()> {
-        self.request_channel.0.broadcast((session, req)).await?;
+    pub async fn register_agent(&self, agent_id: AgentId) -> flume::Receiver<VizierRequestEnvelope> {
+        let (tx, rx) = flume::unbounded();
+        let mut channels = self.agent_channels.write().await;
+        channels.insert(agent_id, tx);
+        rx
+    }
+
+    pub async fn unregister_agent(&self, agent_id: &AgentId) {
+        let mut channels = self.agent_channels.write().await;
+        channels.remove(agent_id);
+    }
+
+    pub async fn send_request(
+        &self,
+        session: VizierSession,
+        req: VizierRequest,
+        response_tx: Option<flume::Sender<VizierResponse>>,
+    ) -> Result<()> {
+        let agent_id = &session.0;
+        let channels = self.agent_channels.read().await;
+        let tx = channels
+            .get(agent_id)
+            .ok_or_else(|| anyhow::anyhow!("agent '{}' not registered", agent_id))?;
+        tx.send_async(VizierRequestEnvelope {
+            session,
+            request: req,
+            response_tx,
+        })
+        .await?;
         Ok(())
-    }
-
-    pub async fn subscribe_request(&self) -> Result<Receiver<(VizierSession, VizierRequest)>> {
-        Ok(self.request_channel.1.clone())
-    }
-
-    pub async fn send_response(&self, session: VizierSession, res: VizierResponse) -> Result<()> {
-        self.response_channel.0.broadcast((session, res)).await?;
-        Ok(())
-    }
-
-    pub async fn subscribe_response(&self) -> Result<Receiver<(VizierSession, VizierResponse)>> {
-        Ok(self.response_channel.1.clone())
     }
 
     pub async fn send_command_request(&self, req: CommandRequest) -> Result<()> {
@@ -147,7 +149,6 @@ impl VizierTransport {
     pub async fn run(&self) -> Result<()> {
         let mut set = JoinSet::new();
 
-        // handle internal commands
         let req_rx = self.command_request_channel.clone().1.clone();
         let res = self.command_response_channel.clone().0.clone();
         let exit = self.exit_channel.clone().0.clone();
@@ -162,21 +163,6 @@ impl VizierTransport {
                     }
                     _ => unimplemented!(),
                 }
-            }
-        });
-
-        // log all request
-        let mut req_rx = self.request_channel.1.clone();
-        set.spawn(async move {
-            while let Ok((session, req)) = req_rx.recv().await {
-                tracing::info!("[Request]: {:?} {:?}", session, req);
-            }
-        });
-
-        let mut res_rx = self.response_channel.1.clone();
-        set.spawn(async move {
-            while let Ok((session, res)) = res_rx.recv().await {
-                tracing::info!("[Response]: {:?} {:?}", session, res);
             }
         });
 

@@ -5,9 +5,9 @@ use tokio::task::JoinHandle;
 
 use crate::{
     channels::{
-        discord::{DiscordChannelReader, DiscordChannelWriter},
+        discord::DiscordChannelReader,
         http::HTTPChannel,
-        telegram::{TelegramChannelReader, TelegramChannelWriter},
+        telegram::TelegramChannelReader,
     },
     config::HTTPChannelConfig,
     dependencies::VizierDependencies,
@@ -24,10 +24,8 @@ pub trait VizierChannel {
 }
 
 struct AgentChannels {
-    discord_reader: Option<JoinHandle<()>>,
-    discord_writer: Option<JoinHandle<()>>,
-    telegram_reader: Option<JoinHandle<()>>,
-    telegram_writer: Option<JoinHandle<()>>,
+    discord: Option<JoinHandle<()>>,
+    telegram: Option<JoinHandle<()>>,
 }
 
 pub struct VizierChannels {
@@ -101,10 +99,8 @@ impl VizierChannels {
         }
 
         let mut channels = AgentChannels {
-            discord_reader: None,
-            discord_writer: None,
-            telegram_reader: None,
-            telegram_writer: None,
+            discord: None,
+            telegram: None,
         };
 
         if let Some(token) = &config.discord_token
@@ -113,7 +109,7 @@ impl VizierChannels {
             let agent_id_owned = agent_id.to_string();
             let token_owned = token.clone();
             let deps = self.deps.clone();
-            channels.discord_reader = Some(tokio::spawn(async move {
+            channels.discord = Some(tokio::spawn(async move {
                 match DiscordChannelReader::new(agent_id_owned.clone(), token_owned, deps).await {
                     Ok(mut reader) => {
                         if let Err(e) = reader.run().await {
@@ -125,16 +121,6 @@ impl VizierChannels {
                     }
                 }
             }));
-
-            let agent_id_owned = agent_id.to_string();
-            let token_owned = token.clone();
-            let transport = self.deps.transport.clone();
-            channels.discord_writer = Some(tokio::spawn(async move {
-                let mut writer = DiscordChannelWriter::new(agent_id_owned, token_owned, transport);
-                if let Err(e) = writer.run().await {
-                    tracing::error!("discord writer error: {:?}", e);
-                }
-            }));
         }
 
         if let Some(token) = &config.telegram_token
@@ -143,7 +129,7 @@ impl VizierChannels {
             let agent_id_owned = agent_id.to_string();
             let token_owned = token.clone();
             let deps = self.deps.clone();
-            channels.telegram_reader = Some(tokio::spawn(async move {
+            channels.telegram = Some(tokio::spawn(async move {
                 match TelegramChannelReader::new(agent_id_owned.clone(), token_owned, deps).await {
                     Ok(mut reader) => {
                         if let Err(e) = reader.run().await {
@@ -155,23 +141,9 @@ impl VizierChannels {
                     }
                 }
             }));
-
-            let agent_id_owned = agent_id.to_string();
-            let token_owned = token.clone();
-            let transport = self.deps.transport.clone();
-            channels.telegram_writer = Some(tokio::spawn(async move {
-                let mut writer =
-                    TelegramChannelWriter::new(agent_id_owned, token_owned, transport);
-                if let Err(e) = writer.run().await {
-                    tracing::error!("telegram writer error: {:?}", e);
-                }
-            }));
         }
 
-        let has_any = channels.discord_reader.is_some()
-            || channels.discord_writer.is_some()
-            || channels.telegram_reader.is_some()
-            || channels.telegram_writer.is_some();
+        let has_any = channels.discord.is_some() || channels.telegram.is_some();
 
         if has_any {
             self.agent_channels.insert(agent_id.to_string(), channels);
@@ -180,16 +152,10 @@ impl VizierChannels {
 
     fn abort_agent_channels(&mut self, agent_id: &str) {
         if let Some(channels) = self.agent_channels.remove(agent_id) {
-            if let Some(h) = channels.discord_reader {
+            if let Some(h) = channels.discord {
                 h.abort();
             }
-            if let Some(h) = channels.discord_writer {
-                h.abort();
-            }
-            if let Some(h) = channels.telegram_reader {
-                h.abort();
-            }
-            if let Some(h) = channels.telegram_writer {
+            if let Some(h) = channels.telegram {
                 h.abort();
             }
         }
