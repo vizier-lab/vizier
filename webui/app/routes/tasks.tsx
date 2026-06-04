@@ -8,6 +8,7 @@ import { useToastStore } from '../hooks/toastStore'
 import type { Task } from '../interfaces/types'
 import DatePicker from '../components/DatePicker'
 import MarkdownEditor from '../components/MarkdownEditor'
+import SlideOver from '../components/SlideOver'
 
 function getErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'response' in err) {
@@ -287,148 +288,122 @@ export default function TaskManagement() {
         )}
       </div>
 
-      {/* Modal */}
-      {modalMode && (
-        <>
-          <div
-            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.5)', zIndex: 1000 }}
-            onClick={closeModal}
-          />
-          <div
-            style={{
-              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-              background: 'var(--background)', borderRadius: '12px',
-              maxWidth: '700px', width: '90%', maxHeight: '90vh',
-              display: 'flex', flexDirection: 'column',
-              zIndex: 1001, border: '1px solid var(--border)',
-            }}
-          >
-            {modalMode === 'view' && selectedTask && (
-              <div style={{ padding: '2rem', overflow: 'auto', flex: 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.5rem' }}>
-                      <h2 style={{ margin: 0 }}>{selectedTask.title}</h2>
-                      <span style={{
-                        padding: '4px 12px', borderRadius: '12px', fontSize: '12px', fontWeight: 600,
-                        background: selectedTask.is_active ? '#e8f5e9' : '#ffebee',
-                        color: selectedTask.is_active ? '#2e7d32' : '#c62828',
-                      }}>
-                        {selectedTask.is_active ? 'Active' : 'Inactive'}
-                      </span>
-                    </div>
-                    <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{selectedTask.slug}</p>
-                  </div>
-                  <button className="btn btn-ghost" onClick={closeModal}>&#10005;</button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
-                  <div>
-                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>Instruction</div>
-                    <div className="prose" style={{ whiteSpace: 'pre-wrap' }}>{selectedTask.instruction}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>Schedule</div>
-                    <div>{getScheduleDisplay(selectedTask.schedule)}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>Details</div>
-                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                      <div>User: {selectedTask.user}</div>
-                      <div>Created: {new Date(selectedTask.timestamp).toLocaleString()}</div>
-                      {selectedTask.last_executed_at && (
-                        <div>Last executed: {new Date(selectedTask.last_executed_at).toLocaleString()}</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-secondary" onClick={() => handleEditTask(selectedTask)}>Edit</button>
-                  <button className="btn btn-ghost" onClick={(e) => handleDeleteTask(selectedTask.slug, e)} style={{ color: '#c00' }}>
-                    <FaTrash size={16} />
-                    <span>Delete</span>
-                  </button>
-                </div>
+      {/* SlideOver */}
+      <SlideOver
+        open={modalMode !== null}
+        onClose={closeModal}
+        title={
+          modalMode === 'view' ? selectedTask?.title ?? '' :
+            modalMode === 'create' ? 'Create Task' :
+              'Edit Task'
+        }
+      >
+        {modalMode === 'view' && selectedTask && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{
+                padding: '4px 12px', borderRadius: '12px', fontSize: '12px', fontWeight: 600,
+                background: selectedTask.is_active ? '#e8f5e9' : '#ffebee',
+                color: selectedTask.is_active ? '#2e7d32' : '#c62828',
+              }}>
+                {selectedTask.is_active ? 'Active' : 'Inactive'}
+              </span>
+              <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{selectedTask.slug}</span>
+            </div>
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>Instruction</div>
+              <div className="prose" style={{ whiteSpace: 'pre-wrap' }}>{selectedTask.instruction}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>Schedule</div>
+              <div>{getScheduleDisplay(selectedTask.schedule)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>Details</div>
+              <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                <div>User: {selectedTask.user}</div>
+                <div>Created: {new Date(selectedTask.timestamp).toLocaleString()}</div>
+                {selectedTask.last_executed_at && (
+                  <div>Last executed: {new Date(selectedTask.last_executed_at).toLocaleString()}</div>
+                )}
               </div>
-            )}
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn btn-secondary" onClick={() => handleEditTask(selectedTask)}>Edit</button>
+              <button className="btn btn-ghost" onClick={(e) => handleDeleteTask(selectedTask.slug, e)} style={{ color: '#c00' }}>
+                <FaTrash size={16} />
+                <span>Delete</span>
+              </button>
+            </div>
+          </div>
+        )}
 
-            {(modalMode === 'create' || modalMode === 'edit') && (
+        {(modalMode === 'create' || modalMode === 'edit') && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, height: '100%' }}>
+            <div className="input-group" style={{ marginBottom: 0 }}>
+              <label htmlFor="slug">Slug</label>
+              <input id="slug" type="text" value={formSlug} onChange={(e) => setFormSlug(autoCorrectSlug(e.target.value))} required disabled={modalMode === 'edit'} placeholder="my-task-slug" />
+              {formSlug && <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Slug: {formSlug}</div>}
+            </div>
+            <div className="input-group" style={{ marginBottom: 0 }}>
+              <label htmlFor="user">User</label>
+              <input id="user" type="text" value={formUser} onChange={(e) => setFormUser(e.target.value)} required />
+            </div>
+            <div className="input-group" style={{ marginBottom: 0 }}>
+              <label htmlFor="title">Title</label>
+              <input id="title" type="text" value={formTitle} onChange={(e) => setFormTitle(e.target.value)} required />
+            </div>
+            <div className="input-group" style={{ marginBottom: 0 }}>
+              <label htmlFor="schedule-type">Schedule Type</label>
+              <select
+                id="schedule-type"
+                value={formScheduleType}
+                onChange={(e) => setFormScheduleType(e.target.value as ScheduleType)}
+                style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--background)' }}
+              >
+                <option value="Cron">Cron (Recurring)</option>
+                <option value="OneTime">One-Time</option>
+              </select>
+            </div>
+            {formScheduleType === 'Cron' ? (
               <>
-                <div style={{ padding: '2rem', paddingBottom: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h2 style={{ margin: 0 }}>{modalMode === 'create' ? 'Create Task' : 'Edit Task'}</h2>
-                    <button className="btn btn-ghost" onClick={closeModal}>&#10005;</button>
-                  </div>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label htmlFor="cron-template">Template</label>
+                  <select
+                    id="cron-template"
+                    value={CRON_TEMPLATES.find(t => t.value === formScheduleValue)?.value ?? ''}
+                    onChange={(e) => { if (e.target.value) setFormScheduleValue(e.target.value) }}
+                    style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--background)' }}
+                  >
+                    {CRON_TEMPLATES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
                 </div>
-                <div style={{ padding: '0 2rem', overflow: 'auto', flex: 1 }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div className="input-group" style={{ marginBottom: 0 }}>
-                    <label htmlFor="slug">Slug</label>
-                    <input id="slug" type="text" value={formSlug} onChange={(e) => setFormSlug(autoCorrectSlug(e.target.value))} required disabled={modalMode === 'edit'} placeholder="my-task-slug" />
-                    {formSlug && <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>Slug: {formSlug}</div>}
-                  </div>
-                  <div className="input-group" style={{ marginBottom: 0 }}>
-                    <label htmlFor="user">User</label>
-                    <input id="user" type="text" value={formUser} onChange={(e) => setFormUser(e.target.value)} required />
-                  </div>
-                  <div className="input-group" style={{ marginBottom: 0 }}>
-                    <label htmlFor="title">Title</label>
-                    <input id="title" type="text" value={formTitle} onChange={(e) => setFormTitle(e.target.value)} required />
-                  </div>
-                  <div className="input-group" style={{ marginBottom: 0 }}>
-                    <label htmlFor="schedule-type">Schedule Type</label>
-                    <select
-                      id="schedule-type"
-                      value={formScheduleType}
-                      onChange={(e) => setFormScheduleType(e.target.value as ScheduleType)}
-                      style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--background)' }}
-                    >
-                      <option value="Cron">Cron (Recurring)</option>
-                      <option value="OneTime">One-Time</option>
-                    </select>
-                  </div>
-                  {formScheduleType === 'Cron' ? (
-                    <>
-                      <div className="input-group" style={{ marginBottom: 0 }}>
-                        <label htmlFor="cron-template">Template</label>
-                        <select
-                          id="cron-template"
-                          value={CRON_TEMPLATES.find(t => t.value === formScheduleValue)?.value ?? ''}
-                          onChange={(e) => { if (e.target.value) setFormScheduleValue(e.target.value) }}
-                          style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--background)' }}
-                        >
-                          {CRON_TEMPLATES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                        </select>
-                      </div>
-                      <div className="input-group" style={{ marginBottom: 0 }}>
-                        <label htmlFor="schedule-value">Cron Expression</label>
-                        <input id="schedule-value" type="text" value={formScheduleValue} onChange={(e) => setFormScheduleValue(e.target.value)} required placeholder="0 0 * * *" />
-                        <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                          Example: "0 0 * * *" (daily at midnight)
-                        </p>
-                      </div>
-                    </>
-                  ) : (
-                    <DatePicker label="Datetime (UTC)" value={formScheduleValue} onChange={setFormScheduleValue} />
-                  )}
-                  <div className="input-group" style={{ marginBottom: 0 }}>
-                    <label htmlFor="instruction">Instruction</label>
-                    <div style={{ height: '150px' }}>
-                      <MarkdownEditor value={formInstruction} onChange={setFormInstruction} placeholder="Enter task instruction..." className="modal-mdx-editor" />
-                    </div>
-                  </div>
-                  </div>
-                </div>
-                <div style={{ padding: '1rem 2rem', borderTop: '1px solid var(--border)', display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-primary" onClick={handleSubmit} disabled={!formSlug.trim() || !formTitle.trim() || !formInstruction.trim() || !formScheduleValue.trim() || submitting}>
-                    {submitting ? 'Saving...' : 'Save'}
-                  </button>
-                  <button className="btn btn-secondary" onClick={closeModal} disabled={submitting}>Cancel</button>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label htmlFor="schedule-value">Cron Expression</label>
+                  <input id="schedule-value" type="text" value={formScheduleValue} onChange={(e) => setFormScheduleValue(e.target.value)} required placeholder="0 0 * * *" />
+                  <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                    Example: "0 0 * * *" (daily at midnight)
+                  </p>
                 </div>
               </>
+            ) : (
+              <DatePicker label="Datetime (UTC)" value={formScheduleValue} onChange={setFormScheduleValue} />
             )}
+            <div className="input-group" style={{ marginBottom: 0, height: '100%', overflow: 'hidden' }}>
+              <label htmlFor="instruction">Instruction</label>
+              <div style={{ height: '100%', overflowY: 'hidden' }}>
+                <MarkdownEditor value={formInstruction} onChange={setFormInstruction} placeholder="Enter task instruction..." className="modal-mdx-editor" />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>
+              <button className="btn btn-primary" onClick={handleSubmit} disabled={!formSlug.trim() || !formTitle.trim() || !formInstruction.trim() || !formScheduleValue.trim() || submitting} style={{ flex: 1, justifyContent: 'center' }}>
+                {submitting ? 'Saving...' : 'Save'}
+              </button>
+              <button className="btn btn-secondary" onClick={closeModal} disabled={submitting}>Cancel</button>
+            </div>
           </div>
-        </>
-      )}
+        )}
+      </SlideOver>
     </>
   )
 }

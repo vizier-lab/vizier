@@ -331,6 +331,7 @@ select {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 14px;
+  min-height: 40px;
   transition: all var(--transition-base);
   background: var(--surface);
   color: var(--text-primary);
@@ -598,8 +599,14 @@ select:focus {
 }
 
 .input-group input,
-.input-group textarea {
+.input-group textarea,
+.input-group select {
   width: 100%;
+}
+
+.input-group textarea {
+  flex: 1;
+  min-height: 0;
 }
 
 /* ============================================================================
@@ -1956,6 +1963,7 @@ select:focus {
 
 /* Wrapper — fills available space in the input container */
 .mdx-editor {
+  height: 100%;
   flex: 1;
   min-width: 0;
 }

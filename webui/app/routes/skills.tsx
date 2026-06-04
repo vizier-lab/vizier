@@ -6,6 +6,7 @@ import { useParams } from 'react-router'
 import { FaPlus, FaTrash, FaPenToSquare } from 'react-icons/fa6'
 import { Skeleton } from '../components/Skeleton'
 import MarkdownEditor from '../components/MarkdownEditor'
+import SlideOver from '../components/SlideOver'
 import { useToastStore } from '../hooks/toastStore'
 import { useSkillStore } from '../hooks/skillStore'
 import type { Skill, SkillActivation } from '../interfaces/types'
@@ -302,166 +303,144 @@ export default function SkillsManagement() {
         )}
       </div>
 
-      {/* Modal */}
-      {modalMode && (
-        <>
-          <div
-            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.5)', zIndex: 1000, backdropFilter: 'blur(4px)' }}
-            onClick={closeModal}
-          />
-          <div
-            style={{
-              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-              background: 'var(--background)', borderRadius: '12px',
-              maxWidth: '700px', width: '90%', maxHeight: '90vh',
-              display: 'flex', flexDirection: 'column',
-              zIndex: 1001, border: '1px solid var(--border)', boxShadow: 'var(--shadow-xl)',
-            }}
-          >
-            {modalMode === 'view' && selectedSkill && (
-              <div style={{ padding: '2rem', overflow: 'auto', flex: 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
-                  <div>
-                    <h2 style={{ marginBottom: '0.5rem' }}>{selectedSkill.name}</h2>
-                    <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                      {selectedSkill.description} &bull; v{selectedSkill.version}
-                    </p>
-                  </div>
-                  <button className="btn btn-ghost" onClick={closeModal} style={{ padding: '8px' }}>&#10005;</button>
-                </div>
-                <div style={{ marginBottom: '1.5rem' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Keywords</div>
-                  <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                    {selectedSkill.keywords.map((keyword) => (
-                      <span key={keyword} style={{
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        fontSize: '12px',
-                        background: 'var(--surface)',
-                        border: '1px solid var(--border)',
-                      }}>
-                        {keyword}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div style={{ marginBottom: '1.5rem' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Activation</div>
-                  <span style={{
-                    padding: '4px 12px',
-                    borderRadius: '12px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    ...getActivationColor(selectedSkill.activation),
-                  }}>
-                    {selectedSkill.activation}
-                  </span>
-                </div>
-                <div style={{ marginBottom: '1.5rem' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Content</div>
-                  <div className="prose" style={{
-                    padding: '12px',
+      {/* SlideOver */}
+      <SlideOver
+        open={modalMode !== null}
+        onClose={closeModal}
+        title={
+          modalMode === 'view' ? selectedSkill?.name ?? '' :
+            modalMode === 'create' ? 'Create Skill' :
+              'Edit Skill'
+        }
+      >
+        {modalMode === 'view' && selectedSkill && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', flex: 1 }}>
+            <div>
+              <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                {selectedSkill.description} &bull; v{selectedSkill.version}
+              </p>
+            </div>
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Keywords</div>
+              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                {selectedSkill.keywords.map((keyword) => (
+                  <span key={keyword} style={{
+                    padding: '4px 8px',
                     borderRadius: '4px',
+                    fontSize: '12px',
                     background: 'var(--surface)',
                     border: '1px solid var(--border)',
-                    maxHeight: '300px',
-                    overflow: 'auto',
                   }}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                      {selectedSkill.content || 'No content'}
-                    </ReactMarkdown>
-                  </div>
-                </div>
-                {selectedSkill.resources.length > 0 && (
-                  <div style={{ marginBottom: '1.5rem' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Resources</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      {selectedSkill.resources.map((resource) => (
-                        <div key={resource} style={{
-                          padding: '8px 12px',
-                          borderRadius: '4px',
-                          background: 'var(--surface)',
-                          border: '1px solid var(--border)',
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '12px',
-                        }}>
-                          {resource}
-                        </div>
-                      ))}
+                    {keyword}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Activation</div>
+              <span style={{
+                padding: '4px 12px',
+                borderRadius: '12px',
+                fontSize: '12px',
+                fontWeight: 600,
+                ...getActivationColor(selectedSkill.activation),
+              }}>
+                {selectedSkill.activation}
+              </span>
+            </div>
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Content</div>
+              <div className="prose" style={{
+                padding: '12px',
+                borderRadius: '4px',
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                maxHeight: '400px',
+                overflow: 'auto',
+              }}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                  {selectedSkill.content || 'No content'}
+                </ReactMarkdown>
+              </div>
+            </div>
+            {selectedSkill.resources.length > 0 && (
+              <div>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Resources</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {selectedSkill.resources.map((resource) => (
+                    <div key={resource} style={{
+                      padding: '8px 12px',
+                      borderRadius: '4px',
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '12px',
+                    }}>
+                      {resource}
                     </div>
-                  </div>
-                )}
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-secondary" onClick={() => handleEditSkill(selectedSkill)}>
-                    <FaPenToSquare size={16} />
-                    Edit
-                  </button>
-                  <button className="btn btn-ghost" onClick={(e) => handleDeleteSkill(selectedSkill.name, e)} style={{ color: '#ef4444', marginLeft: 'auto' }}>
-                    <FaTrash size={16} />
-                    Delete
-                  </button>
+                  ))}
                 </div>
               </div>
             )}
-
-            {(modalMode === 'create' || modalMode === 'edit') && (
-              <>
-                <div style={{ padding: '2rem', paddingBottom: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h2 style={{ margin: 0 }}>{modalMode === 'create' ? 'Create Skill' : 'Edit Skill'}</h2>
-                    <button className="btn btn-ghost" onClick={closeModal} style={{ padding: '8px' }}>&#10005;</button>
-                  </div>
-                </div>
-                <div style={{ padding: '0 2rem', overflow: 'auto', flex: 1 }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    {modalMode === 'create' && (
-                      <div className="input-group" style={{ marginBottom: 0 }}>
-                        <label htmlFor="name">Name</label>
-                        <input id="name" type="text" value={formName} onChange={(e) => setFormName(e.target.value)} required autoFocus placeholder="my-skill-name" />
-                      </div>
-                    )}
-                    <div className="input-group" style={{ marginBottom: 0 }}>
-                      <label htmlFor="description">Description</label>
-                      <input id="description" type="text" value={formDescription} onChange={(e) => setFormDescription(e.target.value)} required placeholder="Short description of the skill" />
-                    </div>
-                    <div className="input-group" style={{ marginBottom: 0 }}>
-                      <label htmlFor="keywords">Keywords (comma-separated)</label>
-                      <input id="keywords" type="text" value={formKeywords} onChange={(e) => setFormKeywords(e.target.value)} placeholder="review, quality, security" />
-                    </div>
-                    <div className="input-group" style={{ marginBottom: 0 }}>
-                      <label htmlFor="activation">Activation Mode</label>
-                      <select
-                        id="activation"
-                        value={formActivation}
-                        onChange={(e) => setFormActivation(e.target.value as SkillActivation)}
-                        style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--background)' }}
-                      >
-                        <option value="OnDemand">On Demand</option>
-                        <option value="Always">Always</option>
-                        <option value="Contextual">Contextual</option>
-                      </select>
-                    </div>
-                    <div className="input-group" style={{ marginBottom: 0 }}>
-                      <label htmlFor="content">Content (Markdown)</label>
-                      <div style={{ height: '200px' }}>
-                        <MarkdownEditor value={formContent} onChange={setFormContent} placeholder="Skill instructions in markdown..." className="modal-mdx-editor" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div style={{ padding: '1rem 2rem', borderTop: '1px solid var(--border)', display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-primary" onClick={handleSubmit} disabled={!formName.trim() || !formDescription.trim() || submitting} style={{ flex: 1, justifyContent: 'center' }}>
-                    {submitting ? 'Saving...' : 'Save'}
-                  </button>
-                  <button className="btn btn-secondary" onClick={closeModal} disabled={submitting}>
-                    Cancel
-                  </button>
-                </div>
-              </>
-            )}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn btn-secondary" onClick={() => handleEditSkill(selectedSkill)}>
+                <FaPenToSquare size={16} />
+                Edit
+              </button>
+              <button className="btn btn-ghost" onClick={(e) => handleDeleteSkill(selectedSkill.name, e)} style={{ color: '#ef4444', marginLeft: 'auto' }}>
+                <FaTrash size={16} />
+                Delete
+              </button>
+            </div>
           </div>
-        </>
-      )}
+        )}
+
+        {(modalMode === 'create' || modalMode === 'edit') && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, height: '100%', overflow: 'hidden' }}>
+            {modalMode === 'create' && (
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label htmlFor="name">Name</label>
+                <input id="name" type="text" value={formName} onChange={(e) => setFormName(e.target.value)} required autoFocus placeholder="my-skill-name" />
+              </div>
+            )}
+            <div className="input-group" style={{ marginBottom: 0 }}>
+              <label htmlFor="description">Description</label>
+              <input id="description" type="text" value={formDescription} onChange={(e) => setFormDescription(e.target.value)} required placeholder="Short description of the skill" />
+            </div>
+            <div className="input-group" style={{ marginBottom: 0 }}>
+              <label htmlFor="keywords">Keywords (comma-separated)</label>
+              <input id="keywords" type="text" value={formKeywords} onChange={(e) => setFormKeywords(e.target.value)} placeholder="review, quality, security" />
+            </div>
+            <div className="input-group" style={{ marginBottom: 0 }}>
+              <label htmlFor="activation">Activation Mode</label>
+              <select
+                id="activation"
+                value={formActivation}
+                onChange={(e) => setFormActivation(e.target.value as SkillActivation)}
+                style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--background)' }}
+              >
+                <option value="OnDemand">On Demand</option>
+                <option value="Always">Always</option>
+                <option value="Contextual">Contextual</option>
+              </select>
+            </div>
+            <div className="input-group" style={{ marginBottom: 0, height: '100%', overflow: 'hidden' }}>
+              <label htmlFor="content">Content (Markdown)</label>
+              <div style={{ height: '100%', overflow: 'hidden' }}>
+                <MarkdownEditor value={formContent} onChange={setFormContent} placeholder="Skill instructions in markdown..." className="modal-mdx-editor" />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>
+              <button className="btn btn-primary" onClick={handleSubmit} disabled={!formName.trim() || !formDescription.trim() || submitting} style={{ flex: 1, justifyContent: 'center' }}>
+                {submitting ? 'Saving...' : 'Save'}
+              </button>
+              <button className="btn btn-secondary" onClick={closeModal} disabled={submitting}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </SlideOver>
     </>
   )
 }
