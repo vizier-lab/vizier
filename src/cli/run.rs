@@ -6,13 +6,9 @@ use daemonize::Daemonize;
 use tokio::task::JoinSet;
 
 use crate::{
-    agents::VizierAgents,
-    channels::VizierChannels,
-    command::VizierCommandServer,
-    config::VizierConfig,
-    dependencies::VizierDependencies,
-    global_resources::VizierGlobalResources,
-    scheduler::VizierScheduler,
+    agents::VizierAgents, channels::VizierChannels, command::VizierCommandServer,
+    config::VizierConfig, dependencies::VizierDependencies,
+    global_resources::VizierGlobalResources, scheduler::VizierScheduler,
 };
 
 #[derive(Debug, Args, Clone)]
@@ -128,6 +124,8 @@ pub fn run(args: RunArgs) -> Result<()> {
     let config = config.clone();
 
     if !args.attached {
+        tracing::info!("vizier will run in the background...");
+
         let daemonize = Daemonize::new()
             .pid_file("/tmp/vizier.pid")
             .working_directory(workspace.parent().unwrap())
