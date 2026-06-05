@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf, process::Command};
 
 use anyhow::Result;
 
-use crate::{config::shell::LocalShellConfig, shell::ShellProvider};
+use crate::{config::shell::LocalShellConfig, agents::shell::ShellProvider};
 
 pub struct LocalShell {
     workdir: PathBuf,

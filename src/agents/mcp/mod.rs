@@ -13,7 +13,7 @@ use rmcp::{
 };
 
 use crate::{
-    config::{VizierConfig, tools::mcp::McpClientConfig},
+    config::tools::mcp::McpClientConfig,
     schema::{VizierAttachment, VizierAttachmentContent, VizierResponse, VizierResponseContent},
 };
 
@@ -22,9 +22,9 @@ pub struct VizierMcpClients {
 }
 
 impl VizierMcpClients {
-    pub async fn new(config: VizierConfig) -> Result<Self> {
+    pub async fn new(servers: HashMap<String, McpClientConfig>) -> Result<Self> {
         let mut clients = HashMap::new();
-        for (server_name, mcp_config) in config.tools.mcp_servers.iter() {
+        for (server_name, mcp_config) in servers.iter() {
             clients.insert(server_name.clone(), Arc::new(mcp_config.to_client().await?));
         }
 

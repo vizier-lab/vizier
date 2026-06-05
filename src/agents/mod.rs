@@ -17,7 +17,9 @@ use crate::utils::agent_workspace;
 
 pub mod agent;
 pub mod hook;
+pub mod mcp;
 pub mod process;
+pub mod shell;
 pub mod skill;
 pub mod tools;
 

@@ -15,6 +15,7 @@ use crate::{
         },
         state::HTTPState,
     },
+    config::{shell::ShellConfig, tools::mcp::McpClientConfig},
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentSummary, AgentToolsConfig,
         AgentUsageStats, BraveSearchToolSettings, MemoryConfig, ToolConfig,
@@ -137,7 +138,7 @@ pub struct AgentDetail {
     pub thinking_depth: usize,
     pub session_memory_capacity: usize,
     pub max_tokens: Option<u64>,
-    pub shell_access: bool,
+    pub shell: Option<ShellConfig>,
     pub brave_search: bool,
     pub brave_search_settings: Option<BraveSearchToolSettings>,
     pub vector_memory: bool,
@@ -151,7 +152,7 @@ pub struct AgentDetail {
     pub discord_token: Option<String>,
     pub telegram_token: Option<String>,
     pub tools_timeout: String,
-    pub mcp_servers: Vec<String>,
+    pub mcp_servers: std::collections::HashMap<String, McpClientConfig>,
     pub avatar_url: Option<String>,
     pub show_thinking: Option<bool>,
     pub show_tool_calls: Option<bool>,
@@ -193,7 +194,7 @@ async fn agent_detail(
                 thinking_depth: config.thinking_depth,
                 session_memory_capacity: config.session_memory.max_capacity,
                 max_tokens: config.max_tokens,
-                shell_access: config.tools.shell_access,
+                shell: config.tools.shell,
                 brave_search: config.tools.brave_search.enabled,
                 brave_search_settings: if config.tools.brave_search.settings.api_key.is_some()
                     || config.tools.brave_search.settings.safesearch.is_some()
@@ -213,7 +214,7 @@ async fn agent_detail(
                 discord_token: config.discord_token,
                 telegram_token: config.telegram_token,
                 tools_timeout: config.tools.timeout.to_string(),
-                mcp_servers: config.tools.mcp_servers.clone(),
+                mcp_servers: config.tools.mcp_servers,
                 avatar_url: config.avatar_url,
                 show_thinking: config.show_thinking,
                 show_tool_calls: config.show_tool_calls,
@@ -267,7 +268,7 @@ pub struct CreateAgentRequest {
 #[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct CreateAgentTools {
     #[serde(default)]
-    pub shell_access: Option<bool>,
+    pub shell: Option<ShellConfig>,
     #[serde(default)]
     pub brave_search: Option<bool>,
     #[serde(default)]
@@ -285,7 +286,7 @@ pub struct CreateAgentTools {
     #[serde(default)]
     pub timeout: Option<String>,
     #[serde(default)]
-    pub mcp_servers: Option<Vec<String>>,
+    pub mcp_servers: Option<std::collections::HashMap<String, McpClientConfig>>,
     #[serde(default)]
     pub programmatic_sandbox: Option<bool>,
 }
@@ -293,7 +294,7 @@ pub struct CreateAgentTools {
 impl CreateAgentRequest {
     fn into_config(self) -> AgentConfig {
         let tools = self.tools.unwrap_or(CreateAgentTools {
-            shell_access: None,
+            shell: None,
             brave_search: None,
             brave_search_settings: None,
             vector_memory: None,
@@ -325,7 +326,7 @@ impl CreateAgentRequest {
                 )
                 .unwrap_or(duration_string::DurationString::from_string("1m".into()).unwrap()),
                 programmatic_sandbox: tools.programmatic_sandbox.unwrap_or(false),
-                shell_access: tools.shell_access.unwrap_or(false),
+                shell: tools.shell,
                 brave_search: ToolConfig {
                     enabled: tools.brave_search.unwrap_or(false),
                     settings: tools.brave_search_settings.unwrap_or_default(),

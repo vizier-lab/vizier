@@ -1,20 +1,23 @@
 import { useState, useEffect, useRef } from 'react'
-import { FaGear, FaCode } from 'react-icons/fa6'
+import { FaGear, FaCode, FaScrewdriverWrench } from 'react-icons/fa6'
 import TooltipLabel from './TooltipLabel'
 import MarkdownEditor from './MarkdownEditor'
 import Avatar from './avatar'
 import AvatarCropModal from './AvatarCropModal'
-import { getMcpServers, uploadFile } from '../services/vizier'
+import { uploadFile } from '../services/vizier'
 import type {
   CreateAgentRequest,
   AgentDetail,
+  McpServerConfig,
+  ShellConfigData,
 } from '../interfaces/types'
 import defaultPrompt from '../../../templates/agent.template.md?raw'
 
-type FormTab = 'config' | 'prompt'
+type FormTab = 'config' | 'tools' | 'prompt'
 
 const TABS: { key: FormTab; label: string; icon: typeof FaGear }[] = [
   { key: 'config', label: 'Config', icon: FaGear },
+  { key: 'tools', label: 'Tools', icon: FaScrewdriverWrench },
   { key: 'prompt', label: 'System Prompt', icon: FaCode },
 ]
 
@@ -87,7 +90,7 @@ const DEFAULT_FORM: CreateAgentRequest = {
   show_tool_calls: false,
   silent_read_initiative_chance: 0.0,
   tools: {
-    shell_access: false,
+    shell: null,
     brave_search: false,
     brave_search_settings: {},
     vector_memory: true,
@@ -97,7 +100,7 @@ const DEFAULT_FORM: CreateAgentRequest = {
     http_client: false,
     programmatic_sandbox: false,
     timeout: '1m',
-    mcp_servers: [],
+    mcp_servers: {},
   },
   prompt_timeout: '5m',
   heartbeat_interval: '30m',
@@ -113,12 +116,22 @@ export default function AgentForm({
 }: AgentFormProps) {
   const [activeTab, setActiveTab] = useState<FormTab>('config')
   const [submitting, setSubmitting] = useState(false)
-  const [availableMcpServers, setAvailableMcpServers] = useState<string[]>([])
   const [form, setForm] = useState<CreateAgentRequest>(DEFAULT_FORM)
   const [cropFile, setCropFile] = useState<File | null>(null)
   const [avatarBlob, setAvatarBlob] = useState<Blob | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const avatarInputRef = useRef<HTMLInputElement>(null)
+
+  // MCP server form state
+  const [mcpFormOpen, setMcpFormOpen] = useState(false)
+  const [mcpFormKey, setMcpFormKey] = useState<string | null>(null)
+  const [mcpForm, setMcpForm] = useState<{
+    name: string
+    config: McpServerConfig
+  }>({
+    name: '',
+    config: { host: 'local', command: '', args: [], env: {}, uri: '' },
+  })
 
   useEffect(() => {
     if (mode === 'edit' && initialData) {
@@ -138,7 +151,7 @@ export default function AgentForm({
         silent_read_initiative_chance:
           d.silent_read_initiative_chance ?? 0.0,
         tools: {
-          shell_access: d.shell_access,
+          shell: d.shell || null,
           brave_search: d.brave_search,
           brave_search_settings: d.brave_search_settings || {},
           vector_memory: d.vector_memory,
@@ -148,7 +161,7 @@ export default function AgentForm({
           http_client: d.http_client,
           programmatic_sandbox: d.programmatic_sandbox ?? false,
           timeout: d.tools_timeout || '1m',
-          mcp_servers: d.mcp_servers || [],
+          mcp_servers: d.mcp_servers || {},
         },
         prompt_timeout: d.prompt_timeout,
         heartbeat_interval: d.heartbeat_interval,
@@ -159,20 +172,6 @@ export default function AgentForm({
       })
     }
   }, [mode, initialData])
-
-  useEffect(() => {
-    const loadMcpServers = async () => {
-      try {
-        const response = await getMcpServers()
-        if (response.data && response.data.value.type === 'McpServers') {
-          setAvailableMcpServers(Object.keys(response.data.value.data))
-        }
-      } catch {
-        // silently ignore
-      }
-    }
-    loadMcpServers()
-  }, [])
 
   const updateField = <K extends keyof CreateAgentRequest>(
     key: K,
@@ -192,14 +191,60 @@ export default function AgentForm({
     setForm((prev) => ({ ...prev, tools: { ...prev.tools, [key]: value } }))
   }
 
-  const toggleMcpServer = (name: string) => {
-    setForm((prev) => {
-      const current = prev.tools?.mcp_servers ?? []
-      const next = current.includes(name)
-        ? current.filter((s) => s !== name)
-        : [...current, name]
-      return { ...prev, tools: { ...prev.tools, mcp_servers: next } }
+  const updateShell = (value: ShellConfigData | null) => {
+    setForm((prev) => ({ ...prev, tools: { ...prev.tools, shell: value } }))
+  }
+
+  const updateMcpServers = (servers: Record<string, McpServerConfig>) => {
+    setForm((prev) => ({ ...prev, tools: { ...prev.tools, mcp_servers: servers } }))
+  }
+
+  const openAddMcpForm = () => {
+    setMcpFormKey(null)
+    setMcpForm({
+      name: '',
+      config: { host: 'local', command: '', args: [], env: {}, uri: '' },
     })
+    setMcpFormOpen(true)
+  }
+
+  const openEditMcpForm = (key: string) => {
+    const server = form.tools?.mcp_servers?.[key]
+    if (!server) return
+    setMcpFormKey(key)
+    setMcpForm({
+      name: key,
+      config: { ...server, args: server.args || [], env: server.env || {} },
+    })
+    setMcpFormOpen(true)
+  }
+
+  const handleSaveMcpServer = () => {
+    const name = mcpForm.name.trim()
+    if (!name) return
+    const config = { ...mcpForm.config }
+    if (config.host === 'local') {
+      delete config.uri
+    } else {
+      delete config.command
+      delete config.args
+    }
+    if (Object.keys(config.env || {}).length === 0) delete config.env
+    if (config.args && config.args.length === 0) delete config.args
+
+    const servers = { ...(form.tools?.mcp_servers || {}) }
+    if (mcpFormKey && mcpFormKey !== name) {
+      delete servers[mcpFormKey]
+    }
+    servers[name] = config
+    updateMcpServers(servers)
+    setMcpFormOpen(false)
+  }
+
+  const handleDeleteMcpServer = (key: string) => {
+    const servers = { ...(form.tools?.mcp_servers || {}) }
+    delete servers[key]
+    updateMcpServers(servers)
   }
 
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -211,6 +256,7 @@ export default function AgentForm({
   const handleAvatarCropped = (blob: Blob) => {
     setCropFile(null)
     setAvatarBlob(blob)
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview)
     setAvatarPreview(URL.createObjectURL(blob))
   }
 
@@ -786,333 +832,6 @@ export default function AgentForm({
                 </div>
               </div>
 
-              {/* Tools */}
-              <div>
-                <h4
-                  style={{
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    color: 'var(--text-primary)',
-                    marginBottom: '0.75rem',
-                    paddingBottom: '0.5rem',
-                    borderBottom: '1px solid var(--border)',
-                  }}
-                >
-                  Tools
-                </h4>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '1rem',
-                  }}
-                >
-                  <section style={fieldStyle}>
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: '0.5rem',
-                      }}
-                    >
-                      {(
-                        [
-                          [
-                            'shell_access',
-                            'Shell Access',
-                          ],
-                          [
-                            'vector_memory',
-                            'Vector Memory',
-                          ],
-                          ['discord', 'Discord'],
-                          ['telegram', 'Telegram'],
-                          ['fetch', 'Fetch Webpage'],
-                          [
-                            'http_client',
-                            'HTTP Client',
-                          ],
-                        ] as const
-                      ).map(([key, label]) => (
-                        <label
-                          key={key}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.4rem',
-                            fontSize: '0.8rem',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={
-                              form.tools?.[key] ??
-                              false
-                            }
-                            onChange={(e) =>
-                              updateTool(
-                                key,
-                                e.target.checked
-                              )
-                            }
-                          />
-                          {label}
-                        </label>
-                      ))}
-                    </div>
-                  </section>
-                  <div
-                    style={{
-                      padding: '0.75rem',
-                      border: '1px solid var(--border)',
-                      borderRadius: '0.5rem',
-                    }}
-                  >
-                    <label
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.4rem',
-                        fontSize: '0.8rem',
-                        cursor: 'pointer',
-                        marginBottom: form.tools
-                          ?.brave_search
-                          ? '0.75rem'
-                          : 0,
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={
-                          form.tools?.brave_search ??
-                          false
-                        }
-                        onChange={(e) =>
-                          updateTool(
-                            'brave_search',
-                            e.target.checked
-                          )
-                        }
-                      />
-                      Brave Search
-                    </label>
-                    {form.tools?.brave_search && (
-                      <div
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '0.5rem',
-                          paddingLeft: '1.5rem',
-                        }}
-                      >
-                        <div>
-                          <label
-                            style={{
-                              display: 'block',
-                              marginBottom:
-                                '0.25rem',
-                              fontSize: '0.75rem',
-                              color: 'var(--text-secondary)',
-                            }}
-                          >
-                            API Key (optional, falls
-                            back to global)
-                          </label>
-                          <input
-                            style={inputStyle}
-                            type="password"
-                            placeholder="Leave empty to use global config"
-                            value={
-                              form.tools
-                                ?.brave_search_settings
-                                ?.api_key || ''
-                            }
-                            onChange={(e) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                tools: {
-                                  ...prev.tools!,
-                                  brave_search_settings:
-                                  {
-                                    ...prev
-                                      .tools
-                                      ?.brave_search_settings,
-                                    api_key:
-                                      e
-                                        .target
-                                        .value ||
-                                      undefined,
-                                  },
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                        <label
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.4rem',
-                            fontSize: '0.8rem',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={
-                              form.tools
-                                ?.brave_search_settings
-                                ?.safesearch ??
-                              true
-                            }
-                            onChange={(e) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                tools: {
-                                  ...prev.tools!,
-                                  brave_search_settings:
-                                  {
-                                    ...prev
-                                      .tools
-                                      ?.brave_search_settings,
-                                    safesearch:
-                                      e
-                                        .target
-                                        .checked,
-                                  },
-                                },
-                              }))
-                            }
-                          />
-                          Safe Search
-                        </label>
-                      </div>
-                    )}
-                  </div>
-                  <section style={fieldStyle}>
-                    <label style={labelStyle}>
-                      <TooltipLabel
-                        label="Programmatic Sandbox"
-                        tooltip="Enable sandboxed execution for programmatic tools."
-                      />
-                    </label>
-                    <label
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.4rem',
-                        fontSize: '0.8rem',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={
-                          form.tools
-                            ?.programmatic_sandbox ??
-                          false
-                        }
-                        onChange={(e) =>
-                          updateTool(
-                            'programmatic_sandbox',
-                            e.target.checked
-                          )
-                        }
-                      />
-                      Enable sandboxed execution
-                    </label>
-                  </section>
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: '0.75rem',
-                    }}
-                  >
-                    <section
-                      style={{ ...fieldStyle, flex: 1 }}
-                    >
-                      <label style={labelStyle}>
-                        <TooltipLabel
-                          label="Tool Timeout"
-                          tooltip="Maximum time for a single tool execution (e.g. 1m, 30s)."
-                        />
-                      </label>
-                      <input
-                        style={inputStyle}
-                        placeholder="1m"
-                        value={
-                          form.tools?.timeout || ''
-                        }
-                        onChange={(e) =>
-                          updateToolField(
-                            'timeout',
-                            e.target.value
-                          )
-                        }
-                      />
-                    </section>
-                    {availableMcpServers.length > 0 && (
-                      <section
-                        style={{
-                          ...fieldStyle,
-                          flex: 1,
-                        }}
-                      >
-                        <label style={labelStyle}>
-                          <TooltipLabel
-                            label="MCP Servers"
-                            tooltip="Select globally configured MCP servers to attach."
-                          />
-                        </label>
-                        <div
-                          style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '0.4rem',
-                            padding: '0.25rem 0',
-                          }}
-                        >
-                          {availableMcpServers.map(
-                            (name) => (
-                              <label
-                                key={name}
-                                style={{
-                                  display:
-                                    'flex',
-                                  alignItems:
-                                    'center',
-                                  gap: '0.4rem',
-                                  fontSize:
-                                    '0.8rem',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={
-                                    form.tools?.mcp_servers?.includes(
-                                      name
-                                    ) ??
-                                    false
-                                  }
-                                  onChange={() =>
-                                    toggleMcpServer(
-                                      name
-                                    )
-                                  }
-                                />
-                                {name}
-                              </label>
-                            )
-                          )}
-                        </div>
-                      </section>
-                    )}
-                  </div>
-                </div>
-              </div>
-
               {/* Timing */}
               <div>
                 <h4
@@ -1250,6 +969,1215 @@ export default function AgentForm({
                     />
                   </section>
                 </div>
+              </div>
+
+              {/* Actions */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '0.75rem',
+                  paddingTop: '0.5rem',
+                }}
+              >
+                <button
+                  onClick={onCancel}
+                  style={{
+                    padding: '0.6rem 1.5rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid var(--border)',
+                    background: 'transparent',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  Cancel
+                </button>
+                <div style={{ flex: 1 }} />
+                <button
+                  onClick={handleSubmit}
+                  disabled={
+                    submitting ||
+                    (mode === 'create' &&
+                      (!form.agent_id.trim() ||
+                        !form.name.trim())) ||
+                    (mode === 'edit' && !form.name.trim())
+                  }
+                  style={{
+                    padding: '0.6rem 1.5rem',
+                    borderRadius: '0.375rem',
+                    border: 'none',
+                    background: submitting
+                      ? 'var(--border)'
+                      : 'var(--accent-primary)',
+                    color: '#fff',
+                    cursor: submitting
+                      ? 'not-allowed'
+                      : 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: 500,
+                  }}
+                >
+                  {submitting
+                    ? mode === 'create'
+                      ? 'Creating...'
+                      : 'Saving...'
+                    : mode === 'create'
+                      ? 'Create Agent'
+                      : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ─── Tools Tab ─── */}
+          {activeTab === 'tools' && (
+            <div
+              style={{
+                maxWidth: '720px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '1.5rem',
+              }}
+            >
+              {/* Tool Toggles */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Enabled Tools
+                </h4>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '0.5rem',
+                  }}
+                >
+                  {(
+                    [
+                      ['vector_memory', 'Vector Memory'],
+                      ['discord', 'Discord'],
+                      ['telegram', 'Telegram'],
+                      ['fetch', 'Fetch Webpage'],
+                      ['http_client', 'HTTP Client'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label
+                      key={key}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={form.tools?.[key] ?? false}
+                        onChange={(e) =>
+                          updateTool(key, e.target.checked)
+                        }
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tool Settings */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Tool Settings
+                </h4>
+                <section style={fieldStyle}>
+                  <label style={labelStyle}>
+                    <TooltipLabel
+                      label="Tool Timeout"
+                      tooltip="Maximum time for a single tool execution (e.g. 1m, 30s)."
+                    />
+                  </label>
+                  <input
+                    style={{ ...inputStyle, maxWidth: '200px' }}
+                    placeholder="1m"
+                    value={form.tools?.timeout || ''}
+                    onChange={(e) =>
+                      updateToolField('timeout', e.target.value)
+                    }
+                  />
+                </section>
+              </div>
+
+              {/* Programmatic Sandbox */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Programmatic Sandbox
+                </h4>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    fontSize: '0.8rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={
+                      form.tools?.programmatic_sandbox ?? false
+                    }
+                    onChange={(e) =>
+                      updateTool(
+                        'programmatic_sandbox',
+                        e.target.checked
+                      )
+                    }
+                  />
+                  Enable sandboxed execution
+                </label>
+              </div>
+
+              {/* Brave Search */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Brave Search
+                </h4>
+                <div
+                  style={{
+                    padding: '0.75rem',
+                    border: '1px solid var(--border)',
+                    borderRadius: '0.5rem',
+                  }}
+                >
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      marginBottom: form.tools?.brave_search
+                        ? '0.75rem'
+                        : 0,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={
+                        form.tools?.brave_search ?? false
+                      }
+                      onChange={(e) =>
+                        updateTool(
+                          'brave_search',
+                          e.target.checked
+                        )
+                      }
+                    />
+                    Enable Brave Search
+                  </label>
+                  {form.tools?.brave_search && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem',
+                        paddingLeft: '1.5rem',
+                      }}
+                    >
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom:
+                              '0.25rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          API Key (optional, falls
+                          back to global)
+                        </label>
+                        <input
+                          style={inputStyle}
+                          type="password"
+                          placeholder="Leave empty to use global config"
+                          value={
+                            form.tools
+                              ?.brave_search_settings
+                              ?.api_key || ''
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                brave_search_settings:
+                                {
+                                  ...prev
+                                    .tools
+                                    ?.brave_search_settings,
+                                  api_key:
+                                    e
+                                      .target
+                                      .value ||
+                                    undefined,
+                                },
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={
+                            form.tools
+                              ?.brave_search_settings
+                              ?.safesearch ??
+                            true
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                brave_search_settings:
+                                {
+                                  ...prev
+                                    .tools
+                                    ?.brave_search_settings,
+                                  safesearch:
+                                    e
+                                      .target
+                                      .checked,
+                                },
+                              },
+                            }))
+                          }
+                        />
+                        Safe Search
+                      </label>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Shell Config */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Shell Configuration
+                </h4>
+                <div
+                  style={{
+                    padding: '0.75rem',
+                    border: '1px solid var(--border)',
+                    borderRadius: '0.5rem',
+                  }}
+                >
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      marginBottom: form.tools?.shell
+                        ? '0.75rem'
+                        : 0,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.tools?.shell !== null}
+                      onChange={(e) =>
+                        updateShell(
+                          e.target.checked
+                            ? {
+                                environment: 'local',
+                                path: '.',
+                              }
+                            : null
+                        )
+                      }
+                    />
+                    Enable Shell
+                  </label>
+                  {form.tools?.shell && (() => {
+                    const shell = form.tools!.shell!
+                    return (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '1rem',
+                        paddingLeft: '1.5rem',
+                      }}
+                    >
+                      {/* Environment radio */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: '1.5rem',
+                          fontSize: '0.8rem',
+                        }}
+                      >
+                        <label
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <input
+                            type="radio"
+                            name="shell-env"
+                            checked={
+                              shell.environment === 'local'
+                            }
+                            onChange={() =>
+                              updateShell({
+                                ...shell,
+                                environment: 'local',
+                              })
+                            }
+                          />
+                          Local
+                        </label>
+                        <label
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <input
+                            type="radio"
+                            name="shell-env"
+                            checked={
+                              shell.environment === 'docker'
+                            }
+                            onChange={() =>
+                              updateShell({
+                                ...shell,
+                                environment: 'docker',
+                              })
+                            }
+                          />
+                          Docker
+                        </label>
+                      </div>
+
+                      {/* Local config */}
+                      {shell.environment ===
+                        'local' && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.75rem',
+                          }}
+                        >
+                          <section style={fieldStyle}>
+                            <label style={labelStyle}>
+                              Working Directory
+                            </label>
+                            <input
+                              style={inputStyle}
+                              placeholder="."
+                              value={
+                                shell.path || ''
+                              }
+                              onChange={(e) =>
+                                updateShell({
+                                  ...shell,
+                                  path:
+                                    e.target.value ||
+                                    undefined,
+                                })
+                              }
+                            />
+                          </section>
+                          <section style={fieldStyle}>
+                            <label style={labelStyle}>
+                              Environment Variables
+                            </label>
+                            <textarea
+                              style={{
+                                ...inputStyle,
+                                minHeight: '60px',
+                                fontFamily:
+                                  'monospace',
+                                fontSize: '0.8rem',
+                                resize: 'vertical',
+                              }}
+                              placeholder="KEY=value (one per line)"
+                              value={Object.entries(
+                                shell.env ||
+                                  {}
+                              )
+                                .map(
+                                  ([k, v]) =>
+                                    `${k}=${v}`
+                                )
+                                .join('\n')}
+                              onChange={(e) => {
+                                const env: Record<
+                                  string,
+                                  string
+                                > = {}
+                                e.target.value
+                                  .split('\n')
+                                  .forEach((line) => {
+                                    const trimmed =
+                                      line.trim()
+                                    if (
+                                      trimmed.includes(
+                                        '='
+                                      )
+                                    ) {
+                                      const idx =
+                                        trimmed.indexOf(
+                                          '='
+                                        )
+                                      env[
+                                        trimmed.substring(
+                                          0,
+                                          idx
+                                        )
+                                      ] =
+                                        trimmed.substring(
+                                          idx + 1
+                                        )
+                                    }
+                                  })
+                                updateShell({
+                                  ...shell,
+                                  env,
+                                })
+                              }}
+                            />
+                          </section>
+                        </div>
+                      )}
+
+                      {/* Docker config */}
+                      {shell.environment ===
+                        'docker' && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.75rem',
+                          }}
+                        >
+                          {/* Image Source radio */}
+                          <div
+                            style={{
+                              display: 'flex',
+                              gap: '1.5rem',
+                              fontSize: '0.8rem',
+                            }}
+                          >
+                            <label
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.4rem',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="shell-docker-source"
+                                checked={
+                                  shell.image
+                                    ?.source === 'pull'
+                                }
+                                onChange={() =>
+                                  updateShell({
+                                    ...shell,
+                                    image: {
+                                      source: 'pull',
+                                      name: '',
+                                    },
+                                  })
+                                }
+                              />
+                              Pull
+                            </label>
+                            <label
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.4rem',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="shell-docker-source"
+                                checked={
+                                  shell.image
+                                    ?.source ===
+                                  'dockerfile'
+                                }
+                                onChange={() =>
+                                  updateShell({
+                                    ...shell,
+                                    image: {
+                                      source:
+                                        'dockerfile',
+                                      path: '',
+                                      name: '',
+                                    },
+                                  })
+                                }
+                              />
+                              Dockerfile
+                            </label>
+                          </div>
+
+                          {shell.image
+                            ?.source === 'pull' && (
+                            <section style={fieldStyle}>
+                              <label style={labelStyle}>
+                                Image Name
+                              </label>
+                              <input
+                                style={inputStyle}
+                                placeholder="e.g. ubuntu:latest"
+                                value={
+                                  shell.image
+                                    ?.name || ''
+                                }
+                                onChange={(e) =>
+                                  updateShell({
+                                    ...shell,
+                                    image: {
+                                      source: 'pull',
+                                      name: e.target
+                                        .value,
+                                    },
+                                  })
+                                }
+                              />
+                            </section>
+                          )}
+
+                          {shell.image
+                            ?.source === 'dockerfile' && (
+                            <>
+                              <section style={fieldStyle}>
+                                <label style={labelStyle}>
+                                  Dockerfile Path
+                                </label>
+                                <input
+                                  style={inputStyle}
+                                  placeholder="./Dockerfile"
+                                  value={
+                                    shell.image
+                                      ?.path || ''
+                                  }
+                                  onChange={(e) =>
+                                    updateShell({
+                                      ...shell,
+                                      image: {
+                                        source:
+                                          'dockerfile',
+                                        path: e.target
+                                          .value,
+                                        name: shell
+                                          .image
+                                          ?.source ===
+                                          'dockerfile'
+                                          ? shell
+                                              .image
+                                              .name
+                                          : '',
+                                      },
+                                    })
+                                  }
+                                />
+                              </section>
+                              <section style={fieldStyle}>
+                                <label style={labelStyle}>
+                                  Image Name
+                                </label>
+                                <input
+                                  style={inputStyle}
+                                  placeholder="e.g. my-agent"
+                                  value={
+                                    shell.image
+                                      ?.name || ''
+                                  }
+                                  onChange={(e) =>
+                                    updateShell({
+                                      ...shell,
+                                      image: {
+                                        source:
+                                          'dockerfile',
+                                        path: shell
+                                          .image
+                                          ?.source ===
+                                          'dockerfile'
+                                          ? shell
+                                              .image
+                                              .path
+                                          : '',
+                                        name: e.target
+                                          .value,
+                                      },
+                                    })
+                                  }
+                                />
+                              </section>
+                            </>
+                          )}
+
+                          <section style={fieldStyle}>
+                            <label style={labelStyle}>
+                              Container Name
+                            </label>
+                            <input
+                              style={inputStyle}
+                              placeholder="Optional"
+                              value={
+                                shell
+                                  .container_name || ''
+                              }
+                              onChange={(e) =>
+                                updateShell({
+                                  ...shell,
+                                  container_name:
+                                    e.target.value ||
+                                    undefined,
+                                })
+                              }
+                            />
+                          </section>
+
+                          <section style={fieldStyle}>
+                            <label style={labelStyle}>
+                              Environment Variables
+                            </label>
+                            <textarea
+                              style={{
+                                ...inputStyle,
+                                minHeight: '60px',
+                                fontFamily: 'monospace',
+                                fontSize: '0.8rem',
+                                resize: 'vertical',
+                              }}
+                              placeholder="KEY=value (one per line)"
+                              value={Object.entries(
+                                shell.env || {}
+                              )
+                                .map(
+                                  ([k, v]) =>
+                                    `${k}=${v}`
+                                )
+                                .join('\n')}
+                              onChange={(e) => {
+                                const env: Record<
+                                  string,
+                                  string
+                                > = {}
+                                e.target.value
+                                  .split('\n')
+                                  .forEach((line) => {
+                                    const trimmed =
+                                      line.trim()
+                                    if (
+                                      trimmed.includes(
+                                        '='
+                                      )
+                                    ) {
+                                      const idx =
+                                        trimmed.indexOf(
+                                          '='
+                                        )
+                                      env[
+                                        trimmed.substring(
+                                          0,
+                                          idx
+                                        )
+                                      ] =
+                                        trimmed.substring(
+                                          idx + 1
+                                        )
+                                    }
+                                  })
+                                updateShell({
+                                  ...shell,
+                                  env,
+                                })
+                              }}
+                            />
+                          </section>
+                        </div>
+                      )}
+                    </div>
+                    )
+                  })()}
+                </div>
+              </div>
+
+              {/* MCP Servers */}
+              <div>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  <h4
+                    style={{
+                      fontSize: '0.85rem',
+                      fontWeight: 600,
+                      color: 'var(--text-primary)',
+                      margin: 0,
+                    }}
+                  >
+                    MCP Servers
+                  </h4>
+                  <button
+                    className="btn btn-primary"
+                    onClick={openAddMcpForm}
+                    style={{
+                      fontSize: '0.8rem',
+                      padding: '4px 12px',
+                    }}
+                  >
+                    + Add Server
+                  </button>
+                </div>
+
+                {/* MCP server list */}
+                {Object.keys(form.tools?.mcp_servers || {})
+                  .length > 0 ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.5rem',
+                    }}
+                  >
+                    {Object.entries(
+                      form.tools?.mcp_servers || {}
+                    ).map(([name, config]) => (
+                      <div
+                        key={name}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '0.5rem 0.75rem',
+                          border: '1px solid var(--border)',
+                          borderRadius: '0.375rem',
+                          background: 'var(--surface)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '1rem',
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: '0.85rem',
+                              fontWeight: 500,
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            {name}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: '0.75rem',
+                              color: 'var(--text-tertiary)',
+                              background:
+                                'var(--background)',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                            }}
+                          >
+                            {config.host}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: '0.75rem',
+                              color: 'var(--text-tertiary)',
+                              fontFamily: 'monospace',
+                            }}
+                          >
+                            {config.host === 'local'
+                              ? config.command
+                              : config.uri}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            gap: '0.25rem',
+                          }}
+                        >
+                          <button
+                            className="btn btn-ghost"
+                            onClick={() =>
+                              openEditMcpForm(name)
+                            }
+                            style={{
+                              fontSize: '0.8rem',
+                              padding: '4px 8px',
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn btn-ghost"
+                            onClick={() =>
+                              handleDeleteMcpServer(name)
+                            }
+                            style={{
+                              fontSize: '0.8rem',
+                              padding: '4px 8px',
+                              color: '#ef4444',
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p
+                    style={{
+                      color: 'var(--text-tertiary)',
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    No MCP servers configured.
+                  </p>
+                )}
+
+                {/* Inline MCP form */}
+                {mcpFormOpen && (
+                  <div
+                    style={{
+                      marginTop: '1rem',
+                      padding: '1rem',
+                      border: '1px solid var(--border)',
+                      borderRadius: '0.5rem',
+                      background: 'var(--surface)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.75rem',
+                    }}
+                  >
+                    <section style={fieldStyle}>
+                      <label style={labelStyle}>Name</label>
+                      <input
+                        style={inputStyle}
+                        placeholder="server-name"
+                        value={mcpForm.name}
+                        onChange={(e) =>
+                          setMcpForm((prev) => ({
+                            ...prev,
+                            name: e.target.value,
+                          }))
+                        }
+                      />
+                    </section>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: '1.5rem',
+                        fontSize: '0.8rem',
+                      }}
+                    >
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="mcp-type"
+                          checked={
+                            mcpForm.config.host === 'local'
+                          }
+                          onChange={() =>
+                            setMcpForm((prev) => ({
+                              ...prev,
+                              config: {
+                                ...prev.config,
+                                host: 'local',
+                                command: '',
+                                args: [],
+                                uri: undefined,
+                              },
+                            }))
+                          }
+                        />
+                        Local stdio
+                      </label>
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="mcp-type"
+                          checked={
+                            mcpForm.config.host === 'http'
+                          }
+                          onChange={() =>
+                            setMcpForm((prev) => ({
+                              ...prev,
+                              config: {
+                                ...prev.config,
+                                host: 'http',
+                                uri: '',
+                                command: undefined,
+                                args: undefined,
+                              },
+                            }))
+                          }
+                        />
+                        HTTP SSE
+                      </label>
+                    </div>
+
+                    {mcpForm.config.host === 'local' ? (
+                      <>
+                        <section style={fieldStyle}>
+                          <label style={labelStyle}>
+                            Command
+                          </label>
+                          <input
+                            style={inputStyle}
+                            placeholder="npx"
+                            value={
+                              mcpForm.config.command || ''
+                            }
+                            onChange={(e) =>
+                              setMcpForm((prev) => ({
+                                ...prev,
+                                config: {
+                                  ...prev.config,
+                                  command: e.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        </section>
+                        <section style={fieldStyle}>
+                          <label style={labelStyle}>
+                            Args (space-separated)
+                          </label>
+                          <input
+                            style={inputStyle}
+                            placeholder="-y @modelcontextprotocol/server-everything"
+                            value={
+                              mcpForm.config.args?.join(
+                                ' '
+                              ) || ''
+                            }
+                            onChange={(e) =>
+                              setMcpForm((prev) => ({
+                                ...prev,
+                                config: {
+                                  ...prev.config,
+                                  args: e.target.value
+                                    .split(' ')
+                                    .filter(Boolean),
+                                },
+                              }))
+                            }
+                          />
+                        </section>
+                      </>
+                    ) : (
+                      <section style={fieldStyle}>
+                        <label style={labelStyle}>
+                          URI
+                        </label>
+                        <input
+                          style={inputStyle}
+                          placeholder="http://localhost:3000/sse"
+                          value={
+                            mcpForm.config.uri || ''
+                          }
+                          onChange={(e) =>
+                            setMcpForm((prev) => ({
+                              ...prev,
+                              config: {
+                                ...prev.config,
+                                uri: e.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      </section>
+                    )}
+
+                    <section style={fieldStyle}>
+                      <label style={labelStyle}>
+                        Environment Variables
+                      </label>
+                      <textarea
+                        style={{
+                          ...inputStyle,
+                          minHeight: '60px',
+                          fontFamily: 'monospace',
+                          fontSize: '0.8rem',
+                          resize: 'vertical',
+                        }}
+                        placeholder="KEY=value (one per line)"
+                        value={Object.entries(
+                          mcpForm.config.env || {}
+                        )
+                          .map(([k, v]) => `${k}=${v}`)
+                          .join('\n')}
+                        onChange={(e) => {
+                          const env: Record<
+                            string,
+                            string
+                          > = {}
+                          e.target.value
+                            .split('\n')
+                            .forEach((line) => {
+                              const trimmed = line.trim()
+                              if (
+                                trimmed.includes('=')
+                              ) {
+                                const idx =
+                                  trimmed.indexOf('=')
+                                env[
+                                  trimmed.substring(
+                                    0,
+                                    idx
+                                  )
+                                ] = trimmed.substring(
+                                  idx + 1
+                                )
+                              }
+                            })
+                          setMcpForm((prev) => ({
+                            ...prev,
+                            config: {
+                              ...prev.config,
+                              env,
+                            },
+                          }))
+                        }}
+                      />
+                    </section>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: '0.5rem',
+                        justifyContent: 'flex-end',
+                      }}
+                    >
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() =>
+                          setMcpFormOpen(false)
+                        }
+                        style={{
+                          fontSize: '0.8rem',
+                          padding: '6px 16px',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="btn btn-primary"
+                        onClick={handleSaveMcpServer}
+                        style={{
+                          fontSize: '0.8rem',
+                          padding: '6px 16px',
+                        }}
+                      >
+                        {mcpFormKey
+                          ? 'Update'
+                          : 'Add'} Server
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Actions */}

@@ -12,7 +12,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::{
     config::shell::{DockerShellConfig, DockerSourceConfig},
-    shell::ShellProvider,
+    agents::shell::ShellProvider,
 };
 
 pub struct DockerShell {

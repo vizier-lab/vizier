@@ -26,9 +26,9 @@ use crate::{
             WritePrimaryDocument,
         },
     },
+    agents::mcp::{VizierMcp, VizierMcpClient},
     dependencies::VizierDependencies,
     error::VizierError,
-    mcp::{VizierMcp, VizierMcpClient},
     schema::{AgentId, VizierResponse},
     storage::agent::AgentStorage,
     utils::agent_workspace,
@@ -311,9 +311,15 @@ impl VizierTools {
             .tool(ReadSkillResource::new(Some(agent_id.clone()), deps.clone()))
             .tool(ExecuteSkillResource::new(Some(agent_id.clone()), deps.clone()));
 
-        if agent_config.tools.shell_access {
-            let shell = deps.shell.load();
-            default_toolset = default_toolset.tool(ShellExec(shell.clone()));
+        if let Some(ref shell_config) = agent_config.tools.shell {
+            match crate::agents::shell::VizierShell::new(shell_config).await {
+                Ok(shell) => {
+                    default_toolset = default_toolset.tool(ShellExec(Arc::new(shell)));
+                }
+                Err(e) => {
+                    tracing::error!("failed to create shell for agent {}: {}", agent_id, e);
+                }
+            }
         }
 
         if agent_config.tools.discord.enabled {
@@ -383,10 +389,19 @@ impl VizierTools {
         }
 
         let mut mcp = HashMap::new();
-        let mcp_clients = deps.mcp_clients.load();
-        for m in &agent_config.tools.mcp_servers {
-            if let Some(client) = mcp_clients.clients.get(m) {
-                mcp.insert(m.clone(), client.clone());
+        for (name, mcp_config) in &agent_config.tools.mcp_servers {
+            match mcp_config.to_client().await {
+                Ok(client) => {
+                    mcp.insert(name.clone(), Arc::new(client));
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "failed to create MCP client '{}' for agent {}: {}",
+                        name,
+                        agent_id,
+                        e
+                    );
+                }
             }
         }
 

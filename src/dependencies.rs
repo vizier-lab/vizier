@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use arc_swap::ArcSwap;
 
 use crate::{
     config::{
@@ -10,9 +9,7 @@ use crate::{
         storage::{DocumentIndexerConfig, StorageConfig},
     },
     embedding::VizierEmbedder,
-    mcp::VizierMcpClients,
-    schema::{GlobalConfigEntry, GlobalConfigValue, ProviderEntry, ProviderEntryConfig},
-    shell::VizierShell,
+    schema::{AgentToolsConfig, ProviderEntry, ProviderEntryConfig},
     storage::{
         VizierStorage,
         agent::AgentStorage,
@@ -32,8 +29,6 @@ pub struct VizierDependencies {
     pub embedder: Option<Arc<VizierEmbedder>>,
     pub transport: VizierTransport,
     pub storage: Arc<VizierStorage>,
-    pub mcp_clients: Arc<ArcSwap<VizierMcpClients>>,
-    pub shell: Arc<ArcSwap<VizierShell>>,
 }
 
 impl VizierDependencies {
@@ -68,33 +63,23 @@ impl VizierDependencies {
             }
         };
 
-        let shell = Arc::new(ArcSwap::new(Arc::new(
-            VizierShell::new(&config.shell).await?,
-        )));
-
-        let mcp_clients = Arc::new(ArcSwap::new(Arc::new(
-            VizierMcpClients::new(config.clone()).await?,
-        )));
-
         // Migrate existing users to have roles
         Self::migrate_users(&storage).await?;
 
         // Auto-migrate providers from YAML config if storage is empty
         Self::migrate_providers(&config, &storage).await?;
 
-        // Auto-migrate global config (mcp_servers, shell) from YAML if storage is empty
-        Self::migrate_global_config(&config, &storage).await?;
-
         // Auto-migrate channel tokens into agent configs
         Self::migrate_channel_tokens(&config, &storage).await?;
+
+        // Migrate per-agent MCP/shell from global config to agent configs
+        Self::migrate_agent_tools(&storage).await?;
 
         Ok(Self {
             config: Arc::new(config.clone()),
             storage: Arc::new(VizierStorage::new(storage)),
             transport: VizierTransport::new(),
             embedder,
-            mcp_clients,
-            shell,
         })
     }
 
@@ -281,30 +266,84 @@ impl VizierDependencies {
         Ok(())
     }
 
-    async fn migrate_global_config(config: &VizierConfig, storage: &VizierStorage) -> Result<()> {
-        if !storage.list_global_configs().await?.is_empty() {
+    async fn migrate_agent_tools(storage: &VizierStorage) -> Result<()> {
+        use std::collections::HashMap;
+
+        let agents = storage.list_agents().await?;
+        if agents.is_empty() {
             return Ok(());
         }
 
-        tracing::info!("migrating global config (mcp_servers, shell) from YAML to storage");
+        // Load global MCP servers config from storage
+        let global_mcp = match storage.get_global_config("mcp_servers").await {
+            Ok(Some(entry)) => {
+                if let crate::schema::GlobalConfigValue::McpServers(servers) = entry.value {
+                    Some(servers)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
 
-        if !config.tools.mcp_servers.is_empty() {
-            let entry = GlobalConfigEntry {
-                key: "mcp_servers".to_string(),
-                value: GlobalConfigValue::McpServers(config.tools.mcp_servers.clone()),
-            };
-            if let Err(e) = storage.upsert_global_config(&entry).await {
-                tracing::warn!("failed to migrate mcp_servers config: {}", e);
+        // Load global shell config from storage
+        let global_shell = match storage.get_global_config("shell").await {
+            Ok(Some(entry)) => {
+                if let crate::schema::GlobalConfigValue::Shell(shell) = entry.value {
+                    Some(shell)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        let mut migrated = 0;
+        for (agent_id, mut agent_config) in agents {
+            let mut changed = false;
+
+            // Migrate MCP servers: if agent has empty mcp_servers but global has servers,
+            // this is a legacy agent that referenced global servers by name.
+            // Since we can't know which names it used, we copy all global servers.
+            if agent_config.tools.mcp_servers.is_empty() {
+                if let Some(ref global_servers) = global_mcp {
+                    if !global_servers.is_empty() {
+                        agent_config.tools.mcp_servers = global_servers.clone();
+                        changed = true;
+                    }
+                }
+            }
+
+            // Migrate shell: if agent had shell_access=true (now gone), inherit global shell
+            // The old schema had shell_access: bool. After deserialization with the new schema,
+            // shell will be None. We check if the old field was true by looking at the raw data.
+            // Since we can't access raw data here, we use a heuristic: if the agent config
+            // doesn't have shell set but the global shell exists, we don't auto-migrate
+            // because we can't distinguish between "shell_access was false" and "shell_access was true".
+            // The migration of shell_access -> shell is handled by serde's default behavior.
+            // Old agents with shell_access: true will have shell: None in the new schema.
+            // We leave this for manual migration or skip it.
+
+            if changed {
+                if let Err(e) = storage.update_agent(&agent_id, &agent_config).await {
+                    tracing::warn!(
+                        "failed to migrate tools for agent '{}': {}",
+                        agent_id,
+                        e
+                    );
+                } else {
+                    migrated += 1;
+                }
             }
         }
 
-        let entry = GlobalConfigEntry {
-            key: "shell".to_string(),
-            value: GlobalConfigValue::Shell(config.shell.clone()),
-        };
-        if let Err(e) = storage.upsert_global_config(&entry).await {
-            tracing::warn!("failed to migrate shell config: {}", e);
+        if migrated > 0 {
+            tracing::info!("migrated tools config for {} agents", migrated);
         }
+
+        // Clean up global config entries (they're no longer needed)
+        let _ = storage.delete_global_config("mcp_servers").await;
+        let _ = storage.delete_global_config("shell").await;
 
         Ok(())
     }

@@ -28,8 +28,8 @@ const permissionGroups = [
         label: 'Settings',
         permissions: [
             ['settings:providers', 'Manage Providers'],
-            ['settings:mcp_servers', 'Manage MCP Servers'],
-            ['settings:shell', 'Manage Shell'],
+            ['agents:mcp_config', 'Configure Agent MCP'],
+            ['agents:shell_config', 'Configure Agent Shell'],
             ['settings:password', 'Change Password'],
             ['settings:api_keys', 'Manage API Keys'],
         ],

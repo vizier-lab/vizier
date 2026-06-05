@@ -58,28 +58,25 @@ src/
 │   │   └── system_prompt/ # system prompt construction, workspace init
 │   ├── tools/           # all built-in tools (register here for new tools)
 │   ├── hook/            # agent lifecycle hooks (debug, thinking, history, tool_calls)
+│   ├── mcp/             # MCP client + server integration (rmcp crate)
+│   ├── shell/           # shell execution abstraction
+│   │   ├── local/       # local shell
+│   │   └── docker/      # docker shell (bollard)
 │   └── skill/           # reusable agent behaviors
 ├── channels/
 │   ├── discord/         # serenity-based
 │   ├── telegram/        # teloxide-based
 │   └── http/            # axum REST + WebSocket + static WebUI serving
-│       ├── api/v1/      # agents, providers, global_config, files, skills endpoints
+│       ├── api/v1/      # agents, providers, files, skills endpoints
 │       ├── auth/        # JWT authentication, middleware
 │       └── webui/       # serves built WebUI static files
 ├── storage/
 │   ├── fs/              # filesystem storage backend
 │   ├── surreal/         # SurrealDB storage backend
 │   ├── indexer/         # document indexing (in-mem, surreal)
-│   └── *.rs             # storage traits (MemoryStorage, TaskStorage, AgentStorage, ProviderStorage, GlobalConfigStorage, etc.)
-├── skill/               # SkillManager, install logic, contextual matching
-├── scheduler/           # cron + one-time task scheduler
-├── mcp/                 # MCP client + server integration (rmcp crate)
+│   └── *.rs             # storage traits (MemoryStorage, TaskStorage, AgentStorage, ProviderStorage, etc.)
 ├── embedding/           # fastembed local embeddings
-├── shell/               # shell execution abstraction
-│   ├── local/           # local shell
-│   └── docker/          # docker shell (bollard)
 ├── transport/           # command transport (agent, channel, global commands)
-├── global_resources.rs  # MCP clients + shell hot-reload (ArcSwap)
 └── utils/               # utility functions
 webui/                   # React Router v7 + Tailwind v4 + TypeScript
 templates/               # agent.md / IDENTITY.md templates (include_str!'d)
@@ -99,9 +96,6 @@ managed at runtime via WebUI or HTTP API.
 | `channels.http` | YES (active) | No | — |
 | `providers` | YES (seed) | YES — `/api/v1/providers` | Auto-migrate to providers table |
 | `agents` | No | YES — `/api/v1/agents` | Created via API, stored in DB |
-| `tools.mcp_servers` | YES (seed) | YES — `/api/v1/global-config/mcp_servers` | Auto-migrate to global_config |
-| `shell` | YES (seed) | YES — `/api/v1/global-config/shell` | Auto-migrate to global_config |
-| `channels.discord/telegram` | YES (seed) | Per-agent token in agent config | Auto-migrate to agent configs |
 | `tools.brave_search` | YES (still there) | Per-agent setting via agents API | Not auto-migrated |
 
 ## Key patterns
@@ -127,10 +121,10 @@ in `src/channels/<name>/`, register spawn in `VizierChannels::run()`.
 SkillStorage, SessionStorage, StateStorage, DocumentIndexer, UserStorage,
 ), then implement `VizierStorageProvider` for it.
 
-**Hot-reload pattern**: Global resources (MCP clients, shell) use
-`Arc<ArcSwap<T>>`. When config is updated via API, a `GlobalCommand`
-is sent through `VizierTransport` to `VizierGlobalResources`, which
-atomically swaps the resource.
+**Per-agent MCP/Shell**: Each agent owns its own MCP server configs
+and shell config in `AgentToolsConfig`. When an agent starts,
+`VizierTools::new()` creates MCP clients and shell instances directly
+from the agent's config. No global MCP/shell singletons exist.
 
 **Agent lifecycle**: `AgentCommand::Create/Update/Delete` flows from
 HTTP API → `VizierTransport` → `VizierAgents` manager → aborts old

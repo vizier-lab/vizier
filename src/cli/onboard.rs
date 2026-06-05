@@ -429,12 +429,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         },
         tools: ToolsConfig {
             brave_search: None,
-            mcp_servers: HashMap::new(),
         },
-        shell: crate::config::shell::ShellConfig::Local(crate::config::shell::LocalShellConfig {
-            path: ".".into(),
-            env: None,
-        }),
         worker_threads,
     };
 

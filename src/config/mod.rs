@@ -13,7 +13,6 @@ use crate::{
     config::{
         embedding::{EmbeddingConfig, LocalEmbeddingModelVariant},
         provider::{LlamaCppProviderConfig, OllamaProviderConfig, ProviderConfig},
-        shell::{LocalShellConfig, ShellConfig},
         storage::StorageConfig,
         tools::{BraveSearchConfig, ToolsConfig},
     },
@@ -80,7 +79,6 @@ pub struct VizierConfig {
     pub storage: StorageConfig,
     pub channels: ChannelsConfig,
     pub tools: ToolsConfig,
-    pub shell: ShellConfig,
     #[serde(default = "default_worker_threads")]
     pub worker_threads: usize,
 }
@@ -181,12 +179,7 @@ impl Default for VizierConfig {
             },
             tools: ToolsConfig {
                 brave_search: Some(BraveSearchConfig::default()),
-                mcp_servers: HashMap::new(),
             },
-            shell: ShellConfig::Local(LocalShellConfig {
-                path: ".".into(),
-                env: None,
-            }),
             worker_threads: 4,
         }
     }

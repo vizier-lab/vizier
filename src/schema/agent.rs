@@ -4,6 +4,8 @@ use duration_string::DurationString;
 use serde::{Deserialize, Serialize};
 
 use crate::config::provider::ProviderVariant;
+use crate::config::shell::ShellConfig;
+use crate::config::tools::mcp::McpClientConfig;
 
 pub type AgentConfigs = HashMap<String, AgentConfig>;
 
@@ -52,7 +54,7 @@ pub struct AgentToolsConfig {
     #[serde(default)]
     pub programmatic_sandbox: bool,
     #[serde(default)]
-    pub shell_access: bool,
+    pub shell: Option<ShellConfig>,
     #[serde(default)]
     pub brave_search: ToolConfig<BraveSearchToolSettings>,
     #[serde(default)]
@@ -66,7 +68,7 @@ pub struct AgentToolsConfig {
     #[serde(default)]
     pub http_client: ToolConfig<()>,
     #[serde(default)]
-    pub mcp_servers: Vec<String>,
+    pub mcp_servers: HashMap<String, McpClientConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

@@ -112,7 +112,7 @@ export interface BraveSearchToolSettings {
 export interface AgentToolsConfig {
   timeout: string
   programmatic_sandbox: boolean
-  shell_access: boolean
+  shell: ShellConfigData | null
   brave_search: AgentToolConfig
   brave_search_settings?: BraveSearchToolSettings
   vector_memory: AgentToolConfig
@@ -120,7 +120,7 @@ export interface AgentToolsConfig {
   telegram: AgentToolConfig
   fetch: AgentToolConfig
   http_client: AgentToolConfig
-  mcp_servers: string[]
+  mcp_servers: Record<string, McpServerConfig>
 }
 
 export interface AgentConfig {
@@ -156,7 +156,7 @@ export interface CreateAgentRequest {
   show_tool_calls?: boolean
   silent_read_initiative_chance?: number
   tools?: {
-    shell_access?: boolean
+    shell?: ShellConfigData | null
     brave_search?: boolean
     brave_search_settings?: BraveSearchToolSettings
     vector_memory?: boolean
@@ -166,7 +166,7 @@ export interface CreateAgentRequest {
     http_client?: boolean
     programmatic_sandbox?: boolean
     timeout?: string
-    mcp_servers?: string[]
+    mcp_servers?: Record<string, McpServerConfig>
   }
   prompt_timeout?: string
   heartbeat_interval?: string
@@ -189,7 +189,7 @@ export interface AgentDetail {
   show_thinking?: boolean
   show_tool_calls?: boolean
   silent_read_initiative_chance?: number
-  shell_access: boolean
+  shell: ShellConfigData | null
   brave_search: boolean
   brave_search_settings?: BraveSearchToolSettings
   vector_memory: boolean
@@ -204,7 +204,7 @@ export interface AgentDetail {
   discord_token?: string
   telegram_token?: string
   tools_timeout: string
-  mcp_servers: string[]
+  mcp_servers: Record<string, McpServerConfig>
   avatar_url?: string
 }
 

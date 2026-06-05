@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::{
     config::shell::ShellConfig,
-    shell::{docker::DockerShell, local::LocalShell},
+    agents::shell::{docker::DockerShell, local::LocalShell},
 };
 
 pub mod docker;

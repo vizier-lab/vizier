@@ -14,7 +14,6 @@ use crate::channels::http::{
 pub mod agents;
 pub mod auth;
 pub mod files;
-pub mod global_config;
 pub mod providers;
 pub mod skills;
 
@@ -137,18 +136,6 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
             "/providers",
             providers::providers()
                 .layer(middleware::from_fn_with_state(PermissionState { permission: "settings:providers".to_string() }, require_permission))
-                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
-        )
-        .nest(
-            "/global-config/mcp-servers",
-            global_config::mcp_servers_routes()
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "settings:mcp_servers".to_string() }, require_permission))
-                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
-        )
-        .nest(
-            "/global-config/shell",
-            global_config::shell_routes()
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "settings:shell".to_string() }, require_permission))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .nest(

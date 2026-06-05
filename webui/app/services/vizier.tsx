@@ -482,44 +482,6 @@ export const ping = async () => {
 }
 
 // ============================================================================
-// MCP SERVERS ENDPOINTS
-// ============================================================================
-
-export const getMcpServers = async () => {
-  const res = await apiClient.get('/global-config/mcp-servers')
-  return res.data
-}
-
-export const upsertMcpServers = async (data: unknown) => {
-  const res = await apiClient.put('/global-config/mcp-servers', data)
-  return res.data
-}
-
-export const deleteMcpServers = async () => {
-  const res = await apiClient.delete('/global-config/mcp-servers')
-  return res.data
-}
-
-// ============================================================================
-// SHELL CONFIG ENDPOINTS
-// ============================================================================
-
-export const getShellConfig = async () => {
-  const res = await apiClient.get('/global-config/shell')
-  return res.data
-}
-
-export const upsertShellConfig = async (data: unknown) => {
-  const res = await apiClient.put('/global-config/shell', data)
-  return res.data
-}
-
-export const deleteShellConfig = async () => {
-  const res = await apiClient.delete('/global-config/shell')
-  return res.data
-}
-
-// ============================================================================
 // FILE UPLOAD ENDPOINTS
 // ============================================================================
 

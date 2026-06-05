@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::{
     agents::tools::VizierTool,
     error::VizierError,
-    shell::{ShellProvider, VizierShell},
+    agents::shell::{ShellProvider, VizierShell},
 };
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
