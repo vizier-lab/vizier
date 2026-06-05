@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { FaGear, FaCode, FaScrewdriverWrench } from 'react-icons/fa6'
+import { FaGear, FaCode, FaScrewdriverWrench, FaCircleCheck } from 'react-icons/fa6'
 import TooltipLabel from './TooltipLabel'
 import MarkdownEditor from './MarkdownEditor'
 import Avatar from './avatar'
@@ -13,12 +13,13 @@ import type {
 } from '../interfaces/types'
 import defaultPrompt from '../../../templates/agent.template.md?raw'
 
-type FormTab = 'config' | 'tools' | 'prompt'
+type FormTab = 'config' | 'tools' | 'prompt' | 'review'
 
 const TABS: { key: FormTab; label: string; icon: typeof FaGear }[] = [
   { key: 'config', label: 'Config', icon: FaGear },
   { key: 'tools', label: 'Tools', icon: FaScrewdriverWrench },
   { key: 'prompt', label: 'System Prompt', icon: FaCode },
+  { key: 'review', label: 'Review', icon: FaCircleCheck },
 ]
 
 const PROVIDERS = [
@@ -115,6 +116,7 @@ export default function AgentForm({
   onCancel,
 }: AgentFormProps) {
   const [activeTab, setActiveTab] = useState<FormTab>('config')
+  const [maxReachedTab, setMaxReachedTab] = useState<number>(0)
   const [submitting, setSubmitting] = useState(false)
   const [form, setForm] = useState<CreateAgentRequest>(DEFAULT_FORM)
   const [cropFile, setCropFile] = useState<File | null>(null)
@@ -197,6 +199,15 @@ export default function AgentForm({
 
   const updateMcpServers = (servers: Record<string, McpServerConfig>) => {
     setForm((prev) => ({ ...prev, tools: { ...prev.tools, mcp_servers: servers } }))
+  }
+
+  const goToNextTab = () => {
+    const currentIndex = TABS.findIndex(t => t.key === activeTab)
+    if (currentIndex < TABS.length - 1) {
+      const nextIndex = currentIndex + 1
+      setActiveTab(TABS[nextIndex].key)
+      setMaxReachedTab(prev => Math.max(prev, nextIndex))
+    }
   }
 
   const openAddMcpForm = () => {
@@ -299,15 +310,19 @@ export default function AgentForm({
     <>
       {/* Mobile tab nav */}
       <div className="flex md:hidden border-b border-[var(--border)] px-4 gap-2 py-2 overflow-x-auto">
-        {TABS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => setActiveTab(key)}
-            className={`px-3 py-1.5 text-sm font-medium rounded-t transition-colors whitespace-nowrap ${activeTab === key ? 'bg-[var(--surface)] text-[var(--text-primary)] border-b-2 border-[var(--accent-primary)]' : 'text-[var(--text-tertiary)]'}`}
-          >
-            {label}
-          </button>
-        ))}
+        {TABS.map(({ key, label }, index) => {
+          const isDisabled = mode === 'create' && index > maxReachedTab
+          return (
+            <button
+              key={key}
+              onClick={() => !isDisabled && setActiveTab(key)}
+              disabled={isDisabled}
+              className={`px-3 py-1.5 text-sm font-medium rounded-t transition-colors whitespace-nowrap ${activeTab === key ? 'bg-[var(--surface)] text-[var(--text-primary)] border-b-2 border-[var(--accent-primary)]' : isDisabled ? 'text-[var(--text-tertiary)] opacity-40 cursor-not-allowed' : 'text-[var(--text-tertiary)]'}`}
+            >
+              {label}
+            </button>
+          )
+        })}
       </div>
 
       <div className="flex" style={{
@@ -324,16 +339,19 @@ export default function AgentForm({
             flexShrink: 0,
           }}
         >
-          {TABS.map(({ key, label, icon: Icon }) => (
-            <div
-              key={key}
-              className={`nav-item ${activeTab === key ? 'active' : ''}`}
-              onClick={() => setActiveTab(key)}
-            >
-              <Icon size={16} />
-              <span>{label}</span>
-            </div>
-          ))}
+          {TABS.map(({ key, label, icon: Icon }, index) => {
+            const isDisabled = mode === 'create' && index > maxReachedTab
+            return (
+              <div
+                key={key}
+                className={`nav-item ${activeTab === key ? 'active' : ''} ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+                onClick={() => !isDisabled && setActiveTab(key)}
+              >
+                <Icon size={16} />
+                <span>{label}</span>
+              </div>
+            )
+          })}
         </div>
 
         {/* Content */}
@@ -994,38 +1012,53 @@ export default function AgentForm({
                   Cancel
                 </button>
                 <div style={{ flex: 1 }} />
-                <button
-                  onClick={handleSubmit}
-                  disabled={
-                    submitting ||
-                    (mode === 'create' &&
-                      (!form.agent_id.trim() ||
-                        !form.name.trim())) ||
-                    (mode === 'edit' && !form.name.trim())
-                  }
-                  style={{
-                    padding: '0.6rem 1.5rem',
-                    borderRadius: '0.375rem',
-                    border: 'none',
-                    background: submitting
-                      ? 'var(--border)'
-                      : 'var(--accent-primary)',
-                    color: '#fff',
-                    cursor: submitting
-                      ? 'not-allowed'
-                      : 'pointer',
-                    fontSize: '0.85rem',
-                    fontWeight: 500,
-                  }}
-                >
-                  {submitting
-                    ? mode === 'create'
-                      ? 'Creating...'
-                      : 'Saving...'
-                    : mode === 'create'
-                      ? 'Create Agent'
-                      : 'Save Changes'}
-                </button>
+                {mode === 'create' ? (
+                  <button
+                    onClick={goToNextTab}
+                    disabled={
+                      !form.agent_id.trim() || !form.name.trim()
+                    }
+                    style={{
+                      padding: '0.6rem 1.5rem',
+                      borderRadius: '0.375rem',
+                      border: 'none',
+                      background:
+                        !form.agent_id.trim() || !form.name.trim()
+                          ? 'var(--border)'
+                          : 'var(--accent-primary)',
+                      color: '#fff',
+                      cursor:
+                        !form.agent_id.trim() || !form.name.trim()
+                          ? 'not-allowed'
+                          : 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: 500,
+                    }}
+                  >
+                    Next
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSubmit}
+                    disabled={submitting || !form.name.trim()}
+                    style={{
+                      padding: '0.6rem 1.5rem',
+                      borderRadius: '0.375rem',
+                      border: 'none',
+                      background: submitting
+                        ? 'var(--border)'
+                        : 'var(--accent-primary)',
+                      color: '#fff',
+                      cursor: submitting
+                        ? 'not-allowed'
+                        : 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {submitting ? 'Saving...' : 'Save Changes'}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -2203,38 +2236,44 @@ export default function AgentForm({
                   Cancel
                 </button>
                 <div style={{ flex: 1 }} />
-                <button
-                  onClick={handleSubmit}
-                  disabled={
-                    submitting ||
-                    (mode === 'create' &&
-                      (!form.agent_id.trim() ||
-                        !form.name.trim())) ||
-                    (mode === 'edit' && !form.name.trim())
-                  }
-                  style={{
-                    padding: '0.6rem 1.5rem',
-                    borderRadius: '0.375rem',
-                    border: 'none',
-                    background: submitting
-                      ? 'var(--border)'
-                      : 'var(--accent-primary)',
-                    color: '#fff',
-                    cursor: submitting
-                      ? 'not-allowed'
-                      : 'pointer',
-                    fontSize: '0.85rem',
-                    fontWeight: 500,
-                  }}
-                >
-                  {submitting
-                    ? mode === 'create'
-                      ? 'Creating...'
-                      : 'Saving...'
-                    : mode === 'create'
-                      ? 'Create Agent'
-                      : 'Save Changes'}
-                </button>
+                {mode === 'create' ? (
+                  <button
+                    onClick={goToNextTab}
+                    style={{
+                      padding: '0.6rem 1.5rem',
+                      borderRadius: '0.375rem',
+                      border: 'none',
+                      background: 'var(--accent-primary)',
+                      color: '#fff',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: 500,
+                    }}
+                  >
+                    Next
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSubmit}
+                    disabled={submitting || !form.name.trim()}
+                    style={{
+                      padding: '0.6rem 1.5rem',
+                      borderRadius: '0.375rem',
+                      border: 'none',
+                      background: submitting
+                        ? 'var(--border)'
+                        : 'var(--accent-primary)',
+                      color: '#fff',
+                      cursor: submitting
+                        ? 'not-allowed'
+                        : 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {submitting ? 'Saving...' : 'Save Changes'}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -2293,15 +2332,295 @@ export default function AgentForm({
                   Cancel
                 </button>
                 <div style={{ flex: 1 }} />
+                {mode === 'create' ? (
+                  <button
+                    onClick={goToNextTab}
+                    style={{
+                      padding: '0.6rem 1.5rem',
+                      borderRadius: '0.375rem',
+                      border: 'none',
+                      background: 'var(--accent-primary)',
+                      color: '#fff',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: 500,
+                    }}
+                  >
+                    Next
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSubmit}
+                    disabled={submitting || !form.name.trim()}
+                    style={{
+                      padding: '0.6rem 1.5rem',
+                      borderRadius: '0.375rem',
+                      border: 'none',
+                      background: submitting
+                        ? 'var(--border)'
+                        : 'var(--accent-primary)',
+                      color: '#fff',
+                      cursor: submitting
+                        ? 'not-allowed'
+                        : 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {submitting ? 'Saving...' : 'Save Changes'}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ─── Review Tab ─── */}
+          {activeTab === 'review' && mode === 'create' && (
+            <div
+              style={{
+                maxWidth: '720px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '1.5rem',
+              }}
+            >
+              <p
+                style={{
+                  color: 'var(--text-secondary)',
+                  fontSize: '14px',
+                  marginBottom: '0.5rem',
+                }}
+              >
+                Review your agent configuration before creating.
+              </p>
+
+              {/* Agent Info */}
+              <div
+                style={{
+                  padding: '1rem',
+                  border: '1px solid var(--border)',
+                  borderRadius: '0.5rem',
+                  background: 'var(--surface)',
+                }}
+              >
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Agent Details
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Name</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontWeight: 500 }}>
+                      {form.name || '(not set)'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>ID</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                      {form.agent_id || '(not set)'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Description</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', maxWidth: '60%', textAlign: 'right' }}>
+                      {form.description || '(none)'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Model Config */}
+              <div
+                style={{
+                  padding: '1rem',
+                  border: '1px solid var(--border)',
+                  borderRadius: '0.5rem',
+                  background: 'var(--surface)',
+                }}
+              >
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Model Configuration
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Provider</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontWeight: 500 }}>
+                      {form.provider}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Model</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                      {form.model}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Max Tokens</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                      {form.max_tokens}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Thinking Depth</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                      {form.thinking_depth}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tools Summary */}
+              <div
+                style={{
+                  padding: '1rem',
+                  border: '1px solid var(--border)',
+                  borderRadius: '0.5rem',
+                  background: 'var(--surface)',
+                }}
+              >
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Enabled Tools
+                </h4>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  {form.tools?.vector_memory && (
+                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
+                      Vector Memory
+                    </span>
+                  )}
+                  {form.tools?.brave_search && (
+                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
+                      Brave Search
+                    </span>
+                  )}
+                  {form.tools?.discord && (
+                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
+                      Discord
+                    </span>
+                  )}
+                  {form.tools?.telegram && (
+                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
+                      Telegram
+                    </span>
+                  )}
+                  {form.tools?.fetch && (
+                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
+                      Fetch
+                    </span>
+                  )}
+                  {form.tools?.http_client && (
+                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
+                      HTTP Client
+                    </span>
+                  )}
+                  {form.tools?.programmatic_sandbox && (
+                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
+                      Sandbox
+                    </span>
+                  )}
+                  {form.tools?.mcp_servers && Object.keys(form.tools.mcp_servers).length > 0 && (
+                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
+                      MCP ({Object.keys(form.tools.mcp_servers).length})
+                    </span>
+                  )}
+                  {!form.tools?.vector_memory && !form.tools?.brave_search && !form.tools?.discord &&
+                    !form.tools?.telegram && !form.tools?.fetch && !form.tools?.http_client &&
+                    !form.tools?.programmatic_sandbox && (
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
+                      No tools enabled
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* System Prompt Preview */}
+              <div
+                style={{
+                  padding: '1rem',
+                  border: '1px solid var(--border)',
+                  borderRadius: '0.5rem',
+                  background: 'var(--surface)',
+                }}
+              >
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  System Prompt
+                </h4>
+                <div
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--text-secondary)',
+                    maxHeight: '150px',
+                    overflow: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {form.system_prompt
+                    ? form.system_prompt.slice(0, 500) + (form.system_prompt.length > 500 ? '...' : '')
+                    : '(no prompt)'}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '0.75rem',
+                  paddingTop: '0.5rem',
+                }}
+              >
+                <button
+                  onClick={onCancel}
+                  style={{
+                    padding: '0.6rem 1.5rem',
+                    borderRadius: '0.375rem',
+                    border: '1px solid var(--border)',
+                    background: 'transparent',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  Cancel
+                </button>
+                <div style={{ flex: 1 }} />
                 <button
                   onClick={handleSubmit}
-                  disabled={
-                    submitting ||
-                    (mode === 'create' &&
-                      (!form.agent_id.trim() ||
-                        !form.name.trim())) ||
-                    (mode === 'edit' && !form.name.trim())
-                  }
+                  disabled={submitting}
                   style={{
                     padding: '0.6rem 1.5rem',
                     borderRadius: '0.375rem',
@@ -2315,15 +2634,23 @@ export default function AgentForm({
                       : 'pointer',
                     fontSize: '0.85rem',
                     fontWeight: 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
                   }}
                 >
-                  {submitting
-                    ? mode === 'create'
-                      ? 'Creating...'
-                      : 'Saving...'
-                    : mode === 'create'
-                      ? 'Create Agent'
-                      : 'Save Changes'}
+                  {submitting ? (
+                    <>
+                      Creating
+                      <span className="thinking-dots">
+                        <span>.</span>
+                        <span>.</span>
+                        <span>.</span>
+                      </span>
+                    </>
+                  ) : (
+                    'Create Agent'
+                  )}
                 </button>
               </div>
             </div>

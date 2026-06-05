@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
-import { FaRobot, FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook, FaWandMagicSparkles } from 'react-icons/fa6'
+import { FaRobot, FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook, FaWandMagicSparkles, FaHouse } from 'react-icons/fa6'
 import Avatar from './components/avatar'
 import ToastContainer from './components/Toast'
 import { useConnectionStore } from './hooks/connectionStore'
@@ -114,6 +114,7 @@ export default function Layout() {
   }
 
   const getCurrentView = () => {
+    if (location.pathname === '/') return 'home'
     if (location.pathname.includes('/memory')) return 'memory'
     if (location.pathname.includes('/tasks')) return 'tasks'
     if (location.pathname.includes('/skills')) return 'skills'
@@ -259,6 +260,7 @@ export default function Layout() {
         <div className="nav-content">
           <div className="nav-section">
             {([
+              ['home', 'Home', FaHouse],
               ['chat', 'Chat', FaComment],
               ['memory', 'Memory', FaBook],
               ['tasks', 'Tasks', FaCircleCheck],
@@ -266,15 +268,16 @@ export default function Layout() {
               ['usage', 'Usage', FaArrowTrendUp],
               ['settings', 'Agent Config', FaRobot],
             ] as const).map(([view, label, Icon]) => {
+              const isHome = view === 'home'
               const isSettings = view === 'settings'
               const canEditAgent = hasPermission('all_agents:edit') || currentAgent?.owner_id === user?.user_id
-              const isDisabled = !currentAgentId || (isSettings && !canEditAgent)
+              const isDisabled = !isHome && (!currentAgentId || (isSettings && !canEditAgent))
 
               return (
                 <div
                   key={view}
                   className={`nav-item ${currentView === view ? 'active' : ''}`}
-                  onClick={() => !isDisabled && handleNavClick(`/${currentAgentId}/${view}`)}
+                  onClick={() => !isDisabled && handleNavClick(isHome ? '/' : `/${currentAgentId}/${view}`)}
                   style={{
                     ...(isDisabled ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}),
                   }}

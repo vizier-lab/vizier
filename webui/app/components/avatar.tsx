@@ -20,7 +20,7 @@ interface AvatarProps {
   name: string
   rounded?: boolean
   variant?: AvatarVariant
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'xl'
   showStatus?: boolean
   online?: boolean
   avatarUrl?: string
@@ -30,12 +30,14 @@ const sizeMap = {
   sm: 36,
   md: 48,
   lg: 64,
+  xl: 96,
 }
 
 const dotSizeMap = {
   sm: 12,
   md: 16,
   lg: 18,
+  xl: 20,
 }
 
 const Avatar = ({
