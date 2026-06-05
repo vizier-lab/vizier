@@ -147,6 +147,7 @@ pub async fn agent_process(
     });
 
     let mut session_queues = HashMap::<VizierSession, VecDeque<VizierRequest>>::new();
+    let mut message_counts = HashMap::<VizierSession, usize>::new();
     let (complete_tx, mut complete_rx) = mpsc::unbounded_channel::<VizierSession>();
 
     loop {
@@ -157,51 +158,69 @@ pub async fn agent_process(
                 let request = envelope.request;
                 let response_tx = envelope.response_tx;
 
-                // handle session_detail creator
+                // handle session_detail
                 let session_detail_storage = deps.storage.clone();
                 let session_detail_session = session.clone();
                 let session_detail_agent = agent.clone();
                 let session_detail_request = request.clone();
+                let msg_count = message_counts.entry(session.clone()).or_insert(0);
+                *msg_count += 1;
+                let current_count = *msg_count;
                 detail_tasks.spawn(async move {
                     let agent_id = session_detail_session.0;
                     let channel = session_detail_session.1;
                     let topic = session_detail_session.2;
+                    let slug_title = topic.clone().unwrap_or("DEFAULT".to_string());
 
-                    if let None = session_detail_storage
-                        .get_session_detail_by_topic(agent_id.clone(), channel.clone(), topic.clone())
-                        .await
-                        .unwrap_or(None)
-                    {
-                        let prompt = format!(
-                            r#"summarize (don't execute) the prompt below into a 60 character title:
+                    if current_count == 1 {
+                        // Create session_detail immediately with slug as title
+                        let detail = VizierSessionDetail {
+                            agent_id,
+                            channel,
+                            topic,
+                            title: slug_title,
+                        };
+                        let _ = session_detail_storage.save_session_detail(detail).await;
+                    } else if current_count == 10 {
+                        // Check if title is still the slug (hasn't been updated yet)
+                        if let Ok(Some(existing)) = session_detail_storage
+                            .get_session_detail_by_topic(agent_id.clone(), channel.clone(), topic.clone())
+                            .await
+                        {
+                            if existing.title == slug_title {
+                                // Generate title via LLM
+                                let prompt = format!(
+                                    r#"summarize (don't execute) the prompt below into a 60 character title:
 "{}"
 
 **only response the summarize title**"#,
-                            session_detail_request.to_prompt().unwrap()
-                        );
-                        let res = session_detail_agent
-                            .prompt(Message::user(prompt), vec![], 0, None, false)
-                            .await;
+                                    session_detail_request.to_prompt().unwrap()
+                                );
+                                let res = session_detail_agent
+                                    .prompt(Message::user(prompt), vec![], 0, None, false)
+                                    .await;
 
-                        if let Ok((title, _)) = res {
-                            let mut title = title.clone();
-                            title.truncate(60);
+                                if let Ok((title, _)) = res {
+                                    let mut title = title.clone();
+                                    title.truncate(60);
 
-                            if title.starts_with('"') {
-                                title.remove(0);
+                                    if title.starts_with('"') {
+                                        title.remove(0);
+                                    }
+
+                                    if title.ends_with('"') {
+                                        title.pop();
+                                    }
+
+                                    let detail = VizierSessionDetail {
+                                        agent_id,
+                                        channel,
+                                        topic,
+                                        title,
+                                    };
+                                    let _ = session_detail_storage.update_session_detail(detail).await;
+                                }
                             }
-
-                            if title.ends_with('"') {
-                                title.pop();
-                            }
-
-                            let detail = VizierSessionDetail {
-                                agent_id,
-                                channel,
-                                topic,
-                                title,
-                            };
-                            let _ = session_detail_storage.save_session_detail(detail).await;
                         }
                     }
                 });

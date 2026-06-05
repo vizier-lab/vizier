@@ -17,6 +17,18 @@ impl SessionStorage for SurrealStorage {
         Ok(())
     }
 
+    async fn update_session_detail(&self, session: VizierSessionDetail) -> Result<()> {
+        self.conn
+            .query("UPDATE session_detail SET title = $title WHERE agent_id = $agent_id AND channel = $channel AND topic = $topic")
+            .bind(("title", session.title))
+            .bind(("agent_id", session.agent_id))
+            .bind(("channel", session.channel))
+            .bind(("topic", session.topic))
+            .await?;
+
+        Ok(())
+    }
+
     async fn get_session_detail_by_topic(
         &self,
         agent_id: AgentId,

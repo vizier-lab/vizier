@@ -8,7 +8,7 @@ use crate::{
 #[async_trait::async_trait]
 pub trait SessionStorage {
     async fn save_session_detail(&self, session: VizierSessionDetail) -> Result<()>;
-
+    async fn update_session_detail(&self, session: VizierSessionDetail) -> Result<()>;
     async fn get_session_detail_by_topic(
         &self,
         agent_id: AgentId,
@@ -34,6 +34,10 @@ pub trait SessionStorage {
 impl SessionStorage for VizierStorage {
     async fn save_session_detail(&self, session: VizierSessionDetail) -> Result<()> {
         self.0.save_session_detail(session).await
+    }
+
+    async fn update_session_detail(&self, session: VizierSessionDetail) -> Result<()> {
+        self.0.update_session_detail(session).await
     }
 
     async fn get_session_detail_by_topic(

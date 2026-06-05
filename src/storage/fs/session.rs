@@ -43,6 +43,10 @@ impl SessionStorage for FileSystemStorage {
         Ok(())
     }
 
+    async fn update_session_detail(&self, session: VizierSessionDetail) -> Result<()> {
+        self.save_session_detail(session).await
+    }
+
     async fn get_session_detail_by_topic(
         &self,
         agent_id: AgentId,
