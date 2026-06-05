@@ -6,11 +6,15 @@ interface AgentStore {
   agents: Agent[]
   loading: boolean
   loadAgents: () => Promise<void>
+  lastAgentId: string | null
+  setLastAgentId: (id: string | null) => void
 }
 
 export const useAgentStore = create<AgentStore>()((set) => ({
   agents: [],
   loading: true,
+  lastAgentId: null,
+  setLastAgentId: (id) => set({ lastAgentId: id }),
   loadAgents: async () => {
     try {
       const response = await listAgents()

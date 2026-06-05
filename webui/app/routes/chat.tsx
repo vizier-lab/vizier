@@ -34,6 +34,7 @@ import {
 import { useToastStore } from '../hooks/toastStore'
 import { useConnectionStore } from '../hooks/connectionStore'
 import { useUserStore } from '../hooks/userStore'
+import { useQuickChatStore } from '../hooks/quickChatStore'
 import { MessageItem } from '../components/MessageItem'
 import { ThinkingIndicator } from '../components/ThinkingIndicator'
 import MarkdownEditor from '../components/MarkdownEditor'
@@ -166,6 +167,7 @@ const formatToolChoice = (
 export default function Chat() {
   const { agentId, topicId } = useParams()
   const navigate = useNavigate()
+  const consumePendingMessage = useQuickChatStore((s) => s.consumePendingMessage)
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -243,6 +245,47 @@ export default function Chat() {
       )
     }
   }, [])
+
+  // Auto-send message from quick chat (via store)
+  const pendingMsgRef = useRef<string | null>(null)
+  useEffect(() => {
+    const msg = consumePendingMessage()
+    if (msg) pendingMsgRef.current = msg
+  }, [])
+
+  useEffect(() => {
+    if (!connected || !agentId || !pendingMsgRef.current) return
+    const msg = pendingMsgRef.current
+    pendingMsgRef.current = null
+
+    const timer = setTimeout(() => {
+      const username = getCurrentUsername()
+      const message: WebSocketMessage = {
+        timestamp: new Date().toISOString(),
+        user: username,
+        content: { chat: msg },
+        metadata: null as any,
+      }
+      const userMessage: ChatMessage = {
+        uid: Date.now().toString(),
+        vizier_session: {
+          agent_id: agentId,
+          channel: 'vizier-webui',
+          topic: resolvedTopicId,
+        },
+        content: {
+          Request: {
+            timestamp: new Date().toISOString(),
+            user: username,
+            content: { chat: msg },
+          },
+        },
+      }
+      setMessages((prev) => [...prev, userMessage])
+      sendMessage(message)
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [connected, agentId])
 
   const [topicDetail, setTopicDetail] = useState<any | null>(null)
   const [agentNames, setAgentNames] = useState<Record<string, string>>({})

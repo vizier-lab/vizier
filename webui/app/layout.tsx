@@ -12,14 +12,10 @@ import { useUserStore } from './hooks/userStore'
 import { hasPermission } from './utils/auth'
 
 export default function Layout() {
-  const { agents, loading, loadAgents } = useAgentStore()
+  const { agents, loading, loadAgents, lastAgentId, setLastAgentId: setStoreLastAgentId } = useAgentStore()
   const { user, loadUser } = useUserStore()
   const [showAgentDropdown, setShowAgentDropdown] = useState(false)
   const [dropdownRect, setDropdownRect] = useState<DOMRect | null>(null)
-  const [lastAgentId, setLastAgentId] = useState<string | null>(() => {
-    const userId = useUserStore.getState().user?.user_id
-    return userId ? localStorage.getItem(`vizier_last_agent_${userId}`) : null
-  })
   const navigate = useNavigate()
   const params = useParams()
   const location = useLocation()
@@ -52,11 +48,18 @@ export default function Layout() {
     loadUser()
   }, [loadUser])
 
-  // Sync URL agent param to localStorage
+  // Initialize lastAgentId from localStorage
+  useEffect(() => {
+    if (!user?.user_id) return
+    const stored = localStorage.getItem(`vizier_last_agent_${user.user_id}`)
+    if (stored) setStoreLastAgentId(stored)
+  }, [user?.user_id])
+
+  // Sync URL agent param to store + localStorage
   useEffect(() => {
     if (params.agentId && user?.user_id) {
       localStorage.setItem(`vizier_last_agent_${user.user_id}`, params.agentId)
-      setLastAgentId(params.agentId)
+      setStoreLastAgentId(params.agentId)
     }
   }, [params.agentId, user?.user_id])
 
@@ -104,13 +107,11 @@ export default function Layout() {
   const handleSelectAgent = (agentId: string) => {
     setShowAgentDropdown(false)
     closeMobile()
-    disconnect()
     if (user?.user_id) {
       localStorage.setItem(`vizier_last_agent_${user.user_id}`, agentId)
     }
-    setLastAgentId(agentId)
-    const lastTopic = user?.user_id ? localStorage.getItem(`vizier_last_topic_${user.user_id}_${agentId}`) : null
-    navigate(`/${agentId}/chat/${lastTopic || 'General'}`)
+    setStoreLastAgentId(agentId)
+    navigate('/')
   }
 
   const getCurrentView = () => {

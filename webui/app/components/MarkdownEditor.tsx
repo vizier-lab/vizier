@@ -27,6 +27,7 @@ interface MarkdownEditorProps {
   disabled?: boolean
   className?: string
   onAttach?: () => void
+  hideToolbar?: boolean
 }
 
 export default function MarkdownEditor({
@@ -36,8 +37,55 @@ export default function MarkdownEditor({
   disabled,
   className,
   onAttach,
+  hideToolbar = false,
 }: MarkdownEditorProps) {
   const editorRef = useRef<MDXEditorMethods>(null)
+
+  const plugins = [
+    headingsPlugin(),
+    listsPlugin(),
+    quotePlugin(),
+    thematicBreakPlugin(),
+    markdownShortcutPlugin(),
+    linkPlugin(),
+    codeBlockPlugin({ defaultCodeBlockLanguage: '' }),
+  ]
+
+  if (!hideToolbar) {
+    plugins.push(
+      toolbarPlugin({
+        toolbarClassName: 'mdx-editor-toolbar',
+        toolbarContents: () => (
+          <>
+            {onAttach && (
+              <>
+                <ButtonWithTooltip
+                  onClick={onAttach}
+                  title="Attach file"
+                >
+                  <FaPaperclip size={14} />
+                </ButtonWithTooltip>
+                <Separator />
+              </>
+            )}
+            <BoldItalicUnderlineToggles
+              options={['Bold', 'Italic']}
+            />
+            <Separator />
+            <CodeToggle />
+            <Separator />
+            <BlockTypeSelect />
+            <Separator />
+            <ListsToggle
+              options={['bullet', 'number', 'check']}
+            />
+            <Separator />
+            <InsertThematicBreak />
+          </>
+        ),
+      })
+    )
+  }
 
   return (
     <div className={`mdx-editor${className ? ` ${className}` : ''}`}>
@@ -48,46 +96,7 @@ export default function MarkdownEditor({
         onChange={onChange}
         placeholder={placeholder ?? 'Type something...'}
         readOnly={disabled}
-        plugins={[
-          headingsPlugin(),
-          listsPlugin(),
-          quotePlugin(),
-          thematicBreakPlugin(),
-          markdownShortcutPlugin(),
-          linkPlugin(),
-          codeBlockPlugin({ defaultCodeBlockLanguage: '' }),
-          toolbarPlugin({
-            toolbarClassName: 'mdx-editor-toolbar',
-            toolbarContents: () => (
-              <>
-                {onAttach && (
-                  <>
-                    <ButtonWithTooltip
-                      onClick={onAttach}
-                      title="Attach file"
-                    >
-                      <FaPaperclip size={14} />
-                    </ButtonWithTooltip>
-                    <Separator />
-                  </>
-                )}
-                <BoldItalicUnderlineToggles
-                  options={['Bold', 'Italic']}
-                />
-                <Separator />
-                <CodeToggle />
-                <Separator />
-                <BlockTypeSelect />
-                <Separator />
-                <ListsToggle
-                  options={['bullet', 'number', 'check']}
-                />
-                <Separator />
-                <InsertThematicBreak />
-              </>
-            ),
-          }),
-        ]}
+        plugins={plugins}
       />
     </div>
   )
