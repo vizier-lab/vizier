@@ -173,6 +173,7 @@ export default function Chat() {
   const [input, setInput] = useState('')
   const [clearKey, setClearKey] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [historyVersion, setHistoryVersion] = useState(0)
   const [inlineEvents, setInlineEvents] = useState<InlineEvent[]>([])
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null)
   const [attachments, setAttachments] = useState<{ file: File; previewUrl: string | null }[]>([])
@@ -266,23 +267,8 @@ export default function Chat() {
         content: { chat: msg },
         metadata: null as any,
       }
-      const userMessage: ChatMessage = {
-        uid: Date.now().toString(),
-        vizier_session: {
-          agent_id: agentId,
-          channel: 'vizier-webui',
-          topic: resolvedTopicId,
-        },
-        content: {
-          Request: {
-            timestamp: new Date().toISOString(),
-            user: username,
-            content: { chat: msg },
-          },
-        },
-      }
-      setMessages((prev) => [...prev, userMessage])
       sendMessage(message)
+      setHistoryVersion((v) => v + 1)
     }, 50)
     return () => clearTimeout(timer)
   }, [connected, agentId])
@@ -368,7 +354,7 @@ export default function Chat() {
     }
 
     loadHistory()
-  }, [agentId, resolvedTopicId])
+  }, [agentId, resolvedTopicId, historyVersion])
 
   useEffect(() => {
     listAgents().then((res) => {
