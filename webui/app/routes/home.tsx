@@ -6,8 +6,9 @@ import { useUserStore } from '../hooks/userStore'
 import type { Route } from './+types/home'
 
 export function meta({ }: Route.MetaArgs) {
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'Vizier'
   return [
-    { title: 'Vizier' },
+    { title: `Vizier - ${hostname}` },
     { name: 'description', content: '21st Century Digital Steward' },
   ]
 }

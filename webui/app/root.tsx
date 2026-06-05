@@ -28,6 +28,14 @@ export const links: Route.LinksFunction = () => [
     },
 ]
 
+export function meta() {
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'Vizier'
+  return [
+    { title: `Vizier - ${hostname}` },
+    { name: 'description', content: '21st Century Digital Steward' },
+  ]
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
     return (
         <html lang="en">
