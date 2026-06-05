@@ -249,6 +249,21 @@ pub async fn agent_process(
                         if let Some(handle) = thinking_handles.remove(&session) {
                             handle.abort();
                         }
+                        // Reset is_thinking in storage
+                        {
+                            let storage_clone = deps.storage.clone();
+                            let session_clone = session.clone();
+                            tokio::spawn(async move {
+                                let _ = storage_clone
+                                    .update_thinking_state(
+                                        session_clone.0,
+                                        session_clone.1,
+                                        session_clone.2,
+                                        false,
+                                    )
+                                    .await;
+                            });
+                        }
                         // Clear queued messages
                         session_queues.remove(&session);
                         continue;

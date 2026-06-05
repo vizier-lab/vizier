@@ -314,7 +314,7 @@ export default function Chat() {
         const res = await getTopicDetail(agentId, resolvedTopicId)
         setIsThinking(res.data?.is_thinking ?? false)
       } catch {
-        // Ignore errors during polling
+        setIsThinking(false)
       }
     }
 
