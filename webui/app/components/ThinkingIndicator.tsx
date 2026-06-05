@@ -63,24 +63,25 @@ const THINKING_WORDS = [
 
 interface InlineEvent {
   id: string
-  type: 'start' | 'tool_choice' | 'thinking'
+  type: 'tool_choice' | 'thinking'
   content?: string
   timestamp: number
 }
 
 interface ThinkingIndicatorProps {
+  isVisible: boolean
   inlineEvents: InlineEvent[]
   agentName: string
   onAbort?: () => void
 }
 
-function ThinkingIndicatorComponent({ inlineEvents, agentName, onAbort }: ThinkingIndicatorProps) {
+function ThinkingIndicatorComponent({ isVisible, inlineEvents, agentName, onAbort }: ThinkingIndicatorProps) {
   const thinkingWord = useMemo(
     () => THINKING_WORDS[Math.floor(Math.random() * THINKING_WORDS.length)],
     []
   )
 
-  if (inlineEvents.length === 0) {
+  if (!isVisible) {
     return null
   }
 

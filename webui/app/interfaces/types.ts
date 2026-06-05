@@ -232,6 +232,7 @@ export interface Topic {
   title?: string
   agent_id: string
   channel: string
+  is_thinking?: boolean
 }
 
 // VizierRequestContent - matches backend VizierRequestContent enum with serde rename_all = "snake_case"

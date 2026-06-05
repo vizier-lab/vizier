@@ -8,6 +8,7 @@ import {
   getAgentDetail,
   listAgents,
   uploadFile,
+  getTopicDetail,
 } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
 import type {
@@ -43,7 +44,7 @@ import { useMeasure } from '@uidotdev/usehooks'
 
 interface InlineEvent {
   id: string
-  type: 'start' | 'tool_choice' | 'thinking'
+  type: 'tool_choice' | 'thinking'
   content?: string
   timestamp: number
 }
@@ -191,7 +192,7 @@ export default function Chat() {
   const [queuedMessages, setQueuedMessages] = useState<ChatMessage[]>([])
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [reactions, setReactions] = useState<Record<string, ReactionEntry[]>>({})
-  const isThinking = inlineEvents.length > 0
+  const [isThinking, setIsThinking] = useState(false)
   const prevInputRef = useRef('')
   const currentInputRef = useRef('')
   const dragCounterRef = useRef(0)
@@ -304,6 +305,28 @@ export default function Chat() {
     })
   }, [agentId, resolvedTopicId])
 
+  // Poll for thinking state
+  useEffect(() => {
+    if (!agentId || !resolvedTopicId) return
+
+    const pollThinkingState = async () => {
+      try {
+        const res = await getTopicDetail(agentId, resolvedTopicId)
+        setIsThinking(res.data?.is_thinking ?? false)
+      } catch {
+        // Ignore errors during polling
+      }
+    }
+
+    // Initial fetch
+    pollThinkingState()
+
+    // Poll every 1000ms
+    const interval = setInterval(pollThinkingState, 1000)
+
+    return () => clearInterval(interval)
+  }, [agentId, resolvedTopicId])
+
   // Clear inline events, attachments, and queued messages when topic changes
   useEffect(() => {
     currentTopicRef.current = resolvedTopicId
@@ -374,15 +397,6 @@ export default function Chat() {
     }
   }
 
-  const startThinkingTimeout = () => {
-    if (thinkingTimeoutRef.current) {
-      clearTimeout(thinkingTimeoutRef.current)
-    }
-    thinkingTimeoutRef.current = setTimeout(() => {
-      clearInlineEvents()
-    }, 3600000)
-  }
-
   const addInlineEvent = (type: InlineEvent['type'], content?: string) => {
     setInlineEvents((prev) => [
       ...prev,
@@ -450,22 +464,13 @@ export default function Chat() {
     const { timestamp, content } = wsResponse
 
     switch (content) {
-      case 'thinking_start':
-        setInlineEvents([
-          {
-            id: Date.now().toString(),
-            type: 'start',
-            timestamp: Date.now(),
-          },
-        ])
-        startThinkingTimeout()
-        return
-
       case 'empty':
+        setIsThinking(false)
         clearInlineEvents()
         return
 
       case 'abort':
+        setIsThinking(false)
         clearInlineEvents()
         setQueuedMessages([])
         return
@@ -488,6 +493,7 @@ export default function Chat() {
       }
 
       if ('message' in content) {
+        setIsThinking(false)
         clearInlineEvents()
         setMessages((prev) => {
           if (
@@ -1181,6 +1187,7 @@ export default function Chat() {
 
               {/* Thinking indicator with inline events */}
               <ThinkingIndicator
+                isVisible={isThinking}
                 inlineEvents={inlineEvents}
                 agentName={agentDetail?.name || 'Agent'}
                 onAbort={isThinking ? handleAbort : undefined}

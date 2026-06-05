@@ -14,6 +14,8 @@ use crate::{
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct SessionDetailFrontmatter {
     session: VizierSession,
+    #[serde(default)]
+    is_thinking: bool,
 }
 
 #[async_trait::async_trait]
@@ -35,6 +37,7 @@ impl SessionStorage for FileSystemStorage {
                     session.channel.clone(),
                     session.topic.clone(),
                 ),
+                is_thinking: session.is_thinking,
             },
             session.title.clone(),
             path,
@@ -45,6 +48,35 @@ impl SessionStorage for FileSystemStorage {
 
     async fn update_session_detail(&self, session: VizierSessionDetail) -> Result<()> {
         self.save_session_detail(session).await
+    }
+
+    async fn update_thinking_state(
+        &self,
+        agent_id: AgentId,
+        channel: VizierChannelId,
+        topic: Option<TopicId>,
+        is_thinking: bool,
+    ) -> Result<()> {
+        let path = PathBuf::from(format!(
+            "{}/agents/{}/{}/{}/{}.md",
+            self.workspace,
+            agent_id.clone(),
+            SESSION_PATH,
+            channel.clone().to_slug(),
+            topic.clone().unwrap_or("DEFAULT".into())
+        ));
+
+        let (frontmatter, title) =
+            crate::utils::markdown::read_markdown::<SessionDetailFrontmatter>(path.clone())?;
+
+        let new_frontmatter = SessionDetailFrontmatter {
+            session: frontmatter.session,
+            is_thinking,
+        };
+
+        crate::utils::markdown::write_markdown(&new_frontmatter, title, path)?;
+
+        Ok(())
     }
 
     async fn get_session_detail_by_topic(
@@ -62,13 +94,14 @@ impl SessionStorage for FileSystemStorage {
             topic.clone().unwrap_or("DEFAULT".into())
         ));
 
-        let (_, content) = crate::utils::markdown::read_markdown::<SessionDetailFrontmatter>(path)?;
+        let (frontmatter, content) = crate::utils::markdown::read_markdown::<SessionDetailFrontmatter>(path)?;
 
         Ok(Some(VizierSessionDetail {
             agent_id,
             channel,
             topic,
             title: content,
+            is_thinking: frontmatter.is_thinking,
         }))
     }
 
@@ -100,6 +133,7 @@ impl SessionStorage for FileSystemStorage {
                 channel: frontmatter.session.1,
                 topic: frontmatter.session.2,
                 title,
+                is_thinking: frontmatter.is_thinking,
             });
         }
 

@@ -84,4 +84,6 @@ pub struct VizierSessionDetail {
     pub channel: VizierChannelId,
     pub topic: Option<TopicId>,
     pub title: String,
+    #[serde(default)]
+    pub is_thinking: bool,
 }

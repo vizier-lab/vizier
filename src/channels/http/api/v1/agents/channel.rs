@@ -43,6 +43,10 @@ pub fn channel() -> Router<HTTPState> {
             "/{channel_id}/topic/{topic_id}/history",
             get(get_topic_history),
         )
+        .route(
+            "/{channel_id}/topic/{topic_id}/detail",
+            get(get_topic_detail),
+        )
         .route("/{channel_id}/topic/{topic_id}", delete(delete_topic))
 }
 
@@ -58,6 +62,7 @@ pub struct TopicEntry {
     pub title: String,
     pub agent_id: String,
     pub channel: String,
+    pub is_thinking: bool,
 }
 
 impl From<VizierSessionDetail> for TopicEntry {
@@ -67,6 +72,7 @@ impl From<VizierSessionDetail> for TopicEntry {
             title: detail.title,
             agent_id: detail.agent_id,
             channel: format!("{:?}", detail.channel),
+            is_thinking: detail.is_thinking,
         }
     }
 }
@@ -176,6 +182,48 @@ pub async fn list_topics(
         .collect();
 
     api_response(StatusCode::OK, list)
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/detail",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("channel_id" = String, Path, description = "Channel ID"),
+        ("topic_id" = String, Path, description = "Topic ID")
+    ),
+    responses(
+        (status = 200, description = "Topic detail", body = APIResponse<TopicEntry>),
+        (status = 404, description = "Agent or topic not found", body = APIResponse<String>),
+        (status = 500, description = "Internal server error", body = APIResponse<String>)
+    )
+)]
+pub async fn get_topic_detail(
+    Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<TopicEntry> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
+    let channel = VizierChannelId::HTTP(user.username, channel_id);
+
+    match state
+        .storage
+        .get_session_detail_by_topic(agent_id, channel, Some(topic_id))
+        .await
+    {
+        Ok(Some(detail)) => api_response(StatusCode::OK, TopicEntry::from(detail)),
+        Ok(None) => err_response(StatusCode::NOT_FOUND, "Topic not found".into()),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
 }
 
 #[utoipa::path(

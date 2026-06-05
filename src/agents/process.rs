@@ -179,6 +179,7 @@ pub async fn agent_process(
                             channel,
                             topic,
                             title: slug_title,
+                            is_thinking: false,
                         };
                         let _ = session_detail_storage.save_session_detail(detail).await;
                     } else if current_count == 10 {
@@ -217,6 +218,7 @@ pub async fn agent_process(
                                         channel,
                                         topic,
                                         title,
+                                        is_thinking: false,
                                     };
                                     let _ = session_detail_storage.update_session_detail(detail).await;
                                 }
@@ -288,9 +290,21 @@ pub async fn agent_process(
                 let session = session.clone();
                 let storage = deps.storage.clone();
                 let complete_tx = complete_tx.clone();
+                let thinking_storage = storage.clone();
+                let thinking_session = session.clone();
                 main_handles.insert(
                     session.clone(),
                     tokio::spawn(async move {
+                        // Set is_thinking = true
+                        let _ = thinking_storage
+                            .update_thinking_state(
+                                thinking_session.0.clone(),
+                                thinking_session.1.clone(),
+                                thinking_session.2.clone(),
+                                true,
+                            )
+                            .await;
+
                         if let Err(err) = handle_request(
                             agent.clone(),
                             agent_config.clone(),
@@ -317,6 +331,17 @@ pub async fn agent_process(
                         }
 
                         thinking_handle.abort();
+
+                        // Set is_thinking = false
+                        let _ = storage
+                            .update_thinking_state(
+                                session.0.clone(),
+                                session.1.clone(),
+                                session.2.clone(),
+                                false,
+                            )
+                            .await;
+
                         let _ = complete_tx.send(session);
                     }),
                 );
@@ -343,9 +368,21 @@ pub async fn agent_process(
                         let session = completed_session.clone();
                         let storage = deps.storage.clone();
                         let complete_tx = complete_tx.clone();
+                        let thinking_storage = storage.clone();
+                        let thinking_session = session.clone();
                         main_handles.insert(
                             session.clone(),
                             tokio::spawn(async move {
+                                // Set is_thinking = true
+                                let _ = thinking_storage
+                                    .update_thinking_state(
+                                        thinking_session.0.clone(),
+                                        thinking_session.1.clone(),
+                                        thinking_session.2.clone(),
+                                        true,
+                                    )
+                                    .await;
+
                                 if let Err(err) = handle_request(
                                     agent.clone(),
                                     agent_config.clone(),
@@ -360,6 +397,17 @@ pub async fn agent_process(
                                 }
 
                                 thinking_handle.abort();
+
+                                // Set is_thinking = false
+                                let _ = storage
+                                    .update_thinking_state(
+                                        session.0.clone(),
+                                        session.1.clone(),
+                                        session.2.clone(),
+                                        false,
+                                    )
+                                    .await;
+
                                 let _ = complete_tx.send(session);
                             }),
                         );

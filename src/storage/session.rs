@@ -9,6 +9,13 @@ use crate::{
 pub trait SessionStorage {
     async fn save_session_detail(&self, session: VizierSessionDetail) -> Result<()>;
     async fn update_session_detail(&self, session: VizierSessionDetail) -> Result<()>;
+    async fn update_thinking_state(
+        &self,
+        agent_id: AgentId,
+        chanel: VizierChannelId,
+        topic: Option<TopicId>,
+        is_thinking: bool,
+    ) -> Result<()>;
     async fn get_session_detail_by_topic(
         &self,
         agent_id: AgentId,
@@ -38,6 +45,18 @@ impl SessionStorage for VizierStorage {
 
     async fn update_session_detail(&self, session: VizierSessionDetail) -> Result<()> {
         self.0.update_session_detail(session).await
+    }
+
+    async fn update_thinking_state(
+        &self,
+        agent_id: AgentId,
+        chanel: VizierChannelId,
+        topic: Option<TopicId>,
+        is_thinking: bool,
+    ) -> Result<()> {
+        self.0
+            .update_thinking_state(agent_id, chanel, topic, is_thinking)
+            .await
     }
 
     async fn get_session_detail_by_topic(

@@ -257,6 +257,13 @@ export const listTopics = async (agentId: string) => {
   return res.data
 }
 
+export const getTopicDetail = async (agentId: string, topicId: string) => {
+  const res = await apiClient.get(
+    `/agents/${agentId}/channel/${CHANNEL_ID}/topic/${topicId}/detail`
+  )
+  return res.data
+}
+
 export const getTopicHistory = async (
   agentId: string,
   topicId: string,
