@@ -17,6 +17,7 @@ use crate::{
 
 pub mod discord;
 pub mod http;
+pub mod reaction_store;
 pub mod telegram;
 
 pub trait VizierChannel {

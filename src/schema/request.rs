@@ -14,6 +14,44 @@ use surrealdb_types::SurrealValue;
 
 use crate::{error::VizierError, utils::get_mime_type};
 
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlatformMessageId {
+    Discord(u64),
+    Telegram(i64),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReactionAction {
+    Added,
+    Removed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
+pub struct ReactionEvent {
+    #[serde(default)]
+    pub platform_message_id: Option<PlatformMessageId>,
+    pub user_id: String,
+    pub emoji: String,
+    pub action: ReactionAction,
+}
+
+impl ReactionEvent {
+    pub fn action_str(&self) -> &str {
+        match self.action {
+            ReactionAction::Added => "added",
+            ReactionAction::Removed => "removed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema, PartialEq)]
+pub struct ReactionEntry {
+    pub user_id: String,
+    pub emoji: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum VizierRequestContent {
@@ -22,6 +60,7 @@ pub enum VizierRequestContent {
     SilentRead(String),
     Task(String),
     Command(String),
+    Reaction(ReactionEvent),
 }
 
 impl Default for VizierRequestContent {
@@ -41,6 +80,9 @@ impl Display for VizierRequestContent {
                 Self::SilentRead(content) => content,
                 Self::Task(content) => content,
                 Self::Command(content) => content,
+                Self::Reaction(event) => {
+                    return write!(f, "Reaction: {} {} by {}", event.action_str(), event.emoji, event.user_id);
+                }
             }
         )
     }
@@ -108,6 +150,8 @@ pub struct VizierRequest {
     pub timestamp: DateTime<Utc>,
     pub user: String,
     pub content: VizierRequestContent,
+    #[serde(default)]
+    pub platform_message_id: Option<PlatformMessageId>,
     pub metadata: serde_json::Value,
     #[serde(default)]
     pub attachments: Vec<VizierAttachment>,

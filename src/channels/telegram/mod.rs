@@ -8,8 +8,8 @@ use teloxide::types::ChatAction;
 use crate::channels::VizierChannel;
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
-    TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId, VizierRequest,
-    VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
+    PlatformMessageId, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
+    VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
 };
 use crate::storage::session::SessionStorage;
 use crate::storage::state::StateStorage;
@@ -73,11 +73,20 @@ impl TelegramChannelReader {
     async fn handle_update(&self, update: Update) -> Result<()> {
         let kind = &update.kind;
 
-        let msg = match kind {
-            teloxide::types::UpdateKind::Message(msg) => msg.clone(),
-            teloxide::types::UpdateKind::EditedMessage(msg) => msg.clone(),
+        match kind {
+            teloxide::types::UpdateKind::Message(msg) => {
+                self.handle_message(msg.clone()).await?;
+            }
+            teloxide::types::UpdateKind::EditedMessage(msg) => {
+                self.handle_message(msg.clone()).await?;
+            }
             _ => return Ok(()),
-        };
+        }
+
+        Ok(())
+    }
+
+    async fn handle_message(&self, msg: Message) -> Result<()> {
 
         let chat_id = msg.chat.id;
         let channel = VizierChannelId::TelegramChannel(chat_id.0);
@@ -258,6 +267,7 @@ impl TelegramChannelReader {
                         timestamp: Utc::now(),
                         user: user.clone(),
                         content: VizierRequestContent::Command("abort".to_string()),
+                        platform_message_id: None,
                         metadata: serde_json::json!({}),
                         attachments: vec![],
                     },
@@ -294,6 +304,7 @@ impl TelegramChannelReader {
             timestamp: chrono::Utc::now(),
             user,
             content: request_content,
+            platform_message_id: Some(PlatformMessageId::Telegram(msg.id.0.into())),
             metadata,
             attachments,
         };

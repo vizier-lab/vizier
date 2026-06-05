@@ -14,15 +14,19 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::{
-    channels::http::{
-        models::{
-            self,
-            response::{APIResponse, api_response, err_response},
+    channels::{
+        http::{
+            models::{
+                self,
+                response::{APIResponse, api_response, err_response},
+            },
+            state::HTTPState,
         },
-        state::HTTPState,
+        reaction_store,
     },
     schema::{
-        SessionHistory, TopicId, VizierAttachmentContent, VizierChannelId, VizierRequest,
+        PlatformMessageId, ReactionAction, ReactionEntry, ReactionEvent, SessionHistory, TopicId,
+        VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent,
         VizierSession, VizierSessionDetail,
     },
     storage::{agent::AgentStorage, history::HistoryStorage, session::SessionStorage},
@@ -65,6 +69,18 @@ impl From<VizierSessionDetail> for TopicEntry {
             channel: format!("{:?}", detail.channel),
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct WebSocketReactionMessage {
+    reaction: WebSocketReactionPayload,
+}
+
+#[derive(Debug, Deserialize)]
+struct WebSocketReactionPayload {
+    message_uid: String,
+    emoji: String,
+    action: ReactionAction,
 }
 
 #[utoipa::path(
@@ -257,13 +273,14 @@ pub async fn chat(
         .map(|c| c.ws_idle_timeout_secs)
         .unwrap_or(300);
 
-    ws.on_upgrade(move |socket| handle_socket(socket, session, transport, state.config.workspace.clone(), ws_idle_timeout_secs))
+    ws.on_upgrade(move |socket| handle_socket(socket, session, transport, state.storage.clone(), state.config.workspace.clone(), ws_idle_timeout_secs))
 }
 
 pub async fn handle_socket(
     socket: WebSocket,
     curr_session: VizierSession,
     transport: VizierTransport,
+    storage: std::sync::Arc<crate::storage::VizierStorage>,
     workspace: String,
     ws_idle_timeout_secs: u64,
 ) {
@@ -294,7 +311,47 @@ pub async fn handle_socket(
             msg = reader.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        if let Ok(request) = serde_json::from_str::<VizierRequest>(&text.to_string()) {
+                        let text_str = text.to_string();
+                        
+                        if let Ok(reaction_msg) = serde_json::from_str::<WebSocketReactionMessage>(&text_str) {
+                            tracing::info!("received reaction from WebUI: {:?}", reaction_msg);
+                            let payload = reaction_msg.reaction;
+                            let username = match &curr_session.1 {
+                                VizierChannelId::HTTP(user, _) => user.clone(),
+                                _ => "unknown".to_string(),
+                            };
+                            let entry = ReactionEntry {
+                                user_id: username.clone(),
+                                emoji: payload.emoji.clone(),
+                            };
+                            
+                            if let Err(e) = reaction_store::record_reaction(&storage, &curr_session, &payload.message_uid, entry).await {
+                                tracing::error!("failed to record reaction: {:?}", e);
+                            } else {
+                                tracing::info!("reaction recorded for message_uid: {}", payload.message_uid);
+                            }
+
+                            let event = ReactionEvent {
+                                platform_message_id: None,
+                                user_id: username,
+                                emoji: payload.emoji,
+                                action: payload.action,
+                            };
+
+                            let session = curr_session.clone();
+                            let _ = transport.send_request(
+                                session,
+                                VizierRequest {
+                                    timestamp: Utc::now(),
+                                    user: "system".to_string(),
+                                    content: VizierRequestContent::Reaction(event),
+                                    metadata: serde_json::json!({}),
+                                    attachments: vec![],
+                                    ..Default::default()
+                                },
+                                None,
+                            ).await;
+                        } else if let Ok(request) = serde_json::from_str::<VizierRequest>(&text_str) {
                             let mut request = request.clone();
                             for attachment in request.attachments.iter_mut() {
                                 if let VizierAttachmentContent::Url(url) = &attachment.content {
@@ -338,6 +395,8 @@ pub async fn handle_socket(
                                     }
                                 }
                             });
+                        } else {
+                            tracing::debug!("unrecognized WebSocket message: {}", &text_str[..text_str.len().min(200)]);
                         }
                     }
                     Some(Ok(Message::Close(_))) => break,

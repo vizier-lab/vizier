@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use crate::{
     schema::{
         AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage,
-        DailyChannelTypeUsage, DailyUsage, SessionHistory, SessionHistoryContent, UsageSummary,
-        VizierAttachment, VizierRequest, VizierRequestContent, VizierResponse,
+        DailyChannelTypeUsage, DailyUsage, ReactionEntry, SessionHistory, SessionHistoryContent,
+        UsageSummary, VizierAttachment, VizierRequest, VizierRequestContent, VizierResponse,
         VizierResponseContent, VizierResponseStats, VizierSession,
     },
     storage::{
@@ -44,6 +44,8 @@ struct SessionHistoryFrontMatter {
     pub session: VizierSession,
     pub content_metadata: ContentMetadata,
     pub timestamp: chrono::DateTime<Utc>,
+    #[serde(default)]
+    pub reactions: Option<Vec<ReactionEntry>>,
 }
 
 impl From<SessionHistory> for SessionHistoryFrontMatter {
@@ -56,6 +58,11 @@ impl From<SessionHistory> for SessionHistoryFrontMatter {
             uid: value.uid,
             timestamp,
             session: value.vizier_session,
+            reactions: if value.reactions.is_empty() {
+                None
+            } else {
+                Some(value.reactions)
+            },
             content_metadata: match value.content {
                 SessionHistoryContent::Request(req) => ContentMetadata::request {
                     user: req.user,
@@ -118,6 +125,7 @@ impl HistoryStorage for FileSystemStorage {
             uid: slug.clone(),
             vizier_session: session.clone(),
             content: content.clone(),
+            reactions: vec![],
         };
 
         let history_text = match &content {
@@ -179,6 +187,7 @@ impl HistoryStorage for FileSystemStorage {
                 res.push(SessionHistory {
                     uid: frontmatter.uid,
                     vizier_session: frontmatter.session,
+                    reactions: frontmatter.reactions.unwrap_or_default(),
                     content: match frontmatter.content_metadata {
                         ContentMetadata::request {
                             user,
@@ -202,6 +211,7 @@ impl HistoryStorage for FileSystemStorage {
                                 (_, _, _, _, true) => VizierRequestContent::Command(content),
                                 _ => unimplemented!(),
                             },
+                            platform_message_id: None,
                             attachments,
                         }),
                         ContentMetadata::response { stats, attachments } => {
@@ -259,6 +269,98 @@ impl HistoryStorage for FileSystemStorage {
         });
 
         Ok(res)
+    }
+
+    async fn update_history_reactions(
+        &self,
+        uid: String,
+        session: VizierSession,
+        reactions: Vec<ReactionEntry>,
+    ) -> Result<()> {
+        let path = format!(
+            "{}/agents/{}/{}/{}/{}/*.md",
+            self.workspace,
+            session.0.clone(),
+            HISTORY_PATH,
+            session.1.clone().to_slug(),
+            session.2.clone().unwrap_or("DEFAULT".to_string()),
+        );
+
+        for entry in glob::glob(&path)? {
+            let entry = entry?;
+            if !entry.is_file() {
+                continue;
+            }
+
+            let entry_path = entry.clone();
+            if let Ok((frontmatter, content_text)) =
+                utils::markdown::read_markdown::<SessionHistoryFrontMatter>(entry_path.clone())
+            {
+                if frontmatter.uid == uid {
+                    let mut updated_frontmatter = frontmatter;
+                    updated_frontmatter.reactions = if reactions.is_empty() {
+                        None
+                    } else {
+                        Some(reactions.clone())
+                    };
+
+                    let history = SessionHistory {
+                        uid: updated_frontmatter.uid.clone(),
+                        vizier_session: updated_frontmatter.session.clone(),
+                        content: match updated_frontmatter.content_metadata.clone() {
+                            ContentMetadata::request {
+                                user,
+                                is_silent_read,
+                                is_task,
+                                is_chat,
+                                is_prompt,
+                                is_command,
+                                metadata,
+                                attachments,
+                            } => SessionHistoryContent::Request(VizierRequest {
+                                timestamp: updated_frontmatter.timestamp,
+                                user,
+                                metadata,
+                                content: match (
+                                    is_silent_read, is_task, is_chat, is_prompt, is_command,
+                                ) {
+                                    (true, _, _, _, _) => {
+                                        VizierRequestContent::SilentRead(content_text.clone())
+                                    }
+                                    (_, true, _, _, _) => VizierRequestContent::Task(content_text.clone()),
+                                    (_, _, true, _, _) => VizierRequestContent::Chat(content_text.clone()),
+                                    (_, _, _, true, _) => VizierRequestContent::Prompt(content_text.clone()),
+                                    (_, _, _, _, true) => {
+                                        VizierRequestContent::Command(content_text.clone())
+                                    }
+                                    _ => unimplemented!(),
+                                },
+                                platform_message_id: None,
+                                attachments,
+                            }),
+                            ContentMetadata::response { stats, attachments } => {
+                                SessionHistoryContent::Response(VizierResponse {
+                                    timestamp: updated_frontmatter.timestamp,
+                                    content: VizierResponseContent::Message { content: content_text.clone(), stats },
+                                    attachments,
+                                })
+                            }
+                        },
+                        reactions: updated_frontmatter.reactions.clone().unwrap_or_default(),
+                    };
+
+                    let new_frontmatter = SessionHistoryFrontMatter::from(history);
+                    let _ = utils::markdown::write_markdown(
+                        &new_frontmatter,
+                        content_text,
+                        entry_path,
+                    );
+                    break;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     async fn aggregate_usage(
@@ -454,6 +556,7 @@ impl HistoryStorage for FileSystemStorage {
                 res.push(SessionHistory {
                     uid: frontmatter.uid,
                     vizier_session: frontmatter.session,
+                    reactions: frontmatter.reactions.unwrap_or_default(),
                     content: match frontmatter.content_metadata {
                         ContentMetadata::request {
                             user,
@@ -477,6 +580,7 @@ impl HistoryStorage for FileSystemStorage {
                                 (_, _, _, _, true) => VizierRequestContent::Command(content),
                                 _ => unimplemented!(),
                             },
+                            platform_message_id: None,
                             attachments,
                         }),
                         ContentMetadata::response { stats, attachments } => {

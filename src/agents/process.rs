@@ -449,6 +449,15 @@ pub async fn handle_request(
         VizierRequestContent::Command(cmd) => {
             tracing::warn!("unhandled command: {}", cmd);
         }
+        VizierRequestContent::Reaction(event) => {
+            log::info!(
+                "Reaction recorded: user={}, emoji={}, action={}, message={:?}",
+                event.user_id,
+                event.emoji,
+                event.action_str(),
+                event.platform_message_id
+            );
+        }
     }
 
     Ok(())

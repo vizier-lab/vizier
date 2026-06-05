@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 
 use crate::{
-    schema::{AgentUsageStats, SessionHistory, SessionHistoryContent, VizierSession},
+    schema::{AgentUsageStats, ReactionEntry, SessionHistory, SessionHistoryContent, VizierSession},
     storage::VizierStorage,
 };
 
@@ -20,6 +20,13 @@ pub trait HistoryStorage {
         before: Option<DateTime<Utc>>,
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>>;
+
+    async fn update_history_reactions(
+        &self,
+        uid: String,
+        session: VizierSession,
+        reactions: Vec<ReactionEntry>,
+    ) -> Result<()>;
 
     async fn aggregate_usage(
         &self,
@@ -53,6 +60,17 @@ impl HistoryStorage for VizierStorage {
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>> {
         self.0.list_session_history(session, before, limit).await
+    }
+
+    async fn update_history_reactions(
+        &self,
+        uid: String,
+        session: VizierSession,
+        reactions: Vec<ReactionEntry>,
+    ) -> Result<()> {
+        self.0
+            .update_history_reactions(uid, session, reactions)
+            .await
     }
 
     async fn aggregate_usage(

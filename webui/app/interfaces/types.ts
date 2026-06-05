@@ -241,6 +241,27 @@ export type VizierRequestContent =
   | { silent_read: string }
   | { task: string }
   | { command: string }
+  | { reaction: ReactionEvent }
+
+// Reaction types
+export interface PlatformMessageId {
+  Discord?: number
+  Telegram?: number
+}
+
+export type ReactionAction = 'added' | 'removed'
+
+export interface ReactionEvent {
+  platform_message_id?: PlatformMessageId
+  user_id: string
+  emoji: string
+  action: ReactionAction
+}
+
+export interface ReactionEntry {
+  user_id: string
+  emoji: string
+}
 
 // VizierResponseContent - matches backend VizierResponseContent enum with serde rename_all = "snake_case"
 export type VizierResponseContent =
@@ -291,6 +312,7 @@ export interface ChatMessage {
       content: VizierResponseContent
     }
   }
+  reactions?: ReactionEntry[]
 }
 
 export interface WebSocketMessage {

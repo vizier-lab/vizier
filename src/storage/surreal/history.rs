@@ -6,8 +6,8 @@ use uuid::Uuid;
 use crate::{
     schema::{
         AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage,
-        DailyChannelTypeUsage, DailyUsage, SessionHistory, SessionHistoryContent, UsageSummary,
-        VizierResponseContent, VizierSession,
+        DailyChannelTypeUsage, DailyUsage, ReactionEntry, SessionHistory, SessionHistoryContent,
+        UsageSummary, VizierResponseContent, VizierSession,
     },
     storage::{history::HistoryStorage, surreal::SurrealStorage},
 };
@@ -27,6 +27,7 @@ impl HistoryStorage for SurrealStorage {
                 uid: uuid.to_string(),
                 vizier_session: session.clone(),
                 content,
+                reactions: vec![],
             })
             .await?;
 
@@ -83,6 +84,20 @@ impl HistoryStorage for SurrealStorage {
         });
 
         Ok(list)
+    }
+
+    async fn update_history_reactions(
+        &self,
+        uid: String,
+        _session: VizierSession,
+        reactions: Vec<ReactionEntry>,
+    ) -> Result<()> {
+        let _: Option<SessionHistory> = self
+            .conn
+            .update(("session_history", uid))
+            .merge(serde_json::json!({ "reactions": reactions }))
+            .await?;
+        Ok(())
     }
 
     async fn aggregate_usage(

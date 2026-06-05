@@ -1154,7 +1154,7 @@ export default function AgentSettings() {
                     <label style={labelStyle}>
                       <TooltipLabel
                         label="Telegram Bot Token"
-                        tooltip="Bot token from @BotFather."
+                        tooltip="Bot token from @BotFather. Note: Bot must be an admin in chats to receive emoji reactions."
                       />
                     </label>
                     <input

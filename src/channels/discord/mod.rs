@@ -16,8 +16,8 @@ use serenity::prelude::*;
 use crate::channels::VizierChannel;
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
-    TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId, VizierRequest,
-    VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
+    PlatformMessageId, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
+    VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
 };
 use crate::storage::session::SessionStorage;
 use crate::storage::state::StateStorage;
@@ -255,6 +255,7 @@ If I am halucinating, feel free to `/lobotomy` me
                             timestamp: Utc::now(),
                             user: agent_id.clone(),
                             content: VizierRequestContent::Command("abort".to_string()),
+                            platform_message_id: None,
                             metadata: serde_json::json!({}),
                             attachments: vec![],
                         },
@@ -352,6 +353,7 @@ If I am halucinating, feel free to `/lobotomy` me
                     msg.author.id.to_string()
                 ),
                 content: request_content,
+                platform_message_id: Some(PlatformMessageId::Discord(msg.id.get())),
                 metadata,
                 attachments,
                 ..Default::default()

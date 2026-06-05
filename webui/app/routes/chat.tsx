@@ -18,6 +18,8 @@ import type {
   WebSocketMessage,
   WebSocketResponse,
   VizierResponseStats,
+  ReactionEntry,
+  ReactionAction,
 } from '../interfaces/types'
 import { getCurrentUsername } from '../utils/auth'
 import { Skeleton, SkeletonMessage } from '../components/Skeleton'
@@ -185,6 +187,7 @@ export default function Chat() {
   )
   const [queuedMessages, setQueuedMessages] = useState<ChatMessage[]>([])
   const [showScrollButton, setShowScrollButton] = useState(false)
+  const [reactions, setReactions] = useState<Record<string, ReactionEntry[]>>({})
   const isThinking = inlineEvents.length > 0
   const prevInputRef = useRef('')
   const currentInputRef = useRef('')
@@ -304,6 +307,15 @@ export default function Chat() {
         const response = await getTopicHistory(agentId, resolvedTopicId)
         const historyMessages = response.data || []
         setMessages(historyMessages)
+
+        const reactionsMap: Record<string, ReactionEntry[]> = {}
+        for (const msg of historyMessages) {
+          const reactions = msg.reactions
+          if (reactions && reactions.length > 0) {
+            reactionsMap[msg.uid] = reactions
+          }
+        }
+        setReactions(reactionsMap)
       } catch (error) {
         console.error('Failed to load chat history:', error)
         setMessages([])
@@ -355,6 +367,46 @@ export default function Chat() {
       },
     ])
   }
+
+  const handleReact = useCallback(
+    (messageUid: string, emoji: string) => {
+      if (!connected) return
+
+      const currentUserId = getCurrentUsername()
+
+      const reactionMessage = {
+        reaction: {
+          message_uid: messageUid,
+          emoji,
+          action: 'added' as const,
+        },
+      }
+
+      sendMessage(reactionMessage as any)
+
+      setReactions((prev) => {
+        const existing = prev[messageUid] || []
+        const pairExists = existing.some(
+          (r) => r.user_id === currentUserId && r.emoji === emoji
+        )
+
+        if (pairExists) {
+          return {
+            ...prev,
+            [messageUid]: existing.filter(
+              (r) => !(r.user_id === currentUserId && r.emoji === emoji)
+            ),
+          }
+        } else {
+          return {
+            ...prev,
+            [messageUid]: [...existing, { user_id: currentUserId, emoji }],
+          }
+        }
+      })
+    },
+    [connected, sendMessage]
+  )
 
   // Handle incoming WebSocket messages
   useEffect(() => {
@@ -1089,6 +1141,9 @@ export default function Chat() {
                     content={content}
                     stats={stats}
                     attachments={msgAttachments}
+                    reactions={reactions[msg.uid]}
+                    currentUserId={getCurrentUsername()}
+                    onReact={handleReact}
                     onCopy={handleCopyMessage}
                     onPreviewAttachment={setPreviewAttachment}
                   />

@@ -1,10 +1,12 @@
-import { memo } from 'react'
+import { memo, useState, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { FaCopy, FaFile, FaFilePdf, FaFileImage, FaFileLines } from 'react-icons/fa6'
-import type { VizierAttachment, VizierResponseStats } from '../interfaces/types'
+import type { VizierAttachment, VizierResponseStats, ReactionEntry } from '../interfaces/types'
 import { base_url, api_protocol } from '~/services/vizier'
+import { EmojiPickerPopup } from './EmojiPickerPopup'
+import { ReactionBadges } from './ReactionBadges'
 
 interface MessageItemProps {
   uid: string
@@ -15,6 +17,9 @@ interface MessageItemProps {
   onCopy: (content: string) => void
   onPreviewAttachment?: (attachment: VizierAttachment) => void
   attachments?: VizierAttachment[]
+  reactions?: ReactionEntry[]
+  currentUserId?: string
+  onReact?: (messageUid: string, emoji: string) => void
 }
 
 function MessageItemComponent({
@@ -26,7 +31,12 @@ function MessageItemComponent({
   onCopy,
   onPreviewAttachment,
   attachments,
+  reactions,
+  currentUserId,
+  onReact,
 }: MessageItemProps) {
+  const [showPicker, setShowPicker] = useState(false)
+
   const isImage = (filename: string) => /\.(jpg|jpeg|png|gif|webp)$/i.test(filename)
 
   const getMimeType = (filename: string): string => {
@@ -92,13 +102,15 @@ function MessageItemComponent({
           {senderName}
         </div>
       </div>
-      <div style={{
-        padding: '12px 16px',
-        background: isUserMessage ? 'var(--surface)' : 'transparent',
-        borderRadius: '8px',
-        borderLeft: isUserMessage ? 'none' : '3px solid var(--accent-primary)',
-        boxShadow: isUserMessage ? 'var(--shadow-sm)' : 'none',
-      }}>
+      <div
+        style={{
+          padding: '12px 16px',
+          background: isUserMessage ? 'var(--surface)' : 'transparent',
+          borderRadius: '8px',
+          borderLeft: isUserMessage ? 'none' : '3px solid var(--accent-primary)',
+          boxShadow: isUserMessage ? 'var(--shadow-sm)' : 'none',
+        }}
+      >
         <div className="flex items-start justify-between">
           <div className='prose'>
             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
@@ -178,17 +190,73 @@ function MessageItemComponent({
             <span>{Math.round(stats.duration.secs * 1000 + stats.duration.nanos / 1000000)}ms</span>
           </div>
         )}
+
+        {onReact && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '4px',
+            marginTop: '6px',
+          }}>
+            {reactions && reactions.length > 0 && (
+              <ReactionBadges
+                reactions={reactions}
+                currentUserId={currentUserId}
+                onToggleReaction={(emoji) => onReact(uid, emoji)}
+              />
+            )}
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowPicker(!showPicker)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  lineHeight: '18px',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  (e.target as HTMLElement).style.background = 'var(--border)'
+                }}
+                onMouseLeave={(e) => {
+                  (e.target as HTMLElement).style.background = 'var(--surface)'
+                }}
+              >
+                <span>+</span>
+              </button>
+              {showPicker && (
+                <EmojiPickerPopup
+                  onSelect={(emoji) => {
+                    onReact(uid, emoji)
+                    setShowPicker(false)
+                  }}
+                  onClose={() => setShowPicker(false)}
+                />
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 // Memoize component to prevent re-renders when parent re-renders
-// Only re-render if the message UID or attachments change
+// Only re-render if the message UID, content, stats, attachments, or reactions change
 export const MessageItem = memo(MessageItemComponent, (prevProps, nextProps) => {
   if (prevProps.uid !== nextProps.uid) return false
   if (prevProps.content !== nextProps.content) return false
   if (prevProps.stats !== nextProps.stats) return false
   if (prevProps.attachments !== nextProps.attachments) return false
+  if (prevProps.reactions !== nextProps.reactions) return false
+  if (prevProps.currentUserId !== nextProps.currentUserId) return false
   return true
 })
