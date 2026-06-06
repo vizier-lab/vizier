@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2026-06-06
+
+### 🚀 Features
+
+- Add title
+- Move mcp and shell config to per-agent basis
+- Implement reaction feedback in webui
+- Emoji filter
+- Add general homepage
+- Add quickchat home
+- Change session_detail creation and titling
+- Overhaul dream behaviour (#15)
+
+### 🐛 Bug Fixes
+
+- Missing chat from quick chat
+- Missing thinking state on webui
+- Thinking too persisted when should not
 ## [0.9.0-rc.1] - 2026-06-04
 
 ### 🚀 Features
@@ -9,6 +27,9 @@ All notable changes to this project will be documented in this file.
 - Implement graph memory view
 - Add message when running server in background
 - Rewrite and improve agent transport layer
+- Adjust memory graph visual
+- Implement slide over layout for content details
+- Minor webui bugs
 
 ### 🐛 Bug Fixes
 
@@ -17,6 +38,10 @@ All notable changes to this project will be documented in this file.
 ### 💼 Other
 
 - Remove shared_document features in favor of global memory
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.9.0-rc.1
 ## [0.8.3] - 2026-06-03
 
 ### 🐛 Bug Fixes
