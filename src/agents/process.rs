@@ -19,9 +19,11 @@ use crate::{
     schema::{
         AgentConfig, AgentId, DreamStage, VizierChannelId, VizierRequest, VizierRequestContent,
         VizierResponse, VizierResponseContent, VizierSession, VizierSessionDetail,
+        dream_journal::DreamJournalEntry,
     },
     storage::{
-        VizierStorage, history::HistoryStorage, memory::MemoryStorage, session::SessionStorage,
+        VizierStorage, dream_journal::DreamJournalStorage, history::HistoryStorage,
+        memory::MemoryStorage, session::SessionStorage,
     },
     transport::DreamCommand,
 };
@@ -462,6 +464,7 @@ pub async fn handle_request(
         VizierRequestContent::Prompt(_) | VizierRequestContent::Task(_) => {
             let res = match &session.1 {
                 VizierChannelId::Dream(dream_session, stage) => {
+                    let dream_start = Utc::now();
                     match stage {
                         DreamStage::Extraction => {
                             let end = request.timestamp;
@@ -495,17 +498,30 @@ pub async fn handle_request(
                                 .to_string();
                             let session_context = dream_session.to_slug();
 
-                            agent
+                            let response = agent
                                 .dream_chat(
                                     request,
                                     session_history,
                                     Some(hooks.clone()),
                                     deps,
-                                    cycle_id,
-                                    vec![session_context.clone()],
-                                    Some(session_context),
                                 )
-                                .await?
+                                .await?;
+
+                            // Save extraction as dream journal entry
+                            save_dream_entry(
+                                &deps.storage,
+                                &session.0,
+                                &cycle_id,
+                                vec![session_context.clone()],
+                                Some(session_context),
+                                &agent_config,
+                                dream_start,
+                                DreamStage::Extraction,
+                                &response,
+                            )
+                            .await;
+
+                            response
                         }
                         DreamStage::Consolidation => {
                             let cycle_id = request
@@ -523,17 +539,30 @@ pub async fn handle_request(
                             )
                             .unwrap_or_default();
 
-                            agent
+                            let response = agent
                                 .dream_chat(
                                     request,
                                     vec![],
                                     Some(hooks.clone()),
                                     deps,
-                                    cycle_id,
-                                    source_sessions,
-                                    None,
                                 )
-                                .await?
+                                .await?;
+
+                            // Save consolidation as dream journal entry
+                            save_dream_entry(
+                                &deps.storage,
+                                &session.0,
+                                &cycle_id,
+                                source_sessions,
+                                None,
+                                &agent_config,
+                                dream_start,
+                                DreamStage::Consolidation,
+                                &response,
+                            )
+                            .await;
+
+                            response
                         }
                     }
                 }
@@ -559,4 +588,46 @@ pub async fn handle_request(
     }
 
     Ok(())
+}
+
+async fn save_dream_entry(
+    storage: &Arc<VizierStorage>,
+    agent_id: &str,
+    cycle_id: &str,
+    source_sessions: Vec<String>,
+    session_context: Option<String>,
+    agent_config: &AgentConfig,
+    start_time: chrono::DateTime<Utc>,
+    stage: DreamStage,
+    response: &VizierResponse,
+) {
+    let content = match &response.content {
+        VizierResponseContent::Message { content, .. } => content.clone(),
+        _ => return,
+    };
+
+    if content.is_empty() {
+        return;
+    }
+
+    let now = Utc::now();
+    let duration_ms = (now - start_time).num_milliseconds().max(0) as u64;
+
+    let entry = DreamJournalEntry {
+        id: uuid::Uuid::new_v4().to_string(),
+        dream_cycle_id: cycle_id.to_string(),
+        agent_id: agent_id.to_string(),
+        timestamp: now,
+        stage,
+        source_sessions,
+        session_context,
+        content,
+        duration_ms: Some(duration_ms),
+        provider_used: Some(format!("{:?}", agent_config.provider)),
+        model_used: Some(agent_config.model.clone()),
+    };
+
+    if let Err(e) = storage.save_dream_entry(entry).await {
+        tracing::error!("Failed to save dream journal entry for '{}': {}", agent_id, e);
+    }
 }

@@ -403,28 +403,20 @@ impl VizierAgent {
         session_history: Vec<SessionHistory>,
         hooks: Option<Arc<VizierSessionHooks>>,
         deps: &VizierDependencies,
-        dream_cycle_id: String,
-        source_sessions: Vec<String>,
-        session_context: Option<String>,
     ) -> Result<VizierResponse> {
         // Use dream model if both provider and model are configured
-        let (dream_model, provider_used, model_used) =
+        let dream_model =
             if let (Some(provider), Some(model)) =
                 (self.config.dream_provider.as_ref(), self.config.dream_model.as_ref())
             {
-                let m = VizierModel::new_with_override(
+                VizierModel::new_with_override(
                     deps,
                     &self.config,
                     Some((provider.clone(), model.clone())),
                 )
-                .await?;
-                (m, Some(provider.clone()), Some(model.clone()))
+                .await?
             } else {
-                (
-                    self.model.clone(),
-                    Some(self.config.provider.clone()),
-                    Some(self.config.model.clone()),
-                )
+                self.model.clone()
             };
 
         // Build dream tools
@@ -433,12 +425,6 @@ impl VizierAgent {
             .dream_tools(
                 self.config.name.clone(),
                 deps.storage.clone(),
-                dream_cycle_id.clone(),
-                source_sessions.clone(),
-                session_context.clone(),
-                provider_used.clone(),
-                model_used.clone(),
-                req.timestamp,
             )
             .await?;
 
@@ -466,8 +452,6 @@ impl VizierAgent {
             req = hooks.on_request(req).await?;
         }
 
-        let request_timestamp = req.timestamp;
-
         let (output, stats) = self
             .dream_prompt(
                 &dream_model,
@@ -476,12 +460,6 @@ impl VizierAgent {
                 tools,
                 hooks.clone(),
                 deps,
-                &dream_cycle_id,
-                &source_sessions,
-                &session_context,
-                &provider_used,
-                &model_used,
-                request_timestamp,
             )
             .await?;
 
@@ -500,7 +478,6 @@ impl VizierAgent {
         Ok(response)
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn dream_prompt(
         &self,
         model: &VizierModel,
@@ -509,12 +486,6 @@ impl VizierAgent {
         tools: Vec<ToolDefinition>,
         hooks: Option<Arc<VizierSessionHooks>>,
         deps: &VizierDependencies,
-        dream_cycle_id: &str,
-        source_sessions: &[String],
-        session_context: &Option<String>,
-        provider_used: &Option<ProviderVariant>,
-        model_used: &Option<String>,
-        request_timestamp: DateTime<Utc>,
     ) -> Result<(String, VizierResponseStats)> {
         timeout(*self.config.prompt_timeout, async {
             let mut history = history.clone();
@@ -610,7 +581,7 @@ impl VizierAgent {
                             attachments: vec![],
                         }
                     } else {
-                        // Use dream_call for dream tool dispatch (handles journal tools)
+                        // Use dream_call for dream tool dispatch
                         match timeout(*self.config.tools.timeout, async {
                             self.tools
                                 .dream_call(
@@ -618,12 +589,6 @@ impl VizierAgent {
                                     args,
                                     &self.config.name,
                                     &deps.storage,
-                                    dream_cycle_id,
-                                    source_sessions,
-                                    session_context,
-                                    provider_used,
-                                    model_used,
-                                    request_timestamp,
                                 )
                                 .await
                         })

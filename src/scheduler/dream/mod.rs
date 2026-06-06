@@ -46,27 +46,6 @@ impl DreamScheduler {
                 .await
                 .unwrap_or(None);
 
-            // Timeout protection: if dreaming for > 30 minutes, force-reset
-            if let Some(ref dream_status) = status {
-                let started_at = match dream_status {
-                    DreamStatus::Extracting { started_at, .. } => Some(*started_at),
-                    DreamStatus::Consolidating { started_at, .. } => Some(*started_at),
-                    DreamStatus::Idle => None,
-                };
-                if let Some(started) = started_at
-                    && Utc::now() - started > Duration::minutes(30)
-                {
-                    tracing::warn!(
-                        "Dream cycle timed out for agent '{}', resetting to idle",
-                        agent_id
-                    );
-                    self.deps
-                        .storage
-                        .set_dream_status(&agent_id, DreamStatus::Idle)
-                        .await?;
-                }
-            }
-
             if !matches!(status, Some(DreamStatus::Idle) | None) {
                 continue;
             }
@@ -176,10 +155,7 @@ impl DreamScheduler {
             .await?;
 
         // Update last dream time
-        self.deps
-            .storage
-            .set_last_dream_time(agent_id, now)
-            .await?;
+        self.deps.storage.set_last_dream_time(agent_id, now).await?;
 
         // Spawn background task for the full dream cycle
         let deps = self.deps.clone();
@@ -262,8 +238,7 @@ impl DreamScheduler {
                 .await;
 
             // Trigger consolidation
-            match Self::do_consolidation(&deps, &agent_id, &cycle_id, &source_session_slugs).await
-            {
+            match Self::do_consolidation(&deps, &agent_id, &cycle_id, &source_session_slugs).await {
                 Ok(resp_rx) => {
                     // Await consolidation response
                     while let Ok(response) = resp_rx.recv_async().await {
@@ -345,7 +320,7 @@ impl DreamScheduler {
                     VizierChannelId::Dream(
                         Box::new(VizierSession(
                             agent_id.to_string(),
-                            VizierChannelId::Heartbeat(now),
+                            VizierChannelId::System,
                             Some("dream-consolidation".to_string()),
                         )),
                         DreamStage::Consolidation,

@@ -6,8 +6,8 @@ use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 
 use crate::schema::{
-    AgentCommand, AgentId, ChannelCommand, CommandRequest, CommandResponse,
-    VizierRequest, VizierResponse, VizierSession,
+    AgentCommand, AgentId, ChannelCommand, CommandRequest, CommandResponse, VizierRequest,
+    VizierResponse, VizierSession,
 };
 
 #[derive(Debug, Clone)]
@@ -38,10 +38,7 @@ pub struct VizierTransport {
         flume::Receiver<CommandResponse>,
     )>,
 
-    agent_command_channel: Arc<(
-        flume::Sender<AgentCommand>,
-        flume::Receiver<AgentCommand>,
-    )>,
+    agent_command_channel: Arc<(flume::Sender<AgentCommand>, flume::Receiver<AgentCommand>)>,
 
     channel_command_channel: Arc<(
         flume::Sender<ChannelCommand>,
@@ -50,10 +47,7 @@ pub struct VizierTransport {
 
     exit_channel: Arc<(flume::Sender<bool>, flume::Receiver<bool>)>,
 
-    dream_command_channel: Arc<(
-        flume::Sender<DreamCommand>,
-        flume::Receiver<DreamCommand>,
-    )>,
+    dream_command_channel: Arc<(flume::Sender<DreamCommand>, flume::Receiver<DreamCommand>)>,
 }
 
 impl VizierTransport {
@@ -76,7 +70,10 @@ impl VizierTransport {
         }
     }
 
-    pub async fn register_agent(&self, agent_id: AgentId) -> flume::Receiver<VizierRequestEnvelope> {
+    pub async fn register_agent(
+        &self,
+        agent_id: AgentId,
+    ) -> flume::Receiver<VizierRequestEnvelope> {
         let (tx, rx) = flume::unbounded();
         let mut channels = self.agent_channels.write().await;
         channels.insert(agent_id, tx);
@@ -96,6 +93,7 @@ impl VizierTransport {
     ) -> Result<()> {
         let agent_id = &session.0;
         let channels = self.agent_channels.read().await;
+        println!("{:?}", channels);
         let tx = channels
             .get(agent_id)
             .ok_or_else(|| anyhow::anyhow!("agent '{}' not registered", agent_id))?;

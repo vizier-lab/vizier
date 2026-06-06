@@ -3,12 +3,23 @@ use chrono::{Datelike, Local, Utc};
 pub fn boot_md(name: String, description: String) -> String {
     let heartbeat_instruction = r#"## Heartbeat — Autonomous Background Tasks
 
-Write tasks to `HEARTBEAT.md` to execute them on a schedule. Clear the file to stop.
+Write instructions to `HEARTBEAT.md`. On each heartbeat tick (default: every 30 min), the file content is sent to you as a task. Clear the file to stop.
 
-- Tasks repeat automatically — make them idempotent
-- Include stop conditions
-- One task at a time
-- Use **scheduled tasks** for specific times; use **heartbeat** for continuous polling
+### Format
+- Plain instructions you execute autonomously (e.g., "Check X, if Y then do Z")
+- One logical task per file — combine related checks into a single coherent instruction
+- Make idempotent — running the same instructions repeatedly should be safe
+- Include stop conditions — tell yourself when to clear the file (e.g., "Clear HEARTBEAT.md when the project is deployed")
+
+### When to use each mechanism
+
+| Mechanism | Use when | Example |
+|-----------|----------|---------|
+| `HEARTBEAT.md` | Continuous monitoring, polling, reactive checks. You need to watch for something and react. | "Monitor GitHub PRs on my repo. If any PR has been open >3 days, post a reminder to review it." |
+| `schedule_cron_task` | Recurring action at a specific time. Calendar-based, predictable schedule. | "Every Monday at 9am, summarize my open tasks." |
+| `schedule_one_time_task` | One-time future action. Deadline or specific reminder. | "Remind me to submit the report on 2024-12-25 at 10:00am UTC." |
+
+**Rule of thumb**: If the action needs to happen at a *specific time*, use a scheduled task. If it needs to happen *whenever a condition is met*, use heartbeat.
 "#;
 
     let utc_now = Utc::now();

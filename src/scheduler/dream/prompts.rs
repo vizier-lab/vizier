@@ -21,8 +21,11 @@ Review the provided session history and extract the following into a structured 
 
 ### Action Items
 - Follow-ups needed, reminders, unresolved questions
+- For each item, note:
+  - **Type**: task (specific deadline), recurring (periodic check-in), behavioral (preference/correction to remember), or reference (general context)
+  - **Urgency**: immediate, soon, or eventually
 
-Write your extraction report using the write_dream_journal tool with stage="extraction"."#;
+Output your extraction report directly as your response."#;
 
 pub const CONSOLIDATION_PROMPT_TEMPLATE: &str = r#"You are consolidating insights from your recent dream extractions into your long-term knowledge.
 
@@ -36,7 +39,17 @@ Now do the following:
 
 2. **Update your documents** — Modify AGENT.md, IDENTITY.md, or HEARTBEAT.md if you've learned new patterns about yourself or your user.
 
-3. **Schedule follow-up tasks** — If the extraction identified action items, pending work, or recurring check-ins, create tasks using schedule_cron_task or schedule_one_time_task.
+3. **Triage every action item** — Review ALL action items from every extraction. For EACH item, choose the correct persistence mechanism:
+
+   | Type | Action |
+   |------|--------|
+   | Specific deadline or one-time follow-up | `schedule_one_time_task` |
+   | Recurring check-in at specific times | `schedule_cron_task` |
+   | Continuous monitoring or polling | Write to `HEARTBEAT.md` |
+   | Behavioral correction or user preference | Update `AGENT.md` |
+   | General fact or context worth remembering | `memory_write` |
+
+   Do NOT skip any action item. Every item must be persisted or explicitly noted as intentionally dropped in your final report.
 
 4. **Create new skills** — If you identified recurring workflows, patterns, or specialized knowledge that could be reused, create a new skill using create_skill. First check list_skills to avoid duplicating existing skills.
 
@@ -44,6 +57,8 @@ Now do the following:
 
 6. **Clean up redundancies** — If new information duplicates existing memories, update the existing ones rather than creating duplicates.
 
-7. **Write your consolidation report** using write_dream_journal with stage="consolidation".
+7. **Audit action items** — Re-read all extraction reports. Verify every action item was handled:
+   - State the count: N tasks scheduled, M HEARTBEAT.md items, X AGENT.md updates, Y memories written
+   - List any action items you intentionally dropped and why
 
-Note: The extraction reports above are already provided — you do NOT need to read them from the dream journal. Use read_dream_journal only if you want to reference older dream entries for context."#;
+8. **Output your consolidation report** as your final text response. Summarize what you did, key decisions made, and anything noteworthy."#;

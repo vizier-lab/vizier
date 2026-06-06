@@ -11,7 +11,7 @@ use crate::{
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
         consult::{ConsultAgent, DelegateAgent},
         discord::new_discord_tools,
-        dream_journal::{ReadDreamJournal, WriteDreamJournal},
+        dream_journal::ReadDreamJournal,
         fetch::FetchWebpage,
         http_client::HttpClient,
         ptc::ProgramaticSandbox,
@@ -247,13 +247,14 @@ impl VizierTools {
     }
 
     const DREAM_TOOL_NAMES: &'static [&'static str] = &[
-        // Memory (6)
+        // Memory (7)
         "memory_read",
         "memory_write",
         "memory_list",
         "memory_detail",
         "memory_follow",
         "memory_graph",
+        "memory_delete",
         // Workspace (4)
         "WRITE_AGENT_MD_FILE",
         "WRITE_IDENTITY_MD_FILE",
@@ -274,12 +275,6 @@ impl VizierTools {
         &self,
         agent_id: AgentId,
         storage: Arc<VizierStorage>,
-        dream_cycle_id: String,
-        source_sessions: Vec<String>,
-        session_context: Option<String>,
-        provider_used: Option<ProviderVariant>,
-        model_used: Option<String>,
-        start_time: DateTime<Utc>,
     ) -> Result<Vec<ToolDefinition>> {
         let mut tools = vec![];
 
@@ -290,20 +285,7 @@ impl VizierTools {
             }
         }
 
-        // Create fresh dream journal tools with cycle context
-        let write_journal = WriteDreamJournal {
-            agent_id: agent_id.clone(),
-            storage: storage.clone(),
-            dream_cycle_id,
-            source_sessions,
-            session_context,
-            provider_used: provider_used.map(|p| format!("{:?}", p)),
-            model_used,
-            start_time,
-        };
-        let write_def = <WriteDreamJournal as VizierToolDyn>::tool_def(&write_journal);
-        tools.push(write_def);
-
+        // Add read_dream_journal for API browsing
         let read_journal = ReadDreamJournal {
             agent_id,
             storage,
@@ -320,34 +302,9 @@ impl VizierTools {
         params: String,
         agent_id: &AgentId,
         storage: &Arc<VizierStorage>,
-        dream_cycle_id: &str,
-        source_sessions: &[String],
-        session_context: &Option<String>,
-        provider_used: &Option<ProviderVariant>,
-        model_used: &Option<String>,
-        start_time: DateTime<Utc>,
     ) -> Result<VizierResponse> {
         // Handle dream journal tools
         match function_name.as_str() {
-            "write_dream_journal" => {
-                let tool = WriteDreamJournal {
-                    agent_id: agent_id.clone(),
-                    storage: storage.clone(),
-                    dream_cycle_id: dream_cycle_id.to_string(),
-                    source_sessions: source_sessions.to_vec(),
-                    session_context: session_context.clone(),
-                    provider_used: provider_used.clone().map(|p| format!("{:?}", p)),
-                    model_used: model_used.clone(),
-                    start_time,
-                };
-                let output = tool.tool_call(params).await?;
-                let res = serde_json::from_str(&output)?;
-                return Ok(VizierResponse {
-                    timestamp: Utc::now(),
-                    content: crate::schema::VizierResponseContent::ToolResponse { response: res },
-                    attachments: vec![],
-                });
-            }
             "read_dream_journal" => {
                 let tool = ReadDreamJournal {
                     agent_id: agent_id.clone(),
@@ -499,7 +456,7 @@ impl VizierTools {
         }
 
         if deps.config.embedding.is_some() {
-            let (read_memory, write_memory, list_memory, detail_memory, follow_memory, graph_memory) =
+            let (read_memory, write_memory, list_memory, detail_memory, follow_memory, graph_memory, delete_memory) =
                 init_vector_memory(agent_id.clone(), deps.clone())?;
 
             default_toolset = default_toolset
@@ -508,7 +465,8 @@ impl VizierTools {
                 .tool(list_memory)
                 .tool(detail_memory)
                 .tool(follow_memory)
-                .tool(graph_memory);
+                .tool(graph_memory)
+                .tool(delete_memory);
         }
 
         let mut mcp = HashMap::new();

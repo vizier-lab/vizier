@@ -124,7 +124,7 @@ pub struct DelegateAgentArgs {
 #[async_trait::async_trait]
 impl VizierTool for DelegateAgent {
     type Input = DelegateAgentArgs;
-    type Output = ();
+    type Output = String;
 
     fn name() -> String {
         "delegate_agent".to_string()
@@ -153,14 +153,14 @@ impl VizierTool for DelegateAgent {
     }
 
     async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+        let target_agent = args.agent_id.clone();
         let curr_session = VizierSession(
             args.agent_id.clone(),
             VizierChannelId::InterAgent(vec![self.agent_id.clone(), args.agent_id.clone()]),
             None,
         );
 
-        let _ = self
-            .transport
+        self.transport
             .send_request(
                 curr_session.clone(),
                 VizierRequest {
@@ -175,6 +175,6 @@ impl VizierTool for DelegateAgent {
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
-        Ok(())
+        Ok(format!("Task delegated to agent '{}'", target_agent))
     }
 }

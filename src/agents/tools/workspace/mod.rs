@@ -64,7 +64,7 @@ where
     Self: Sync + Send,
 {
     type Input = WritePrimaryDocumentArgs;
-    type Output = ();
+    type Output = String;
 
     fn name() -> String {
         T::WRITE_NAME.to_string()
@@ -80,10 +80,10 @@ where
     async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
         let path = build_path(&self.workspace, &[T::NAME]);
 
-        match std::fs::write(path, args.content) {
-            Ok(_) => Ok(()),
-            Err(err) => throw_vizier_error("write file", err),
-        }
+        std::fs::write(path, args.content)
+            .map_err(|err| VizierError(err.to_string()))?;
+
+        Ok(format!("{} updated successfully", T::NAME))
     }
 }
 

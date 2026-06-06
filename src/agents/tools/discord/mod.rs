@@ -34,7 +34,7 @@ pub struct SendDiscoedMessageArgs {
 #[async_trait::async_trait]
 impl VizierTool for SendDiscordMessage {
     type Input = SendDiscoedMessageArgs;
-    type Output = ();
+    type Output = String;
 
     fn name() -> String {
         "discord_send_message".to_string()
@@ -45,17 +45,16 @@ impl VizierTool for SendDiscordMessage {
     }
 
     async fn call(&self, args: Self::Input) -> anyhow::Result<Self::Output, VizierError> {
-        let response = crate::utils::discord::send_message(
+        let channel_id = args.channel_id;
+        crate::utils::discord::send_message(
             self.http.clone(),
-            &ChannelId::new(args.channel_id),
+            &ChannelId::new(channel_id),
             args.content,
         )
-        .await;
+        .await
+        .map_err(|err| VizierError(err.to_string()))?;
 
-        match response {
-            Ok(()) => Ok(()),
-            Err(err) => throw_vizier_error("discord_send_message ", err),
-        }
+        Ok(format!("Message sent to channel {}", channel_id))
     }
 }
 
@@ -78,7 +77,7 @@ pub struct ReactDiscoedMessageArgs {
 #[async_trait::async_trait]
 impl VizierTool for ReactDiscordMessage {
     type Input = ReactDiscoedMessageArgs;
-    type Output = ();
+    type Output = String;
 
     fn name() -> String {
         "discord_react_message".to_string()
@@ -92,18 +91,17 @@ impl VizierTool for ReactDiscordMessage {
         let channel = ChannelId::new(args.channel_id);
         let message_id = MessageId::new(args.message_id);
 
-        let response = channel.message(self.http.clone(), message_id).await;
-        if let Err(err) = response {
-            return throw_vizier_error("discord_react_message ", err);
-        }
+        let message = channel
+            .message(self.http.clone(), message_id)
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
 
-        let message = response.unwrap();
-        let response = message.react(self.http.clone(), args.emoji).await;
+        message
+            .react(self.http.clone(), args.emoji)
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
 
-        match response {
-            Ok(_) => Ok(()),
-            Err(err) => throw_vizier_error("discord_react_message ", err),
-        }
+        Ok(format!("Reacted with {} to message {}", args.emoji, args.message_id))
     }
 }
 

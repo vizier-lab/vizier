@@ -40,7 +40,7 @@ pub struct ScheduleOneTimeTaskArgs {
 #[async_trait::async_trait]
 impl VizierTool for ScheduleOneTimeTask {
     type Input = ScheduleOneTimeTaskArgs;
-    type Output = ();
+    type Output = String;
 
     fn name() -> String {
         "schedule_one_time_task".to_string()
@@ -66,8 +66,8 @@ impl VizierTool for ScheduleOneTimeTask {
             ));
         }
 
-        let response = self
-            .storage
+        let title = args.title.clone();
+        self.storage
             .save_task(Task {
                 slug: args.slug.clone().unwrap_or_else(|| slugify!(&args.title.clone())),
                 user: args.user,
@@ -79,13 +79,10 @@ impl VizierTool for ScheduleOneTimeTask {
                 last_executed_at: None,
                 timestamp: chrono::Utc::now(),
             })
-            .await;
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
 
-        if let Err(err) = response {
-            return Err(VizierError(err.to_string()));
-        }
-
-        Ok(())
+        Ok(format!("Task '{}' scheduled for {}", title, args.schedule))
     }
 }
 
@@ -123,7 +120,7 @@ pub struct ScheduleCronTaskArgs {
 #[async_trait::async_trait]
 impl VizierTool for ScheduleCronTask {
     type Input = ScheduleCronTaskArgs;
-    type Output = ();
+    type Output = String;
 
     fn name() -> String {
         "schedule_cron_task".to_string()
@@ -145,8 +142,9 @@ impl VizierTool for ScheduleCronTask {
             }
         }
 
-        let response = self
-            .db
+        let title = args.title.clone();
+        let cron = args.cron.clone();
+        self.db
             .save_task(Task {
                 slug: args.slug.clone().unwrap_or_else(|| slugify!(&args.title.clone())),
                 user: args.user,
@@ -158,13 +156,10 @@ impl VizierTool for ScheduleCronTask {
                 last_executed_at: Some(chrono::Utc::now()),
                 timestamp: chrono::Utc::now(),
             })
-            .await;
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
 
-        if let Err(err) = response {
-            return Err(VizierError(err.to_string()));
-        }
-
-        Ok(())
+        Ok(format!("Task '{}' scheduled with cron '{}'", title, cron))
     }
 }
 
@@ -217,7 +212,7 @@ pub struct DeleteTaskArgs {
 #[async_trait::async_trait]
 impl VizierTool for DeleteTask {
     type Input = DeleteTaskArgs;
-    type Output = ();
+    type Output = String;
 
     fn name() -> String {
         "delete_task".to_string()
@@ -228,12 +223,13 @@ impl VizierTool for DeleteTask {
     }
 
     async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+        let slug = args.slug.clone();
         self.storage
             .delete_task(self.agent_id.clone(), args.slug)
             .await
             .map_err(|e| VizierError(e.to_string()))?;
 
-        Ok(())
+        Ok(format!("Task '{}' deleted", slug))
     }
 }
 
