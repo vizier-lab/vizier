@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rig_core::completion::ToolDefinition;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,7 @@ use crate::{
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
         consult::{ConsultAgent, DelegateAgent},
         discord::new_discord_tools,
+        dream_journal::{ReadDreamJournal, WriteDreamJournal},
         fetch::FetchWebpage,
         http_client::HttpClient,
         ptc::ProgramaticSandbox,
@@ -27,16 +28,18 @@ use crate::{
         },
     },
     agents::mcp::{VizierMcp, VizierMcpClient},
+    config::provider::ProviderVariant,
     dependencies::VizierDependencies,
     error::VizierError,
     schema::{AgentId, VizierResponse},
-    storage::agent::AgentStorage,
+    storage::{VizierStorage, agent::AgentStorage},
     utils::agent_workspace,
 };
 
 mod brave_search;
 mod consult;
 mod discord;
+mod dream_journal;
 mod fetch;
 mod http_client;
 mod ptc;
@@ -70,7 +73,7 @@ impl VizierToolSet {
         self
     }
 
-    fn get_tool(&self, function_name: String) -> Result<VizierToolDef> {
+    pub fn get_tool(&self, function_name: String) -> Result<VizierToolDef> {
         let tool = self
             .tools
             .get(&function_name)
@@ -242,6 +245,128 @@ impl VizierTools {
 
         Err(VizierError(format!("{} not found", function_name)).into())
     }
+
+    const DREAM_TOOL_NAMES: &'static [&'static str] = &[
+        // Memory (6)
+        "memory_read",
+        "memory_write",
+        "memory_list",
+        "memory_detail",
+        "memory_follow",
+        "memory_graph",
+        // Workspace (4)
+        "WRITE_AGENT_MD_FILE",
+        "WRITE_IDENTITY_MD_FILE",
+        "WRITE_HEARTBEAT_MD_FILE",
+        "READ_HEARTBEAT_MD_FILE",
+        // Scheduler (4)
+        "schedule_one_time_task",
+        "schedule_cron_task",
+        "list_task",
+        "delete_task",
+        // Skills (3)
+        "create_skill",
+        "update_skill",
+        "list_skills",
+    ];
+
+    pub async fn dream_tools(
+        &self,
+        agent_id: AgentId,
+        storage: Arc<VizierStorage>,
+        dream_cycle_id: String,
+        source_sessions: Vec<String>,
+        session_context: Option<String>,
+        provider_used: Option<ProviderVariant>,
+        model_used: Option<String>,
+        start_time: DateTime<Utc>,
+    ) -> Result<Vec<ToolDefinition>> {
+        let mut tools = vec![];
+
+        // Filter default_toolset for dream-relevant tools
+        for name in Self::DREAM_TOOL_NAMES {
+            if let Ok(tool) = self.default_toolset.get_tool(name.to_string()) {
+                tools.push(tool.tool_def());
+            }
+        }
+
+        // Create fresh dream journal tools with cycle context
+        let write_journal = WriteDreamJournal {
+            agent_id: agent_id.clone(),
+            storage: storage.clone(),
+            dream_cycle_id,
+            source_sessions,
+            session_context,
+            provider_used: provider_used.map(|p| format!("{:?}", p)),
+            model_used,
+            start_time,
+        };
+        let write_def = <WriteDreamJournal as VizierToolDyn>::tool_def(&write_journal);
+        tools.push(write_def);
+
+        let read_journal = ReadDreamJournal {
+            agent_id,
+            storage,
+        };
+        let read_def = <ReadDreamJournal as VizierToolDyn>::tool_def(&read_journal);
+        tools.push(read_def);
+
+        Ok(tools)
+    }
+
+    pub async fn dream_call(
+        &self,
+        function_name: String,
+        params: String,
+        agent_id: &AgentId,
+        storage: &Arc<VizierStorage>,
+        dream_cycle_id: &str,
+        source_sessions: &[String],
+        session_context: &Option<String>,
+        provider_used: &Option<ProviderVariant>,
+        model_used: &Option<String>,
+        start_time: DateTime<Utc>,
+    ) -> Result<VizierResponse> {
+        // Handle dream journal tools
+        match function_name.as_str() {
+            "write_dream_journal" => {
+                let tool = WriteDreamJournal {
+                    agent_id: agent_id.clone(),
+                    storage: storage.clone(),
+                    dream_cycle_id: dream_cycle_id.to_string(),
+                    source_sessions: source_sessions.to_vec(),
+                    session_context: session_context.clone(),
+                    provider_used: provider_used.clone().map(|p| format!("{:?}", p)),
+                    model_used: model_used.clone(),
+                    start_time,
+                };
+                let output = tool.tool_call(params).await?;
+                let res = serde_json::from_str(&output)?;
+                return Ok(VizierResponse {
+                    timestamp: Utc::now(),
+                    content: crate::schema::VizierResponseContent::ToolResponse { response: res },
+                    attachments: vec![],
+                });
+            }
+            "read_dream_journal" => {
+                let tool = ReadDreamJournal {
+                    agent_id: agent_id.clone(),
+                    storage: storage.clone(),
+                };
+                let output = tool.tool_call(params).await?;
+                let res = serde_json::from_str(&output)?;
+                return Ok(VizierResponse {
+                    timestamp: Utc::now(),
+                    content: crate::schema::VizierResponseContent::ToolResponse { response: res },
+                    attachments: vec![],
+                });
+            }
+            _ => {}
+        }
+
+        // Delegate to default_toolset for memory, workspace, scheduler, skill tools
+        self.call(function_name, params).await
+    }
 }
 
 impl VizierTools {
@@ -373,19 +498,17 @@ impl VizierTools {
             user_toolset = user_toolset.tool(HttpClient);
         }
 
-        if agent_config.tools.vector_memory.enabled {
-            if let Some(_) = deps.config.embedding {
-                let (read_memory, write_memory, list_memory, detail_memory, follow_memory, graph_memory) =
-                    init_vector_memory(agent_id.clone(), deps.clone())?;
+        if deps.config.embedding.is_some() {
+            let (read_memory, write_memory, list_memory, detail_memory, follow_memory, graph_memory) =
+                init_vector_memory(agent_id.clone(), deps.clone())?;
 
-                user_toolset = user_toolset
-                    .tool(read_memory)
-                    .tool(write_memory)
-                    .tool(list_memory)
-                    .tool(detail_memory)
-                    .tool(follow_memory)
-                    .tool(graph_memory);
-            }
+            default_toolset = default_toolset
+                .tool(read_memory)
+                .tool(write_memory)
+                .tool(list_memory)
+                .tool(detail_memory)
+                .tool(follow_memory)
+                .tool(graph_memory);
         }
 
         let mut mcp = HashMap::new();

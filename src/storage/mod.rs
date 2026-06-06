@@ -6,13 +6,16 @@ use crate::{
     config::provider::ProviderVariant,
     schema::{AgentConfig, DocumentIndex, GlobalConfigEntry, ProviderEntry},
     storage::{
-        agent::AgentStorage, global_config::GlobalConfigStorage, history::HistoryStorage,
+        agent::AgentStorage, dream::DreamStorage, dream_journal::DreamJournalStorage,
+        global_config::GlobalConfigStorage, history::HistoryStorage,
         indexer::DocumentIndexer, memory::MemoryStorage, provider::ProviderStorage,
         session::SessionStorage, state::StateStorage, task::TaskStorage, user::UserStorage,
     },
 };
 
 pub mod agent;
+pub mod dream;
+pub mod dream_journal;
 pub mod global_config;
 pub mod history;
 pub mod indexer;
@@ -37,7 +40,9 @@ where
         + UserStorage
         + AgentStorage
         + ProviderStorage
-        + GlobalConfigStorage,
+        + GlobalConfigStorage
+        + DreamJournalStorage
+        + DreamStorage,
 {
 }
 

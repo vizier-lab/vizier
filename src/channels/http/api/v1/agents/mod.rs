@@ -25,12 +25,14 @@ use crate::{
 
 pub mod channel;
 pub mod documents;
+pub mod dream;
 pub mod memory;
 pub mod skills;
 pub mod task;
 
 use channel::channel;
 use documents::documents;
+use dream::dream;
 use memory::memory;
 use skills::agent_skills;
 use task::task;
@@ -85,6 +87,7 @@ pub fn agents() -> Router<HTTPState> {
         .nest("/{agent_id}/memory", memory())
         .nest("/{agent_id}/skills", agent_skills())
         .nest("/{agent_id}/tasks", task())
+        .nest("/{agent_id}/dream", dream())
 }
 
 #[utoipa::path(
@@ -141,14 +144,16 @@ pub struct AgentDetail {
     pub shell: Option<ShellConfig>,
     pub brave_search: bool,
     pub brave_search_settings: Option<BraveSearchToolSettings>,
-    pub vector_memory: bool,
     pub discord: bool,
     pub telegram: bool,
     pub fetch: bool,
     pub http_client: bool,
     pub prompt_timeout: String,
     pub heartbeat_interval: String,
-    pub dream_interval: String,
+    pub dream_enabled: bool,
+    pub dream_schedule: Option<String>,
+    pub dream_provider: Option<crate::config::provider::ProviderVariant>,
+    pub dream_model: Option<String>,
     pub discord_token: Option<String>,
     pub telegram_token: Option<String>,
     pub tools_timeout: String,
@@ -203,14 +208,16 @@ async fn agent_detail(
                 } else {
                     None
                 },
-                vector_memory: config.tools.vector_memory.enabled,
                 discord: config.tools.discord.enabled,
                 telegram: config.tools.telegram.enabled,
                 fetch: config.tools.fetch.enabled,
                 http_client: config.tools.http_client.enabled,
                 prompt_timeout: config.prompt_timeout.to_string(),
                 heartbeat_interval: config.heartbeat_interval.to_string(),
-                dream_interval: config.dream_interval.to_string(),
+                dream_enabled: config.dream_enabled,
+                dream_schedule: config.dream_schedule,
+                dream_provider: config.dream_provider,
+                dream_model: config.dream_model,
                 discord_token: config.discord_token,
                 telegram_token: config.telegram_token,
                 tools_timeout: config.tools.timeout.to_string(),
@@ -250,7 +257,13 @@ pub struct CreateAgentRequest {
     #[serde(default)]
     pub heartbeat_interval: Option<String>,
     #[serde(default)]
-    pub dream_interval: Option<String>,
+    pub dream_enabled: Option<bool>,
+    #[serde(default)]
+    pub dream_schedule: Option<String>,
+    #[serde(default)]
+    pub dream_provider: Option<crate::config::provider::ProviderVariant>,
+    #[serde(default)]
+    pub dream_model: Option<String>,
     #[serde(default)]
     pub discord_token: Option<String>,
     #[serde(default)]
@@ -274,8 +287,6 @@ pub struct CreateAgentTools {
     #[serde(default)]
     pub brave_search_settings: Option<BraveSearchToolSettings>,
     #[serde(default)]
-    pub vector_memory: Option<bool>,
-    #[serde(default)]
     pub discord: Option<bool>,
     #[serde(default)]
     pub telegram: Option<bool>,
@@ -297,7 +308,6 @@ impl CreateAgentRequest {
             shell: None,
             brave_search: None,
             brave_search_settings: None,
-            vector_memory: None,
             discord: None,
             telegram: None,
             fetch: None,
@@ -331,10 +341,6 @@ impl CreateAgentRequest {
                     enabled: tools.brave_search.unwrap_or(false),
                     settings: tools.brave_search_settings.unwrap_or_default(),
                 },
-                vector_memory: ToolConfig {
-                    enabled: tools.vector_memory.unwrap_or(true),
-                    settings: (),
-                },
                 discord: ToolConfig {
                     enabled: tools.discord.unwrap_or(false),
                     settings: (),
@@ -366,10 +372,10 @@ impl CreateAgentRequest {
                 self.heartbeat_interval.unwrap_or("30m".into()),
             )
             .unwrap(),
-            dream_interval: duration_string::DurationString::from_string(
-                self.dream_interval.unwrap_or("24h".into()),
-            )
-            .unwrap(),
+            dream_enabled: self.dream_enabled.unwrap_or(false),
+            dream_schedule: self.dream_schedule,
+            dream_provider: self.dream_provider,
+            dream_model: self.dream_model,
             discord_token: self.discord_token,
             telegram_token: self.telegram_token,
             avatar_url: self.avatar_url,

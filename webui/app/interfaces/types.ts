@@ -115,7 +115,6 @@ export interface AgentToolsConfig {
   shell: ShellConfigData | null
   brave_search: AgentToolConfig
   brave_search_settings?: BraveSearchToolSettings
-  vector_memory: AgentToolConfig
   discord: AgentToolConfig
   telegram: AgentToolConfig
   fetch: AgentToolConfig
@@ -139,7 +138,10 @@ export interface AgentConfig {
   include_documents?: string[]
   prompt_timeout: string
   heartbeat_interval: string
-  dream_interval: string
+  dream_enabled: boolean
+  dream_schedule: string | null
+  dream_provider: string | null
+  dream_model: string | null
 }
 
 export interface CreateAgentRequest {
@@ -159,7 +161,6 @@ export interface CreateAgentRequest {
     shell?: ShellConfigData | null
     brave_search?: boolean
     brave_search_settings?: BraveSearchToolSettings
-    vector_memory?: boolean
     discord?: boolean
     telegram?: boolean
     fetch?: boolean
@@ -170,7 +171,10 @@ export interface CreateAgentRequest {
   }
   prompt_timeout?: string
   heartbeat_interval?: string
-  dream_interval?: string
+  dream_enabled?: boolean
+  dream_schedule?: string
+  dream_provider?: string | null
+  dream_model?: string | null
   discord_token?: string
   telegram_token?: string
   avatar_url?: string
@@ -192,7 +196,6 @@ export interface AgentDetail {
   shell: ShellConfigData | null
   brave_search: boolean
   brave_search_settings?: BraveSearchToolSettings
-  vector_memory: boolean
   discord: boolean
   telegram: boolean
   fetch: boolean
@@ -200,7 +203,10 @@ export interface AgentDetail {
   programmatic_sandbox?: boolean
   prompt_timeout: string
   heartbeat_interval: string
-  dream_interval: string
+  dream_enabled: boolean
+  dream_schedule: string | null
+  dream_provider: string | null
+  dream_model: string | null
   discord_token?: string
   telegram_token?: string
   tools_timeout: string
@@ -547,4 +553,32 @@ export interface SharingResponse {
 export interface UpdateSharingRequest {
   add?: string[]
   remove?: string[]
+}
+
+// ============================================================================
+// DREAM
+// ============================================================================
+
+export interface DreamJournalEntry {
+  id: string
+  dream_cycle_id: string
+  agent_id: string
+  timestamp: string
+  stage: 'extraction' | 'consolidation'
+  source_sessions: string[]
+  session_context: string | null
+  content: string
+  duration_ms: number | null
+  provider_used: string | null
+  model_used: string | null
+}
+
+export interface DreamStatusResponse {
+  status: 'idle' | 'extracting' | 'consolidating'
+  total_sessions?: number
+  completed_sessions?: number
+  last_dream: string | null
+  next_dream: string | null
+  dream_provider: string | null
+  dream_model: string | null
 }

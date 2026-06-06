@@ -119,6 +119,7 @@ export default function Layout() {
     if (location.pathname.includes('/memory')) return 'memory'
     if (location.pathname.includes('/tasks')) return 'tasks'
     if (location.pathname.includes('/skills')) return 'skills'
+    if (location.pathname.includes('/dream')) return 'dream'
     if (location.pathname.includes('/usage')) return 'usage'
     if (location.pathname === '/settings') return 'global-settings'
     if (location.pathname.includes('/settings')) return 'settings'
@@ -266,6 +267,7 @@ export default function Layout() {
               ['memory', 'Memory', FaBook],
               ['tasks', 'Tasks', FaCircleCheck],
               ['skills', 'Skills', FaWandMagicSparkles],
+              ['dream', 'Dreams', FaMoon],
               ['usage', 'Usage', FaArrowTrendUp],
               ['settings', 'Agent Config', FaRobot],
             ] as const).map(([view, label, Icon]) => {

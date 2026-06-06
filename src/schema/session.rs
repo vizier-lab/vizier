@@ -53,7 +53,7 @@ pub enum VizierChannelId {
     Heartbeat(DateTime<Utc>),
     System,
     Subagent,
-    Dream(Box<VizierSession>),
+    Dream(Box<VizierSession>, DreamStage),
 }
 
 impl VizierChannelId {
@@ -72,7 +72,13 @@ impl VizierChannelId {
             }
             Self::Heartbeat(datetime) => format!("heartbeat__{}", datetime.to_rfc3339()),
             Self::System => "SYSTEM".into(),
-            Self::Dream(session) => format!("DREAM__{}", session.to_slug()),
+            Self::Dream(session, stage) => {
+                let stage_str = match stage {
+                    DreamStage::Extraction => "extraction",
+                    DreamStage::Consolidation => "consolidation",
+                };
+                format!("DREAM__{}__{}", session.to_slug(), stage_str)
+            }
             Self::Subagent => "SUBAGENT".into(),
         }
     }
@@ -86,4 +92,29 @@ pub struct VizierSessionDetail {
     pub title: String,
     #[serde(default)]
     pub is_thinking: bool,
+}
+
+#[derive(
+    Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum DreamStage {
+    Extraction,
+    Consolidation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DreamStatus {
+    Idle,
+    Extracting {
+        started_at: DateTime<Utc>,
+        cycle_id: String,
+        total_sessions: usize,
+        completed_sessions: usize,
+    },
+    Consolidating {
+        started_at: DateTime<Utc>,
+        cycle_id: String,
+    },
 }

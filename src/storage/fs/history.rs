@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     schema::{
@@ -609,6 +609,59 @@ impl HistoryStorage for FileSystemStorage {
 
         Ok(res)
     }
+
+    async fn list_user_sessions_in_window(
+        &self,
+        agent_id: &str,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<VizierSession>> {
+        let path_pattern = format!(
+            "{}/agents/{}/{}/*/*/*.md",
+            self.workspace, agent_id, HISTORY_PATH
+        );
+
+        let mut seen = HashSet::new();
+        let mut sessions = vec![];
+
+        for entry in glob::glob(&path_pattern)? {
+            let entry = entry?;
+            if !entry.is_file() {
+                continue;
+            }
+
+            if let Ok((frontmatter, _)) =
+                utils::markdown::read_markdown::<SessionHistoryFrontMatter>(entry)
+            {
+                let timestamp = frontmatter.timestamp;
+                if timestamp < start || timestamp > end {
+                    continue;
+                }
+
+                let channel_slug = frontmatter.session.1.to_slug();
+
+                // Filter out non-user channels
+                if is_non_user_channel(&channel_slug) {
+                    continue;
+                }
+
+                let slug = frontmatter.session.to_slug();
+                if seen.insert(slug) {
+                    sessions.push(frontmatter.session);
+                }
+            }
+        }
+
+        Ok(sessions)
+    }
+}
+
+fn is_non_user_channel(channel_slug: &str) -> bool {
+    channel_slug == "SYSTEM"
+        || channel_slug == "SUBAGENT"
+        || channel_slug.starts_with("DREAM__")
+        || channel_slug.starts_with("task__")
+        || channel_slug.starts_with("inter_agent__")
 }
 
 fn get_channel_type(channel_slug: &str) -> String {

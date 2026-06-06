@@ -34,7 +34,14 @@ pub struct AgentConfig {
     #[serde(skip)]
     pub documents: Vec<String>,
     pub heartbeat_interval: DurationString,
-    pub dream_interval: DurationString,
+    #[serde(default)]
+    pub dream_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dream_schedule: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dream_provider: Option<ProviderVariant>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dream_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discord_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -57,8 +64,6 @@ pub struct AgentToolsConfig {
     pub shell: Option<ShellConfig>,
     #[serde(default)]
     pub brave_search: ToolConfig<BraveSearchToolSettings>,
-    #[serde(default)]
-    pub vector_memory: ToolConfig<()>,
     #[serde(default)]
     pub discord: ToolConfig<()>,
     #[serde(default)]

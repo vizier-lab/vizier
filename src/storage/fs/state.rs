@@ -1,7 +1,10 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 
 use crate::{
+    schema::DreamStatus,
     storage::{
+        dream::DreamStorage,
         fs::{FileSystemStorage, STATE_PATH},
         state::StateStorage,
     },
@@ -29,5 +32,42 @@ impl StateStorage for FileSystemStorage {
         }
 
         Ok(None)
+    }
+}
+
+#[async_trait::async_trait]
+impl DreamStorage for FileSystemStorage {
+    async fn get_last_dream_time(&self, agent_id: &str) -> Result<Option<DateTime<Utc>>> {
+        let key = format!("dream_last_time:{}", agent_id);
+        match self.get_state(key).await? {
+            Some(val) => {
+                let s: String = serde_json::from_value(val)?;
+                Ok(Some(DateTime::parse_from_rfc3339(&s)?.with_timezone(&Utc)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn set_last_dream_time(&self, agent_id: &str, time: DateTime<Utc>) -> Result<()> {
+        let key = format!("dream_last_time:{}", agent_id);
+        self.save_state(key, serde_json::json!(time.to_rfc3339()))
+            .await
+    }
+
+    async fn get_dream_status(&self, agent_id: &str) -> Result<Option<DreamStatus>> {
+        let key = format!("dream_status:{}", agent_id);
+        match self.get_state(key).await? {
+            Some(val) => {
+                let status: DreamStatus =
+                    serde_json::from_value(val).unwrap_or(DreamStatus::Idle);
+                Ok(Some(status))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn set_dream_status(&self, agent_id: &str, status: DreamStatus) -> Result<()> {
+        let key = format!("dream_status:{}", agent_id);
+        self.save_state(key, serde_json::to_value(status)?).await
     }
 }
