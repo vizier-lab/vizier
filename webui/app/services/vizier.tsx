@@ -489,6 +489,25 @@ export const ping = async () => {
 }
 
 // ============================================================================
+// HEALTH ENDPOINTS
+// ============================================================================
+
+export interface AgentHealthStatus {
+  agent_id: string
+  alive: boolean
+}
+
+export const getAgentsHealth = async (): Promise<AgentHealthStatus[]> => {
+  const res = await apiClient.get('/agents/health')
+  return res.data?.data || []
+}
+
+export const pingAgent = async (agentId: string): Promise<{ alive: boolean }> => {
+  const res = await apiClient.get(`/agents/${agentId}/ping`)
+  return res.data?.data || { alive: false }
+}
+
+// ============================================================================
 // FILE UPLOAD ENDPOINTS
 // ============================================================================
 

@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use clap::{Parser, Subcommand};
 
+mod agent;
 mod onboard;
 mod run;
 mod shutdown;
@@ -25,6 +26,8 @@ enum Commands {
     Onboard(onboard::OnboardArgs),
     /// Manage skills (install, list, uninstall, update)
     Skill(skill::SkillArgs),
+    /// Manage and inspect agents
+    Agent(agent::AgentArgs),
 }
 
 pub fn start() -> Result<()> {
@@ -35,6 +38,7 @@ pub fn start() -> Result<()> {
         Commands::Run(args) => run::run(args.clone())?,
         Commands::Shutdown(args) => shutdown::shutdown(args.clone())?,
         Commands::Skill(args) => skill::skill(args.clone())?,
+        Commands::Agent(args) => agent::agent(args.clone())?,
     }
 
     Ok(())

@@ -13,7 +13,7 @@ mod task;
 
 pub use agent::{AgentConfig, AgentToolsConfig, BraveSearchToolSettings, MemoryConfig, ToolConfig};
 pub use dream_journal::DreamJournalEntry;
-pub use commands::{AgentCommand, AgentCommandResult, AgentSummary, ChannelCommand, CommandRequest, CommandResponse};
+pub use commands::{AgentCommand, AgentCommandResult, AgentHealthStatus, AgentSummary, ChannelCommand, CommandRequest, CommandResponse};
 pub use global_config::{GlobalConfigEntry, GlobalConfigValue};
 pub use history::{SessionHistory, SessionHistoryContent};
 pub use metrics::{

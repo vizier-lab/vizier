@@ -12,7 +12,7 @@ import { useUserStore } from './hooks/userStore'
 import { hasPermission } from './utils/auth'
 
 export default function Layout() {
-  const { agents, loading, loadAgents, lastAgentId, setLastAgentId: setStoreLastAgentId } = useAgentStore()
+  const { agents, loading, loadAgents, lastAgentId, setLastAgentId: setStoreLastAgentId, agentHealth, startHealthPolling, stopHealthPolling } = useAgentStore()
   const { user, loadUser } = useUserStore()
   const [showAgentDropdown, setShowAgentDropdown] = useState(false)
   const [dropdownRect, setDropdownRect] = useState<DOMRect | null>(null)
@@ -42,6 +42,12 @@ export default function Layout() {
   useEffect(() => {
     loadAgents()
   }, [loadAgents])
+
+  // Start agent health polling
+  useEffect(() => {
+    startHealthPolling()
+    return () => stopHealthPolling()
+  }, [startHealthPolling, stopHealthPolling])
 
   // Load current user
   useEffect(() => {
@@ -178,7 +184,7 @@ export default function Layout() {
                   rounded={false}
                   size="sm"
                   showStatus
-                  online={connected}
+                  online={agentHealth[currentAgent.agent_id] ?? false}
                   avatarUrl={currentAgent.avatar_url}
                 />
                 <div className="agent-card-info">

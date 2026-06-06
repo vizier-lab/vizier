@@ -7,8 +7,8 @@ use crate::agents::process::agent_process;
 use crate::config::provider::ProviderVariant;
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
-    AgentCommand, AgentCommandResult, AgentConfig, AgentId, AgentSummary, ChannelCommand,
-    ProviderEntryConfig,
+    AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentId, AgentSummary,
+    ChannelCommand, ProviderEntryConfig,
 };
 use crate::storage::agent::AgentStorage;
 use crate::storage::provider::ProviderStorage;
@@ -119,6 +119,17 @@ impl VizierAgents {
                 } => {
                     let result = self.handle_delete(&agent_id, delete_workspace).await;
                     let _ = resp.send(result);
+                }
+                AgentCommand::HealthCheck { resp } => {
+                    let statuses: Vec<AgentHealthStatus> = self
+                        .processes
+                        .iter()
+                        .map(|(id, process)| AgentHealthStatus {
+                            agent_id: id.clone(),
+                            alive: !process.handle.is_finished(),
+                        })
+                        .collect();
+                    let _ = resp.send(statuses);
                 }
             }
         }

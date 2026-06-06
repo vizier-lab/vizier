@@ -156,6 +156,7 @@ impl VizierTransport {
         let req_rx = self.command_request_channel.clone().1.clone();
         let res = self.command_response_channel.clone().0.clone();
         let exit = self.exit_channel.clone().0.clone();
+        let agent_cmd_tx = self.agent_command_channel.clone().0.clone();
         set.spawn(async move {
             while let Ok(req) = req_rx.recv_async().await {
                 match req {
@@ -164,6 +165,27 @@ impl VizierTransport {
                             .send_async(CommandResponse::Ok("vizier is stopping".into()))
                             .await;
                         let _ = exit.send_async(true).await;
+                    }
+                    CommandRequest::HealthCheck => {
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        let _ = agent_cmd_tx
+                            .send_async(AgentCommand::HealthCheck { resp: tx })
+                            .await;
+                        match rx.await {
+                            Ok(statuses) => {
+                                let json =
+                                    serde_json::to_string(&statuses).unwrap_or_default();
+                                let _ =
+                                    res.send_async(CommandResponse::Ok(json)).await;
+                            }
+                            Err(_) => {
+                                let _ = res
+                                    .send_async(CommandResponse::Error(
+                                        "health check failed".into(),
+                                    ))
+                                    .await;
+                            }
+                        }
                     }
                     _ => unimplemented!(),
                 }

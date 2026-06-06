@@ -17,8 +17,8 @@ use crate::{
     },
     config::{shell::ShellConfig, tools::mcp::McpClientConfig},
     schema::{
-        AgentCommand, AgentCommandResult, AgentConfig, AgentSummary, AgentToolsConfig,
-        AgentUsageStats, BraveSearchToolSettings, MemoryConfig, ToolConfig,
+        AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
+        AgentToolsConfig, AgentUsageStats, BraveSearchToolSettings, MemoryConfig, ToolConfig,
     },
     storage::{VizierStorage, agent::AgentStorage, history::HistoryStorage, user::UserStorage},
 };
@@ -72,12 +72,14 @@ fn user_can_edit_agent(
 
 pub fn agents() -> Router<HTTPState> {
     Router::new()
+        .route("/health", get(health_check))
         .route("/", get(list_agents).post(create_agent))
         .route(
             "/{agent_id}",
             get(agent_detail).put(update_agent).delete(delete_agent),
         )
         .route("/{agent_id}/usage", get(agent_usage))
+        .route("/{agent_id}/ping", get(ping_agent))
         .route(
             "/{agent_id}/sharing",
             get(get_sharing).patch(update_sharing),
@@ -698,5 +700,82 @@ async fn update_sharing(
             shared_to: config.shared_to,
         },
     )
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/health",
+    responses(
+        (status = 200, description = "Health status of all agents", body = APIResponse<Vec<AgentHealthStatus>>)
+    )
+)]
+async fn health_check(
+    State(state): State<HTTPState>,
+) -> models::response::Response<Vec<AgentHealthStatus>> {
+    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+
+    let cmd = AgentCommand::HealthCheck { resp: resp_tx };
+
+    if let Err(e) = state.transport.send_agent_command(cmd).await {
+        return err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to send command: {}", e),
+        );
+    }
+
+    match resp_rx.await {
+        Ok(statuses) => api_response(StatusCode::OK, statuses),
+        Err(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "agent manager unavailable".into(),
+        ),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct PingResponse {
+    pub alive: bool,
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/ping",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID")
+    ),
+    responses(
+        (status = 200, description = "Agent ping result", body = APIResponse<PingResponse>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>)
+    )
+)]
+async fn ping_agent(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+) -> models::response::Response<PingResponse> {
+    if !state.is_agent_exists(&agent_id).await {
+        return err_response(StatusCode::NOT_FOUND, "agent not found".into());
+    }
+
+    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+
+    let cmd = AgentCommand::HealthCheck { resp: resp_tx };
+
+    if let Err(e) = state.transport.send_agent_command(cmd).await {
+        return err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to send command: {}", e),
+        );
+    }
+
+    match resp_rx.await {
+        Ok(statuses) => {
+            let alive = statuses.iter().any(|s| s.agent_id == agent_id && s.alive);
+            api_response(StatusCode::OK, PingResponse { alive })
+        }
+        Err(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "agent manager unavailable".into(),
+        ),
+    }
 }
 

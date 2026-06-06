@@ -1,12 +1,19 @@
 use serde::{Deserialize, Serialize};
 
-use crate::schema::agent::AgentConfig;
+use crate::schema::{AgentId, agent::AgentConfig};
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AgentHealthStatus {
+    pub agent_id: AgentId,
+    pub alive: bool,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandRequest {
     Exit,
     Status,
+    HealthCheck,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -40,6 +47,9 @@ pub enum AgentCommand {
         agent_id: String,
         delete_workspace: bool,
         resp: tokio::sync::oneshot::Sender<AgentCommandResult>,
+    },
+    HealthCheck {
+        resp: tokio::sync::oneshot::Sender<Vec<AgentHealthStatus>>,
     },
 }
 
