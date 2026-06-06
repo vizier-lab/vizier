@@ -63,22 +63,18 @@ export default function Layout() {
     }
   }, [params.agentId, user?.user_id])
 
-  // WebSocket lifecycle — connect when on a chat route, keep alive on other routes
+  // WebSocket lifecycle — connect when on a chat route, disconnect on other routes
   useEffect(() => {
-    if (!currentAgentId || !currentTopicId) return
+    if (!currentAgentId || !currentTopicId) {
+      disconnect()
+      return
+    }
 
     const token = localStorage.getItem('auth_token')
     if (!token) return
 
     connect(currentAgentId, currentTopicId)
-  }, [currentAgentId, currentTopicId, connect])
-
-  // Disconnect on agent change (switching to a different agent)
-  useEffect(() => {
-    return () => {
-      // Only disconnect when the agent actually changes, not on every re-render
-    }
-  }, [currentAgentId])
+  }, [currentAgentId, currentTopicId, connect, disconnect])
 
   // Close dropdown on outside click
   useEffect(() => {
