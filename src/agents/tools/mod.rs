@@ -22,6 +22,7 @@ use crate::{
         telegram::new_telegram_tools,
         think::ThinkTool,
         vector_memory::init_vector_memory,
+        webui::{ListWebuiTopics, SendWebuiMessage},
         workspace::{
             AgentDocument, HeartbeatDocument, IdentDocument, ReadPrimaryDocument,
             WritePrimaryDocument,
@@ -50,6 +51,7 @@ mod subtasks;
 mod telegram;
 mod think;
 mod vector_memory;
+mod webui;
 mod workspace;
 
 type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
@@ -423,6 +425,16 @@ impl VizierTools {
                     .tool(get_message);
             }
         }
+
+        user_toolset = user_toolset
+            .tool(SendWebuiMessage {
+                agent_id: agent_id.clone(),
+                storage: deps.storage.clone(),
+            })
+            .tool(ListWebuiTopics {
+                agent_id: agent_id.clone(),
+                storage: deps.storage.clone(),
+            });
 
         if agent_config.tools.brave_search.enabled {
             let global = tool_config.brave_search.as_ref();
