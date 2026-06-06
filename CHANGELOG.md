@@ -14,12 +14,19 @@ All notable changes to this project will be documented in this file.
 - Add quickchat home
 - Change session_detail creation and titling
 - Overhaul dream behaviour (#15)
+- Add agent checkhealth features
 
 ### 🐛 Bug Fixes
 
 - Missing chat from quick chat
 - Missing thinking state on webui
 - Thinking too persisted when should not
+- Missing thinking state on first message
+- Intermittent quick chat not sent
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.9.0
 ## [0.9.0-rc.1] - 2026-06-04
 
 ### 🚀 Features
