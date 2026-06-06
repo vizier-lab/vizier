@@ -113,7 +113,7 @@ pub async fn agent_process(
                             channel,
                             topic,
                             title: slug_title,
-                            is_thinking: false,
+                            is_thinking: true,
                         };
                         let _ = session_detail_storage.save_session_detail(detail).await;
                     } else if current_count == 10 {
@@ -152,7 +152,7 @@ pub async fn agent_process(
                                         channel,
                                         topic,
                                         title,
-                                        is_thinking: false,
+                                        is_thinking: existing.is_thinking,
                                     };
                                     let _ = session_detail_storage.update_session_detail(detail).await;
                                 }
