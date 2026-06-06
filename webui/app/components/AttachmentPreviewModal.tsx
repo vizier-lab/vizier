@@ -34,6 +34,10 @@ function getAttachmentSrc(att: VizierAttachment): string | undefined {
     const url = att.content.url
     return (url.startsWith('http://') || url.startsWith('https://') ? '' : `${api_protocol}://${base_url}`) + url
   }
+  if ('local' in att.content) {
+    const path = att.content.local
+    return (path.startsWith('http://') || path.startsWith('https://') ? '' : `${api_protocol}://${base_url}`) + path
+  }
   if ('base64' in att.content) {
     return `data:${mime};base64,${att.content.base64}`
   }

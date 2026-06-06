@@ -54,7 +54,7 @@ pub enum VizierResponseContent {
 }
 
 impl VizierAttachment {
-    pub fn to_tool_result_content(&self) -> Result<ToolResultContent> {
+    pub fn to_tool_result_content(&self, workspace: &str) -> Result<ToolResultContent> {
         let attachment = self.clone();
         let mime_type = get_mime_type(&attachment.filename);
         let content = if mime_type.starts_with("image/") {
@@ -73,6 +73,11 @@ impl VizierAttachment {
                 VizierAttachmentContent::Base64(base64) => {
                     ToolResultContent::image_base64(base64, Some(media_type), None)
                 }
+                VizierAttachmentContent::Local(path) => {
+                    let bytes = crate::schema::VizierAttachment::resolve_local_bytes(workspace, path)?;
+                    let base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    ToolResultContent::image_base64(base64, Some(media_type), None)
+                }
             }
         } else {
             match &attachment.content {
@@ -89,6 +94,7 @@ impl VizierResponse {
         &self,
         id: String,
         call_id: Option<String>,
+        workspace: &str,
     ) -> Result<UserContent> {
         let mut tool_contents = match &self.content {
             VizierResponseContent::Message { content, stats: _ } => {
@@ -104,7 +110,7 @@ impl VizierResponse {
 
         // handle attachment
         for attachment in &self.attachments {
-            tool_contents.push(attachment.to_tool_result_content()?);
+            tool_contents.push(attachment.to_tool_result_content(workspace)?);
         }
 
         let res = if let Some(call_id) = call_id {

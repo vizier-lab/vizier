@@ -50,6 +50,7 @@ pub struct SubtaskArgs {
 #[derive(Clone)]
 pub struct VizierAgent {
     pub workspace: String,
+    pub global_workspace: String,
 
     model: VizierModel,
     tools: VizierTools,
@@ -90,6 +91,7 @@ impl VizierAgent {
             config: agent_config.clone(),
             owner_profile,
             workspace,
+            global_workspace: deps.config.workspace.clone(),
         })
     }
 
@@ -219,7 +221,7 @@ impl VizierAgent {
         }
 
         let (output, stats) = self
-            .prompt(req.to_message()?, history, 0, hooks.clone(), false)
+            .prompt(req.to_message(&self.global_workspace)?, history, 0, hooks.clone(), false)
             .await?;
 
         let mut response = VizierResponse {
@@ -364,7 +366,7 @@ impl VizierAgent {
                         tool_res = hooks.on_tool_response(tool_res).await?;
                     }
                     tool_responses.push(
-                        tool_res.to_tool_response_content(call.id.clone(), call.call_id.clone())?,
+                        tool_res.to_tool_response_content(call.id.clone(), call.call_id.clone(), &self.global_workspace)?,
                     );
                 }
 
@@ -455,7 +457,7 @@ impl VizierAgent {
         let (output, stats) = self
             .dream_prompt(
                 &dream_model,
-                req.to_message()?,
+                req.to_message(&self.global_workspace)?,
                 history,
                 tools,
                 hooks.clone(),
@@ -609,7 +611,7 @@ impl VizierAgent {
                         tool_res = hooks.on_tool_response(tool_res).await?;
                     }
                     tool_responses.push(
-                        tool_res.to_tool_response_content(call.id.clone(), call.call_id.clone())?,
+                        tool_res.to_tool_response_content(call.id.clone(), call.call_id.clone(), &self.global_workspace)?,
                     );
                 }
 

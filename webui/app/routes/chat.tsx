@@ -685,7 +685,7 @@ export default function Chat() {
         for (const att of attachments) {
           try {
             const res = await uploadFile(att.file)
-            results.push({ filename: att.file.name, content: { url: res.url } })
+            results.push({ filename: att.file.name, content: { local: res.url } })
           } catch (err) {
             console.error('File upload failed:', err)
             addToast('error', 'File upload failed', att.file.name)

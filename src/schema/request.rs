@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use base64::Engine;
@@ -14,7 +15,9 @@ use surrealdb_types::SurrealValue;
 
 use crate::{error::VizierError, utils::get_mime_type};
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema, PartialEq)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema, PartialEq,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum PlatformMessageId {
     Discord(u64),
@@ -46,7 +49,9 @@ impl ReactionEvent {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema, PartialEq)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema, PartialEq,
+)]
 pub struct ReactionEntry {
     pub user_id: String,
     pub emoji: String,
@@ -81,7 +86,13 @@ impl Display for VizierRequestContent {
                 Self::Task(content) => content,
                 Self::Command(content) => content,
                 Self::Reaction(event) => {
-                    return write!(f, "Reaction: {} {} by {}", event.action_str(), event.emoji, event.user_id);
+                    return write!(
+                        f,
+                        "Reaction: {} {} by {}",
+                        event.action_str(),
+                        event.emoji,
+                        event.user_id
+                    );
                 }
             }
         )
@@ -94,6 +105,7 @@ pub enum VizierAttachmentContent {
     Bytes(Vec<u8>),
     Base64(String),
     Url(String),
+    Local(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
@@ -103,7 +115,7 @@ pub struct VizierAttachment {
 }
 
 impl VizierAttachment {
-    pub fn to_user_content(&self) -> Result<UserContent> {
+    pub fn to_user_content(&self, workspace: &str) -> Result<UserContent> {
         let attachment = self.clone();
         let mime_type = get_mime_type(&attachment.filename);
         let content = if mime_type.starts_with("image/") {
@@ -122,6 +134,11 @@ impl VizierAttachment {
                 VizierAttachmentContent::Base64(base64) => {
                     UserContent::image_base64(base64, Some(media_type), None)
                 }
+                VizierAttachmentContent::Local(path) => {
+                    let bytes = Self::resolve_local_bytes(workspace, path)?;
+                    let base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    UserContent::image_base64(base64, Some(media_type), None)
+                }
             }
         } else {
             let media_type = DocumentMediaType::from_mime_type(&mime_type).ok_or_else(|| {
@@ -135,11 +152,39 @@ impl VizierAttachment {
                 VizierAttachmentContent::Url(url) => {
                     UserContent::document_url(url.clone(), Some(media_type))
                 }
+                VizierAttachmentContent::Local(path) => {
+                    let bytes = Self::resolve_local_bytes(workspace, path)?;
+                    UserContent::document_raw(bytes, Some(media_type))
+                }
                 _ => unimplemented!(),
             }
         };
 
         Ok(content)
+    }
+
+    pub fn resolve_local_bytes(workspace: &str, path: &str) -> Result<Vec<u8>> {
+        let file_id = path.trim_start_matches("/api/v1/files/");
+        let uploads_dir = PathBuf::from(workspace).join("uploads").join(file_id);
+        let mut entries = std::fs::read_dir(&uploads_dir).map_err(|e| {
+            VizierError(format!(
+                "Failed to read uploads dir {}: {}",
+                uploads_dir.display(),
+                e
+            ))
+        })?;
+        let file_path = entries
+            .next()
+            .and_then(|r| r.ok())
+            .ok_or_else(|| VizierError(format!("No file found in {}", uploads_dir.display())))?
+            .path();
+        Ok(std::fs::read(&file_path).map_err(|e| {
+            VizierError(format!(
+                "Failed to read local file {}: {}",
+                file_path.display(),
+                e
+            ))
+        })?)
     }
 }
 
@@ -173,15 +218,14 @@ impl VizierRequest {
         }))?)
     }
 
-    pub fn to_message(&self) -> Result<Message> {
+    pub fn to_message(&self, workspace: &str) -> Result<Message> {
         let mut contents = vec![UserContent::Text(
             self.to_prompt()
                 .map_err(|err| VizierError(err.to_string()))?
                 .into(),
         )];
         for attachment in self.attachments.iter() {
-            println!("{:?}", attachment);
-            contents.push(attachment.to_user_content()?);
+            contents.push(attachment.to_user_content(workspace)?);
         }
 
         let message = Message::User {

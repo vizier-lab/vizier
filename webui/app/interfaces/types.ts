@@ -291,7 +291,7 @@ export interface VizierRequestMessage {
 // VizierAttachment - matches backend VizierAttachment
 export interface VizierAttachment {
   filename: string
-  content: { url: string } | { bytes: number[] } | { base64: string }
+  content: { url: string } | { bytes: number[] } | { base64: string } | { local: string }
 }
 
 // Response stats from backend

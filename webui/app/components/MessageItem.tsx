@@ -65,6 +65,10 @@ function MessageItemComponent({
       const url = att.content.url
       return (url.startsWith(`http://${base_url}`) || url.startsWith(`https://${base_url}`) ? '' : `${api_protocol}://${base_url}`) + url
     }
+    if ('local' in att.content) {
+      const path = att.content.local
+      return (path.startsWith(`http://${base_url}`) || path.startsWith(`https://${base_url}`) ? '' : `${api_protocol}://${base_url}`) + path
+    }
     if ('base64' in att.content) {
       return `data:${mime};base64,${att.content.base64}`
     }
