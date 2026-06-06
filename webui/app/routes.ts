@@ -22,5 +22,6 @@ export default [
     route(':agentId/skills', 'routes/skills.tsx'),
     route(':agentId/settings', 'routes/agent-settings.tsx'),
     route(':agentId/usage', 'routes/usage.tsx'),
+    route(':agentId/dream', 'routes/agent-dream.tsx'),
   ]),
 ] satisfies RouteConfig

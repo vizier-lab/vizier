@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, NaiveDate, Utc};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::{
@@ -302,6 +302,53 @@ impl HistoryStorage for SurrealStorage {
 
         Ok(list)
     }
+
+    async fn list_user_sessions_in_window(
+        &self,
+        agent_id: &str,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<VizierSession>> {
+        let query = format!(
+            "SELECT DISTINCT vizier_session FROM session_history WHERE vizier_session.0 == $agent_id AND content.timestamp >= {} AND content.timestamp <= {}",
+            start.timestamp_millis(),
+            end.timestamp_millis()
+        );
+
+        let mut response = self
+            .conn
+            .query(query)
+            .bind(("agent_id", agent_id.to_string()))
+            .await?;
+
+        let list: Vec<SessionHistory> = response.take(0)?;
+
+        let mut seen = HashSet::new();
+        let mut sessions = vec![];
+
+        for history in list {
+            let channel_slug = history.vizier_session.1.to_slug();
+
+            if is_non_user_channel(&channel_slug) {
+                continue;
+            }
+
+            let slug = history.vizier_session.to_slug();
+            if seen.insert(slug) {
+                sessions.push(history.vizier_session);
+            }
+        }
+
+        Ok(sessions)
+    }
+}
+
+fn is_non_user_channel(channel_slug: &str) -> bool {
+    channel_slug == "SYSTEM"
+        || channel_slug == "SUBAGENT"
+        || channel_slug.starts_with("DREAM__")
+        || channel_slug.starts_with("task__")
+        || channel_slug.starts_with("inter_agent__")
 }
 
 fn get_channel_type(channel_slug: &str) -> String {

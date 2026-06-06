@@ -41,6 +41,13 @@ pub trait HistoryStorage {
         start_datetime: Option<DateTime<Utc>>,
         end_datetime: Option<DateTime<Utc>>,
     ) -> Result<Vec<SessionHistory>>;
+
+    async fn list_user_sessions_in_window(
+        &self,
+        agent_id: &str,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<VizierSession>>;
 }
 
 #[async_trait::async_trait]
@@ -90,6 +97,17 @@ impl HistoryStorage for VizierStorage {
     ) -> Result<Vec<SessionHistory>> {
         self.0
             .list_session_by_time_window(session, start_datetime, end_datetime)
+            .await
+    }
+
+    async fn list_user_sessions_in_window(
+        &self,
+        agent_id: &str,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<VizierSession>> {
+        self.0
+            .list_user_sessions_in_window(agent_id, start, end)
             .await
     }
 }

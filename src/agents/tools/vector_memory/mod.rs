@@ -22,6 +22,7 @@ pub fn init_vector_memory(
     MemoryDetail,
     MemoryFollow,
     MemoryGraphTool,
+    MemoryDelete,
 )> {
     Ok((
         MemoryRead::new(agent_id.clone(), deps.storage.clone()),
@@ -30,6 +31,7 @@ pub fn init_vector_memory(
         MemoryDetail::new(agent_id.clone(), deps.storage.clone()),
         MemoryFollow::new(agent_id.clone(), deps.storage.clone()),
         MemoryGraphTool::new(agent_id.clone(), deps.storage.clone()),
+        MemoryDelete::new(agent_id.clone(), deps.storage.clone()),
     ))
 }
 
@@ -476,5 +478,44 @@ impl VizierTool for MemoryGraphTool {
             .collect();
 
         Ok(MemoryGraphOutput { nodes, edges })
+    }
+}
+
+pub type MemoryDelete = DeleteVectorMemory;
+pub struct DeleteVectorMemory(AgentId, Arc<VizierStorage>);
+
+impl MemoryDelete {
+    fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
+        Self(agent_id, store)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemoryDeleteArgs {
+    #[schemars(description = "Slug of the memory to delete")]
+    pub slug: String,
+}
+
+#[async_trait::async_trait]
+impl VizierTool for MemoryDelete {
+    type Input = MemoryDeleteArgs;
+    type Output = String;
+
+    fn name() -> String {
+        "memory_delete".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Delete a memory by slug. Permanently removes the memory and its embedding. Use memory_detail first to verify the slug if unsure.".into()
+    }
+
+    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+        let slug = args.slug.clone();
+        self.1
+            .delete_memory(self.0.clone(), slug.clone())
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
+
+        Ok(format!("Memory '{}' deleted", slug))
     }
 }

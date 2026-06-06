@@ -17,12 +17,15 @@ use crate::{
     },
     dependencies::VizierDependencies,
     schema::{
-        AgentConfig, AgentId, VizierChannelId, VizierRequest, VizierRequestContent, VizierResponse,
-        VizierResponseContent, VizierSession, VizierSessionDetail,
+        AgentConfig, AgentId, DreamStage, VizierChannelId, VizierRequest, VizierRequestContent,
+        VizierResponse, VizierResponseContent, VizierSession, VizierSessionDetail,
+        dream_journal::DreamJournalEntry,
     },
     storage::{
-        VizierStorage, history::HistoryStorage, memory::MemoryStorage, session::SessionStorage,
+        VizierStorage, dream_journal::DreamJournalStorage, history::HistoryStorage,
+        memory::MemoryStorage, session::SessionStorage,
     },
+    transport::DreamCommand,
 };
 
 pub async fn agent_process(
@@ -72,75 +75,6 @@ pub async fn agent_process(
                     .await
                 {
                     tracing::error!("heartbeat error: {}", err);
-                }
-            }
-        }
-    });
-
-    let dream_agent_id = agent_id.clone();
-    let dream_interval = *agent_config.dream_interval;
-    let dream_transport = deps.transport.clone();
-    let dream_storage = deps.storage.clone();
-    let dream = tokio::spawn(async move {
-        let prompt = "Extract, summarize, and/or analyze previous conversations.
-        and do the following:
-        1. adjust your AGENT.md, IDENTITY.md, HEARTBEAT.md accordingly.
-        2. make one or multiple mamories about them, if you need them long term.
-        "
-        .to_string();
-
-        let mut interval = tokio::time::interval(dream_interval);
-        let _ = interval.tick().await; // skip when first run
-
-        loop {
-            interval.tick().await;
-
-            // collect all sessions
-            if let Ok(sessions) = dream_storage
-                .get_session_list(dream_agent_id.clone(), None)
-                .await
-            {
-                let sessions = sessions
-                    .iter()
-                    .filter_map(|session| match &session.channel {
-                        VizierChannelId::System
-                        | VizierChannelId::Subagent
-                        | VizierChannelId::Dream(_)
-                        | VizierChannelId::Task(_, _)
-                        | VizierChannelId::InterAgent(_) => None,
-
-                        // only reflect on user intection channel
-                        channel => Some(VizierSession(
-                            session.agent_id.clone(),
-                            channel.clone(),
-                            session.topic.clone(),
-                        )),
-                    });
-
-                let agent_id = dream_agent_id.clone();
-                let now = Utc::now();
-                for session in sessions {
-                    if let Err(err) = dream_transport
-                        .send_request(
-                            VizierSession(
-                                agent_id.clone(),
-                                VizierChannelId::Dream(Box::new(session)),
-                                Some(now.to_rfc3339()),
-                            ),
-                            VizierRequest {
-                                timestamp: now,
-                                user: agent_id.clone(),
-                                content: VizierRequestContent::Task(prompt.clone()),
-                                metadata: serde_json::json!({}),
-
-                                ..Default::default()
-                            },
-                            None,
-                        )
-                        .await
-                    {
-                        tracing::error!("dream error: {}", err);
-                    }
                 }
             }
         }
@@ -270,6 +204,34 @@ pub async fn agent_process(
                     }
                 }
 
+                // Handle dream command
+                if let VizierRequestContent::Command(ref cmd) = request.content {
+                    if cmd == "dream" {
+                        // Send "Dream cycle started" response
+                        if let Some(ref tx) = response_tx {
+                            let _ = tx
+                                .send_async(VizierResponse {
+                                    timestamp: chrono::Utc::now(),
+                                    content: VizierResponseContent::Message {
+                                        content: "Dream cycle started.".to_string(),
+                                        stats: None,
+                                    },
+                                    attachments: vec![],
+                                })
+                                .await;
+                        }
+                        // Trigger dream via transport channel
+                        let _ = deps
+                            .transport
+                            .send_dream_command(DreamCommand {
+                                agent_id: agent_id.clone(),
+                                cycle_id: None,
+                            })
+                            .await;
+                        continue;
+                    }
+                }
+
                 // Queue message if a task is already running for this session
                 if let Some(handle) = main_handles.get(&session) {
                     if !handle.is_finished() {
@@ -304,6 +266,7 @@ pub async fn agent_process(
                 let agent_config = agent_config.clone();
                 let session = session.clone();
                 let storage = deps.storage.clone();
+                let deps_clone = deps.clone();
                 let complete_tx = complete_tx.clone();
                 let thinking_storage = storage.clone();
                 let thinking_session = session.clone();
@@ -327,6 +290,7 @@ pub async fn agent_process(
                             request.clone(),
                             response_tx.clone(),
                             storage.clone(),
+                            &deps_clone,
                         )
                         .await
                         {
@@ -382,6 +346,7 @@ pub async fn agent_process(
                         let agent_config = agent_config.clone();
                         let session = completed_session.clone();
                         let storage = deps.storage.clone();
+                        let deps_clone = deps.clone();
                         let complete_tx = complete_tx.clone();
                         let thinking_storage = storage.clone();
                         let thinking_session = session.clone();
@@ -405,6 +370,7 @@ pub async fn agent_process(
                                     next_request.clone(),
                                     None,
                                     storage.clone(),
+                                    &deps_clone,
                                 )
                                 .await
                                 {
@@ -433,7 +399,6 @@ pub async fn agent_process(
     }
 
     heartbeat.abort();
-    dream.abort();
 
     Ok(())
 }
@@ -445,6 +410,7 @@ pub async fn handle_request(
     request: VizierRequest,
     response_tx: Option<flume::Sender<VizierResponse>>,
     storage: Arc<VizierStorage>,
+    deps: &VizierDependencies,
 ) -> Result<()> {
     let mut hooks = VizierSessionHooks::new()
         .hook(DebugHook(session.clone()))
@@ -496,34 +462,113 @@ pub async fn handle_request(
             }
         }
         VizierRequestContent::Prompt(_) | VizierRequestContent::Task(_) => {
-            let history = match &session.1 {
-                VizierChannelId::Dream(dream_session) => {
-                    let dream_interval = *agent_config.dream_interval;
-                    let end = request.timestamp.clone();
-                    let start = end - dream_interval;
-                    let history = storage
-                        .list_session_by_time_window(*dream_session.clone(), Some(start), Some(end))
-                        .await?;
+            let res = match &session.1 {
+                VizierChannelId::Dream(dream_session, stage) => {
+                    let dream_start = Utc::now();
+                    match stage {
+                        DreamStage::Extraction => {
+                            let end = request.timestamp;
+                            let session_history = storage
+                                .list_session_by_time_window(
+                                    *dream_session.clone(),
+                                    None,
+                                    Some(end),
+                                )
+                                .await?;
 
-                    // skip dreaming if history is empty
-                    if history.is_empty() {
-                        if let Some(ref tx) = response_tx {
-                            let res = VizierResponse {
-                                timestamp: end.clone(),
-                                content: VizierResponseContent::Abort,
-                                attachments: vec![],
-                            };
-                            let _ = tx.send_async(res).await;
+                            // Skip empty sessions — send Abort
+                            if session_history.is_empty() {
+                                if let Some(ref tx) = response_tx {
+                                    let _ = tx
+                                        .send_async(VizierResponse {
+                                            timestamp: end,
+                                            content: VizierResponseContent::Abort,
+                                            attachments: vec![],
+                                        })
+                                        .await;
+                                }
+                                return Ok(());
+                            }
+
+                            let cycle_id = request
+                                .metadata
+                                .get("dream_cycle_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            let session_context = dream_session.to_slug();
+
+                            let response = agent
+                                .dream_chat(
+                                    request,
+                                    session_history,
+                                    Some(hooks.clone()),
+                                    deps,
+                                )
+                                .await?;
+
+                            // Save extraction as dream journal entry
+                            save_dream_entry(
+                                &deps.storage,
+                                &session.0,
+                                &cycle_id,
+                                vec![session_context.clone()],
+                                Some(session_context),
+                                &agent_config,
+                                dream_start,
+                                DreamStage::Extraction,
+                                &response,
+                            )
+                            .await;
+
+                            response
                         }
-                        return Ok(());
-                    }
+                        DreamStage::Consolidation => {
+                            let cycle_id = request
+                                .metadata
+                                .get("dream_cycle_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            let source_sessions: Vec<String> = serde_json::from_value(
+                                request
+                                    .metadata
+                                    .get("source_sessions")
+                                    .cloned()
+                                    .unwrap_or(serde_json::json!([])),
+                            )
+                            .unwrap_or_default();
 
-                    history
+                            let response = agent
+                                .dream_chat(
+                                    request,
+                                    vec![],
+                                    Some(hooks.clone()),
+                                    deps,
+                                )
+                                .await?;
+
+                            // Save consolidation as dream journal entry
+                            save_dream_entry(
+                                &deps.storage,
+                                &session.0,
+                                &cycle_id,
+                                source_sessions,
+                                None,
+                                &agent_config,
+                                dream_start,
+                                DreamStage::Consolidation,
+                                &response,
+                            )
+                            .await;
+
+                            response
+                        }
+                    }
                 }
-                _ => vec![],
+                _ => agent.chat(request, vec![], vec![], Some(hooks)).await?,
             };
 
-            let res = agent.chat(request, history, vec![], Some(hooks)).await?;
             if let Some(ref tx) = response_tx {
                 let _ = tx.send_async(res).await;
             }
@@ -543,4 +588,46 @@ pub async fn handle_request(
     }
 
     Ok(())
+}
+
+async fn save_dream_entry(
+    storage: &Arc<VizierStorage>,
+    agent_id: &str,
+    cycle_id: &str,
+    source_sessions: Vec<String>,
+    session_context: Option<String>,
+    agent_config: &AgentConfig,
+    start_time: chrono::DateTime<Utc>,
+    stage: DreamStage,
+    response: &VizierResponse,
+) {
+    let content = match &response.content {
+        VizierResponseContent::Message { content, .. } => content.clone(),
+        _ => return,
+    };
+
+    if content.is_empty() {
+        return;
+    }
+
+    let now = Utc::now();
+    let duration_ms = (now - start_time).num_milliseconds().max(0) as u64;
+
+    let entry = DreamJournalEntry {
+        id: uuid::Uuid::new_v4().to_string(),
+        dream_cycle_id: cycle_id.to_string(),
+        agent_id: agent_id.to_string(),
+        timestamp: now,
+        stage,
+        source_sessions,
+        session_context,
+        content,
+        duration_ms: Some(duration_ms),
+        provider_used: Some(format!("{:?}", agent_config.provider)),
+        model_used: Some(agent_config.model.clone()),
+    };
+
+    if let Err(e) = storage.save_dream_entry(entry).await {
+        tracing::error!("Failed to save dream journal entry for '{}': {}", agent_id, e);
+    }
 }

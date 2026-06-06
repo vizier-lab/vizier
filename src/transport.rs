@@ -6,9 +6,15 @@ use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 
 use crate::schema::{
-    AgentCommand, AgentId, ChannelCommand, CommandRequest, CommandResponse,
-    VizierRequest, VizierResponse, VizierSession,
+    AgentCommand, AgentId, ChannelCommand, CommandRequest, CommandResponse, VizierRequest,
+    VizierResponse, VizierSession,
 };
+
+#[derive(Debug, Clone)]
+pub struct DreamCommand {
+    pub agent_id: AgentId,
+    pub cycle_id: Option<String>,
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VizierRequestEnvelope {
@@ -32,10 +38,7 @@ pub struct VizierTransport {
         flume::Receiver<CommandResponse>,
     )>,
 
-    agent_command_channel: Arc<(
-        flume::Sender<AgentCommand>,
-        flume::Receiver<AgentCommand>,
-    )>,
+    agent_command_channel: Arc<(flume::Sender<AgentCommand>, flume::Receiver<AgentCommand>)>,
 
     channel_command_channel: Arc<(
         flume::Sender<ChannelCommand>,
@@ -43,6 +46,8 @@ pub struct VizierTransport {
     )>,
 
     exit_channel: Arc<(flume::Sender<bool>, flume::Receiver<bool>)>,
+
+    dream_command_channel: Arc<(flume::Sender<DreamCommand>, flume::Receiver<DreamCommand>)>,
 }
 
 impl VizierTransport {
@@ -52,6 +57,7 @@ impl VizierTransport {
         let agent_command_channel = Arc::new(flume::unbounded());
         let channel_command_channel = Arc::new(flume::unbounded());
         let exit_channel = Arc::new(flume::unbounded());
+        let dream_command_channel = Arc::new(flume::unbounded());
 
         Self {
             agent_channels: Arc::new(RwLock::new(HashMap::new())),
@@ -60,10 +66,14 @@ impl VizierTransport {
             agent_command_channel,
             channel_command_channel,
             exit_channel,
+            dream_command_channel,
         }
     }
 
-    pub async fn register_agent(&self, agent_id: AgentId) -> flume::Receiver<VizierRequestEnvelope> {
+    pub async fn register_agent(
+        &self,
+        agent_id: AgentId,
+    ) -> flume::Receiver<VizierRequestEnvelope> {
         let (tx, rx) = flume::unbounded();
         let mut channels = self.agent_channels.write().await;
         channels.insert(agent_id, tx);
@@ -83,6 +93,7 @@ impl VizierTransport {
     ) -> Result<()> {
         let agent_id = &session.0;
         let channels = self.agent_channels.read().await;
+        println!("{:?}", channels);
         let tx = channels
             .get(agent_id)
             .ok_or_else(|| anyhow::anyhow!("agent '{}' not registered", agent_id))?;
@@ -125,6 +136,14 @@ impl VizierTransport {
 
     pub async fn recv_channel_command(&self) -> Result<ChannelCommand> {
         Ok(self.channel_command_channel.1.recv_async().await?)
+    }
+
+    pub async fn send_dream_command(&self, cmd: DreamCommand) -> Result<()> {
+        Ok(self.dream_command_channel.0.send_async(cmd).await?)
+    }
+
+    pub async fn recv_dream_command(&self) -> Result<DreamCommand> {
+        Ok(self.dream_command_channel.1.recv_async().await?)
     }
 
     pub async fn exit_signal(&self) -> Result<bool> {

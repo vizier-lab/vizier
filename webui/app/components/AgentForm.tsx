@@ -94,7 +94,6 @@ const DEFAULT_FORM: CreateAgentRequest = {
     shell: null,
     brave_search: false,
     brave_search_settings: {},
-    vector_memory: true,
     discord: false,
     telegram: false,
     fetch: false,
@@ -105,7 +104,10 @@ const DEFAULT_FORM: CreateAgentRequest = {
   },
   prompt_timeout: '5m',
   heartbeat_interval: '30m',
-  dream_interval: '24h',
+  dream_enabled: false,
+  dream_schedule: '',
+  dream_provider: '',
+  dream_model: '',
   avatar_url: undefined,
 }
 
@@ -123,6 +125,9 @@ export default function AgentForm({
   const [avatarBlob, setAvatarBlob] = useState<Blob | null>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const avatarInputRef = useRef<HTMLInputElement>(null)
+
+  // Dream model toggle (UI-only state)
+  const [useSameModel, setUseSameModel] = useState(true)
 
   // MCP server form state
   const [mcpFormOpen, setMcpFormOpen] = useState(false)
@@ -156,7 +161,6 @@ export default function AgentForm({
           shell: d.shell || null,
           brave_search: d.brave_search,
           brave_search_settings: d.brave_search_settings || {},
-          vector_memory: d.vector_memory,
           discord: d.discord,
           telegram: d.telegram,
           fetch: d.fetch,
@@ -167,11 +171,15 @@ export default function AgentForm({
         },
         prompt_timeout: d.prompt_timeout,
         heartbeat_interval: d.heartbeat_interval,
-        dream_interval: d.dream_interval,
+        dream_enabled: d.dream_enabled,
+        dream_schedule: d.dream_schedule || '',
+        dream_provider: d.dream_provider || '',
+        dream_model: d.dream_model || '',
         discord_token: d.discord_token || '',
         telegram_token: d.telegram_token || '',
         avatar_url: d.avatar_url,
       })
+      setUseSameModel(!d.dream_provider && !d.dream_model)
     }
   }, [mode, initialData])
 
@@ -286,6 +294,12 @@ export default function AgentForm({
       return
     }
 
+    if (form.dream_enabled && !useSameModel) {
+      if (!form.dream_provider || !form.dream_model) {
+        return
+      }
+    }
+
     setSubmitting(true)
     try {
       // Upload avatar if a new one was selected
@@ -298,7 +312,13 @@ export default function AgentForm({
         avatarUrl = res.url
       }
 
-      await onSubmit({ ...form, avatar_url: avatarUrl })
+      await onSubmit({
+        ...form,
+        avatar_url: avatarUrl,
+        dream_schedule: form.dream_enabled ? (form.dream_schedule || '0 2 * * *') : '',
+        dream_provider: (!form.dream_enabled || useSameModel) ? null : form.dream_provider || null,
+        dream_model: (!form.dream_enabled || useSameModel) ? null : form.dream_model || null,
+      })
     } finally {
       setSubmitting(false)
     }
@@ -907,25 +927,131 @@ export default function AgentForm({
                       }
                     />
                   </section>
-                  <section style={{ ...fieldStyle, flex: 1 }}>
-                    <label style={labelStyle}>
-                      <TooltipLabel
-                        label="Dream Interval"
-                        tooltip="How often the agent runs self-reflection."
-                      />
-                    </label>
+                </div>
+              </div>
+
+              {/* Dream Config */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Dreaming
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                    }}
+                  >
                     <input
-                      style={inputStyle}
-                      placeholder="24h"
-                      value={form.dream_interval || ''}
+                      type="checkbox"
+                      checked={form.dream_enabled || false}
                       onChange={(e) =>
-                        updateField(
-                          'dream_interval',
-                          e.target.value
-                        )
+                        updateField('dream_enabled', e.target.checked)
                       }
                     />
-                  </section>
+                    Enable dreaming
+                  </label>
+                  {form.dream_enabled && (
+                    <>
+                      <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
+                        <section style={{ ...fieldStyle, flex: 1 }}>
+                          <label style={labelStyle}>
+                            <TooltipLabel
+                              label="Dream Schedule"
+                              tooltip="Cron expression for when the agent dreams. Defaults to daily at 2 AM if left empty."
+                            />
+                          </label>
+                          <input
+                            style={inputStyle}
+                            placeholder="0 2 * * *"
+                            value={form.dream_schedule || ''}
+                            onChange={(e) =>
+                              updateField('dream_schedule', e.target.value)
+                            }
+                          />
+                        </section>
+                      </div>
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={useSameModel}
+                          onChange={(e) => {
+                            setUseSameModel(e.target.checked)
+                            if (e.target.checked) {
+                              updateField('dream_provider', '')
+                              updateField('dream_model', '')
+                            }
+                          }}
+                        />
+                        Use same model as main
+                      </label>
+                      {!useSameModel && (
+                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
+                          <section style={{ ...fieldStyle, flex: 1 }}>
+                            <label style={labelStyle}>
+                              <TooltipLabel
+                                label="Dream Provider *"
+                                tooltip="Provider to use for dreaming. Required when not using the main model."
+                              />
+                            </label>
+                            <select
+                              style={{
+                                ...inputStyle,
+                                borderColor: !form.dream_provider ? 'var(--error, #ef4444)' : undefined,
+                              }}
+                              value={form.dream_provider || ''}
+                              onChange={(e) =>
+                                updateField('dream_provider', e.target.value)
+                              }
+                            >
+                              <option value="" disabled>Select provider</option>
+                              {PROVIDERS.map((p) => (
+                                <option key={p} value={p}>{p}</option>
+                              ))}
+                            </select>
+                          </section>
+                          <section style={{ ...fieldStyle, flex: 1 }}>
+                            <label style={labelStyle}>
+                              <TooltipLabel
+                                label="Dream Model *"
+                                tooltip="Model to use for dreaming. Required when not using the main model."
+                              />
+                            </label>
+                            <input
+                              style={{
+                                ...inputStyle,
+                                borderColor: !form.dream_model ? 'var(--error, #ef4444)' : undefined,
+                              }}
+                              value={form.dream_model || ''}
+                              onChange={(e) =>
+                                updateField('dream_model', e.target.value)
+                              }
+                            />
+                          </section>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1096,7 +1222,6 @@ export default function AgentForm({
                 >
                   {(
                     [
-                      ['vector_memory', 'Vector Memory'],
                       ['discord', 'Discord'],
                       ['telegram', 'Telegram'],
                       ['fetch', 'Fetch Webpage'],
@@ -2508,11 +2633,6 @@ export default function AgentForm({
                   Enabled Tools
                 </h4>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  {form.tools?.vector_memory && (
-                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
-                      Vector Memory
-                    </span>
-                  )}
                   {form.tools?.brave_search && (
                     <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
                       Brave Search
@@ -2548,7 +2668,7 @@ export default function AgentForm({
                       MCP ({Object.keys(form.tools.mcp_servers).length})
                     </span>
                   )}
-                  {!form.tools?.vector_memory && !form.tools?.brave_search && !form.tools?.discord &&
+                  {!form.tools?.brave_search && !form.tools?.discord &&
                     !form.tools?.telegram && !form.tools?.fetch && !form.tools?.http_client &&
                     !form.tools?.programmatic_sandbox && (
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>

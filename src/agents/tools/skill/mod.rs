@@ -109,7 +109,7 @@ fn default_activation() -> SkillActivation {
 #[async_trait::async_trait]
 impl VizierTool for CreateSkill {
     type Input = CreateSkillArgs;
-    type Output = ();
+    type Output = String;
 
     fn name() -> String {
         "create_skill".to_string()
@@ -143,6 +143,6 @@ impl VizierTool for CreateSkill {
         let skill_dir = self.1.skill_dir(&slug);
         write_resource_files(&skill_dir, &args.resources)?;
 
-        Ok(())
+        Ok(format!("Skill '{}' created successfully", slug))
     }
 }

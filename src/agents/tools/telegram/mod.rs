@@ -38,7 +38,7 @@ pub struct SendTelegramMessageArgs {
 #[async_trait::async_trait]
 impl VizierTool for SendTelegramMessage {
     type Input = SendTelegramMessageArgs;
-    type Output = ();
+    type Output = String;
 
     fn name() -> String {
         "telegram_send_message".to_string()
@@ -49,14 +49,12 @@ impl VizierTool for SendTelegramMessage {
     }
 
     async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
-        let response =
-            crate::utils::telegram::send_message(&self.bot, ChatId(args.chat_id), args.content)
-                .await;
+        let chat_id = args.chat_id;
+        crate::utils::telegram::send_message(&self.bot, ChatId(chat_id), args.content)
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
 
-        match response {
-            Ok(()) => Ok(()),
-            Err(err) => throw_vizier_error("telegram_send_message ", err),
-        }
+        Ok(format!("Message sent to chat {}", chat_id))
     }
 }
 
@@ -79,7 +77,7 @@ pub struct ReactTelegramMessageArgs {
 #[async_trait::async_trait]
 impl VizierTool for ReactTelegramMessage {
     type Input = ReactTelegramMessageArgs;
-    type Output = ();
+    type Output = String;
 
     fn name() -> String {
         "telegram_react_message".to_string()
@@ -93,16 +91,13 @@ impl VizierTool for ReactTelegramMessage {
         let chat_id = ChatId(args.chat_id);
         let message_id = teloxide::types::MessageId(args.message_id as i32);
 
-        let response = self
-            .bot
+        self.bot
             .send_message(chat_id, format!("Reaction: {}", args.emoji))
             .reply_to(message_id)
-            .await;
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
 
-        match response {
-            Ok(_) => Ok(()),
-            Err(err) => throw_vizier_error("telegram_react_message ", err),
-        }
+        Ok(format!("Reacted with {} to message {}", args.emoji, args.message_id))
     }
 }
 

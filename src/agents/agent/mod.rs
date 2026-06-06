@@ -1,10 +1,11 @@
 use std::{fs, sync::Arc};
 
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rig_core::{
     OneOrMany,
+    completion::ToolDefinition,
     message::{AssistantContent, Message},
 };
 use serde::{Deserialize, Serialize};
@@ -21,12 +22,13 @@ use crate::{
         skill::VizierSkills,
         tools::VizierTools,
     },
+    config::{VizierConfig, provider::ProviderVariant},
     dependencies::VizierDependencies,
     schema::{
         AgentConfig, Memory, SessionHistory, SessionHistoryContent, VizierRequest,
         VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
     },
-    storage::user::{UserProfile, UserStorage},
+    storage::{VizierStorage, user::{UserProfile, UserStorage}},
     utils::{agent_workspace, build_path},
 };
 
@@ -393,6 +395,243 @@ impl VizierAgent {
             Err(err) => err.to_string(),
             Ok(content) => content.unwrap_or("".into()),
         }
+    }
+
+    pub async fn dream_chat(
+        &self,
+        req: VizierRequest,
+        session_history: Vec<SessionHistory>,
+        hooks: Option<Arc<VizierSessionHooks>>,
+        deps: &VizierDependencies,
+    ) -> Result<VizierResponse> {
+        // Use dream model if both provider and model are configured
+        let dream_model =
+            if let (Some(provider), Some(model)) =
+                (self.config.dream_provider.as_ref(), self.config.dream_model.as_ref())
+            {
+                VizierModel::new_with_override(
+                    deps,
+                    &self.config,
+                    Some((provider.clone(), model.clone())),
+                )
+                .await?
+            } else {
+                self.model.clone()
+            };
+
+        // Build dream tools
+        let tools = self
+            .tools
+            .dream_tools(
+                self.config.name.clone(),
+                deps.storage.clone(),
+            )
+            .await?;
+
+        // Prepare system prompts (same as chat)
+        let mut history = self.prepare_system_prompts().await;
+
+        // Extend with session history
+        history.extend(
+            session_history
+                .iter()
+                .map(|history| match &history.content {
+                    SessionHistoryContent::Request(req) => Message::user(req.to_prompt().unwrap()),
+                    SessionHistoryContent::Response(r) => {
+                        if let VizierResponseContent::Message { content, .. } = &r.content {
+                            Message::assistant(content.clone())
+                        } else {
+                            Message::assistant("".to_string())
+                        }
+                    }
+                }),
+        );
+
+        let mut req = req;
+        if let Some(hooks) = hooks.clone() {
+            req = hooks.on_request(req).await?;
+        }
+
+        let (output, stats) = self
+            .dream_prompt(
+                &dream_model,
+                req.to_message()?,
+                history,
+                tools,
+                hooks.clone(),
+                deps,
+            )
+            .await?;
+
+        let mut response = VizierResponse {
+            timestamp: chrono::Utc::now(),
+            content: VizierResponseContent::Message {
+                content: output,
+                stats: Some(stats),
+            },
+            attachments: vec![],
+        };
+        if let Some(hooks) = hooks.clone() {
+            response = hooks.on_response(response).await?;
+        }
+
+        Ok(response)
+    }
+
+    async fn dream_prompt(
+        &self,
+        model: &VizierModel,
+        message: Message,
+        history: Vec<Message>,
+        tools: Vec<ToolDefinition>,
+        hooks: Option<Arc<VizierSessionHooks>>,
+        deps: &VizierDependencies,
+    ) -> Result<(String, VizierResponseStats)> {
+        timeout(*self.config.prompt_timeout, async {
+            let mut history = history.clone();
+            let mut turn_depth = 0;
+            let max_turn_depth = self.config.thinking_depth;
+            let tools = tools.clone();
+
+            let output: String;
+            let mut message = message;
+            let start = Instant::now();
+
+            let mut input_tokens: u64 = 0;
+            let mut cached_input_tokens: u64 = 0;
+            let mut total_cached_input_tokens: u64 = 0;
+            let mut total_input_tokens: u64 = 0;
+            let mut total_output_tokens: u64 = 0;
+            let mut total_tokens: u64 = 0;
+
+            loop {
+                turn_depth += 1;
+                if max_turn_depth > 0 && turn_depth > max_turn_depth {
+                    return Err(anyhow::anyhow!(VizierError(format!(
+                        "thinking depth exceeding {}",
+                        max_turn_depth
+                    ))));
+                }
+
+                let (message_id, choices, usage) = model
+                    .completion(message.clone(), history.clone(), tools.clone())
+                    .await?;
+
+                history.push(message);
+
+                history.push(Message::Assistant {
+                    id: message_id.clone(),
+                    content: choices.clone(),
+                });
+
+                if turn_depth == 1 {
+                    input_tokens = usage.input_tokens;
+                    cached_input_tokens = usage.input_tokens;
+                }
+
+                total_input_tokens += usage.input_tokens;
+                total_cached_input_tokens += usage.input_tokens;
+                total_output_tokens += usage.output_tokens;
+                total_tokens += usage.total_tokens;
+
+                let (tool_calls, others): (Vec<_>, Vec<_>) = choices
+                    .iter()
+                    .partition(|choice| matches!(choice, AssistantContent::ToolCall(_)));
+
+                if tool_calls.is_empty() {
+                    output = others
+                        .iter()
+                        .filter_map(|item| {
+                            if let AssistantContent::Text(text) = item {
+                                Some(text.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    break;
+                }
+
+                let mut tool_responses = vec![];
+                for call in tool_calls.iter().filter_map(|item| {
+                    if let AssistantContent::ToolCall(call) = item {
+                        Some(call)
+                    } else {
+                        None
+                    }
+                }) {
+                    let (mut function_name, mut args) = (
+                        call.function.name.clone(),
+                        serde_json::to_string(&call.function.arguments).unwrap(),
+                    );
+                    if let Some(hooks) = hooks.clone() {
+                        (function_name, args) = hooks.on_tool_call(function_name, args).await?;
+                    }
+
+                    // handle custom skill
+                    let mut tool_res = if function_name.clone().starts_with("SKILL__") {
+                        let output = self.call_skill(function_name.clone()).await;
+                        VizierResponse {
+                            timestamp: Utc::now(),
+                            content: VizierResponseContent::ToolResponse {
+                                response: serde_json::Value::String(output),
+                            },
+                            attachments: vec![],
+                        }
+                    } else {
+                        // Use dream_call for dream tool dispatch
+                        match timeout(*self.config.tools.timeout, async {
+                            self.tools
+                                .dream_call(
+                                    function_name.clone(),
+                                    args,
+                                    &self.config.name,
+                                    &deps.storage,
+                                )
+                                .await
+                        })
+                        .await?
+                        {
+                            Err(err) => VizierResponse {
+                                timestamp: Utc::now(),
+                                content: VizierResponseContent::ToolResponse {
+                                    response: serde_json::Value::String(err.to_string()),
+                                },
+                                attachments: vec![],
+                            },
+                            Ok(s) => s,
+                        }
+                    };
+
+                    if let Some(hooks) = hooks.clone() {
+                        tool_res = hooks.on_tool_response(tool_res).await?;
+                    }
+                    tool_responses.push(
+                        tool_res.to_tool_response_content(call.id.clone(), call.call_id.clone())?,
+                    );
+                }
+
+                message = Message::User {
+                    content: OneOrMany::many(tool_responses).unwrap(),
+                }
+            }
+
+            Ok((
+                output,
+                VizierResponseStats {
+                    total_tokens,
+                    total_cached_input_tokens,
+                    total_input_tokens,
+                    total_output_tokens,
+                    input_tokens,
+                    cached_input_tokens,
+                    duration: start.elapsed(),
+                },
+            ))
+        })
+        .await?
     }
 }
 

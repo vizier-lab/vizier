@@ -73,6 +73,63 @@ impl VizierModel {
             ),
         })
     }
+
+    pub async fn new_with_override(
+        deps: &VizierDependencies,
+        agent_config: &AgentConfig,
+        model_override: Option<(ProviderVariant, String)>,
+    ) -> Result<Self> {
+        let (provider, model_name) = match model_override {
+            Some((p, m)) => (p, m),
+            None => (agent_config.provider.clone(), agent_config.model.clone()),
+        };
+
+        let provider_entry = deps
+            .storage
+            .get_provider(&provider)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("provider {:?} not configured", provider))?;
+
+        // Build a temporary AgentConfig with the overridden provider/model
+        let mut override_config = agent_config.clone();
+        override_config.provider = provider;
+        override_config.model = model_name;
+
+        Ok(match override_config.provider {
+            ProviderVariant::ollama => Self::build(
+                VizierModelImpl::<ollama::Client>::build(&provider_entry.config, &override_config)
+                    .await?,
+            ),
+            ProviderVariant::openai => Self::build(
+                VizierModelImpl::<openai::Client>::build(&provider_entry.config, &override_config)
+                    .await?,
+            ),
+            ProviderVariant::anthropic => Self::build(
+                VizierModelImpl::<anthropic::Client>::build(&provider_entry.config, &override_config)
+                    .await?,
+            ),
+            ProviderVariant::openrouter => Self::build(
+                VizierModelImpl::<openrouter::Client>::build(&provider_entry.config, &override_config)
+                    .await?,
+            ),
+            ProviderVariant::gemini => Self::build(
+                VizierModelImpl::<gemini::Client>::build(&provider_entry.config, &override_config)
+                    .await?,
+            ),
+            ProviderVariant::deepseek => Self::build(
+                VizierModelImpl::<deepseek::Client>::build(&provider_entry.config, &override_config)
+                    .await?,
+            ),
+            ProviderVariant::mimo => Self::build(
+                VizierModelImpl::<xiaomimimo::Client>::build(&provider_entry.config, &override_config)
+                    .await?,
+            ),
+            ProviderVariant::llama_cpp => Self::build(
+                VizierModelImpl::<llamafile::Client>::build(&provider_entry.config, &override_config)
+                    .await?,
+            ),
+        })
+    }
 }
 
 #[async_trait::async_trait]

@@ -1,5 +1,6 @@
 pub mod agent;
 mod commands;
+pub mod dream_journal;
 mod global_config;
 mod history;
 mod metrics;
@@ -11,6 +12,7 @@ mod storage;
 mod task;
 
 pub use agent::{AgentConfig, AgentToolsConfig, BraveSearchToolSettings, MemoryConfig, ToolConfig};
+pub use dream_journal::DreamJournalEntry;
 pub use commands::{AgentCommand, AgentCommandResult, AgentSummary, ChannelCommand, CommandRequest, CommandResponse};
 pub use global_config::{GlobalConfigEntry, GlobalConfigValue};
 pub use history::{SessionHistory, SessionHistoryContent};
@@ -21,7 +23,7 @@ pub use metrics::{
 pub use provider::{ProviderEntry, ProviderEntryConfig};
 pub use request::{PlatformMessageId, ReactionAction, ReactionEntry, ReactionEvent, VizierAttachment, VizierAttachmentContent, VizierRequest, VizierRequestContent};
 pub use response::{VizierResponse, VizierResponseContent, VizierResponseStats};
-pub use session::{AgentId, TopicId, VizierChannelId, VizierSession, VizierSessionDetail};
+pub use session::{AgentId, DreamStage, DreamStatus, TopicId, VizierChannelId, VizierSession, VizierSessionDetail};
 pub use storage::{DocumentIndex, Memory, MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams, MemoryVisibility, PaginatedMemory, Skill, SkillActivation};
 pub use task::{Task, TaskSchedule};
 

@@ -584,3 +584,28 @@ export const deleteAgentSkill = async (agentId: string, slug: string) => {
   const res = await apiClient.delete(`/agents/${agentId}/skills/${slug}`)
   return res.data
 }
+
+// Dream
+export const triggerDream = async (agentId: string) => {
+  const res = await apiClient.post(`/agents/${agentId}/dream/trigger`)
+  return res.data
+}
+
+export const getDreamStatus = async (agentId: string) => {
+  const res = await apiClient.get(`/agents/${agentId}/dream/status`)
+  return res.data
+}
+
+export const listDreamEntries = async (agentId: string, limit?: number, offset?: number) => {
+  const params = new URLSearchParams()
+  if (limit !== undefined) params.set('limit', limit.toString())
+  if (offset !== undefined) params.set('offset', offset.toString())
+  const query = params.toString()
+  const res = await apiClient.get(`/agents/${agentId}/dream/journal${query ? `?${query}` : ''}`)
+  return res.data
+}
+
+export const getDreamEntry = async (agentId: string, entryId: string) => {
+  const res = await apiClient.get(`/agents/${agentId}/dream/journal/${entryId}`)
+  return res.data
+}
