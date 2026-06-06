@@ -161,7 +161,7 @@ export default function AgentDream() {
         </div>
       </div>
 
-      <div style={{ padding: '2rem', maxWidth: '900px', margin: '0 auto' }}>
+      <div className='main-body' style={{ padding: '2rem', width: '100%', overflowY: 'scroll', margin: '0 auto' }}>
         {/* Status Bar */}
         <div
           style={{
