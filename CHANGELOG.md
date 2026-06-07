@@ -2,15 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0-rc.1] - 2026-06-07
+
+### 🚀 Features
+
+- Implement context file system
+- Integrate context file
+- Implement send_attachment tools
+- Handle send_attachment in discord/telegram
+- Implement tts tools
+- Additional file preview
+- Implement piper tts provider
+- Implement kitten model
+
+### 🐛 Bug Fixes
+
+- Pdf and image not read properly
+
+### 🚜 Refactor
+
+- Optimize system prompt
 ## [0.9.2] - 2026-06-07
 
 ### 🚀 Features
 
 - Uploaded file load too long in webui
+- Implement mistralrs provider
 
 ### 🐛 Bug Fixes
 
 - Various channel fixes
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.9.2
 ## [0.9.1] - 2026-06-06
 
 ### ⚙️ Miscellaneous Tasks
