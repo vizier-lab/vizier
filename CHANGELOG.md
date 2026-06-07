@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.2] - 2026-06-07
+
+### 🚀 Features
+
+- Uploaded file load too long in webui
+
+### 🐛 Bug Fixes
+
+- Various channel fixes
+## [0.9.1] - 2026-06-06
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.9.1
 ## [0.9.0] - 2026-06-06
 
 ### 🚀 Features
