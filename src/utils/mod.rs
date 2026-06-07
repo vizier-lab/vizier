@@ -6,6 +6,7 @@ pub mod logo;
 pub mod markdown;
 pub mod mistralrs;
 pub mod ollama;
+pub mod piper;
 pub mod tar;
 pub mod telegram;
 

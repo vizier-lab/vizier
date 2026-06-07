@@ -1584,7 +1584,7 @@ export default function AgentForm({
                           style={inputStyle}
                           value={
                             form.tools?.tts_settings?.provider ||
-                            'openai'
+                            'piper'
                           }
                           onChange={(e) =>
                             setForm((prev) => ({
@@ -1600,6 +1600,7 @@ export default function AgentForm({
                             }))
                           }
                         >
+                          <option value="piper">Piper (Local)</option>
                           <option value="openai">OpenAI</option>
                           <option value="openrouter">
                             OpenRouter
@@ -1623,7 +1624,11 @@ export default function AgentForm({
                         <input
                           style={inputStyle}
                           type="text"
-                          placeholder="Provider default"
+                          placeholder={
+                            (form.tools?.tts_settings?.provider || 'piper') === 'piper'
+                              ? 'Model name in .vizier/models/tts/'
+                              : 'Provider default'
+                          }
                           value={
                             form.tools?.tts_settings?.model || ''
                           }
@@ -1656,7 +1661,11 @@ export default function AgentForm({
                         <input
                           style={inputStyle}
                           type="text"
-                          placeholder='Default: "alloy"'
+                          placeholder={
+                            (form.tools?.tts_settings?.provider || 'piper') === 'piper'
+                              ? 'Default: "0" (speaker ID)'
+                              : 'Default: "alloy"'
+                          }
                           value={
                             form.tools?.tts_settings?.voice || ''
                           }

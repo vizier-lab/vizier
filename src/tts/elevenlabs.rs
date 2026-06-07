@@ -1,5 +1,6 @@
 use serde_json::json;
 
+use crate::tts::mp3_to_wav;
 use crate::Result;
 use crate::tts::VizierTtsModel;
 
@@ -57,6 +58,6 @@ impl VizierTtsModel for ElevenLabsTtsModel {
             .await
             .map_err(|e| crate::VizierError(e.to_string()))?;
 
-        Ok(bytes.to_vec())
+        mp3_to_wav(&bytes)
     }
 }

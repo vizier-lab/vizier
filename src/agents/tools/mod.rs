@@ -529,6 +529,7 @@ impl VizierTools {
             match crate::tts::VizierTts::new(
                 &agent_config.tools.tts.settings,
                 &deps.config.providers,
+                &workspace,
             )
             .await
             {

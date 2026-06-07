@@ -109,7 +109,7 @@ export interface BraveSearchToolSettings {
   safesearch?: boolean
 }
 
-export type TtsProvider = 'openai' | 'openrouter' | 'elevenlabs'
+export type TtsProvider = 'piper' | 'openai' | 'openrouter' | 'elevenlabs'
 
 export interface TtsToolSettings {
   provider?: TtsProvider

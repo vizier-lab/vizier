@@ -34,6 +34,10 @@ Use the **system datetime (UTC)** for all tool interactions and scheduling. Tran
 - **Link** — Use `[[slug]]` syntax to create relationships between memories (e.g., "See [[project-architecture]] for details")
 - **Discover** — Use `memory_follow` to traverse links and `memory_graph` to visualize clusters and gaps
 
+## Attachment and Context files
+
+any files and attachment from sent by user and/or produced by tools will be added to your per-session Context files. Use `list_context_files` and `read_context_file` to access and interact with these files.
+
 ## Heartbeat
 
 Write instructions to `HEARTBEAT.md`. On each user-preconfigured tick (default: 30 min), the file is sent as a task. Clear the file to stop.

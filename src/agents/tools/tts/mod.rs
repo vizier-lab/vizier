@@ -4,18 +4,20 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    VizierError,
     agents::tools::{ToolContext, VizierTool},
     file_manager::FileManager,
     storage::{VizierStorage, context_file::ContextFileStorage},
     tts::VizierTts,
-    VizierError,
 };
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct TtsGenerateArgs {
-    #[schemars(description = "The text to convert to speech")]
+    #[schemars(
+        description = "The text to convert to speech. send only a plain text with no heading. only use common punctuation (? . , !)."
+    )]
     pub text: String,
-    #[schemars(description = "Output filename (optional, defaults to tts_{uuid}.mp3)")]
+    #[schemars(description = "Output filename (optional, defaults to tts_{uuid}.wav)")]
     pub filename: Option<String>,
 }
 
@@ -57,14 +59,11 @@ impl VizierTool for TtsGenerate {
         let voice = &self.voice;
         let speed = self.speed;
 
-        let audio_bytes = self
-            .tts
-            .generate_speech(&args.text, voice, speed)
-            .await?;
+        let audio_bytes = self.tts.generate_speech(&args.text, voice, speed).await?;
 
         let filename = args
             .filename
-            .unwrap_or_else(|| format!("tts_{}.mp3", uuid::Uuid::new_v4()));
+            .unwrap_or_else(|| format!("tts_{}.wav", uuid::Uuid::new_v4()));
 
         let file_record = self
             .file_manager
@@ -72,7 +71,7 @@ impl VizierTool for TtsGenerate {
             .await
             .map_err(|e| VizierError(e.to_string()))?;
 
-        let mime_type = "audio/mpeg".to_string();
+        let mime_type = "audio/wav".to_string();
         self.storage
             .save_context_file(
                 &ctx.session,

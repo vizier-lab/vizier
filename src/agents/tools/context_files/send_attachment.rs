@@ -54,17 +54,14 @@ impl VizierTool for SendAttachment {
 
         let url = format!("/api/v1/files/{}", file.file_id);
 
-        ctx.pending_attachments
-            .lock()
-            .await
-            .push(VizierAttachment {
-                filename: file.filename.clone(),
-                content: VizierAttachmentContent::Local(url),
-            });
+        ctx.pending_attachments.lock().await.push(VizierAttachment {
+            filename: file.filename.clone(),
+            content: VizierAttachmentContent::Local(url),
+        });
 
         Ok(SendAttachmentOutput {
             filename: file.filename,
-            status: "queued".into(),
+            status: "sent".into(),
         })
     }
 }

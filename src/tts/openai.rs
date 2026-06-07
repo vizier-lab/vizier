@@ -1,7 +1,8 @@
 use rig_core::audio_generation::AudioGenerationModel as _;
-use rig_core::providers::openai;
 use rig_core::prelude::AudioGenerationClient;
+use rig_core::providers::openai;
 
+use crate::tts::mp3_to_wav;
 use crate::Result;
 use crate::tts::VizierTtsModel;
 
@@ -40,7 +41,6 @@ impl VizierTtsModel for OpenAiTtsModel {
             .await
             .map_err(|e| crate::VizierError(e.to_string()))?;
 
-        Ok(response.audio)
+        mp3_to_wav(&response.audio)
     }
 }
-
