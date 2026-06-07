@@ -29,8 +29,9 @@ use crate::{
         VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
         VizierSession,
     },
-    storage::{VizierStorage, user::{UserProfile, UserStorage}},
-    utils::{agent_workspace, build_path},
+    storage::{VizierStorage, context_file::ContextFileStorage, user::{UserProfile, UserStorage}},
+    transport::VizierTransport,
+    utils::{agent_workspace, build_path, get_mime_type},
 };
 
 mod model;
@@ -52,6 +53,8 @@ pub struct SubtaskArgs {
 pub struct VizierAgent {
     pub workspace: String,
     pub global_workspace: String,
+    pub storage: Arc<VizierStorage>,
+    pub transport: VizierTransport,
 
     model: VizierModel,
     tools: VizierTools,
@@ -93,6 +96,8 @@ impl VizierAgent {
             owner_profile,
             workspace,
             global_workspace: deps.config.workspace.clone(),
+            storage: deps.storage.clone(),
+            transport: deps.transport.clone(),
         })
     }
 
@@ -211,6 +216,33 @@ impl VizierAgent {
         if let Some(hooks) = hooks.clone() {
             req = hooks.on_request(req).await?;
         }
+
+        // Store attachments in ContextFiles via FileManager
+        for attachment in &req.attachments {
+            let content = self
+                .transport
+                .send_file_resolve(attachment.clone())
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?;
+            let file_record = self
+                .transport
+                .send_file_upload(attachment.filename.clone(), content)
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?;
+            let mime_type = get_mime_type(&attachment.filename);
+            self.storage
+                .save_context_file(
+                    &session,
+                    &attachment.filename,
+                    &mime_type,
+                    file_record.size,
+                    &file_record.id,
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e))?;
+        }
+        // Clear attachments so they don't get injected directly into the conversation
+        req.attachments.clear();
 
         if let VizierRequestContent::SilentRead(_) = req.content {
             if initiative_factor > self.config.silent_read_initiative_chance {
@@ -369,6 +401,32 @@ impl VizierAgent {
                     if let Some(hooks) = hooks.clone() {
                         tool_res = hooks.on_tool_response(tool_res).await?;
                     }
+
+                    // Store tool attachments in ContextFiles (except from read_context_file)
+                    if !tool_res.attachments.is_empty() && function_name != "read_context_file" {
+                        let mut stored_files = vec![];
+                        for attachment in &tool_res.attachments {
+                            if let Ok(content) = self.transport.send_file_resolve(attachment.clone()).await {
+                                if let Ok(file_record) = self.transport.send_file_upload(attachment.filename.clone(), content).await {
+                                    let mime_type = get_mime_type(&attachment.filename);
+                                    if self.storage.save_context_file(&ctx.session, &attachment.filename, &mime_type, file_record.size, &file_record.id).await.is_ok() {
+                                        stored_files.push(attachment.filename.clone());
+                                    }
+                                }
+                            }
+                        }
+                        tool_res.attachments.clear();
+                        if !stored_files.is_empty() {
+                            if let VizierResponseContent::ToolResponse { response } = &mut tool_res.content {
+                                let files = stored_files.join(", ");
+                                let notification = format!("\n\n[+{} to context files]", files);
+                                *response = serde_json::Value::String(
+                                    format!("{}{}", response.as_str().unwrap_or(""), notification)
+                                );
+                            }
+                        }
+                    }
+
                     tool_responses.push(
                         tool_res.to_tool_response_content(call.id.clone(), call.call_id.clone(), &self.global_workspace)?,
                     );
@@ -619,6 +677,32 @@ impl VizierAgent {
                     if let Some(hooks) = hooks.clone() {
                         tool_res = hooks.on_tool_response(tool_res).await?;
                     }
+
+                    // Store tool attachments in ContextFiles (except from read_context_file)
+                    if !tool_res.attachments.is_empty() && function_name != "read_context_file" {
+                        let mut stored_files = vec![];
+                        for attachment in &tool_res.attachments {
+                            if let Ok(content) = self.transport.send_file_resolve(attachment.clone()).await {
+                                if let Ok(file_record) = self.transport.send_file_upload(attachment.filename.clone(), content).await {
+                                    let mime_type = get_mime_type(&attachment.filename);
+                                    if self.storage.save_context_file(&ctx.session, &attachment.filename, &mime_type, file_record.size, &file_record.id).await.is_ok() {
+                                        stored_files.push(attachment.filename.clone());
+                                    }
+                                }
+                            }
+                        }
+                        tool_res.attachments.clear();
+                        if !stored_files.is_empty() {
+                            if let VizierResponseContent::ToolResponse { response } = &mut tool_res.content {
+                                let files = stored_files.join(", ");
+                                let notification = format!("\n\n[+{} to context files]", files);
+                                *response = serde_json::Value::String(
+                                    format!("{}{}", response.as_str().unwrap_or(""), notification)
+                                );
+                            }
+                        }
+                    }
+
                     tool_responses.push(
                         tool_res.to_tool_response_content(call.id.clone(), call.call_id.clone(), &self.global_workspace)?,
                     );

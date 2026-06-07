@@ -12,10 +12,7 @@ use crate::{
     config::provider::ProviderVariant,
     error::VizierError,
     file_manager::FileManager,
-    schema::{
-        VizierResponse, VizierResponseContent,
-        context_file::ContextFileRecord,
-    },
+    schema::{VizierResponse, VizierResponseContent, context_file::ContextFileRecord},
     storage::{VizierStorage, context_file::ContextFileStorage},
 };
 
@@ -110,9 +107,19 @@ fn extract_content(
     }
 
     match mime_type {
-        "text/plain" | "text/csv" | "application/json" | "text/yaml" | "text/markdown"
-        | "text/html" | "text/css" | "text/javascript" | "application/javascript"
-        | "application/xml" | "text/xml" | "application/toml" | "application/x-yaml" => {
+        "text/plain"
+        | "text/csv"
+        | "application/json"
+        | "text/yaml"
+        | "text/markdown"
+        | "text/html"
+        | "text/css"
+        | "text/javascript"
+        | "application/javascript"
+        | "application/xml"
+        | "text/xml"
+        | "application/toml"
+        | "application/x-yaml" => {
             let text = String::from_utf8(content)
                 .map_err(|e| VizierError(format!("Invalid UTF-8: {}", e)))?;
             Ok(ExtractResult::Text(text))
@@ -154,9 +161,10 @@ fn extract_content(
             Ok(ExtractResult::Text(text))
         }
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => {
-            let mut workbook =
-                calamine::open_workbook_from_rs::<calamine::Xlsx<_>, _>(std::io::Cursor::new(content))
-                    .map_err(|e| VizierError(format!("Failed to read XLSX: {}", e)))?;
+            let mut workbook = calamine::open_workbook_from_rs::<calamine::Xlsx<_>, _>(
+                std::io::Cursor::new(content),
+            )
+            .map_err(|e| VizierError(format!("Failed to read XLSX: {}", e)))?;
 
             let mut csv = String::new();
             for name in workbook.sheet_names() {
@@ -189,10 +197,7 @@ fn extract_content(
             // Try as UTF-8 text, fall back to error
             match String::from_utf8(content) {
                 Ok(text) => Ok(ExtractResult::Text(text)),
-                Err(_) => Err(VizierError(format!(
-                    "Unsupported file type: {}",
-                    mime_type
-                ))),
+                Err(_) => Err(VizierError(format!("Unsupported file type: {}", mime_type))),
             }
         }
     }

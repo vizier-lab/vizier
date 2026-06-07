@@ -402,21 +402,19 @@ pub async fn handle_socket(
                         } else if let Ok(request) = serde_json::from_str::<VizierRequest>(&text_str) {
                             let mut request = request.clone();
                             for attachment in request.attachments.iter_mut() {
-                                if let VizierAttachmentContent::Url(_) = &attachment.content {
-                                    match transport.send_file_resolve(attachment.clone()).await {
-                                        Ok(content) => {
-                                            match transport.send_file_upload(attachment.filename.clone(), content).await {
-                                                Ok(file_record) => {
-                                                    attachment.content = VizierAttachmentContent::Local(file_record.url);
-                                                }
-                                                Err(e) => {
-                                                    tracing::error!("failed to upload resolved attachment: {}", e);
-                                                }
+                                match transport.send_file_resolve(attachment.clone()).await {
+                                    Ok(content) => {
+                                        match transport.send_file_upload(attachment.filename.clone(), content).await {
+                                            Ok(file_record) => {
+                                                attachment.content = VizierAttachmentContent::Local(file_record.url);
+                                            }
+                                            Err(e) => {
+                                                tracing::error!("failed to upload resolved attachment: {}", e);
                                             }
                                         }
-                                        Err(e) => {
-                                            tracing::error!("failed to resolve attachment: {}", e);
-                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("failed to resolve attachment: {}", e);
                                     }
                                 }
                             }
