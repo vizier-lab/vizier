@@ -1,4 +1,6 @@
-use std::{fs, sync::Arc};
+use std::fs;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -25,9 +27,9 @@ use crate::{
     config::{VizierConfig, provider::ProviderVariant},
     dependencies::VizierDependencies,
     schema::{
-        AgentConfig, Memory, SessionHistory, SessionHistoryContent, VizierRequest,
-        VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
-        VizierSession,
+        AgentConfig, Memory, SessionHistory, SessionHistoryContent, VizierAttachment,
+        VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent,
+        VizierResponseStats, VizierSession,
     },
     storage::{
         VizierStorage,
@@ -258,14 +260,17 @@ impl VizierAgent {
             }
         }
 
-        let (output, stats) = self
+        let (output, stats, attachments) = self
             .prompt(
                 req.to_message(&self.global_workspace)?,
                 history,
                 0,
                 hooks.clone(),
                 false,
-                &ToolContext { session },
+                &ToolContext {
+                    session,
+                    pending_attachments: Arc::new(Mutex::new(vec![])),
+                },
             )
             .await?;
 
@@ -275,7 +280,7 @@ impl VizierAgent {
                 content: output,
                 stats: Some(stats),
             },
-            attachments: vec![],
+            attachments,
         };
         if let Some(hooks) = hooks.clone() {
             response = hooks.on_response(response).await?;
@@ -292,7 +297,7 @@ impl VizierAgent {
         hooks: Option<Arc<VizierSessionHooks>>,
         _is_subagent: bool,
         ctx: &ToolContext,
-    ) -> Result<(String, VizierResponseStats)> {
+    ) -> Result<(String, VizierResponseStats, Vec<VizierAttachment>)> {
         timeout(*self.config.prompt_timeout, async {
             let mut history = history.clone();
             let mut turn_depth = turn_depth;
@@ -505,6 +510,13 @@ impl VizierAgent {
                 };
             }
 
+            let attachments = ctx
+                .pending_attachments
+                .lock()
+                .await
+                .drain(..)
+                .collect();
+
             Ok((
                 output,
                 VizierResponseStats {
@@ -516,6 +528,7 @@ impl VizierAgent {
                     cached_input_tokens,
                     duration: start.elapsed(),
                 },
+                attachments,
             ))
         })
         .await?
@@ -590,7 +603,10 @@ impl VizierAgent {
                 tools,
                 hooks.clone(),
                 deps,
-                &ToolContext { session },
+                &ToolContext {
+                    session,
+                    pending_attachments: Arc::new(Mutex::new(vec![])),
+                },
             )
             .await?;
 

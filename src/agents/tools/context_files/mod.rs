@@ -16,6 +16,9 @@ use crate::{
     storage::{VizierStorage, context_file::ContextFileStorage},
 };
 
+mod send_attachment;
+pub use send_attachment::SendAttachment;
+
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ListContextFilesArgs {}
 

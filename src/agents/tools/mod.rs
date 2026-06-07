@@ -1,4 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -10,7 +12,7 @@ use crate::{
     agents::tools::{
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
         consult::{ConsultAgent, DelegateAgent},
-        context_files::{ListContextFiles, ReadContextFile},
+        context_files::{ListContextFiles, ReadContextFile, SendAttachment},
         discord::new_discord_tools,
         dream_journal::ReadDreamJournal,
         fetch::FetchWebpage,
@@ -33,7 +35,7 @@ use crate::{
     config::provider::ProviderVariant,
     dependencies::VizierDependencies,
     error::VizierError,
-    schema::{AgentId, VizierResponse, VizierSession},
+    schema::{AgentId, VizierAttachment, VizierResponse, VizierSession},
     storage::{VizierStorage, agent::AgentStorage},
     utils::agent_workspace,
 };
@@ -61,6 +63,7 @@ type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
 #[derive(Clone)]
 pub struct ToolContext {
     pub session: VizierSession,
+    pub pending_attachments: Arc<Mutex<Vec<VizierAttachment>>>,
 }
 
 #[derive(Clone)]
@@ -410,6 +413,9 @@ impl VizierTools {
                 storage: deps.storage.clone(),
                 file_manager: deps.file_manager.clone(),
                 provider: agent_config.provider.clone(),
+            })
+            .tool(SendAttachment {
+                storage: deps.storage.clone(),
             });
 
         if let Some(ref shell_config) = agent_config.tools.shell {

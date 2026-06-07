@@ -531,6 +531,7 @@ export default function Chat() {
               Response: {
                 timestamp,
                 content,
+                attachments: wsResponse.attachments,
               },
             },
           }
@@ -1180,6 +1181,7 @@ export default function Chat() {
                     ?.stats as
                     | VizierResponseStats
                     | undefined
+                  msgAttachments = response?.attachments
                 }
 
                 if (!content) return null

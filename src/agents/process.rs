@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use anyhow::Result;
 use chrono::Utc;
@@ -135,10 +136,10 @@ pub async fn agent_process(
                                     session_detail_request.to_prompt().unwrap()
                                 );
                                 let res = session_detail_agent
-                                    .prompt(Message::user(prompt), vec![], 0, None, false, &ToolContext { session: session_detail_session_for_ctx })
+                                    .prompt(Message::user(prompt), vec![], 0, None, false, &ToolContext { session: session_detail_session_for_ctx, pending_attachments: Arc::new(Mutex::new(vec![])) })
                                     .await;
 
-                                if let Ok((title, _)) = res {
+                                if let Ok((title, _, _)) = res {
                                     let mut title = title.clone();
                                     title.truncate(60);
 

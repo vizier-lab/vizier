@@ -321,6 +321,7 @@ export interface ChatMessage {
     Response?: {
       timestamp: string
       content: VizierResponseContent
+      attachments?: VizierAttachment[]
     }
   }
   reactions?: ReactionEntry[]
@@ -338,6 +339,7 @@ export interface WebSocketMessage {
 export interface WebSocketResponse {
   timestamp: string
   content: VizierResponseContent
+  attachments?: VizierAttachment[]
 }
 
 // ============================================================================
