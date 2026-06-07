@@ -6,8 +6,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serenity::all::{
-    ChannelId, Command, CreateCommand, CreateCommandOption, CreateInteractionResponseMessage, Http,
-    Interaction, Ready, Typing,
+    ChannelId, Command, CreateAttachment, CreateCommand, CreateCommandOption,
+    CreateInteractionResponseMessage, CreateMessage, Http, Interaction, Ready, Typing,
 };
 use serenity::async_trait;
 use serenity::model::channel::Message;
@@ -310,6 +310,7 @@ If I am halucinating, feel free to `/lobotomy` me
 
             let agent_id = self.0.clone();
             let transport = self.1.transport.clone();
+            let file_manager = self.1.file_manager.clone();
             let http = ctx.http.clone();
             let current_user = ctx.cache.current_user().discriminator;
             if msg.author.discriminator == current_user {
@@ -419,6 +420,7 @@ If I am halucinating, feel free to `/lobotomy` me
                                 VizierResponseContent::Message {
                                     content, stats: _
                                 },
+                            attachments,
                             ..
                         } => {
                             if let Some(typing) = typing_state.take() {
@@ -431,6 +433,32 @@ If I am halucinating, feel free to `/lobotomy` me
                                 content,
                             )
                             .await;
+
+                            for attachment in &attachments {
+                                match file_manager.resolve(attachment).await {
+                                    Ok((filename, bytes)) => {
+                                        let files = vec![CreateAttachment::bytes(bytes, &filename)];
+                                        let builder = CreateMessage::new();
+                                        if let Err(err) = discord_channel_id
+                                            .send_files(&http, files, builder)
+                                            .await
+                                        {
+                                            tracing::error!(
+                                                "Failed to send attachment {}: {:?}",
+                                                filename,
+                                                err
+                                            );
+                                        }
+                                    }
+                                    Err(err) => {
+                                        tracing::error!(
+                                            "Failed to resolve attachment {:?}: {:?}",
+                                            attachment.filename,
+                                            err
+                                        );
+                                    }
+                                }
+                            }
                         }
                         VizierResponse {
                             content: VizierResponseContent::Abort,

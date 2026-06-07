@@ -3,7 +3,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use teloxide::Bot;
 use teloxide::prelude::*;
-use teloxide::types::ChatAction;
+use teloxide::types::{ChatAction, InputFile};
 
 use crate::channels::VizierChannel;
 use crate::error::VizierError;
@@ -15,7 +15,7 @@ use crate::schema::{
 use crate::storage::session::SessionStorage;
 use crate::storage::state::StateStorage;
 use crate::transport::VizierTransport;
-use crate::utils::remove_think_tags;
+use crate::utils::{get_mime_type, remove_think_tags};
 
 pub struct TelegramChannelReader {
     bot: Bot,
@@ -314,6 +314,7 @@ impl TelegramChannelReader {
         };
 
         let bot = self.bot.clone();
+        let file_manager = self.deps.file_manager.clone();
         let chat_id_copy = chat_id;
 
         tokio::spawn(async move {
@@ -377,6 +378,7 @@ impl TelegramChannelReader {
                             VizierResponseContent::Message {
                                 content, stats: _
                             },
+                        attachments,
                         ..
                     } => {
                         if let Some(handle) = typing_handle.take() {
@@ -385,6 +387,42 @@ impl TelegramChannelReader {
                         let content = remove_think_tags(&content);
                         let _ =
                             crate::utils::telegram::send_message(&bot, chat_id_copy, content).await;
+
+                        for attachment in &attachments {
+                            match file_manager.resolve(attachment).await {
+                                Ok((filename, bytes)) => {
+                                    let mime = get_mime_type(&filename);
+                                    let input_file =
+                                        InputFile::memory(bytes).file_name(filename.clone());
+                                    if mime.starts_with("image/") {
+                                        if let Err(err) =
+                                            bot.send_photo(chat_id_copy, input_file).await
+                                        {
+                                            tracing::error!(
+                                                "Failed to send photo attachment: {:?}",
+                                                err
+                                            );
+                                        }
+                                    } else {
+                                        if let Err(err) =
+                                            bot.send_document(chat_id_copy, input_file).await
+                                        {
+                                            tracing::error!(
+                                                "Failed to send document attachment: {:?}",
+                                                err
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(err) => {
+                                    tracing::error!(
+                                        "Failed to resolve attachment {:?}: {:?}",
+                                        attachment.filename,
+                                        err
+                                    );
+                                }
+                            }
+                        }
                     }
                     VizierResponse {
                         content: VizierResponseContent::Abort,
