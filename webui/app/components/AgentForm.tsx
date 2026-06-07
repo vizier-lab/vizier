@@ -1601,6 +1601,7 @@ export default function AgentForm({
                           }
                         >
                           <option value="piper">Piper (Local)</option>
+                          <option value="kitten">Kitten (Local)</option>
                           <option value="openai">OpenAI</option>
                           <option value="openrouter">
                             OpenRouter
@@ -1627,7 +1628,9 @@ export default function AgentForm({
                           placeholder={
                             (form.tools?.tts_settings?.provider || 'piper') === 'piper'
                               ? 'Model name in .vizier/models/tts/'
-                              : 'Provider default'
+                              : (form.tools?.tts_settings?.provider || 'piper') === 'kitten'
+                                ? 'e.g. kitten-nano-en-v0_1-fp16'
+                                : 'Provider default'
                           }
                           value={
                             form.tools?.tts_settings?.model || ''
@@ -1664,7 +1667,9 @@ export default function AgentForm({
                           placeholder={
                             (form.tools?.tts_settings?.provider || 'piper') === 'piper'
                               ? 'Default: "0" (speaker ID)'
-                              : 'Default: "alloy"'
+                              : (form.tools?.tts_settings?.provider || 'piper') === 'kitten'
+                                ? 'Default: "0" (0-7, 4M/4F)'
+                                : 'Default: "alloy"'
                           }
                           value={
                             form.tools?.tts_settings?.voice || ''

@@ -99,6 +99,7 @@ pub struct BraveSearchToolSettings {
 pub enum TtsProvider {
     #[default]
     Piper,
+    Kitten,
     Openai,
     Openrouter,
     Elevenlabs,
@@ -107,7 +108,7 @@ pub enum TtsProvider {
 impl TtsProvider {
     pub fn default_voice(&self) -> &str {
         match self {
-            Self::Piper => "0",
+            Self::Piper | Self::Kitten => "0",
             Self::Openai | Self::Openrouter => "alloy",
             Self::Elevenlabs => "pqHfZKP75CvOlQylNhV4",
         }

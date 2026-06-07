@@ -1058,6 +1058,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bzip2"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49ecfb22d906f800d4fe833b6282cf4dc1c298f5057ca0b5445e5c209735ca47"
+dependencies = [
+ "bzip2-sys",
+]
+
+[[package]]
 name = "bzip2-sys"
 version = "0.1.13+1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9520,7 +9529,7 @@ version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7f3fe4987367b162336027b5d1ffca6dcd627bee6a324e46f80e82dfcb4365b"
 dependencies = [
- "bzip2",
+ "bzip2 0.4.4",
  "tar",
  "ureq 2.12.1",
 ]
@@ -12240,6 +12249,7 @@ dependencies = [
  "axum-extra",
  "base64 0.22.1",
  "bollard",
+ "bzip2 0.5.2",
  "calamine",
  "chrono",
  "clap 4.5.57",

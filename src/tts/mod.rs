@@ -1,4 +1,5 @@
 pub mod elevenlabs;
+pub mod kitten;
 pub mod openai;
 pub mod openrouter;
 pub mod piper;
@@ -24,6 +25,9 @@ impl VizierTts {
     ) -> Result<Self> {
         let model: Arc<dyn VizierTtsModel> = match &settings.provider {
             TtsProvider::Piper => Arc::new(piper::PiperTtsModel::new(settings, workspace).await?),
+            TtsProvider::Kitten => {
+                Arc::new(kitten::KittenTtsModel::new(settings, workspace).await?)
+            }
             TtsProvider::Openai => {
                 let api_key = providers
                     .openai
