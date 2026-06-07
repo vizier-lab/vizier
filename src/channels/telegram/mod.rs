@@ -6,6 +6,7 @@ use teloxide::prelude::*;
 use teloxide::types::ChatAction;
 
 use crate::channels::VizierChannel;
+use crate::error::VizierError;
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
     PlatformMessageId, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
@@ -134,9 +135,12 @@ impl TelegramChannelReader {
                         "https://api.telegram.org/file/bot{}/{}",
                         self.token, file.path
                     );
+                    let bytes = reqwest::get(&url).await?.bytes().await?.to_vec();
+                    let file_record = self.deps.transport.send_file_upload(format!("photo_{}.jpg", file_id), bytes).await
+                        .map_err(|e| VizierError(e.to_string()))?;
                     attachments.push(VizierAttachment {
                         filename: format!("photo_{}.jpg", file_id),
-                        content: VizierAttachmentContent::Url(url),
+                        content: VizierAttachmentContent::Local(file_record.url),
                     });
                 }
             }
@@ -153,10 +157,10 @@ impl TelegramChannelReader {
                     .file_name
                     .clone()
                     .unwrap_or_else(|| format!("document_{}", file_id));
-                attachments.push(VizierAttachment {
-                    filename,
-                    content: VizierAttachmentContent::Url(url),
-                });
+                let bytes = reqwest::get(&url).await?.bytes().await?.to_vec();
+                let file_record = self.deps.transport.send_file_upload(filename.clone(), bytes).await
+                    .map_err(|e| VizierError(e.to_string()))?;
+                attachments.push(VizierAttachment { filename, content: VizierAttachmentContent::Local(file_record.url) });
             }
         }
 

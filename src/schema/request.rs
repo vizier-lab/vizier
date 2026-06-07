@@ -204,11 +204,29 @@ pub struct VizierRequest {
 
 impl VizierRequest {
     pub fn to_prompt(&self) -> anyhow::Result<String> {
-        Ok(format!(
+        let mut prompt = format!(
             "---\n{}\n---\n\n{}",
             self.generate_frontmatter()?,
             self.content
-        ))
+        );
+
+        if !self.attachments.is_empty() {
+            let attachment_info = self
+                .attachments
+                .iter()
+                .map(|a| {
+                    let mime = get_mime_type(&a.filename);
+                    format!("- {} ({})", a.filename, mime)
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            prompt = format!(
+                "{}\n\n# Attached Files\n{}\n\nUse list_context_files and read_context_file to access these files.",
+                prompt, attachment_info
+            );
+        }
+
+        Ok(prompt)
     }
 
     pub fn generate_frontmatter(&self) -> anyhow::Result<String> {

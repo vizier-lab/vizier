@@ -4,7 +4,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::VizierTool,
+    agents::tools::{ToolContext, VizierTool},
     error::{VizierError, throw_vizier_error},
 };
 
@@ -45,7 +45,7 @@ impl VizierTool for HttpClient {
         "Make HTTP requests to interact with REST APIs. Construct your own headers and choose the appropriate HTTP method. Supports GET, POST, PUT, DELETE, PATCH, HEAD, and OPTIONS.".to_string()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let method = Method::from_bytes(args.method.to_uppercase().as_bytes())
             .map_err(|e| VizierError(format!("Invalid HTTP method: {}", e)))?;
 

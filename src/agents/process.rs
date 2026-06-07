@@ -14,6 +14,7 @@ use crate::{
             VizierSessionHooks, debug::DebugHook, history::HistoryHook, thinking::ThinkingHook,
             tool_calls::ToolCallsHook,
         },
+        tools::ToolContext,
     },
     dependencies::VizierDependencies,
     schema::{
@@ -96,6 +97,7 @@ pub async fn agent_process(
                 // handle session_detail
                 let session_detail_storage = deps.storage.clone();
                 let session_detail_session = session.clone();
+                let session_detail_session_for_ctx = session.clone();
                 let session_detail_agent = agent.clone();
                 let session_detail_request = request.clone();
                 let msg_count = message_counts.entry(session.clone()).or_insert(0);
@@ -133,7 +135,7 @@ pub async fn agent_process(
                                     session_detail_request.to_prompt().unwrap()
                                 );
                                 let res = session_detail_agent
-                                    .prompt(Message::user(prompt), vec![], 0, None, false)
+                                    .prompt(Message::user(prompt), vec![], 0, None, false, &ToolContext { session: session_detail_session_for_ctx })
                                     .await;
 
                                 if let Ok((title, _)) = res {
@@ -465,7 +467,7 @@ pub async fn handle_request(
             let memory = storage
                 .query_memory(session.0.clone(), prompt.clone(), 10, 0.5)
                 .await?;
-            let res = agent.chat(request, history, memory, Some(hooks)).await?;
+            let res = agent.chat(request, session.clone(), history, memory, Some(hooks)).await?;
             if let Some(ref tx) = response_tx {
                 let _ = tx.send_async(res).await;
             }
@@ -478,7 +480,7 @@ pub async fn handle_request(
                     Some(agent_config.session_memory.max_capacity),
                 )
                 .await?;
-            let res = agent.chat(request, history, vec![], Some(hooks)).await?;
+            let res = agent.chat(request, session.clone(), history, vec![], Some(hooks)).await?;
             if let Some(ref tx) = response_tx {
                 let _ = tx.send_async(res).await;
             }
@@ -523,6 +525,7 @@ pub async fn handle_request(
                             let response = agent
                                 .dream_chat(
                                     request,
+                                    session.clone(),
                                     session_history,
                                     Some(hooks.clone()),
                                     deps,
@@ -564,6 +567,7 @@ pub async fn handle_request(
                             let response = agent
                                 .dream_chat(
                                     request,
+                                    session.clone(),
                                     vec![],
                                     Some(hooks.clone()),
                                     deps,
@@ -588,7 +592,7 @@ pub async fn handle_request(
                         }
                     }
                 }
-                _ => agent.chat(request, vec![], vec![], Some(hooks)).await?,
+                _ => agent.chat(request, session.clone(), vec![], vec![], Some(hooks)).await?,
             };
 
             if let Some(ref tx) = response_tx {

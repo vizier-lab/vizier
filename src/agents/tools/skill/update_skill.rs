@@ -4,7 +4,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{SkillResource, write_resource_files};
-use crate::agents::tools::VizierTool;
+use crate::agents::tools::{ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::{Skill, SkillActivation};
@@ -53,7 +53,7 @@ impl VizierTool for UpdateSkill {
         "update an existing skill's content, description, keywords, activation mode, or resource files".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let mut skill = self.0.get_skill(&args.slug)
             .map_err(|e| VizierError(e.to_string()))?
             .ok_or_else(|| VizierError(format!("Skill '{}' not found", args.slug)))?;

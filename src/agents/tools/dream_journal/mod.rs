@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::VizierTool,
+    agents::tools::{ToolContext, VizierTool},
     error::VizierError,
     schema::{
         AgentId,
@@ -53,7 +53,7 @@ impl VizierTool for WriteDreamJournal {
         "Write a dream journal entry. Use this to save your extraction or consolidation report during a dream cycle.".to_string()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let stage = match args.stage.as_str() {
             "extraction" => DreamStage::Extraction,
             "consolidation" => DreamStage::Consolidation,
@@ -137,7 +137,7 @@ impl VizierTool for ReadDreamJournal {
         "Read dream journal entries. Returns recent dream entries with summaries. Use this to reference previous dream extractions or consolidations.".to_string()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let stage_filter = args.stage.and_then(|s| match s.as_str() {
             "extraction" => Some(DreamStage::Extraction),
             "consolidation" => Some(DreamStage::Consolidation),

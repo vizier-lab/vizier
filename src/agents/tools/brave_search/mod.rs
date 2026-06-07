@@ -4,7 +4,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::VizierTool,
+    agents::tools::{ToolContext, VizierTool},
     config::tools::BraveSearchConfig,
     error::{VizierError, throw_vizier_error},
 };
@@ -88,7 +88,7 @@ where
         )
     }
 
-    async fn call(&self, args: Self::Input) -> anyhow::Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> anyhow::Result<Self::Output, VizierError> {
         let params = request::SearchParams {
             q: args.query,
             count: Some(PAGE_SIZE), // TODO: hardcoded for now

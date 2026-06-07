@@ -4,7 +4,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::agents::tools::VizierTool;
+use crate::agents::tools::{ToolContext, VizierTool};
 use crate::error::VizierError;
 use crate::schema::{
     AgentConfig, AgentId, TopicId, VizierChannelId, VizierRequest, VizierRequestContent,
@@ -53,7 +53,7 @@ impl VizierTool for ConsultAgent {
         "Consult, or ask other agent and wait for the response".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let (response_tx, response_rx) = flume::unbounded();
 
         let curr_session = VizierSession(
@@ -152,7 +152,7 @@ impl VizierTool for DelegateAgent {
         )
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let target_agent = args.agent_id.clone();
         let curr_session = VizierSession(
             args.agent_id.clone(),

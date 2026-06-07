@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::agents::tools::VizierTool;
+use crate::agents::tools::{ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::skill::SkillManager;
@@ -56,7 +56,7 @@ impl VizierTool for ExecuteSkillResource {
         "execute a script file from a skill folder (shell, python, etc.)".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         // Find the script file
         let script_path = self.find_script(&args.slug, &args.path)?;
 

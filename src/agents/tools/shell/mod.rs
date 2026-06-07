@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
-    agents::tools::VizierTool,
+    agents::tools::{ToolContext, VizierTool},
     error::VizierError,
     agents::shell::{ShellProvider, VizierShell},
 };
@@ -29,7 +29,7 @@ impl VizierTool for ShellExec {
         "run a a CLI command on a workspace directory".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         Ok(self
             .0
             .exec(args.commands)

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
 use crate::{
-    agents::tools::VizierTool,
+    agents::tools::{ToolContext, VizierTool},
     error::VizierError,
     schema::{AgentId, Task, TaskSchedule},
     storage::{VizierStorage, task::TaskStorage},
@@ -50,7 +50,7 @@ impl VizierTool for ScheduleOneTimeTask {
         "Schedule a new one-time task at a specific date and time".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let utc_datetime = chrono::DateTime::parse_from_rfc3339(&args.schedule)
             .map(|dt| dt.with_timezone(&Utc))
             .map_err(|_| {
@@ -130,7 +130,7 @@ impl VizierTool for ScheduleCronTask {
         "Schedule a new recurring task using a cron expression".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         if args.cron.trim().is_empty() {
             return Err(VizierError("Cron expression cannot be empty".to_string()));
         }
@@ -187,7 +187,7 @@ impl VizierTool for ListTask {
         "List all tasks for the agent".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let tasks = self
             .storage
             .get_task_list(Some(self.agent_id.clone()), args.is_active)
@@ -222,7 +222,7 @@ impl VizierTool for DeleteTask {
         "Delete a task by its slug".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let slug = args.slug.clone();
         self.storage
             .delete_task(self.agent_id.clone(), args.slug)
@@ -257,7 +257,7 @@ impl VizierTool for GetTaskDetail {
         "Get details of a specific task by its slug".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let task = self
             .storage
             .get_task(self.agent_id.clone(), args.slug)

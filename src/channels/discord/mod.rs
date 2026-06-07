@@ -14,6 +14,7 @@ use serenity::model::channel::Message;
 use serenity::prelude::*;
 
 use crate::channels::VizierChannel;
+use crate::error::VizierError;
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
     PlatformMessageId, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
@@ -293,10 +294,18 @@ If I am halucinating, feel free to `/lobotomy` me
         if let Ok(is_mention) = msg.mentions_me(&ctx.http).await {
             let mut attachments = vec![];
             for attachment in &msg.attachments {
-                attachments.push(VizierAttachment {
-                    filename: attachment.filename.clone(),
-                    content: VizierAttachmentContent::Url(attachment.url.clone()),
-                });
+                let bytes_result = async {
+                    let resp = reqwest::get(&attachment.url).await?;
+                    resp.bytes().await
+                }.await;
+                if let Ok(bytes) = bytes_result {
+                    if let Ok(file_record) = self.1.transport.send_file_upload(attachment.filename.clone(), bytes.to_vec()).await {
+                        attachments.push(VizierAttachment {
+                            filename: attachment.filename.clone(),
+                            content: VizierAttachmentContent::Local(file_record.url),
+                        });
+                    }
+                }
             }
 
             let agent_id = self.0.clone();

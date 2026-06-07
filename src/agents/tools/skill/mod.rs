@@ -5,7 +5,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
-use crate::agents::tools::VizierTool;
+use crate::agents::tools::{ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::{AgentId, Skill, SkillActivation};
@@ -119,7 +119,7 @@ impl VizierTool for CreateSkill {
         "create a new skill you have learn, to be reusable".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let slug = slugify::slugify!(&args.name);
 
         let resource_paths: Vec<String> = args.resources.iter().map(|r| r.path.clone()).collect();

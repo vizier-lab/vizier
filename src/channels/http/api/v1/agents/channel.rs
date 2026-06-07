@@ -402,25 +402,20 @@ pub async fn handle_socket(
                         } else if let Ok(request) = serde_json::from_str::<VizierRequest>(&text_str) {
                             let mut request = request.clone();
                             for attachment in request.attachments.iter_mut() {
-                                if let VizierAttachmentContent::Url(url) = &attachment.content {
-                                    if url.starts_with("/api/v1/files/") {
-                                        let file_id = url.trim_start_matches("/api/v1/files/");
-                                        let uploads_dir = std::path::PathBuf::from(&workspace).join("uploads").join(file_id);
-                                        if let Ok(mut entries) = tokio::fs::read_dir(&uploads_dir).await {
-                                            if let Ok(Some(entry)) = entries.next_entry().await {
-                                                if let Ok(bytes) = tokio::fs::read(entry.path()).await {
-                                                    attachment.content = VizierAttachmentContent::Bytes(bytes);
-                                                    continue;
+                                if let VizierAttachmentContent::Url(_) = &attachment.content {
+                                    match transport.send_file_resolve(attachment.clone()).await {
+                                        Ok(content) => {
+                                            match transport.send_file_upload(attachment.filename.clone(), content).await {
+                                                Ok(file_record) => {
+                                                    attachment.content = VizierAttachmentContent::Local(file_record.url);
+                                                }
+                                                Err(e) => {
+                                                    tracing::error!("failed to upload resolved attachment: {}", e);
                                                 }
                                             }
                                         }
-                                    }
-                                    if let Ok(response) = reqwest::get(url).await {
-                                        if response.status().is_success() {
-                                            if let Ok(bytes) = response.bytes().await {
-                                                attachment.content =
-                                                    VizierAttachmentContent::Bytes(bytes.to_vec());
-                                            }
+                                        Err(e) => {
+                                            tracing::error!("failed to resolve attachment: {}", e);
                                         }
                                     }
                                 }

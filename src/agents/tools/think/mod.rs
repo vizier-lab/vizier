@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{agents::tools::VizierTool, error::VizierError};
+use crate::{agents::tools::{ToolContext, VizierTool}, error::VizierError};
 
 pub struct ThinkTool;
 
@@ -20,7 +20,7 @@ impl VizierTool for ThinkTool {
             .to_string()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         Ok(args.thought)
     }
 }

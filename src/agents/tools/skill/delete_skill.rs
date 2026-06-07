@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::agents::tools::VizierTool;
+use crate::agents::tools::{ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::skill::SkillManager;
@@ -36,7 +36,7 @@ impl VizierTool for DeleteSkill {
         "delete a skill and all its resources".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let deleted = self.0.delete_skill(&args.slug)
             .map_err(|e| VizierError(e.to_string()))?;
 

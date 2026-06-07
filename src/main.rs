@@ -18,6 +18,7 @@ mod constant;
 mod dependencies;
 mod embedding;
 mod error;
+mod file_manager;
 mod scheduler;
 mod schema;
 

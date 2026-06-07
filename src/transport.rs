@@ -6,8 +6,8 @@ use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 
 use crate::schema::{
-    AgentCommand, AgentId, ChannelCommand, CommandRequest, CommandResponse, VizierRequest,
-    VizierResponse, VizierSession,
+    AgentCommand, AgentId, ChannelCommand, CommandRequest, CommandResponse, FileCommand,
+    VizierAttachment, VizierRequest, VizierResponse, VizierSession,
 };
 
 #[derive(Debug, Clone)]
@@ -48,6 +48,8 @@ pub struct VizierTransport {
     exit_channel: Arc<(flume::Sender<bool>, flume::Receiver<bool>)>,
 
     dream_command_channel: Arc<(flume::Sender<DreamCommand>, flume::Receiver<DreamCommand>)>,
+
+    file_command_channel: Arc<(flume::Sender<FileCommand>, flume::Receiver<FileCommand>)>,
 }
 
 impl VizierTransport {
@@ -58,6 +60,7 @@ impl VizierTransport {
         let channel_command_channel = Arc::new(flume::unbounded());
         let exit_channel = Arc::new(flume::unbounded());
         let dream_command_channel = Arc::new(flume::unbounded());
+        let file_command_channel = Arc::new(flume::unbounded());
 
         Self {
             agent_channels: Arc::new(RwLock::new(HashMap::new())),
@@ -67,6 +70,7 @@ impl VizierTransport {
             channel_command_channel,
             exit_channel,
             dream_command_channel,
+            file_command_channel,
         }
     }
 
@@ -143,6 +147,42 @@ impl VizierTransport {
 
     pub async fn recv_dream_command(&self) -> Result<DreamCommand> {
         Ok(self.dream_command_channel.1.recv_async().await?)
+    }
+
+    pub async fn send_file_command(&self, cmd: FileCommand) -> Result<()> {
+        Ok(self.file_command_channel.0.send_async(cmd).await?)
+    }
+
+    pub async fn recv_file_command(&self) -> Result<FileCommand> {
+        Ok(self.file_command_channel.1.recv_async().await?)
+    }
+
+    pub async fn send_file_upload(
+        &self,
+        filename: String,
+        content: Vec<u8>,
+    ) -> Result<crate::schema::FileRecord> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.send_file_command(FileCommand::Upload {
+            filename,
+            content,
+            response: tx,
+        })
+        .await?;
+        rx.await?
+    }
+
+    pub async fn send_file_resolve(
+        &self,
+        attachment: VizierAttachment,
+    ) -> Result<Vec<u8>> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.send_file_command(FileCommand::Resolve {
+            attachment,
+            response: tx,
+        })
+        .await?;
+        rx.await?
     }
 
     pub async fn exit_signal(&self) -> Result<bool> {

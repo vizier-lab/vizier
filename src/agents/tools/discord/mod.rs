@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serenity::all::{ChannelId, Http, MessageId};
 
-use crate::agents::tools::VizierTool;
+use crate::agents::tools::{ToolContext, VizierTool};
 use crate::error::{VizierError, throw_vizier_error};
 
 pub fn new_discord_tools(
@@ -44,7 +44,7 @@ impl VizierTool for SendDiscordMessage {
         "send a discord message to a channel, avoid using this when user interact with you directly from discord".into()
     }
 
-    async fn call(&self, args: Self::Input) -> anyhow::Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> anyhow::Result<Self::Output, VizierError> {
         let channel_id = args.channel_id;
         crate::utils::discord::send_message(
             self.http.clone(),
@@ -87,7 +87,7 @@ impl VizierTool for ReactDiscordMessage {
         "emoji react to a discord message".into()
     }
 
-    async fn call(&self, args: Self::Input) -> anyhow::Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> anyhow::Result<Self::Output, VizierError> {
         let channel = ChannelId::new(args.channel_id);
         let message_id = MessageId::new(args.message_id);
 
@@ -131,7 +131,7 @@ impl VizierTool for GetDiscordMessage {
         "get message by message id".into()
     }
 
-    async fn call(&self, args: Self::Input) -> anyhow::Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> anyhow::Result<Self::Output, VizierError> {
         let channel = ChannelId::new(args.channel_id);
         let message_id = MessageId::new(args.message_id);
 

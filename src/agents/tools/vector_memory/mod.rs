@@ -5,7 +5,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
-use crate::agents::tools::VizierTool;
+use crate::agents::tools::{ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::{AgentId, MemoryVisibility};
@@ -95,7 +95,7 @@ impl VizierTool for MemoryList {
         "List your memories with pagination. Returns slug, title, tags, and visibility for each memory. Use memory_detail to read full content.".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let limit = args.limit.unwrap_or(50);
         let offset = args.offset.unwrap_or(0);
 
@@ -140,7 +140,7 @@ impl VizierTool for MemoryRead {
         "Semantic search across your memories. Returns content that matches the query. Memory content may contain [[slug]] links to related memories — use memory_detail to explore them.".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let res = self
             .1
             .query_memory(self.0.clone(), args.query, 10, 0.1)
@@ -198,7 +198,7 @@ impl VizierTool for MemoryWrite {
         "Write or update a memory. Use [[slug]] syntax in content to link to other memories (e.g. 'see [[project-architecture]] for details'). Tags can be added for categorization.".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let slug = slugify!(&args.title).to_string();
         let visibility: MemoryVisibility = args
             .visibility
@@ -283,7 +283,7 @@ impl VizierTool for MemoryDetail {
         "Get full memory content by slug. Content may contain [[slug]] links to other memories — call this tool with those slugs to traverse the knowledge graph.".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let memory = self
             .1
             .get_memory_detail(self.0.clone(), args.slug)
@@ -340,7 +340,7 @@ impl VizierTool for MemoryFollow {
         "Follow [[slug]] links from a memory to traverse the knowledge graph. Returns related memories at the specified depth. Use this to explore connections between memories.".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let depth = args.depth.unwrap_or(1);
 
         let mut visited = std::collections::HashSet::new();
@@ -437,7 +437,7 @@ impl VizierTool for MemoryGraphTool {
         "Get the knowledge graph structure of your memories. Returns nodes (memories) and edges (links between them). Use this to understand how your memories are connected.".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let graph = self
             .1
             .get_memory_graph(self.0.clone())
@@ -509,7 +509,7 @@ impl VizierTool for MemoryDelete {
         "Delete a memory by slug. Permanently removes the memory and its embedding. Use memory_detail first to verify the slug if unsure.".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let slug = args.slug.clone();
         self.1
             .delete_memory(self.0.clone(), slug.clone())

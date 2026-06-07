@@ -4,16 +4,18 @@ use anyhow::Result;
 
 use crate::{
     config::provider::ProviderVariant,
-    schema::{AgentConfig, DocumentIndex, GlobalConfigEntry, ProviderEntry},
+    schema::{AgentConfig, ContextFileRecord, DocumentIndex, GlobalConfigEntry, ProviderEntry, VizierSession},
     storage::{
-        agent::AgentStorage, dream::DreamStorage, dream_journal::DreamJournalStorage,
-        global_config::GlobalConfigStorage, history::HistoryStorage,
-        indexer::DocumentIndexer, memory::MemoryStorage, provider::ProviderStorage,
-        session::SessionStorage, state::StateStorage, task::TaskStorage, user::UserStorage,
+        agent::AgentStorage, context_file::ContextFileStorage, dream::DreamStorage,
+        dream_journal::DreamJournalStorage, global_config::GlobalConfigStorage,
+        history::HistoryStorage, indexer::DocumentIndexer, memory::MemoryStorage,
+        provider::ProviderStorage, session::SessionStorage, state::StateStorage,
+        task::TaskStorage, user::UserStorage,
     },
 };
 
 pub mod agent;
+pub mod context_file;
 pub mod dream;
 pub mod dream_journal;
 pub mod global_config;
@@ -42,7 +44,8 @@ where
         + ProviderStorage
         + GlobalConfigStorage
         + DreamJournalStorage
-        + DreamStorage,
+        + DreamStorage
+        + ContextFileStorage,
 {
 }
 
@@ -230,5 +233,44 @@ impl GlobalConfigStorage for VizierStorage {
 
     async fn delete_global_config(&self, key: &str) -> Result<()> {
         self.0.delete_global_config(key).await
+    }
+}
+
+#[async_trait::async_trait]
+impl ContextFileStorage for VizierStorage {
+    async fn save_context_file(
+        &self,
+        session: &VizierSession,
+        filename: &str,
+        mime_type: &str,
+        size: u64,
+        file_id: &str,
+    ) -> Result<ContextFileRecord> {
+        self.0
+            .save_context_file(session, filename, mime_type, size, file_id)
+            .await
+    }
+
+    async fn list_context_files(
+        &self,
+        session: &VizierSession,
+    ) -> Result<Vec<ContextFileRecord>> {
+        self.0.list_context_files(session).await
+    }
+
+    async fn get_context_file(
+        &self,
+        session: &VizierSession,
+        filename: &str,
+    ) -> Result<Option<ContextFileRecord>> {
+        self.0.get_context_file(session, filename).await
+    }
+
+    async fn delete_context_file(
+        &self,
+        session: &VizierSession,
+        filename: &str,
+    ) -> Result<()> {
+        self.0.delete_context_file(session, filename).await
     }
 }

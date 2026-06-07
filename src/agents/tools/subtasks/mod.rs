@@ -4,7 +4,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::VizierTool,
+    agents::tools::{ToolContext, VizierTool},
     dependencies::VizierDependencies,
     error::VizierError,
     schema::{AgentId, VizierRequest, VizierRequestContent, VizierResponseContent, VizierSession},
@@ -48,7 +48,7 @@ impl VizierTool for SubtasksTool {
         "Complete multiple tasks in paralel".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let mut response_rxs = Vec::new();
 
         for task in &args.tasks {

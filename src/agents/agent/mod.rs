@@ -20,13 +20,14 @@ use crate::{
         },
         hook::{VizierSessionHook, VizierSessionHooks},
         skill::VizierSkills,
-        tools::VizierTools,
+        tools::{ToolContext, VizierTools},
     },
     config::{VizierConfig, provider::ProviderVariant},
     dependencies::VizierDependencies,
     schema::{
         AgentConfig, Memory, SessionHistory, SessionHistoryContent, VizierRequest,
         VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
+        VizierSession,
     },
     storage::{VizierStorage, user::{UserProfile, UserStorage}},
     utils::{agent_workspace, build_path},
@@ -144,6 +145,7 @@ impl VizierAgent {
     pub async fn chat(
         &self,
         req: VizierRequest,
+        session: VizierSession,
         session_history: Vec<SessionHistory>,
         memory: Vec<Memory>,
         hooks: Option<Arc<VizierSessionHooks>>,
@@ -221,7 +223,7 @@ impl VizierAgent {
         }
 
         let (output, stats) = self
-            .prompt(req.to_message(&self.global_workspace)?, history, 0, hooks.clone(), false)
+            .prompt(req.to_message(&self.global_workspace)?, history, 0, hooks.clone(), false, &ToolContext { session })
             .await?;
 
         let mut response = VizierResponse {
@@ -246,6 +248,7 @@ impl VizierAgent {
         turn_depth: usize,
         hooks: Option<Arc<VizierSessionHooks>>,
         _is_subagent: bool,
+        ctx: &ToolContext,
     ) -> Result<(String, VizierResponseStats)> {
         timeout(*self.config.prompt_timeout, async {
             let mut history = history.clone();
@@ -346,8 +349,9 @@ impl VizierAgent {
                         }
                     } else {
                         let tool_server = self.tools.clone();
+                        let ctx_clone = ctx.clone();
                         match timeout(*self.config.tools.timeout, async {
-                            tool_server.call(function_name.clone(), args).await
+                            tool_server.call(function_name.clone(), args, &ctx_clone).await
                         })
                         .await?
                         {
@@ -402,6 +406,7 @@ impl VizierAgent {
     pub async fn dream_chat(
         &self,
         req: VizierRequest,
+        session: VizierSession,
         session_history: Vec<SessionHistory>,
         hooks: Option<Arc<VizierSessionHooks>>,
         deps: &VizierDependencies,
@@ -462,6 +467,7 @@ impl VizierAgent {
                 tools,
                 hooks.clone(),
                 deps,
+                &ToolContext { session },
             )
             .await?;
 
@@ -488,6 +494,7 @@ impl VizierAgent {
         tools: Vec<ToolDefinition>,
         hooks: Option<Arc<VizierSessionHooks>>,
         deps: &VizierDependencies,
+        ctx: &ToolContext,
     ) -> Result<(String, VizierResponseStats)> {
         timeout(*self.config.prompt_timeout, async {
             let mut history = history.clone();
@@ -584,6 +591,7 @@ impl VizierAgent {
                         }
                     } else {
                         // Use dream_call for dream tool dispatch
+                        let ctx_clone = ctx.clone();
                         match timeout(*self.config.tools.timeout, async {
                             self.tools
                                 .dream_call(
@@ -591,6 +599,7 @@ impl VizierAgent {
                                     args,
                                     &self.config.name,
                                     &deps.storage,
+                                    &ctx_clone,
                                 )
                                 .await
                         })

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::agents::tools::VizierTool;
+use crate::agents::tools::{ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::skill::SkillManager;
@@ -45,7 +45,7 @@ impl VizierTool for ReadSkillResource {
         "read a resource file from a skill folder (templates, references, scripts, etc.)".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         // Try agent skill first, then global
         if let Some(ref agent_manager) = self.agent_manager {
             if let Some(content) = agent_manager.read_resource(&args.slug, &args.path)

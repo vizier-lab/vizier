@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::VizierTool,
+    agents::tools::{ToolContext, VizierTool},
     error::{throw_vizier_error, VizierError},
 };
 
@@ -34,7 +34,7 @@ impl VizierTool for FetchWebpage {
         "Fetch a webpage and convert its HTML content to markdown. Use this when you need to read content from a URL. Returns the markdown content and page title if available.".to_string()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let response = reqwest::get(&args.url).await;
 
         if let Err(err) = response {

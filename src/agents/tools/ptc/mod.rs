@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tokio::runtime::Handle;
 
 use crate::{
-    agents::tools::{VizierTool, VizierToolSet, ptc::converter::json_to_py},
+    agents::tools::{ToolContext, VizierTool, VizierToolSet, ptc::converter::json_to_py},
     error::VizierError,
 };
 
@@ -76,9 +76,10 @@ All tool_call results are serialized as JSON strings matching the output schema.
         )
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let script = args.script.clone();
         let tools = self.tools.clone();
+        let ctx = ctx.clone();
 
         let console = Arc::new(Mutex::new(vec![]));
 
@@ -90,6 +91,7 @@ All tool_call results are serialized as JSON strings matching the output schema.
         interpreter.enter(|vm| {
             let scope: vm::scope::Scope = vm.new_scope_with_builtins();
             let tools = tools.clone();
+            let ctx = ctx.clone();
             let print = vm.new_function("print", move |str: String| {
                 vm_console.lock().unwrap().push(str);
             });
@@ -97,7 +99,7 @@ All tool_call results are serialized as JSON strings matching the output schema.
             let tool_call = vm.new_function(
                 "tool_call",
                 move |function_name: String, params: String, vm: &VirtualMachine| {
-                    let tool_call = tools.call(function_name, params);
+                    let tool_call = tools.call(function_name, params, &ctx);
                     let handle = Handle::try_current().unwrap();
                     // // We're inside a tokio runtime, use block_in_place
                     let result = tokio::task::block_in_place(|| {

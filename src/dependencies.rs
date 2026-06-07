@@ -9,6 +9,7 @@ use crate::{
         storage::{DocumentIndexerConfig, StorageConfig},
     },
     embedding::VizierEmbedder,
+    file_manager::FileManager,
     schema::{AgentToolsConfig, ProviderEntry, ProviderEntryConfig},
     storage::{
         VizierStorage,
@@ -29,6 +30,7 @@ pub struct VizierDependencies {
     pub embedder: Option<Arc<VizierEmbedder>>,
     pub transport: VizierTransport,
     pub storage: Arc<VizierStorage>,
+    pub file_manager: FileManager,
 }
 
 impl VizierDependencies {
@@ -75,11 +77,22 @@ impl VizierDependencies {
         // Migrate per-agent MCP/shell from global config to agent configs
         Self::migrate_agent_tools(&storage).await?;
 
+        let transport = VizierTransport::new();
+        let file_manager = FileManager::new(config.workspace.clone());
+
+        // Spawn FileManager processing loop
+        let fm = file_manager.clone();
+        let file_transport = transport.clone();
+        tokio::spawn(async move {
+            fm.run(file_transport).await;
+        });
+
         Ok(Self {
             config: Arc::new(config.clone()),
             storage: Arc::new(VizierStorage::new(storage)),
-            transport: VizierTransport::new(),
+            transport,
             embedder,
+            file_manager,
         })
     }
 

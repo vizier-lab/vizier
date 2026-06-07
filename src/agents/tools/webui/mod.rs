@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::agents::tools::VizierTool;
+use crate::agents::tools::{ToolContext, VizierTool};
 use crate::error::VizierError;
 use crate::schema::{
     AgentId, VizierChannelId, VizierResponse, VizierResponseContent, VizierSession,
@@ -40,7 +40,7 @@ impl VizierTool for SendWebuiMessage {
         "send a message to a webui user's topic, avoid using this when user interact with you directly from webui".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let session = VizierSession(
             self.agent_id.clone(),
             VizierChannelId::HTTP(args.username.clone(), "vizier-webui".to_string()),
@@ -104,7 +104,7 @@ impl VizierTool for ListWebuiTopics {
         "list all webui topics for a given user".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let channel = VizierChannelId::HTTP(args.username, "vizier-webui".to_string());
 
         let sessions = self

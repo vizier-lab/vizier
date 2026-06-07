@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{AgentId, agent::AgentConfig};
+use crate::schema::{AgentId, VizierAttachment, agent::AgentConfig, file::FileRecord};
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AgentHealthStatus {
@@ -82,5 +82,17 @@ pub enum ChannelCommand {
     },
     AgentDeleted {
         agent_id: String,
+    },
+}
+
+pub enum FileCommand {
+    Upload {
+        filename: String,
+        content: Vec<u8>,
+        response: tokio::sync::oneshot::Sender<anyhow::Result<FileRecord>>,
+    },
+    Resolve {
+        attachment: VizierAttachment,
+        response: tokio::sync::oneshot::Sender<anyhow::Result<Vec<u8>>>,
     },
 }

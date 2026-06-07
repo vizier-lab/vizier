@@ -10,6 +10,7 @@ use crate::{
     agents::tools::{
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
         consult::{ConsultAgent, DelegateAgent},
+        context_files::{ListContextFiles, ReadContextFile},
         discord::new_discord_tools,
         dream_journal::ReadDreamJournal,
         fetch::FetchWebpage,
@@ -32,13 +33,14 @@ use crate::{
     config::provider::ProviderVariant,
     dependencies::VizierDependencies,
     error::VizierError,
-    schema::{AgentId, VizierResponse},
+    schema::{AgentId, VizierResponse, VizierSession},
     storage::{VizierStorage, agent::AgentStorage},
     utils::agent_workspace,
 };
 
 mod brave_search;
 mod consult;
+mod context_files;
 mod discord;
 mod dream_journal;
 mod fetch;
@@ -55,6 +57,11 @@ mod webui;
 mod workspace;
 
 type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
+
+#[derive(Clone)]
+pub struct ToolContext {
+    pub session: VizierSession,
+}
 
 #[derive(Clone)]
 pub struct VizierToolSet {
@@ -88,13 +95,14 @@ impl VizierToolSet {
         &self,
         function_name: String,
         args: String,
+        ctx: &ToolContext,
     ) -> Result<serde_json::Value, VizierError> {
         let tool = self
             .tools
             .get(&function_name)
             .ok_or(VizierError(format!("{function_name} does not exists")))?;
 
-        let output = tool.tool_call(args).await?;
+        let output = tool.tool_call(args, ctx).await?;
         Ok(serde_json::from_str(&output).map_err(|err| VizierError(err.to_string()))?)
     }
 }
@@ -118,7 +126,7 @@ pub trait VizierToolDyn {
 
     fn output_schema(&self) -> serde_json::Value;
 
-    async fn tool_call(&self, args: String) -> Result<String, VizierError>;
+    async fn tool_call(&self, args: String, ctx: &ToolContext) -> Result<String, VizierError>;
 }
 
 #[async_trait::async_trait]
@@ -147,9 +155,9 @@ impl<Tool: VizierTool + Sync + Send> VizierToolDyn for Tool {
         Self::output_schema()
     }
 
-    async fn tool_call(&self, args: String) -> Result<String, VizierError> {
+    async fn tool_call(&self, args: String, ctx: &ToolContext) -> Result<String, VizierError> {
         let input = serde_json::from_str(&args).map_err(|err| VizierError(err.to_string()))?;
-        let output = self.call(input).await?;
+        let output = self.call(input, ctx).await?;
 
         serde_json::to_string(&output).map_err(|err| VizierError(err.to_string()))
     }
@@ -172,7 +180,7 @@ pub trait VizierTool {
 
     fn description(&self) -> String;
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError>;
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError>;
 }
 
 impl VizierTools {
@@ -198,7 +206,7 @@ impl VizierTools {
         Ok(res)
     }
 
-    pub async fn call(&self, function_name: String, params: String) -> Result<VizierResponse> {
+    pub async fn call(&self, function_name: String, params: String, ctx: &ToolContext) -> Result<VizierResponse> {
         // mcp calls
         if function_name.starts_with("mcp_") {
             if let Some((server, function_name)) = function_name.split_once("__") {
@@ -216,7 +224,7 @@ impl VizierTools {
         }
 
         if let Ok(tool) = self.default_toolset.get_tool(function_name.clone()) {
-            let output = tool.tool_call(params.clone()).await?;
+            let output = tool.tool_call(params.clone(), ctx).await?;
             let res = serde_json::from_str::<serde_json::Value>(&output)?;
 
             if let Ok(vizier_response) = serde_json::from_value(res.clone()) {
@@ -231,7 +239,7 @@ impl VizierTools {
         }
 
         if let Ok(tool) = self.user_toolset.get_tool(function_name.clone()) {
-            let output = tool.tool_call(params.clone()).await?;
+            let output = tool.tool_call(params.clone(), ctx).await?;
             let res = serde_json::from_str::<serde_json::Value>(&output)?;
 
             if let Ok(vizier_response) = serde_json::from_value(res.clone()) {
@@ -304,6 +312,7 @@ impl VizierTools {
         params: String,
         agent_id: &AgentId,
         storage: &Arc<VizierStorage>,
+        ctx: &ToolContext,
     ) -> Result<VizierResponse> {
         // Handle dream journal tools
         match function_name.as_str() {
@@ -312,7 +321,7 @@ impl VizierTools {
                     agent_id: agent_id.clone(),
                     storage: storage.clone(),
                 };
-                let output = tool.tool_call(params).await?;
+                let output = tool.tool_call(params, ctx).await?;
                 let res = serde_json::from_str(&output)?;
                 return Ok(VizierResponse {
                     timestamp: Utc::now(),
@@ -324,7 +333,7 @@ impl VizierTools {
         }
 
         // Delegate to default_toolset for memory, workspace, scheduler, skill tools
-        self.call(function_name, params).await
+        self.call(function_name, params, ctx).await
     }
 }
 
@@ -393,7 +402,15 @@ impl VizierTools {
             .tool(DeleteSkill::new(deps.clone()))
             .tool(ListSkills::new(deps.clone()))
             .tool(ReadSkillResource::new(Some(agent_id.clone()), deps.clone()))
-            .tool(ExecuteSkillResource::new(Some(agent_id.clone()), deps.clone()));
+            .tool(ExecuteSkillResource::new(Some(agent_id.clone()), deps.clone()))
+            .tool(ListContextFiles {
+                storage: deps.storage.clone(),
+            })
+            .tool(ReadContextFile {
+                storage: deps.storage.clone(),
+                file_manager: deps.file_manager.clone(),
+                provider: agent_config.provider.clone(),
+            });
 
         if let Some(ref shell_config) = agent_config.tools.shell {
             match crate::agents::shell::VizierShell::new(shell_config).await {

@@ -9,7 +9,6 @@ use axum::{
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
 use utoipa::ToSchema;
 
 use crate::channels::http::{
@@ -49,17 +48,6 @@ pub async fn upload_file(
     State(state): State<HTTPState>,
     Json(body): Json<UploadRequest>,
 ) -> impl IntoResponse {
-    let workspace = &state.config.workspace;
-    let uploads_dir = PathBuf::from(workspace).join(UPLOADS_DIR);
-
-    if let Err(e) = fs::create_dir_all(&uploads_dir).await {
-        tracing::error!("Failed to create uploads directory: {}", e);
-        return err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to create upload directory".to_string(),
-        );
-    }
-
     if body.file.is_empty() {
         return err_response(StatusCode::BAD_REQUEST, "No file provided".to_string());
     }
@@ -78,46 +66,27 @@ pub async fn upload_file(
         return err_response(StatusCode::BAD_REQUEST, "Empty file content".to_string());
     }
 
-    let file_id = nanoid::nanoid!(10);
-    let original_filename = body.filename;
-
-    let file_dir = uploads_dir.join(&file_id);
-    if let Err(e) = fs::create_dir_all(&file_dir).await {
-        tracing::error!("Failed to create file directory: {}", e);
-        return err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to create file directory".to_string(),
-        );
-    }
-
-    let file_path = file_dir.join(&original_filename);
-    let mut file = match fs::File::create(&file_path).await {
-        Ok(f) => f,
+    let file_record = match state
+        .transport
+        .send_file_upload(body.filename, file_data)
+        .await
+    {
+        Ok(record) => record,
         Err(e) => {
-            tracing::error!("Failed to create file: {}", e);
+            tracing::error!("Failed to upload file: {}", e);
             return err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to save file".to_string(),
+                format!("Failed to upload file: {}", e),
             );
         }
     };
 
-    if let Err(e) = file.write_all(&file_data).await {
-        tracing::error!("Failed to write file data: {}", e);
-        return err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to write file".to_string(),
-        );
-    }
-
-    let url = format!("/api/v1/files/{}", file_id);
-
     api_response(
         StatusCode::CREATED,
         UploadResponse {
-            file_id,
-            filename: original_filename,
-            url,
+            file_id: file_record.id,
+            filename: file_record.filename,
+            url: file_record.url,
         },
     )
 }

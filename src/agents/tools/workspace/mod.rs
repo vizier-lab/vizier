@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::VizierTool,
+    agents::tools::{ToolContext, VizierTool},
     error::{VizierError, throw_vizier_error},
     utils::build_path,
 };
@@ -77,7 +77,7 @@ where
         )
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let path = build_path(&self.workspace, &[T::NAME]);
 
         std::fs::write(path, args.content)
@@ -120,7 +120,7 @@ where
         format!("read the conten of {} file", T::NAME)
     }
 
-    async fn call(&self, _args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, _args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let path = build_path(&self.workspace, &[T::NAME]);
         let content = std::fs::read_to_string(path).map_err(|err| VizierError(err.to_string()))?;
 

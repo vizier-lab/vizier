@@ -1,6 +1,8 @@
 pub mod agent;
 mod commands;
+pub mod context_file;
 pub mod dream_journal;
+mod file;
 mod global_config;
 mod history;
 mod metrics;
@@ -12,8 +14,10 @@ mod storage;
 mod task;
 
 pub use agent::{AgentConfig, AgentToolsConfig, BraveSearchToolSettings, MemoryConfig, ToolConfig};
+pub use context_file::ContextFileRecord;
 pub use dream_journal::DreamJournalEntry;
-pub use commands::{AgentCommand, AgentCommandResult, AgentHealthStatus, AgentSummary, ChannelCommand, CommandRequest, CommandResponse};
+pub use file::FileRecord;
+pub use commands::{AgentCommand, AgentCommandResult, AgentHealthStatus, AgentSummary, ChannelCommand, CommandRequest, CommandResponse, FileCommand};
 pub use global_config::{GlobalConfigEntry, GlobalConfigValue};
 pub use history::{SessionHistory, SessionHistoryContent};
 pub use metrics::{

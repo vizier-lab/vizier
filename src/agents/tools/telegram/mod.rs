@@ -3,7 +3,7 @@ use teloxide::Bot;
 use teloxide::prelude::*;
 use teloxide::sugar::request::RequestReplyExt;
 
-use crate::agents::tools::VizierTool;
+use crate::agents::tools::{ToolContext, VizierTool};
 use crate::error::{VizierError, throw_vizier_error};
 
 pub fn new_telegram_tools(
@@ -48,7 +48,7 @@ impl VizierTool for SendTelegramMessage {
         "send a telegram message to a chat, avoid using this when user interact with you directly from telegram".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let chat_id = args.chat_id;
         crate::utils::telegram::send_message(&self.bot, ChatId(chat_id), args.content)
             .await
@@ -87,7 +87,7 @@ impl VizierTool for ReactTelegramMessage {
         "emoji react to a telegram message".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let chat_id = ChatId(args.chat_id);
         let message_id = teloxide::types::MessageId(args.message_id as i32);
 
@@ -127,7 +127,7 @@ impl VizierTool for GetTelegramMessage {
         "get message by message id".into()
     }
 
-    async fn call(&self, args: Self::Input) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let chat_id = ChatId(args.chat_id);
         let message_id = teloxide::types::MessageId(args.message_id as i32);
 
