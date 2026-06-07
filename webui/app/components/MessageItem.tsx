@@ -2,7 +2,7 @@ import { memo, useState, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { FaCopy, FaFile, FaFilePdf, FaFileImage, FaFileLines } from 'react-icons/fa6'
+import { FaCopy, FaFile, FaFilePdf, FaFileImage, FaFileLines, FaFileVideo, FaFileAudio } from 'react-icons/fa6'
 import type { VizierAttachment, VizierResponseStats, ReactionEntry } from '../interfaces/types'
 import { base_url, api_protocol } from '~/services/vizier'
 import { EmojiPickerPopup } from './EmojiPickerPopup'
@@ -37,7 +37,7 @@ function MessageItemComponent({
 }: MessageItemProps) {
   const [showPicker, setShowPicker] = useState(false)
 
-  const isImage = (filename: string) => /\.(jpg|jpeg|png|gif|webp)$/i.test(filename)
+  const isImage = (filename: string) => /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(filename)
 
   const getMimeType = (filename: string): string => {
     const ext = filename.split('.').pop()?.toLowerCase()
@@ -47,6 +47,8 @@ function MessageItemComponent({
       bmp: 'image/bmp', pdf: 'application/pdf',
       doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       txt: 'text/plain', rtf: 'application/rtf',
+      mp4: 'video/mp4', webm: 'video/webm', ogg: 'video/ogg', mov: 'video/quicktime', avi: 'video/x-msvideo', mkv: 'video/x-matroska',
+      mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac', aac: 'audio/aac', m4a: 'audio/mp4', oga: 'audio/ogg',
     }
     return map[ext || ''] || 'application/octet-stream'
   }
@@ -80,7 +82,9 @@ function MessageItemComponent({
 
   const getFileIcon = (filename: string) => {
     if (/\.pdf$/i.test(filename)) return <FaFilePdf size={16} />
-    if (/\.(jpg|jpeg|png|gif|webp)$/i.test(filename)) return <FaFileImage size={16} />
+    if (/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(filename)) return <FaFileImage size={16} />
+    if (/\.(mp4|webm|ogg|mov|avi|mkv)$/i.test(filename)) return <FaFileVideo size={16} />
+    if (/\.(mp3|wav|ogg|flac|aac|m4a|oga)$/i.test(filename)) return <FaFileAudio size={16} />
     if (/\.(doc|docx|txt|rtf)$/i.test(filename)) return <FaFileLines size={16} />
     return <FaFile size={16} />
   }

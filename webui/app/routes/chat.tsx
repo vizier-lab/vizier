@@ -777,7 +777,7 @@ export default function Chat() {
       const newAttachments: { file: File; previewUrl: string | null }[] = []
 
       for (const file of files) {
-        const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+        const previewUrl = (file.type.startsWith('image/') || file.type.startsWith('video/')) ? URL.createObjectURL(file) : null
         if (previewUrl) newPreviews[file.name] = previewUrl
         newAttachments.push({ file, previewUrl })
       }
@@ -848,6 +848,8 @@ export default function Chat() {
         const ext = f.name.toLowerCase()
         return (
           f.type.startsWith('image/') ||
+          f.type.startsWith('video/') ||
+          f.type.startsWith('audio/') ||
           ext.endsWith('.pdf') ||
           ext.endsWith('.doc') ||
           ext.endsWith('.docx') ||
@@ -1315,7 +1317,7 @@ export default function Chat() {
                   ref={fileInputRef}
                   onChange={handleFileSelect}
                   multiple
-                  accept="image/*,.pdf,.doc,.docx,.txt"
+                  accept="image/*,.pdf,.doc,.docx,.txt,video/*,audio/*"
                   style={{ display: 'none' }}
                 />
                 <MarkdownEditor
@@ -1334,6 +1336,7 @@ export default function Chat() {
                     <div className="chat-input-chips">
                       {attachments.map((att, idx) => {
                         const isImage = att.file.type.startsWith('image/')
+                        const isVideo = att.file.type.startsWith('video/')
                         return (
                           <div
                             key={idx}
@@ -1344,6 +1347,13 @@ export default function Chat() {
                                 src={att.previewUrl}
                                 alt={att.file.name}
                                 className="chat-attachment-chip-thumbnail"
+                              />
+                            )}
+                            {isVideo && att.previewUrl && (
+                              <video
+                                src={att.previewUrl}
+                                className="chat-attachment-chip-thumbnail"
+                                muted
                               />
                             )}
                             <span>{att.file.name}</span>

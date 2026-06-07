@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { FaXmark } from 'react-icons/fa6'
+import { FaXmark, FaFilePdf, FaFileVideo, FaFileAudio } from 'react-icons/fa6'
 import type { VizierAttachment } from '../interfaces/types'
 import { base_url, api_protocol } from '~/services/vizier'
 
@@ -16,6 +16,8 @@ function getMimeType(filename: string): string {
     bmp: 'image/bmp', pdf: 'application/pdf',
     doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     txt: 'text/plain', rtf: 'application/rtf',
+    mp4: 'video/mp4', webm: 'video/webm', ogg: 'video/ogg', mov: 'video/quicktime', avi: 'video/x-msvideo', mkv: 'video/x-matroska',
+    mp3: 'audio/mpeg', wav: 'audio/wav', flac: 'audio/flac', aac: 'audio/aac', m4a: 'audio/mp4', oga: 'audio/ogg',
   }
   return map[ext || ''] || 'application/octet-stream'
 }
@@ -55,6 +57,18 @@ function isText(filename: string): boolean {
   return /\.(txt|md|json|csv|xml|yaml|yml|toml|js|ts|py|rs|go|java|c|cpp|h|rb|php|sh|bash)$/i.test(filename)
 }
 
+function isPdf(filename: string): boolean {
+  return /\.pdf$/i.test(filename)
+}
+
+function isVideo(filename: string): boolean {
+  return /\.(mp4|webm|ogg|mov|avi|mkv)$/i.test(filename)
+}
+
+function isAudio(filename: string): boolean {
+  return /\.(mp3|wav|ogg|flac|aac|m4a|oga)$/i.test(filename)
+}
+
 export default function AttachmentPreviewModal({ attachment, onClose }: AttachmentPreviewModalProps) {
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -71,6 +85,9 @@ export default function AttachmentPreviewModal({ attachment, onClose }: Attachme
   const src = getAttachmentSrc(attachment)
   const isImg = isImage(attachment.filename)
   const isTxt = isText(attachment.filename)
+  const isPdfFile = isPdf(attachment.filename)
+  const isVid = isVideo(attachment.filename)
+  const isAud = isAudio(attachment.filename)
 
   return (
     <>
@@ -143,6 +160,12 @@ export default function AttachmentPreviewModal({ attachment, onClose }: Attachme
                   display: 'block',
                 }}
               />
+            ) : isPdfFile && src ? (
+              <PdfPreview src={src} />
+            ) : isVid && src ? (
+              <VideoPreview src={src} />
+            ) : isAud && src ? (
+              <AudioPreview src={src} />
             ) : isTxt && src ? (
               <TextPreview src={src} />
             ) : isTxt && 'base64' in attachment.content ? (
@@ -212,5 +235,56 @@ function TextPreviewContent({ content }: { content: string }) {
     }}>
       {content}
     </pre>
+  )
+}
+
+function PdfPreview({ src }: { src: string }) {
+  return (
+    <embed
+      src={src}
+      type="application/pdf"
+      style={{
+        width: '80vw',
+        height: '80vh',
+        maxWidth: '1200px',
+        display: 'block',
+        border: 'none',
+      }}
+    />
+  )
+}
+
+function VideoPreview({ src }: { src: string }) {
+  return (
+    <video
+      controls
+      autoPlay
+      style={{
+        maxWidth: '90vw',
+        maxHeight: '80vh',
+        display: 'block',
+      }}
+    >
+      <source src={src} />
+      Your browser does not support video playback.
+    </video>
+  )
+}
+
+function AudioPreview({ src }: { src: string }) {
+  return (
+    <div style={{
+      padding: '3rem 2rem',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '1.5rem',
+    }}>
+      <FaFileAudio size={64} style={{ color: 'var(--text-tertiary)' }} />
+      <audio controls autoPlay style={{ width: '100%', maxWidth: '480px' }}>
+        <source src={src} />
+        Your browser does not support audio playback.
+      </audio>
+    </div>
   )
 }
