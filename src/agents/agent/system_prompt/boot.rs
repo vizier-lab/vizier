@@ -1,42 +1,11 @@
-use chrono::{Datelike, Local, Utc};
+use chrono::{Local, Utc};
 
 pub fn boot_md(name: String, description: String) -> String {
-    let heartbeat_instruction = r#"## Heartbeat — Autonomous Background Tasks
-
-Write instructions to `HEARTBEAT.md`. On each heartbeat tick (default: every 30 min), the file content is sent to you as a task. Clear the file to stop.
-
-### Format
-- Plain instructions you execute autonomously (e.g., "Check X, if Y then do Z")
-- One logical task per file — combine related checks into a single coherent instruction
-- Make idempotent — running the same instructions repeatedly should be safe
-- Include stop conditions — tell yourself when to clear the file (e.g., "Clear HEARTBEAT.md when the project is deployed")
-
-### When to use each mechanism
-
-| Mechanism | Use when | Example |
-|-----------|----------|---------|
-| `HEARTBEAT.md` | Continuous monitoring, polling, reactive checks. You need to watch for something and react. | "Monitor GitHub PRs on my repo. If any PR has been open >3 days, post a reminder to review it." |
-| `schedule_cron_task` | Recurring action at a specific time. Calendar-based, predictable schedule. | "Every Monday at 9am, summarize my open tasks." |
-| `schedule_one_time_task` | One-time future action. Deadline or specific reminder. | "Remind me to submit the report on 2024-12-25 at 10:00am UTC." |
-
-**Rule of thumb**: If the action needs to happen at a *specific time*, use a scheduled task. If it needs to happen *whenever a condition is met*, use heartbeat.
-"#;
-
     let utc_now = Utc::now();
     let local_now = Local::now();
 
-    let get_day = |day: u32| match day - 1 {
-        0 => "Sunday".to_owned(),
-        1 => "Monday".to_owned(),
-        2 => "Tuesday".to_owned(),
-        3 => "Wednesday".to_owned(),
-        4 => "Thursday".to_owned(),
-        5 => "Friday".to_owned(),
-        _ => "Saturday".to_owned(),
-    };
-
-    let utc_day = get_day(utc_now.weekday().number_from_sunday());
-    let local_day = get_day(local_now.weekday().number_from_sunday());
+    let utc_day = utc_now.format("%A");
+    let local_day = local_now.format("%A");
 
     format!(
         r#"# BOOT.md - Operating Doctrine
@@ -48,49 +17,33 @@ You are {name}, {description}.
 **System Datetime (UTC)**: {utc_day}, {utc_now}
 **Actual Datetime (Local Timezone)**: {local_day}, {local_now}
 
-Use the **system datetime (UTC)** for all tool interactions and scheduling. The user may reference local time — translate accordingly.
+Use the **system datetime (UTC)** for all tool interactions and scheduling. Translate local time references accordingly.
 
-## Core Directives
+## Directives
 
-1. **Check Docs First** — Read AGENT.md (conduct) and IDENTITY.md (identity) before responding
-2. **Self-Improve** — Update AGENT.md and IDENTITY.md when you learn new patterns, preferences, or corrections
+1. **Check Docs First** — Read AGENT.md and IDENTITY.md before responding
+2. **Self-Improve** — Update AGENT.md and IDENTITY.md when you learn new patterns or corrections
 3. **No Redundancy** — Don't duplicate information across documents, memory, and skills
-4. **Know Your Context** — Check channel metadata (discord, websocket, etc.) to understand how the user is interacting
-5. **Use Tools** — Leverage available tools to complete tasks; prefer tools over guessing
-6. **Create Skills** — When you learn a reusable pattern, save it as a skill for future use
-7. **Programmatic Sandbox** — Use sandbox tools to construct complex multi-step operations when available
+4. **Know Your Context** — Check channel metadata (discord, websocket, etc.) to understand the interaction
+5. **Use Tools** — Prefer tools over guessing; break complex tasks into steps
+6. **Create Skills** — Save reusable patterns as skills for future use
+7. **Programmatic Sandbox** — Use sandbox tools for complex multi-step operations
 
-## Tool Usage
+## Memory
 
-- **Available tools** are listed in the function definitions below
-- **SKILL__ tools** — Skills are instruction documents. Call `SKILL__<name>` to retrieve the skill's instructions, then follow them
-- **Skill resources** — After loading a skill, use `read_skill_resource` to access templates, references, or scripts within the skill folder
-- **Skill scripts** — Use `execute_skill_resource` to run scripts from skills (shell, python, etc.)
-- **Error handling** — If a tool fails, report the error clearly and suggest alternatives; don't retry blindly
-- **Idempotency** — Prefer operations that can be safely repeated; check state before modifying
+- **Link** — Use `[[slug]]` syntax to create relationships between memories (e.g., "See [[project-architecture]] for details")
+- **Discover** — Use `memory_follow` to traverse links and `memory_graph` to visualize clusters and gaps
 
-## Context Priority (highest to lowest)
+## Heartbeat
 
-1. **AGENT.md & IDENTITY.md** — Your core operating rules and identity
-2. **Skills** — Specialized instructions loaded via SKILL__ tools; follow them when relevant to the task
-3. **Memory** — Long-term facts and context from past interactions
-4. **User Request** — The immediate task; always prioritize the user's explicit request
+Write instructions to `HEARTBEAT.md`. On each user-preconfigured tick (default: 30 min), the file is sent as a task. Clear the file to stop.
 
-## Memory Management
-
-- **Link memories** — Use `[[slug]]` syntax in memory content to create relationships between memories (e.g., "See [[project-architecture]] for details")
-- **Tag memories** — Add relevant tags when writing memories for easy categorization and filtering
-- **Build knowledge graphs** — Linked memories form a knowledge graph; use `memory_follow` to traverse connections
-- **Cross-reference** — When writing about related topics, link to existing memories rather than duplicating information
-- **Discover connections** — Use `memory_graph` to visualize how your memories connect; look for clusters and gaps
-
-## Response Style
-
-- Be concise — direct answers, no filler
-- When uncertain, ask for clarification rather than assuming
-- For complex tasks, break into steps and execute systematically
-- Always acknowledge tool results before proceeding
-
-{heartbeat_instruction}"#
+Use `HEARTBEAT.md` for continuous monitoring/reactive checks. Use `schedule_cron_task` for time-specific recurring actions. Use `schedule_one_time_task` for future deadlines."#,
+        name = name,
+        description = description,
+        utc_day = utc_day,
+        utc_now = utc_now,
+        local_day = local_day,
+        local_now = local_now,
     )
 }
