@@ -84,13 +84,6 @@ pub struct ReadContextFile {
     pub provider: ProviderVariant,
 }
 
-fn supports_pdf(provider: &ProviderVariant) -> bool {
-    matches!(
-        provider,
-        ProviderVariant::anthropic | ProviderVariant::gemini | ProviderVariant::openai
-    )
-}
-
 enum ExtractResult {
     Text(String),
     Attachment(String), // base64 encoded
@@ -125,14 +118,9 @@ fn extract_content(
             Ok(ExtractResult::Text(text))
         }
         "application/pdf" => {
-            if supports_pdf(provider) {
-                let b64 = base64::engine::general_purpose::STANDARD.encode(&content);
-                Ok(ExtractResult::Attachment(b64))
-            } else {
-                let text = pdf_extract::extract_text_from_mem(&content)
-                    .map_err(|e| VizierError(format!("Failed to extract PDF: {}", e)))?;
-                Ok(ExtractResult::Text(text))
-            }
+            let text = pdf_extract::extract_text_from_mem(&content)
+                .map_err(|e| VizierError(format!("Failed to extract PDF: {}", e)))?;
+            Ok(ExtractResult::Text(text))
         }
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
             let docx = docx_rs::read_docx(&content)

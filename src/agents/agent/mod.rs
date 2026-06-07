@@ -6,7 +6,7 @@ use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rig_core::{
     OneOrMany,
     completion::ToolDefinition,
-    message::{AssistantContent, Message},
+    message::{AssistantContent, Message, UserContent},
 };
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, timeout};
@@ -29,7 +29,11 @@ use crate::{
         VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
         VizierSession,
     },
-    storage::{VizierStorage, context_file::ContextFileStorage, user::{UserProfile, UserStorage}},
+    storage::{
+        VizierStorage,
+        context_file::ContextFileStorage,
+        user::{UserProfile, UserStorage},
+    },
     transport::VizierTransport,
     utils::{agent_workspace, build_path, get_mime_type},
 };
@@ -255,7 +259,14 @@ impl VizierAgent {
         }
 
         let (output, stats) = self
-            .prompt(req.to_message(&self.global_workspace)?, history, 0, hooks.clone(), false, &ToolContext { session })
+            .prompt(
+                req.to_message(&self.global_workspace)?,
+                history,
+                0,
+                hooks.clone(),
+                false,
+                &ToolContext { session },
+            )
             .await?;
 
         let mut response = VizierResponse {
@@ -354,6 +365,7 @@ impl VizierAgent {
                 }
 
                 let mut tool_responses = vec![];
+                let mut pending_images: Vec<UserContent> = vec![];
                 for call in tool_calls.iter().filter_map(|item| {
                     if let AssistantContent::ToolCall(call) = item {
                         Some(call)
@@ -383,7 +395,9 @@ impl VizierAgent {
                         let tool_server = self.tools.clone();
                         let ctx_clone = ctx.clone();
                         match timeout(*self.config.tools.timeout, async {
-                            tool_server.call(function_name.clone(), args, &ctx_clone).await
+                            tool_server
+                                .call(function_name.clone(), args, &ctx_clone)
+                                .await
                         })
                         .await?
                         {
@@ -406,10 +420,27 @@ impl VizierAgent {
                     if !tool_res.attachments.is_empty() && function_name != "read_context_file" {
                         let mut stored_files = vec![];
                         for attachment in &tool_res.attachments {
-                            if let Ok(content) = self.transport.send_file_resolve(attachment.clone()).await {
-                                if let Ok(file_record) = self.transport.send_file_upload(attachment.filename.clone(), content).await {
+                            if let Ok(content) =
+                                self.transport.send_file_resolve(attachment.clone()).await
+                            {
+                                if let Ok(file_record) = self
+                                    .transport
+                                    .send_file_upload(attachment.filename.clone(), content)
+                                    .await
+                                {
                                     let mime_type = get_mime_type(&attachment.filename);
-                                    if self.storage.save_context_file(&ctx.session, &attachment.filename, &mime_type, file_record.size, &file_record.id).await.is_ok() {
+                                    if self
+                                        .storage
+                                        .save_context_file(
+                                            &ctx.session,
+                                            &attachment.filename,
+                                            &mime_type,
+                                            file_record.size,
+                                            &file_record.id,
+                                        )
+                                        .await
+                                        .is_ok()
+                                    {
                                         stored_files.push(attachment.filename.clone());
                                     }
                                 }
@@ -417,24 +448,61 @@ impl VizierAgent {
                         }
                         tool_res.attachments.clear();
                         if !stored_files.is_empty() {
-                            if let VizierResponseContent::ToolResponse { response } = &mut tool_res.content {
+                            if let VizierResponseContent::ToolResponse { response } =
+                                &mut tool_res.content
+                            {
                                 let files = stored_files.join(", ");
                                 let notification = format!("\n\n[+{} to context files]", files);
-                                *response = serde_json::Value::String(
-                                    format!("{}{}", response.as_str().unwrap_or(""), notification)
-                                );
+                                *response = serde_json::Value::String(format!(
+                                    "{}{}",
+                                    response.as_str().unwrap_or(""),
+                                    notification
+                                ));
                             }
                         }
                     }
 
-                    tool_responses.push(
-                        tool_res.to_tool_response_content(call.id.clone(), call.call_id.clone(), &self.global_workspace)?,
-                    );
+                    // For read_context_file with images: collect for separate user messages
+                    // (most providers drop images from tool results)
+                    if function_name == "read_context_file" && !tool_res.attachments.is_empty() {
+                        let image_attachments: Vec<_> = tool_res.attachments.drain(..).collect();
+                        tool_responses.push(tool_res.to_tool_response_content(
+                            call.id.clone(),
+                            call.call_id.clone(),
+                            &self.global_workspace,
+                        )?);
+                        for attachment in &image_attachments {
+                            pending_images
+                                .push(attachment.to_user_content(&self.global_workspace)?);
+                        }
+                    } else {
+                        tool_responses.push(tool_res.to_tool_response_content(
+                            call.id.clone(),
+                            call.call_id.clone(),
+                            &self.global_workspace,
+                        )?);
+                    }
                 }
 
-                message = Message::User {
+                // Push tool response message to history
+                let tool_message = Message::User {
                     content: OneOrMany::many(tool_responses).unwrap(),
+                };
+                history.push(tool_message);
+
+                // Push each image as a separate user message
+                for img_content in pending_images {
+                    history.push(Message::User {
+                        content: OneOrMany::one(img_content),
+                    });
                 }
+
+                // Continue loop with next model call
+                message = Message::User {
+                    content: OneOrMany::one(rig_core::message::UserContent::Text(
+                        "[Images loaded into context. Continue processing.]".into(),
+                    )),
+                };
             }
 
             Ok((
@@ -470,27 +538,24 @@ impl VizierAgent {
         deps: &VizierDependencies,
     ) -> Result<VizierResponse> {
         // Use dream model if both provider and model are configured
-        let dream_model =
-            if let (Some(provider), Some(model)) =
-                (self.config.dream_provider.as_ref(), self.config.dream_model.as_ref())
-            {
-                VizierModel::new_with_override(
-                    deps,
-                    &self.config,
-                    Some((provider.clone(), model.clone())),
-                )
-                .await?
-            } else {
-                self.model.clone()
-            };
+        let dream_model = if let (Some(provider), Some(model)) = (
+            self.config.dream_provider.as_ref(),
+            self.config.dream_model.as_ref(),
+        ) {
+            VizierModel::new_with_override(
+                deps,
+                &self.config,
+                Some((provider.clone(), model.clone())),
+            )
+            .await?
+        } else {
+            self.model.clone()
+        };
 
         // Build dream tools
         let tools = self
             .tools
-            .dream_tools(
-                self.config.name.clone(),
-                deps.storage.clone(),
-            )
+            .dream_tools(self.config.name.clone(), deps.storage.clone())
             .await?;
 
         // Prepare system prompts (same as chat)
@@ -622,6 +687,7 @@ impl VizierAgent {
                 }
 
                 let mut tool_responses = vec![];
+                let mut pending_attachments: Vec<UserContent> = vec![];
                 for call in tool_calls.iter().filter_map(|item| {
                     if let AssistantContent::ToolCall(call) = item {
                         Some(call)
@@ -682,10 +748,27 @@ impl VizierAgent {
                     if !tool_res.attachments.is_empty() && function_name != "read_context_file" {
                         let mut stored_files = vec![];
                         for attachment in &tool_res.attachments {
-                            if let Ok(content) = self.transport.send_file_resolve(attachment.clone()).await {
-                                if let Ok(file_record) = self.transport.send_file_upload(attachment.filename.clone(), content).await {
+                            if let Ok(content) =
+                                self.transport.send_file_resolve(attachment.clone()).await
+                            {
+                                if let Ok(file_record) = self
+                                    .transport
+                                    .send_file_upload(attachment.filename.clone(), content)
+                                    .await
+                                {
                                     let mime_type = get_mime_type(&attachment.filename);
-                                    if self.storage.save_context_file(&ctx.session, &attachment.filename, &mime_type, file_record.size, &file_record.id).await.is_ok() {
+                                    if self
+                                        .storage
+                                        .save_context_file(
+                                            &ctx.session,
+                                            &attachment.filename,
+                                            &mime_type,
+                                            file_record.size,
+                                            &file_record.id,
+                                        )
+                                        .await
+                                        .is_ok()
+                                    {
                                         stored_files.push(attachment.filename.clone());
                                     }
                                 }
@@ -693,23 +776,64 @@ impl VizierAgent {
                         }
                         tool_res.attachments.clear();
                         if !stored_files.is_empty() {
-                            if let VizierResponseContent::ToolResponse { response } = &mut tool_res.content {
+                            if let VizierResponseContent::ToolResponse { response } =
+                                &mut tool_res.content
+                            {
                                 let files = stored_files.join(", ");
                                 let notification = format!("\n\n[+{} to context files]", files);
-                                *response = serde_json::Value::String(
-                                    format!("{}{}", response.as_str().unwrap_or(""), notification)
-                                );
+                                *response = serde_json::Value::String(format!(
+                                    "{}{}",
+                                    response.as_str().unwrap_or(""),
+                                    notification
+                                ));
                             }
                         }
                     }
 
-                    tool_responses.push(
-                        tool_res.to_tool_response_content(call.id.clone(), call.call_id.clone(), &self.global_workspace)?,
-                    );
+                    // For read_context_file with images: collect for separate user messages
+                    // (most providers drop images from tool results)
+                    if function_name == "read_context_file" && !tool_res.attachments.is_empty() {
+                        let image_attachments: Vec<_> = tool_res.attachments.drain(..).collect();
+                        tool_responses.push(tool_res.to_tool_response_content(
+                            call.id.clone(),
+                            call.call_id.clone(),
+                            &self.global_workspace,
+                        )?);
+                        for attachment in &image_attachments {
+                            pending_attachments
+                                .push(attachment.to_user_content(&self.global_workspace)?);
+                        }
+                    } else {
+                        tool_responses.push(tool_res.to_tool_response_content(
+                            call.id.clone(),
+                            call.call_id.clone(),
+                            &self.global_workspace,
+                        )?);
+                    }
                 }
 
-                message = Message::User {
+                let tool_message = Message::User {
                     content: OneOrMany::many(tool_responses).unwrap(),
+                };
+
+                if pending_attachments.is_empty() {
+                    message = tool_message;
+                } else {
+                    history.push(tool_message);
+
+                    // Push each image as a separate user message
+                    for img_content in pending_attachments {
+                        history.push(Message::User {
+                            content: OneOrMany::one(img_content),
+                        });
+                    }
+
+                    // Continue loop with next model call
+                    message = Message::User {
+                        content: OneOrMany::one(rig_core::message::UserContent::Text(
+                            "[Attachment(s) loaded into context. Continue processing.]".into(),
+                        )),
+                    };
                 }
             }
 
