@@ -112,7 +112,7 @@ impl TelegramChannelReader {
         let user_full_name = msg
             .from
             .as_ref()
-            .map(|u| u.username.clone().unwrap())
+            .map(|u| u.username.clone().unwrap_or_default())
             .unwrap_or_else(|| "Unknown".into());
 
         let metadata = serde_json::json!({
@@ -398,6 +398,10 @@ impl TelegramChannelReader {
                     }
                     _ => {}
                 }
+            }
+
+            if let Some(handle) = typing_handle.take() {
+                handle.abort();
             }
         });
 

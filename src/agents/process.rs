@@ -80,7 +80,8 @@ pub async fn agent_process(
         }
     });
 
-    let mut session_queues = HashMap::<VizierSession, VecDeque<VizierRequest>>::new();
+    let mut session_queues =
+        HashMap::<VizierSession, VecDeque<(VizierRequest, Option<flume::Sender<VizierResponse>>)>>::new();
     let mut message_counts = HashMap::<VizierSession, usize>::new();
     let (complete_tx, mut complete_rx) = mpsc::unbounded_channel::<VizierSession>();
 
@@ -235,7 +236,7 @@ pub async fn agent_process(
                 // Queue message if a task is already running for this session
                 if let Some(handle) = main_handles.get(&session) {
                     if !handle.is_finished() {
-                        session_queues.entry(session.clone()).or_default().push_back(request);
+                        session_queues.entry(session.clone()).or_default().push_back((request, response_tx));
                         continue;
                     }
                 }
@@ -328,16 +329,25 @@ pub async fn agent_process(
             // Handle task completions — process next queued message
             Some(completed_session) = complete_rx.recv() => {
                 if let Some(queue) = session_queues.get_mut(&completed_session) {
-                    if let Some(next_request) = queue.pop_front() {
+                    if let Some((next_request, response_tx)) = queue.pop_front() {
                         // handle thinking
                         if let Some(handle) = thinking_handles.get(&completed_session) {
                             handle.abort();
                         }
+                        let thinking_response_tx = response_tx.clone();
                         let thinking_request = next_request.clone();
                         let thinking_session = completed_session.clone();
                         let thinking_handle = Arc::new(tokio::spawn(async move {
                             if let VizierRequestContent::Chat(_) = thinking_request.content {
-                                tracing::info!("thinking started for {:?}", thinking_session);
+                                if let Some(ref tx) = thinking_response_tx {
+                                    let _ = tx
+                                        .send_async(VizierResponse {
+                                            timestamp: chrono::Utc::now(),
+                                            content: crate::schema::VizierResponseContent::ThinkingStart,
+                                            attachments: vec![],
+                                        })
+                                        .await;
+                                }
                             }
                         }));
                         thinking_handles.insert(completed_session.clone(), thinking_handle.clone());
@@ -368,13 +378,25 @@ pub async fn agent_process(
                                     agent_config.clone(),
                                     session.clone(),
                                     next_request.clone(),
-                                    None,
+                                    response_tx.clone(),
                                     storage.clone(),
                                     &deps_clone,
                                 )
                                 .await
                                 {
                                     tracing::error!("{}", err);
+                                    if let Some(ref tx) = response_tx {
+                                        let _ = tx
+                                            .send_async(VizierResponse {
+                                                timestamp: chrono::Utc::now(),
+                                                content: crate::schema::VizierResponseContent::Message {
+                                                    content: format!("ERR: {}", err),
+                                                    stats: None,
+                                                },
+                                                attachments: vec![],
+                                            })
+                                            .await;
+                                    }
                                 }
 
                                 thinking_handle.abort();

@@ -93,7 +93,6 @@ impl VizierTransport {
     ) -> Result<()> {
         let agent_id = &session.0;
         let channels = self.agent_channels.read().await;
-        println!("{:?}", channels);
         let tx = channels
             .get(agent_id)
             .ok_or_else(|| anyhow::anyhow!("agent '{}' not registered", agent_id))?;
@@ -173,10 +172,8 @@ impl VizierTransport {
                             .await;
                         match rx.await {
                             Ok(statuses) => {
-                                let json =
-                                    serde_json::to_string(&statuses).unwrap_or_default();
-                                let _ =
-                                    res.send_async(CommandResponse::Ok(json)).await;
+                                let json = serde_json::to_string(&statuses).unwrap_or_default();
+                                let _ = res.send_async(CommandResponse::Ok(json)).await;
                             }
                             Err(_) => {
                                 let _ = res

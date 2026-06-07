@@ -437,10 +437,14 @@ If I am halucinating, feel free to `/lobotomy` me
                             )
                             .await;
                         }
-                        _ => {}
-                    }
+                    _ => {}
                 }
-            });
+            }
+
+            if let Some(typing) = typing_state.take() {
+                typing.stop();
+            }
+        });
         }
     }
 }
