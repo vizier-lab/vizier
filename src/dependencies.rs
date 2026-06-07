@@ -179,6 +179,12 @@ impl VizierDependencies {
                     base_url: c.base_url.clone(),
                 },
             }),
+            providers.mistralrs.as_ref().map(|c| ProviderEntry {
+                variant: ProviderVariant::mistralrs,
+                config: ProviderEntryConfig::Mistralrs {
+                    enabled: c.enabled,
+                },
+            }),
         ]
         .into_iter()
         .flatten()

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::provider::ProviderVariant;
 use crate::config::shell::ShellConfig;
 use crate::config::tools::mcp::McpClientConfig;
+use crate::schema::provider::Quantization;
 
 pub type AgentConfigs = HashMap<String, AgentConfig>;
 
@@ -20,6 +21,8 @@ pub struct AgentConfig {
     pub description: Option<String>,
     pub provider: ProviderVariant,
     pub model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantization: Option<Quantization>,
     pub session_memory: MemoryConfig,
     pub thinking_depth: usize,
     pub tools: AgentToolsConfig,

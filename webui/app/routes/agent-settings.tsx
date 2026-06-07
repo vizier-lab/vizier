@@ -59,6 +59,7 @@ const TABS: { key: SettingsTab; label: string; icon: typeof FaGear }[] = [
 ]
 
 const PROVIDERS = [
+  'mistralrs',
   'ollama',
   'deepseek',
   'openrouter',
@@ -109,8 +110,9 @@ export default function AgentSettings() {
     agent_id: '',
     name: '',
     description: '',
-    provider: 'ollama',
+    provider: 'mistralrs',
     model: '',
+    quantization: 'auto_4',
     system_prompt: '',
     thinking_depth: 10,
     session_memory_capacity: 10,
@@ -190,6 +192,7 @@ export default function AgentSettings() {
           description: d.description || '',
           provider: d.provider,
           model: d.model,
+          quantization: d.quantization || 'auto_4',
           system_prompt: d.system_prompt || '',
           thinking_depth: d.thinking_depth,
           session_memory_capacity: d.session_memory_capacity,

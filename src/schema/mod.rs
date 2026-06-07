@@ -20,7 +20,7 @@ pub use metrics::{
     AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage, DailyChannelTypeUsage,
     DailyUsage, UsageSummary,
 };
-pub use provider::{ProviderEntry, ProviderEntryConfig};
+pub use provider::{ProviderEntry, ProviderEntryConfig, Quantization};
 pub use request::{PlatformMessageId, ReactionAction, ReactionEntry, ReactionEvent, VizierAttachment, VizierAttachmentContent, VizierRequest, VizierRequestContent};
 pub use response::{VizierResponse, VizierResponseContent, VizierResponseStats};
 pub use session::{AgentId, DreamStage, DreamStatus, TopicId, VizierChannelId, VizierSession, VizierSessionDetail};

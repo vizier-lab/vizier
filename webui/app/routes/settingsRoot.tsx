@@ -66,6 +66,7 @@ export default function Settings() {
     const [providerForm, setProviderForm] = useState({
         api_key: '',
         base_url: '',
+        enabled: true,
     })
 
     useEffect(() => {
@@ -149,10 +150,11 @@ export default function Settings() {
             await upsertProvider(variant, {
                 api_key: providerForm.api_key || undefined,
                 base_url: providerForm.base_url || undefined,
+                enabled: variant === 'mistralrs' ? providerForm.enabled : undefined,
             })
             addToast('success', `${variant} provider saved`)
             setEditingProvider(null)
-            setProviderForm({ api_key: '', base_url: '' })
+            setProviderForm({ api_key: '', base_url: '', enabled: true })
             await loadProviders()
         } catch (err: any) {
             addToast(
@@ -815,6 +817,7 @@ export default function Settings() {
                                 >
                                     {(() => {
                                         const ALL_VARIANTS = [
+                                            'mistralrs',
                                             'ollama',
                                             'openai',
                                             'anthropic',
@@ -827,9 +830,10 @@ export default function Settings() {
                                         const configured = providers.map(
                                             (p) => p.variant
                                         )
+                                        // mistralrs is always available, never show as unconfigured
                                         const unconfigured =
                                             ALL_VARIANTS.filter(
-                                                (v) => !configured.includes(v)
+                                                (v) => !configured.includes(v) && v !== 'mistralrs'
                                             )
                                         const provInputStyle: React.CSSProperties =
                                             {
@@ -845,7 +849,62 @@ export default function Settings() {
 
                                         return (
                                             <>
-                                                {providers.map((p) => (
+                                                {/* mistralrs is always shown as configured */}
+                                                <div
+                                                    key="mistralrs"
+                                                    style={{
+                                                        padding: '1rem',
+                                                        border: '1px solid var(--border)',
+                                                        borderRadius:
+                                                            '0.5rem',
+                                                        display: 'flex',
+                                                        flexDirection:
+                                                            'column',
+                                                        gap: '0.75rem',
+                                                    }}
+                                                >
+                                                    <div
+                                                        style={{
+                                                            display: 'flex',
+                                                            justifyContent:
+                                                                'space-between',
+                                                            alignItems:
+                                                                'center',
+                                                        }}
+                                                    >
+                                                        <div>
+                                                            <strong
+                                                                style={{
+                                                                    textTransform:
+                                                                        'capitalize',
+                                                                }}
+                                                            >
+                                                                mistralrs
+                                                            </strong>
+                                                            <span
+                                                                style={{
+                                                                    color: 'var(--text-tertiary)',
+                                                                    marginLeft:
+                                                                        '0.75rem',
+                                                                    fontSize:
+                                                                        '0.8rem',
+                                                                }}
+                                                            >
+                                                                Local inference - no configuration needed
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div
+                                                        style={{
+                                                            fontSize:
+                                                                '0.8rem',
+                                                            color: 'var(--text-tertiary)',
+                                                        }}
+                                                    >
+                                                        Always available
+                                                    </div>
+                                                </div>
+                                                {providers.filter(p => p.variant !== 'mistralrs').map((p) => (
                                                     <div
                                                         key={p.variant}
                                                         style={{
@@ -877,7 +936,19 @@ export default function Settings() {
                                                                 >
                                                                     {p.variant}
                                                                 </strong>
-                                                                {p.base_url && (
+                                                                {p.variant === 'mistralrs' ? (
+                                                                    <span
+                                                                        style={{
+                                                                            color: 'var(--text-tertiary)',
+                                                                            marginLeft:
+                                                                                '0.75rem',
+                                                                            fontSize:
+                                                                                '0.8rem',
+                                                                        }}
+                                                                    >
+                                                                        Local inference - no configuration needed
+                                                                    </span>
+                                                                ) : p.base_url ? (
                                                                     <span
                                                                         style={{
                                                                             color: 'var(--text-tertiary)',
@@ -891,16 +962,17 @@ export default function Settings() {
                                                                             p.base_url
                                                                         }
                                                                     </span>
-                                                                )}
+                                                                ) : null}
                                                             </div>
-                                                            <div
-                                                                style={{
-                                                                    display:
-                                                                        'flex',
-                                                                    gap: '0.5rem',
-                                                                }}
-                                                            >
-                                                                <button
+                                                            {p.variant !== 'mistralrs' && (
+                                                                <div
+                                                                    style={{
+                                                                        display:
+                                                                            'flex',
+                                                                        gap: '0.5rem',
+                                                                    }}
+                                                                >
+                                                                    <button
                                                                     onClick={() => {
                                                                         setEditingProvider(
                                                                             p.variant
@@ -910,7 +982,11 @@ export default function Settings() {
                                                                                 api_key:
                                                                                     '',
                                                                                 base_url:
+                                                                                    p.base_url ||
                                                                                     '',
+                                                                                enabled:
+                                                                                    p.enabled ??
+                                                                                    true,
                                                                             }
                                                                         )
                                                                     }}
@@ -952,7 +1028,8 @@ export default function Settings() {
                                                                         }
                                                                     />
                                                                 </button>
-                                                            </div>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                         <div
                                                             style={{
@@ -961,12 +1038,14 @@ export default function Settings() {
                                                                 color: 'var(--text-tertiary)',
                                                             }}
                                                         >
-                                                            {p.has_api_key
-                                                                ? 'API key configured'
-                                                                : p.variant ===
-                                                                    'ollama'
-                                                                  ? 'No API key required'
-                                                                  : 'No API key'}
+                                                            {p.variant === 'mistralrs'
+                                                                ? 'Always available'
+                                                                : p.has_api_key
+                                                                  ? 'API key configured'
+                                                                  : p.variant ===
+                                                                      'ollama'
+                                                                    ? 'No API key required'
+                                                                    : 'No API key'}
                                                         </div>
                                                         {editingProvider ===
                                                             p.variant && (
@@ -984,7 +1063,9 @@ export default function Settings() {
                                                                 }}
                                                             >
                                                                 {p.variant !==
-                                                                    'ollama' && (
+                                                                    'ollama' &&
+                                                                    p.variant !==
+                                                                    'mistralrs' && (
                                                                     <div>
                                                                         <label
                                                                             style={{
@@ -1023,6 +1104,48 @@ export default function Settings() {
                                                                                 )
                                                                             }
                                                                         />
+                                                                    </div>
+                                                                )}
+                                                                {p.variant ===
+                                                                    'mistralrs' && (
+                                                                    <div>
+                                                                        <label
+                                                                            style={{
+                                                                                display:
+                                                                                    'flex',
+                                                                                alignItems:
+                                                                                    'center',
+                                                                                gap:
+                                                                                    '0.5rem',
+                                                                                fontSize:
+                                                                                    '0.8rem',
+                                                                                color: 'var(--text-secondary)',
+                                                                                cursor:
+                                                                                    'pointer',
+                                                                            }}
+                                                                        >
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={
+                                                                                    providerForm.enabled ??
+                                                                                    true
+                                                                                }
+                                                                                onChange={(
+                                                                                    e
+                                                                                ) =>
+                                                                                    setProviderForm(
+                                                                                        {
+                                                                                            ...providerForm,
+                                                                                            enabled:
+                                                                                                e
+                                                                                                    .target
+                                                                                                    .checked,
+                                                                                        }
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                            Enabled
+                                                                        </label>
                                                                     </div>
                                                                 )}
                                                                 {(p.variant ===
@@ -1176,6 +1299,8 @@ export default function Settings() {
                                                                                 '',
                                                                             base_url:
                                                                                 '',
+                                                                            enabled:
+                                                                                true,
                                                                         }
                                                                     )
                                                                 }}

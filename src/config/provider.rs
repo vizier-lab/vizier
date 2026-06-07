@@ -11,6 +11,7 @@ pub enum ProviderVariant {
     anthropic,
     mimo,
     llama_cpp,
+    mistralrs,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -31,6 +32,8 @@ pub struct ProviderConfig {
     pub mimo: Option<MimoProviderConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub llama_cpp: Option<LlamaCppProviderConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mistralrs: Option<MistralrsProviderConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -139,5 +142,16 @@ impl Default for LlamaCppProviderConfig {
         Self {
             base_url: "http://localhost:8080".into(),
         }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MistralrsProviderConfig {
+    pub enabled: bool,
+}
+
+impl Default for MistralrsProviderConfig {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }

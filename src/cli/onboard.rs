@@ -62,6 +62,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
     let provider_type = Select::new(
         "Select primary provider:",
         vec![
+            "mistralrs",
             "ollama",
             "deepseek",
             "openrouter",
@@ -75,6 +76,11 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
     .prompt()?;
 
     match provider_type {
+        "mistralrs" => {
+            providers.mistralrs = Some(crate::config::provider::MistralrsProviderConfig {
+                enabled: true,
+            });
+        }
         "ollama" => {
             let base_url = Text::new("Ollama base URL:")
                 .with_default("http://localhost:11434")

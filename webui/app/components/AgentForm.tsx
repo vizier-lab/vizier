@@ -23,6 +23,7 @@ const TABS: { key: FormTab; label: string; icon: typeof FaGear }[] = [
 ]
 
 const PROVIDERS = [
+  'mistralrs',
   'ollama',
   'deepseek',
   'openrouter',
@@ -34,6 +35,7 @@ const PROVIDERS = [
 ]
 
 const DEFAULT_MODELS: Record<string, string> = {
+  mistralrs: 'google/gemma-4-E4B-it',
   ollama: 'qwen3.5:4b',
   deepseek: 'deepseek-chat',
   openrouter: 'anthropic/claude-3-haiku',
@@ -43,6 +45,23 @@ const DEFAULT_MODELS: Record<string, string> = {
   mimo: 'mimo-v2.5-pro',
   llama_cpp: 'google_gemma-4-E4B-it-Q4_K_M',
 }
+
+const QUANTIZATION_OPTIONS = [
+  { value: 'auto_4', label: 'Auto 4-bit (Recommended)' },
+  { value: 'auto_8', label: 'Auto 8-bit' },
+  { value: 'q4_0', label: 'Q4_0' },
+  { value: 'q4_1', label: 'Q4_1' },
+  { value: 'q4k', label: 'Q4K' },
+  { value: 'q5_0', label: 'Q5_0' },
+  { value: 'q5_1', label: 'Q5_1' },
+  { value: 'q5k', label: 'Q5K' },
+  { value: 'q6k', label: 'Q6K' },
+  { value: 'q8_0', label: 'Q8_0' },
+  { value: 'q8_1', label: 'Q8_1' },
+  { value: 'hqq4', label: 'HQQ4' },
+  { value: 'hqq8', label: 'HQQ8' },
+  { value: 'fp8', label: 'FP8' },
+]
 
 interface AgentFormProps {
   mode: 'create' | 'edit'
@@ -81,8 +100,9 @@ const DEFAULT_FORM: CreateAgentRequest = {
   agent_id: '',
   name: '',
   description: '',
-  provider: 'ollama',
-  model: 'qwen3.5:4b',
+  provider: 'mistralrs',
+  model: 'google/gemma-4-E4B-it',
+  quantization: 'auto_4',
   system_prompt: defaultPrompt,
   thinking_depth: 10,
   session_memory_capacity: 10,
@@ -149,6 +169,7 @@ export default function AgentForm({
         description: d.description || '',
         provider: d.provider,
         model: d.model,
+        quantization: d.quantization || 'auto_4',
         system_prompt: d.system_prompt || '',
         thinking_depth: d.thinking_depth,
         session_memory_capacity: d.session_memory_capacity,
@@ -615,11 +636,12 @@ export default function AgentForm({
                       <label style={labelStyle}>
                         <TooltipLabel
                           label="Model"
-                          tooltip="The model identifier for the selected provider."
+                          tooltip="HuggingFace model ID (e.g., google/gemma-4-E4B-it, Qwen/Qwen3-4B)"
                         />
                       </label>
                       <input
                         style={inputStyle}
+                        placeholder="google/gemma-4-E4B-it"
                         value={form.model}
                         onChange={(e) =>
                           updateField(
@@ -629,6 +651,34 @@ export default function AgentForm({
                         }
                       />
                     </section>
+                    {form.provider === 'mistralrs' && (
+                      <section
+                        style={{ ...fieldStyle, flex: 1 }}
+                      >
+                        <label style={labelStyle}>
+                          <TooltipLabel
+                            label="Quantization"
+                            tooltip="Model quantization for faster inference and lower memory usage."
+                          />
+                        </label>
+                        <select
+                          style={inputStyle}
+                          value={form.quantization || 'auto_4'}
+                          onChange={(e) =>
+                            updateField(
+                              'quantization',
+                              e.target.value
+                            )
+                          }
+                        >
+                          {QUANTIZATION_OPTIONS.map((q) => (
+                            <option key={q.value} value={q.value}>
+                              {q.label}
+                            </option>
+                          ))}
+                        </select>
+                      </section>
+                    )}
                   </div>
                 </div>
               </div>

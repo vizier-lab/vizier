@@ -245,6 +245,8 @@ pub struct CreateAgentRequest {
     pub provider: crate::config::provider::ProviderVariant,
     pub model: String,
     #[serde(default)]
+    pub quantization: Option<crate::schema::provider::Quantization>,
+    #[serde(default)]
     pub system_prompt: Option<String>,
     #[serde(default)]
     pub thinking_depth: Option<usize>,
@@ -327,6 +329,7 @@ impl CreateAgentRequest {
             description: self.description,
             provider: self.provider,
             model: self.model,
+            quantization: self.quantization,
             session_memory: MemoryConfig {
                 max_capacity: self.session_memory_capacity.unwrap_or(10),
             },

@@ -65,8 +65,8 @@ sha2 = "0.10"
 tower-http = { version = "0.6.8", features = ["cors", "fs", "limit"] }
 rust-embed = "8.11.0"
 mime_guess = "2.0.5"
-surrealdb = { version = "3.0.1", features = ["kv-rocksdb"] }
-surrealdb-types = "3.0.1"
+surrealdb = { version = "3.1.3", features = ["kv-rocksdb"] }
+surrealdb-types = "3.1.3"
 fastembed = "4.9.1"
 croner = { version = "3.0.1", features = ["serde"] }
 indicatif = "0.17.11"
@@ -74,6 +74,8 @@ rand = "0.10.0"
 
 dotenvy = "0.15.7"
 async-trait = "0.1.89"
+mistralrs = "0.8"
+hf-hub = "0.4.3"
 
 termimad = "0.34.1"
 utoipa = { version = "5", features = ["chrono"] }
@@ -98,6 +100,11 @@ tempfile = "3"
 
 [features]
 default = []
+cuda = ["mistralrs/cuda"]
+metal = ["mistralrs/metal"]
+flash-attn = ["mistralrs/flash-attn", "cuda"]
+accelerate = ["mistralrs/accelerate"]
+mkl = ["mistralrs/mkl"]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/vizier-v{ version }-{ target }.tar.gz"

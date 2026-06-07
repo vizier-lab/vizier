@@ -12,7 +12,7 @@ pub mod tools;
 use crate::{
     config::{
         embedding::{EmbeddingConfig, LocalEmbeddingModelVariant},
-        provider::{LlamaCppProviderConfig, OllamaProviderConfig, ProviderConfig},
+        provider::{LlamaCppProviderConfig, MistralrsProviderConfig, OllamaProviderConfig, ProviderConfig},
         storage::StorageConfig,
         tools::{BraveSearchConfig, ToolsConfig},
     },
@@ -159,6 +159,7 @@ impl Default for VizierConfig {
                 gemini: None,
                 mimo: None,
                 llama_cpp: Some(LlamaCppProviderConfig::default()),
+                mistralrs: Some(MistralrsProviderConfig::default()),
             },
             embedding: Some(EmbeddingConfig::Local {
                 model: LocalEmbeddingModelVariant::AllMiniLml6V2,

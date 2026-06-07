@@ -33,28 +33,31 @@ pub struct ProviderResponse {
     pub variant: ProviderVariant,
     pub has_api_key: bool,
     pub base_url: Option<String>,
+    pub enabled: Option<bool>,
 }
 
 fn provider_to_response(entry: &ProviderEntry) -> ProviderResponse {
-    let (has_api_key, base_url) = match &entry.config {
-        ProviderEntryConfig::Ollama { base_url } => (false, Some(base_url.clone())),
+    let (has_api_key, base_url, enabled) = match &entry.config {
+        ProviderEntryConfig::Ollama { base_url } => (false, Some(base_url.clone()), None),
         ProviderEntryConfig::Openai { api_key, base_url } => {
-            (!api_key.is_empty(), base_url.clone())
+            (!api_key.is_empty(), base_url.clone(), None)
         }
         ProviderEntryConfig::Anthropic { api_key, base_url } => {
-            (!api_key.is_empty(), base_url.clone())
+            (!api_key.is_empty(), base_url.clone(), None)
         }
-        ProviderEntryConfig::Deepseek { api_key } => (!api_key.is_empty(), None),
-        ProviderEntryConfig::Openrouter { api_key } => (!api_key.is_empty(), None),
-        ProviderEntryConfig::Gemini { api_key } => (!api_key.is_empty(), None),
-        ProviderEntryConfig::Mimo { api_key } => (!api_key.is_empty(), None),
-        ProviderEntryConfig::LlamaCpp { base_url } => (false, Some(base_url.clone())),
+        ProviderEntryConfig::Deepseek { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Openrouter { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Gemini { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Mimo { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::LlamaCpp { base_url } => (false, Some(base_url.clone()), None),
+        ProviderEntryConfig::Mistralrs { enabled } => (false, None, Some(*enabled)),
     };
 
     ProviderResponse {
         variant: entry.variant.clone(),
         has_api_key,
         base_url,
+        enabled,
     }
 }
 
@@ -103,6 +106,7 @@ async fn get_provider(
 pub struct UpsertProviderRequest {
     pub api_key: Option<String>,
     pub base_url: Option<String>,
+    pub enabled: Option<bool>,
 }
 
 #[utoipa::path(
@@ -152,6 +156,9 @@ async fn upsert_provider(
             base_url: body
                 .base_url
                 .unwrap_or_else(|| "http://localhost:8080".into()),
+        },
+        ProviderVariant::mistralrs => ProviderEntryConfig::Mistralrs {
+            enabled: body.enabled.unwrap_or(true),
         },
     };
 

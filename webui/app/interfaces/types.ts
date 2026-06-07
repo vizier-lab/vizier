@@ -150,6 +150,7 @@ export interface CreateAgentRequest {
   description?: string
   provider: string
   model: string
+  quantization?: string
   system_prompt?: string
   thinking_depth?: number
   max_tokens?: number
@@ -186,6 +187,7 @@ export interface AgentDetail {
   description?: string
   provider: string
   model: string
+  quantization?: string
   system_prompt?: string
   thinking_depth: number
   max_tokens?: number
@@ -222,11 +224,13 @@ export interface ProviderResponse {
   variant: string
   has_api_key: boolean
   base_url?: string
+  enabled?: boolean
 }
 
 export interface UpsertProviderRequest {
   api_key?: string
   base_url?: string
+  enabled?: boolean
 }
 
 // ============================================================================

@@ -67,6 +67,14 @@ impl VizierAgents {
             }
         }
 
+        if config.provider == ProviderVariant::mistralrs {
+            crate::utils::mistralrs::mistralrs_prefetch_model(
+                &deps.config.workspace,
+                &config.model,
+            )
+            .await?;
+        }
+
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let deps_clone = deps.clone();
         let agent_id_clone = agent_id.to_string();
