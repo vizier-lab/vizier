@@ -8,6 +8,7 @@ use crate::config::shell::ShellConfig;
 use crate::config::tools::mcp::McpClientConfig;
 use crate::schema::provider::Quantization;
 
+
 pub type AgentConfigs = HashMap<String, AgentConfig>;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -77,6 +78,8 @@ pub struct AgentToolsConfig {
     pub http_client: ToolConfig<()>,
     #[serde(default)]
     pub mcp_servers: HashMap<String, McpClientConfig>,
+    #[serde(default)]
+    pub tts: ToolConfig<TtsToolSettings>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -89,4 +92,33 @@ pub struct ToolConfig<Settings> {
 pub struct BraveSearchToolSettings {
     pub api_key: Option<String>,
     pub safesearch: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TtsProvider {
+    #[default]
+    Openai,
+    Openrouter,
+    Elevenlabs,
+}
+
+impl TtsProvider {
+    pub fn default_voice(&self) -> &str {
+        match self {
+            Self::Openai | Self::Openrouter => "alloy",
+            Self::Elevenlabs => "pqHfZKP75CvOlQylNhV4",
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]
+pub struct TtsToolSettings {
+    pub provider: TtsProvider,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speed: Option<f32>,
 }

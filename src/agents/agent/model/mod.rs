@@ -78,6 +78,9 @@ impl VizierModel {
                     .await?,
             ),
             ProviderVariant::mistralrs => unreachable!(),
+            ProviderVariant::elevenlabs => {
+                anyhow::bail!("elevenlabs is not a completion model provider")
+            }
         })
     }
 
@@ -142,6 +145,9 @@ impl VizierModel {
                     .await?,
             ),
             ProviderVariant::mistralrs => unreachable!(),
+            ProviderVariant::elevenlabs => {
+                anyhow::bail!("elevenlabs is not a completion model provider")
+            }
         })
     }
 }

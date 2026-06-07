@@ -121,6 +121,8 @@ const DEFAULT_FORM: CreateAgentRequest = {
     programmatic_sandbox: false,
     timeout: '1m',
     mcp_servers: {},
+    tts: false,
+    tts_settings: {},
   },
   prompt_timeout: '5m',
   heartbeat_interval: '30m',
@@ -189,6 +191,8 @@ export default function AgentForm({
           programmatic_sandbox: d.programmatic_sandbox ?? false,
           timeout: d.tools_timeout || '1m',
           mcp_servers: d.mcp_servers || {},
+          tts: d.tts,
+          tts_settings: d.tts_settings || {},
         },
         prompt_timeout: d.prompt_timeout,
         heartbeat_interval: d.heartbeat_interval,
@@ -1514,6 +1518,205 @@ export default function AgentForm({
                 </div>
               </div>
 
+              {/* TTS (Text-to-Speech) */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Text-to-Speech
+                </h4>
+                <div
+                  style={{
+                    padding: '0.75rem',
+                    border: '1px solid var(--border)',
+                    borderRadius: '0.5rem',
+                  }}
+                >
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      marginBottom: form.tools?.tts
+                        ? '0.75rem'
+                        : 0,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.tools?.tts ?? false}
+                      onChange={(e) =>
+                        updateTool('tts', e.target.checked)
+                      }
+                    />
+                    Enable TTS
+                  </label>
+                  {form.tools?.tts && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem',
+                        paddingLeft: '1.5rem',
+                      }}
+                    >
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '0.25rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Provider
+                        </label>
+                        <select
+                          style={inputStyle}
+                          value={
+                            form.tools?.tts_settings?.provider ||
+                            'openai'
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                tts_settings: {
+                                  ...prev.tools?.tts_settings,
+                                  provider: e.target
+                                    .value as import('../interfaces/types').TtsProvider,
+                                },
+                              },
+                            }))
+                          }
+                        >
+                          <option value="openai">OpenAI</option>
+                          <option value="openrouter">
+                            OpenRouter
+                          </option>
+                          <option value="elevenlabs">
+                            ElevenLabs
+                          </option>
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '0.25rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Model (optional)
+                        </label>
+                        <input
+                          style={inputStyle}
+                          type="text"
+                          placeholder="Provider default"
+                          value={
+                            form.tools?.tts_settings?.model || ''
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                tts_settings: {
+                                  ...prev.tools?.tts_settings,
+                                  model:
+                                    e.target.value || undefined,
+                                },
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '0.25rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Voice (optional)
+                        </label>
+                        <input
+                          style={inputStyle}
+                          type="text"
+                          placeholder='Default: "alloy"'
+                          value={
+                            form.tools?.tts_settings?.voice || ''
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                tts_settings: {
+                                  ...prev.tools?.tts_settings,
+                                  voice:
+                                    e.target.value || undefined,
+                                },
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '0.25rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Speed
+                        </label>
+                        <input
+                          style={inputStyle}
+                          type="number"
+                          min="0.25"
+                          max="4.0"
+                          step="0.25"
+                          placeholder="1.0"
+                          value={
+                            form.tools?.tts_settings?.speed ?? ''
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                tts_settings: {
+                                  ...prev.tools?.tts_settings,
+                                  speed: e.target.value
+                                    ? parseFloat(e.target.value)
+                                    : undefined,
+                                },
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Shell Config */}
               <div>
                 <h4
@@ -2713,6 +2916,11 @@ export default function AgentForm({
                       Sandbox
                     </span>
                   )}
+                  {form.tools?.tts && (
+                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
+                      TTS
+                    </span>
+                  )}
                   {form.tools?.mcp_servers && Object.keys(form.tools.mcp_servers).length > 0 && (
                     <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
                       MCP ({Object.keys(form.tools.mcp_servers).length})
@@ -2720,7 +2928,7 @@ export default function AgentForm({
                   )}
                   {!form.tools?.brave_search && !form.tools?.discord &&
                     !form.tools?.telegram && !form.tools?.fetch && !form.tools?.http_client &&
-                    !form.tools?.programmatic_sandbox && (
+                    !form.tools?.programmatic_sandbox && !form.tools?.tts && (
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
                       No tools enabled
                     </span>

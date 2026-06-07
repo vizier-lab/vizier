@@ -72,4 +72,7 @@ pub enum ProviderEntryConfig {
     Mistralrs {
         enabled: bool,
     },
+    Elevenlabs {
+        api_key: String,
+    },
 }

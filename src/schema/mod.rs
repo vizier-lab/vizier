@@ -13,7 +13,7 @@ mod session;
 mod storage;
 mod task;
 
-pub use agent::{AgentConfig, AgentToolsConfig, BraveSearchToolSettings, MemoryConfig, ToolConfig};
+pub use agent::{AgentConfig, AgentToolsConfig, BraveSearchToolSettings, MemoryConfig, ToolConfig, TtsToolSettings};
 pub use context_file::ContextFileRecord;
 pub use dream_journal::DreamJournalEntry;
 pub use file::FileRecord;

@@ -160,6 +160,7 @@ impl Default for VizierConfig {
                 mimo: None,
                 llama_cpp: Some(LlamaCppProviderConfig::default()),
                 mistralrs: Some(MistralrsProviderConfig::default()),
+                elevenlabs: None,
             },
             embedding: Some(EmbeddingConfig::Local {
                 model: LocalEmbeddingModelVariant::AllMiniLml6V2,

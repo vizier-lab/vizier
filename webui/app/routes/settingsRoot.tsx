@@ -826,6 +826,7 @@ export default function Settings() {
                                             'gemini',
                                             'mimo',
                                             'llama_cpp',
+                                            'elevenlabs',
                                         ]
                                         const configured = providers.map(
                                             (p) => p.variant

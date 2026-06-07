@@ -51,6 +51,7 @@ fn provider_to_response(entry: &ProviderEntry) -> ProviderResponse {
         ProviderEntryConfig::Mimo { api_key } => (!api_key.is_empty(), None, None),
         ProviderEntryConfig::LlamaCpp { base_url } => (false, Some(base_url.clone()), None),
         ProviderEntryConfig::Mistralrs { enabled } => (false, None, Some(*enabled)),
+        ProviderEntryConfig::Elevenlabs { api_key } => (!api_key.is_empty(), None, None),
     };
 
     ProviderResponse {
@@ -159,6 +160,9 @@ async fn upsert_provider(
         },
         ProviderVariant::mistralrs => ProviderEntryConfig::Mistralrs {
             enabled: body.enabled.unwrap_or(true),
+        },
+        ProviderVariant::elevenlabs => ProviderEntryConfig::Elevenlabs {
+            api_key: body.api_key.unwrap_or_default(),
         },
     };
 

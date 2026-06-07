@@ -25,6 +25,7 @@ mod schema;
 mod skill;
 mod storage;
 mod transport;
+mod tts;
 mod utils;
 
 fn main() -> Result<()> {

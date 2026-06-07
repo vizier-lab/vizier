@@ -19,6 +19,7 @@ use crate::{
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
         AgentToolsConfig, AgentUsageStats, BraveSearchToolSettings, MemoryConfig, ToolConfig,
+        TtsToolSettings,
     },
     storage::{VizierStorage, agent::AgentStorage, history::HistoryStorage, user::UserStorage},
 };
@@ -165,6 +166,8 @@ pub struct AgentDetail {
     pub show_tool_calls: Option<bool>,
     pub silent_read_initiative_chance: f32,
     pub programmatic_sandbox: bool,
+    pub tts: bool,
+    pub tts_settings: Option<TtsToolSettings>,
 }
 
 #[utoipa::path(
@@ -229,6 +232,17 @@ async fn agent_detail(
                 show_tool_calls: config.show_tool_calls,
                 silent_read_initiative_chance: config.silent_read_initiative_chance,
                 programmatic_sandbox: config.tools.programmatic_sandbox,
+                tts: config.tools.tts.enabled,
+                tts_settings: if config.tools.tts.settings.provider
+                    != crate::schema::agent::TtsProvider::default()
+                    || config.tools.tts.settings.model.is_some()
+                    || config.tools.tts.settings.voice.is_some()
+                    || config.tools.tts.settings.speed.is_some()
+                {
+                    Some(config.tools.tts.settings.clone())
+                } else {
+                    None
+                },
             },
         )
         }
@@ -304,6 +318,10 @@ pub struct CreateAgentTools {
     pub mcp_servers: Option<std::collections::HashMap<String, McpClientConfig>>,
     #[serde(default)]
     pub programmatic_sandbox: Option<bool>,
+    #[serde(default)]
+    pub tts: Option<bool>,
+    #[serde(default)]
+    pub tts_settings: Option<TtsToolSettings>,
 }
 
 impl CreateAgentRequest {
@@ -319,6 +337,8 @@ impl CreateAgentRequest {
             timeout: None,
             mcp_servers: None,
             programmatic_sandbox: None,
+            tts: None,
+            tts_settings: None,
         });
 
         AgentConfig {
@@ -363,6 +383,10 @@ impl CreateAgentRequest {
                     settings: (),
                 },
                 mcp_servers: tools.mcp_servers.unwrap_or_default(),
+                tts: ToolConfig {
+                    enabled: tools.tts.unwrap_or(false),
+                    settings: tools.tts_settings.unwrap_or_default(),
+                },
             },
             silent_read_initiative_chance: self.silent_read_initiative_chance.unwrap_or(0.0),
             show_thinking: self.show_thinking,

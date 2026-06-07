@@ -198,6 +198,12 @@ impl VizierDependencies {
                     enabled: c.enabled,
                 },
             }),
+            providers.elevenlabs.as_ref().map(|c| ProviderEntry {
+                variant: ProviderVariant::elevenlabs,
+                config: ProviderEntryConfig::Elevenlabs {
+                    api_key: c.api_key.clone(),
+                },
+            }),
         ]
         .into_iter()
         .flatten()

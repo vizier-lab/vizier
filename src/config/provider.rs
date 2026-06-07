@@ -12,6 +12,7 @@ pub enum ProviderVariant {
     mimo,
     llama_cpp,
     mistralrs,
+    elevenlabs,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -34,6 +35,8 @@ pub struct ProviderConfig {
     pub llama_cpp: Option<LlamaCppProviderConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mistralrs: Option<MistralrsProviderConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub elevenlabs: Option<ElevenLabsProviderConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -153,5 +156,18 @@ pub struct MistralrsProviderConfig {
 impl Default for MistralrsProviderConfig {
     fn default() -> Self {
         Self { enabled: true }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ElevenLabsProviderConfig {
+    pub api_key: String,
+}
+
+impl Default for ElevenLabsProviderConfig {
+    fn default() -> Self {
+        Self {
+            api_key: "${ELEVENLABS_API_KEY}".into(),
+        }
     }
 }

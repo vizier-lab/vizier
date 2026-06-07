@@ -9,6 +9,7 @@ use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    agents::mcp::{VizierMcp, VizierMcpClient},
     agents::tools::{
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
         consult::{ConsultAgent, DelegateAgent},
@@ -20,10 +21,14 @@ use crate::{
         ptc::ProgramaticSandbox,
         scheduler::{DeleteTask, GetTaskDetail, ListTask, ScheduleCronTask, ScheduleOneTimeTask},
         shell::ShellExec,
-        skill::{CreateSkill, DeleteSkill, ExecuteSkillResource, ListSkills, ReadSkillResource, UpdateSkill},
+        skill::{
+            CreateSkill, DeleteSkill, ExecuteSkillResource, ListSkills, ReadSkillResource,
+            UpdateSkill,
+        },
         subtasks::SubtasksTool,
         telegram::new_telegram_tools,
         think::ThinkTool,
+        tts::TtsGenerate,
         vector_memory::init_vector_memory,
         webui::{ListWebuiTopics, SendWebuiMessage},
         workspace::{
@@ -31,7 +36,6 @@ use crate::{
             WritePrimaryDocument,
         },
     },
-    agents::mcp::{VizierMcp, VizierMcpClient},
     config::provider::ProviderVariant,
     dependencies::VizierDependencies,
     error::VizierError,
@@ -54,6 +58,7 @@ mod skill;
 mod subtasks;
 mod telegram;
 mod think;
+pub mod tts;
 mod vector_memory;
 mod webui;
 mod workspace;
@@ -183,7 +188,8 @@ pub trait VizierTool {
 
     fn description(&self) -> String;
 
-    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError>;
+    async fn call(&self, args: Self::Input, ctx: &ToolContext)
+    -> Result<Self::Output, VizierError>;
 }
 
 impl VizierTools {
@@ -209,7 +215,12 @@ impl VizierTools {
         Ok(res)
     }
 
-    pub async fn call(&self, function_name: String, params: String, ctx: &ToolContext) -> Result<VizierResponse> {
+    pub async fn call(
+        &self,
+        function_name: String,
+        params: String,
+        ctx: &ToolContext,
+    ) -> Result<VizierResponse> {
         // mcp calls
         if function_name.starts_with("mcp_") {
             if let Some((server, function_name)) = function_name.split_once("__") {
@@ -299,10 +310,7 @@ impl VizierTools {
         }
 
         // Add read_dream_journal for API browsing
-        let read_journal = ReadDreamJournal {
-            agent_id,
-            storage,
-        };
+        let read_journal = ReadDreamJournal { agent_id, storage };
         let read_def = <ReadDreamJournal as VizierToolDyn>::tool_def(&read_journal);
         tools.push(read_def);
 
@@ -397,15 +405,26 @@ impl VizierTools {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
             })
-            .tool(ConsultAgent::new(agent_id.clone(), other_agents.clone(), deps.transport.clone()))
-            .tool(DelegateAgent::new(agent_id.clone(), other_agents.clone(), deps.transport.clone()))
+            .tool(ConsultAgent::new(
+                agent_id.clone(),
+                other_agents.clone(),
+                deps.transport.clone(),
+            ))
+            .tool(DelegateAgent::new(
+                agent_id.clone(),
+                other_agents.clone(),
+                deps.transport.clone(),
+            ))
             .tool(SubtasksTool::new(agent_id.clone(), deps.clone()))
             .tool(CreateSkill::new(agent_id.clone(), deps.clone()))
             .tool(UpdateSkill::new(deps.clone()))
             .tool(DeleteSkill::new(deps.clone()))
             .tool(ListSkills::new(deps.clone()))
             .tool(ReadSkillResource::new(Some(agent_id.clone()), deps.clone()))
-            .tool(ExecuteSkillResource::new(Some(agent_id.clone()), deps.clone()))
+            .tool(ExecuteSkillResource::new(
+                Some(agent_id.clone()),
+                deps.clone(),
+            ))
             .tool(ListContextFiles {
                 storage: deps.storage.clone(),
             })
@@ -463,13 +482,8 @@ impl VizierTools {
             let global = tool_config.brave_search.as_ref();
             let per_agent = &agent_config.tools.brave_search.settings;
 
-            let api_key = per_agent
-                .api_key
-                .as_ref()
-                .or(global.map(|g| &g.api_key));
-            let safesearch = per_agent
-                .safesearch
-                .or(global.map(|g| g.safesearch));
+            let api_key = per_agent.api_key.as_ref().or(global.map(|g| &g.api_key));
+            let safesearch = per_agent.safesearch.or(global.map(|g| g.safesearch));
 
             if let (Some(key), Some(ss)) = (api_key, safesearch) {
                 let cfg = crate::config::tools::BraveSearchConfig {
@@ -491,8 +505,15 @@ impl VizierTools {
         }
 
         if deps.config.embedding.is_some() {
-            let (read_memory, write_memory, list_memory, detail_memory, follow_memory, graph_memory, delete_memory) =
-                init_vector_memory(agent_id.clone(), deps.clone())?;
+            let (
+                read_memory,
+                write_memory,
+                list_memory,
+                detail_memory,
+                follow_memory,
+                graph_memory,
+                delete_memory,
+            ) = init_vector_memory(agent_id.clone(), deps.clone())?;
 
             default_toolset = default_toolset
                 .tool(read_memory)
@@ -502,6 +523,44 @@ impl VizierTools {
                 .tool(follow_memory)
                 .tool(graph_memory)
                 .tool(delete_memory);
+        }
+
+        if agent_config.tools.tts.enabled {
+            match crate::tts::VizierTts::new(
+                &agent_config.tools.tts.settings,
+                &deps.config.providers,
+            )
+            .await
+            {
+                Ok(tts) => {
+                    let voice = agent_config
+                        .tools
+                        .tts
+                        .settings
+                        .voice
+                        .clone()
+                        .unwrap_or_else(|| {
+                            agent_config
+                                .tools
+                                .tts
+                                .settings
+                                .provider
+                                .default_voice()
+                                .into()
+                        });
+                    let speed = agent_config.tools.tts.settings.speed.unwrap_or(1.0);
+                    user_toolset = user_toolset.tool(TtsGenerate {
+                        tts: Arc::new(tts),
+                        storage: deps.storage.clone(),
+                        file_manager: deps.file_manager.clone(),
+                        voice,
+                        speed,
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("failed to create TTS for agent {}: {}", agent_id, e);
+                }
+            }
         }
 
         let mut mcp = HashMap::new();

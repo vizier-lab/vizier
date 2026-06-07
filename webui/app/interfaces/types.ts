@@ -109,6 +109,15 @@ export interface BraveSearchToolSettings {
   safesearch?: boolean
 }
 
+export type TtsProvider = 'openai' | 'openrouter' | 'elevenlabs'
+
+export interface TtsToolSettings {
+  provider?: TtsProvider
+  model?: string
+  voice?: string
+  speed?: number
+}
+
 export interface AgentToolsConfig {
   timeout: string
   programmatic_sandbox: boolean
@@ -120,6 +129,8 @@ export interface AgentToolsConfig {
   fetch: AgentToolConfig
   http_client: AgentToolConfig
   mcp_servers: Record<string, McpServerConfig>
+  tts: AgentToolConfig
+  tts_settings?: TtsToolSettings
 }
 
 export interface AgentConfig {
@@ -169,6 +180,8 @@ export interface CreateAgentRequest {
     programmatic_sandbox?: boolean
     timeout?: string
     mcp_servers?: Record<string, McpServerConfig>
+    tts?: boolean
+    tts_settings?: TtsToolSettings
   }
   prompt_timeout?: string
   heartbeat_interval?: string
@@ -213,6 +226,8 @@ export interface AgentDetail {
   telegram_token?: string
   tools_timeout: string
   mcp_servers: Record<string, McpServerConfig>
+  tts: boolean
+  tts_settings?: TtsToolSettings
   avatar_url?: string
 }
 
