@@ -6,7 +6,7 @@ use surrealdb_types::SurrealValue;
 use crate::schema::VizierSession;
 
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
-pub struct ContextFileRecord {
+pub struct SessionFileRecord {
     pub id: String,
     pub session_slug: String,
     pub agent_id: String,

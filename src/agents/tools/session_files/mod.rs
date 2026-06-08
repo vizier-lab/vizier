@@ -12,43 +12,43 @@ use crate::{
     config::provider::ProviderVariant,
     error::VizierError,
     file_manager::FileManager,
-    schema::{VizierResponse, VizierResponseContent, context_file::ContextFileRecord},
-    storage::{VizierStorage, context_file::ContextFileStorage},
+    schema::{VizierResponse, VizierResponseContent, session_file::SessionFileRecord},
+    storage::{VizierStorage, session_file::SessionFileStorage},
 };
 
 mod send_attachment;
 pub use send_attachment::SendAttachment;
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ListContextFilesArgs {}
+pub struct ListSessionFilesArgs {}
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ListContextFilesOutput {
-    pub files: Vec<ContextFileSummary>,
+pub struct ListSessionFilesOutput {
+    pub files: Vec<SessionFileSummary>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ContextFileSummary {
+pub struct SessionFileSummary {
     pub filename: String,
     pub mime_type: String,
     pub size: u64,
 }
 
-pub struct ListContextFiles {
+pub struct ListSessionFiles {
     pub storage: Arc<VizierStorage>,
 }
 
 #[async_trait::async_trait]
-impl VizierTool for ListContextFiles {
-    type Input = ListContextFilesArgs;
-    type Output = ListContextFilesOutput;
+impl VizierTool for ListSessionFiles {
+    type Input = ListSessionFilesArgs;
+    type Output = ListSessionFilesOutput;
 
     fn name() -> String {
-        "list_context_files".to_string()
+        "list_session_files".to_string()
     }
 
     fn description(&self) -> String {
-        "List files available in the current session context. Use this to see what files have been attached or uploaded before reading them with read_context_file.".to_string()
+        "List files available in the current session. Use this to see what files have been attached or uploaded before reading them with read_session_file.".to_string()
     }
 
     async fn call(
@@ -58,30 +58,30 @@ impl VizierTool for ListContextFiles {
     ) -> Result<Self::Output, VizierError> {
         let records = self
             .storage
-            .list_context_files(&ctx.session)
+            .list_session_files(&ctx.session)
             .await
             .map_err(|e| VizierError(e.to_string()))?;
 
         let files = records
             .into_iter()
-            .map(|r| ContextFileSummary {
+            .map(|r| SessionFileSummary {
                 filename: r.filename,
                 mime_type: r.mime_type,
                 size: r.size,
             })
             .collect();
 
-        Ok(ListContextFilesOutput { files })
+        Ok(ListSessionFilesOutput { files })
     }
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ReadContextFileArgs {
-    #[schemars(description = "filename of the context file to read")]
+pub struct ReadSessionFileArgs {
+    #[schemars(description = "filename of the session file to read")]
     pub filename: String,
 }
 
-pub struct ReadContextFile {
+pub struct ReadSessionFile {
     pub storage: Arc<VizierStorage>,
     pub file_manager: FileManager,
     pub provider: ProviderVariant,
@@ -195,16 +195,16 @@ fn extract_content(
 }
 
 #[async_trait::async_trait]
-impl VizierTool for ReadContextFile {
-    type Input = ReadContextFileArgs;
+impl VizierTool for ReadSessionFile {
+    type Input = ReadSessionFileArgs;
     type Output = VizierResponse;
 
     fn name() -> String {
-        "read_context_file".to_string()
+        "read_session_file".to_string()
     }
 
     fn description(&self) -> String {
-        "Read a file from the current session context. Returns the file content as text, or injects images/PDFs (on supported models) into the conversation context.".to_string()
+        "Read a file from the current session. Returns the file content as text, or injects images/PDFs (on supported models) into the conversation context.".to_string()
     }
 
     async fn call(
@@ -214,7 +214,7 @@ impl VizierTool for ReadContextFile {
     ) -> Result<Self::Output, VizierError> {
         let file = self
             .storage
-            .get_context_file(&ctx.session, &args.filename)
+            .get_session_file(&ctx.session, &args.filename)
             .await
             .map_err(|e| VizierError(e.to_string()))?
             .ok_or_else(|| VizierError(format!("File not found: {}", args.filename)))?;

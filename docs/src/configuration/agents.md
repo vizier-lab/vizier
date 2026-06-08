@@ -39,7 +39,7 @@ See [REST API](../api-integration/rest-api.md) for details.
 | `silent_read_initiative_chance` | float | `0.0` | Probability (0-1) of agent initiating conversation |
 | `show_thinking` | boolean | `null` | Whether to show agent's thinking process |
 | `show_tool_calls` | boolean | `null` | Whether to show tool call debug info |
-| `include_documents` | array | `null` | Glob patterns for additional context files |
+| `include_documents` | array | `null` | Glob patterns for additional session files |
 | `discord_token` | string | `null` | Per-agent Discord bot token |
 | `telegram_token` | string | `null` | Per-agent Telegram bot token |
 

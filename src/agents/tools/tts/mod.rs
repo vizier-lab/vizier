@@ -7,7 +7,7 @@ use crate::{
     VizierError,
     agents::tools::{ToolContext, VizierTool},
     file_manager::FileManager,
-    storage::{VizierStorage, context_file::ContextFileStorage},
+    storage::{VizierStorage, session_file::SessionFileStorage},
     tts::VizierTts,
 };
 
@@ -46,7 +46,7 @@ impl VizierTool for TtsGenerate {
 
     fn description(&self) -> String {
         format!(
-            "Generate speech audio from text using TTS. The audio file is saved to the session context files. Default voice: \"{}\", speed: {}.",
+            "Generate speech audio from text using TTS. The audio file is saved to the session files. Default voice: \"{}\", speed: {}.",
             self.voice, self.speed
         )
     }
@@ -73,7 +73,7 @@ impl VizierTool for TtsGenerate {
 
         let mime_type = "audio/wav".to_string();
         self.storage
-            .save_context_file(
+            .save_session_file(
                 &ctx.session,
                 &filename,
                 &mime_type,

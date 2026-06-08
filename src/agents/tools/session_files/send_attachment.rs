@@ -7,12 +7,12 @@ use crate::{
     agents::tools::{ToolContext, VizierTool},
     error::VizierError,
     schema::{VizierAttachment, VizierAttachmentContent},
-    storage::{VizierStorage, context_file::ContextFileStorage},
+    storage::{VizierStorage, session_file::SessionFileStorage},
 };
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct SendAttachmentArgs {
-    #[schemars(description = "filename of the context file to send as attachment")]
+    #[schemars(description = "filename of the session file to send as attachment")]
     pub filename: String,
 }
 
@@ -36,7 +36,7 @@ impl VizierTool for SendAttachment {
     }
 
     fn description(&self) -> String {
-        "Queue a context file to be sent back to the user as an attachment with your response."
+        "Queue a session file to be sent back to the user as an attachment with your response."
             .to_string()
     }
 
@@ -47,7 +47,7 @@ impl VizierTool for SendAttachment {
     ) -> Result<Self::Output, VizierError> {
         let file = self
             .storage
-            .get_context_file(&ctx.session, &args.filename)
+            .get_session_file(&ctx.session, &args.filename)
             .await
             .map_err(|e| VizierError(e.to_string()))?
             .ok_or_else(|| VizierError(format!("File not found: {}", args.filename)))?;

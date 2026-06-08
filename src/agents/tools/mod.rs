@@ -13,13 +13,13 @@ use crate::{
     agents::tools::{
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
         consult::{ConsultAgent, DelegateAgent},
-        context_files::{ListContextFiles, ReadContextFile, SendAttachment},
         discord::new_discord_tools,
         dream_journal::ReadDreamJournal,
         fetch::FetchWebpage,
         http_client::HttpClient,
         ptc::ProgramaticSandbox,
         scheduler::{DeleteTask, GetTaskDetail, ListTask, ScheduleCronTask, ScheduleOneTimeTask},
+        session_files::{ListSessionFiles, ReadSessionFile, SendAttachment},
         shell::ShellExec,
         skill::{
             CreateSkill, DeleteSkill, ExecuteSkillResource, ListSkills, ReadSkillResource,
@@ -46,13 +46,13 @@ use crate::{
 
 mod brave_search;
 mod consult;
-mod context_files;
 mod discord;
 mod dream_journal;
 mod fetch;
 mod http_client;
 mod ptc;
 mod scheduler;
+mod session_files;
 mod shell;
 mod skill;
 mod subtasks;
@@ -425,10 +425,10 @@ impl VizierTools {
                 Some(agent_id.clone()),
                 deps.clone(),
             ))
-            .tool(ListContextFiles {
+            .tool(ListSessionFiles {
                 storage: deps.storage.clone(),
             })
-            .tool(ReadContextFile {
+            .tool(ReadSessionFile {
                 storage: deps.storage.clone(),
                 file_manager: deps.file_manager.clone(),
                 provider: agent_config.provider.clone(),

@@ -4,19 +4,19 @@ use anyhow::Result;
 use chrono::Utc;
 
 use crate::{
-    schema::{VizierSession, context_file::ContextFileRecord},
-    storage::{context_file::ContextFileStorage, fs::FileSystemStorage},
+    schema::{VizierSession, session_file::SessionFileRecord},
+    storage::{fs::FileSystemStorage, session_file::SessionFileStorage},
 };
 
-const CONTEXT_FILE_PATH: &str = "context_files";
+const SESSION_FILE_PATH: &str = "session_files";
 
 impl FileSystemStorage {
-    fn context_file_dir(&self, session: &VizierSession) -> PathBuf {
+    fn session_file_dir(&self, session: &VizierSession) -> PathBuf {
         PathBuf::from(format!(
             "{}/agents/{}/{}/{}/{}",
             self.workspace,
             session.0,
-            CONTEXT_FILE_PATH,
+            SESSION_FILE_PATH,
             session.1.to_slug(),
             session.2.clone().unwrap_or("DEFAULT".to_string()),
         ))
@@ -24,19 +24,19 @@ impl FileSystemStorage {
 }
 
 #[async_trait::async_trait]
-impl ContextFileStorage for FileSystemStorage {
-    async fn save_context_file(
+impl SessionFileStorage for FileSystemStorage {
+    async fn save_session_file(
         &self,
         session: &VizierSession,
         filename: &str,
         mime_type: &str,
         size: u64,
         file_id: &str,
-    ) -> Result<ContextFileRecord> {
-        let dir = self.context_file_dir(session);
+    ) -> Result<SessionFileRecord> {
+        let dir = self.session_file_dir(session);
         tokio::fs::create_dir_all(&dir).await?;
 
-        let record = ContextFileRecord {
+        let record = SessionFileRecord {
             id: format!("{}/{}", session.to_slug(), filename),
             session_slug: session.to_slug(),
             agent_id: session.0.clone(),
@@ -54,11 +54,8 @@ impl ContextFileStorage for FileSystemStorage {
         Ok(record)
     }
 
-    async fn list_context_files(
-        &self,
-        session: &VizierSession,
-    ) -> Result<Vec<ContextFileRecord>> {
-        let dir = self.context_file_dir(session);
+    async fn list_session_files(&self, session: &VizierSession) -> Result<Vec<SessionFileRecord>> {
+        let dir = self.session_file_dir(session);
         if !dir.exists() {
             return Ok(vec![]);
         }
@@ -68,7 +65,7 @@ impl ContextFileStorage for FileSystemStorage {
         while let Some(entry) = entries.next_entry().await? {
             if entry.path().extension().and_then(|e| e.to_str()) == Some("json") {
                 let content = tokio::fs::read(entry.path()).await?;
-                if let Ok(record) = serde_json::from_slice::<ContextFileRecord>(&content) {
+                if let Ok(record) = serde_json::from_slice::<SessionFileRecord>(&content) {
                     records.push(record);
                 }
             }
@@ -77,12 +74,12 @@ impl ContextFileStorage for FileSystemStorage {
         Ok(records)
     }
 
-    async fn get_context_file(
+    async fn get_session_file(
         &self,
         session: &VizierSession,
         filename: &str,
-    ) -> Result<Option<ContextFileRecord>> {
-        let dir = self.context_file_dir(session);
+    ) -> Result<Option<SessionFileRecord>> {
+        let dir = self.session_file_dir(session);
         let file_path = dir.join(format!("{}.json", filename.replace('/', "_")));
 
         if !file_path.exists() {
@@ -90,16 +87,12 @@ impl ContextFileStorage for FileSystemStorage {
         }
 
         let content = tokio::fs::read(&file_path).await?;
-        let record = serde_json::from_slice::<ContextFileRecord>(&content)?;
+        let record = serde_json::from_slice::<SessionFileRecord>(&content)?;
         Ok(Some(record))
     }
 
-    async fn delete_context_file(
-        &self,
-        session: &VizierSession,
-        filename: &str,
-    ) -> Result<()> {
-        let dir = self.context_file_dir(session);
+    async fn delete_session_file(&self, session: &VizierSession, filename: &str) -> Result<()> {
+        let dir = self.session_file_dir(session);
         let file_path = dir.join(format!("{}.json", filename.replace('/', "_")));
 
         if file_path.exists() {

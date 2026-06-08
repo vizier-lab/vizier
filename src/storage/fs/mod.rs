@@ -11,13 +11,13 @@ use crate::{
 };
 
 mod agent;
-mod context_file;
 mod dream_journal;
 mod global_config;
 mod history;
 mod memory;
 mod provider;
 mod session;
+mod session_file;
 mod state;
 mod task;
 mod user;

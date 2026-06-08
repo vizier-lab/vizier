@@ -2,24 +2,24 @@ use anyhow::Result;
 use chrono::Utc;
 
 use crate::{
-    schema::{VizierSession, context_file::ContextFileRecord},
-    storage::{context_file::ContextFileStorage, surreal::SurrealStorage},
+    schema::{VizierSession, session_file::SessionFileRecord},
+    storage::{session_file::SessionFileStorage, surreal::SurrealStorage},
 };
 
 #[async_trait::async_trait]
-impl ContextFileStorage for SurrealStorage {
-    async fn save_context_file(
+impl SessionFileStorage for SurrealStorage {
+    async fn save_session_file(
         &self,
         session: &VizierSession,
         filename: &str,
         mime_type: &str,
         size: u64,
         file_id: &str,
-    ) -> Result<ContextFileRecord> {
+    ) -> Result<SessionFileRecord> {
         let session_slug = session.to_slug();
         let record_id = format!("{}/{}", session_slug, filename);
 
-        let record = ContextFileRecord {
+        let record = SessionFileRecord {
             id: record_id.clone(),
             session_slug,
             agent_id: session.0.clone(),
@@ -30,53 +30,41 @@ impl ContextFileStorage for SurrealStorage {
             added_at: Utc::now(),
         };
 
-        let _: Option<ContextFileRecord> = self
+        let _: Option<SessionFileRecord> = self
             .conn
-            .upsert(("context_file", record_id))
+            .upsert(("session_file", record_id))
             .content(record.clone())
             .await?;
 
         Ok(record)
     }
 
-    async fn list_context_files(
-        &self,
-        session: &VizierSession,
-    ) -> Result<Vec<ContextFileRecord>> {
+    async fn list_session_files(&self, session: &VizierSession) -> Result<Vec<SessionFileRecord>> {
         let session_slug = session.to_slug();
         let mut response = self
             .conn
-            .query("SELECT * FROM context_file WHERE session_slug = $session_slug")
+            .query("SELECT * FROM session_file WHERE session_slug = $session_slug")
             .bind(("session_slug", session_slug))
             .await?;
 
-        let records: Vec<ContextFileRecord> = response.take(0)?;
+        let records: Vec<SessionFileRecord> = response.take(0)?;
         Ok(records)
     }
 
-    async fn get_context_file(
+    async fn get_session_file(
         &self,
         session: &VizierSession,
         filename: &str,
-    ) -> Result<Option<ContextFileRecord>> {
+    ) -> Result<Option<SessionFileRecord>> {
         let record_id = format!("{}/{}", session.to_slug(), filename);
-        let record: Option<ContextFileRecord> = self
-            .conn
-            .select(("context_file", record_id))
-            .await?;
+        let record: Option<SessionFileRecord> =
+            self.conn.select(("session_file", record_id)).await?;
         Ok(record)
     }
 
-    async fn delete_context_file(
-        &self,
-        session: &VizierSession,
-        filename: &str,
-    ) -> Result<()> {
+    async fn delete_session_file(&self, session: &VizierSession, filename: &str) -> Result<()> {
         let record_id = format!("{}/{}", session.to_slug(), filename);
-        let _: Option<ContextFileRecord> = self
-            .conn
-            .delete(("context_file", record_id))
-            .await?;
+        let _: Option<SessionFileRecord> = self.conn.delete(("session_file", record_id)).await?;
         Ok(())
     }
 }

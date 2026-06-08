@@ -33,7 +33,7 @@ use crate::{
     },
     storage::{
         VizierStorage,
-        context_file::ContextFileStorage,
+        session_file::SessionFileStorage,
         user::{UserProfile, UserStorage},
     },
     transport::VizierTransport,
@@ -223,7 +223,7 @@ impl VizierAgent {
             req = hooks.on_request(req).await?;
         }
 
-        // Store attachments in ContextFiles via FileManager
+        // Store attachments in SessionFiles via FileManager
         for attachment in &req.attachments {
             let content = self
                 .transport
@@ -237,7 +237,7 @@ impl VizierAgent {
                 .map_err(|e| anyhow::anyhow!(e))?;
             let mime_type = get_mime_type(&attachment.filename);
             self.storage
-                .save_context_file(
+                .save_session_file(
                     &session,
                     &attachment.filename,
                     &mime_type,
@@ -421,8 +421,8 @@ impl VizierAgent {
                         tool_res = hooks.on_tool_response(tool_res).await?;
                     }
 
-                    // Store tool attachments in ContextFiles (except from read_context_file)
-                    if !tool_res.attachments.is_empty() && function_name != "read_context_file" {
+                    // Store tool attachments in SessionFiles (except from read_session_file)
+                    if !tool_res.attachments.is_empty() && function_name != "read_session_file" {
                         let mut stored_files = vec![];
                         for attachment in &tool_res.attachments {
                             if let Ok(content) =
@@ -436,7 +436,7 @@ impl VizierAgent {
                                     let mime_type = get_mime_type(&attachment.filename);
                                     if self
                                         .storage
-                                        .save_context_file(
+                                        .save_session_file(
                                             &ctx.session,
                                             &attachment.filename,
                                             &mime_type,
@@ -457,7 +457,7 @@ impl VizierAgent {
                                 &mut tool_res.content
                             {
                                 let files = stored_files.join(", ");
-                                let notification = format!("\n\n[+{} to context files]", files);
+                                let notification = format!("\n\n[+{} to session files]", files);
                                 *response = serde_json::Value::String(format!(
                                     "{}{}",
                                     response.as_str().unwrap_or(""),
@@ -467,9 +467,9 @@ impl VizierAgent {
                         }
                     }
 
-                    // For read_context_file with images: collect for separate user messages
+                    // For read_session_file with images: collect for separate user messages
                     // (most providers drop images from tool results)
-                    if function_name == "read_context_file" && !tool_res.attachments.is_empty() {
+                    if function_name == "read_session_file" && !tool_res.attachments.is_empty() {
                         let image_attachments: Vec<_> = tool_res.attachments.drain(..).collect();
                         tool_responses.push(tool_res.to_tool_response_content(
                             call.id.clone(),
@@ -760,8 +760,8 @@ impl VizierAgent {
                         tool_res = hooks.on_tool_response(tool_res).await?;
                     }
 
-                    // Store tool attachments in ContextFiles (except from read_context_file)
-                    if !tool_res.attachments.is_empty() && function_name != "read_context_file" {
+                    // Store tool attachments in SessionFiles (except from read_session_file)
+                    if !tool_res.attachments.is_empty() && function_name != "read_session_file" {
                         let mut stored_files = vec![];
                         for attachment in &tool_res.attachments {
                             if let Ok(content) =
@@ -775,7 +775,7 @@ impl VizierAgent {
                                     let mime_type = get_mime_type(&attachment.filename);
                                     if self
                                         .storage
-                                        .save_context_file(
+                                        .save_session_file(
                                             &ctx.session,
                                             &attachment.filename,
                                             &mime_type,
@@ -796,7 +796,7 @@ impl VizierAgent {
                                 &mut tool_res.content
                             {
                                 let files = stored_files.join(", ");
-                                let notification = format!("\n\n[+{} to context files]", files);
+                                let notification = format!("\n\n[+{} to session files]", files);
                                 *response = serde_json::Value::String(format!(
                                     "{}{}",
                                     response.as_str().unwrap_or(""),
@@ -806,9 +806,9 @@ impl VizierAgent {
                         }
                     }
 
-                    // For read_context_file with images: collect for separate user messages
+                    // For read_session_file with images: collect for separate user messages
                     // (most providers drop images from tool results)
-                    if function_name == "read_context_file" && !tool_res.attachments.is_empty() {
+                    if function_name == "read_session_file" && !tool_res.attachments.is_empty() {
                         let image_attachments: Vec<_> = tool_res.attachments.drain(..).collect();
                         tool_responses.push(tool_res.to_tool_response_content(
                             call.id.clone(),
