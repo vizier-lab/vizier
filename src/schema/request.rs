@@ -221,7 +221,7 @@ impl VizierRequest {
                 .collect::<Vec<_>>()
                 .join("\n");
             prompt = format!(
-                "{}\n\n# Attached Files\n{}\n\nUse read_session_file to access these files.",
+                "{}\n\n# Attached Files\n{}\nthe following files added to your session files.\nUse read_session_file to access these files.",
                 prompt, attachment_info
             );
         }
