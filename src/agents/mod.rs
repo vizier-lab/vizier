@@ -75,6 +75,20 @@ impl VizierAgents {
             .await?;
         }
 
+        if config.tools.stt.enabled
+            && config.tools.stt.settings.provider == crate::schema::agent::SttProvider::SenseVoice
+        {
+            let model = config
+                .tools
+                .stt
+                .settings
+                .model
+                .as_deref()
+                .unwrap_or("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17");
+            crate::utils::sense_voice::sense_voice_prefetch_model(&deps.config.workspace, model)
+                .await?;
+        }
+
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let deps_clone = deps.clone();
         let agent_id_clone = agent_id.to_string();

@@ -118,6 +118,14 @@ export interface TtsToolSettings {
   speed?: number
 }
 
+export type SttProvider = 'sense_voice' | 'openai' | 'elevenlabs'
+
+export interface SttToolSettings {
+  provider?: SttProvider
+  model?: string
+  language?: string
+}
+
 export interface AgentToolsConfig {
   timeout: string
   programmatic_sandbox: boolean
@@ -131,6 +139,8 @@ export interface AgentToolsConfig {
   mcp_servers: Record<string, McpServerConfig>
   tts: AgentToolConfig
   tts_settings?: TtsToolSettings
+  stt: AgentToolConfig
+  stt_settings?: SttToolSettings
 }
 
 export interface AgentConfig {
@@ -182,6 +192,8 @@ export interface CreateAgentRequest {
     mcp_servers?: Record<string, McpServerConfig>
     tts?: boolean
     tts_settings?: TtsToolSettings
+    stt?: boolean
+    stt_settings?: SttToolSettings
   }
   prompt_timeout?: string
   heartbeat_interval?: string
@@ -228,6 +240,8 @@ export interface AgentDetail {
   mcp_servers: Record<string, McpServerConfig>
   tts: boolean
   tts_settings?: TtsToolSettings
+  stt: boolean
+  stt_settings?: SttToolSettings
   avatar_url?: string
 }
 

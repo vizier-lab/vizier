@@ -279,6 +279,7 @@ function AudioPreview({ src }: { src: string }) {
       flexDirection: 'column',
       alignItems: 'center',
       gap: '1.5rem',
+      width: 'min(90vw,500px)'
     }}>
       <FaFileAudio size={64} style={{ color: 'var(--text-tertiary)' }} />
       <audio controls autoPlay style={{ width: '100%', maxWidth: '480px' }}>

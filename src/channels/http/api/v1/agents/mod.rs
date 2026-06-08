@@ -20,6 +20,7 @@ use crate::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
         AgentToolsConfig, AgentUsageStats, BraveSearchToolSettings, MemoryConfig, ToolConfig,
         TtsToolSettings,
+        agent::SttToolSettings,
     },
     storage::{VizierStorage, agent::AgentStorage, history::HistoryStorage, user::UserStorage},
 };
@@ -168,6 +169,8 @@ pub struct AgentDetail {
     pub programmatic_sandbox: bool,
     pub tts: bool,
     pub tts_settings: Option<TtsToolSettings>,
+    pub stt: bool,
+    pub stt_settings: Option<SttToolSettings>,
 }
 
 #[utoipa::path(
@@ -240,6 +243,16 @@ async fn agent_detail(
                     || config.tools.tts.settings.speed.is_some()
                 {
                     Some(config.tools.tts.settings.clone())
+                } else {
+                    None
+                },
+                stt: config.tools.stt.enabled,
+                stt_settings: if config.tools.stt.settings.provider
+                    != crate::schema::agent::SttProvider::default()
+                    || config.tools.stt.settings.model.is_some()
+                    || config.tools.stt.settings.language.is_some()
+                {
+                    Some(config.tools.stt.settings.clone())
                 } else {
                     None
                 },
@@ -322,6 +335,10 @@ pub struct CreateAgentTools {
     pub tts: Option<bool>,
     #[serde(default)]
     pub tts_settings: Option<TtsToolSettings>,
+    #[serde(default)]
+    pub stt: Option<bool>,
+    #[serde(default)]
+    pub stt_settings: Option<SttToolSettings>,
 }
 
 impl CreateAgentRequest {
@@ -339,6 +356,8 @@ impl CreateAgentRequest {
             programmatic_sandbox: None,
             tts: None,
             tts_settings: None,
+            stt: None,
+            stt_settings: None,
         });
 
         AgentConfig {
@@ -386,6 +405,10 @@ impl CreateAgentRequest {
                 tts: ToolConfig {
                     enabled: tools.tts.unwrap_or(false),
                     settings: tools.tts_settings.unwrap_or_default(),
+                },
+                stt: ToolConfig {
+                    enabled: tools.stt.unwrap_or(false),
+                    settings: tools.stt_settings.unwrap_or_default(),
                 },
             },
             silent_read_initiative_chance: self.silent_read_initiative_chance.unwrap_or(0.0),

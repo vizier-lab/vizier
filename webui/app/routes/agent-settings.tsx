@@ -133,6 +133,8 @@ export default function AgentSettings() {
       mcp_servers: {},
       tts: false,
       tts_settings: {},
+      stt: false,
+      stt_settings: {},
     },
     prompt_timeout: '5m',
     heartbeat_interval: '30m',
@@ -216,6 +218,8 @@ export default function AgentSettings() {
             mcp_servers: d.mcp_servers || {},
             tts: d.tts,
             tts_settings: d.tts_settings || {},
+            stt: d.stt,
+            stt_settings: d.stt_settings || {},
           },
           prompt_timeout: d.prompt_timeout,
           heartbeat_interval: d.heartbeat_interval,
@@ -1958,6 +1962,174 @@ export default function AgentSettings() {
                                   speed: e.target.value
                                     ? parseFloat(e.target.value)
                                     : undefined,
+                                },
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* STT (Speech-to-Text) */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Speech-to-Text
+                </h4>
+                <div
+                  style={{
+                    padding: '0.75rem',
+                    border: '1px solid var(--border)',
+                    borderRadius: '0.5rem',
+                  }}
+                >
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      marginBottom: form.tools?.stt
+                        ? '0.75rem'
+                        : 0,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.tools?.stt ?? false}
+                      onChange={(e) =>
+                        updateTool('stt', e.target.checked)
+                      }
+                    />
+                    Enable STT
+                  </label>
+                  {form.tools?.stt && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem',
+                        paddingLeft: '1.5rem',
+                      }}
+                    >
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '0.25rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Provider
+                        </label>
+                        <select
+                          style={inputStyle}
+                          value={
+                            form.tools?.stt_settings?.provider ||
+                            'sense_voice'
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                stt_settings: {
+                                  ...prev.tools?.stt_settings,
+                                  provider: e.target
+                                    .value as import('../interfaces/types').SttProvider,
+                                },
+                              },
+                            }))
+                          }
+                        >
+                          <option value="sense_voice">
+                            SenseVoice (Local)
+                          </option>
+                          <option value="openai">OpenAI Whisper</option>
+                          <option value="elevenlabs">
+                            ElevenLabs
+                          </option>
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '0.25rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Model (optional)
+                        </label>
+                        <input
+                          style={inputStyle}
+                          type="text"
+                          placeholder={
+                            (form.tools?.stt_settings?.provider || 'sense_voice') === 'sense_voice'
+                              ? 'e.g. sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17'
+                              : (form.tools?.stt_settings?.provider || 'sense_voice') === 'openai'
+                                ? 'whisper-1'
+                                : 'scribe_v1'
+                          }
+                          value={
+                            form.tools?.stt_settings?.model || ''
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                stt_settings: {
+                                  ...prev.tools?.stt_settings,
+                                  model:
+                                    e.target.value || undefined,
+                                },
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '0.25rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Language (optional)
+                        </label>
+                        <input
+                          style={inputStyle}
+                          type="text"
+                          placeholder="e.g. en, zh, auto (default: auto)"
+                          value={
+                            form.tools?.stt_settings?.language || ''
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                stt_settings: {
+                                  ...prev.tools?.stt_settings,
+                                  language:
+                                    e.target.value || undefined,
                                 },
                               },
                             }))

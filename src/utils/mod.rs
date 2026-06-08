@@ -8,6 +8,7 @@ pub mod markdown;
 pub mod mistralrs;
 pub mod ollama;
 pub mod piper;
+pub mod sense_voice;
 pub mod tar;
 pub mod telegram;
 

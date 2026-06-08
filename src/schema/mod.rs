@@ -15,7 +15,7 @@ mod task;
 
 pub use agent::{
     AgentConfig, AgentToolsConfig, BraveSearchToolSettings, MemoryConfig, ToolConfig,
-    TtsToolSettings,
+    TtsToolSettings, SttToolSettings,
 };
 pub use commands::{
     AgentCommand, AgentCommandResult, AgentHealthStatus, AgentSummary, ChannelCommand,

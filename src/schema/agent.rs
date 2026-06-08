@@ -80,6 +80,8 @@ pub struct AgentToolsConfig {
     pub mcp_servers: HashMap<String, McpClientConfig>,
     #[serde(default)]
     pub tts: ToolConfig<TtsToolSettings>,
+    #[serde(default)]
+    pub stt: ToolConfig<SttToolSettings>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -125,4 +127,33 @@ pub struct TtsToolSettings {
     pub voice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speed: Option<f32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SttProvider {
+    #[default]
+    SenseVoice,
+    Openai,
+    Elevenlabs,
+}
+
+impl SttProvider {
+    pub fn default_model(&self) -> &str {
+        match self {
+            Self::SenseVoice => "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
+            Self::Openai => "whisper-1",
+            Self::Elevenlabs => "scribe_v1",
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]
+#[serde(default)]
+pub struct SttToolSettings {
+    pub provider: SttProvider,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }

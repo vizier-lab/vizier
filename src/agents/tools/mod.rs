@@ -29,6 +29,7 @@ use crate::{
         telegram::new_telegram_tools,
         think::ThinkTool,
         tts::TtsGenerate,
+        stt::SttTranscribe,
         vector_memory::init_vector_memory,
         webui::{ListWebuiTopics, SendWebuiMessage},
         workspace::{
@@ -59,6 +60,7 @@ mod subtasks;
 mod telegram;
 mod think;
 pub mod tts;
+pub mod stt;
 mod vector_memory;
 mod webui;
 mod workspace;
@@ -560,6 +562,29 @@ impl VizierTools {
                 }
                 Err(e) => {
                     tracing::error!("failed to create TTS for agent {}: {}", agent_id, e);
+                }
+            }
+        }
+
+        if agent_config.tools.stt.enabled {
+            match crate::stt::VizierStt::new(
+                &agent_config.tools.stt.settings,
+                &deps.config.providers,
+                &workspace,
+            )
+            .await
+            {
+                Ok(stt) => {
+                    let language = agent_config.tools.stt.settings.language.clone();
+                    user_toolset = user_toolset.tool(SttTranscribe {
+                        stt: Arc::new(stt),
+                        storage: deps.storage.clone(),
+                        file_manager: deps.file_manager.clone(),
+                        language,
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("failed to create STT for agent {}: {}", agent_id, e);
                 }
             }
         }
