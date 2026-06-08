@@ -356,6 +356,7 @@ impl VizierTools {
         deps: VizierDependencies,
         agent_config: &crate::schema::AgentConfig,
         stt: Option<Arc<crate::stt::VizierStt>>,
+        tts: Option<Arc<crate::tts::VizierTts>>,
     ) -> Result<Self> {
         let tool_config = deps.config.tools.clone();
         let workspace = deps.config.workspace.clone();
@@ -528,43 +529,30 @@ impl VizierTools {
                 .tool(delete_memory);
         }
 
-        if agent_config.tools.tts.enabled {
-            match crate::tts::VizierTts::new(
-                &agent_config.tools.tts.settings,
-                &deps.config.providers,
-                &workspace,
-            )
-            .await
-            {
-                Ok(tts) => {
-                    let voice = agent_config
+        if let Some(tts) = tts {
+            let voice = agent_config
+                .tools
+                .tts
+                .settings
+                .voice
+                .clone()
+                .unwrap_or_else(|| {
+                    agent_config
                         .tools
                         .tts
                         .settings
-                        .voice
-                        .clone()
-                        .unwrap_or_else(|| {
-                            agent_config
-                                .tools
-                                .tts
-                                .settings
-                                .provider
-                                .default_voice()
-                                .into()
-                        });
-                    let speed = agent_config.tools.tts.settings.speed.unwrap_or(1.0);
-                    user_toolset = user_toolset.tool(TtsGenerate {
-                        tts: Arc::new(tts),
-                        storage: deps.storage.clone(),
-                        file_manager: deps.file_manager.clone(),
-                        voice,
-                        speed,
-                    });
-                }
-                Err(e) => {
-                    tracing::error!("failed to create TTS for agent {}: {}", agent_id, e);
-                }
-            }
+                        .provider
+                        .default_voice()
+                        .into()
+                });
+            let speed = agent_config.tools.tts.settings.speed.unwrap_or(1.0);
+            user_toolset = user_toolset.tool(TtsGenerate {
+                tts,
+                storage: deps.storage.clone(),
+                file_manager: deps.file_manager.clone(),
+                voice,
+                speed,
+            });
         }
 
         if let Some(stt) = stt {

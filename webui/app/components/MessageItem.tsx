@@ -23,6 +23,7 @@ interface MessageItemProps {
   onReact?: (messageUid: string, emoji: string) => void
   isVoiceMessage?: boolean
   voiceSrc?: string
+  audioReplySrc?: string
 }
 
 function MessageItemComponent({
@@ -39,6 +40,7 @@ function MessageItemComponent({
   onReact,
   isVoiceMessage,
   voiceSrc,
+  audioReplySrc,
 }: MessageItemProps) {
   const [showPicker, setShowPicker] = useState(false)
 
@@ -126,6 +128,9 @@ function MessageItemComponent({
       >
         <div className="flex items-start justify-between">
           <div className='prose'>
+            {audioReplySrc && (
+              <VoiceMessagePlayer src={audioReplySrc} />
+            )}
             {isVoiceMessage && voiceSrc ? (
               <VoiceMessagePlayer src={voiceSrc} />
             ) : (
@@ -275,5 +280,6 @@ export const MessageItem = memo(MessageItemComponent, (prevProps, nextProps) => 
   if (prevProps.attachments !== nextProps.attachments) return false
   if (prevProps.reactions !== nextProps.reactions) return false
   if (prevProps.currentUserId !== nextProps.currentUserId) return false
+  if (prevProps.audioReplySrc !== nextProps.audioReplySrc) return false
   return true
 })

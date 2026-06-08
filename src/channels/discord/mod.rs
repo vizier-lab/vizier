@@ -259,6 +259,7 @@ If I am halucinating, feel free to `/lobotomy` me
                             platform_message_id: None,
                             metadata: serde_json::json!({}),
                             attachments: vec![],
+                            expect_audio_reply: None,
                         },
                         None,
                     )
@@ -457,6 +458,46 @@ If I am halucinating, feel free to `/lobotomy` me
                                             err
                                         );
                                     }
+                                }
+                            }
+                        }
+                        VizierResponse {
+                            content:
+                                VizierResponseContent::AudioReply(audio_att, text, _),
+                            ..
+                        } => {
+                            if let Some(typing) = typing_state.take() {
+                                typing.stop();
+                            }
+                            if let Some(content) = text {
+                                let content = remove_think_tags(&content);
+                                let _ = crate::utils::discord::send_message(
+                                    http.clone(),
+                                    &discord_channel_id,
+                                    content,
+                                )
+                                .await;
+                            }
+                            match file_manager.resolve(&audio_att).await {
+                                Ok((filename, bytes)) => {
+                                    let files = vec![CreateAttachment::bytes(bytes, &filename)];
+                                    let builder = CreateMessage::new();
+                                    if let Err(err) = discord_channel_id
+                                        .send_files(&http, files, builder)
+                                        .await
+                                    {
+                                        tracing::error!(
+                                            "Failed to send audio reply: {:?}",
+                                            err
+                                        );
+                                    }
+                                }
+                                Err(err) => {
+                                    tracing::error!(
+                                        "Failed to resolve audio reply {:?}: {:?}",
+                                        audio_att.filename,
+                                        err
+                                    );
                                 }
                             }
                         }

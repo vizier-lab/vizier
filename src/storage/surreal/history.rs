@@ -149,72 +149,75 @@ impl HistoryStorage for SurrealStorage {
 
         for history in list {
             if let SessionHistoryContent::Response(resp) = &history.content {
-                if let VizierResponseContent::Message { stats, .. } = &resp.content {
-                    if let Some(stats) = stats {
-                        total_tokens += stats.total_tokens;
-                        total_input_tokens += stats.total_input_tokens;
-                        total_output_tokens += stats.total_output_tokens;
-                        total_requests += 1;
-                        total_duration_ms += stats.duration.as_millis() as u64;
+                let stats = match &resp.content {
+                    VizierResponseContent::Message { stats, .. } => stats.as_ref(),
+                    VizierResponseContent::AudioReply(_, _, stats) => stats.as_ref(),
+                    _ => None,
+                };
+                if let Some(stats) = stats {
+                    total_tokens += stats.total_tokens;
+                    total_input_tokens += stats.total_input_tokens;
+                    total_output_tokens += stats.total_output_tokens;
+                    total_requests += 1;
+                    total_duration_ms += stats.duration.as_millis() as u64;
 
-                        let channel_slug = history.vizier_session.1.to_slug();
-                        let channel_type = get_channel_type(&channel_slug);
-                        let date = resp.timestamp.date_naive();
+                    let channel_slug = history.vizier_session.1.to_slug();
+                    let channel_type = get_channel_type(&channel_slug);
+                    let date = resp.timestamp.date_naive();
 
-                        let channel_entry = by_channel_type
-                            .entry(channel_type.clone())
-                            .or_insert_with(|| ChannelTypeUsage {
-                                total_tokens: 0,
-                                total_requests: 0,
-                                channels: Vec::new(),
-                            });
-                        channel_entry.total_tokens += stats.total_tokens;
-                        channel_entry.total_requests += 1;
+                    let channel_entry = by_channel_type
+                        .entry(channel_type.clone())
+                        .or_insert_with(|| ChannelTypeUsage {
+                            total_tokens: 0,
+                            total_requests: 0,
+                            channels: Vec::new(),
+                        });
+                    channel_entry.total_tokens += stats.total_tokens;
+                    channel_entry.total_requests += 1;
 
-                        let channel_id = channel_slug.clone();
-                        if let Some(ch) = channel_entry
-                            .channels
-                            .iter_mut()
-                            .find(|c| c.channel_id == channel_id)
-                        {
-                            ch.total_tokens += stats.total_tokens;
-                            ch.total_requests += 1;
-                        } else {
-                            channel_entry.channels.push(ChannelUsage {
-                                channel_id,
-                                total_tokens: stats.total_tokens,
-                                total_requests: 1,
-                            });
-                        }
+                    let channel_id = channel_slug.clone();
+                    if let Some(ch) = channel_entry
+                        .channels
+                        .iter_mut()
+                        .find(|c| c.channel_id == channel_id)
+                    {
+                        ch.total_tokens += stats.total_tokens;
+                        ch.total_requests += 1;
+                    } else {
+                        channel_entry.channels.push(ChannelUsage {
+                            channel_id,
+                            total_tokens: stats.total_tokens,
+                            total_requests: 1,
+                        });
+                    }
 
-                        let day_entry = by_day.entry(date).or_insert_with(|| DailyUsage {
-                            date,
+                    let day_entry = by_day.entry(date).or_insert_with(|| DailyUsage {
+                        date,
+                        total_tokens: 0,
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        total_requests: 0,
+                    });
+                    day_entry.total_tokens += stats.total_tokens;
+                    day_entry.input_tokens += stats.total_input_tokens;
+                    day_entry.output_tokens += stats.total_output_tokens;
+                    day_entry.total_requests += 1;
+
+                    let day_channel_entry = by_day_and_channel_type
+                        .entry(date)
+                        .or_insert_with(HashMap::new);
+                    let channel_detail = day_channel_entry
+                        .entry(channel_type.clone())
+                        .or_insert_with(|| ChannelTypeUsageDetail {
                             total_tokens: 0,
                             input_tokens: 0,
                             output_tokens: 0,
                             total_requests: 0,
                         });
-                        day_entry.total_tokens += stats.total_tokens;
-                        day_entry.input_tokens += stats.total_input_tokens;
-                        day_entry.output_tokens += stats.total_output_tokens;
-                        day_entry.total_requests += 1;
-
-                        let day_channel_entry = by_day_and_channel_type
-                            .entry(date)
-                            .or_insert_with(HashMap::new);
-                        let channel_detail = day_channel_entry
-                            .entry(channel_type.clone())
-                            .or_insert_with(|| ChannelTypeUsageDetail {
-                                total_tokens: 0,
-                                input_tokens: 0,
-                                output_tokens: 0,
-                                total_requests: 0,
-                            });
-                        channel_detail.total_tokens += stats.total_tokens;
-                        channel_detail.input_tokens += stats.total_input_tokens;
-                        channel_detail.output_tokens += stats.total_output_tokens;
-                        channel_detail.total_requests += 1;
-                    }
+                    channel_detail.total_tokens += stats.total_tokens;
+                    channel_detail.input_tokens += stats.total_input_tokens;
+                    channel_detail.output_tokens += stats.total_output_tokens;
+                    channel_detail.total_requests += 1;
                 }
             }
         }

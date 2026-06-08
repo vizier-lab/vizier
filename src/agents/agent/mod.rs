@@ -37,6 +37,7 @@ use crate::{
         user::{UserProfile, UserStorage},
     },
     stt::VizierStt,
+    tts::VizierTts,
     transport::VizierTransport,
     utils::{agent_workspace, build_path, get_mime_type},
 };
@@ -69,6 +70,7 @@ pub struct VizierAgent {
     config: AgentConfig,
     owner_profile: Option<UserProfile>,
     stt: Option<Arc<VizierStt>>,
+    tts: Option<Arc<VizierTts>>,
 }
 
 impl VizierAgent {
@@ -100,8 +102,27 @@ impl VizierAgent {
             None
         };
 
+        // Create TTS instance if enabled (shared between audio reply and tts_generate tool)
+        let tts = if agent_config.tools.tts.enabled {
+            match VizierTts::new(
+                &agent_config.tools.tts.settings,
+                &deps.config.providers,
+                &workspace,
+            )
+            .await
+            {
+                Ok(instance) => Some(Arc::new(instance)),
+                Err(e) => {
+                    tracing::error!("failed to create TTS for agent {}: {}", agent_id, e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let model = VizierModel::new(agent_id.clone(), deps.clone(), agent_config).await?;
-        let tools = VizierTools::new(agent_id.clone(), deps.clone(), agent_config, stt.clone()).await?;
+        let tools = VizierTools::new(agent_id.clone(), deps.clone(), agent_config, stt.clone(), tts.clone()).await?;
         let skills = VizierSkills::new(agent_id.clone(), deps.clone()).await?;
 
         init_workspace(workspace.clone());
@@ -123,6 +144,7 @@ impl VizierAgent {
             config: agent_config.clone(),
             owner_profile,
             stt,
+            tts,
             workspace,
             global_workspace: deps.config.workspace.clone(),
             storage: deps.storage.clone(),
@@ -132,6 +154,72 @@ impl VizierAgent {
 
     pub fn stt(&self) -> Option<&Arc<VizierStt>> {
         self.stt.as_ref()
+    }
+
+    async fn maybe_audio_reply(&self, response: VizierResponse, req: &VizierRequest) -> VizierResponse {
+        if req.expect_audio_reply != Some(true) {
+            return response;
+        }
+        let Some(ref tts) = self.tts else {
+            return response;
+        };
+
+        let (text, stats) = match &response.content {
+            VizierResponseContent::Message { content, stats } if !content.is_empty() => {
+                (content.clone(), stats.clone())
+            }
+            _ => return response,
+        };
+
+        let voice = self
+            .config
+            .tools
+            .tts
+            .settings
+            .voice
+            .clone()
+            .unwrap_or_else(|| {
+                self.config
+                    .tools
+                    .tts
+                    .settings
+                    .provider
+                    .default_voice()
+                    .into()
+            });
+        let speed = self.config.tools.tts.settings.speed.unwrap_or(1.0);
+
+        match tts.generate_speech(&text, &voice, speed).await {
+            Ok(audio_bytes) => {
+                let filename = format!("audio_reply_{}.wav", uuid::Uuid::new_v4());
+                match self
+                    .transport
+                    .send_file_upload(filename.clone(), audio_bytes)
+                    .await
+                {
+                    Ok(file_record) => VizierResponse {
+                        timestamp: response.timestamp,
+                        content: VizierResponseContent::AudioReply(
+                            VizierAttachment {
+                                filename,
+                                content: VizierAttachmentContent::Local(file_record.url),
+                            },
+                            Some(text),
+                            stats,
+                        ),
+                        attachments: response.attachments,
+                    },
+                    Err(e) => {
+                        tracing::error!("TTS audio reply upload failed: {}", e);
+                        response
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("TTS audio reply failed: {}", e);
+                response
+            }
+        }
     }
 
     pub async fn prepare_system_prompts(&self) -> Vec<Message> {
@@ -344,6 +432,7 @@ impl VizierAgent {
             },
             attachments,
         };
+        response = self.maybe_audio_reply(response, &req).await;
         if let Some(hooks) = hooks.clone() {
             response = hooks.on_response(response).await?;
         }
@@ -680,6 +769,7 @@ impl VizierAgent {
             },
             attachments: vec![],
         };
+        response = self.maybe_audio_reply(response, &req).await;
         if let Some(hooks) = hooks.clone() {
             response = hooks.on_response(response).await?;
         }

@@ -311,6 +311,7 @@ export type VizierResponseContent =
   | { thinking: string }
   | { tool_choice: { name: string; args: Record<string, unknown> } }
   | { message: { content: string; stats?: VizierResponseStats } }
+  | { audio_reply: [VizierAttachment, string | null, VizierResponseStats | null] }
   | 'empty'
   | 'abort'
 
@@ -364,6 +365,7 @@ export interface WebSocketMessage {
   content: VizierRequestContent
   metadata?: Record<string, unknown>
   attachments?: VizierAttachment[]
+  expect_audio_reply?: boolean
 }
 
 // WebSocketResponse matches backend VizierResponse struct

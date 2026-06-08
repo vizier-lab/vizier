@@ -39,20 +39,14 @@ impl VizierSessionHook for HistoryHook {
     }
 
     async fn on_response(&self, res: VizierResponse) -> Result<VizierResponse> {
-        if let VizierResponse {
-            content: VizierResponseContent::Message { content, stats },
-            timestamp: _,
-            attachments,
-        } = res.clone()
-        {
+        if matches!(
+            &res.content,
+            VizierResponseContent::Message { .. } | VizierResponseContent::AudioReply(..)
+        ) {
             self.storage
                 .save_session_history(
                     self.session.clone(),
-                    SessionHistoryContent::Response(VizierResponse {
-                        timestamp: res.timestamp,
-                        content: VizierResponseContent::Message { content, stats },
-                        attachments,
-                    }),
+                    SessionHistoryContent::Response(res.clone()),
                 )
                 .await?;
         }

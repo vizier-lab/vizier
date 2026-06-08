@@ -49,6 +49,7 @@ pub enum VizierResponseContent {
         content: String,
         stats: Option<VizierResponseStats>,
     },
+    AudioReply(VizierAttachment, Option<String>, Option<VizierResponseStats>),
     Empty,
     Abort,
 }
@@ -99,6 +100,14 @@ impl VizierResponse {
         let mut tool_contents = match &self.content {
             VizierResponseContent::Message { content, stats: _ } => {
                 vec![ToolResultContent::text(content)]
+            }
+
+            VizierResponseContent::AudioReply(_, Some(content), _) => {
+                vec![ToolResultContent::text(content)]
+            }
+
+            VizierResponseContent::AudioReply(_, None, _) => {
+                vec![ToolResultContent::text("[Audio reply]")]
             }
 
             VizierResponseContent::ToolResponse { response } => {

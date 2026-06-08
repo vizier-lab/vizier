@@ -36,6 +36,7 @@ import {
   FaPlus,
   FaMicrophone,
   FaStop,
+  FaVolumeHigh,
 } from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
 import { useConnectionStore } from '../hooks/connectionStore'
@@ -202,6 +203,7 @@ export default function Chat() {
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
   const [recordingTime, setRecordingTime] = useState(0)
+  const [expectAudioReply, setExpectAudioReply] = useState(false)
   const prevInputRef = useRef('')
   const currentInputRef = useRef('')
   const dragCounterRef = useRef(0)
@@ -558,6 +560,44 @@ export default function Chat() {
         })
         return
       }
+
+      if ('audio_reply' in content) {
+        setIsThinking(false)
+        clearInlineEvents()
+        setMessages((prev) => {
+          if (
+            prev.some(
+              (m) => m.content.Response?.timestamp === timestamp
+            )
+          ) {
+            return prev
+          }
+          const newMessage: ChatMessage = {
+            uid: timestamp,
+            vizier_session: {
+              agent_id: agentId!,
+              channel: 'vizier-webui',
+              topic: currentTopicRef.current!,
+            },
+            content: {
+              Response: {
+                timestamp,
+                content,
+                attachments: wsResponse.attachments,
+              },
+            },
+          }
+          return [...prev, newMessage]
+        })
+        // Move first queued message to normal messages
+        setQueuedMessages((prev) => {
+          if (prev.length === 0) return prev
+          const [first, ...rest] = prev
+          setMessages((msgs) => [...msgs, first])
+          return rest
+        })
+        return
+      }
     }
   }, [lastMessage, agentId])
 
@@ -833,6 +873,7 @@ export default function Chat() {
             content: { audio_chat: [audioAttachment, null] },
             metadata: null as any,
             attachments: uploadedAttachments,
+            expect_audio_reply: expectAudioReply || undefined,
           }
 
           userMessageContent = {
@@ -856,6 +897,7 @@ export default function Chat() {
           content: { chat: currentInput.trim() },
           metadata: null as any,
           attachments: uploadedAttachments,
+          expect_audio_reply: expectAudioReply || undefined,
         }
 
         userMessageContent = {
@@ -1329,6 +1371,7 @@ export default function Chat() {
                   | undefined
                 let isVoiceMessage = false
                 let voiceSrc: string | undefined
+                let audioReplySrc: string | undefined
 
                 if (isUserMessage && msg.content.Request) {
                   const request = msg.content.Request as any
@@ -1355,12 +1398,26 @@ export default function Chat() {
                   if (response?.content?.message?.content) {
                     content =
                       response.content.message.content
+                    stats = response?.content?.message
+                      ?.stats as
+                      | VizierResponseStats
+                      | undefined
+                  } else if (response?.content?.audio_reply) {
+                    const [att, text, replyStats] = response.content.audio_reply
+                    content = text || '🔊 Audio reply'
+                    stats = replyStats as VizierResponseStats | undefined
+                    if ('local' in att.content) {
+                      audioReplySrc = (att.content.local.startsWith('http') ? '' : `${api_protocol}://${base_url}`) + att.content.local
+                    } else if ('url' in att.content) {
+                      audioReplySrc = att.content.url
+                    } else if ('bytes' in att.content) {
+                      // bytes are inline, create data URL
+                      const bytes = new Uint8Array(att.content.bytes)
+                      const blob = new Blob([bytes], { type: 'audio/wav' })
+                      audioReplySrc = URL.createObjectURL(blob)
+                    }
                   }
                   senderName = agentDetail?.name || 'Agent'
-                  stats = response?.content?.message
-                    ?.stats as
-                    | VizierResponseStats
-                    | undefined
                   msgAttachments = response?.attachments
                 }
 
@@ -1382,6 +1439,7 @@ export default function Chat() {
                     onPreviewAttachment={setPreviewAttachment}
                     isVoiceMessage={isVoiceMessage}
                     voiceSrc={voiceSrc}
+                    audioReplySrc={audioReplySrc}
                   />
                 )
               })}
@@ -1625,6 +1683,15 @@ export default function Chat() {
                           <FaXmark size={14} />
                         </button>
                       )}
+                      {/* Audio reply toggle */}
+                      <button
+                        type="button"
+                        className={`chat-mic-btn${expectAudioReply ? ' audio-reply-active' : ''}`}
+                        onClick={() => setExpectAudioReply((prev) => !prev)}
+                        title={expectAudioReply ? 'Audio reply ON' : 'Audio reply OFF'}
+                      >
+                        <FaVolumeHigh size={14} />
+                      </button>
                       <button
                         type="submit"
                         className={`chat-send-btn chat-send-btn-inline${(input.trim() || recordingState !== 'idle') ? ' has-content' : ''}${sendPulse ? ' pulse' : ''}`}

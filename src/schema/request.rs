@@ -93,18 +93,14 @@ impl Display for VizierRequestContent {
                     event.user_id
                 )
             }
-            Self::AudioChat(att, transcription) => {
-                match transcription {
-                    Some(text) => write!(f, "{}", text),
-                    None => write!(f, "Voice message ({})", att.filename),
-                }
-            }
-            Self::AudioPrompt(att, transcription) => {
-                match transcription {
-                    Some(text) => write!(f, "{}", text),
-                    None => write!(f, "Voice message ({})", att.filename),
-                }
-            }
+            Self::AudioChat(att, transcription) => match transcription {
+                Some(text) => write!(f, "{}", text),
+                None => write!(f, "Voice message ({})", att.filename),
+            },
+            Self::AudioPrompt(att, transcription) => match transcription {
+                Some(text) => write!(f, "{}", text),
+                None => write!(f, "Voice message ({})", att.filename),
+            },
         }
     }
 }
@@ -210,6 +206,8 @@ pub struct VizierRequest {
     pub metadata: serde_json::Value,
     #[serde(default)]
     pub attachments: Vec<VizierAttachment>,
+    #[serde(default)]
+    pub expect_audio_reply: Option<bool>,
 }
 
 impl VizierRequest {
@@ -221,14 +219,6 @@ impl VizierRequest {
         );
 
         let mut all_attachments_info = vec![];
-
-        // Include audio attachment from AudioChat/AudioPrompt content
-        if let VizierRequestContent::AudioChat(att, _)
-        | VizierRequestContent::AudioPrompt(att, _) = &self.content
-        {
-            let mime = get_mime_type(&att.filename);
-            all_attachments_info.push(format!("- {} ({})", att.filename, mime));
-        }
 
         for a in &self.attachments {
             let mime = get_mime_type(&a.filename);

@@ -274,6 +274,7 @@ impl TelegramChannelReader {
                         platform_message_id: None,
                         metadata: serde_json::json!({}),
                         attachments: vec![],
+                        expect_audio_reply: None,
                     },
                     None,
                 )
@@ -311,6 +312,7 @@ impl TelegramChannelReader {
             platform_message_id: Some(PlatformMessageId::Telegram(msg.id.0.into())),
             metadata,
             attachments,
+            expect_audio_reply: None,
         };
 
         let bot = self.bot.clone();
@@ -421,6 +423,45 @@ impl TelegramChannelReader {
                                         err
                                     );
                                 }
+                            }
+                        }
+                    }
+                    VizierResponse {
+                        content:
+                            VizierResponseContent::AudioReply(audio_att, text, _),
+                        ..
+                    } => {
+                        if let Some(handle) = typing_handle.take() {
+                            handle.abort();
+                        }
+                        if let Some(content) = text {
+                            let content = remove_think_tags(&content);
+                            let _ = crate::utils::telegram::send_message(
+                                &bot,
+                                chat_id_copy,
+                                content,
+                            )
+                            .await;
+                        }
+                        match file_manager.resolve(&audio_att).await {
+                            Ok((filename, bytes)) => {
+                                let input_file =
+                                    InputFile::memory(bytes).file_name(filename.clone());
+                                if let Err(err) =
+                                    bot.send_document(chat_id_copy, input_file).await
+                                {
+                                    tracing::error!(
+                                        "Failed to send audio reply: {:?}",
+                                        err
+                                    );
+                                }
+                            }
+                            Err(err) => {
+                                tracing::error!(
+                                    "Failed to resolve audio reply {:?}: {:?}",
+                                    audio_att.filename,
+                                    err
+                                );
                             }
                         }
                     }

@@ -2498,6 +2498,16 @@ select:focus {
   background: #dc2626;
 }
 
+.chat-mic-btn.audio-reply-active {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.chat-mic-btn.audio-reply-active:hover:not(:disabled) {
+  background: var(--accent-primary);
+  filter: brightness(1.1);
+}
+
 /* ============================================================================
    VOICE MESSAGE — Inline Player (message bubble)
    ============================================================================ */
