@@ -116,6 +116,7 @@ impl TtsProvider {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]
+#[serde(default)]
 pub struct TtsToolSettings {
     pub provider: TtsProvider,
     #[serde(skip_serializing_if = "Option::is_none")]
