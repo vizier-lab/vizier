@@ -66,6 +66,8 @@ pub enum VizierRequestContent {
     Task(String),
     Command(String),
     Reaction(ReactionEvent),
+    AudioChat(VizierAttachment, Option<String>),
+    AudioPrompt(VizierAttachment, Option<String>),
 }
 
 impl Default for VizierRequestContent {
@@ -76,26 +78,34 @@ impl Default for VizierRequestContent {
 
 impl Display for VizierRequestContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                Self::Chat(content) => content,
-                Self::Prompt(content) => content,
-                Self::SilentRead(content) => content,
-                Self::Task(content) => content,
-                Self::Command(content) => content,
-                Self::Reaction(event) => {
-                    return write!(
-                        f,
-                        "Reaction: {} {} by {}",
-                        event.action_str(),
-                        event.emoji,
-                        event.user_id
-                    );
+        match self {
+            Self::Chat(content) => write!(f, "{}", content),
+            Self::Prompt(content) => write!(f, "{}", content),
+            Self::SilentRead(content) => write!(f, "{}", content),
+            Self::Task(content) => write!(f, "{}", content),
+            Self::Command(content) => write!(f, "{}", content),
+            Self::Reaction(event) => {
+                write!(
+                    f,
+                    "Reaction: {} {} by {}",
+                    event.action_str(),
+                    event.emoji,
+                    event.user_id
+                )
+            }
+            Self::AudioChat(att, transcription) => {
+                match transcription {
+                    Some(text) => write!(f, "{}", text),
+                    None => write!(f, "Voice message ({})", att.filename),
                 }
             }
-        )
+            Self::AudioPrompt(att, transcription) => {
+                match transcription {
+                    Some(text) => write!(f, "{}", text),
+                    None => write!(f, "Voice message ({})", att.filename),
+                }
+            }
+        }
     }
 }
 
@@ -210,19 +220,26 @@ impl VizierRequest {
             self.content
         );
 
-        if !self.attachments.is_empty() {
-            let attachment_info = self
-                .attachments
-                .iter()
-                .map(|a| {
-                    let mime = get_mime_type(&a.filename);
-                    format!("- {} ({})", a.filename, mime)
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
+        let mut all_attachments_info = vec![];
+
+        // Include audio attachment from AudioChat/AudioPrompt content
+        if let VizierRequestContent::AudioChat(att, _)
+        | VizierRequestContent::AudioPrompt(att, _) = &self.content
+        {
+            let mime = get_mime_type(&att.filename);
+            all_attachments_info.push(format!("- {} ({})", att.filename, mime));
+        }
+
+        for a in &self.attachments {
+            let mime = get_mime_type(&a.filename);
+            all_attachments_info.push(format!("- {} ({})", a.filename, mime));
+        }
+
+        if !all_attachments_info.is_empty() {
             prompt = format!(
                 "{}\n\n# Attached Files\n{}\nthe following files added to your session files.\nUse read_session_file to access these files.",
-                prompt, attachment_info
+                prompt,
+                all_attachments_info.join("\n")
             );
         }
 

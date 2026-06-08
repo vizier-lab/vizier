@@ -9,8 +9,9 @@ use crate::{
     schema::{
         AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage,
         DailyChannelTypeUsage, DailyUsage, ReactionEntry, SessionHistory, SessionHistoryContent,
-        UsageSummary, VizierAttachment, VizierRequest, VizierRequestContent, VizierResponse,
-        VizierResponseContent, VizierResponseStats, VizierSession,
+        UsageSummary, VizierAttachment, VizierAttachmentContent, VizierRequest,
+        VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
+        VizierSession,
     },
     storage::{
         fs::{FileSystemStorage, HISTORY_PATH},
@@ -29,6 +30,11 @@ enum ContentMetadata {
         is_chat: bool,
         is_prompt: bool,
         is_command: bool,
+        is_audio_chat: bool,
+        #[serde(default)]
+        audio_message: Option<VizierAttachment>,
+        #[serde(default)]
+        audio_transcription: Option<String>,
         metadata: serde_json::Value,
         attachments: Vec<VizierAttachment>,
     },
@@ -90,6 +96,18 @@ impl From<SessionHistory> for SessionHistoryFrontMatter {
                         true
                     } else {
                         false
+                    },
+                    is_audio_chat: matches!(
+                        &req.content,
+                        VizierRequestContent::AudioChat(_, _)
+                    ),
+                    audio_message: match &req.content {
+                        VizierRequestContent::AudioChat(att, _) => Some(att.clone()),
+                        _ => None,
+                    },
+                    audio_transcription: match &req.content {
+                        VizierRequestContent::AudioChat(_, text) => text.clone(),
+                        _ => None,
                     },
                     attachments: req.attachments,
                     metadata: req.metadata,
@@ -196,19 +214,29 @@ impl HistoryStorage for FileSystemStorage {
                             is_chat,
                             is_prompt,
                             is_command,
+                            is_audio_chat,
+                            audio_message,
+                            audio_transcription,
                             metadata,
                             attachments,
                         } => SessionHistoryContent::Request(VizierRequest {
                             timestamp: frontmatter.timestamp,
                             user,
                             metadata,
-                            content: match (is_silent_read, is_task, is_chat, is_prompt, is_command)
+                            content: match (is_silent_read, is_task, is_chat, is_prompt, is_command, is_audio_chat)
                             {
-                                (true, _, _, _, _) => VizierRequestContent::SilentRead(content),
-                                (_, true, _, _, _) => VizierRequestContent::Task(content),
-                                (_, _, true, _, _) => VizierRequestContent::Chat(content),
-                                (_, _, _, true, _) => VizierRequestContent::Prompt(content),
-                                (_, _, _, _, true) => VizierRequestContent::Command(content),
+                                (true, _, _, _, _, _) => VizierRequestContent::SilentRead(content),
+                                (_, true, _, _, _, _) => VizierRequestContent::Task(content),
+                                (_, _, true, _, _, _) => VizierRequestContent::Chat(content),
+                                (_, _, _, true, _, _) => VizierRequestContent::Prompt(content),
+                                (_, _, _, _, true, _) => VizierRequestContent::Command(content),
+                                (_, _, _, _, _, true) => {
+                                    let att = audio_message.unwrap_or_else(|| VizierAttachment {
+                                        filename: "audio.webm".into(),
+                                        content: VizierAttachmentContent::Local("".into()),
+                                    });
+                                    VizierRequestContent::AudioChat(att, audio_transcription)
+                                }
                                 _ => unimplemented!(),
                             },
                             platform_message_id: None,
@@ -307,7 +335,7 @@ impl HistoryStorage for FileSystemStorage {
                     let history = SessionHistory {
                         uid: updated_frontmatter.uid.clone(),
                         vizier_session: updated_frontmatter.session.clone(),
-                        content: match updated_frontmatter.content_metadata.clone() {
+                         content: match updated_frontmatter.content_metadata.clone() {
                             ContentMetadata::request {
                                 user,
                                 is_silent_read,
@@ -315,6 +343,9 @@ impl HistoryStorage for FileSystemStorage {
                                 is_chat,
                                 is_prompt,
                                 is_command,
+                                is_audio_chat,
+                                audio_message,
+                                audio_transcription,
                                 metadata,
                                 attachments,
                             } => SessionHistoryContent::Request(VizierRequest {
@@ -322,16 +353,23 @@ impl HistoryStorage for FileSystemStorage {
                                 user,
                                 metadata,
                                 content: match (
-                                    is_silent_read, is_task, is_chat, is_prompt, is_command,
+                                    is_silent_read, is_task, is_chat, is_prompt, is_command, is_audio_chat,
                                 ) {
-                                    (true, _, _, _, _) => {
+                                    (true, _, _, _, _, _) => {
                                         VizierRequestContent::SilentRead(content_text.clone())
                                     }
-                                    (_, true, _, _, _) => VizierRequestContent::Task(content_text.clone()),
-                                    (_, _, true, _, _) => VizierRequestContent::Chat(content_text.clone()),
-                                    (_, _, _, true, _) => VizierRequestContent::Prompt(content_text.clone()),
-                                    (_, _, _, _, true) => {
+                                    (_, true, _, _, _, _) => VizierRequestContent::Task(content_text.clone()),
+                                    (_, _, true, _, _, _) => VizierRequestContent::Chat(content_text.clone()),
+                                    (_, _, _, true, _, _) => VizierRequestContent::Prompt(content_text.clone()),
+                                    (_, _, _, _, true, _) => {
                                         VizierRequestContent::Command(content_text.clone())
+                                    }
+                                    (_, _, _, _, _, true) => {
+                                        let att = audio_message.unwrap_or_else(|| VizierAttachment {
+                                            filename: "audio.webm".into(),
+                                            content: VizierAttachmentContent::Local("".into()),
+                                        });
+                                        VizierRequestContent::AudioChat(att, audio_transcription)
                                     }
                                     _ => unimplemented!(),
                                 },
@@ -565,19 +603,29 @@ impl HistoryStorage for FileSystemStorage {
                             is_chat,
                             is_prompt,
                             is_command,
+                            is_audio_chat,
+                            audio_message,
+                            audio_transcription,
                             metadata,
                             attachments,
                         } => SessionHistoryContent::Request(VizierRequest {
                             timestamp,
                             user,
                             metadata,
-                            content: match (is_silent_read, is_task, is_chat, is_prompt, is_command)
+                            content: match (is_silent_read, is_task, is_chat, is_prompt, is_command, is_audio_chat)
                             {
-                                (true, _, _, _, _) => VizierRequestContent::SilentRead(content),
-                                (_, true, _, _, _) => VizierRequestContent::Task(content),
-                                (_, _, true, _, _) => VizierRequestContent::Chat(content),
-                                (_, _, _, true, _) => VizierRequestContent::Prompt(content),
-                                (_, _, _, _, true) => VizierRequestContent::Command(content),
+                                (true, _, _, _, _, _) => VizierRequestContent::SilentRead(content),
+                                (_, true, _, _, _, _) => VizierRequestContent::Task(content),
+                                (_, _, true, _, _, _) => VizierRequestContent::Chat(content),
+                                (_, _, _, true, _, _) => VizierRequestContent::Prompt(content),
+                                (_, _, _, _, true, _) => VizierRequestContent::Command(content),
+                                (_, _, _, _, _, true) => {
+                                    let att = audio_message.unwrap_or_else(|| VizierAttachment {
+                                        filename: "audio.webm".into(),
+                                        content: VizierAttachmentContent::Local("".into()),
+                                    });
+                                    VizierRequestContent::AudioChat(att, audio_transcription)
+                                }
                                 _ => unimplemented!(),
                             },
                             platform_message_id: None,

@@ -28,14 +28,15 @@ use crate::{
     dependencies::VizierDependencies,
     schema::{
         AgentConfig, Memory, SessionHistory, SessionHistoryContent, VizierAttachment,
-        VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent,
-        VizierResponseStats, VizierSession,
+        VizierAttachmentContent, VizierRequest, VizierRequestContent, VizierResponse,
+        VizierResponseContent, VizierResponseStats, VizierSession,
     },
     storage::{
         VizierStorage,
         session_file::SessionFileStorage,
         user::{UserProfile, UserStorage},
     },
+    stt::VizierStt,
     transport::VizierTransport,
     utils::{agent_workspace, build_path, get_mime_type},
 };
@@ -67,6 +68,7 @@ pub struct VizierAgent {
     skills: VizierSkills,
     config: AgentConfig,
     owner_profile: Option<UserProfile>,
+    stt: Option<Arc<VizierStt>>,
 }
 
 impl VizierAgent {
@@ -75,13 +77,33 @@ impl VizierAgent {
         deps: &VizierDependencies,
         agent_config: &AgentConfig,
     ) -> Result<VizierAgent> {
-        let model = VizierModel::new(agent_id.clone(), deps.clone(), agent_config).await?;
-        let tools = VizierTools::new(agent_id.clone(), deps.clone(), agent_config).await?;
-        let skills = VizierSkills::new(agent_id.clone(), deps.clone()).await?;
-
         let workspace = agent_workspace(&deps.config.workspace, &agent_id)
             .to_string_lossy()
             .to_string();
+
+        // Create STT instance if enabled (shared between auto-transcription and stt_transcribe tool)
+        let stt = if agent_config.tools.stt.enabled {
+            match VizierStt::new(
+                &agent_config.tools.stt.settings,
+                &deps.config.providers,
+                &workspace,
+            )
+            .await
+            {
+                Ok(instance) => Some(Arc::new(instance)),
+                Err(e) => {
+                    tracing::error!("failed to create STT for agent {}: {}", agent_id, e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let model = VizierModel::new(agent_id.clone(), deps.clone(), agent_config).await?;
+        let tools = VizierTools::new(agent_id.clone(), deps.clone(), agent_config, stt.clone()).await?;
+        let skills = VizierSkills::new(agent_id.clone(), deps.clone()).await?;
+
         init_workspace(workspace.clone());
 
         // Fetch owner profile if owner_id is set
@@ -100,11 +122,16 @@ impl VizierAgent {
             skills,
             config: agent_config.clone(),
             owner_profile,
+            stt,
             workspace,
             global_workspace: deps.config.workspace.clone(),
             storage: deps.storage.clone(),
             transport: deps.transport.clone(),
         })
+    }
+
+    pub fn stt(&self) -> Option<&Arc<VizierStt>> {
+        self.stt.as_ref()
     }
 
     pub async fn prepare_system_prompts(&self) -> Vec<Message> {
@@ -164,12 +191,48 @@ impl VizierAgent {
         let mut tools = self.tools.tools().await?;
         tools.extend(self.skills.get_ondemand_skills().await?);
 
+        // Auto-transcribe AudioChat/AudioPrompt in-place
+        let mut req = req;
+        if let Some(ref stt) = self.stt {
+            let audio_att = match &req.content {
+                VizierRequestContent::AudioChat(att, None) => Some((att.clone(), false)),
+                VizierRequestContent::AudioPrompt(att, None) => Some((att.clone(), true)),
+                _ => None,
+            };
+            if let Some((att, _is_prompt)) = audio_att {
+                let audio_bytes = self
+                    .transport
+                    .send_file_resolve(att.clone())
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))?;
+
+                let language = self.config.tools.stt.settings.language.as_deref();
+                let text = match stt.transcribe(&audio_bytes, &att.filename, language).await {
+                    Ok(t) if !t.is_empty() => t,
+                    Ok(_) => "[Voice message]".to_string(),
+                    Err(e) => {
+                        tracing::error!("STT transcription failed: {}", e);
+                        "[Voice message - transcription failed]".to_string()
+                    }
+                };
+                req.content = match req.content {
+                    VizierRequestContent::AudioChat(a, _) => VizierRequestContent::AudioChat(a, Some(text)),
+                    VizierRequestContent::AudioPrompt(a, _) => VizierRequestContent::AudioPrompt(a, Some(text)),
+                    other => other,
+                };
+            }
+        }
+
         // Match contextual skills against the task
         let task_text = match &req.content {
             VizierRequestContent::Chat(text) => text.clone(),
             VizierRequestContent::Prompt(text) => text.clone(),
             VizierRequestContent::Task(text) => text.clone(),
             VizierRequestContent::Command(text) => text.clone(),
+            VizierRequestContent::AudioChat(_, Some(text)) => text.clone(),
+            VizierRequestContent::AudioPrompt(_, Some(text)) => text.clone(),
+            VizierRequestContent::AudioChat(_, None) => String::new(),
+            VizierRequestContent::AudioPrompt(_, None) => String::new(),
             _ => String::new(),
         };
         if !task_text.is_empty() {
@@ -218,7 +281,6 @@ impl VizierAgent {
                 }),
         );
 
-        let mut req = req;
         if let Some(hooks) = hooks.clone() {
             req = hooks.on_request(req).await?;
         }

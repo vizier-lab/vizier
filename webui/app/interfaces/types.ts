@@ -282,6 +282,8 @@ export type VizierRequestContent =
   | { task: string }
   | { command: string }
   | { reaction: ReactionEvent }
+  | { audio_chat: [VizierAttachment, string | null] }
+  | { audio_prompt: [VizierAttachment, string | null] }
 
 // Reaction types
 export interface PlatformMessageId {

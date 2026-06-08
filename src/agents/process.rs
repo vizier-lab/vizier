@@ -252,7 +252,7 @@ pub async fn agent_process(
                 let thinking_request = request.clone();
                 let thinking_session = session.clone();
                 let thinking_handle = Arc::new(tokio::spawn(async move {
-                    if let VizierRequestContent::Chat(_) = thinking_request.content {
+                    if matches!(thinking_request.content, VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _)) {
                         if let Some(ref tx) = thinking_response_tx {
                             let _ = tx
                                 .send_async(VizierResponse {
@@ -341,7 +341,7 @@ pub async fn agent_process(
                         let thinking_request = next_request.clone();
                         let thinking_session = completed_session.clone();
                         let thinking_handle = Arc::new(tokio::spawn(async move {
-                            if let VizierRequestContent::Chat(_) = thinking_request.content {
+                    if matches!(thinking_request.content, VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _)) {
                                 if let Some(ref tx) = thinking_response_tx {
                                     let _ = tx
                                         .send_async(VizierResponse {
@@ -456,7 +456,13 @@ pub async fn handle_request(
     let hooks = Arc::new(hooks);
 
     match &request.content {
-        VizierRequestContent::Chat(prompt) => {
+        VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _) => {
+            let prompt = match &request.content {
+                VizierRequestContent::Chat(p) => p.clone(),
+                VizierRequestContent::AudioChat(_, Some(text)) => text.clone(),
+                VizierRequestContent::AudioChat(_, None) => "[Voice message]".to_string(),
+                _ => unreachable!(),
+            };
             let history = storage
                 .list_session_history(
                     session.clone(),
@@ -466,7 +472,7 @@ pub async fn handle_request(
                 .await?;
 
             let memory = storage
-                .query_memory(session.0.clone(), prompt.clone(), 10, 0.5)
+                .query_memory(session.0.clone(), prompt, 10, 0.5)
                 .await?;
             let res = agent.chat(request, session.clone(), history, memory, Some(hooks)).await?;
             if let Some(ref tx) = response_tx {
@@ -486,7 +492,7 @@ pub async fn handle_request(
                 let _ = tx.send_async(res).await;
             }
         }
-        VizierRequestContent::Prompt(_) | VizierRequestContent::Task(_) => {
+        VizierRequestContent::Prompt(_) | VizierRequestContent::AudioPrompt(_, _) | VizierRequestContent::Task(_) => {
             let res = match &session.1 {
                 VizierChannelId::Dream(dream_session, stage) => {
                     let dream_start = Utc::now();

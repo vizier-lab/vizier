@@ -2413,3 +2413,146 @@ select:focus {
   background: rgba(16, 185, 129, 0.2);
   box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
 }
+
+/* ============================================================================
+   VOICE MESSAGE — Recording Panel
+   ============================================================================ */
+
+.voice-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  min-height: 48px;
+  background: var(--surface);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.voice-panel-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: voicePulse 1.2s ease-in-out infinite;
+}
+
+@keyframes voicePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.voice-panel-label {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.voice-panel-time {
+  font-size: 14px;
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  color: var(--text-tertiary);
+  margin-left: auto;
+}
+
+/* ============================================================================
+   VOICE MESSAGE — Mic Button
+   ============================================================================ */
+
+.chat-input-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-mic-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  background: var(--text-muted);
+  color: var(--color-foreground);
+  transition: all var(--transition-base);
+}
+
+.chat-mic-btn:hover:not(:disabled) {
+  background: var(--accent-primary);
+  transform: scale(1.05);
+}
+
+.chat-mic-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.chat-mic-btn-stop {
+  background: #ef4444;
+}
+
+.chat-mic-btn-stop:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+/* ============================================================================
+   VOICE MESSAGE — Inline Player (message bubble)
+   ============================================================================ */
+
+.voice-message-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  min-width: 200px;
+  max-width: 320px;
+}
+
+.voice-message-play-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  background: var(--accent-primary);
+  color: white;
+  transition: all var(--transition-fast);
+}
+
+.voice-message-play-btn:hover {
+  transform: scale(1.08);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
+
+.voice-message-progress-track {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.voice-message-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent-primary);
+  transition: width 0.1s linear;
+}
+
+.voice-message-duration {
+  font-size: 12px;
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  min-width: 36px;
+  text-align: right;
+}

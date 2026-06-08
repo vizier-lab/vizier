@@ -7,6 +7,7 @@ import type { VizierAttachment, VizierResponseStats, ReactionEntry } from '../in
 import { base_url, api_protocol } from '~/services/vizier'
 import { EmojiPickerPopup } from './EmojiPickerPopup'
 import { ReactionBadges } from './ReactionBadges'
+import { VoiceMessagePlayer } from './VoiceMessagePlayer'
 
 interface MessageItemProps {
   uid: string
@@ -20,6 +21,8 @@ interface MessageItemProps {
   reactions?: ReactionEntry[]
   currentUserId?: string
   onReact?: (messageUid: string, emoji: string) => void
+  isVoiceMessage?: boolean
+  voiceSrc?: string
 }
 
 function MessageItemComponent({
@@ -34,6 +37,8 @@ function MessageItemComponent({
   reactions,
   currentUserId,
   onReact,
+  isVoiceMessage,
+  voiceSrc,
 }: MessageItemProps) {
   const [showPicker, setShowPicker] = useState(false)
 
@@ -121,9 +126,13 @@ function MessageItemComponent({
       >
         <div className="flex items-start justify-between">
           <div className='prose'>
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-              {content}
-            </ReactMarkdown>
+            {isVoiceMessage && voiceSrc ? (
+              <VoiceMessagePlayer src={voiceSrc} />
+            ) : (
+              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                {content}
+              </ReactMarkdown>
+            )}
           </div>
           <button
             onClick={() => onCopy(content)}

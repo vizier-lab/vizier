@@ -103,7 +103,7 @@ docx-rs = "0.4"
 calamine = "0.35"
 sherpa-onnx = "1.13.2"
 hound = "3.5"
-symphonia = { version = "0.5.5", features = ["mp3"] }
+symphonia = { version = "0.5.5", features = ["mp3", "ogg", "vorbis", "wav", "flac", "isomp4", "mkv", "pcm"] }
 
 [features]
 default = []

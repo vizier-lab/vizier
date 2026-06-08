@@ -9,8 +9,11 @@ import {
   listAgents,
   uploadFile,
   getTopicDetail,
+  api_protocol,
+  base_url,
 } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
+import { blobToWavFile } from '../utils/audio'
 import type {
   Agent,
   ChatMessage,
@@ -31,6 +34,8 @@ import {
   FaTrash,
   FaCloudArrowUp,
   FaPlus,
+  FaMicrophone,
+  FaStop,
 } from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
 import { useConnectionStore } from '../hooks/connectionStore'
@@ -193,6 +198,10 @@ export default function Chat() {
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [reactions, setReactions] = useState<Record<string, ReactionEntry[]>>({})
   const [isThinking, setIsThinking] = useState(false)
+  const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'recorded'>('idle')
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
+  const [recordingTime, setRecordingTime] = useState(0)
   const prevInputRef = useRef('')
   const currentInputRef = useRef('')
   const dragCounterRef = useRef(0)
@@ -204,6 +213,9 @@ export default function Chat() {
   )
   const sessionSelectorRef = useRef<HTMLDivElement>(null)
   const currentTopicRef = useRef<string | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const { user } = useUserStore()
 
   const placeholder = useMemo(
@@ -666,11 +678,111 @@ export default function Chat() {
     [agentId, resolvedTopicId, navigate, addToast, loadSessionList]
   )
 
+  const discardRecording = useCallback(() => {
+    if (recordedUrl) {
+      URL.revokeObjectURL(recordedUrl)
+    }
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current)
+      recordingTimerRef.current = null
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    mediaRecorderRef.current = null
+    audioChunksRef.current = []
+    setRecordingState('idle')
+    setRecordedBlob(null)
+    setRecordedUrl(null)
+    setRecordingTime(0)
+  }, [recordedUrl])
+
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream)
+      audioChunksRef.current = []
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data)
+        }
+      }
+
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop())
+        if (audioChunksRef.current.length > 0) {
+          const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType })
+          const url = URL.createObjectURL(blob)
+          setRecordedBlob(blob)
+          setRecordedUrl(url)
+          setRecordingState('recorded')
+        } else {
+          setRecordingState('idle')
+        }
+      }
+
+      mediaRecorderRef.current = recorder
+      recorder.start()
+      setRecordingState('recording')
+      setRecordingTime(0)
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime((t) => t + 1)
+      }, 1000)
+    } catch (err) {
+      console.error('Microphone access denied:', err)
+      addToast('error', 'Microphone access denied', 'Please allow microphone access to record voice messages.')
+    }
+  }, [addToast])
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current)
+      recordingTimerRef.current = null
+    }
+  }, [])
+
+  const handleMicClick = useCallback(() => {
+    if (recordingState === 'idle') {
+      startRecording()
+    } else if (recordingState === 'recording') {
+      stopRecording()
+    } else if (recordingState === 'recorded') {
+      discardRecording()
+      startRecording()
+    }
+  }, [recordingState, startRecording, stopRecording, discardRecording])
+
+  // Cleanup recording on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current)
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+      if (recordedUrl) URL.revokeObjectURL(recordedUrl)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const formatRecordingTime = useCallback((seconds: number) => {
+    const m = Math.floor(seconds / 60)
+    const s = seconds % 60
+    return `${m}:${s.toString().padStart(2, '0')}`
+  }, [])
+
   const handleSendMessage = useCallback(
     async (e: FormEvent) => {
       e.preventDefault()
       const currentInput = currentInputRef.current
-      if (!currentInput.trim() || !agentId) return
+      const hasText = !!currentInput.trim()
+      const hasRecording = recordingState === 'recorded' && recordedBlob
+
+      if (!hasText && !hasRecording) return
+      if (!agentId) return
 
       if (!connected) {
         console.error('WebSocket not connected')
@@ -695,12 +807,65 @@ export default function Chat() {
         uploadedAttachments = results.length > 0 ? results : undefined
       }
 
-      const message: WebSocketMessage = {
-        timestamp: new Date().toISOString(),
-        user: username,
-        content: { chat: currentInput.trim() },
-        metadata: null as any,
-        attachments: uploadedAttachments,
+      let message: WebSocketMessage
+      let userMessageContent: ChatMessage['content']
+
+      if (hasRecording && recordedBlob) {
+        // Voice message: convert to WAV (universal format), then upload
+        let audioFile: File
+        try {
+          audioFile = await blobToWavFile(recordedBlob)
+        } catch (err) {
+          console.error('Audio conversion failed:', err)
+          addToast('error', 'Audio conversion failed', 'Could not convert voice message to WAV')
+          return
+        }
+        try {
+          const uploadRes = await uploadFile(audioFile)
+          const audioAttachment: VizierAttachment = {
+            filename: 'recording.wav',
+            content: { local: uploadRes.url },
+          }
+
+          message = {
+            timestamp: new Date().toISOString(),
+            user: username,
+            content: { audio_chat: [audioAttachment, null] },
+            metadata: null as any,
+            attachments: uploadedAttachments,
+          }
+
+          userMessageContent = {
+            Request: {
+              timestamp: new Date().toISOString(),
+              user: username,
+              content: { audio_chat: [audioAttachment, null] },
+              attachments: uploadedAttachments,
+            },
+          }
+        } catch (err) {
+          console.error('Audio upload failed:', err)
+          addToast('error', 'Audio upload failed', 'Could not upload voice message')
+          return
+        }
+      } else {
+        // Regular text message
+        message = {
+          timestamp: new Date().toISOString(),
+          user: username,
+          content: { chat: currentInput.trim() },
+          metadata: null as any,
+          attachments: uploadedAttachments,
+        }
+
+        userMessageContent = {
+          Request: {
+            timestamp: new Date().toISOString(),
+            user: username,
+            content: { chat: currentInput.trim() },
+            attachments: uploadedAttachments,
+          },
+        }
       }
 
       const userMessage: ChatMessage = {
@@ -710,14 +875,7 @@ export default function Chat() {
           channel: 'vizier-webui',
           topic: resolvedTopicId,
         },
-        content: {
-          Request: {
-            timestamp: new Date().toISOString(),
-            user: username,
-            content: { chat: currentInput.trim() },
-            attachments: uploadedAttachments,
-          },
-        },
+        content: userMessageContent,
       }
 
       // If agent is thinking, queue the message; otherwise add to messages
@@ -734,10 +892,18 @@ export default function Chat() {
         Object.values(prev).forEach((url) => URL.revokeObjectURL(url))
         return {}
       })
+      // Clean up recording state
+      if (recordedUrl) URL.revokeObjectURL(recordedUrl)
+      setRecordingState('idle')
+      setRecordedBlob(null)
+      setRecordedUrl(null)
+      setRecordingTime(0)
+      audioChunksRef.current = []
+
       sendMessage(message)
       setPlaceholderSeed(Math.random())
     },
-    [agentId, resolvedTopicId, connected, sendMessage, attachments, addToast, inlineEvents]
+    [agentId, resolvedTopicId, connected, sendMessage, attachments, addToast, inlineEvents, recordingState, recordedBlob, recordedUrl]
   )
 
   const handleEditorChange = useCallback((value: string) => {
@@ -1161,11 +1327,23 @@ export default function Chat() {
                 let msgAttachments:
                   | VizierAttachment[]
                   | undefined
+                let isVoiceMessage = false
+                let voiceSrc: string | undefined
 
                 if (isUserMessage && msg.content.Request) {
                   const request = msg.content.Request as any
                   if (request.content?.chat) {
                     content = request.content.chat
+                  } else if (request.content?.audio_chat) {
+                    // Voice message: [attachment, transcription]
+                    const [att, transcription] = request.content.audio_chat
+                    content = transcription || '🎤 Voice message'
+                    isVoiceMessage = true
+                    if ('local' in att.content) {
+                      voiceSrc = (att.content.local.startsWith('http') ? '' : `${api_protocol}://${base_url}`) + att.content.local
+                    } else if ('url' in att.content) {
+                      voiceSrc = att.content.url
+                    }
                   }
                   senderName = request.user || 'You'
                   msgAttachments = request.attachments
@@ -1202,6 +1380,8 @@ export default function Chat() {
                     onReact={handleReact}
                     onCopy={handleCopyMessage}
                     onPreviewAttachment={setPreviewAttachment}
+                    isVoiceMessage={isVoiceMessage}
+                    voiceSrc={voiceSrc}
                   />
                 )
               })}
@@ -1217,7 +1397,7 @@ export default function Chat() {
               {/* Queued messages */}
               {queuedMessages.map((msg) => {
                 const request = msg.content.Request as any
-                const content = request?.content?.chat
+                const content = request?.content?.chat || (request?.content?.audio_chat ? (request.content.audio_chat[1] || '🎤 Voice message') : null)
                 if (!content) return null
                 return (
                   <div key={msg.uid} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1320,15 +1500,32 @@ export default function Chat() {
                   accept="image/*,.pdf,.doc,.docx,.txt,video/*,audio/*"
                   style={{ display: 'none' }}
                 />
-                <MarkdownEditor
-                  key={clearKey}
-                  value={input}
-                  onChange={handleEditorChange}
-                  onAttach={handleAttachClick}
-                  className="chat-mdx-editor"
-                  placeholder={connected ? placeholder : 'Connecting...'}
-                  disabled={!connected}
-                />
+                {recordingState === 'idle' ? (
+                  <MarkdownEditor
+                    key={clearKey}
+                    value={input}
+                    onChange={handleEditorChange}
+                    onAttach={handleAttachClick}
+                    className="chat-mdx-editor"
+                    placeholder={connected ? placeholder : 'Connecting...'}
+                    disabled={!connected}
+                  />
+                ) : (
+                  <div className="voice-panel">
+                    {recordingState === 'recording' ? (
+                      <>
+                        <div className="voice-panel-dot" />
+                        <span className="voice-panel-label">Recording</span>
+                        <span className="voice-panel-time">{formatRecordingTime(recordingTime)}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="voice-panel-label">🎤 Voice message</span>
+                        <span className="voice-panel-time">{formatRecordingTime(recordingTime)}</span>
+                      </>
+                    )}
+                  </div>
+                )}
                 {/* Bottom bar: chips + hint + send */}
                 <div className="chat-input-bottom-bar">
                   {/* Attachment chips */}
@@ -1385,17 +1582,57 @@ export default function Chat() {
                   <div className="chat-input-bottom-row">
                     {/* Keyboard hint */}
                     <div
-                      className={`chat-keyboard-hint${input.trim() ? ' visible' : ''}`}
+                      className={`chat-keyboard-hint${input.trim() || recordingState !== 'idle' ? ' visible' : ''}`}
                     >
-                      <strong>Ctrl+Enter</strong> to send
+                      {recordingState === 'idle' ? (
+                        <><strong>Ctrl+Enter</strong> to send</>
+                      ) : recordingState === 'recording' ? (
+                        <span style={{ color: 'var(--text-tertiary)' }}>Click stop to finish recording</span>
+                      ) : (
+                        <span style={{ color: 'var(--text-tertiary)' }}>Voice message ready</span>
+                      )}
                     </div>
-                    <button
-                      type="submit"
-                      className={`chat-send-btn chat-send-btn-inline${input.trim() ? ' has-content' : ''}${sendPulse ? ' pulse' : ''}`}
-                      disabled={!input.trim() || !connected}
-                    >
-                      <FaPaperPlane size={14} />
-                    </button>
+                    <div className="chat-input-buttons">
+                      {/* Mic button */}
+                      {typeof MediaRecorder !== 'undefined' && recordingState === 'idle' && (
+                        <button
+                          type="button"
+                          className="chat-mic-btn"
+                          onClick={handleMicClick}
+                          title="Record voice message"
+                          disabled={!connected}
+                        >
+                          <FaMicrophone size={14} />
+                        </button>
+                      )}
+                      {recordingState === 'recording' && (
+                        <button
+                          type="button"
+                          className="chat-mic-btn chat-mic-btn-stop"
+                          onClick={handleMicClick}
+                          title="Stop recording"
+                        >
+                          <FaStop size={14} />
+                        </button>
+                      )}
+                      {recordingState === 'recorded' && (
+                        <button
+                          type="button"
+                          className="chat-mic-btn"
+                          onClick={discardRecording}
+                          title="Discard recording"
+                        >
+                          <FaXmark size={14} />
+                        </button>
+                      )}
+                      <button
+                        type="submit"
+                        className={`chat-send-btn chat-send-btn-inline${(input.trim() || recordingState !== 'idle') ? ' has-content' : ''}${sendPulse ? ' pulse' : ''}`}
+                        disabled={(!input.trim() && recordingState === 'idle') || !connected}
+                      >
+                        <FaPaperPlane size={14} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </form>

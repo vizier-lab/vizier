@@ -355,6 +355,7 @@ impl VizierTools {
         agent_id: AgentId,
         deps: VizierDependencies,
         agent_config: &crate::schema::AgentConfig,
+        stt: Option<Arc<crate::stt::VizierStt>>,
     ) -> Result<Self> {
         let tool_config = deps.config.tools.clone();
         let workspace = deps.config.workspace.clone();
@@ -566,27 +567,14 @@ impl VizierTools {
             }
         }
 
-        if agent_config.tools.stt.enabled {
-            match crate::stt::VizierStt::new(
-                &agent_config.tools.stt.settings,
-                &deps.config.providers,
-                &workspace,
-            )
-            .await
-            {
-                Ok(stt) => {
-                    let language = agent_config.tools.stt.settings.language.clone();
-                    user_toolset = user_toolset.tool(SttTranscribe {
-                        stt: Arc::new(stt),
-                        storage: deps.storage.clone(),
-                        file_manager: deps.file_manager.clone(),
-                        language,
-                    });
-                }
-                Err(e) => {
-                    tracing::error!("failed to create STT for agent {}: {}", agent_id, e);
-                }
-            }
+        if let Some(stt) = stt {
+            let language = agent_config.tools.stt.settings.language.clone();
+            user_toolset = user_toolset.tool(SttTranscribe {
+                stt,
+                storage: deps.storage.clone(),
+                file_manager: deps.file_manager.clone(),
+                language,
+            });
         }
 
         let mut mcp = HashMap::new();
