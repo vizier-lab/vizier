@@ -282,10 +282,10 @@ impl VizierTools {
         "memory_graph",
         "memory_delete",
         // Workspace (4)
-        "WRITE_AGENT_MD_FILE",
-        "WRITE_IDENTITY_MD_FILE",
-        "WRITE_HEARTBEAT_MD_FILE",
-        "READ_HEARTBEAT_MD_FILE",
+        "WRITE_SOUL",
+        "WRITE_IDENTITY",
+        "WRITE_HEARTBEAT",
+        "READ_HEARTBEAT",
         // Scheduler (4)
         "schedule_one_time_task",
         "schedule_cron_task",

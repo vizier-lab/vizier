@@ -79,7 +79,7 @@ src/
 ├── transport/           # command transport (agent, channel, global commands)
 └── utils/               # utility functions
 webui/                   # React Router v7 + Tailwind v4 + TypeScript
-templates/               # agent.md / IDENTITY.md templates (include_str!'d)
+templates/               # soul.md / IDENTITY.md templates (include_str!'d)
 skills/                  # seed skills (calculator, code-review, designer)
 ```
 

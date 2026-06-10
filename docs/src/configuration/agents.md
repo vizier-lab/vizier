@@ -66,7 +66,7 @@ Each agent has three markdown documents managed via the WebUI:
 
 | Document | Purpose |
 |----------|---------|
-| `AGENT.md` | Core behavior instructions and system prompt |
+| `SOUL.md` | Core behavior instructions and system prompt |
 | `IDENTITY.md` | Identity and personality definition |
 | `HEARTBEAT.md` | Periodic heartbeat context |
 

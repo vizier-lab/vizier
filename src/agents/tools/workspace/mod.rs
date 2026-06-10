@@ -17,25 +17,25 @@ pub trait PrimaryDocument {
 pub struct AgentDocument;
 
 impl PrimaryDocument for AgentDocument {
-    const NAME: &'static str = "AGENT.md";
-    const WRITE_NAME: &'static str = "WRITE_AGENT_MD_FILE";
-    const READ_NAME: &'static str = "READ_AGENT_MD_FILE";
+    const NAME: &'static str = "SOUL.md";
+    const WRITE_NAME: &'static str = "WRITE_SOUL";
+    const READ_NAME: &'static str = "READ_SOUL";
 }
 
 pub struct IdentDocument;
 
 impl PrimaryDocument for IdentDocument {
     const NAME: &'static str = "IDENTITY.md";
-    const WRITE_NAME: &'static str = "WRITE_IDENTITY_MD_FILE";
-    const READ_NAME: &'static str = "READ_IDENTITY_MD_FILE";
+    const WRITE_NAME: &'static str = "WRITE_IDENTITY";
+    const READ_NAME: &'static str = "READ_IDENTITY";
 }
 
 pub struct HeartbeatDocument;
 
 impl PrimaryDocument for HeartbeatDocument {
     const NAME: &'static str = "HEARTBEAT.md";
-    const WRITE_NAME: &'static str = "WRITE_HEARTBEAT_MD_FILE";
-    const READ_NAME: &'static str = "READ_HEARTBEAT_MD_FILE";
+    const WRITE_NAME: &'static str = "WRITE_HEARTBEAT";
+    const READ_NAME: &'static str = "READ_HEARTBEAT";
 }
 
 pub struct WritePrimaryDocument<T: PrimaryDocument> {
@@ -72,8 +72,8 @@ where
 
     fn description(&self) -> String {
         format!(
-            "write over the content {} file, **not append**. Always tell user after updating document!",
-            T::NAME
+            "write over your {}, **not append**. Always tell user after updating!",
+            T::NAME.trim_end_matches(".md")
         )
     }
 
@@ -117,7 +117,7 @@ where
     }
 
     fn description(&self) -> String {
-        format!("read the conten of {} file", T::NAME)
+        format!("read your {}", T::NAME.trim_end_matches(".md"))
     }
 
     async fn call(&self, _args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {

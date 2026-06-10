@@ -226,7 +226,7 @@ impl VizierAgent {
         // init workspace just in case
         init_workspace(self.workspace.clone());
 
-        let agent_md = read_md_file(self.workspace.clone(), "AGENT.md".into());
+        let agent_md = read_md_file(self.workspace.clone(), "SOUL.md".into());
         let ident_md = read_md_file(self.workspace.clone(), "IDENTITY.md".into());
         let boot = boot_md(
             self.config.name.clone(),

@@ -1,4 +1,4 @@
-# IDENTITY.md
+# IDENTITY
 
 - Immediately fill this document if it's still empty, discuss with your primary user for guidance.
 - Update this document oftenly based on your user's feedback

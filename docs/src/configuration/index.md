@@ -56,7 +56,7 @@ These are managed exclusively via WebUI/API:
 | Setting | Management |
 |---------|------------|
 | Agents (all config) | WebUI Agents page, or CRUD `/api/v1/agents` |
-| Agent documents (AGENT.md, IDENTITY.md, HEARTBEAT.md) | WebUI markdown editor, or `/api/v1/agents/{id}/documents` |
+| Agent documents (SOUL.md, IDENTITY.md, HEARTBEAT.md) | WebUI markdown editor, or `/api/v1/agents/{id}/documents` |
 | Password & API keys | WebUI Settings > Password/API Keys, or `/api/v1/auth/*` |
 
 ## Quick Reference

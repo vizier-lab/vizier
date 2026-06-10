@@ -37,7 +37,7 @@ Now do the following:
 
 1. **Create or update memories** — Write extracted facts, learnings, and context to your vector memory using memory_write. Use [[slug]] links to connect related memories.
 
-2. **Update your documents** — Modify AGENT.md, IDENTITY.md, or HEARTBEAT.md if you've learned new patterns about yourself or your user.
+2. **Update your documents** — Modify your SOUL, IDENTITY, or HEARTBEAT if you've learned new patterns about yourself or your user.
 
 3. **Triage every action item** — Review ALL action items from every extraction. For EACH item, choose the correct persistence mechanism:
 
@@ -45,8 +45,8 @@ Now do the following:
    |------|--------|
    | Specific deadline or one-time follow-up | `schedule_one_time_task` |
    | Recurring check-in at specific times | `schedule_cron_task` |
-   | Continuous monitoring or polling | Write to `HEARTBEAT.md` |
-   | Behavioral correction or user preference | Update `AGENT.md` |
+   | Continuous monitoring or polling | Write to your HEARTBEAT |
+   | Behavioral correction or user preference | Update your SOUL |
    | General fact or context worth remembering | `memory_write` |
 
    Do NOT skip any action item. Every item must be persisted or explicitly noted as intentionally dropped in your final report.
@@ -58,7 +58,7 @@ Now do the following:
 6. **Clean up redundancies** — If new information duplicates existing memories, update the existing ones rather than creating duplicates.
 
 7. **Audit action items** — Re-read all extraction reports. Verify every action item was handled:
-   - State the count: N tasks scheduled, M HEARTBEAT.md items, X AGENT.md updates, Y memories written
+   - State the count: N tasks scheduled, M HEARTBEAT items, X SOUL updates, Y memories written
    - List any action items you intentionally dropped and why
 
 8. **Output your consolidation report** as your final text response. Summarize what you did, key decisions made, and anything noteworthy."#;

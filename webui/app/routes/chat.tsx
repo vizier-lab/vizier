@@ -135,17 +135,17 @@ const formatToolChoice = (
       return `⚡ Running parallel tasks`
     case 'create_skill':
       return `🎯 Creating skill: '${args.name as string}'`
-    case 'WRITE_AGENT_MD_FILE':
+    case 'WRITE_SOUL':
       return `📝 Updating agent notes`
-    case 'READ_AGENT_MD_FILE':
+    case 'READ_SOUL':
       return `📖 Reading agent notes`
-    case 'WRITE_IDENTITY_MD_FILE':
+    case 'WRITE_IDENTITY':
       return `🪪 Updating identity notes`
-    case 'READ_IDENTITY_MD_FILE':
+    case 'READ_IDENTITY':
       return `🪪 Reading identity notes`
-    case 'WRITE_HEARTBEAT_MD_FILE':
+    case 'WRITE_HEARTBEAT':
       return `💗 Updating heartbeat`
-    case 'READ_HEARTBEAT_MD_FILE':
+    case 'READ_HEARTBEAT':
       return `💗 Reading heartbeat`
     case 'discord_send_message':
       return `💬 Sending Discord message`

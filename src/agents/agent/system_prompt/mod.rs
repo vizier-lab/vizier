@@ -4,12 +4,12 @@ pub mod user;
 use std::{fs, path::PathBuf};
 
 use crate::{
-    constant::{AGENT_MD, IDENT_MD},
+    constant::{SOUL_MD, IDENT_MD},
     utils::build_path,
 };
 
 pub fn init_workspace(path: String) {
-    let agent_path = build_path(&path, &["AGENT.md"]);
+    let agent_path = build_path(&path, &["SOUL.md"]);
     let ident_path = build_path(&path, &["IDENTITY.md"]);
     let heartbeat_path = build_path(&path, &["HEARTBEAT.md"]);
 
@@ -25,7 +25,7 @@ pub fn init_workspace(path: String) {
         let _ = std::fs::create_dir_all(path_buf);
     }
 
-    create_file_if_not_exists(agent_path, AGENT_MD);
+    create_file_if_not_exists(agent_path, SOUL_MD);
     create_file_if_not_exists(ident_path, IDENT_MD);
     create_file_if_not_exists(heartbeat_path, "".into());
 }

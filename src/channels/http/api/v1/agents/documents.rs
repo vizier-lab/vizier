@@ -62,7 +62,7 @@ fn write_document(path: &str, content: &str) -> Result<(), std::io::Error> {
         ("agent_id" = String, Path, description = "Agent ID")
     ),
     responses(
-        (status = 200, description = "Get AGENT.md content", body = APIResponse<DocumentContentResponse>),
+        (status = 200, description = "Get SOUL.md content", body = APIResponse<DocumentContentResponse>),
         (status = 404, description = "Agent or document not found", body = APIResponse<String>)
     )
 )]
@@ -81,10 +81,10 @@ pub async fn get_agent_doc(
         return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
-    let path = get_document_path(&state.config.workspace, &agent_id, "AGENT.md");
+    let path = get_document_path(&state.config.workspace, &agent_id, "SOUL.md");
     match read_document(&path) {
         Ok(content) => api_response(StatusCode::OK, DocumentContentResponse { content }),
-        Err(e) => err_response(StatusCode::NOT_FOUND, format!("failed to read AGENT.md: {}", e)),
+        Err(e) => err_response(StatusCode::NOT_FOUND, format!("failed to read SOUL.md: {}", e)),
     }
 }
 
@@ -96,7 +96,7 @@ pub async fn get_agent_doc(
     ),
     request_body = UpdateDocumentRequest,
     responses(
-        (status = 200, description = "AGENT.md updated successfully", body = APIResponse<DocumentUpdateResponse>),
+        (status = 200, description = "SOUL.md updated successfully", body = APIResponse<DocumentUpdateResponse>),
         (status = 404, description = "Agent not found", body = APIResponse<String>),
         (status = 500, description = "Internal server error", body = APIResponse<String>)
     )
@@ -117,10 +117,10 @@ pub async fn update_agent_doc(
         return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
-    let path = get_document_path(&state.config.workspace, &agent_id, "AGENT.md");
+    let path = get_document_path(&state.config.workspace, &agent_id, "SOUL.md");
     match write_document(&path, &body.content) {
-        Ok(_) => api_response(StatusCode::OK, DocumentUpdateResponse { message: "AGENT.md updated successfully".to_string() }),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("failed to update AGENT.md: {}", e)),
+        Ok(_) => api_response(StatusCode::OK, DocumentUpdateResponse { message: "SOUL.md updated successfully".to_string() }),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("failed to update SOUL.md: {}", e)),
     }
 }
 

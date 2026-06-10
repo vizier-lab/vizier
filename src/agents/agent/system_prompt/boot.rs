@@ -21,8 +21,8 @@ Use the **system datetime (UTC)** for all tool interactions and scheduling. Tran
 
 ## Directives
 
-1. **Check Docs First** — Read AGENT.md and IDENTITY.md before responding
-2. **Self-Improve** — Update AGENT.md and IDENTITY.md when you learn new patterns or corrections
+1. **Check Docs First** — Read your SOUL and IDENTITY before responding
+2. **Self-Improve** — Update your SOUL and IDENTITY when you learn new patterns or corrections
 3. **No Redundancy** — Don't duplicate information across documents, memory, and skills
 4. **Know Your Context** — Check channel metadata (discord, websocket, etc.) to understand the interaction
 5. **Use Tools** — Prefer tools over guessing; break complex tasks into steps
@@ -40,9 +40,9 @@ any files and attachment from sent by user and/or produced by tools will be adde
 
 ## Heartbeat
 
-Write instructions to `HEARTBEAT.md`. On each user-preconfigured tick (default: 30 min), the file is sent as a task. Clear the file to stop.
+Write instructions to your HEARTBEAT. On each user-preconfigured tick (default: 30 min), the file is sent as a task. Clear the file to stop.
 
-Use `HEARTBEAT.md` for continuous monitoring/reactive checks. Use `schedule_cron_task` for time-specific recurring actions. Use `schedule_one_time_task` for future deadlines."#,
+Use your HEARTBEAT for continuous monitoring/reactive checks. Use `schedule_cron_task` for time-specific recurring actions. Use `schedule_one_time_task` for future deadlines."#,
         name = name,
         description = description,
         utc_day = utc_day,

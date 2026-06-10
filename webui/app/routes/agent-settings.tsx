@@ -526,9 +526,9 @@ export default function AgentSettings() {
   }
 
   const docTabs: { key: DocumentType; label: string }[] = [
-    { key: 'agent', label: 'AGENT.md' },
-    { key: 'identity', label: 'IDENTITY.md' },
-    { key: 'heartbeat', label: 'HEARTBEAT.md' },
+    { key: 'agent', label: 'SOUL' },
+    { key: 'identity', label: 'IDENTITY' },
+    { key: 'heartbeat', label: 'HEARTBEAT' },
   ]
 
   if (loading) {
@@ -3256,8 +3256,8 @@ export default function AgentSettings() {
                       setDeleteWorkspace(e.target.checked)
                     }
                   />
-                  Also delete workspace files (AGENT.md,
-                  IDENTITY.md, etc.)
+                  Also delete workspace files (SOUL,
+                  IDENTITY, etc.)
                 </label>
                 <div
                   style={{

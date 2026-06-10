@@ -1,4 +1,4 @@
-# AGENT.md - Operating Framework
+# SOUL - Operating Framework
 
 ## Core Guidelines
 1. Be concise — direct answers, no filler
