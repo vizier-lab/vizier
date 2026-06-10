@@ -2,11 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0-rc.3] - 2026-06-10
+
+### 🚀 Features
+
+- Implement stt models
+- Implement audio message
+- Implement auto-tts mode
+
+### 🚜 Refactor
+
+- Rename context files to session files
+- Adjust prompt
+- Change audio models target directory
 ## [0.10.0-rc.2] - 2026-06-08
 
 ### 🐛 Bug Fixes
 
 - Cant create a new agent without tts
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.10.0-rc.2
 ## [0.10.0-rc.1] - 2026-06-07
 
 ### 🚀 Features

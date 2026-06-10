@@ -13,7 +13,7 @@ const SENSE_VOICE_RELEASE_BASE: &str =
     "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models";
 
 pub fn sense_voice_models_dir(workspace: &str) -> PathBuf {
-    build_path(workspace, &["stt_models"])
+    build_path(workspace, &[".runtime", "models", "stt"])
 }
 
 pub fn sense_voice_model_dir(workspace: &str, model_id: &str) -> PathBuf {
@@ -57,11 +57,9 @@ pub async fn sense_voice_prefetch_model(workspace: &str, model_id: &str) -> Resu
         .timeout(Duration::from_secs(30))
         .build()?;
 
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to download sense_voice model '{}': {}", model_id, e))?;
+    let response = client.get(&url).send().await.map_err(|e| {
+        anyhow::anyhow!("failed to download sense_voice model '{}': {}", model_id, e)
+    })?;
 
     if !response.status().is_success() {
         anyhow::bail!(
@@ -71,9 +69,7 @@ pub async fn sense_voice_prefetch_model(workspace: &str, model_id: &str) -> Resu
         );
     }
 
-    let total_size = response
-        .content_length()
-        .unwrap_or(0);
+    let total_size = response.content_length().unwrap_or(0);
 
     let pb = ProgressBar::new(total_size);
     pb.set_style(
@@ -113,10 +109,7 @@ pub async fn sense_voice_prefetch_model(workspace: &str, model_id: &str) -> Resu
     let _ = std::fs::remove_file(&archive_path);
 
     pb.finish_with_message(format!("sense_voice model {} ready", model_id));
-    log::info!(
-        "sense_voice model extracted to {}",
-        model_dir.display()
-    );
+    log::info!("sense_voice model extracted to {}", model_dir.display());
 
     Ok(model_dir)
 }
