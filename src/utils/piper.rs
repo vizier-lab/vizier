@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use hf_hub::{api::tokio::ApiBuilder, Repo, RepoType};
+use hf_hub::{Repo, RepoType, api::tokio::ApiBuilder};
 use indicatif::{ProgressBar, ProgressStyle};
 
 use crate::utils::build_path;
 
 pub fn piper_models_dir(workspace: &str) -> PathBuf {
-    build_path(workspace, &["tts_models"])
+    build_path(workspace, &[".runtime", "models", "tts"])
 }
 
 pub fn piper_model_dir(workspace: &str, model_id: &str) -> PathBuf {
@@ -61,13 +61,10 @@ pub async fn piper_prefetch_model(workspace: &str, model_id: &str) -> Result<Pat
 
     let repo = api.repo(Repo::new(repo_id.clone(), RepoType::Model));
 
-    let info = repo.info().await.map_err(|e| {
-        anyhow::anyhow!(
-            "failed to fetch model info from {}: {}",
-            repo_id,
-            e
-        )
-    })?;
+    let info = repo
+        .info()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to fetch model info from {}: {}", repo_id, e))?;
 
     let files: Vec<String> = info
         .siblings
