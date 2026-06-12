@@ -26,6 +26,7 @@ use crate::{
     },
     config::{VizierConfig, provider::ProviderVariant},
     dependencies::VizierDependencies,
+    image_generation::VizierImageGen,
     indexer::VizierIndexer,
     schema::{
         AgentConfig, Memory, SessionHistory, SessionHistoryContent, VizierAttachment,
@@ -38,9 +39,8 @@ use crate::{
         user::{UserProfile, UserStorage},
     },
     stt::VizierStt,
-    tts::VizierTts,
-    image_generation::VizierImageGen,
     transport::VizierTransport,
+    tts::VizierTts,
     utils::{agent_workspace, build_path, get_mime_type},
 };
 
@@ -90,12 +90,7 @@ impl VizierAgent {
 
         // Create STT instance if enabled (shared between auto-transcription and stt_transcribe tool)
         let stt = if agent_config.tools.stt.enabled {
-            match VizierStt::new(
-                &agent_config.tools.stt.settings,
-                &deps.storage,
-                &workspace,
-            )
-            .await
+            match VizierStt::new(&agent_config.tools.stt.settings, &deps.storage, &workspace).await
             {
                 Ok(instance) => Some(Arc::new(instance)),
                 Err(e) => {
@@ -109,12 +104,7 @@ impl VizierAgent {
 
         // Create TTS instance if enabled (shared between audio reply and tts_generate tool)
         let tts = if agent_config.tools.tts.enabled {
-            match VizierTts::new(
-                &agent_config.tools.tts.settings,
-                &deps.storage,
-                &workspace,
-            )
-            .await
+            match VizierTts::new(&agent_config.tools.tts.settings, &deps.storage, &workspace).await
             {
                 Ok(instance) => Some(Arc::new(instance)),
                 Err(e) => {
@@ -128,15 +118,14 @@ impl VizierAgent {
 
         // Create image generation instance if enabled (used by image_generate tool)
         let image_gen = if agent_config.tools.image_gen.enabled {
-            match VizierImageGen::new(
-                &agent_config.tools.image_gen.settings,
-                &deps.storage,
-            )
-            .await
-            {
+            match VizierImageGen::new(&agent_config.tools.image_gen.settings, &deps.storage).await {
                 Ok(instance) => Some(Arc::new(instance)),
                 Err(e) => {
-                    tracing::error!("failed to create image generation for agent {}: {}", agent_id, e);
+                    tracing::error!(
+                        "failed to create image generation for agent {}: {}",
+                        agent_id,
+                        e
+                    );
                     None
                 }
             }
@@ -145,7 +134,16 @@ impl VizierAgent {
         };
 
         let model = VizierModel::new(agent_id.clone(), deps.clone(), agent_config).await?;
-        let tools = VizierTools::new(agent_id.clone(), deps.clone(), agent_config, indexer.clone(), stt.clone(), tts.clone(), image_gen.clone()).await?;
+        let tools = VizierTools::new(
+            agent_id.clone(),
+            deps.clone(),
+            agent_config,
+            indexer.clone(),
+            stt.clone(),
+            tts.clone(),
+            image_gen.clone(),
+        )
+        .await?;
         let skills = VizierSkills::new(agent_id.clone(), deps.clone()).await?;
 
         init_workspace(workspace.clone());
@@ -181,7 +179,11 @@ impl VizierAgent {
         self.stt.as_ref()
     }
 
-    async fn maybe_audio_reply(&self, response: VizierResponse, req: &VizierRequest) -> VizierResponse {
+    async fn maybe_audio_reply(
+        &self,
+        response: VizierResponse,
+        req: &VizierRequest,
+    ) -> VizierResponse {
         if req.expect_audio_reply != Some(true) {
             return response;
         }
@@ -329,8 +331,12 @@ impl VizierAgent {
                     }
                 };
                 req.content = match req.content {
-                    VizierRequestContent::AudioChat(a, _) => VizierRequestContent::AudioChat(a, Some(text)),
-                    VizierRequestContent::AudioPrompt(a, _) => VizierRequestContent::AudioPrompt(a, Some(text)),
+                    VizierRequestContent::AudioChat(a, _) => {
+                        VizierRequestContent::AudioChat(a, Some(text))
+                    }
+                    VizierRequestContent::AudioPrompt(a, _) => {
+                        VizierRequestContent::AudioPrompt(a, Some(text))
+                    }
                     other => other,
                 };
             }
@@ -669,29 +675,29 @@ impl VizierAgent {
                 let tool_message = Message::User {
                     content: OneOrMany::many(tool_responses).unwrap(),
                 };
-                history.push(tool_message);
 
-                // Push each image as a separate user message
-                for img_content in pending_images {
-                    history.push(Message::User {
-                        content: OneOrMany::one(img_content),
-                    });
+                if pending_images.is_empty() {
+                    message = tool_message
+                } else {
+                    history.push(tool_message);
+
+                    // Push each image as a separate user message
+                    for img_content in pending_images {
+                        history.push(Message::User {
+                            content: OneOrMany::one(img_content),
+                        });
+                    }
+
+                    // Continue loop with next model call
+                    message = Message::User {
+                        content: OneOrMany::one(rig_core::message::UserContent::Text(
+                            "[Images loaded into context. Continue processing.]".into(),
+                        )),
+                    };
                 }
-
-                // Continue loop with next model call
-                message = Message::User {
-                    content: OneOrMany::one(rig_core::message::UserContent::Text(
-                        "[Images loaded into context. Continue processing.]".into(),
-                    )),
-                };
             }
 
-            let attachments = ctx
-                .pending_attachments
-                .lock()
-                .await
-                .drain(..)
-                .collect();
+            let attachments = ctx.pending_attachments.lock().await.drain(..).collect();
 
             Ok((
                 output,
