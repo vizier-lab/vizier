@@ -4,8 +4,9 @@ pub mod sense_voice;
 
 use std::sync::Arc;
 
-use crate::config::provider::ProviderConfig;
+use crate::config::provider::ProviderVariant;
 use crate::schema::agent::{SttProvider, SttToolSettings};
+use crate::storage::VizierStorage;
 use crate::{Result, VizierError};
 
 #[async_trait::async_trait]
@@ -23,7 +24,7 @@ pub struct VizierStt(Arc<dyn VizierSttModel>);
 impl VizierStt {
     pub async fn new(
         settings: &SttToolSettings,
-        providers: &ProviderConfig,
+        storage: &Arc<VizierStorage>,
         workspace: &str,
     ) -> Result<Self> {
         let model: Arc<dyn VizierSttModel> = match &settings.provider {
@@ -31,35 +32,34 @@ impl VizierStt {
                 Arc::new(sense_voice::SenseVoiceSttModel::new(settings, workspace).await?)
             }
             SttProvider::Openai => {
-                let api_key = providers
-                    .openai
-                    .as_ref()
-                    .map(|c| c.api_key.clone())
-                    .unwrap_or_else(|| std::env::var("OPENAI_API_KEY").unwrap_or_default());
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::openai,
+                    "OPENAI_API_KEY",
+                )
+                .await?;
                 let model = settings
                     .model
                     .clone()
                     .unwrap_or_else(|| SttProvider::Openai.default_model().into());
                 Arc::new(openai::OpenAiSttModel::new(
-                    api_key,
+                    resolved.api_key,
                     model,
-                    providers
-                        .openai
-                        .as_ref()
-                        .and_then(|c| c.base_url.clone()),
+                    resolved.base_url,
                 ))
             }
             SttProvider::Elevenlabs => {
-                let api_key = providers
-                    .elevenlabs
-                    .as_ref()
-                    .map(|c| c.api_key.clone())
-                    .unwrap_or_else(|| std::env::var("ELEVENLABS_API_KEY").unwrap_or_default());
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::elevenlabs,
+                    "ELEVENLABS_API_KEY",
+                )
+                .await?;
                 let model = settings
                     .model
                     .clone()
                     .unwrap_or_else(|| SttProvider::Elevenlabs.default_model().into());
-                Arc::new(elevenlabs::ElevenLabsSttModel::new(api_key, model))
+                Arc::new(elevenlabs::ElevenLabsSttModel::new(resolved.api_key, model))
             }
         };
 

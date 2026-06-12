@@ -6,8 +6,9 @@ pub mod piper;
 
 use std::sync::Arc;
 
-use crate::config::provider::ProviderConfig;
+use crate::config::provider::ProviderVariant;
 use crate::schema::agent::{TtsProvider, TtsToolSettings};
+use crate::storage::VizierStorage;
 use crate::{Result, VizierError};
 
 #[async_trait::async_trait]
@@ -20,7 +21,7 @@ pub struct VizierTts(Arc<dyn VizierTtsModel>);
 impl VizierTts {
     pub async fn new(
         settings: &TtsToolSettings,
-        providers: &ProviderConfig,
+        storage: &Arc<VizierStorage>,
         workspace: &str,
     ) -> Result<Self> {
         let model: Arc<dyn VizierTtsModel> = match &settings.provider {
@@ -29,44 +30,44 @@ impl VizierTts {
                 Arc::new(kitten::KittenTtsModel::new(settings, workspace).await?)
             }
             TtsProvider::Openai => {
-                let api_key = providers
-                    .openai
-                    .as_ref()
-                    .map(|c| c.api_key.clone())
-                    .unwrap_or_else(|| std::env::var("OPENAI_API_KEY").unwrap_or_default());
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::openai,
+                    "OPENAI_API_KEY",
+                )
+                .await?;
                 let model = settings.model.clone().unwrap_or_else(|| "tts-1".into());
                 Arc::new(openai::OpenAiTtsModel::new(
-                    api_key,
+                    resolved.api_key,
                     model,
-                    providers
-                        .openai
-                        .as_ref()
-                        .and_then(|c| c.base_url.clone()),
+                    resolved.base_url,
                 ))
             }
             TtsProvider::Openrouter => {
-                let api_key = providers
-                    .openrouter
-                    .as_ref()
-                    .map(|c| c.api_key.clone())
-                    .unwrap_or_else(|| std::env::var("OPENROUTER_API_KEY").unwrap_or_default());
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::openrouter,
+                    "OPENROUTER_API_KEY",
+                )
+                .await?;
                 let model = settings
                     .model
                     .clone()
                     .unwrap_or_else(|| "openai/gpt-4o-mini-tts-2025-12-15".into());
-                Arc::new(openrouter::OpenRouterTtsModel::new(api_key, model))
+                Arc::new(openrouter::OpenRouterTtsModel::new(resolved.api_key, model))
             }
             TtsProvider::Elevenlabs => {
-                let api_key = providers
-                    .elevenlabs
-                    .as_ref()
-                    .map(|c| c.api_key.clone())
-                    .unwrap_or_else(|| std::env::var("ELEVENLABS_API_KEY").unwrap_or_default());
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::elevenlabs,
+                    "ELEVENLABS_API_KEY",
+                )
+                .await?;
                 let model = settings
                     .model
                     .clone()
                     .unwrap_or_else(|| "eleven_multilingual_v2".into());
-                Arc::new(elevenlabs::ElevenLabsTtsModel::new(api_key, model))
+                Arc::new(elevenlabs::ElevenLabsTtsModel::new(resolved.api_key, model))
             }
         };
 

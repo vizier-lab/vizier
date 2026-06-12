@@ -121,28 +121,43 @@ impl VizierModel {
                     .await?,
             ),
             ProviderVariant::anthropic => Self::build(
-                VizierModelImpl::<anthropic::Client>::build(&provider_entry.config, &override_config)
-                    .await?,
+                VizierModelImpl::<anthropic::Client>::build(
+                    &provider_entry.config,
+                    &override_config,
+                )
+                .await?,
             ),
             ProviderVariant::openrouter => Self::build(
-                VizierModelImpl::<openrouter::Client>::build(&provider_entry.config, &override_config)
-                    .await?,
+                VizierModelImpl::<openrouter::Client>::build(
+                    &provider_entry.config,
+                    &override_config,
+                )
+                .await?,
             ),
             ProviderVariant::gemini => Self::build(
                 VizierModelImpl::<gemini::Client>::build(&provider_entry.config, &override_config)
                     .await?,
             ),
             ProviderVariant::deepseek => Self::build(
-                VizierModelImpl::<deepseek::Client>::build(&provider_entry.config, &override_config)
-                    .await?,
+                VizierModelImpl::<deepseek::Client>::build(
+                    &provider_entry.config,
+                    &override_config,
+                )
+                .await?,
             ),
             ProviderVariant::mimo => Self::build(
-                VizierModelImpl::<xiaomimimo::Client>::build(&provider_entry.config, &override_config)
-                    .await?,
+                VizierModelImpl::<xiaomimimo::Client>::build(
+                    &provider_entry.config,
+                    &override_config,
+                )
+                .await?,
             ),
             ProviderVariant::llama_cpp => Self::build(
-                VizierModelImpl::<llamafile::Client>::build(&provider_entry.config, &override_config)
-                    .await?,
+                VizierModelImpl::<llamafile::Client>::build(
+                    &provider_entry.config,
+                    &override_config,
+                )
+                .await?,
             ),
             ProviderVariant::mistralrs => unreachable!(),
             ProviderVariant::elevenlabs => {
@@ -242,10 +257,10 @@ impl MistralRsModel {
         use mistralrs::{IsqBits, IsqType, ModelBuilder};
 
         let quantization = agent_config.quantization.as_ref();
-        let cache_dir = crate::utils::mistralrs::mistralrs_model_dir(workspace, &agent_config.model);
+        let cache_dir =
+            crate::utils::mistralrs::mistralrs_model_dir(workspace, &agent_config.model);
 
-        let mut builder = ModelBuilder::new(&agent_config.model)
-            .from_hf_cache_path(cache_dir);
+        let mut builder = ModelBuilder::new(&agent_config.model).from_hf_cache_path(cache_dir);
 
         builder = match quantization {
             Some(Quantization::Auto4) => builder.with_auto_isq(IsqBits::Four),
@@ -360,7 +375,9 @@ impl VizierModelTrait for MistralRsModel {
                     }
                 })
                 .collect();
-            request = request.set_tools(mistral_tools).set_tool_choice(ToolChoice::Auto);
+            request = request
+                .set_tools(mistral_tools)
+                .set_tool_choice(ToolChoice::Auto);
         }
 
         if let Some(max) = self.max_tokens {
@@ -381,6 +398,7 @@ impl VizierModelTrait for MistralRsModel {
             if !text.is_empty() {
                 contents.push(AssistantContent::Text(rig_core::message::Text {
                     text: text.clone(),
+                    additional_params: None,
                 }));
             }
         }
@@ -392,8 +410,7 @@ impl VizierModelTrait for MistralRsModel {
                     call_id: None,
                     function: rig_core::message::ToolFunction {
                         name: tc.function.name.clone(),
-                        arguments: serde_json::from_str(&tc.function.arguments)
-                            .unwrap_or_default(),
+                        arguments: serde_json::from_str(&tc.function.arguments).unwrap_or_default(),
                     },
                     signature: None,
                     additional_params: None,
@@ -408,11 +425,13 @@ impl VizierModelTrait for MistralRsModel {
             cached_input_tokens: 0,
             cache_creation_input_tokens: 0,
             reasoning_tokens: 0,
+            tool_use_prompt_tokens: 0,
         };
 
         let one_or_many = if contents.is_empty() {
             OneOrMany::one(AssistantContent::Text(rig_core::message::Text {
                 text: String::new(),
+                additional_params: None,
             }))
         } else if contents.len() == 1 {
             OneOrMany::one(contents.into_iter().next().unwrap())

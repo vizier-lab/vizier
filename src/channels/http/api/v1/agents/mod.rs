@@ -18,8 +18,8 @@ use crate::{
     config::{shell::ShellConfig, tools::mcp::McpClientConfig},
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
-        AgentToolsConfig, AgentUsageStats, BraveSearchToolSettings, MemoryConfig,
-        ReadImageToolSettings, ToolConfig, TtsToolSettings,
+        AgentToolsConfig, AgentUsageStats, BraveSearchToolSettings, ImageGenToolSettings,
+        MemoryConfig, ReadImageToolSettings, ToolConfig, TtsToolSettings,
         agent::SttToolSettings,
         VizierAttachment, VizierChannelId, VizierRequest, VizierRequestContent,
         VizierResponseContent, VizierResponseStats, VizierSession,
@@ -176,6 +176,8 @@ pub struct AgentDetail {
     pub stt_settings: Option<SttToolSettings>,
     pub read_image: bool,
     pub read_image_settings: Option<ReadImageToolSettings>,
+    pub image_gen: bool,
+    pub image_gen_settings: Option<ImageGenToolSettings>,
 }
 
 #[utoipa::path(
@@ -269,6 +271,16 @@ async fn agent_detail(
                 } else {
                     None
                 },
+                image_gen: config.tools.image_gen.enabled,
+                image_gen_settings: if config.tools.image_gen.settings.provider
+                    != crate::schema::agent::ImageGenProvider::default()
+                    || config.tools.image_gen.settings.model.is_some()
+                    || config.tools.image_gen.settings.size.is_some()
+                {
+                    Some(config.tools.image_gen.settings.clone())
+                } else {
+                    None
+                },
             },
         )
         }
@@ -356,6 +368,10 @@ pub struct CreateAgentTools {
     pub read_image: Option<bool>,
     #[serde(default)]
     pub read_image_settings: Option<ReadImageToolSettings>,
+    #[serde(default)]
+    pub image_gen: Option<bool>,
+    #[serde(default)]
+    pub image_gen_settings: Option<ImageGenToolSettings>,
 }
 
 impl CreateAgentRequest {
@@ -377,6 +393,8 @@ impl CreateAgentRequest {
             stt_settings: None,
             read_image: None,
             read_image_settings: None,
+            image_gen: None,
+            image_gen_settings: None,
         });
 
         AgentConfig {
@@ -432,6 +450,10 @@ impl CreateAgentRequest {
                 read_image: ToolConfig {
                     enabled: tools.read_image.unwrap_or(false),
                     settings: tools.read_image_settings.unwrap_or_default(),
+                },
+                image_gen: ToolConfig {
+                    enabled: tools.image_gen.unwrap_or(false),
+                    settings: tools.image_gen_settings.unwrap_or_default(),
                 },
             },
             silent_read_initiative_chance: self.silent_read_initiative_chance.unwrap_or(0.0),

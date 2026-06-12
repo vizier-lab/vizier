@@ -137,6 +137,8 @@ export default function AgentSettings() {
       stt_settings: {},
       read_image: false,
       read_image_settings: {},
+      image_gen: false,
+      image_gen_settings: {},
     },
     prompt_timeout: '5m',
     heartbeat_interval: '30m',
@@ -224,6 +226,8 @@ export default function AgentSettings() {
             stt_settings: d.stt_settings || {},
             read_image: d.read_image,
             read_image_settings: d.read_image_settings || {},
+            image_gen: d.image_gen,
+            image_gen_settings: d.image_gen_settings || {},
           },
           prompt_timeout: d.prompt_timeout,
           heartbeat_interval: d.heartbeat_interval,
@@ -2262,6 +2266,152 @@ export default function AgentSettings() {
                             }))
                           }
                         />
+                      </section>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Image Generation */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Image Generation
+                </h4>
+                <div
+                  style={{
+                    padding: '0.75rem',
+                    border: '1px solid var(--border)',
+                    borderRadius: '0.5rem',
+                  }}
+                >
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      marginBottom: form.tools?.image_gen
+                        ? '0.75rem'
+                        : 0,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.tools?.image_gen ?? false}
+                      onChange={(e) =>
+                        updateTool('image_gen', e.target.checked)
+                      }
+                    />
+                    Enable Image Generation
+                  </label>
+                  {form.tools?.image_gen && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem',
+                        paddingLeft: '1.5rem',
+                      }}
+                    >
+                      <section style={fieldStyle}>
+                        <label style={labelStyle}>
+                          <TooltipLabel
+                            label="Provider"
+                            tooltip="Image generation provider."
+                          />
+                        </label>
+                        <select
+                          style={inputStyle}
+                          value={
+                            form.tools?.image_gen_settings?.provider ||
+                            'openai'
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                image_gen_settings: {
+                                  ...prev.tools?.image_gen_settings,
+                                  provider: e.target
+                                    .value as import('../interfaces/types').ImageGenProvider,
+                                },
+                              },
+                            }))
+                          }
+                        >
+                          <option value="openai">OpenAI</option>
+                        </select>
+                      </section>
+                      <section style={fieldStyle}>
+                        <label style={labelStyle}>
+                          <TooltipLabel
+                            label="Model (optional)"
+                            tooltip="Provider default is used if blank (dall-e-3)."
+                          />
+                        </label>
+                        <input
+                          style={inputStyle}
+                          type="text"
+                          placeholder="e.g. dall-e-3, gpt-image-1"
+                          value={
+                            form.tools?.image_gen_settings?.model || ''
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                image_gen_settings: {
+                                  ...prev.tools?.image_gen_settings,
+                                  model:
+                                    e.target.value || undefined,
+                                },
+                              },
+                            }))
+                          }
+                        />
+                      </section>
+                      <section style={fieldStyle}>
+                        <label style={labelStyle}>
+                          <TooltipLabel
+                            label="Size"
+                            tooltip="Output image dimensions."
+                          />
+                        </label>
+                        <select
+                          style={inputStyle}
+                          value={
+                            form.tools?.image_gen_settings?.size ||
+                            '1024x1024'
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                image_gen_settings: {
+                                  ...prev.tools?.image_gen_settings,
+                                  size: e.target.value || undefined,
+                                },
+                              },
+                            }))
+                          }
+                        >
+                          <option value="1024x1024">1024x1024 (square)</option>
+                          <option value="1024x1792">1024x1792 (portrait)</option>
+                          <option value="1792x1024">1792x1024 (landscape)</option>
+                        </select>
                       </section>
                     </div>
                   )}

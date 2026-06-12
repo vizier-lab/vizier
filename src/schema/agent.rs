@@ -84,6 +84,8 @@ pub struct AgentToolsConfig {
     pub stt: ToolConfig<SttToolSettings>,
     #[serde(default)]
     pub read_image: ToolConfig<ReadImageToolSettings>,
+    #[serde(default)]
+    pub image_gen: ToolConfig<ImageGenToolSettings>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -165,4 +167,29 @@ pub struct SttToolSettings {
 pub struct ReadImageToolSettings {
     pub provider: Option<ProviderVariant>,
     pub model: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageGenProvider {
+    #[default]
+    Openai,
+}
+
+impl ImageGenProvider {
+    pub fn default_model(&self) -> &str {
+        match self {
+            Self::Openai => "dall-e-3",
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]
+#[serde(default)]
+pub struct ImageGenToolSettings {
+    pub provider: ImageGenProvider,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<String>,
 }

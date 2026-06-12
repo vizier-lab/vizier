@@ -27,6 +27,8 @@ mod storage;
 mod transport;
 mod tts;
 mod stt;
+mod image_generation;
+mod provider_keys;
 mod utils;
 
 fn main() -> Result<()> {

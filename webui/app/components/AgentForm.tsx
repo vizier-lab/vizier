@@ -127,6 +127,8 @@ const DEFAULT_FORM: CreateAgentRequest = {
     stt_settings: {},
     read_image: false,
     read_image_settings: {},
+    image_gen: false,
+    image_gen_settings: {},
   },
   prompt_timeout: '5m',
   heartbeat_interval: '30m',
@@ -201,6 +203,8 @@ export default function AgentForm({
           stt_settings: d.stt_settings || {},
           read_image: d.read_image,
           read_image_settings: d.read_image_settings || {},
+          image_gen: d.image_gen,
+          image_gen_settings: d.image_gen_settings || {},
         },
         prompt_timeout: d.prompt_timeout,
         heartbeat_interval: d.heartbeat_interval,
@@ -2038,6 +2042,164 @@ export default function AgentForm({
                 </div>
               </div>
 
+              {/* Image Generation */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Image Generation
+                </h4>
+                <div
+                  style={{
+                    padding: '0.75rem',
+                    border: '1px solid var(--border)',
+                    borderRadius: '0.5rem',
+                  }}
+                >
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      marginBottom: form.tools?.image_gen
+                        ? '0.75rem'
+                        : 0,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.tools?.image_gen ?? false}
+                      onChange={(e) =>
+                        updateTool('image_gen', e.target.checked)
+                      }
+                    />
+                    Enable Image Generation
+                  </label>
+                  {form.tools?.image_gen && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem',
+                        paddingLeft: '1.5rem',
+                      }}
+                    >
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '0.25rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Provider
+                        </label>
+                        <select
+                          style={inputStyle}
+                          value={
+                            form.tools?.image_gen_settings?.provider ||
+                            'openai'
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                image_gen_settings: {
+                                  ...prev.tools?.image_gen_settings,
+                                  provider: e.target
+                                    .value as import('../interfaces/types').ImageGenProvider,
+                                },
+                              },
+                            }))
+                          }
+                        >
+                          <option value="openai">OpenAI</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '0.25rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Model (optional)
+                        </label>
+                        <input
+                          style={inputStyle}
+                          type="text"
+                          placeholder="e.g. dall-e-3, gpt-image-1"
+                          value={
+                            form.tools?.image_gen_settings?.model || ''
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                image_gen_settings: {
+                                  ...prev.tools?.image_gen_settings,
+                                  model:
+                                    e.target.value || undefined,
+                                },
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '0.25rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Size
+                        </label>
+                        <select
+                          style={inputStyle}
+                          value={
+                            form.tools?.image_gen_settings?.size ||
+                            '1024x1024'
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                image_gen_settings: {
+                                  ...prev.tools?.image_gen_settings,
+                                  size: e.target.value || undefined,
+                                },
+                              },
+                            }))
+                          }
+                        >
+                          <option value="1024x1024">1024x1024 (square)</option>
+                          <option value="1024x1792">1024x1792 (portrait)</option>
+                          <option value="1792x1024">1792x1024 (landscape)</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Shell Config */}
               <div>
                 <h4
@@ -3252,6 +3414,11 @@ export default function AgentForm({
                       Read Image (vision)
                     </span>
                   )}
+                  {form.tools?.image_gen && (
+                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
+                      Image Gen
+                    </span>
+                  )}
                   {form.tools?.mcp_servers && Object.keys(form.tools.mcp_servers).length > 0 && (
                     <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
                       MCP ({Object.keys(form.tools.mcp_servers).length})
@@ -3260,7 +3427,7 @@ export default function AgentForm({
                   {!form.tools?.brave_search && !form.tools?.discord &&
                     !form.tools?.telegram && !form.tools?.fetch && !form.tools?.http_client &&
                     !form.tools?.programmatic_sandbox && !form.tools?.tts && !form.tools?.stt &&
-                    !form.tools?.read_image && (
+                    !form.tools?.read_image && !form.tools?.image_gen && (
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
                       No tools enabled
                     </span>

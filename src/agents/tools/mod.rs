@@ -31,6 +31,7 @@ use crate::{
         think::ThinkTool,
         tts::TtsGenerate,
         stt::SttTranscribe,
+        image_gen::ImageGenerate,
         vector_memory::init_vector_memory,
         webui::{ListWebuiTopics, SendWebuiMessage},
         workspace::{
@@ -63,6 +64,7 @@ mod telegram;
 mod think;
 pub mod tts;
 pub mod stt;
+mod image_gen;
 mod vector_memory;
 mod webui;
 mod workspace;
@@ -359,6 +361,7 @@ impl VizierTools {
         agent_config: &crate::schema::AgentConfig,
         stt: Option<Arc<crate::stt::VizierStt>>,
         tts: Option<Arc<crate::tts::VizierTts>>,
+        image_gen: Option<Arc<crate::image_generation::VizierImageGen>>,
     ) -> Result<Self> {
         let tool_config = deps.config.tools.clone();
         let workspace = deps.config.workspace.clone();
@@ -568,6 +571,16 @@ impl VizierTools {
                 storage: deps.storage.clone(),
                 file_manager: deps.file_manager.clone(),
                 language,
+            });
+        }
+
+        if let Some(image_gen) = image_gen {
+            let default_size = agent_config.tools.image_gen.settings.size.clone();
+            user_toolset = user_toolset.tool(ImageGenerate {
+                image_gen,
+                storage: deps.storage.clone(),
+                file_manager: deps.file_manager.clone(),
+                default_size,
             });
         }
 

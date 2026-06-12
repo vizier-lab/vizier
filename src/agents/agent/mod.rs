@@ -38,6 +38,7 @@ use crate::{
     },
     stt::VizierStt,
     tts::VizierTts,
+    image_generation::VizierImageGen,
     transport::VizierTransport,
     utils::{agent_workspace, build_path, get_mime_type},
 };
@@ -71,6 +72,7 @@ pub struct VizierAgent {
     owner_profile: Option<UserProfile>,
     stt: Option<Arc<VizierStt>>,
     tts: Option<Arc<VizierTts>>,
+    image_gen: Option<Arc<VizierImageGen>>,
 }
 
 impl VizierAgent {
@@ -87,7 +89,7 @@ impl VizierAgent {
         let stt = if agent_config.tools.stt.enabled {
             match VizierStt::new(
                 &agent_config.tools.stt.settings,
-                &deps.config.providers,
+                &deps.storage,
                 &workspace,
             )
             .await
@@ -106,7 +108,7 @@ impl VizierAgent {
         let tts = if agent_config.tools.tts.enabled {
             match VizierTts::new(
                 &agent_config.tools.tts.settings,
-                &deps.config.providers,
+                &deps.storage,
                 &workspace,
             )
             .await
@@ -121,8 +123,26 @@ impl VizierAgent {
             None
         };
 
+        // Create image generation instance if enabled (used by image_generate tool)
+        let image_gen = if agent_config.tools.image_gen.enabled {
+            match VizierImageGen::new(
+                &agent_config.tools.image_gen.settings,
+                &deps.storage,
+            )
+            .await
+            {
+                Ok(instance) => Some(Arc::new(instance)),
+                Err(e) => {
+                    tracing::error!("failed to create image generation for agent {}: {}", agent_id, e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let model = VizierModel::new(agent_id.clone(), deps.clone(), agent_config).await?;
-        let tools = VizierTools::new(agent_id.clone(), deps.clone(), agent_config, stt.clone(), tts.clone()).await?;
+        let tools = VizierTools::new(agent_id.clone(), deps.clone(), agent_config, stt.clone(), tts.clone(), image_gen.clone()).await?;
         let skills = VizierSkills::new(agent_id.clone(), deps.clone()).await?;
 
         init_workspace(workspace.clone());
@@ -145,6 +165,7 @@ impl VizierAgent {
             owner_profile,
             stt,
             tts,
+            image_gen,
             workspace,
             global_workspace: deps.config.workspace.clone(),
             storage: deps.storage.clone(),

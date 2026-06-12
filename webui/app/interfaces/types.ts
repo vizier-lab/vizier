@@ -131,6 +131,14 @@ export interface ReadImageToolSettings {
   model?: string
 }
 
+export type ImageGenProvider = 'openai'
+
+export interface ImageGenToolSettings {
+  provider?: ImageGenProvider
+  model?: string
+  size?: string
+}
+
 export interface AgentToolsConfig {
   timeout: string
   programmatic_sandbox: boolean
@@ -148,6 +156,8 @@ export interface AgentToolsConfig {
   stt_settings?: SttToolSettings
   read_image: AgentToolConfig
   read_image_settings?: ReadImageToolSettings
+  image_gen: AgentToolConfig
+  image_gen_settings?: ImageGenToolSettings
 }
 
 export interface AgentConfig {
@@ -203,6 +213,8 @@ export interface CreateAgentRequest {
     stt_settings?: SttToolSettings
     read_image?: boolean
     read_image_settings?: ReadImageToolSettings
+    image_gen?: boolean
+    image_gen_settings?: ImageGenToolSettings
   }
   prompt_timeout?: string
   heartbeat_interval?: string
@@ -253,6 +265,8 @@ export interface AgentDetail {
   stt_settings?: SttToolSettings
   read_image: boolean
   read_image_settings?: ReadImageToolSettings
+  image_gen: boolean
+  image_gen_settings?: ImageGenToolSettings
   avatar_url?: string
 }
 
