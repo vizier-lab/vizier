@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use duration_string::DurationString;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::config::provider::ProviderVariant;
@@ -52,6 +53,10 @@ pub struct AgentConfig {
     pub telegram_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding: Option<EmbeddingToolSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub indexer: Option<IndexerConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -92,6 +97,60 @@ pub struct AgentToolsConfig {
 pub struct ToolConfig<Settings> {
     pub enabled: bool,
     pub settings: Settings,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema, JsonSchema)]
+pub struct EmbeddingToolSettings {
+    pub provider: EmbeddingProvider,
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EmbeddingProvider {
+    #[default]
+    Local,
+    Openrouter,
+    Ollama,
+    Openai,
+    Gemini,
+}
+
+impl EmbeddingProvider {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Openrouter => "openrouter",
+            Self::Ollama => "ollama",
+            Self::Openai => "openai",
+            Self::Gemini => "gemini",
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema, JsonSchema)]
+pub struct IndexerConfig {
+    #[serde(default)]
+    pub kind: IndexerKind,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexerKind {
+    #[default]
+    Surreal,
+}
+
+impl IndexerKind {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Surreal => "surreal",
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]

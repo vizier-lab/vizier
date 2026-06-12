@@ -3,8 +3,7 @@ use chrono::Utc;
 use regex::Regex;
 
 use crate::{
-    embedding::VizierEmbeddingModel,
-    error::VizierError,
+    indexer::VizierIndexer,
     schema::{
         Memory, MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams, MemoryVisibility,
         PaginatedMemory,
@@ -37,12 +36,8 @@ impl MemoryStorage for SurrealStorage {
         visibility: MemoryVisibility,
         shared_to: Vec<String>,
         tags: Vec<String>,
+        indexer: &VizierIndexer,
     ) -> Result<Memory> {
-        let embedder = self
-            .embedder
-            .clone()
-            .ok_or(VizierError("embedder is not set".into()))?;
-
         let slug = slug.unwrap_or_else(|| slugify!(&title));
         let store_agent_id = match visibility {
             MemoryVisibility::Global => GLOBAL_AGENT_ID.to_string(),
@@ -57,18 +52,20 @@ impl MemoryStorage for SurrealStorage {
                     .conn
                     .delete::<Option<Memory>>(("memory", old_key))
                     .await;
+                let _ = indexer
+                    .delete_index("memory".into(), format!("memory/{}/{}", old_agent_dir, slug))
+                    .await;
             }
         }
 
         let relations = parse_wikilinks(&content);
 
-        let mut memory = Memory {
+        let memory = Memory {
             slug: slug.clone(),
             agent_id: store_agent_id.clone(),
             title,
             content: content.clone(),
             timestamp: Utc::now(),
-            embedding: vec![],
             visibility,
             shared_to,
             tags,
@@ -76,13 +73,18 @@ impl MemoryStorage for SurrealStorage {
             relations,
         };
 
-        let embedding = embedder.embed_text(&content).await?;
-        memory.embedding = embedding;
-
         let _: Option<Memory> = self
             .conn
             .upsert(("memory", format!("{}/{}", store_agent_id, slug)))
             .content(memory.clone())
+            .await?;
+
+        indexer
+            .add_document_index(
+                "memory".into(),
+                format!("memory/{}/{}", store_agent_id, slug),
+                content,
+            )
             .await?;
 
         Ok(memory)
@@ -94,38 +96,28 @@ impl MemoryStorage for SurrealStorage {
         query: String,
         limit: usize,
         threshold: f64,
+        indexer: &VizierIndexer,
     ) -> Result<Vec<Memory>> {
-        let embedder = self
-            .embedder
-            .clone()
-            .ok_or(VizierError("embedder is not set".into()))?;
+        let _ = (DistanceFunction::Cosine, &agent_id, &query, &limit, &threshold, indexer);
 
-        let query = embedder.embed_text(&query).await?;
-
-        let distance_function = DistanceFunction::Cosine;
-
-        let mut response = self
-            .conn
-            .query(format!(
-                r#"SELECT *
-                    FROM type::table($table)
-                    WHERE {distance_function}($query, embedding) >= $threshold
-                        AND (
-                            visibility = 'private' AND agent_id = $agent_id
-                            OR visibility = 'global'
-                            OR (visibility = 'shared' AND array::contains(shared_to, $agent_id))
-                        )
-                    ORDER BY distance ASC
-                    LIMIT $limit"#
-            ))
-            .bind(("table", "memory"))
-            .bind(("agent_id", agent_id))
-            .bind(("query", query))
-            .bind(("limit", limit))
-            .bind(("threshold", threshold))
+        let documents = indexer
+            .search_document_index("memory".into(), query, limit * 3, threshold)
             .await?;
 
-        let res: Vec<Memory> = response.take(0)?;
+        let mut res = vec![];
+        for doc in documents {
+            let slug_part = doc.path.rsplit('/').next().unwrap_or(&doc.path);
+            if let Some(memory) = self
+                .get_memory_detail(agent_id.clone(), slug_part.to_string())
+                .await?
+            {
+                res.push(memory);
+            }
+
+            if res.len() >= limit {
+                break;
+            }
+        }
 
         Ok(res)
     }
@@ -330,16 +322,26 @@ impl MemoryStorage for SurrealStorage {
         Ok(MemoryGraph { nodes, edges })
     }
 
-    async fn delete_memory(&self, agent_id: String, slug: String) -> Result<()> {
+    async fn delete_memory(
+        &self,
+        agent_id: String,
+        slug: String,
+        indexer: &VizierIndexer,
+    ) -> Result<()> {
         let detail = self.get_memory_detail(agent_id.clone(), slug.clone()).await?;
         let actual_agent_id = match detail {
             Some(m) => m.agent_id,
             None => agent_id,
         };
+
+        let key = format!("{}/{}", actual_agent_id, slug);
         let _ = self
             .conn
-            .delete::<Option<Memory>>(("memory", format!("{}/{}", actual_agent_id, slug)))
+            .delete::<Option<Memory>>(("memory", key.clone()))
             .await?;
+        let _ = indexer
+            .delete_index("memory".into(), format!("memory/{}", key))
+            .await;
 
         Ok(())
     }

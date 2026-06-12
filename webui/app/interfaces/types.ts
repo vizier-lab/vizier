@@ -104,6 +104,39 @@ export interface AgentToolConfig {
   enabled: boolean
 }
 
+export type IndexerKind = 'surreal'
+
+export interface IndexerConfig {
+  kind: IndexerKind
+}
+
+export type EmbeddingProvider =
+  | 'local'
+  | 'openrouter'
+  | 'ollama'
+  | 'openai'
+  | 'gemini'
+
+export interface EmbeddingToolSettings {
+  provider: EmbeddingProvider
+  model: string
+  base_url?: string
+}
+
+export interface LocalEmbeddingModel {
+  variant: string
+  name: string
+  tier: 'lightweight' | 'balanced' | 'performance'
+}
+
+export const EMBEDDING_PROVIDERS: EmbeddingProvider[] = [
+  'local',
+  'ollama',
+  'openai',
+  'gemini',
+  'openrouter',
+]
+
 export interface BraveSearchToolSettings {
   api_key?: string
   safesearch?: boolean
@@ -180,6 +213,8 @@ export interface AgentConfig {
   dream_schedule: string | null
   dream_provider: string | null
   dream_model: string | null
+  embedding?: EmbeddingToolSettings
+  indexer?: IndexerConfig
 }
 
 export interface CreateAgentRequest {
@@ -225,6 +260,8 @@ export interface CreateAgentRequest {
   discord_token?: string
   telegram_token?: string
   avatar_url?: string
+  embedding?: EmbeddingToolSettings
+  indexer?: IndexerConfig
 }
 
 export interface AgentDetail {
@@ -268,6 +305,8 @@ export interface AgentDetail {
   image_gen: boolean
   image_gen_settings?: ImageGenToolSettings
   avatar_url?: string
+  embedding?: EmbeddingToolSettings
+  indexer?: IndexerConfig
 }
 
 // ============================================================================

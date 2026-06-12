@@ -6,15 +6,16 @@ use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
 use crate::agents::tools::{ToolContext, VizierTool};
-use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
+use crate::indexer::VizierIndexer;
 use crate::schema::{AgentId, MemoryVisibility};
 use crate::storage::VizierStorage;
 use crate::storage::memory::MemoryStorage;
 
 pub fn init_vector_memory(
     agent_id: String,
-    deps: VizierDependencies,
+    storage: Arc<VizierStorage>,
+    indexer: VizierIndexer,
 ) -> Result<(
     MemoryRead,
     MemoryWrite,
@@ -25,22 +26,22 @@ pub fn init_vector_memory(
     MemoryDelete,
 )> {
     Ok((
-        MemoryRead::new(agent_id.clone(), deps.storage.clone()),
-        MemoryWrite::new(agent_id.clone(), deps.storage.clone()),
-        MemoryList::new(agent_id.clone(), deps.storage.clone()),
-        MemoryDetail::new(agent_id.clone(), deps.storage.clone()),
-        MemoryFollow::new(agent_id.clone(), deps.storage.clone()),
-        MemoryGraphTool::new(agent_id.clone(), deps.storage.clone()),
-        MemoryDelete::new(agent_id.clone(), deps.storage.clone()),
+        MemoryRead::new(agent_id.clone(), storage.clone(), indexer.clone()),
+        MemoryWrite::new(agent_id.clone(), storage.clone(), indexer.clone()),
+        MemoryList::new(agent_id.clone(), storage.clone()),
+        MemoryDetail::new(agent_id.clone(), storage.clone()),
+        MemoryFollow::new(agent_id.clone(), storage.clone()),
+        MemoryGraphTool::new(agent_id.clone(), storage.clone()),
+        MemoryDelete::new(agent_id.clone(), storage.clone(), indexer),
     ))
 }
 
 pub type MemoryRead = ReadVectorMemory;
-pub struct ReadVectorMemory(AgentId, Arc<VizierStorage>);
+pub struct ReadVectorMemory(AgentId, Arc<VizierStorage>, VizierIndexer);
 
 impl MemoryRead {
-    fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
-        Self(agent_id, store)
+    fn new(agent_id: AgentId, store: Arc<VizierStorage>, indexer: VizierIndexer) -> Self {
+        Self(agent_id, store, indexer)
     }
 }
 
@@ -143,7 +144,7 @@ impl VizierTool for MemoryRead {
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let res = self
             .1
-            .query_memory(self.0.clone(), args.query, 10, 0.1)
+            .query_memory(self.0.clone(), args.query, 10, 0.1, &self.2)
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
@@ -152,11 +153,11 @@ impl VizierTool for MemoryRead {
 }
 
 pub type MemoryWrite = WriteVectorMemory;
-pub struct WriteVectorMemory(AgentId, Arc<VizierStorage>);
+pub struct WriteVectorMemory(AgentId, Arc<VizierStorage>, VizierIndexer);
 
 impl MemoryWrite {
-    fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
-        Self(agent_id, store)
+    fn new(agent_id: AgentId, store: Arc<VizierStorage>, indexer: VizierIndexer) -> Self {
+        Self(agent_id, store, indexer)
     }
 }
 
@@ -222,6 +223,7 @@ impl VizierTool for MemoryWrite {
                 visibility.clone(),
                 args.shared_to.clone(),
                 args.tags.clone(),
+                &self.2,
             )
             .await
             .map_err(|err| VizierError(err.to_string()))?;
@@ -280,7 +282,7 @@ impl VizierTool for MemoryDetail {
     }
 
     fn description(&self) -> String {
-        "Get full memory content by slug. Content may contain [[slug]] links to other memories — call this tool with those slugs to traverse the knowledge graph.".into()
+        "Get full memory content by slug. Content may contain [[slug]] links to related memories — call this tool with those slugs to traverse the knowledge graph.".into()
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
@@ -482,11 +484,11 @@ impl VizierTool for MemoryGraphTool {
 }
 
 pub type MemoryDelete = DeleteVectorMemory;
-pub struct DeleteVectorMemory(AgentId, Arc<VizierStorage>);
+pub struct DeleteVectorMemory(AgentId, Arc<VizierStorage>, VizierIndexer);
 
 impl MemoryDelete {
-    fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
-        Self(agent_id, store)
+    fn new(agent_id: AgentId, store: Arc<VizierStorage>, indexer: VizierIndexer) -> Self {
+        Self(agent_id, store, indexer)
     }
 }
 
@@ -512,7 +514,7 @@ impl VizierTool for MemoryDelete {
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let slug = args.slug.clone();
         self.1
-            .delete_memory(self.0.clone(), slug.clone())
+            .delete_memory(self.0.clone(), slug.clone(), &self.2)
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 

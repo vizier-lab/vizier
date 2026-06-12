@@ -42,6 +42,7 @@ use crate::{
     config::provider::ProviderVariant,
     dependencies::VizierDependencies,
     error::VizierError,
+    indexer::VizierIndexer,
     schema::{AgentId, VizierAttachment, VizierResponse, VizierSession},
     storage::{VizierStorage, agent::AgentStorage},
     utils::agent_workspace,
@@ -359,6 +360,7 @@ impl VizierTools {
         agent_id: AgentId,
         deps: VizierDependencies,
         agent_config: &crate::schema::AgentConfig,
+        indexer: Option<crate::indexer::VizierIndexer>,
         stt: Option<Arc<crate::stt::VizierStt>>,
         tts: Option<Arc<crate::tts::VizierTts>>,
         image_gen: Option<Arc<crate::image_generation::VizierImageGen>>,
@@ -517,7 +519,7 @@ impl VizierTools {
             user_toolset = user_toolset.tool(HttpClient);
         }
 
-        if deps.config.embedding.is_some() {
+        if let Some(idx) = indexer.clone() {
             let (
                 read_memory,
                 write_memory,
@@ -526,7 +528,7 @@ impl VizierTools {
                 follow_memory,
                 graph_memory,
                 delete_memory,
-            ) = init_vector_memory(agent_id.clone(), deps.clone())?;
+            ) = init_vector_memory(agent_id.clone(), deps.storage.clone(), idx)?;
 
             default_toolset = default_toolset
                 .tool(read_memory)

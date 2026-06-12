@@ -1,11 +1,15 @@
 use anyhow::Result;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::agents::process::agent_process;
 use crate::config::provider::ProviderVariant;
 use crate::dependencies::VizierDependencies;
+use crate::embedding::VizierEmbedder;
+use crate::indexer::VizierIndexer;
+use crate::indexer::surreal::SurrealIndexer;
 use crate::schema::{
     AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentId, AgentSummary,
     ChannelCommand, ProviderEntryConfig,
@@ -18,6 +22,7 @@ use crate::utils::agent_workspace;
 pub mod agent;
 pub mod hook;
 pub mod mcp;
+pub mod memory_ops;
 pub mod process;
 pub mod shell;
 pub mod skill;
@@ -27,6 +32,7 @@ struct AgentProcess {
     handle: JoinHandle<()>,
     config: AgentConfig,
     shutdown: watch::Sender<bool>,
+    memory_op_handle: Option<JoinHandle<()>>,
 }
 
 pub struct VizierAgents {
@@ -52,6 +58,28 @@ impl VizierAgents {
         }
 
         Ok(Self { deps, processes })
+    }
+
+    async fn build_indexer(
+        deps: &VizierDependencies,
+        config: &AgentConfig,
+    ) -> Result<Option<VizierIndexer>> {
+        let (emb_settings, idx_cfg) = match (&config.embedding, &config.indexer) {
+            (Some(e), Some(i)) => (e, i),
+            _ => return Ok(None),
+        };
+
+        let embedder = Arc::new(
+            VizierEmbedder::from_agent_settings(
+                emb_settings,
+                &deps.storage,
+                &deps.config.workspace,
+            )
+            .await?,
+        );
+        let surreal_idx = SurrealIndexer::new(deps.surreal_conn.clone(), embedder);
+        let _ = idx_cfg;
+        Ok(Some(VizierIndexer::build(surreal_idx)))
     }
 
     async fn spawn_agent(
@@ -89,16 +117,34 @@ impl VizierAgents {
                 .await?;
         }
 
+        let indexer = Self::build_indexer(deps, config).await?;
+        let memory_op_handle = if let Some(idx) = indexer.clone() {
+            let rx = deps.transport.register_memory_op(agent_id.to_string()).await;
+            let storage = (*deps.storage).clone();
+            let agent_id_owned = agent_id.to_string();
+            Some(tokio::spawn(async move {
+                if let Err(e) =
+                    memory_ops::handle_memory_ops(rx, idx, agent_id_owned, storage).await
+                {
+                    tracing::error!("memory_ops handler exited with error: {}", e);
+                }
+            }))
+        } else {
+            None
+        };
+
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let deps_clone = deps.clone();
         let agent_id_clone = agent_id.to_string();
         let config_clone = config.clone();
+        let indexer_clone = indexer.clone();
 
         let handle = tokio::spawn(async move {
             if let Err(e) = agent_process(
                 agent_id_clone.clone(),
                 deps_clone,
                 config_clone,
+                indexer_clone,
                 shutdown_rx,
             )
             .await
@@ -111,6 +157,7 @@ impl VizierAgents {
             handle,
             config: config.clone(),
             shutdown: shutdown_tx,
+            memory_op_handle,
         })
     }
 
@@ -217,7 +264,16 @@ impl VizierAgents {
         if let Some(old) = self.processes.remove(agent_id) {
             let _ = old.shutdown.send(true);
             old.handle.abort();
+            if let Some(mh) = old.memory_op_handle {
+                mh.abort();
+            }
         }
+
+        self.deps.transport.unregister_agent(&agent_id.to_string()).await;
+        self.deps
+            .transport
+            .unregister_memory_op(&agent_id.to_string())
+            .await;
 
         match Self::spawn_agent(&self.deps, agent_id, &config).await {
             Ok(process) => {
@@ -266,9 +322,16 @@ impl VizierAgents {
         if let Some(process) = self.processes.remove(agent_id) {
             let _ = process.shutdown.send(true);
             process.handle.abort();
+            if let Some(mh) = process.memory_op_handle {
+                mh.abort();
+            }
         }
 
         self.deps.transport.unregister_agent(&agent_id.to_string()).await;
+        self.deps
+            .transport
+            .unregister_memory_op(&agent_id.to_string())
+            .await;
 
         let _ = self
             .deps

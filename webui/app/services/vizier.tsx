@@ -207,6 +207,11 @@ export const updateAgent = async (agentId: string, data: import('../interfaces/t
   return res.data
 }
 
+export const listLocalEmbeddingModels = async () => {
+  const res = await apiClient.get('/embedding-models/local')
+  return res.data as import('../interfaces/types').LocalEmbeddingModel[]
+}
+
 export const deleteAgent = async (agentId: string, deleteWorkspace: boolean = false) => {
   const res = await apiClient.delete(`/agents/${agentId}?delete_workspace=${deleteWorkspace}`)
   return res.data

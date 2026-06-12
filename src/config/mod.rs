@@ -11,7 +11,6 @@ pub mod tools;
 
 use crate::{
     config::{
-        embedding::{EmbeddingConfig, LocalEmbeddingModelVariant},
         provider::{LlamaCppProviderConfig, MistralrsProviderConfig, OllamaProviderConfig, ProviderConfig},
         storage::StorageConfig,
         tools::{BraveSearchConfig, ToolsConfig},
@@ -74,7 +73,6 @@ fn default_ws_idle_timeout_secs() -> u64 {
 pub struct VizierConfig {
     #[serde(skip)]
     pub workspace: String,
-    pub embedding: Option<EmbeddingConfig>,
     pub providers: ProviderConfig,
     pub storage: StorageConfig,
     pub channels: ChannelsConfig,
@@ -149,7 +147,7 @@ impl Default for VizierConfig {
     fn default() -> Self {
         VizierConfig {
             workspace: "~/.vizier".into(),
-            storage: StorageConfig::Filesystem(storage::DocumentIndexerConfig::InMem),
+            storage: StorageConfig::Filesystem,
             providers: ProviderConfig {
                 ollama: Some(OllamaProviderConfig::default()),
                 deepseek: None,
@@ -162,9 +160,6 @@ impl Default for VizierConfig {
                 mistralrs: Some(MistralrsProviderConfig::default()),
                 elevenlabs: None,
             },
-            embedding: Some(EmbeddingConfig::Local {
-                model: LocalEmbeddingModelVariant::AllMiniLml6V2,
-            }),
             channels: ChannelsConfig {
                 discord: Some(
                     [("vizier".to_string(), DiscordChannelConfig::default())]

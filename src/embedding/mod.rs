@@ -3,7 +3,12 @@ use std::sync::Arc;
 use anyhow::Result;
 use rig_core::client::{EmbeddingsClient, Nothing};
 
-use crate::config::{VizierConfig, embedding::EmbeddingConfig, provider::ProviderConfig};
+use crate::{
+    config::provider::ProviderVariant,
+    provider_keys::{resolve_local_provider, resolve_provider_key},
+    schema::agent::EmbeddingToolSettings,
+    storage::VizierStorage,
+};
 
 pub mod fastembed;
 pub mod gemini;
@@ -25,57 +30,87 @@ impl VizierEmbedder {
         Self(Arc::new(Box::new(model)))
     }
 
-    pub async fn new(config: &VizierConfig) -> Result<Self> {
-        Self::from_providers(&config.embedding, &config.providers, &config.workspace).await
-    }
-
-    pub async fn from_providers(
-        embedding_config: &Option<EmbeddingConfig>,
-        providers: &ProviderConfig,
+    pub async fn from_agent_settings(
+        settings: &EmbeddingToolSettings,
+        storage: &Arc<VizierStorage>,
         workspace: &str,
     ) -> Result<Self> {
-        Ok(match embedding_config.clone().unwrap() {
-            EmbeddingConfig::Local { model } => {
-                let model = fastembed::Client::new()
-                    .embedding_model(&model.to_fastembed(), Some(workspace.to_string()));
+        use crate::schema::agent::EmbeddingProvider;
 
+        Ok(match settings.provider {
+            EmbeddingProvider::Local => {
+                let variant = crate::config::embedding::LocalEmbeddingModelVariant::from_name(
+                    &settings.model,
+                )
+                .ok_or_else(|| {
+                    anyhow::anyhow!("unknown local embedding model: {}", settings.model)
+                })?;
+                let model = fastembed::Client::new()
+                    .embedding_model(&variant.to_fastembed(), Some(workspace.to_string()));
                 Self::build(model)
             }
-            EmbeddingConfig::Ollama { model } => {
-                let base_url = providers.ollama.clone().unwrap().base_url;
-
-                crate::utils::ollama::ollama_pull_model(&base_url, &model).await?;
-
+            EmbeddingProvider::Ollama => {
+                let resolved = resolve_local_provider(
+                    storage,
+                    ProviderVariant::ollama,
+                    "OLLAMA_BASE_URL",
+                    "http://localhost:11434",
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e.0))?;
+                let base_url = settings
+                    .base_url
+                    .clone()
+                    .or(resolved.base_url)
+                    .unwrap_or_else(|| "http://localhost:11434".to_string());
+                let model_name = settings.model.clone();
+                if !model_name.is_empty() {
+                    crate::utils::ollama::ollama_pull_model(&base_url, &model_name).await?;
+                }
                 let model = rig_core::providers::ollama::Client::builder()
                     .base_url(base_url)
                     .api_key(Nothing)
                     .build()?
-                    .embedding_model(&model);
-
+                    .embedding_model(&model_name);
                 Self::build(model)
             }
-            EmbeddingConfig::Openai { model } => {
-                let model = rig_core::providers::openai::Client::new(
-                    providers.openai.clone().unwrap().api_key,
-                )?
-                .embedding_model(&model);
-
+            EmbeddingProvider::Openai => {
+                let resolved = resolve_provider_key(
+                    storage,
+                    ProviderVariant::openai,
+                    "OPENAI_API_KEY",
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e.0))?;
+                let model_name = settings.model.clone();
+                let model = rig_core::providers::openai::Client::new(resolved.api_key)?
+                    .embedding_model(&model_name);
                 Self::build(model)
             }
-            EmbeddingConfig::Gemini { model } => {
-                let model = rig_core::providers::gemini::Client::new(
-                    providers.gemini.clone().unwrap().api_key,
-                )?
-                .embedding_model(&model);
-
+            EmbeddingProvider::Gemini => {
+                let resolved = resolve_provider_key(
+                    storage,
+                    ProviderVariant::gemini,
+                    "GEMINI_API_KEY",
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e.0))?;
+                let model_name = settings.model.clone();
+                let model = rig_core::providers::gemini::Client::new(resolved.api_key)?
+                    .embedding_model(&model_name);
                 Self::build(model)
             }
-            EmbeddingConfig::Openrouter { model } => {
-                let model = rig_core::providers::openrouter::Client::new(
-                    providers.openrouter.clone().unwrap().api_key,
-                )?
-                .embedding_model(&model);
-
+            EmbeddingProvider::Openrouter => {
+                let resolved = resolve_provider_key(
+                    storage,
+                    ProviderVariant::openrouter,
+                    "OPENROUTER_API_KEY",
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e.0))?;
+                let model_name = settings.model.clone();
+                let model = rig_core::providers::openrouter::Client::new(resolved.api_key)?
+                    .embedding_model(&model_name);
                 Self::build(model)
             }
         })

@@ -14,13 +14,14 @@ mod storage;
 mod task;
 
 pub use agent::{
-    AgentConfig, AgentToolsConfig, BraveSearchToolSettings, ImageGenProvider,
-    ImageGenToolSettings, MemoryConfig, ReadImageToolSettings, SttToolSettings, ToolConfig,
-    TtsToolSettings,
+    AgentConfig, AgentToolsConfig, BraveSearchToolSettings, EmbeddingProvider,
+    EmbeddingToolSettings, ImageGenProvider, ImageGenToolSettings, IndexerConfig, IndexerKind,
+    MemoryConfig, ReadImageToolSettings, SttToolSettings, ToolConfig, TtsToolSettings,
 };
 pub use commands::{
     AgentCommand, AgentCommandResult, AgentHealthStatus, AgentSummary, ChannelCommand,
-    CommandRequest, CommandResponse, FileCommand,
+    CommandRequest, CommandResponse, FileCommand, MemoryOpEnvelope, MemoryOpRequest,
+    MemoryOpResponse,
 };
 pub use dream_journal::DreamJournalEntry;
 pub use file::FileRecord;

@@ -1,7 +1,11 @@
 use anyhow::Result;
 
 use crate::{
-    schema::{Memory, MemoryGraph, MemoryQueryParams, MemoryVisibility, PaginatedMemory},
+    indexer::VizierIndexer,
+    schema::{
+        Memory, MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams,
+        MemoryVisibility, PaginatedMemory,
+    },
     storage::VizierStorage,
 };
 
@@ -16,6 +20,7 @@ pub trait MemoryStorage {
         visibility: MemoryVisibility,
         shared_to: Vec<String>,
         tags: Vec<String>,
+        indexer: &VizierIndexer,
     ) -> Result<Memory>;
 
     async fn query_memory(
@@ -24,6 +29,7 @@ pub trait MemoryStorage {
         query: String,
         limit: usize,
         threshold: f64,
+        indexer: &VizierIndexer,
     ) -> Result<Vec<Memory>>;
 
     async fn get_all_agent_memory(&self, agent_id: String) -> Result<Vec<Memory>>;
@@ -43,7 +49,12 @@ pub trait MemoryStorage {
 
     async fn get_memory_graph(&self, agent_id: String) -> Result<MemoryGraph>;
 
-    async fn delete_memory(&self, agent_id: String, slug: String) -> Result<()>;
+    async fn delete_memory(
+        &self,
+        agent_id: String,
+        slug: String,
+        indexer: &VizierIndexer,
+    ) -> Result<()>;
 }
 
 #[async_trait::async_trait]
@@ -57,9 +68,10 @@ impl MemoryStorage for VizierStorage {
         visibility: MemoryVisibility,
         shared_to: Vec<String>,
         tags: Vec<String>,
+        indexer: &VizierIndexer,
     ) -> Result<Memory> {
         self.0
-            .write_memory(agent_id, slug, title, content, visibility, shared_to, tags)
+            .write_memory(agent_id, slug, title, content, visibility, shared_to, tags, indexer)
             .await
     }
 
@@ -69,8 +81,9 @@ impl MemoryStorage for VizierStorage {
         query: String,
         limit: usize,
         threshold: f64,
+        indexer: &VizierIndexer,
     ) -> Result<Vec<Memory>> {
-        self.0.query_memory(agent_id, query, limit, threshold).await
+        self.0.query_memory(agent_id, query, limit, threshold, indexer).await
     }
 
     async fn get_all_agent_memory(&self, agent_id: String) -> Result<Vec<Memory>> {
@@ -100,7 +113,12 @@ impl MemoryStorage for VizierStorage {
         self.0.get_memory_graph(agent_id).await
     }
 
-    async fn delete_memory(&self, agent_id: String, slug: String) -> Result<()> {
-        self.0.delete_memory(agent_id, slug).await
+    async fn delete_memory(
+        &self,
+        agent_id: String,
+        slug: String,
+        indexer: &VizierIndexer,
+    ) -> Result<()> {
+        self.0.delete_memory(agent_id, slug, indexer).await
     }
 }

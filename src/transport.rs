@@ -7,7 +7,7 @@ use tokio::task::JoinSet;
 
 use crate::schema::{
     AgentCommand, AgentId, ChannelCommand, CommandRequest, CommandResponse, FileCommand,
-    VizierAttachment, VizierRequest, VizierResponse, VizierSession,
+    MemoryOpEnvelope, VizierAttachment, VizierRequest, VizierResponse, VizierSession,
 };
 
 #[derive(Debug, Clone)]
@@ -27,6 +27,8 @@ pub struct VizierRequestEnvelope {
 #[derive(Debug, Clone)]
 pub struct VizierTransport {
     agent_channels: Arc<RwLock<HashMap<AgentId, flume::Sender<VizierRequestEnvelope>>>>,
+
+    memory_op_channels: Arc<RwLock<HashMap<AgentId, flume::Sender<MemoryOpEnvelope>>>>,
 
     command_request_channel: Arc<(
         flume::Sender<CommandRequest>,
@@ -64,6 +66,7 @@ impl VizierTransport {
 
         Self {
             agent_channels: Arc::new(RwLock::new(HashMap::new())),
+            memory_op_channels: Arc::new(RwLock::new(HashMap::new())),
             command_request_channel,
             command_response_channel,
             agent_command_channel,
@@ -87,6 +90,38 @@ impl VizierTransport {
     pub async fn unregister_agent(&self, agent_id: &AgentId) {
         let mut channels = self.agent_channels.write().await;
         channels.remove(agent_id);
+    }
+
+    pub async fn register_memory_op(&self, agent_id: AgentId) -> flume::Receiver<MemoryOpEnvelope> {
+        let (tx, rx) = flume::unbounded();
+        let mut channels = self.memory_op_channels.write().await;
+        channels.insert(agent_id, tx);
+        rx
+    }
+
+    pub async fn unregister_memory_op(&self, agent_id: &AgentId) {
+        let mut channels = self.memory_op_channels.write().await;
+        channels.remove(agent_id);
+    }
+
+    pub async fn send_memory_op(
+        &self,
+        agent_id: &AgentId,
+        op: crate::schema::MemoryOpRequest,
+    ) -> Result<crate::schema::MemoryOpResponse> {
+        let channels = self.memory_op_channels.read().await;
+        let tx = channels
+            .get(agent_id)
+            .ok_or_else(|| anyhow::anyhow!("agent '{}' has no memory-op channel", agent_id))?
+            .clone();
+
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        tx.send_async(MemoryOpEnvelope { op, response: resp_tx })
+            .await?;
+        match resp_rx.await? {
+            Ok(resp) => Ok(resp),
+            Err(e) => Err(anyhow::anyhow!(e.to_string())),
+        }
     }
 
     pub async fn send_request(

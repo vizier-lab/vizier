@@ -4,16 +4,12 @@ use anyhow::Result;
 
 use crate::{
     config::provider::ProviderVariant,
-    schema::{
-        AgentConfig, DocumentIndex, GlobalConfigEntry, ProviderEntry, SessionFileRecord,
-        VizierSession,
-    },
+    schema::{AgentConfig, GlobalConfigEntry, ProviderEntry, SessionFileRecord, VizierSession},
     storage::{
         agent::AgentStorage, dream::DreamStorage, dream_journal::DreamJournalStorage,
-        global_config::GlobalConfigStorage, history::HistoryStorage, indexer::DocumentIndexer,
-        memory::MemoryStorage, provider::ProviderStorage, session::SessionStorage,
-        session_file::SessionFileStorage, state::StateStorage, task::TaskStorage,
-        user::UserStorage,
+        global_config::GlobalConfigStorage, history::HistoryStorage, memory::MemoryStorage,
+        provider::ProviderStorage, session::SessionStorage, session_file::SessionFileStorage,
+        state::StateStorage, task::TaskStorage, user::UserStorage,
     },
 };
 
@@ -22,7 +18,6 @@ pub mod dream;
 pub mod dream_journal;
 pub mod global_config;
 pub mod history;
-pub mod indexer;
 pub mod memory;
 pub mod provider;
 pub mod session;
@@ -41,7 +36,6 @@ where
         + HistoryStorage
         + SessionStorage
         + StateStorage
-        + DocumentIndexer
         + UserStorage
         + AgentStorage
         + ProviderStorage
@@ -58,28 +52,6 @@ pub struct VizierStorage(Arc<Box<dyn VizierStorageProvider + Sync + Send + 'stat
 impl VizierStorage {
     pub fn new<Storage: VizierStorageProvider + Sync + Send + 'static>(storage: Storage) -> Self {
         Self(Arc::new(Box::new(storage)))
-    }
-}
-
-#[async_trait::async_trait]
-impl DocumentIndexer for VizierStorage {
-    async fn add_document_index(&self, context: String, path: String) -> Result<DocumentIndex> {
-        self.0.add_document_index(context, path).await
-    }
-    async fn search_document_index(
-        &self,
-        context: String,
-        query: String,
-        limit: usize,
-        threshold: f64,
-    ) -> Result<Vec<DocumentIndex>> {
-        self.0
-            .search_document_index(context, query, limit, threshold)
-            .await
-    }
-
-    async fn delete_index(&self, context: String, path: String) -> Result<()> {
-        self.0.delete_index(context, path).await
     }
 }
 

@@ -27,12 +27,15 @@ import TooltipLabel from '../components/TooltipLabel'
 import MarkdownEditor from '../components/MarkdownEditor'
 import Avatar from '../components/avatar'
 import AvatarCropModal from '../components/AvatarCropModal'
+import EmbeddingIndexerSection from '../components/EmbeddingIndexerSection'
 import { useToastStore } from '../hooks/toastStore'
 import { useAgentStore } from '../hooks/agentStore'
 import type {
   CreateAgentRequest,
   AgentDetail,
   User,
+  EmbeddingToolSettings,
+  IndexerConfig,
   McpServerConfig,
   ShellConfigData,
 } from '../interfaces/types'
@@ -146,6 +149,11 @@ export default function AgentSettings() {
     dream_schedule: '',
     dream_provider: '',
     dream_model: '',
+    embedding: {
+      provider: 'local',
+      model: 'all_mini_lml6_v2',
+    },
+    indexer: { kind: 'surreal' },
   })
 
   // ── Dream model toggle (UI-only state) ──
@@ -238,6 +246,11 @@ export default function AgentSettings() {
           discord_token: d.discord_token || '',
           telegram_token: d.telegram_token || '',
           avatar_url: d.avatar_url,
+          embedding: d.embedding || {
+            provider: 'local',
+            model: 'all_mini_lml6_v2',
+          },
+          indexer: d.indexer || { kind: 'surreal' },
         })
         setUseSameModel(!d.dream_provider && !d.dream_model)
       } catch {
@@ -1258,6 +1271,16 @@ export default function AgentSettings() {
                   )}
                 </div>
               </div>
+
+              <EmbeddingIndexerSection
+                embedding={form.embedding || { provider: 'local', model: 'all_mini_lml6_v2' }}
+                indexer={form.indexer || { kind: 'surreal' }}
+                onEmbeddingChange={(next) => updateField('embedding', next)}
+                onIndexerChange={(next) => updateField('indexer', next)}
+                inputStyle={inputStyle}
+                labelStyle={labelStyle}
+                fieldStyle={fieldStyle}
+              />
 
               {/* Channel Tokens */}
               <div>

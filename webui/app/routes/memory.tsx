@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
+import { Link, useParams } from 'react-router'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { useParams } from 'react-router'
 import {
   listMemories,
   getMemory,
@@ -11,12 +11,14 @@ import {
   deleteMemory,
   getMemoryGraph,
   getRelatedMemories,
+  getAgentDetail,
 } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
 import { FaPlus, FaTrash, FaPenToSquare, FaMagnifyingGlass, FaList, FaDiagramProject } from 'react-icons/fa6'
 import { Skeleton } from '../components/Skeleton'
 import { useToastStore } from '../hooks/toastStore'
 import type {
+  AgentDetail,
   Memory,
   MemoryDetail,
   MemoryVisibility,
@@ -86,8 +88,16 @@ export default function MemoryManagement() {
 
   const [graph, setGraph] = useState<MemoryGraphType | null>(null)
   const [graphLoading, setGraphLoading] = useState(false)
+  const [agentDetail, setAgentDetail] = useState<AgentDetail | null>(null)
 
   const { addToast } = useToastStore()
+
+  useEffect(() => {
+    if (!agentId) return
+    getAgentDetail(agentId)
+      .then((res) => setAgentDetail(res.data))
+      .catch(() => setAgentDetail(null))
+  }, [agentId])
 
   useEffect(() => {
     loadMemories()
@@ -334,6 +344,35 @@ export default function MemoryManagement() {
       </div>
 
       <div className="main-body">
+        {agentDetail && !agentDetail.embedding && (
+          <div
+            style={{
+              padding: '12px 16px',
+              marginBottom: '16px',
+              borderRadius: '8px',
+              border: '1px solid #f59e0b',
+              background: 'rgba(245, 158, 11, 0.08)',
+              color: 'var(--text-primary)',
+              fontSize: '0.85rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+            }}
+          >
+            <span style={{ flex: 1 }}>
+              This agent has no embedding configured. Semantic memory search
+              and the knowledge graph are unavailable until an embedding model
+              is set up.
+            </span>
+            <Link
+              to={`/${agentId}/settings`}
+              className="btn btn-primary"
+              style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+            >
+              Configure embedding
+            </Link>
+          </div>
+        )}
         {viewMode === 'list' ? (
           loading ? (
             <table className="data-table">

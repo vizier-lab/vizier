@@ -13,6 +13,7 @@ use crate::channels::http::{
 
 pub mod agents;
 pub mod auth;
+pub mod embedding;
 pub mod files;
 pub mod providers;
 pub mod skills;
@@ -141,6 +142,10 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
         .nest(
             "/skills",
             skills::skills().layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .nest(
+            "/embedding-models",
+            embedding::embedding().layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
 }
 

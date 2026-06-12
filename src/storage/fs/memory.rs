@@ -7,13 +7,13 @@ use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
 use crate::{
+    indexer::{DocumentIndexer, VizierIndexer},
     schema::{
         Memory, MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams,
         MemoryVisibility, PaginatedMemory,
     },
     storage::{
         fs::{FileSystemStorage, MEMORY_PATH},
-        indexer::DocumentIndexer,
         memory::MemoryStorage,
     },
     utils::{self, build_glob_path, build_path},
@@ -63,28 +63,6 @@ impl From<Memory> for MemoryFrontMatter {
 }
 
 impl FileSystemStorage {
-    pub async fn reindex_memory(&self) -> Result<()> {
-        tracing::info!("reindex existing memory");
-        let base_path = build_path(&self.workspace, &["agents"]);
-        if !base_path.exists() {
-            std::fs::create_dir_all(&base_path)?;
-        }
-        let path = build_glob_path(&self.workspace, &["agents", "**", MEMORY_PATH, "*.md"]);
-        for entry in glob::glob(&path)? {
-            let entry = entry?;
-
-            if !entry.is_file() {
-                continue;
-            }
-
-            self.indices
-                .add_document_index("memory".into(), entry.to_str().unwrap().to_string())
-                .await?;
-        }
-
-        Ok(())
-    }
-
     fn can_access_memory(agent_id: &str, frontmatter: &MemoryFrontMatter) -> bool {
         match frontmatter.visibility {
             MemoryVisibility::Private => frontmatter.agent_id == agent_id,
@@ -118,7 +96,6 @@ impl FileSystemStorage {
             content,
             title: frontmatter.title,
             timestamp: frontmatter.timestamp,
-            embedding: vec![],
             visibility: frontmatter.visibility,
             shared_to: frontmatter.shared_to,
             tags: frontmatter.tags,
@@ -139,6 +116,7 @@ impl MemoryStorage for FileSystemStorage {
         visibility: MemoryVisibility,
         shared_to: Vec<String>,
         tags: Vec<String>,
+        indexer: &VizierIndexer,
     ) -> Result<Memory> {
         let slug = slug.unwrap_or_else(|| slugify!(&title));
 
@@ -168,7 +146,9 @@ impl MemoryStorage for FileSystemStorage {
             if old_path != path.to_string_lossy().to_string() {
                 let pb = PathBuf::from(&old_path);
                 if pb.exists() {
-                    let _ = self.indices.delete_index("memory".into(), old_path.clone()).await;
+                    let _ = indexer
+                        .delete_index("memory".into(), old_path.clone())
+                        .await;
                     let _ = std::fs::remove_file(&pb);
                 }
             }
@@ -190,8 +170,9 @@ impl MemoryStorage for FileSystemStorage {
 
         utils::markdown::write_markdown(&frontmatter, content.clone(), path.clone())?;
 
-        self.indices
-            .add_document_index("memory".into(), path.to_string_lossy().to_string())
+        let path_for_index = path.to_string_lossy().to_string();
+        indexer
+            .add_document_index("memory".into(), path_for_index, content.clone())
             .await?;
 
         Ok(Memory {
@@ -200,7 +181,6 @@ impl MemoryStorage for FileSystemStorage {
             content,
             title,
             timestamp: frontmatter.timestamp,
-            embedding: vec![],
             visibility,
             shared_to,
             tags,
@@ -215,9 +195,9 @@ impl MemoryStorage for FileSystemStorage {
         query: String,
         limit: usize,
         threshold: f64,
+        indexer: &VizierIndexer,
     ) -> Result<Vec<Memory>> {
-        let documents = self
-            .indices
+        let documents = indexer
             .search_document_index("memory".into(), query, limit * 3, threshold)
             .await?;
 
@@ -407,7 +387,12 @@ impl MemoryStorage for FileSystemStorage {
         Ok(MemoryGraph { nodes, edges })
     }
 
-    async fn delete_memory(&self, agent_id: String, slug: String) -> Result<()> {
+    async fn delete_memory(
+        &self,
+        agent_id: String,
+        slug: String,
+        indexer: &VizierIndexer,
+    ) -> Result<()> {
         let slug = if slug.ends_with(".md") {
             slug
         } else {
@@ -424,7 +409,7 @@ impl MemoryStorage for FileSystemStorage {
             );
             let pb = PathBuf::from(&path);
             if pb.exists() {
-                let _ = self.indices.delete_index("memory".into(), path).await;
+                let _ = indexer.delete_index("memory".into(), path).await;
                 let _ = std::fs::remove_file(&pb);
             }
         }

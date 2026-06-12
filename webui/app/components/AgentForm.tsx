@@ -4,10 +4,13 @@ import TooltipLabel from './TooltipLabel'
 import MarkdownEditor from './MarkdownEditor'
 import Avatar from './avatar'
 import AvatarCropModal from './AvatarCropModal'
+import EmbeddingIndexerSection from './EmbeddingIndexerSection'
 import { uploadFile } from '../services/vizier'
 import type {
   CreateAgentRequest,
   AgentDetail,
+  EmbeddingToolSettings,
+  IndexerConfig,
   McpServerConfig,
   ShellConfigData,
 } from '../interfaces/types'
@@ -137,6 +140,11 @@ const DEFAULT_FORM: CreateAgentRequest = {
   dream_provider: '',
   dream_model: '',
   avatar_url: undefined,
+  embedding: {
+    provider: 'local',
+    model: 'all_mini_lml6_v2',
+  },
+  indexer: { kind: 'surreal' },
 }
 
 export default function AgentForm({
@@ -215,6 +223,11 @@ export default function AgentForm({
         discord_token: d.discord_token || '',
         telegram_token: d.telegram_token || '',
         avatar_url: d.avatar_url,
+        embedding: d.embedding || {
+          provider: 'local',
+          model: 'all_mini_lml6_v2',
+        },
+        indexer: d.indexer || { kind: 'surreal' },
       })
       setUseSameModel(!d.dream_provider && !d.dream_model)
     }
@@ -1120,6 +1133,16 @@ export default function AgentForm({
                   )}
                 </div>
               </div>
+
+              <EmbeddingIndexerSection
+                embedding={form.embedding || { provider: 'local', model: 'all_mini_lml6_v2' }}
+                indexer={form.indexer || { kind: 'surreal' }}
+                onEmbeddingChange={(next) => updateField('embedding', next)}
+                onIndexerChange={(next) => updateField('indexer', next)}
+                inputStyle={inputStyle}
+                labelStyle={labelStyle}
+                fieldStyle={fieldStyle}
+              />
 
               {/* Channel Tokens */}
               <div>

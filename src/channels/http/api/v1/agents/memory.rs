@@ -16,7 +16,10 @@ use crate::{
         },
         state::HTTPState,
     },
-    schema::{MemoryGraph, MemoryQueryParams, MemoryVisibility},
+    schema::{
+        Memory, MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams, MemoryVisibility,
+        PaginatedMemory,
+    },
     storage::{agent::AgentStorage, memory::MemoryStorage},
 };
 
@@ -156,6 +159,56 @@ pub struct PaginatedMemoryResponse {
     pub limit: usize,
 }
 
+fn summarize_memory(memory: &Memory) -> MemorySummary {
+    MemorySummary {
+        agent_id: memory.agent_id.clone(),
+        slug: memory.slug.clone(),
+        title: memory.title.clone(),
+        timestamp: memory.timestamp,
+        visibility: memory.visibility.to_string(),
+        shared_to: memory.shared_to.clone(),
+        tags: memory.tags.clone(),
+        relations: memory.relations.clone(),
+    }
+}
+
+fn detail_from_memory(memory: &Memory) -> MemoryDetail {
+    MemoryDetail {
+        agent_id: memory.agent_id.clone(),
+        slug: memory.slug.clone(),
+        title: memory.title.clone(),
+        content: memory.content.clone(),
+        timestamp: memory.timestamp,
+        visibility: memory.visibility.to_string(),
+        shared_to: memory.shared_to.clone(),
+        tags: memory.tags.clone(),
+        relations: memory.relations.clone(),
+    }
+}
+
+async fn require_agent(
+    state: &HTTPState,
+    agent_id: &str,
+    user: &crate::channels::http::auth::AuthenticatedUser,
+) -> Result<crate::schema::AgentConfig, (StatusCode, String)> {
+    let config = match state.storage.get_agent(agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("agent {agent_id} not found"),
+            ))
+        }
+        Err(e) => {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        }
+    };
+    if !super::user_can_view_agent(user, &config) {
+        return Err((StatusCode::FORBIDDEN, "Access denied".into()));
+    }
+    Ok(config)
+}
+
 #[utoipa::path(
     get,
     path = "/agents/{agent_id}/memory",
@@ -173,14 +226,8 @@ pub async fn get_all_memories(
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Query(params): Query<ListMemoryParams>,
 ) -> models::response::Response<PaginatedMemoryResponse> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
     }
 
     let tags = params.tags.map(|t| {
@@ -204,20 +251,8 @@ pub async fn get_all_memories(
 
     match state.storage.get_filtered_memories(query_params).await {
         Ok(result) => {
-            let memories: Vec<MemorySummary> = result
-                .memories
-                .iter()
-                .map(|memory| MemorySummary {
-                    agent_id: memory.agent_id.clone(),
-                    slug: memory.slug.clone(),
-                    title: memory.title.clone(),
-                    timestamp: memory.timestamp,
-                    visibility: memory.visibility.to_string(),
-                    shared_to: memory.shared_to.clone(),
-                    tags: memory.tags.clone(),
-                    relations: memory.relations.clone(),
-                })
-                .collect();
+            let memories: Vec<MemorySummary> =
+                result.memories.iter().map(summarize_memory).collect();
 
             api_response(
                 StatusCode::OK,
@@ -252,14 +287,8 @@ pub async fn create_memory(
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<CreateMemoryRequest>,
 ) -> models::response::Response<CreateMemoryResponse> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
     }
 
     let visibility: MemoryVisibility = match body.visibility.parse() {
@@ -268,19 +297,21 @@ pub async fn create_memory(
     };
 
     match state
-        .storage
-        .write_memory(
-            agent_id.clone(),
-            body.slug,
-            body.title.clone(),
-            body.content,
-            visibility,
-            body.shared_to,
-            body.tags.clone(),
+        .transport
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::Write {
+                slug: body.slug,
+                title: body.title.clone(),
+                content: body.content,
+                visibility,
+                shared_to: body.shared_to,
+                tags: body.tags.clone(),
+            },
         )
         .await
     {
-        Ok(memory) => api_response(
+        Ok(crate::schema::MemoryOpResponse::Memory(memory)) => api_response(
             StatusCode::CREATED,
             CreateMemoryResponse {
                 agent_id,
@@ -290,6 +321,10 @@ pub async fn create_memory(
                 tags: memory.tags,
                 relations: memory.relations,
             },
+        ),
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
         ),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
@@ -315,22 +350,8 @@ pub async fn update_memory(
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<UpdateMemoryRequest>,
 ) -> models::response::Response<UpdateMemoryResponse> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
-    }
-
-    match state.storage.get_memory_detail(agent_id.clone(), slug.clone()).await {
-        Ok(None) => {
-            return err_response(StatusCode::NOT_FOUND, format!("memory {slug} not found"));
-        }
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-        _ => {}
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
     }
 
     let visibility: MemoryVisibility = match body.visibility.parse() {
@@ -339,19 +360,21 @@ pub async fn update_memory(
     };
 
     match state
-        .storage
-        .write_memory(
-            agent_id.clone(),
-            Some(slug.clone()),
-            body.title,
-            body.content,
-            visibility,
-            body.shared_to,
-            body.tags.clone(),
+        .transport
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::Write {
+                slug: Some(slug.clone()),
+                title: body.title,
+                content: body.content,
+                visibility,
+                shared_to: body.shared_to,
+                tags: body.tags.clone(),
+            },
         )
         .await
     {
-        Ok(memory) => api_response(
+        Ok(crate::schema::MemoryOpResponse::Memory(memory)) => api_response(
             StatusCode::OK,
             UpdateMemoryResponse {
                 agent_id,
@@ -360,6 +383,10 @@ pub async fn update_memory(
                 tags: memory.tags,
                 relations: memory.relations,
             },
+        ),
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
         ),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
@@ -384,39 +411,30 @@ pub async fn query_memories(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<Vec<MemoryDetail>> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
     }
 
     match state
-        .storage
-        .query_memory(agent_id, params.query, params.limit, params.threshold)
+        .transport
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::Query {
+                query: params.query,
+                limit: params.limit,
+                threshold: params.threshold,
+            },
+        )
         .await
     {
-        Ok(memories) => {
-            let response: Vec<MemoryDetail> = memories
-                .iter()
-                .map(|memory| MemoryDetail {
-                    agent_id: memory.agent_id.clone(),
-                    slug: memory.slug.clone(),
-                    title: memory.title.clone(),
-                    content: memory.content.clone(),
-                    timestamp: memory.timestamp,
-                    visibility: memory.visibility.to_string(),
-                    shared_to: memory.shared_to.clone(),
-                    tags: memory.tags.clone(),
-                    relations: memory.relations.clone(),
-                })
-                .collect();
-
+        Ok(crate::schema::MemoryOpResponse::MemoryList(memories)) => {
+            let response: Vec<MemoryDetail> = memories.iter().map(detail_from_memory).collect();
             api_response(StatusCode::OK, response)
         }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
@@ -438,18 +456,22 @@ pub async fn get_memory_graph(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<MemoryGraph> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
     }
 
-    match state.storage.get_memory_graph(agent_id).await {
-        Ok(graph) => api_response(StatusCode::OK, graph),
+    match state
+        .transport
+        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::GetGraph)
+        .await
+    {
+        Ok(crate::schema::MemoryOpResponse::Graph(graph)) => {
+            api_response(StatusCode::OK, graph)
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
@@ -471,32 +493,29 @@ pub async fn get_memory_detail(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<MemoryDetail> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
     }
 
-    match state.storage.get_memory_detail(agent_id, slug).await {
-        Ok(Some(memory)) => api_response(
-            StatusCode::OK,
-            MemoryDetail {
-                agent_id: memory.agent_id,
-                slug: memory.slug,
-                title: memory.title,
-                content: memory.content,
-                timestamp: memory.timestamp,
-                visibility: memory.visibility.to_string(),
-                shared_to: memory.shared_to,
-                tags: memory.tags,
-                relations: memory.relations,
-            },
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::GetById { slug },
+        )
+        .await
+    {
+        Ok(crate::schema::MemoryOpResponse::MemoryOption(Some(memory))) => {
+            api_response(StatusCode::OK, detail_from_memory(&memory))
+        }
+        Ok(crate::schema::MemoryOpResponse::MemoryOption(None)) => {
+            err_response(StatusCode::NOT_FOUND, "Not Found".into())
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
         ),
-        _ => err_response(StatusCode::NOT_FOUND, "Not Found".into()),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
 
@@ -517,35 +536,26 @@ pub async fn get_related_memories(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<Vec<MemoryDetail>> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
     }
 
-    match state.storage.get_related_memories(agent_id, slug).await {
-        Ok(memories) => {
-            let response: Vec<MemoryDetail> = memories
-                .iter()
-                .map(|memory| MemoryDetail {
-                    agent_id: memory.agent_id.clone(),
-                    slug: memory.slug.clone(),
-                    title: memory.title.clone(),
-                    content: memory.content.clone(),
-                    timestamp: memory.timestamp,
-                    visibility: memory.visibility.to_string(),
-                    shared_to: memory.shared_to.clone(),
-                    tags: memory.tags.clone(),
-                    relations: memory.relations.clone(),
-                })
-                .collect();
-
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::GetRelated { slug },
+        )
+        .await
+    {
+        Ok(crate::schema::MemoryOpResponse::MemoryList(memories)) => {
+            let response: Vec<MemoryDetail> = memories.iter().map(detail_from_memory).collect();
             api_response(StatusCode::OK, response)
         }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
@@ -567,18 +577,25 @@ pub async fn delete_memory(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<String> {
-    let config = match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    };
-
-    if !user_can_view_agent(&user, &config) {
-        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
     }
 
-    match state.storage.delete_memory(agent_id, slug.clone()).await {
-        Ok(_) => api_response(StatusCode::OK, format!("{slug} deleted")),
-        _ => err_response(StatusCode::NOT_FOUND, "Not Found".into()),
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::Delete { slug: slug.clone() },
+        )
+        .await
+    {
+        Ok(crate::schema::MemoryOpResponse::Unit) => {
+            api_response(StatusCode::OK, format!("{slug} deleted"))
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => err_response(StatusCode::NOT_FOUND, e.to_string()),
     }
 }

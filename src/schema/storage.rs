@@ -44,7 +44,6 @@ pub struct Memory {
     pub title: String,
     pub content: String,
     pub timestamp: DateTime<Utc>,
-    pub embedding: Vec<f64>,
     pub agent_id: String,
     #[serde(default)]
     pub visibility: MemoryVisibility,

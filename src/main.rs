@@ -19,6 +19,7 @@ mod dependencies;
 mod embedding;
 mod error;
 mod file_manager;
+mod indexer;
 mod scheduler;
 mod schema;
 

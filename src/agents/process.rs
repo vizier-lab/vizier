@@ -18,6 +18,7 @@ use crate::{
         tools::ToolContext,
     },
     dependencies::VizierDependencies,
+    indexer::VizierIndexer,
     schema::{
         AgentConfig, AgentId, DreamStage, VizierChannelId, VizierRequest, VizierRequestContent,
         VizierResponse, VizierResponseContent, VizierSession, VizierSessionDetail,
@@ -34,9 +35,12 @@ pub async fn agent_process(
     agent_id: AgentId,
     deps: VizierDependencies,
     agent_config: AgentConfig,
+    indexer: Option<crate::indexer::VizierIndexer>,
     _shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
-    let agent = Arc::new(VizierAgent::new(agent_id.clone(), &deps, &agent_config).await?);
+    let agent = Arc::new(
+        VizierAgent::new(agent_id.clone(), &deps, &agent_config, indexer.clone()).await?,
+    );
 
     let recv = deps.transport.register_agent(agent_id.clone()).await;
 
@@ -271,6 +275,7 @@ pub async fn agent_process(
                 let session = session.clone();
                 let storage = deps.storage.clone();
                 let deps_clone = deps.clone();
+                let indexer = indexer.clone();
                 let complete_tx = complete_tx.clone();
                 let thinking_storage = storage.clone();
                 let thinking_session = session.clone();
@@ -294,6 +299,7 @@ pub async fn agent_process(
                             request.clone(),
                             response_tx.clone(),
                             storage.clone(),
+                            indexer.clone(),
                             &deps_clone,
                         )
                         .await
@@ -360,6 +366,7 @@ pub async fn agent_process(
                         let session = completed_session.clone();
                         let storage = deps.storage.clone();
                         let deps_clone = deps.clone();
+                        let indexer = indexer.clone();
                         let complete_tx = complete_tx.clone();
                         let thinking_storage = storage.clone();
                         let thinking_session = session.clone();
@@ -383,6 +390,7 @@ pub async fn agent_process(
                                     next_request.clone(),
                                     response_tx.clone(),
                                     storage.clone(),
+                                    indexer.clone(),
                                     &deps_clone,
                                 )
                                 .await
@@ -435,6 +443,7 @@ pub async fn handle_request(
     request: VizierRequest,
     response_tx: Option<flume::Sender<VizierResponse>>,
     storage: Arc<VizierStorage>,
+    indexer: Option<crate::indexer::VizierIndexer>,
     deps: &VizierDependencies,
 ) -> Result<()> {
     let mut hooks = VizierSessionHooks::new()
@@ -471,9 +480,12 @@ pub async fn handle_request(
                 )
                 .await?;
 
-            let memory = storage
-                .query_memory(session.0.clone(), prompt, 10, 0.5)
-                .await?;
+            let memory = match &indexer {
+                Some(idx) => storage
+                    .query_memory(session.0.clone(), prompt, 10, 0.5, idx)
+                    .await?,
+                None => Vec::new(),
+            };
             let res = agent.chat(request, session.clone(), history, memory, Some(hooks)).await?;
             if let Some(ref tx) = response_tx {
                 let _ = tx.send_async(res).await;

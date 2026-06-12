@@ -18,9 +18,10 @@ use crate::{
     config::{shell::ShellConfig, tools::mcp::McpClientConfig},
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
-        AgentToolsConfig, AgentUsageStats, BraveSearchToolSettings, ImageGenToolSettings,
-        MemoryConfig, ReadImageToolSettings, ToolConfig, TtsToolSettings,
-        agent::SttToolSettings,
+        AgentToolsConfig, AgentUsageStats, BraveSearchToolSettings, EmbeddingToolSettings,
+        ImageGenToolSettings, IndexerConfig, MemoryConfig, ReadImageToolSettings, ToolConfig,
+        TtsToolSettings,
+        agent::{EmbeddingProvider, IndexerKind, SttToolSettings},
         VizierAttachment, VizierChannelId, VizierRequest, VizierRequestContent,
         VizierResponseContent, VizierResponseStats, VizierSession,
     },
@@ -178,6 +179,8 @@ pub struct AgentDetail {
     pub read_image_settings: Option<ReadImageToolSettings>,
     pub image_gen: bool,
     pub image_gen_settings: Option<ImageGenToolSettings>,
+    pub embedding: Option<EmbeddingToolSettings>,
+    pub indexer: Option<IndexerConfig>,
 }
 
 #[utoipa::path(
@@ -281,6 +284,8 @@ async fn agent_detail(
                 } else {
                     None
                 },
+                embedding: config.embedding,
+                indexer: config.indexer,
             },
         )
         }
@@ -332,6 +337,10 @@ pub struct CreateAgentRequest {
     pub show_tool_calls: Option<bool>,
     #[serde(default)]
     pub silent_read_initiative_chance: Option<f32>,
+    #[serde(default)]
+    pub embedding: Option<EmbeddingToolSettings>,
+    #[serde(default)]
+    pub indexer: Option<IndexerConfig>,
 }
 
 #[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
@@ -476,6 +485,16 @@ impl CreateAgentRequest {
             discord_token: self.discord_token,
             telegram_token: self.telegram_token,
             avatar_url: self.avatar_url,
+            embedding: Some(self.embedding.unwrap_or(EmbeddingToolSettings {
+                provider: EmbeddingProvider::Local,
+                model: "all_mini_lml6_v2".into(),
+                api_key: None,
+                base_url: None,
+            })),
+            indexer: Some(
+                self.indexer
+                    .unwrap_or(IndexerConfig { kind: IndexerKind::Surreal }),
+            ),
         }
     }
 }
@@ -494,6 +513,12 @@ async fn create_agent(
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<CreateAgentRequest>,
 ) -> models::response::Response<AgentSummary> {
+    if let Some(emb) = &body.embedding {
+        if emb.model.trim().is_empty() {
+            return err_response(StatusCode::BAD_REQUEST, "embedding.model is required".into());
+        }
+    }
+
     let agent_id = body.agent_id.clone();
     let mut config = body.into_config();
     config.owner_id = Some(user.user_id);
@@ -541,6 +566,12 @@ async fn update_agent(
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<CreateAgentRequest>,
 ) -> models::response::Response<AgentSummary> {
+    if let Some(emb) = &body.embedding {
+        if emb.model.trim().is_empty() {
+            return err_response(StatusCode::BAD_REQUEST, "embedding.model is required".into());
+        }
+    }
+
     let mut config = body.into_config();
 
     // Preserve existing owner_id and shared_to when updating

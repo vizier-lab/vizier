@@ -10,6 +10,39 @@ pub enum EmbeddingConfig {
     Gemini { model: String },
 }
 
+pub const LOCAL_EMBEDDING_MODELS: &[(&str, &str)] = &[
+    ("all_mini_lml6_v2", "lightweight"),
+    ("all_mini_lml6_v2q", "lightweight"),
+    ("all_mini_lml12_v2", "performance"),
+    ("all_mini_lml12_v2q", "balanced"),
+    ("bge_base_env15", "balanced"),
+    ("bge_base_env15q", "balanced"),
+    ("bge_large_env15", "performance"),
+    ("bge_large_env15q", "balanced"),
+    ("bge_small_env15", "lightweight"),
+    ("bge_small_env15q", "lightweight"),
+    ("nomic_embed_text_v1", "balanced"),
+    ("nomic_embed_text_v15", "balanced"),
+    ("nomic_embed_text_v15q", "balanced"),
+    ("paraphrase_ml_mini_lml12_v2", "lightweight"),
+    ("paraphrase_ml_mini_lml12_v2q", "lightweight"),
+    ("paraphrase_ml_mpnet_base_v2", "balanced"),
+    ("bge_small_zh_v15", "lightweight"),
+    ("bge_large_zh_v15", "performance"),
+    ("modernbert_embed_large", "performance"),
+    ("multilingual_e5_small", "lightweight"),
+    ("multilingual_e5_base", "balanced"),
+    ("multilingual_e5_large", "performance"),
+    ("mxbai_embed_large_v1", "performance"),
+    ("mxbai_embed_large_v1q", "balanced"),
+    ("gte_base_env15", "balanced"),
+    ("gte_base_env15q", "balanced"),
+    ("gte_large_env15", "performance"),
+    ("gte_large_env15q", "balanced"),
+    ("clip_vit_b32", "balanced"),
+    ("jina_embeddings_v2_base_code", "balanced"),
+];
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalEmbeddingModelVariant {
@@ -46,6 +79,42 @@ pub enum LocalEmbeddingModelVariant {
 }
 
 impl LocalEmbeddingModelVariant {
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "all_mini_lml6_v2" => Self::AllMiniLml6V2,
+            "all_mini_lml6_v2q" => Self::AllMiniLml6V2Q,
+            "all_mini_lml12_v2" => Self::AllMiniLml12V2,
+            "all_mini_lml12_v2q" => Self::AllMiniLml12V2Q,
+            "bge_base_env15" => Self::BgeBaseEnv15,
+            "bge_base_env15q" => Self::BgeBaseEnv15Q,
+            "bge_large_env15" => Self::BgeLargeEnv15,
+            "bge_large_env15q" => Self::BgeLargeEnv15Q,
+            "bge_small_env15" => Self::BgeSmallEnv15,
+            "bge_small_env15q" => Self::BgeSmallEnv15Q,
+            "nomic_embed_text_v1" => Self::NomicEmbedTextV1,
+            "nomic_embed_text_v15" => Self::NomicEmbedTextV15,
+            "nomic_embed_text_v15q" => Self::NomicEmbedTextV15Q,
+            "paraphrase_ml_mini_lml12_v2" => Self::ParaphraseMlMiniLML12V2,
+            "paraphrase_ml_mini_lml12_v2q" => Self::ParaphraseMlMiniLML12V2Q,
+            "paraphrase_ml_mpnet_base_v2" => Self::ParaphraseMlMpnetBaseV2,
+            "bge_small_zh_v15" => Self::BgeSmallZhv15,
+            "bge_large_zh_v15" => Self::BgeLargeZhv15,
+            "modernbert_embed_large" => Self::ModernBertEmbedLarge,
+            "multilingual_e5_small" => Self::MultilingualE5Small,
+            "multilingual_e5_base" => Self::MultilingualE5Base,
+            "multilingual_e5_large" => Self::MultilingualE5Large,
+            "mxbai_embed_large_v1" => Self::MxbaiEmbedLargeV1,
+            "mxbai_embed_large_v1q" => Self::MxbaiEmbedLargeV1Q,
+            "gte_base_env15" => Self::GteBaseEnv15,
+            "gte_base_env15q" => Self::GteBaseEnv15Q,
+            "gte_large_env15" => Self::GteLargeEnv15,
+            "gte_large_env15q" => Self::GteLargeEnv15Q,
+            "clip_vit_b32" => Self::ClipVitB32,
+            "jina_embeddings_v2_base_code" => Self::JinaEmbeddingsV2BaseCode,
+            _ => return None,
+        })
+    }
+
     pub fn to_fastembed(&self) -> fastembed::EmbeddingModel {
         match self {
             Self::AllMiniLml6V2 => fastembed::EmbeddingModel::AllMiniLML6V2,

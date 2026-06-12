@@ -5,7 +5,8 @@ use anyhow::Result;
 use surrealdb::Surreal;
 use surrealdb::engine::local::{Db, RocksDb};
 
-use crate::{embedding::VizierEmbedder, storage::VizierStorageProvider, utils::build_path};
+use crate::storage::VizierStorageProvider;
+use crate::utils::build_path;
 
 pub mod agent;
 pub mod dream_journal;
@@ -23,12 +24,11 @@ pub mod user;
 #[derive(Clone)]
 pub struct SurrealStorage {
     pub conn: Arc<Surreal<Db>>,
-    pub embedder: Option<Arc<VizierEmbedder>>,
 }
 
 impl SurrealStorage {
-    pub async fn new(workspace: String, embedder: Option<Arc<VizierEmbedder>>) -> Result<Self> {
-        let db_path = build_path(&workspace, &[".runtime", "surreal"]);
+    pub async fn open_connection(workspace: &str) -> Result<Arc<Surreal<Db>>> {
+        let db_path = build_path(workspace, &[".runtime", "surreal"]);
         let db = Surreal::new::<RocksDb>(db_path).await?;
         db.use_ns("vizier").use_db("v1").await?;
 
@@ -48,12 +48,11 @@ impl SurrealStorage {
         db.query("DEFINE TABLE dream_journal SCHEMALESS;").await?;
         db.query("DEFINE TABLE session_file SCHEMALESS;").await?;
 
-        let res = Self {
-            conn: Arc::new(db),
-            embedder,
-        };
+        Ok(Arc::new(db))
+    }
 
-        Ok(res)
+    pub fn from_conn(conn: Arc<Surreal<Db>>) -> Self {
+        Self { conn }
     }
 }
 

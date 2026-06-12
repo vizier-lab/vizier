@@ -26,6 +26,7 @@ use crate::{
     },
     config::{VizierConfig, provider::ProviderVariant},
     dependencies::VizierDependencies,
+    indexer::VizierIndexer,
     schema::{
         AgentConfig, Memory, SessionHistory, SessionHistoryContent, VizierAttachment,
         VizierAttachmentContent, VizierRequest, VizierRequestContent, VizierResponse,
@@ -64,6 +65,7 @@ pub struct VizierAgent {
     pub global_workspace: String,
     pub storage: Arc<VizierStorage>,
     pub transport: VizierTransport,
+    pub indexer: Option<crate::indexer::VizierIndexer>,
 
     model: VizierModel,
     tools: VizierTools,
@@ -80,6 +82,7 @@ impl VizierAgent {
         agent_id: String,
         deps: &VizierDependencies,
         agent_config: &AgentConfig,
+        indexer: Option<crate::indexer::VizierIndexer>,
     ) -> Result<VizierAgent> {
         let workspace = agent_workspace(&deps.config.workspace, &agent_id)
             .to_string_lossy()
@@ -142,7 +145,7 @@ impl VizierAgent {
         };
 
         let model = VizierModel::new(agent_id.clone(), deps.clone(), agent_config).await?;
-        let tools = VizierTools::new(agent_id.clone(), deps.clone(), agent_config, stt.clone(), tts.clone(), image_gen.clone()).await?;
+        let tools = VizierTools::new(agent_id.clone(), deps.clone(), agent_config, indexer.clone(), stt.clone(), tts.clone(), image_gen.clone()).await?;
         let skills = VizierSkills::new(agent_id.clone(), deps.clone()).await?;
 
         init_workspace(workspace.clone());
@@ -170,6 +173,7 @@ impl VizierAgent {
             global_workspace: deps.config.workspace.clone(),
             storage: deps.storage.clone(),
             transport: deps.transport.clone(),
+            indexer,
         })
     }
 

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{AgentId, VizierAttachment, agent::AgentConfig, file::FileRecord};
+use crate::schema::{AgentId, Memory, MemoryGraph, MemoryQueryParams, MemoryVisibility, VizierAttachment, agent::AgentConfig, file::FileRecord};
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AgentHealthStatus {
@@ -71,6 +71,7 @@ pub struct AgentSummary {
     pub shared_to: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
 pub enum ChannelCommand {
     AgentCreated {
         agent_id: String,
@@ -95,4 +96,49 @@ pub enum FileCommand {
         attachment: VizierAttachment,
         response: tokio::sync::oneshot::Sender<anyhow::Result<Vec<u8>>>,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MemoryOpRequest {
+    Write {
+        slug: Option<String>,
+        title: String,
+        content: String,
+        visibility: MemoryVisibility,
+        shared_to: Vec<String>,
+        tags: Vec<String>,
+    },
+    Query {
+        query: String,
+        limit: usize,
+        threshold: f64,
+    },
+    GetById {
+        slug: String,
+    },
+    List {
+        params: MemoryQueryParams,
+    },
+    GetRelated {
+        slug: String,
+    },
+    GetGraph,
+    Delete {
+        slug: String,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum MemoryOpResponse {
+    Memory(Memory),
+    MemoryList(Vec<Memory>),
+    MemoryOption(Option<Memory>),
+    Paginated(crate::schema::PaginatedMemory),
+    Graph(MemoryGraph),
+    Unit,
+}
+
+pub struct MemoryOpEnvelope {
+    pub op: MemoryOpRequest,
+    pub response: tokio::sync::oneshot::Sender<anyhow::Result<MemoryOpResponse>>,
 }

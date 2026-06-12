@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use surrealdb::Surreal;
+use surrealdb::engine::local::Db;
 
 use crate::{
     config::{
         VizierConfig,
         provider::ProviderVariant,
-        storage::{DocumentIndexerConfig, StorageConfig},
+        storage::StorageConfig,
     },
-    embedding::VizierEmbedder,
     file_manager::FileManager,
     schema::{AgentToolsConfig, ProviderEntry, ProviderEntryConfig},
     storage::{
@@ -16,7 +17,6 @@ use crate::{
         agent::AgentStorage,
         fs::FileSystemStorage,
         global_config::GlobalConfigStorage,
-        indexer::{VizierIndexer, inmem::InMemIndexer},
         provider::ProviderStorage,
         surreal::SurrealStorage,
         user::{AVAILABLE_PERMISSIONS, UserStorage},
@@ -27,7 +27,7 @@ use crate::{
 #[derive(Clone)]
 pub struct VizierDependencies {
     pub config: Arc<VizierConfig>,
-    pub embedder: Option<Arc<VizierEmbedder>>,
+    pub surreal_conn: Arc<Surreal<Db>>,
     pub transport: VizierTransport,
     pub storage: Arc<VizierStorage>,
     pub file_manager: FileManager,
@@ -35,52 +35,26 @@ pub struct VizierDependencies {
 
 impl VizierDependencies {
     pub async fn new(config: VizierConfig) -> Result<Self> {
-        let embedder = if config.embedding.is_some() {
-            Some(Arc::new(VizierEmbedder::new(&config).await?))
-        } else {
-            None
-        };
-
-        let surreal = SurrealStorage::new(config.workspace.clone(), embedder.clone()).await?;
+        let surreal_conn = SurrealStorage::open_connection(&config.workspace).await?;
 
         let storage = match &config.storage {
-            StorageConfig::Surreal => VizierStorage::new(surreal),
-            StorageConfig::Filesystem(indexer_config) => {
-                let surreal_indexer = VizierIndexer::build(surreal);
-
-                let (reindex, indexer) = match indexer_config {
-                    DocumentIndexerConfig::Surreal => {
-                        (false, VizierIndexer::build(surreal_indexer))
-                    }
-                    DocumentIndexerConfig::InMem => (
-                        true,
-                        VizierIndexer::build(InMemIndexer::new(embedder.clone())),
-                    ),
-                };
-
-                let fs =
-                    FileSystemStorage::new(config.workspace.clone(), Arc::new(indexer), reindex)
-                        .await?;
+            StorageConfig::Surreal => {
+                VizierStorage::new(SurrealStorage::from_conn(surreal_conn.clone()))
+            }
+            StorageConfig::Filesystem => {
+                let fs = FileSystemStorage::new(config.workspace.clone()).await?;
                 VizierStorage::new(fs)
             }
         };
 
-        // Migrate existing users to have roles
         Self::migrate_users(&storage).await?;
-
-        // Auto-migrate providers from YAML config if storage is empty
         Self::migrate_providers(&config, &storage).await?;
-
-        // Auto-migrate channel tokens into agent configs
         Self::migrate_channel_tokens(&config, &storage).await?;
-
-        // Migrate per-agent MCP/shell from global config to agent configs
         Self::migrate_agent_tools(&storage).await?;
 
         let transport = VizierTransport::new();
         let file_manager = FileManager::new(config.workspace.clone());
 
-        // Spawn FileManager processing loop
         let fm = file_manager.clone();
         let file_transport = transport.clone();
         tokio::spawn(async move {
@@ -89,15 +63,14 @@ impl VizierDependencies {
 
         Ok(Self {
             config: Arc::new(config.clone()),
-            storage: Arc::new(VizierStorage::new(storage)),
+            surreal_conn,
+            storage: Arc::new(storage),
             transport,
-            embedder,
             file_manager,
         })
     }
 
     async fn migrate_users(storage: &VizierStorage) -> Result<()> {
-        // Create system role if it doesn't exist
         let system_role = match storage.get_system_role().await? {
             Some(role) => role,
             None => {
@@ -112,12 +85,9 @@ impl VizierDependencies {
             }
         };
 
-        // Check if any users exist
         if storage.user_exists().await? {
-            // Migrate existing users without role_id to superadmin role
             let users = storage.list_users().await?;
             for user in users {
-                // Check if user has a valid role_id
                 if storage.get_role(&user.role_id).await?.is_none() {
                     tracing::info!(
                         "Migrating user '{}' to superadmin role",
@@ -234,7 +204,6 @@ impl VizierDependencies {
             return Ok(());
         }
 
-        // Check if there are channel tokens in YAML config to migrate
         let has_discord = config
             .channels
             .discord
@@ -297,7 +266,6 @@ impl VizierDependencies {
             return Ok(());
         }
 
-        // Load global MCP servers config from storage
         let global_mcp = match storage.get_global_config("mcp_servers").await {
             Ok(Some(entry)) => {
                 if let crate::schema::GlobalConfigValue::McpServers(servers) = entry.value {
@@ -309,7 +277,6 @@ impl VizierDependencies {
             _ => None,
         };
 
-        // Load global shell config from storage
         let global_shell = match storage.get_global_config("shell").await {
             Ok(Some(entry)) => {
                 if let crate::schema::GlobalConfigValue::Shell(shell) = entry.value {
@@ -325,9 +292,6 @@ impl VizierDependencies {
         for (agent_id, mut agent_config) in agents {
             let mut changed = false;
 
-            // Migrate MCP servers: if agent has empty mcp_servers but global has servers,
-            // this is a legacy agent that referenced global servers by name.
-            // Since we can't know which names it used, we copy all global servers.
             if agent_config.tools.mcp_servers.is_empty() {
                 if let Some(ref global_servers) = global_mcp {
                     if !global_servers.is_empty() {
@@ -336,16 +300,6 @@ impl VizierDependencies {
                     }
                 }
             }
-
-            // Migrate shell: if agent had shell_access=true (now gone), inherit global shell
-            // The old schema had shell_access: bool. After deserialization with the new schema,
-            // shell will be None. We check if the old field was true by looking at the raw data.
-            // Since we can't access raw data here, we use a heuristic: if the agent config
-            // doesn't have shell set but the global shell exists, we don't auto-migrate
-            // because we can't distinguish between "shell_access was false" and "shell_access was true".
-            // The migration of shell_access -> shell is handled by serde's default behavior.
-            // Old agents with shell_access: true will have shell: None in the new schema.
-            // We leave this for manual migration or skip it.
 
             if changed {
                 if let Err(e) = storage.update_agent(&agent_id, &agent_config).await {
@@ -364,7 +318,6 @@ impl VizierDependencies {
             tracing::info!("migrated tools config for {} agents", migrated);
         }
 
-        // Clean up global config entries (they're no longer needed)
         let _ = storage.delete_global_config("mcp_servers").await;
         let _ = storage.delete_global_config("shell").await;
 
