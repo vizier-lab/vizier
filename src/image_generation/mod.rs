@@ -1,4 +1,7 @@
+pub mod huggingface;
+pub mod hyperbolic;
 pub mod openai;
+pub mod xai;
 
 use std::sync::Arc;
 
@@ -32,6 +35,45 @@ impl VizierImageGen {
                     .clone()
                     .unwrap_or_else(|| ImageGenProvider::Openai.default_model().into());
                 Arc::new(openai::OpenAiImageGenModel::new(resolved.api_key, model))
+            }
+            ImageGenProvider::Xai => {
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::xai,
+                    "XAI_API_KEY",
+                )
+                .await?;
+                let model = settings
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| ImageGenProvider::Xai.default_model().into());
+                Arc::new(xai::XaiImageGenModel::new(resolved.api_key, model))
+            }
+            ImageGenProvider::Huggingface => {
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::huggingface,
+                    "HUGGINGFACE_API_KEY",
+                )
+                .await?;
+                let model = settings
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| ImageGenProvider::Huggingface.default_model().into());
+                Arc::new(huggingface::HuggingfaceImageGenModel::new(resolved.api_key, model))
+            }
+            ImageGenProvider::Hyperbolic => {
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::hyperbolic,
+                    "HYPERBOLIC_API_KEY",
+                )
+                .await?;
+                let model = settings
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| ImageGenProvider::Hyperbolic.default_model().into());
+                Arc::new(hyperbolic::HyperbolicImageGenModel::new(resolved.api_key, model))
             }
         };
 

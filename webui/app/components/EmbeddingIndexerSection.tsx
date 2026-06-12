@@ -53,6 +53,11 @@ export default function EmbeddingIndexerSection({
       openai: { provider: 'openai', model: 'text-embedding-3-small' },
       gemini: { provider: 'gemini', model: 'text-embedding-004' },
       openrouter: { provider: 'openrouter', model: 'openai/text-embedding-3-small' },
+      voyageai: { provider: 'voyageai', model: 'voyage-3.5' },
+      mistral: { provider: 'mistral', model: 'mistral-embed' },
+      together: { provider: 'together', model: 'togethercomputer/m2-bert-80M-8k-retrieval' },
+      cohere: { provider: 'cohere', model: 'embed-english-v3.0' },
+      copilot: { provider: 'copilot', model: 'text-embedding-3-small' },
     }
     onEmbeddingChange(defaults[provider])
   }

@@ -18,7 +18,7 @@ use crate::{
     config::{shell::ShellConfig, tools::mcp::McpClientConfig},
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
-        AgentToolsConfig, AgentUsageStats, BraveSearchToolSettings, EmbeddingToolSettings,
+        AgentToolsConfig, AgentUsageStats, BraveSearchToolSettings, EmbeddingConfig,
         ImageGenToolSettings, IndexerConfig, MemoryConfig, ReadImageToolSettings, ToolConfig,
         TtsToolSettings,
         agent::{EmbeddingProvider, IndexerKind, SttToolSettings},
@@ -179,7 +179,7 @@ pub struct AgentDetail {
     pub read_image_settings: Option<ReadImageToolSettings>,
     pub image_gen: bool,
     pub image_gen_settings: Option<ImageGenToolSettings>,
-    pub embedding: Option<EmbeddingToolSettings>,
+    pub embedding: Option<EmbeddingConfig>,
     pub indexer: Option<IndexerConfig>,
 }
 
@@ -338,7 +338,7 @@ pub struct CreateAgentRequest {
     #[serde(default)]
     pub silent_read_initiative_chance: Option<f32>,
     #[serde(default)]
-    pub embedding: Option<EmbeddingToolSettings>,
+    pub embedding: Option<EmbeddingConfig>,
     #[serde(default)]
     pub indexer: Option<IndexerConfig>,
 }
@@ -485,7 +485,7 @@ impl CreateAgentRequest {
             discord_token: self.discord_token,
             telegram_token: self.telegram_token,
             avatar_url: self.avatar_url,
-            embedding: Some(self.embedding.unwrap_or(EmbeddingToolSettings {
+            embedding: Some(self.embedding.unwrap_or(EmbeddingConfig {
                 provider: EmbeddingProvider::Local,
                 model: "all_mini_lml6_v2".into(),
                 api_key: None,

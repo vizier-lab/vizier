@@ -5,13 +5,20 @@ use rig_core::{
     OneOrMany,
     completion::{CompletionModel, ToolDefinition, Usage},
     message::{AssistantContent, Message},
-    providers::{anthropic, deepseek, gemini, llamafile, ollama, openai, openrouter, xiaomimimo},
+    providers::{
+        anthropic, azure, chatgpt, cohere, copilot, deepseek, galadriel, gemini, groq,
+        huggingface, hyperbolic, llamafile, minimax, mira, mistral, moonshot, ollama, openai,
+        openrouter, perplexity, together, xai, xiaomimimo, zai,
+    },
 };
 
 use crate::{
     config::provider::ProviderVariant,
     dependencies::VizierDependencies,
-    provider_keys::{ResolvedProvider, resolve_local_provider, resolve_provider_key},
+    provider_keys::{
+        ResolvedProvider, resolve_chatgpt_provider, resolve_local_provider, resolve_provider_key,
+        resolve_provider_with_base_url, resolve_azure_provider,
+    },
     schema::{AgentConfig, AgentId, Quantization},
 };
 
@@ -25,6 +32,9 @@ impl VizierModel {
         Self(Arc::new(Box::new(model)))
     }
 
+    // NOTE: `mistralrs` is the in-tree local inference runner (mistral.rs
+    // crate). `mistral` is the rig cloud provider (Mistral AI API).
+    // They are distinct.
     pub async fn new(
         agent_id: AgentId,
         deps: VizierDependencies,
@@ -63,6 +73,57 @@ impl VizierModel {
             ProviderVariant::llama_cpp => Self::build(
                 VizierModelImpl::<llamafile::Client>::build(&resolved, agent_config).await?,
             ),
+            ProviderVariant::groq => Self::build(
+                VizierModelImpl::<groq::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::mistral => Self::build(
+                VizierModelImpl::<mistral::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::xai => Self::build(
+                VizierModelImpl::<xai::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::perplexity => Self::build(
+                VizierModelImpl::<perplexity::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::moonshot => Self::build(
+                VizierModelImpl::<moonshot::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::zai => Self::build(
+                VizierModelImpl::<zai::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::minimax => Self::build(
+                VizierModelImpl::<minimax::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::together => Self::build(
+                VizierModelImpl::<together::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::cohere => Self::build(
+                VizierModelImpl::<cohere::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::huggingface => Self::build(
+                VizierModelImpl::<huggingface::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::hyperbolic => Self::build(
+                VizierModelImpl::<hyperbolic::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::voyageai => {
+                anyhow::bail!("voyageai is an embedding-only provider")
+            }
+            ProviderVariant::galadriel => Self::build(
+                VizierModelImpl::<galadriel::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::mira => Self::build(
+                VizierModelImpl::<mira::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::copilot => Self::build(
+                VizierModelImpl::<copilot::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::chatgpt => Self::build(
+                VizierModelImpl::<chatgpt::Client>::build(&resolved, agent_config).await?,
+            ),
+            ProviderVariant::azure => Self::build(
+                VizierModelImpl::<azure::Client>::build(&resolved, agent_config).await?,
+            ),
             ProviderVariant::mistralrs => unreachable!(),
             ProviderVariant::elevenlabs => {
                 anyhow::bail!("elevenlabs is not a completion model provider")
@@ -84,7 +145,6 @@ impl VizierModel {
         override_config.provider = provider.clone();
         override_config.model = model_name;
 
-        // mistralrs doesn't need a provider entry
         if provider == ProviderVariant::mistralrs {
             return Ok(Self::build(
                 MistralRsModel::new(&override_config, &deps.config.workspace).await?,
@@ -117,6 +177,57 @@ impl VizierModel {
             ),
             ProviderVariant::llama_cpp => Self::build(
                 VizierModelImpl::<llamafile::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::groq => Self::build(
+                VizierModelImpl::<groq::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::mistral => Self::build(
+                VizierModelImpl::<mistral::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::xai => Self::build(
+                VizierModelImpl::<xai::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::perplexity => Self::build(
+                VizierModelImpl::<perplexity::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::moonshot => Self::build(
+                VizierModelImpl::<moonshot::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::zai => Self::build(
+                VizierModelImpl::<zai::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::minimax => Self::build(
+                VizierModelImpl::<minimax::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::together => Self::build(
+                VizierModelImpl::<together::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::cohere => Self::build(
+                VizierModelImpl::<cohere::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::huggingface => Self::build(
+                VizierModelImpl::<huggingface::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::hyperbolic => Self::build(
+                VizierModelImpl::<hyperbolic::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::voyageai => {
+                anyhow::bail!("voyageai is an embedding-only provider")
+            }
+            ProviderVariant::galadriel => Self::build(
+                VizierModelImpl::<galadriel::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::mira => Self::build(
+                VizierModelImpl::<mira::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::copilot => Self::build(
+                VizierModelImpl::<copilot::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::chatgpt => Self::build(
+                VizierModelImpl::<chatgpt::Client>::build(&resolved, &override_config).await?,
+            ),
+            ProviderVariant::azure => Self::build(
+                VizierModelImpl::<azure::Client>::build(&resolved, &override_config).await?,
             ),
             ProviderVariant::mistralrs => unreachable!(),
             ProviderVariant::elevenlabs => {
@@ -155,6 +266,57 @@ async fn resolve_provider(
             .await
             .map_err(|e| anyhow::anyhow!(e.0)),
         ProviderVariant::mimo => resolve_provider_key(storage, variant.clone(), "XIAOMI_MIMO_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::groq => resolve_provider_key(storage, variant.clone(), "GROQ_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::mistral => resolve_provider_key(storage, variant.clone(), "MISTRAL_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::xai => resolve_provider_key(storage, variant.clone(), "XAI_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::perplexity => resolve_provider_key(storage, variant.clone(), "PERPLEXITY_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::moonshot => resolve_provider_with_base_url(storage, variant.clone(), "MOONSHOT_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::zai => resolve_provider_with_base_url(storage, variant.clone(), "ZAI_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::minimax => resolve_provider_with_base_url(storage, variant.clone(), "MINIMAX_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::together => resolve_provider_key(storage, variant.clone(), "TOGETHER_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::cohere => resolve_provider_key(storage, variant.clone(), "COHERE_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::huggingface => resolve_provider_key(storage, variant.clone(), "HUGGINGFACE_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::hyperbolic => resolve_provider_key(storage, variant.clone(), "HYPERBOLIC_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::voyageai => resolve_provider_key(storage, variant.clone(), "VOYAGE_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::galadriel => resolve_provider_key(storage, variant.clone(), "GALADRIEL_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::mira => resolve_provider_key(storage, variant.clone(), "MIRA_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::copilot => resolve_provider_key(storage, variant.clone(), "COPILOT_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::chatgpt => resolve_chatgpt_provider(storage)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::azure => resolve_azure_provider(storage)
             .await
             .map_err(|e| anyhow::anyhow!(e.0)),
         ProviderVariant::mistralrs => unreachable!(),

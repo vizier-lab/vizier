@@ -1,8 +1,10 @@
 pub mod elevenlabs;
+pub mod hyperbolic;
 pub mod kitten;
 pub mod openai;
 pub mod openrouter;
 pub mod piper;
+pub mod xai;
 
 use std::sync::Arc;
 
@@ -64,6 +66,32 @@ impl VizierTts {
                     .clone()
                     .unwrap_or_else(|| "eleven_multilingual_v2".into());
                 Arc::new(elevenlabs::ElevenLabsTtsModel::new(resolved.api_key, model))
+            }
+            TtsProvider::Xai => {
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::xai,
+                    "XAI_API_KEY",
+                )
+                .await?;
+                let model = settings
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "grok-2-tts".into());
+                Arc::new(xai::XaiTtsModel::new(resolved.api_key, model))
+            }
+            TtsProvider::Hyperbolic => {
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::hyperbolic,
+                    "HYPERBOLIC_API_KEY",
+                )
+                .await?;
+                let model = settings
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "Melo-TTS".into());
+                Arc::new(hyperbolic::HyperbolicTtsModel::new(resolved.api_key, model))
             }
         };
 

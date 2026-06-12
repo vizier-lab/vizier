@@ -10,11 +10,16 @@ use crate::{
     storage::VizierStorage,
 };
 
+pub mod cohere;
+pub mod copilot;
 pub mod fastembed;
 pub mod gemini;
+pub mod mistral;
 pub mod ollama;
 pub mod openai;
 pub mod openrouter;
+pub mod together;
+pub mod voyageai;
 
 #[async_trait::async_trait]
 #[allow(unused)]
@@ -110,6 +115,75 @@ impl VizierEmbedder {
                 .map_err(|e| anyhow::anyhow!(e.0))?;
                 let model_name = settings.model.clone();
                 let model = rig_core::providers::openrouter::Client::new(resolved.api_key)?
+                    .embedding_model(&model_name);
+                Self::build(model)
+            }
+            EmbeddingProvider::Voyageai => {
+                let resolved = resolve_provider_key(
+                    storage,
+                    ProviderVariant::voyageai,
+                    "VOYAGE_API_KEY",
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e.0))?;
+                let model_name = settings.model.clone();
+                let model = rig_core::providers::voyageai::Client::new(&resolved.api_key)?
+                    .embedding_model(&model_name);
+                Self::build(model)
+            }
+            EmbeddingProvider::Mistral => {
+                let resolved = resolve_provider_key(
+                    storage,
+                    ProviderVariant::mistral,
+                    "MISTRAL_API_KEY",
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e.0))?;
+                let model_name = settings.model.clone();
+                let model = rig_core::providers::mistral::Client::new(&resolved.api_key)?
+                    .embedding_model(&model_name);
+                Self::build(model)
+            }
+            EmbeddingProvider::Together => {
+                let resolved = resolve_provider_key(
+                    storage,
+                    ProviderVariant::together,
+                    "TOGETHER_API_KEY",
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e.0))?;
+                let model_name = settings.model.clone();
+                let model = rig_core::providers::together::Client::new(&resolved.api_key)?
+                    .embedding_model(&model_name);
+                Self::build(model)
+            }
+            EmbeddingProvider::Cohere => {
+                let resolved = resolve_provider_key(
+                    storage,
+                    ProviderVariant::cohere,
+                    "COHERE_API_KEY",
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e.0))?;
+                let model_name = settings.model.clone();
+                let model = rig_core::providers::cohere::Client::new(resolved.api_key)?
+                    .embedding_model(&model_name, "search_document");
+                Self::build(model)
+            }
+            EmbeddingProvider::Copilot => {
+                let resolved = resolve_provider_key(
+                    storage,
+                    ProviderVariant::copilot,
+                    "COPILOT_API_KEY",
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e.0))?;
+                let model_name = settings.model.clone();
+                let model = rig_core::providers::copilot::Client::builder()
+                    .api_key(rig_core::providers::copilot::CopilotAuth::ApiKey(
+                        resolved.api_key,
+                    ))
+                    .build()?
                     .embedding_model(&model_name);
                 Self::build(model)
             }

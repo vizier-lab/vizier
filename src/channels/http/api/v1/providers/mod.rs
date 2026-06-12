@@ -48,6 +48,35 @@ fn provider_to_response(entry: &ProviderEntry) -> ProviderResponse {
         ProviderEntryConfig::LlamaCpp { base_url } => (false, Some(base_url.clone()), None),
         ProviderEntryConfig::Mistralrs { enabled } => (false, None, Some(*enabled)),
         ProviderEntryConfig::Elevenlabs { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Groq { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Mistral { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Xai { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Perplexity { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Moonshot { api_key, base_url } => {
+            (!api_key.is_empty(), base_url.clone(), None)
+        }
+        ProviderEntryConfig::Zai { api_key, base_url } => {
+            (!api_key.is_empty(), base_url.clone(), None)
+        }
+        ProviderEntryConfig::Minimax { api_key, base_url } => {
+            (!api_key.is_empty(), base_url.clone(), None)
+        }
+        ProviderEntryConfig::Together { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Cohere { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Huggingface { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Hyperbolic { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Voyageai { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Galadriel { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Mira { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Copilot { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Chatgpt {
+            access_token,
+            account_id: _,
+            base_url,
+        } => (!access_token.is_empty(), base_url.clone(), None),
+        ProviderEntryConfig::Azure { endpoint, api_key } => {
+            (!api_key.is_empty(), Some(endpoint.clone()), None)
+        }
     };
 
     ProviderResponse {
@@ -104,6 +133,9 @@ pub struct UpsertProviderRequest {
     pub api_key: Option<String>,
     pub base_url: Option<String>,
     pub enabled: Option<bool>,
+    pub access_token: Option<String>,
+    pub account_id: Option<String>,
+    pub endpoint: Option<String>,
 }
 
 #[utoipa::path(
@@ -156,6 +188,66 @@ async fn upsert_provider(
             enabled: body.enabled.unwrap_or(true),
         },
         ProviderVariant::elevenlabs => ProviderEntryConfig::Elevenlabs {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::groq => ProviderEntryConfig::Groq {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::mistral => ProviderEntryConfig::Mistral {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::xai => ProviderEntryConfig::Xai {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::perplexity => ProviderEntryConfig::Perplexity {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::moonshot => ProviderEntryConfig::Moonshot {
+            api_key: body.api_key.unwrap_or_default(),
+            base_url: body.base_url.filter(|s| !s.is_empty()),
+        },
+        ProviderVariant::zai => ProviderEntryConfig::Zai {
+            api_key: body.api_key.unwrap_or_default(),
+            base_url: body.base_url.filter(|s| !s.is_empty()),
+        },
+        ProviderVariant::minimax => ProviderEntryConfig::Minimax {
+            api_key: body.api_key.unwrap_or_default(),
+            base_url: body.base_url.filter(|s| !s.is_empty()),
+        },
+        ProviderVariant::together => ProviderEntryConfig::Together {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::cohere => ProviderEntryConfig::Cohere {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::huggingface => ProviderEntryConfig::Huggingface {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::hyperbolic => ProviderEntryConfig::Hyperbolic {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::voyageai => ProviderEntryConfig::Voyageai {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::galadriel => ProviderEntryConfig::Galadriel {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::mira => ProviderEntryConfig::Mira {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::copilot => ProviderEntryConfig::Copilot {
+            api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::chatgpt => ProviderEntryConfig::Chatgpt {
+            access_token: body.access_token.unwrap_or_default(),
+            account_id: body.account_id.unwrap_or_default(),
+            base_url: body.base_url.filter(|s| !s.is_empty()),
+        },
+        ProviderVariant::azure => ProviderEntryConfig::Azure {
+            endpoint: body
+                .endpoint
+                .or(body.base_url.clone())
+                .unwrap_or_default(),
             api_key: body.api_key.unwrap_or_default(),
         },
     };

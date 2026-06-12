@@ -119,6 +119,11 @@ pub enum EmbeddingProvider {
     Ollama,
     Openai,
     Gemini,
+    Voyageai,
+    Mistral,
+    Together,
+    Cohere,
+    Copilot,
 }
 
 impl EmbeddingProvider {
@@ -129,6 +134,11 @@ impl EmbeddingProvider {
             Self::Ollama => "ollama",
             Self::Openai => "openai",
             Self::Gemini => "gemini",
+            Self::Voyageai => "voyageai",
+            Self::Mistral => "mistral",
+            Self::Together => "together",
+            Self::Cohere => "cohere",
+            Self::Copilot => "copilot",
         }
     }
 }
@@ -171,6 +181,8 @@ pub enum TtsProvider {
     Openai,
     Openrouter,
     Elevenlabs,
+    Xai,
+    Hyperbolic,
 }
 
 impl TtsProvider {
@@ -179,6 +191,7 @@ impl TtsProvider {
             Self::Piper | Self::Kitten => "0",
             Self::Openai | Self::Openrouter => "alloy",
             Self::Elevenlabs => "pqHfZKP75CvOlQylNhV4",
+            Self::Xai | Self::Hyperbolic => "default",
         }
     }
 }
@@ -202,6 +215,10 @@ pub enum SttProvider {
     SenseVoice,
     Openai,
     Elevenlabs,
+    Groq,
+    Mistral,
+    Huggingface,
+    Gemini,
 }
 
 impl SttProvider {
@@ -210,6 +227,10 @@ impl SttProvider {
             Self::SenseVoice => "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
             Self::Openai => "whisper-1",
             Self::Elevenlabs => "scribe_v1",
+            Self::Groq => "whisper-large-v3",
+            Self::Mistral => "voxtral-mini-2507",
+            Self::Huggingface => "openai/whisper-large-v3",
+            Self::Gemini => "gemini-1.5-flash",
         }
     }
 }
@@ -236,12 +257,18 @@ pub struct ReadImageToolSettings {
 pub enum ImageGenProvider {
     #[default]
     Openai,
+    Xai,
+    Huggingface,
+    Hyperbolic,
 }
 
 impl ImageGenProvider {
     pub fn default_model(&self) -> &str {
         match self {
             Self::Openai => "dall-e-3",
+            Self::Xai => "grok-2-image-1212",
+            Self::Huggingface => "stabilityai/stable-diffusion-xl-base-1.0",
+            Self::Hyperbolic => "SDXL1.0-base",
         }
     }
 }

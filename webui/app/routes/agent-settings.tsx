@@ -39,6 +39,7 @@ import type {
   McpServerConfig,
   ShellConfigData,
 } from '../interfaces/types'
+import { CHAT_PROVIDERS } from '../interfaces/types'
 
 function getErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'response' in err) {
@@ -59,18 +60,6 @@ const TABS: { key: SettingsTab; label: string; icon: typeof FaGear }[] = [
   { key: 'tools', label: 'Tools', icon: FaScrewdriverWrench },
   { key: 'sharing', label: 'Sharing', icon: FaUserGroup },
   { key: 'danger', label: 'Danger Zone', icon: FaTriangleExclamation },
-]
-
-const PROVIDERS = [
-  'mistralrs',
-  'ollama',
-  'deepseek',
-  'openrouter',
-  'anthropic',
-  'openai',
-  'gemini',
-  'mimo',
-  'llama_cpp',
 ]
 
 const inputStyle: React.CSSProperties = {
@@ -113,7 +102,7 @@ export default function AgentSettings() {
     agent_id: '',
     name: '',
     description: '',
-    provider: 'mistralrs',
+    provider: 'ollama',
     model: '',
     quantization: 'auto_4',
     system_prompt: '',
@@ -819,7 +808,7 @@ export default function AgentSettings() {
                           )
                         }
                       >
-                        {PROVIDERS.map((p) => (
+                        {CHAT_PROVIDERS.map((p) => (
                           <option key={p} value={p}>
                             {p}
                           </option>
@@ -1242,7 +1231,7 @@ export default function AgentSettings() {
                               }
                             >
                               <option value="" disabled>Select provider</option>
-                              {PROVIDERS.map((p) => (
+                              {CHAT_PROVIDERS.map((p) => (
                                 <option key={p} value={p}>{p}</option>
                               ))}
                             </select>
@@ -2251,14 +2240,9 @@ export default function AgentSettings() {
                           }
                         >
                           <option value="">Select provider</option>
-                          <option value="ollama">Ollama</option>
-                          <option value="openai">OpenAI</option>
-                          <option value="anthropic">Anthropic</option>
-                          <option value="openrouter">OpenRouter</option>
-                          <option value="gemini">Gemini</option>
-                          <option value="deepseek">DeepSeek</option>
-                          <option value="mimo">Xiaomi MiMo</option>
-                          <option value="llama_cpp">Llama.cpp</option>
+                          {CHAT_PROVIDERS.map((p) => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
                         </select>
                       </section>
                       <section style={fieldStyle}>

@@ -1,4 +1,8 @@
 pub mod elevenlabs;
+pub mod gemini;
+pub mod groq;
+pub mod huggingface;
+pub mod mistral;
 pub mod openai;
 pub mod sense_voice;
 
@@ -56,6 +60,58 @@ impl VizierStt {
                     .clone()
                     .unwrap_or_else(|| SttProvider::Elevenlabs.default_model().into());
                 Arc::new(elevenlabs::ElevenLabsSttModel::new(resolved.api_key, model))
+            }
+            SttProvider::Groq => {
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::groq,
+                    "GROQ_API_KEY",
+                )
+                .await?;
+                let model = settings
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| SttProvider::Groq.default_model().into());
+                Arc::new(groq::GroqSttModel::new(resolved.api_key, model))
+            }
+            SttProvider::Mistral => {
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::mistral,
+                    "MISTRAL_API_KEY",
+                )
+                .await?;
+                let model = settings
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| SttProvider::Mistral.default_model().into());
+                Arc::new(mistral::MistralSttModel::new(resolved.api_key, model))
+            }
+            SttProvider::Huggingface => {
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::huggingface,
+                    "HUGGINGFACE_API_KEY",
+                )
+                .await?;
+                let model = settings
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| SttProvider::Huggingface.default_model().into());
+                Arc::new(huggingface::HuggingfaceSttModel::new(resolved.api_key, model))
+            }
+            SttProvider::Gemini => {
+                let resolved = crate::provider_keys::resolve_provider_key(
+                    storage,
+                    ProviderVariant::gemini,
+                    "GEMINI_API_KEY",
+                )
+                .await?;
+                let model = settings
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| SttProvider::Gemini.default_model().into());
+                Arc::new(gemini::GeminiSttModel::new(resolved.api_key, model))
             }
         };
 

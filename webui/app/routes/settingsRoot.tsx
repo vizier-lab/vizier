@@ -67,6 +67,9 @@ export default function Settings() {
         api_key: '',
         base_url: '',
         enabled: true,
+        access_token: '',
+        account_id: '',
+        endpoint: '',
     })
 
     useEffect(() => {
@@ -147,17 +150,38 @@ export default function Settings() {
 
     const handleSaveProvider = async (variant: string) => {
         try {
-            const showBaseUrl = variant === 'ollama' || variant === 'llama_cpp'
+            const showBaseUrl =
+                variant === 'ollama' ||
+                variant === 'llama_cpp' ||
+                variant === 'moonshot' ||
+                variant === 'zai' ||
+                variant === 'minimax'
             await upsertProvider(variant, {
                 api_key: providerForm.api_key || undefined,
                 base_url: showBaseUrl
                     ? providerForm.base_url || undefined
                     : undefined,
                 enabled: variant === 'mistralrs' ? providerForm.enabled : undefined,
+                access_token:
+                    variant === 'chatgpt'
+                        ? providerForm.access_token || undefined
+                        : undefined,
+                account_id:
+                    variant === 'chatgpt'
+                        ? providerForm.account_id || undefined
+                        : undefined,
+                endpoint: variant === 'azure' ? providerForm.endpoint || undefined : undefined,
             })
             addToast('success', `${variant} provider saved`)
             setEditingProvider(null)
-            setProviderForm({ api_key: '', base_url: '', enabled: true })
+            setProviderForm({
+                api_key: '',
+                base_url: '',
+                enabled: true,
+                access_token: '',
+                account_id: '',
+                endpoint: '',
+            })
             await loadProviders()
         } catch (err: any) {
             addToast(
@@ -830,6 +854,23 @@ export default function Settings() {
                                             'mimo',
                                             'llama_cpp',
                                             'elevenlabs',
+                                            'groq',
+                                            'mistral',
+                                            'xai',
+                                            'perplexity',
+                                            'moonshot',
+                                            'zai',
+                                            'minimax',
+                                            'together',
+                                            'cohere',
+                                            'huggingface',
+                                            'hyperbolic',
+                                            'voyageai',
+                                            'galadriel',
+                                            'mira',
+                                            'chatgpt',
+                                            'copilot',
+                                            'azure',
                                         ]
                                         const configured = providers.map(
                                             (p) => p.variant
@@ -991,6 +1032,13 @@ export default function Settings() {
                                                                                 enabled:
                                                                                     p.enabled ??
                                                                                     true,
+                                                                                access_token:
+                                                                                    '',
+                                                                                account_id:
+                                                                                    '',
+                                                                                endpoint:
+                                                                                    p.base_url ||
+                                                                                    '',
                                                                             }
                                                                         )
                                                                     }}
@@ -1069,7 +1117,11 @@ export default function Settings() {
                                                                 {p.variant !==
                                                                     'ollama' &&
                                                                     p.variant !==
-                                                                    'mistralrs' && (
+                                                                    'mistralrs' &&
+                                                                    p.variant !==
+                                                                    'azure' &&
+                                                                    p.variant !==
+                                                                    'chatgpt' && (
                                                                     <div>
                                                                         <label
                                                                             style={{
@@ -1109,6 +1161,172 @@ export default function Settings() {
                                                                             }
                                                                         />
                                                                     </div>
+                                                                )}
+                                                                {p.variant ===
+                                                                    'azure' && (
+                                                                    <>
+                                                                        <div>
+                                                                            <label
+                                                                                style={{
+                                                                                    display:
+                                                                                        'block',
+                                                                                    marginBottom:
+                                                                                        '0.25rem',
+                                                                                    fontSize:
+                                                                                        '0.8rem',
+                                                                                    color: 'var(--text-secondary)',
+                                                                                }}
+                                                                            >
+                                                                                Endpoint
+                                                                                URL
+                                                                            </label>
+                                                                            <input
+                                                                                style={
+                                                                                    provInputStyle
+                                                                                }
+                                                                                type="text"
+                                                                                placeholder="https://your-resource.openai.azure.com"
+                                                                                value={
+                                                                                    providerForm.endpoint
+                                                                                }
+                                                                                onChange={(
+                                                                                    e
+                                                                                ) =>
+                                                                                    setProviderForm(
+                                                                                        {
+                                                                                            ...providerForm,
+                                                                                            endpoint:
+                                                                                                e
+                                                                                                    .target
+                                                                                                    .value,
+                                                                                        }
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        </div>
+                                                                        <div>
+                                                                            <label
+                                                                                style={{
+                                                                                    display:
+                                                                                        'block',
+                                                                                    marginBottom:
+                                                                                        '0.25rem',
+                                                                                    fontSize:
+                                                                                        '0.8rem',
+                                                                                    color: 'var(--text-secondary)',
+                                                                                }}
+                                                                            >
+                                                                                API
+                                                                                Key
+                                                                            </label>
+                                                                            <input
+                                                                                style={
+                                                                                    provInputStyle
+                                                                                }
+                                                                                type="password"
+                                                                                placeholder="azure-api-key"
+                                                                                value={
+                                                                                    providerForm.api_key
+                                                                                }
+                                                                                onChange={(
+                                                                                    e
+                                                                                ) =>
+                                                                                    setProviderForm(
+                                                                                        {
+                                                                                            ...providerForm,
+                                                                                            api_key:
+                                                                                                e
+                                                                                                    .target
+                                                                                                    .value,
+                                                                                        }
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        </div>
+                                                                    </>
+                                                                )}
+                                                                {p.variant ===
+                                                                    'chatgpt' && (
+                                                                    <>
+                                                                        <div>
+                                                                            <label
+                                                                                style={{
+                                                                                    display:
+                                                                                        'block',
+                                                                                    marginBottom:
+                                                                                        '0.25rem',
+                                                                                    fontSize:
+                                                                                        '0.8rem',
+                                                                                    color: 'var(--text-secondary)',
+                                                                                }}
+                                                                            >
+                                                                                Access
+                                                                                Token
+                                                                            </label>
+                                                                            <input
+                                                                                style={
+                                                                                    provInputStyle
+                                                                                }
+                                                                                type="password"
+                                                                                placeholder="ChatGPT access token"
+                                                                                value={
+                                                                                    providerForm.access_token
+                                                                                }
+                                                                                onChange={(
+                                                                                    e
+                                                                                ) =>
+                                                                                    setProviderForm(
+                                                                                        {
+                                                                                            ...providerForm,
+                                                                                            access_token:
+                                                                                                e
+                                                                                                    .target
+                                                                                                    .value,
+                                                                                        }
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        </div>
+                                                                        <div>
+                                                                            <label
+                                                                                style={{
+                                                                                    display:
+                                                                                        'block',
+                                                                                    marginBottom:
+                                                                                        '0.25rem',
+                                                                                    fontSize:
+                                                                                        '0.8rem',
+                                                                                    color: 'var(--text-secondary)',
+                                                                                }}
+                                                                            >
+                                                                                Account
+                                                                                ID
+                                                                            </label>
+                                                                            <input
+                                                                                style={
+                                                                                    provInputStyle
+                                                                                }
+                                                                                type="text"
+                                                                                placeholder="ChatGPT account id"
+                                                                                value={
+                                                                                    providerForm.account_id
+                                                                                }
+                                                                                onChange={(
+                                                                                    e
+                                                                                ) =>
+                                                                                    setProviderForm(
+                                                                                        {
+                                                                                            ...providerForm,
+                                                                                            account_id:
+                                                                                                e
+                                                                                                    .target
+                                                                                                    .value,
+                                                                                        }
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        </div>
+                                                                    </>
                                                                 )}
                                                                 {p.variant ===
                                                                     'mistralrs' && (
@@ -1155,7 +1373,13 @@ export default function Settings() {
                                                                 {(p.variant ===
                                                                     'ollama' ||
                                                                     p.variant ===
-                                                                        'llama_cpp') && (
+                                                                        'llama_cpp' ||
+                                                                    p.variant ===
+                                                                        'moonshot' ||
+                                                                    p.variant ===
+                                                                        'zai' ||
+                                                                    p.variant ===
+                                                                        'minimax') && (
                                                                     <div>
                                                                         <label
                                                                             style={{
@@ -1179,7 +1403,10 @@ export default function Settings() {
                                                                                 p.variant ===
                                                                                 'ollama'
                                                                                     ? 'http://localhost:11434'
-                                                                                    : 'http://localhost:8080'
+                                                                                    : p.variant ===
+                                                                                      'llama_cpp'
+                                                                                    ? 'http://localhost:8080'
+                                                                                    : 'https://api.example.com/v1 (optional)'
                                                                             }
                                                                             value={
                                                                                 providerForm.base_url
@@ -1300,6 +1527,12 @@ export default function Settings() {
                                                                                 '',
                                                                             enabled:
                                                                                 true,
+                                                                            access_token:
+                                                                                '',
+                                                                            account_id:
+                                                                                '',
+                                                                            endpoint:
+                                                                                '',
                                                                         }
                                                                     )
                                                                 }}
@@ -1330,7 +1563,11 @@ export default function Settings() {
                                                                 }}
                                                             >
                                                                 {variant !==
-                                                                    'ollama' && (
+                                                                    'ollama' &&
+                                                                    variant !==
+                                                                    'azure' &&
+                                                                    variant !==
+                                                                    'chatgpt' && (
                                                                     <div>
                                                                         <label
                                                                             style={{
@@ -1371,10 +1608,182 @@ export default function Settings() {
                                                                         />
                                                                     </div>
                                                                 )}
+                                                                {variant ===
+                                                                    'azure' && (
+                                                                    <>
+                                                                        <div>
+                                                                            <label
+                                                                                style={{
+                                                                                    display:
+                                                                                        'block',
+                                                                                    marginBottom:
+                                                                                        '0.25rem',
+                                                                                    fontSize:
+                                                                                        '0.8rem',
+                                                                                    color: 'var(--text-secondary)',
+                                                                                }}
+                                                                            >
+                                                                                Endpoint
+                                                                                URL
+                                                                            </label>
+                                                                            <input
+                                                                                style={
+                                                                                    provInputStyle
+                                                                                }
+                                                                                type="text"
+                                                                                placeholder="https://your-resource.openai.azure.com"
+                                                                                value={
+                                                                                    providerForm.endpoint
+                                                                                }
+                                                                                onChange={(
+                                                                                    e
+                                                                                ) =>
+                                                                                    setProviderForm(
+                                                                                        {
+                                                                                            ...providerForm,
+                                                                                            endpoint:
+                                                                                                e
+                                                                                                    .target
+                                                                                                    .value,
+                                                                                        }
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        </div>
+                                                                        <div>
+                                                                            <label
+                                                                                style={{
+                                                                                    display:
+                                                                                        'block',
+                                                                                    marginBottom:
+                                                                                        '0.25rem',
+                                                                                    fontSize:
+                                                                                        '0.8rem',
+                                                                                    color: 'var(--text-secondary)',
+                                                                                }}
+                                                                            >
+                                                                                API
+                                                                                Key
+                                                                            </label>
+                                                                            <input
+                                                                                style={
+                                                                                    provInputStyle
+                                                                                }
+                                                                                type="password"
+                                                                                placeholder="azure-api-key"
+                                                                                value={
+                                                                                    providerForm.api_key
+                                                                                }
+                                                                                onChange={(
+                                                                                    e
+                                                                                ) =>
+                                                                                    setProviderForm(
+                                                                                        {
+                                                                                            ...providerForm,
+                                                                                            api_key:
+                                                                                                e
+                                                                                                    .target
+                                                                                                    .value,
+                                                                                        }
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        </div>
+                                                                    </>
+                                                                )}
+                                                                {variant ===
+                                                                    'chatgpt' && (
+                                                                    <>
+                                                                        <div>
+                                                                            <label
+                                                                                style={{
+                                                                                    display:
+                                                                                        'block',
+                                                                                    marginBottom:
+                                                                                        '0.25rem',
+                                                                                    fontSize:
+                                                                                        '0.8rem',
+                                                                                    color: 'var(--text-secondary)',
+                                                                                }}
+                                                                            >
+                                                                                Access
+                                                                                Token
+                                                                            </label>
+                                                                            <input
+                                                                                style={
+                                                                                    provInputStyle
+                                                                                }
+                                                                                type="password"
+                                                                                placeholder="ChatGPT access token"
+                                                                                value={
+                                                                                    providerForm.access_token
+                                                                                }
+                                                                                onChange={(
+                                                                                    e
+                                                                                ) =>
+                                                                                    setProviderForm(
+                                                                                        {
+                                                                                            ...providerForm,
+                                                                                            access_token:
+                                                                                                e
+                                                                                                    .target
+                                                                                                    .value,
+                                                                                        }
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        </div>
+                                                                        <div>
+                                                                            <label
+                                                                                style={{
+                                                                                    display:
+                                                                                        'block',
+                                                                                    marginBottom:
+                                                                                        '0.25rem',
+                                                                                    fontSize:
+                                                                                        '0.8rem',
+                                                                                    color: 'var(--text-secondary)',
+                                                                                }}
+                                                                            >
+                                                                                Account
+                                                                                ID
+                                                                            </label>
+                                                                            <input
+                                                                                style={
+                                                                                    provInputStyle
+                                                                                }
+                                                                                type="text"
+                                                                                placeholder="ChatGPT account id"
+                                                                                value={
+                                                                                    providerForm.account_id
+                                                                                }
+                                                                                onChange={(
+                                                                                    e
+                                                                                ) =>
+                                                                                    setProviderForm(
+                                                                                        {
+                                                                                            ...providerForm,
+                                                                                            account_id:
+                                                                                                e
+                                                                                                    .target
+                                                                                                    .value,
+                                                                                        }
+                                                                                    )
+                                                                                }
+                                                                            />
+                                                                        </div>
+                                                                    </>
+                                                                )}
                                                                 {(variant ===
                                                                     'ollama' ||
                                                                     variant ===
-                                                                        'llama_cpp') && (
+                                                                        'llama_cpp' ||
+                                                                    variant ===
+                                                                        'moonshot' ||
+                                                                    variant ===
+                                                                        'zai' ||
+                                                                    variant ===
+                                                                        'minimax') && (
                                                                     <div>
                                                                         <label
                                                                             style={{
@@ -1398,7 +1807,10 @@ export default function Settings() {
                                                                                 variant ===
                                                                                 'ollama'
                                                                                     ? 'http://localhost:11434'
-                                                                                    : 'http://localhost:8080'
+                                                                                    : variant ===
+                                                                                      'llama_cpp'
+                                                                                    ? 'http://localhost:8080'
+                                                                                    : 'https://api.example.com/v1 (optional)'
                                                                             }
                                                                             value={
                                                                                 providerForm.base_url

@@ -116,6 +116,11 @@ export type EmbeddingProvider =
   | 'ollama'
   | 'openai'
   | 'gemini'
+  | 'voyageai'
+  | 'mistral'
+  | 'together'
+  | 'cohere'
+  | 'copilot'
 
 export interface EmbeddingToolSettings {
   provider: EmbeddingProvider
@@ -135,14 +140,109 @@ export const EMBEDDING_PROVIDERS: EmbeddingProvider[] = [
   'openai',
   'gemini',
   'openrouter',
+  'voyageai',
+  'mistral',
+  'together',
+  'cohere',
+  'copilot',
 ]
+
+export type ChatProvider =
+  | 'mistralrs'
+  | 'ollama'
+  | 'openai'
+  | 'anthropic'
+  | 'openrouter'
+  | 'gemini'
+  | 'deepseek'
+  | 'mimo'
+  | 'llama_cpp'
+  | 'groq'
+  | 'mistral'
+  | 'xai'
+  | 'perplexity'
+  | 'moonshot'
+  | 'zai'
+  | 'minimax'
+  | 'together'
+  | 'cohere'
+  | 'huggingface'
+  | 'hyperbolic'
+  | 'galadriel'
+  | 'mira'
+  | 'chatgpt'
+  | 'copilot'
+  | 'azure'
+
+export const CHAT_PROVIDERS: ChatProvider[] = [
+  'mistralrs',
+  'ollama',
+  'openai',
+  'anthropic',
+  'openrouter',
+  'gemini',
+  'deepseek',
+  'mimo',
+  'llama_cpp',
+  'groq',
+  'mistral',
+  'xai',
+  'perplexity',
+  'moonshot',
+  'zai',
+  'minimax',
+  'together',
+  'cohere',
+  'huggingface',
+  'hyperbolic',
+  'galadriel',
+  'mira',
+  'chatgpt',
+  'copilot',
+  'azure',
+]
+
+export const CHAT_PROVIDER_DEFAULT_MODELS: Record<ChatProvider, string> = {
+  mistralrs: 'google/gemma-4-E4B-it',
+  ollama: 'qwen3.5:4b',
+  openai: 'gpt-4o-mini',
+  anthropic: 'claude-3-haiku-20240307',
+  openrouter: 'anthropic/claude-3-haiku',
+  gemini: 'gemini-2.0-flash',
+  deepseek: 'deepseek-chat',
+  mimo: 'mimo-v2.5-pro',
+  llama_cpp: 'google_gemma-4-E4B-it-Q4_K_M',
+  groq: 'llama-3.1-70b-versatile',
+  mistral: 'mistral-large-latest',
+  xai: 'grok-2-latest',
+  perplexity: 'llama-3.1-sonar-large-128k-online',
+  moonshot: 'moonshot-v1-128k',
+  zai: 'glm-4-plus',
+  minimax: 'MiniMax-Text-01',
+  together: 'meta-llama/Llama-3-70b-chat-hf',
+  cohere: 'command-r-plus',
+  huggingface: 'meta-llama/Llama-3-70b-chat-hf',
+  hyperbolic: 'meta-llama/Llama-3-70b-chat-hf',
+  galadriel: 'llama3.1:70b',
+  mira: 'mira-70b',
+  chatgpt: 'gpt-4o',
+  copilot: 'gpt-4o',
+  azure: 'gpt-4o',
+}
 
 export interface BraveSearchToolSettings {
   api_key?: string
   safesearch?: boolean
 }
 
-export type TtsProvider = 'piper' | 'kitten' | 'openai' | 'openrouter' | 'elevenlabs'
+export type TtsProvider =
+  | 'piper'
+  | 'kitten'
+  | 'openai'
+  | 'openrouter'
+  | 'elevenlabs'
+  | 'xai'
+  | 'hyperbolic'
 
 export interface TtsToolSettings {
   provider?: TtsProvider
@@ -151,7 +251,14 @@ export interface TtsToolSettings {
   speed?: number
 }
 
-export type SttProvider = 'sense_voice' | 'openai' | 'elevenlabs'
+export type SttProvider =
+  | 'sense_voice'
+  | 'openai'
+  | 'elevenlabs'
+  | 'groq'
+  | 'mistral'
+  | 'huggingface'
+  | 'gemini'
 
 export interface SttToolSettings {
   provider?: SttProvider
@@ -164,7 +271,7 @@ export interface ReadImageToolSettings {
   model?: string
 }
 
-export type ImageGenProvider = 'openai'
+export type ImageGenProvider = 'openai' | 'xai' | 'huggingface' | 'hyperbolic'
 
 export interface ImageGenToolSettings {
   provider?: ImageGenProvider
@@ -324,6 +431,9 @@ export interface UpsertProviderRequest {
   api_key?: string
   base_url?: string
   enabled?: boolean
+  access_token?: string
+  account_id?: string
+  endpoint?: string
 }
 
 // ============================================================================

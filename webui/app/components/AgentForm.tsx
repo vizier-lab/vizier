@@ -9,10 +9,15 @@ import { uploadFile } from '../services/vizier'
 import type {
   CreateAgentRequest,
   AgentDetail,
+  ChatProvider,
   EmbeddingToolSettings,
   IndexerConfig,
   McpServerConfig,
   ShellConfigData,
+} from '../interfaces/types'
+import {
+  CHAT_PROVIDERS,
+  CHAT_PROVIDER_DEFAULT_MODELS,
 } from '../interfaces/types'
 import defaultPrompt from '../../../templates/agent.template.md?raw'
 
@@ -24,30 +29,6 @@ const TABS: { key: FormTab; label: string; icon: typeof FaGear }[] = [
   { key: 'prompt', label: 'System Prompt', icon: FaCode },
   { key: 'review', label: 'Review', icon: FaCircleCheck },
 ]
-
-const PROVIDERS = [
-  'mistralrs',
-  'ollama',
-  'deepseek',
-  'openrouter',
-  'anthropic',
-  'openai',
-  'gemini',
-  'mimo',
-  'llama_cpp',
-]
-
-const DEFAULT_MODELS: Record<string, string> = {
-  mistralrs: 'google/gemma-4-E4B-it',
-  ollama: 'qwen3.5:4b',
-  deepseek: 'deepseek-chat',
-  openrouter: 'anthropic/claude-3-haiku',
-  anthropic: 'claude-3-haiku-20240307',
-  openai: 'gpt-4o-mini',
-  gemini: 'gemini-2.0-flash',
-  mimo: 'mimo-v2.5-pro',
-  llama_cpp: 'google_gemma-4-E4B-it-Q4_K_M',
-}
 
 const QUANTIZATION_OPTIONS = [
   { value: 'auto_4', label: 'Auto 4-bit (Recommended)' },
@@ -103,8 +84,8 @@ const DEFAULT_FORM: CreateAgentRequest = {
   agent_id: '',
   name: '',
   description: '',
-  provider: 'mistralrs',
-  model: 'google/gemma-4-E4B-it',
+  provider: 'ollama',
+  model: 'qwen3.5:4b',
   quantization: 'auto_4',
   system_prompt: defaultPrompt,
   thinking_depth: 10,
@@ -646,13 +627,13 @@ export default function AgentForm({
                           if (mode === 'create')
                             updateField(
                               'model',
-                              DEFAULT_MODELS[
-                              e.target.value
+                              CHAT_PROVIDER_DEFAULT_MODELS[
+                                e.target.value as ChatProvider
                               ] || ''
                             )
                         }}
                       >
-                        {PROVIDERS.map((p) => (
+                        {CHAT_PROVIDERS.map((p) => (
                           <option key={p} value={p}>
                             {p}
                           </option>
@@ -1104,7 +1085,7 @@ export default function AgentForm({
                               }
                             >
                               <option value="" disabled>Select provider</option>
-                              {PROVIDERS.map((p) => (
+                              {CHAT_PROVIDERS.map((p) => (
                                 <option key={p} value={p}>{p}</option>
                               ))}
                             </select>
@@ -2017,14 +1998,9 @@ export default function AgentForm({
                           }
                         >
                           <option value="">Select provider</option>
-                          <option value="ollama">Ollama</option>
-                          <option value="openai">OpenAI</option>
-                          <option value="anthropic">Anthropic</option>
-                          <option value="openrouter">OpenRouter</option>
-                          <option value="gemini">Gemini</option>
-                          <option value="deepseek">DeepSeek</option>
-                          <option value="mimo">Xiaomi MiMo</option>
-                          <option value="llama_cpp">Llama.cpp</option>
+                          {CHAT_PROVIDERS.map((p) => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
                         </select>
                       </div>
                       <div>
