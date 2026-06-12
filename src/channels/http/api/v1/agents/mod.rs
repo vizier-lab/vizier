@@ -1,7 +1,7 @@
 use axum::{
     Extension, Json, Router,
     extract::{Path, Query, State},
-    routing::{get, patch},
+    routing::{get, patch, post},
 };
 use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
@@ -21,6 +21,8 @@ use crate::{
         AgentToolsConfig, AgentUsageStats, BraveSearchToolSettings, MemoryConfig, ToolConfig,
         TtsToolSettings,
         agent::SttToolSettings,
+        VizierAttachment, VizierChannelId, VizierRequest, VizierRequestContent,
+        VizierResponseContent, VizierResponseStats, VizierSession,
     },
     storage::{VizierStorage, agent::AgentStorage, history::HistoryStorage, user::UserStorage},
 };
@@ -82,6 +84,7 @@ pub fn agents() -> Router<HTTPState> {
         )
         .route("/{agent_id}/usage", get(agent_usage))
         .route("/{agent_id}/ping", get(ping_agent))
+        .route("/{agent_id}/chat", post(agent_chat))
         .route(
             "/{agent_id}/sharing",
             get(get_sharing).patch(update_sharing),
@@ -826,6 +829,137 @@ async fn ping_agent(
             StatusCode::INTERNAL_SERVER_ERROR,
             "agent manager unavailable".into(),
         ),
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct ChatRequest {
+    pub channel_id: String,
+    pub topic_id: String,
+    pub content: String,
+    #[serde(default)]
+    pub attachments: Option<Vec<VizierAttachment>>,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct ChatResponse {
+    pub content: String,
+    pub stats: Option<VizierResponseStats>,
+    pub attachments: Vec<VizierAttachment>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/agents/{agent_id}/chat",
+    params(("agent_id" = String, Path, description = "Agent ID")),
+    request_body = ChatRequest,
+    responses(
+        (status = 200, description = "Agent chat response", body = APIResponse<ChatResponse>),
+        (status = 404, description = "Agent not found"),
+        (status = 403, description = "Access denied"),
+        (status = 408, description = "Agent response timeout"),
+    )
+)]
+async fn agent_chat(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Json(body): Json<ChatRequest>,
+) -> models::response::Response<ChatResponse> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, "agent not found".into()),
+        Err(e) => {
+            return err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to get agent: {}", e),
+            );
+        }
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
+    let transport = state.transport.clone();
+    let session = VizierSession(
+        agent_id,
+        VizierChannelId::HTTP(user.username.clone(), body.channel_id.clone()),
+        Some(body.topic_id.clone()),
+    );
+
+    let mut attachments = body.attachments.unwrap_or_default();
+    for attachment in attachments.iter_mut() {
+        match transport.send_file_resolve(attachment.clone()).await {
+            Ok(content) => {
+                match transport
+                    .send_file_upload(attachment.filename.clone(), content)
+                    .await
+                {
+                    Ok(file_record) => {
+                        attachment.content =
+                            crate::schema::VizierAttachmentContent::Local(file_record.url);
+                    }
+                    Err(e) => {
+                        tracing::error!("failed to upload resolved attachment: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("failed to resolve attachment: {}", e);
+            }
+        }
+    }
+
+    let request = VizierRequest {
+        timestamp: Utc::now(),
+        user: user.username.clone(),
+        content: VizierRequestContent::Chat(body.content),
+        platform_message_id: None,
+        metadata: serde_json::json!({}),
+        attachments,
+        expect_audio_reply: None,
+    };
+
+    let (response_tx, response_rx) = flume::unbounded();
+    if let Err(err) = transport
+        .send_request(session.clone(), request, Some(response_tx))
+        .await
+    {
+        return err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to send request: {}", err),
+        );
+    }
+
+    let timeout_duration = *config.prompt_timeout;
+    match tokio::time::timeout(timeout_duration, async {
+        loop {
+            match response_rx.recv_async().await {
+                Ok(response) => match &response.content {
+                    VizierResponseContent::Message { content, stats } => {
+                        return Ok(ChatResponse {
+                            content: content.clone(),
+                            stats: stats.clone(),
+                            attachments: response.attachments,
+                        });
+                    }
+                    VizierResponseContent::Abort => {
+                        return Err("Agent aborted the request".to_string());
+                    }
+                    _ => continue,
+                },
+                Err(_) => {
+                    return Err("Agent response channel closed".to_string());
+                }
+            }
+        }
+    })
+    .await
+    {
+        Ok(Ok(res)) => api_response(StatusCode::OK, res),
+        Ok(Err(e)) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e),
+        Err(_) => err_response(StatusCode::REQUEST_TIMEOUT, "Agent response timeout".into()),
     }
 }
 
