@@ -10,16 +10,8 @@ pub struct OpenAiImageGenModel {
 }
 
 impl OpenAiImageGenModel {
-    pub fn new(api_key: String, model: String, base_url: Option<String>) -> Self {
-        let client = if let Some(base_url) = base_url {
-            openai::Client::builder()
-                .base_url(base_url)
-                .api_key(api_key)
-                .build()
-                .expect("failed to build openai client")
-        } else {
-            openai::Client::new(&api_key).expect("failed to create openai client")
-        };
+    pub fn new(api_key: String, model: String) -> Self {
+        let client = openai::Client::new(&api_key).expect("failed to create openai client");
 
         Self {
             model: client.image_generation_model(model),

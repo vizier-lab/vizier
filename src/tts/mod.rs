@@ -37,11 +37,7 @@ impl VizierTts {
                 )
                 .await?;
                 let model = settings.model.clone().unwrap_or_else(|| "tts-1".into());
-                Arc::new(openai::OpenAiTtsModel::new(
-                    resolved.api_key,
-                    model,
-                    resolved.base_url,
-                ))
+                Arc::new(openai::OpenAiTtsModel::new(resolved.api_key, model))
             }
             TtsProvider::Openrouter => {
                 let resolved = crate::provider_keys::resolve_provider_key(

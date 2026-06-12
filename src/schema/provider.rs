@@ -48,11 +48,9 @@ pub enum ProviderEntryConfig {
     },
     Openai {
         api_key: String,
-        base_url: Option<String>,
     },
     Anthropic {
         api_key: String,
-        base_url: Option<String>,
     },
     Deepseek {
         api_key: String,

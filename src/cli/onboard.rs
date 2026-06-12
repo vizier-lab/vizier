@@ -98,31 +98,11 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         }
         "anthropic" => {
             let api_key = Password::new("Anthropic API key:").prompt()?;
-            let base_url = Text::new("Anthropic base URL (optional):")
-                .with_default("")
-                .prompt()?;
-            providers.anthropic = Some(crate::config::provider::AnthropicProviderConfig {
-                api_key,
-                base_url: if base_url.is_empty() {
-                    None
-                } else {
-                    Some(base_url)
-                },
-            });
+            providers.anthropic = Some(crate::config::provider::AnthropicProviderConfig { api_key });
         }
         "openai" => {
             let api_key = Password::new("OpenAI API key:").prompt()?;
-            let base_url = Text::new("OpenAI base URL (optional):")
-                .with_default("")
-                .prompt()?;
-            providers.openai = Some(crate::config::provider::OpenAIProviderConfig {
-                api_key,
-                base_url: if base_url.is_empty() {
-                    None
-                } else {
-                    Some(base_url)
-                },
-            });
+            providers.openai = Some(crate::config::provider::OpenAIProviderConfig { api_key });
         }
         "gemini" => {
             let api_key = Password::new("Gemini API key:").prompt()?;

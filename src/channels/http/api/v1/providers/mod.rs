@@ -39,12 +39,8 @@ pub struct ProviderResponse {
 fn provider_to_response(entry: &ProviderEntry) -> ProviderResponse {
     let (has_api_key, base_url, enabled) = match &entry.config {
         ProviderEntryConfig::Ollama { base_url } => (false, Some(base_url.clone()), None),
-        ProviderEntryConfig::Openai { api_key, base_url } => {
-            (!api_key.is_empty(), base_url.clone(), None)
-        }
-        ProviderEntryConfig::Anthropic { api_key, base_url } => {
-            (!api_key.is_empty(), base_url.clone(), None)
-        }
+        ProviderEntryConfig::Openai { api_key } => (!api_key.is_empty(), None, None),
+        ProviderEntryConfig::Anthropic { api_key } => (!api_key.is_empty(), None, None),
         ProviderEntryConfig::Deepseek { api_key } => (!api_key.is_empty(), None, None),
         ProviderEntryConfig::Openrouter { api_key } => (!api_key.is_empty(), None, None),
         ProviderEntryConfig::Gemini { api_key } => (!api_key.is_empty(), None, None),
@@ -135,11 +131,9 @@ async fn upsert_provider(
         },
         ProviderVariant::openai => ProviderEntryConfig::Openai {
             api_key: body.api_key.unwrap_or_default(),
-            base_url: body.base_url,
         },
         ProviderVariant::anthropic => ProviderEntryConfig::Anthropic {
             api_key: body.api_key.unwrap_or_default(),
-            base_url: body.base_url,
         },
         ProviderVariant::deepseek => ProviderEntryConfig::Deepseek {
             api_key: body.api_key.unwrap_or_default(),

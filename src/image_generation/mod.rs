@@ -31,11 +31,7 @@ impl VizierImageGen {
                     .model
                     .clone()
                     .unwrap_or_else(|| ImageGenProvider::Openai.default_model().into());
-                Arc::new(openai::OpenAiImageGenModel::new(
-                    resolved.api_key,
-                    model,
-                    resolved.base_url,
-                ))
+                Arc::new(openai::OpenAiImageGenModel::new(resolved.api_key, model))
             }
         };
 

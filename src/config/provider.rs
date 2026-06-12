@@ -42,29 +42,24 @@ pub struct ProviderConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AnthropicProviderConfig {
     pub api_key: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub base_url: Option<String>,
 }
 
 impl Default for AnthropicProviderConfig {
     fn default() -> Self {
         Self {
             api_key: "${ANTROPHIC_API_KEY}".into(),
-            base_url: None,
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OpenAIProviderConfig {
-    pub base_url: Option<String>,
     pub api_key: String,
 }
 
 impl Default for OpenAIProviderConfig {
     fn default() -> Self {
         Self {
-            base_url: None,
             api_key: "${OPENAI_API_KEY}".into(),
         }
     }

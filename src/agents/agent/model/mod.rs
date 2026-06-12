@@ -11,8 +11,8 @@ use rig_core::{
 use crate::{
     config::provider::ProviderVariant,
     dependencies::VizierDependencies,
-    schema::{AgentConfig, AgentId, ProviderEntryConfig, Quantization},
-    storage::provider::ProviderStorage,
+    provider_keys::{ResolvedProvider, resolve_local_provider, resolve_provider_key},
+    schema::{AgentConfig, AgentId, Quantization},
 };
 
 mod provider;
@@ -36,46 +36,32 @@ impl VizierModel {
             ));
         }
 
-        let provider_entry = deps
-            .storage
-            .get_provider(&agent_config.provider)
-            .await?
-            .ok_or_else(|| {
-                anyhow::anyhow!("provider {:?} not configured", agent_config.provider)
-            })?;
+        let resolved = resolve_provider(&deps.storage, &agent_config.provider).await?;
 
         Ok(match agent_config.provider {
             ProviderVariant::ollama => Self::build(
-                VizierModelImpl::<ollama::Client>::build(&provider_entry.config, agent_config)
-                    .await?,
+                VizierModelImpl::<ollama::Client>::build(&resolved, agent_config).await?,
             ),
             ProviderVariant::openai => Self::build(
-                VizierModelImpl::<openai::Client>::build(&provider_entry.config, agent_config)
-                    .await?,
+                VizierModelImpl::<openai::Client>::build(&resolved, agent_config).await?,
             ),
             ProviderVariant::anthropic => Self::build(
-                VizierModelImpl::<anthropic::Client>::build(&provider_entry.config, agent_config)
-                    .await?,
+                VizierModelImpl::<anthropic::Client>::build(&resolved, agent_config).await?,
             ),
             ProviderVariant::openrouter => Self::build(
-                VizierModelImpl::<openrouter::Client>::build(&provider_entry.config, agent_config)
-                    .await?,
+                VizierModelImpl::<openrouter::Client>::build(&resolved, agent_config).await?,
             ),
             ProviderVariant::gemini => Self::build(
-                VizierModelImpl::<gemini::Client>::build(&provider_entry.config, agent_config)
-                    .await?,
+                VizierModelImpl::<gemini::Client>::build(&resolved, agent_config).await?,
             ),
             ProviderVariant::deepseek => Self::build(
-                VizierModelImpl::<deepseek::Client>::build(&provider_entry.config, agent_config)
-                    .await?,
+                VizierModelImpl::<deepseek::Client>::build(&resolved, agent_config).await?,
             ),
             ProviderVariant::mimo => Self::build(
-                VizierModelImpl::<xiaomimimo::Client>::build(&provider_entry.config, agent_config)
-                    .await?,
+                VizierModelImpl::<xiaomimimo::Client>::build(&resolved, agent_config).await?,
             ),
             ProviderVariant::llama_cpp => Self::build(
-                VizierModelImpl::<llamafile::Client>::build(&provider_entry.config, agent_config)
-                    .await?,
+                VizierModelImpl::<llamafile::Client>::build(&resolved, agent_config).await?,
             ),
             ProviderVariant::mistralrs => unreachable!(),
             ProviderVariant::elevenlabs => {
@@ -105,65 +91,76 @@ impl VizierModel {
             ));
         }
 
-        let provider_entry = deps
-            .storage
-            .get_provider(&provider)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("provider {:?} not configured", provider))?;
+        let resolved = resolve_provider(&deps.storage, &provider).await?;
 
         Ok(match override_config.provider {
             ProviderVariant::ollama => Self::build(
-                VizierModelImpl::<ollama::Client>::build(&provider_entry.config, &override_config)
-                    .await?,
+                VizierModelImpl::<ollama::Client>::build(&resolved, &override_config).await?,
             ),
             ProviderVariant::openai => Self::build(
-                VizierModelImpl::<openai::Client>::build(&provider_entry.config, &override_config)
-                    .await?,
+                VizierModelImpl::<openai::Client>::build(&resolved, &override_config).await?,
             ),
             ProviderVariant::anthropic => Self::build(
-                VizierModelImpl::<anthropic::Client>::build(
-                    &provider_entry.config,
-                    &override_config,
-                )
-                .await?,
+                VizierModelImpl::<anthropic::Client>::build(&resolved, &override_config).await?,
             ),
             ProviderVariant::openrouter => Self::build(
-                VizierModelImpl::<openrouter::Client>::build(
-                    &provider_entry.config,
-                    &override_config,
-                )
-                .await?,
+                VizierModelImpl::<openrouter::Client>::build(&resolved, &override_config).await?,
             ),
             ProviderVariant::gemini => Self::build(
-                VizierModelImpl::<gemini::Client>::build(&provider_entry.config, &override_config)
-                    .await?,
+                VizierModelImpl::<gemini::Client>::build(&resolved, &override_config).await?,
             ),
             ProviderVariant::deepseek => Self::build(
-                VizierModelImpl::<deepseek::Client>::build(
-                    &provider_entry.config,
-                    &override_config,
-                )
-                .await?,
+                VizierModelImpl::<deepseek::Client>::build(&resolved, &override_config).await?,
             ),
             ProviderVariant::mimo => Self::build(
-                VizierModelImpl::<xiaomimimo::Client>::build(
-                    &provider_entry.config,
-                    &override_config,
-                )
-                .await?,
+                VizierModelImpl::<xiaomimimo::Client>::build(&resolved, &override_config).await?,
             ),
             ProviderVariant::llama_cpp => Self::build(
-                VizierModelImpl::<llamafile::Client>::build(
-                    &provider_entry.config,
-                    &override_config,
-                )
-                .await?,
+                VizierModelImpl::<llamafile::Client>::build(&resolved, &override_config).await?,
             ),
             ProviderVariant::mistralrs => unreachable!(),
             ProviderVariant::elevenlabs => {
                 anyhow::bail!("elevenlabs is not a completion model provider")
             }
         })
+    }
+}
+
+async fn resolve_provider(
+    storage: &Arc<crate::storage::VizierStorage>,
+    variant: &ProviderVariant,
+) -> Result<ResolvedProvider> {
+    match variant {
+        ProviderVariant::ollama => {
+            resolve_local_provider(storage, variant.clone(), "OLLAMA_BASE_URL", "http://localhost:11434").await
+                .map_err(|e| anyhow::anyhow!(e.0))
+        }
+        ProviderVariant::llama_cpp => {
+            resolve_local_provider(storage, variant.clone(), "LLAMA_CPP_BASE_URL", "http://localhost:8080").await
+                .map_err(|e| anyhow::anyhow!(e.0))
+        }
+        ProviderVariant::openai => resolve_provider_key(storage, variant.clone(), "OPENAI_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::anthropic => resolve_provider_key(storage, variant.clone(), "ANTHROPIC_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::openrouter => resolve_provider_key(storage, variant.clone(), "OPENROUTER_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::deepseek => resolve_provider_key(storage, variant.clone(), "DEEPSEEK_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::gemini => resolve_provider_key(storage, variant.clone(), "GEMINI_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::mimo => resolve_provider_key(storage, variant.clone(), "XIAOMI_MIMO_API_KEY")
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::mistralrs => unreachable!(),
+        ProviderVariant::elevenlabs => {
+            anyhow::bail!("elevenlabs is not a completion model provider")
+        }
     }
 }
 
@@ -184,17 +181,15 @@ pub trait VizierModelBuilder<Client>
 where
     Client: rig_core::client::CompletionClient + Send + Sync,
 {
-    async fn init_client(provider_config: &ProviderEntryConfig) -> Result<Client>;
+    async fn init_client(resolved: &ResolvedProvider) -> Result<Client>;
 
     async fn build(
-        provider_config: &ProviderEntryConfig,
+        resolved: &ResolvedProvider,
         agent_config: &AgentConfig,
     ) -> Result<VizierModelImpl<Client>> {
         let model = &agent_config.model;
 
-        let model = Self::init_client(provider_config)
-            .await?
-            .completion_model(model);
+        let model = Self::init_client(resolved).await?.completion_model(model);
 
         Ok(VizierModelImpl::<Client> {
             model,

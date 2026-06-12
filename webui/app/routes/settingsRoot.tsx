@@ -147,9 +147,12 @@ export default function Settings() {
 
     const handleSaveProvider = async (variant: string) => {
         try {
+            const showBaseUrl = variant === 'ollama' || variant === 'llama_cpp'
             await upsertProvider(variant, {
                 api_key: providerForm.api_key || undefined,
-                base_url: providerForm.base_url || undefined,
+                base_url: showBaseUrl
+                    ? providerForm.base_url || undefined
+                    : undefined,
                 enabled: variant === 'mistralrs' ? providerForm.enabled : undefined,
             })
             addToast('success', `${variant} provider saved`)
@@ -1152,9 +1155,7 @@ export default function Settings() {
                                                                 {(p.variant ===
                                                                     'ollama' ||
                                                                     p.variant ===
-                                                                        'openai' ||
-                                                                    p.variant ===
-                                                                        'anthropic') && (
+                                                                        'llama_cpp') && (
                                                                     <div>
                                                                         <label
                                                                             style={{
@@ -1178,10 +1179,7 @@ export default function Settings() {
                                                                                 p.variant ===
                                                                                 'ollama'
                                                                                     ? 'http://localhost:11434'
-                                                                                    : p.variant ===
-                                                                                        'anthropic'
-                                                                                      ? 'https://api.anthropic.com'
-                                                                                      : 'https://api.openai.com/v1'
+                                                                                    : 'http://localhost:8080'
                                                                             }
                                                                             value={
                                                                                 providerForm.base_url
@@ -1376,9 +1374,7 @@ export default function Settings() {
                                                                 {(variant ===
                                                                     'ollama' ||
                                                                     variant ===
-                                                                        'openai' ||
-                                                                    variant ===
-                                                                        'anthropic') && (
+                                                                        'llama_cpp') && (
                                                                     <div>
                                                                         <label
                                                                             style={{
@@ -1402,10 +1398,7 @@ export default function Settings() {
                                                                                 variant ===
                                                                                 'ollama'
                                                                                     ? 'http://localhost:11434'
-                                                                                    : variant ===
-                                                                                        'anthropic'
-                                                                                      ? 'https://api.anthropic.com'
-                                                                                      : 'https://api.openai.com/v1'
+                                                                                    : 'http://localhost:8080'
                                                                             }
                                                                             value={
                                                                                 providerForm.base_url

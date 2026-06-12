@@ -152,14 +152,12 @@ impl VizierDependencies {
                 variant: ProviderVariant::openai,
                 config: ProviderEntryConfig::Openai {
                     api_key: c.api_key.clone(),
-                    base_url: c.base_url.clone(),
                 },
             }),
             providers.anthropic.as_ref().map(|c| ProviderEntry {
                 variant: ProviderVariant::anthropic,
                 config: ProviderEntryConfig::Anthropic {
                     api_key: c.api_key.clone(),
-                    base_url: c.base_url.clone(),
                 },
             }),
             providers.deepseek.as_ref().map(|c| ProviderEntry {

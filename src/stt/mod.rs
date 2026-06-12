@@ -42,11 +42,7 @@ impl VizierStt {
                     .model
                     .clone()
                     .unwrap_or_else(|| SttProvider::Openai.default_model().into());
-                Arc::new(openai::OpenAiSttModel::new(
-                    resolved.api_key,
-                    model,
-                    resolved.base_url,
-                ))
+                Arc::new(openai::OpenAiSttModel::new(resolved.api_key, model))
             }
             SttProvider::Elevenlabs => {
                 let resolved = crate::provider_keys::resolve_provider_key(
