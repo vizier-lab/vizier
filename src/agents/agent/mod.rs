@@ -42,7 +42,7 @@ use crate::{
     utils::{agent_workspace, build_path, get_mime_type},
 };
 
-mod model;
+pub mod model;
 pub mod system_prompt;
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]

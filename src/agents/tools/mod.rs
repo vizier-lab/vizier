@@ -441,6 +441,7 @@ impl VizierTools {
             .tool(ReadImageFile {
                 storage: deps.storage.clone(),
                 file_manager: deps.file_manager.clone(),
+                vision: build_read_image_vision(&deps, agent_config).await,
             })
             .tool(SendAttachment {
                 storage: deps.storage.clone(),
@@ -605,5 +606,49 @@ impl VizierTools {
             mcp: mcp.clone(),
         };
         Ok(tools)
+    }
+}
+
+async fn build_read_image_vision(
+    deps: &VizierDependencies,
+    agent_config: &crate::schema::AgentConfig,
+) -> Option<crate::agents::agent::model::VizierModel> {
+    if !agent_config.tools.read_image.enabled {
+        return None;
+    }
+
+    let provider = agent_config.tools.read_image.settings.provider.clone();
+    let model = agent_config.tools.read_image.settings.model.clone();
+
+    let (provider, model) = match (provider, model) {
+        (Some(p), Some(m)) if !m.trim().is_empty() => (p, m),
+        _ => {
+            tracing::warn!(
+                "read_image.enabled is true for agent {} but provider/model not set; \
+                falling back to attachment-injection flow",
+                agent_config.name
+            );
+            return None;
+        }
+    };
+
+    match crate::agents::agent::model::VizierModel::new_with_override(
+        deps,
+        agent_config,
+        Some((provider.clone(), model.clone())),
+    )
+    .await
+    {
+        Ok(v) => Some(v),
+        Err(e) => {
+            tracing::error!(
+                "failed to build read_image vision model for agent {} ({:?}:{}): {}",
+                agent_config.name,
+                provider,
+                model,
+                e
+            );
+            None
+        }
     }
 }

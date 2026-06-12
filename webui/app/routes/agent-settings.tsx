@@ -135,6 +135,8 @@ export default function AgentSettings() {
       tts_settings: {},
       stt: false,
       stt_settings: {},
+      read_image: false,
+      read_image_settings: {},
     },
     prompt_timeout: '5m',
     heartbeat_interval: '30m',
@@ -220,6 +222,8 @@ export default function AgentSettings() {
             tts_settings: d.tts_settings || {},
             stt: d.stt,
             stt_settings: d.stt_settings || {},
+            read_image: d.read_image,
+            read_image_settings: d.read_image_settings || {},
           },
           prompt_timeout: d.prompt_timeout,
           heartbeat_interval: d.heartbeat_interval,
@@ -2136,6 +2140,129 @@ export default function AgentSettings() {
                           }
                         />
                       </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Read Image (vision model) */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Read Image (vision model)
+                </h4>
+                <div
+                  style={{
+                    padding: '0.75rem',
+                    border: '1px solid var(--border)',
+                    borderRadius: '0.5rem',
+                  }}
+                >
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      marginBottom: form.tools?.read_image
+                        ? '0.75rem'
+                        : 0,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.tools?.read_image ?? false}
+                      onChange={(e) =>
+                        updateTool('read_image', e.target.checked)
+                      }
+                    />
+                    Use vision model for image reading
+                  </label>
+                  {form.tools?.read_image && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem',
+                        paddingLeft: '1.5rem',
+                      }}
+                    >
+                      <section style={fieldStyle}>
+                        <label style={labelStyle}>
+                          <TooltipLabel
+                            label="Provider"
+                            tooltip="Provider to use for vision-model image reading. Ignored in default attachment-injection mode."
+                          />
+                        </label>
+                        <select
+                          style={inputStyle}
+                          value={
+                            form.tools?.read_image_settings?.provider ||
+                            ''
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                read_image_settings: {
+                                  ...prev.tools?.read_image_settings,
+                                  provider:
+                                    e.target.value || undefined,
+                                },
+                              },
+                            }))
+                          }
+                        >
+                          <option value="">Select provider</option>
+                          <option value="ollama">Ollama</option>
+                          <option value="openai">OpenAI</option>
+                          <option value="anthropic">Anthropic</option>
+                          <option value="openrouter">OpenRouter</option>
+                          <option value="gemini">Gemini</option>
+                          <option value="deepseek">DeepSeek</option>
+                          <option value="mimo">Xiaomi MiMo</option>
+                          <option value="llama_cpp">Llama.cpp</option>
+                        </select>
+                      </section>
+                      <section style={fieldStyle}>
+                        <label style={labelStyle}>
+                          <TooltipLabel
+                            label="Model"
+                            tooltip="Model identifier for the selected provider (e.g. gpt-4o, claude-sonnet-4-5, llama3.2-vision)."
+                          />
+                        </label>
+                        <input
+                          style={inputStyle}
+                          type="text"
+                          placeholder="e.g. gpt-4o, claude-sonnet-4-5, llama3.2-vision"
+                          value={
+                            form.tools?.read_image_settings?.model || ''
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                read_image_settings: {
+                                  ...prev.tools?.read_image_settings,
+                                  model:
+                                    e.target.value || undefined,
+                                },
+                              },
+                            }))
+                          }
+                        />
+                      </section>
                     </div>
                   )}
                 </div>

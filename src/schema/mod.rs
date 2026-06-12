@@ -14,8 +14,8 @@ mod storage;
 mod task;
 
 pub use agent::{
-    AgentConfig, AgentToolsConfig, BraveSearchToolSettings, MemoryConfig, ToolConfig,
-    TtsToolSettings, SttToolSettings,
+    AgentConfig, AgentToolsConfig, BraveSearchToolSettings, MemoryConfig, ReadImageToolSettings,
+    SttToolSettings, ToolConfig, TtsToolSettings,
 };
 pub use commands::{
     AgentCommand, AgentCommandResult, AgentHealthStatus, AgentSummary, ChannelCommand,

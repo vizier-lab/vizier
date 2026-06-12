@@ -125,6 +125,8 @@ const DEFAULT_FORM: CreateAgentRequest = {
     tts_settings: {},
     stt: false,
     stt_settings: {},
+    read_image: false,
+    read_image_settings: {},
   },
   prompt_timeout: '5m',
   heartbeat_interval: '30m',
@@ -197,6 +199,8 @@ export default function AgentForm({
           tts_settings: d.tts_settings || {},
           stt: d.stt,
           stt_settings: d.stt_settings || {},
+          read_image: d.read_image,
+          read_image_settings: d.read_image_settings || {},
         },
         prompt_timeout: d.prompt_timeout,
         heartbeat_interval: d.heartbeat_interval,
@@ -1903,6 +1907,137 @@ export default function AgentForm({
                 </div>
               </div>
 
+              {/* Read Image (vision model) */}
+              <div>
+                <h4
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '0.75rem',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  Read Image (vision model)
+                </h4>
+                <div
+                  style={{
+                    padding: '0.75rem',
+                    border: '1px solid var(--border)',
+                    borderRadius: '0.5rem',
+                  }}
+                >
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      marginBottom: form.tools?.read_image
+                        ? '0.75rem'
+                        : 0,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.tools?.read_image ?? false}
+                      onChange={(e) =>
+                        updateTool('read_image', e.target.checked)
+                      }
+                    />
+                    Use vision model for image reading
+                  </label>
+                  {form.tools?.read_image && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem',
+                        paddingLeft: '1.5rem',
+                      }}
+                    >
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '0.25rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Provider
+                        </label>
+                        <select
+                          style={inputStyle}
+                          value={
+                            form.tools?.read_image_settings?.provider ||
+                            ''
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                read_image_settings: {
+                                  ...prev.tools?.read_image_settings,
+                                  provider:
+                                    e.target.value || undefined,
+                                },
+                              },
+                            }))
+                          }
+                        >
+                          <option value="">Select provider</option>
+                          <option value="ollama">Ollama</option>
+                          <option value="openai">OpenAI</option>
+                          <option value="anthropic">Anthropic</option>
+                          <option value="openrouter">OpenRouter</option>
+                          <option value="gemini">Gemini</option>
+                          <option value="deepseek">DeepSeek</option>
+                          <option value="mimo">Xiaomi MiMo</option>
+                          <option value="llama_cpp">Llama.cpp</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            marginBottom: '0.25rem',
+                            fontSize: '0.75rem',
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Model
+                        </label>
+                        <input
+                          style={inputStyle}
+                          type="text"
+                          placeholder="e.g. gpt-4o, claude-sonnet-4-5, llama3.2-vision"
+                          value={
+                            form.tools?.read_image_settings?.model || ''
+                          }
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              tools: {
+                                ...prev.tools!,
+                                read_image_settings: {
+                                  ...prev.tools?.read_image_settings,
+                                  model:
+                                    e.target.value || undefined,
+                                },
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Shell Config */}
               <div>
                 <h4
@@ -3112,6 +3247,11 @@ export default function AgentForm({
                       STT
                     </span>
                   )}
+                  {form.tools?.read_image && (
+                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
+                      Read Image (vision)
+                    </span>
+                  )}
                   {form.tools?.mcp_servers && Object.keys(form.tools.mcp_servers).length > 0 && (
                     <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
                       MCP ({Object.keys(form.tools.mcp_servers).length})
@@ -3119,7 +3259,8 @@ export default function AgentForm({
                   )}
                   {!form.tools?.brave_search && !form.tools?.discord &&
                     !form.tools?.telegram && !form.tools?.fetch && !form.tools?.http_client &&
-                    !form.tools?.programmatic_sandbox && !form.tools?.tts && !form.tools?.stt && (
+                    !form.tools?.programmatic_sandbox && !form.tools?.tts && !form.tools?.stt &&
+                    !form.tools?.read_image && (
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
                       No tools enabled
                     </span>

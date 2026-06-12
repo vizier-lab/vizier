@@ -82,6 +82,8 @@ pub struct AgentToolsConfig {
     pub tts: ToolConfig<TtsToolSettings>,
     #[serde(default)]
     pub stt: ToolConfig<SttToolSettings>,
+    #[serde(default)]
+    pub read_image: ToolConfig<ReadImageToolSettings>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -156,4 +158,11 @@ pub struct SttToolSettings {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]
+#[serde(default)]
+pub struct ReadImageToolSettings {
+    pub provider: Option<ProviderVariant>,
+    pub model: Option<String>,
 }

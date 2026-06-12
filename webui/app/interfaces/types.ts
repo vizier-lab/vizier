@@ -126,6 +126,11 @@ export interface SttToolSettings {
   language?: string
 }
 
+export interface ReadImageToolSettings {
+  provider?: string
+  model?: string
+}
+
 export interface AgentToolsConfig {
   timeout: string
   programmatic_sandbox: boolean
@@ -141,6 +146,8 @@ export interface AgentToolsConfig {
   tts_settings?: TtsToolSettings
   stt: AgentToolConfig
   stt_settings?: SttToolSettings
+  read_image: AgentToolConfig
+  read_image_settings?: ReadImageToolSettings
 }
 
 export interface AgentConfig {
@@ -194,6 +201,8 @@ export interface CreateAgentRequest {
     tts_settings?: TtsToolSettings
     stt?: boolean
     stt_settings?: SttToolSettings
+    read_image?: boolean
+    read_image_settings?: ReadImageToolSettings
   }
   prompt_timeout?: string
   heartbeat_interval?: string
@@ -242,6 +251,8 @@ export interface AgentDetail {
   tts_settings?: TtsToolSettings
   stt: boolean
   stt_settings?: SttToolSettings
+  read_image: boolean
+  read_image_settings?: ReadImageToolSettings
   avatar_url?: string
 }
 
