@@ -6,7 +6,7 @@ use rig_core::client::{EmbeddingsClient, Nothing};
 use crate::{
     config::provider::ProviderVariant,
     provider_keys::{resolve_local_provider, resolve_provider_key},
-    schema::agent::EmbeddingToolSettings,
+    schema::agent::EmbeddingConfig,
     storage::VizierStorage,
 };
 
@@ -31,7 +31,7 @@ impl VizierEmbedder {
     }
 
     pub async fn from_agent_settings(
-        settings: &EmbeddingToolSettings,
+        settings: &EmbeddingConfig,
         storage: &Arc<VizierStorage>,
         workspace: &str,
     ) -> Result<Self> {

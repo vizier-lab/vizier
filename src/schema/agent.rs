@@ -9,7 +9,6 @@ use crate::config::shell::ShellConfig;
 use crate::config::tools::mcp::McpClientConfig;
 use crate::schema::provider::Quantization;
 
-
 pub type AgentConfigs = HashMap<String, AgentConfig>;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -54,7 +53,7 @@ pub struct AgentConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub embedding: Option<EmbeddingToolSettings>,
+    pub embedding: Option<EmbeddingConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub indexer: Option<IndexerConfig>,
 }
@@ -100,7 +99,7 @@ pub struct ToolConfig<Settings> {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema, JsonSchema)]
-pub struct EmbeddingToolSettings {
+pub struct EmbeddingConfig {
     pub provider: EmbeddingProvider,
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -109,7 +108,9 @@ pub struct EmbeddingToolSettings {
     pub base_url: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema, JsonSchema)]
+#[derive(
+    Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum EmbeddingProvider {
     #[default]
@@ -138,7 +139,9 @@ pub struct IndexerConfig {
     pub kind: IndexerKind,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema, JsonSchema)]
+#[derive(
+    Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum IndexerKind {
     #[default]
