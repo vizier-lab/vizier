@@ -572,8 +572,8 @@ impl VizierAgent {
                         tool_res = hooks.on_tool_response(tool_res).await?;
                     }
 
-                    // Store tool attachments in SessionFiles (except from read_session_file)
-                    if !tool_res.attachments.is_empty() && function_name != "read_session_file" {
+                    // Store tool attachments in SessionFiles (except from read_image_file)
+                    if !tool_res.attachments.is_empty() && function_name != "read_image_file" {
                         let mut stored_files = vec![];
                         for attachment in &tool_res.attachments {
                             if let Ok(content) =
@@ -618,9 +618,9 @@ impl VizierAgent {
                         }
                     }
 
-                    // For read_session_file with images: collect for separate user messages
+                    // For read_image_file with images: collect for separate user messages
                     // (most providers drop images from tool results)
-                    if function_name == "read_session_file" && !tool_res.attachments.is_empty() {
+                    if function_name == "read_image_file" && !tool_res.attachments.is_empty() {
                         let image_attachments: Vec<_> = tool_res.attachments.drain(..).collect();
                         tool_responses.push(tool_res.to_tool_response_content(
                             call.id.clone(),
@@ -912,8 +912,8 @@ impl VizierAgent {
                         tool_res = hooks.on_tool_response(tool_res).await?;
                     }
 
-                    // Store tool attachments in SessionFiles (except from read_session_file)
-                    if !tool_res.attachments.is_empty() && function_name != "read_session_file" {
+                    // Store tool attachments in SessionFiles (except from read_image_file)
+                    if !tool_res.attachments.is_empty() && function_name != "read_image_file" {
                         let mut stored_files = vec![];
                         for attachment in &tool_res.attachments {
                             if let Ok(content) =
@@ -958,9 +958,9 @@ impl VizierAgent {
                         }
                     }
 
-                    // For read_session_file with images: collect for separate user messages
+                    // For read_image_file with images: collect for separate user messages
                     // (most providers drop images from tool results)
-                    if function_name == "read_session_file" && !tool_res.attachments.is_empty() {
+                    if function_name == "read_image_file" && !tool_res.attachments.is_empty() {
                         let image_attachments: Vec<_> = tool_res.attachments.drain(..).collect();
                         tool_responses.push(tool_res.to_tool_response_content(
                             call.id.clone(),

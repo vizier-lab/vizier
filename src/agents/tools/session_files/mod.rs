@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use base64::Engine;
 use calamine::Reader;
 use chrono::Utc;
 use schemars::JsonSchema;
@@ -9,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     agents::tools::{ToolContext, VizierTool},
-    config::provider::ProviderVariant,
     error::VizierError,
     file_manager::FileManager,
     schema::{VizierResponse, VizierResponseContent, session_file::SessionFileRecord},
@@ -48,7 +46,7 @@ impl VizierTool for ListSessionFiles {
     }
 
     fn description(&self) -> String {
-        "List files available in the current session. Use this to see what files have been attached or uploaded before reading them with read_session_file.".to_string()
+        "List files available in the current session. Use this to see what files have been attached or uploaded before reading them with read_document_file or read_image_file.".to_string()
     }
 
     async fn call(
@@ -76,30 +74,22 @@ impl VizierTool for ListSessionFiles {
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ReadSessionFileArgs {
+pub struct ReadDocumentFileArgs {
     #[schemars(description = "filename of the session file to read")]
     pub filename: String,
 }
 
-pub struct ReadSessionFile {
+pub struct ReadDocumentFile {
     pub storage: Arc<VizierStorage>,
     pub file_manager: FileManager,
-    pub provider: ProviderVariant,
 }
 
-enum ExtractResult {
-    Text(String),
-    Attachment(String), // base64 encoded
-}
-
-fn extract_content(
-    mime_type: &str,
-    content: Vec<u8>,
-    provider: &ProviderVariant,
-) -> Result<ExtractResult, VizierError> {
+fn extract_text(mime_type: &str, content: Vec<u8>) -> Result<String, VizierError> {
     if mime_type.starts_with("image/") {
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&content);
-        return Ok(ExtractResult::Attachment(b64));
+        return Err(VizierError(format!(
+            "read_document_file does not handle image/* MIME types (got '{}'); use read_image_file instead.",
+            mime_type
+        )));
     }
 
     match mime_type {
@@ -118,12 +108,12 @@ fn extract_content(
         | "application/x-yaml" => {
             let text = String::from_utf8(content)
                 .map_err(|e| VizierError(format!("Invalid UTF-8: {}", e)))?;
-            Ok(ExtractResult::Text(text))
+            Ok(text)
         }
         "application/pdf" => {
             let text = pdf_extract::extract_text_from_mem(&content)
                 .map_err(|e| VizierError(format!("Failed to extract PDF: {}", e)))?;
-            Ok(ExtractResult::Text(text))
+            Ok(text)
         }
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
             let docx = docx_rs::read_docx(&content)
@@ -149,7 +139,7 @@ fn extract_content(
                     _ => {}
                 }
             }
-            Ok(ExtractResult::Text(text))
+            Ok(text)
         }
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => {
             let mut workbook = calamine::open_workbook_from_rs::<calamine::Xlsx<_>, _>(
@@ -182,12 +172,12 @@ fn extract_content(
                     csv.push('\n');
                 }
             }
-            Ok(ExtractResult::Text(csv))
+            Ok(csv)
         }
         _ => {
             // Try as UTF-8 text, fall back to error
             match String::from_utf8(content) {
-                Ok(text) => Ok(ExtractResult::Text(text)),
+                Ok(text) => Ok(text),
                 Err(_) => Err(VizierError(format!("Unsupported file type: {}", mime_type))),
             }
         }
@@ -195,16 +185,16 @@ fn extract_content(
 }
 
 #[async_trait::async_trait]
-impl VizierTool for ReadSessionFile {
-    type Input = ReadSessionFileArgs;
+impl VizierTool for ReadDocumentFile {
+    type Input = ReadDocumentFileArgs;
     type Output = VizierResponse;
 
     fn name() -> String {
-        "read_session_file".to_string()
+        "read_document_file".to_string()
     }
 
     fn description(&self) -> String {
-        "Read a file from the current session. Returns the file content as text, or injects images/PDFs (on supported models) into the conversation context.".to_string()
+        "Read a textual document from the current session (plain text, JSON, YAML, CSV, Markdown, HTML, CSS, JavaScript, XML, TOML, PDF, DOCX, XLSX). Returns the extracted text content. For images, use read_image_file.".to_string()
     }
 
     async fn call(
@@ -225,27 +215,14 @@ impl VizierTool for ReadSessionFile {
             .await
             .map_err(|e| VizierError(e.to_string()))?;
 
-        match extract_content(&file.mime_type, content, &self.provider)? {
-            ExtractResult::Text(text) => Ok(VizierResponse {
-                timestamp: Utc::now(),
-                content: VizierResponseContent::ToolResponse {
-                    response: serde_json::Value::String(text),
-                },
-                attachments: vec![],
-            }),
-            ExtractResult::Attachment(b64) => Ok(VizierResponse {
-                timestamp: Utc::now(),
-                content: VizierResponseContent::ToolResponse {
-                    response: serde_json::Value::String(format!(
-                        "Loaded {} into context.",
-                        file.filename
-                    )),
-                },
-                attachments: vec![crate::schema::VizierAttachment {
-                    filename: file.filename,
-                    content: crate::schema::VizierAttachmentContent::Base64(b64),
-                }],
-            }),
-        }
+        let text = extract_text(&file.mime_type, content)?;
+
+        Ok(VizierResponse {
+            timestamp: Utc::now(),
+            content: VizierResponseContent::ToolResponse {
+                response: serde_json::Value::String(text),
+            },
+            attachments: vec![],
+        })
     }
 }

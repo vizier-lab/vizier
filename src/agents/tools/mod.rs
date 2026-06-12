@@ -19,7 +19,8 @@ use crate::{
         http_client::HttpClient,
         ptc::ProgramaticSandbox,
         scheduler::{DeleteTask, GetTaskDetail, ListTask, ScheduleCronTask, ScheduleOneTimeTask},
-        session_files::{ListSessionFiles, ReadSessionFile, SendAttachment},
+        read_image::ReadImageFile,
+        session_files::{ListSessionFiles, ReadDocumentFile, SendAttachment},
         shell::ShellExec,
         skill::{
             CreateSkill, DeleteSkill, ExecuteSkillResource, ListSkills, ReadSkillResource,
@@ -52,6 +53,7 @@ mod dream_journal;
 mod fetch;
 mod http_client;
 mod ptc;
+mod read_image;
 mod scheduler;
 mod session_files;
 mod shell;
@@ -432,10 +434,13 @@ impl VizierTools {
             .tool(ListSessionFiles {
                 storage: deps.storage.clone(),
             })
-            .tool(ReadSessionFile {
+            .tool(ReadDocumentFile {
                 storage: deps.storage.clone(),
                 file_manager: deps.file_manager.clone(),
-                provider: agent_config.provider.clone(),
+            })
+            .tool(ReadImageFile {
+                storage: deps.storage.clone(),
+                file_manager: deps.file_manager.clone(),
             })
             .tool(SendAttachment {
                 storage: deps.storage.clone(),
