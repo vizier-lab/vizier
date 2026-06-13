@@ -371,9 +371,16 @@ impl VizierAgent {
                     let mut truncated_content = memory.content.clone();
                     truncated_content.truncate(200);
 
+                    let attachments_line = if memory.attachments.is_empty() {
+                        String::new()
+                    } else {
+                        let files = memory.attachments.iter().map(|a| a.filename.as_str()).collect::<Vec<_>>().join(", ");
+                        format!("\n**Attachments:** {} — use `memory_detail` to access\n", files)
+                    };
+
                     format!(
-                        "## {}\nslug: **{}**\n{}...\n**use the slug for more detail of this memory**\n \n---",
-                        memory.title, memory.slug, truncated_content,
+                        "## {}\nslug: **{}**\n{}...\n{}**use the slug for more detail of this memory**\n \n---",
+                        memory.title, memory.slug, truncated_content, attachments_line,
                     )
                 })
                 .collect::<Vec<_>>()
