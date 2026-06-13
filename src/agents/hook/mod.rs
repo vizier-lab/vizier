@@ -4,7 +4,6 @@ use crate::schema::{VizierRequest, VizierResponse};
 use anyhow::Result;
 
 pub mod debug;
-pub mod history;
 pub mod thinking;
 pub mod tool_calls;
 

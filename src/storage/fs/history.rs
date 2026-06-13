@@ -48,6 +48,14 @@ enum ContentMetadata {
         #[serde(default)]
         audio_reply_text: Option<String>,
     },
+    assistant_message {},
+    tool_call {
+        call_id: String,
+        name: String,
+    },
+    tool_result {
+        call_id: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -62,13 +70,9 @@ struct SessionHistoryFrontMatter {
 
 impl From<SessionHistory> for SessionHistoryFrontMatter {
     fn from(value: SessionHistory) -> Self {
-        let timestamp = match &value.content {
-            SessionHistoryContent::Request(r) => r.timestamp,
-            SessionHistoryContent::Response(r) => r.timestamp,
-        };
         Self {
             uid: value.uid,
-            timestamp,
+            timestamp: value.timestamp,
             session: value.vizier_session,
             reactions: if value.reactions.is_empty() {
                 None
@@ -145,6 +149,15 @@ impl From<SessionHistory> for SessionHistoryFrontMatter {
                         audio_reply_text: None,
                     },
                 },
+                SessionHistoryContent::AssistantMessage(_) => {
+                    ContentMetadata::assistant_message {}
+                }
+                SessionHistoryContent::ToolCall { call_id, name, .. } => {
+                    ContentMetadata::tool_call { call_id, name }
+                }
+                SessionHistoryContent::ToolResult { call_id, .. } => {
+                    ContentMetadata::tool_result { call_id }
+                }
             },
         }
     }
@@ -164,6 +177,7 @@ impl HistoryStorage for FileSystemStorage {
             uid: slug.clone(),
             vizier_session: session.clone(),
             content: content.clone(),
+            timestamp: Utc::now(),
             reactions: vec![],
         };
 
@@ -174,6 +188,17 @@ impl HistoryStorage for FileSystemStorage {
                 VizierResponseContent::AudioReply(_, text, _) => text.clone().unwrap_or_default(),
                 _ => String::new(),
             },
+            SessionHistoryContent::AssistantMessage(text) => text.clone(),
+            SessionHistoryContent::ToolCall {
+                name, arguments, ..
+            } => {
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "name": name,
+                    "arguments": arguments
+                }))
+                .unwrap_or_default()
+            }
+            SessionHistoryContent::ToolResult { content, .. } => content.clone(),
         };
 
         let frontmatter = SessionHistoryFrontMatter::from(history);
@@ -227,6 +252,7 @@ impl HistoryStorage for FileSystemStorage {
                 res.push(SessionHistory {
                     uid: frontmatter.uid,
                     vizier_session: frontmatter.session,
+                    timestamp: frontmatter.timestamp,
                     reactions: frontmatter.reactions.unwrap_or_default(),
                     content: match frontmatter.content_metadata {
                         ContentMetadata::request {
@@ -280,33 +306,34 @@ impl HistoryStorage for FileSystemStorage {
                                 attachments,
                             })
                         }
+                        ContentMetadata::assistant_message {} => {
+                            SessionHistoryContent::AssistantMessage(content)
+                        }
+                        ContentMetadata::tool_call { call_id, name } => {
+                            let args: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::Value::Null);
+                            SessionHistoryContent::ToolCall {
+                                call_id,
+                                name,
+                                arguments: args,
+                            }
+                        }
+                        ContentMetadata::tool_result { call_id } => {
+                            SessionHistoryContent::ToolResult {
+                                call_id,
+                                content,
+                            }
+                        }
                     },
                 });
             }
         }
 
         // Sort by timestamp descending (most recent first) for proper cursor pagination
-        res.sort_by(|a, b| {
-            let a_ts = match &a.content {
-                SessionHistoryContent::Request(r) => r.timestamp,
-                SessionHistoryContent::Response(r) => r.timestamp,
-            };
-            let b_ts = match &b.content {
-                SessionHistoryContent::Request(r) => r.timestamp,
-                SessionHistoryContent::Response(r) => r.timestamp,
-            };
-            b_ts.cmp(&a_ts)
-        });
+        res.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
         // Apply cursor filter: get items before the given datetime
         if let Some(before_dt) = before {
-            res.retain(|item| {
-                let ts = match &item.content {
-                    SessionHistoryContent::Request(r) => r.timestamp,
-                    SessionHistoryContent::Response(r) => r.timestamp,
-                };
-                ts < before_dt
-            });
+            res.retain(|item| item.timestamp < before_dt);
         }
 
         // Apply limit
@@ -315,17 +342,7 @@ impl HistoryStorage for FileSystemStorage {
         }
 
         // Sort back to ascending order (oldest first) for the final result
-        res.sort_by(|a, b| {
-            let a_ts = match &a.content {
-                SessionHistoryContent::Request(r) => r.timestamp,
-                SessionHistoryContent::Response(r) => r.timestamp,
-            };
-            let b_ts = match &b.content {
-                SessionHistoryContent::Request(r) => r.timestamp,
-                SessionHistoryContent::Response(r) => r.timestamp,
-            };
-            a_ts.cmp(&b_ts)
-        });
+        res.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
         Ok(res)
     }
@@ -366,6 +383,7 @@ impl HistoryStorage for FileSystemStorage {
                     let history = SessionHistory {
                         uid: updated_frontmatter.uid.clone(),
                         vizier_session: updated_frontmatter.session.clone(),
+                        timestamp: updated_frontmatter.timestamp,
                          content: match updated_frontmatter.content_metadata.clone() {
                             ContentMetadata::request {
                                 user,
@@ -422,6 +440,23 @@ impl HistoryStorage for FileSystemStorage {
                                     },
                                     attachments,
                                 })
+                            }
+                            ContentMetadata::assistant_message {} => {
+                                SessionHistoryContent::AssistantMessage(content_text.clone())
+                            }
+                            ContentMetadata::tool_call { call_id, name } => {
+                                let args: serde_json::Value = serde_json::from_str(&content_text).unwrap_or(serde_json::Value::Null);
+                                SessionHistoryContent::ToolCall {
+                                    call_id,
+                                    name,
+                                    arguments: args,
+                                }
+                            }
+                            ContentMetadata::tool_result { call_id } => {
+                                SessionHistoryContent::ToolResult {
+                                    call_id,
+                                    content: content_text.clone(),
+                                }
                             }
                         },
                         reactions: updated_frontmatter.reactions.clone().unwrap_or_default(),
@@ -634,6 +669,7 @@ impl HistoryStorage for FileSystemStorage {
                 res.push(SessionHistory {
                     uid: frontmatter.uid,
                     vizier_session: frontmatter.session,
+                    timestamp,
                     reactions: frontmatter.reactions.unwrap_or_default(),
                     content: match frontmatter.content_metadata {
                         ContentMetadata::request {
@@ -687,22 +723,29 @@ impl HistoryStorage for FileSystemStorage {
                                 attachments,
                             })
                         }
+                        ContentMetadata::assistant_message {} => {
+                            SessionHistoryContent::AssistantMessage(content)
+                        }
+                        ContentMetadata::tool_call { call_id, name } => {
+                            let args: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::Value::Null);
+                            SessionHistoryContent::ToolCall {
+                                call_id,
+                                name,
+                                arguments: args,
+                            }
+                        }
+                        ContentMetadata::tool_result { call_id } => {
+                            SessionHistoryContent::ToolResult {
+                                call_id,
+                                content,
+                            }
+                        }
                     },
                 });
             }
         }
 
-        res.sort_by(|a, b| {
-            let a_ts = match &a.content {
-                SessionHistoryContent::Request(r) => r.timestamp,
-                SessionHistoryContent::Response(r) => r.timestamp,
-            };
-            let b_ts = match &b.content {
-                SessionHistoryContent::Request(r) => r.timestamp,
-                SessionHistoryContent::Response(r) => r.timestamp,
-            };
-            a_ts.cmp(&b_ts)
-        });
+        res.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
         Ok(res)
     }

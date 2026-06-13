@@ -32,9 +32,11 @@ use crate::{
         AgentConfig, Memory, SessionHistory, SessionHistoryContent, VizierAttachment,
         VizierAttachmentContent, VizierRequest, VizierRequestContent, VizierResponse,
         VizierResponseContent, VizierResponseStats, VizierSession,
+        history_entries_to_messages, messages_to_history_entries,
     },
     storage::{
         VizierStorage,
+        history::HistoryStorage,
         session_file::SessionFileStorage,
         user::{UserProfile, UserStorage},
     },
@@ -392,20 +394,7 @@ impl VizierAgent {
             )));
         }
 
-        history.extend(
-            session_history
-                .iter()
-                .map(|history| match &history.content {
-                    SessionHistoryContent::Request(req) => Message::user(req.to_prompt().unwrap()),
-                    SessionHistoryContent::Response(r) => {
-                        if let VizierResponseContent::Message { content, .. } = &r.content {
-                            Message::assistant(content.clone())
-                        } else {
-                            Message::assistant("".to_string())
-                        }
-                    }
-                }),
-        );
+        history.extend(history_entries_to_messages(&session_history));
 
         if let Some(hooks) = hooks.clone() {
             req = hooks.on_request(req).await?;
@@ -448,7 +437,17 @@ impl VizierAgent {
             }
         }
 
-        let (output, stats, attachments) = self
+        // Optimistically save request before prompt
+        self.storage
+            .save_session_history(
+                session.clone(),
+                SessionHistoryContent::Request(req.clone()),
+            )
+            .await?;
+
+        let original_history_len = history.len();
+
+        let (output, stats, attachments, final_history) = self
             .prompt(
                 req.to_message(&self.global_workspace)?,
                 history,
@@ -456,12 +455,26 @@ impl VizierAgent {
                 hooks.clone(),
                 false,
                 &ToolContext {
-                    session,
+                    session: session.clone(),
                     pending_attachments: Arc::new(Mutex::new(vec![])),
                 },
             )
             .await?;
 
+        // Save tool calls/results from the delta, skipping the last message
+        // (final assistant response) which is saved explicitly below with full stats
+        let new_messages = &final_history[original_history_len..];
+        if new_messages.len() > 1 {
+            let tool_entries =
+                messages_to_history_entries(&new_messages[..new_messages.len() - 1]);
+            for entry in tool_entries {
+                self.storage
+                    .save_session_history(session.clone(), entry)
+                    .await?;
+            }
+        }
+
+        // Save response with full stats and attachments
         let mut response = VizierResponse {
             timestamp: chrono::Utc::now(),
             content: VizierResponseContent::Message {
@@ -471,6 +484,14 @@ impl VizierAgent {
             attachments,
         };
         response = self.maybe_audio_reply(response, &req).await;
+
+        self.storage
+            .save_session_history(
+                session.clone(),
+                SessionHistoryContent::Response(response.clone()),
+            )
+            .await?;
+
         if let Some(hooks) = hooks.clone() {
             response = hooks.on_response(response).await?;
         }
@@ -486,7 +507,7 @@ impl VizierAgent {
         hooks: Option<Arc<VizierSessionHooks>>,
         _is_subagent: bool,
         ctx: &ToolContext,
-    ) -> Result<(String, VizierResponseStats, Vec<VizierAttachment>)> {
+    ) -> Result<(String, VizierResponseStats, Vec<VizierAttachment>, Vec<Message>)> {
         timeout(*self.config.prompt_timeout, async {
             let mut history = history.clone();
             let mut turn_depth = turn_depth;
@@ -718,6 +739,7 @@ impl VizierAgent {
                     duration: start.elapsed(),
                 },
                 attachments,
+                history,
             ))
         })
         .await?
@@ -764,20 +786,7 @@ impl VizierAgent {
         let mut history = self.prepare_system_prompts().await;
 
         // Extend with session history
-        history.extend(
-            session_history
-                .iter()
-                .map(|history| match &history.content {
-                    SessionHistoryContent::Request(req) => Message::user(req.to_prompt().unwrap()),
-                    SessionHistoryContent::Response(r) => {
-                        if let VizierResponseContent::Message { content, .. } = &r.content {
-                            Message::assistant(content.clone())
-                        } else {
-                            Message::assistant("".to_string())
-                        }
-                    }
-                }),
-        );
+        history.extend(history_entries_to_messages(&session_history));
 
         let mut req = req;
         if let Some(hooks) = hooks.clone() {

@@ -12,7 +12,7 @@ use crate::{
     agents::{
         agent::{VizierAgent, read_md_file},
         hook::{
-            VizierSessionHooks, debug::DebugHook, history::HistoryHook, thinking::ThinkingHook,
+            VizierSessionHooks, debug::DebugHook, thinking::ThinkingHook,
             tool_calls::ToolCallsHook,
         },
         tools::ToolContext,
@@ -143,7 +143,7 @@ pub async fn agent_process(
                                     .prompt(Message::user(prompt), vec![], 0, None, false, &ToolContext { session: session_detail_session_for_ctx, pending_attachments: Arc::new(Mutex::new(vec![])) })
                                     .await;
 
-                                if let Ok((title, _, _)) = res {
+                                if let Ok((title, _, _, _)) = res {
                                     let mut title = title.clone();
                                     title.truncate(60);
 
@@ -447,8 +447,7 @@ pub async fn handle_request(
     deps: &VizierDependencies,
 ) -> Result<()> {
     let mut hooks = VizierSessionHooks::new()
-        .hook(DebugHook(session.clone()))
-        .hook(HistoryHook::new(storage.clone(), session.clone()));
+        .hook(DebugHook(session.clone()));
 
     if let Some(true) = agent_config.show_thinking {
         if let Some(ref tx) = response_tx {

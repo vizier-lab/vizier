@@ -25,7 +25,7 @@ use crate::{
         reaction_store,
     },
     schema::{
-        PlatformMessageId, ReactionAction, ReactionEntry, ReactionEvent, SessionHistory, TopicId,
+        PlatformMessageId, ReactionAction, ReactionEntry, ReactionEvent, SessionHistory, SessionHistoryContent, TopicId,
         VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent,
         VizierSession, VizierSessionDetail,
     },
@@ -130,7 +130,14 @@ pub async fn get_topic_history(
         return err_response(StatusCode::NOT_FOUND, "Not found".into());
     }
 
-    api_response(StatusCode::OK, response.unwrap())
+    // Filter out AssistantMessage entries (intermediate text during tool calling)
+    let history: Vec<SessionHistory> = response
+        .unwrap()
+        .into_iter()
+        .filter(|h| !matches!(h.content, SessionHistoryContent::AssistantMessage(_)))
+        .collect();
+
+    api_response(StatusCode::OK, history)
 }
 
 #[utoipa::path(

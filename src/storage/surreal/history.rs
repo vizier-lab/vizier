@@ -27,6 +27,7 @@ impl HistoryStorage for SurrealStorage {
                 uid: uuid.to_string(),
                 vizier_session: session.clone(),
                 content,
+                timestamp: Utc::now(),
                 reactions: vec![],
             })
             .await?;
@@ -43,23 +44,23 @@ impl HistoryStorage for SurrealStorage {
         let query = if let Some(before_dt) = before {
             if let Some(limit_val) = limit {
                 format!(
-                    "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND content.timestamp < {} ORDER BY content.timestamp DESC LIMIT {}",
+                    "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND timestamp < {} ORDER BY timestamp DESC LIMIT {}",
                     before_dt.timestamp_millis(),
                     limit_val
                 )
             } else {
                 format!(
-                    "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND content.timestamp < {} ORDER BY content.timestamp DESC",
+                    "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND timestamp < {} ORDER BY timestamp DESC",
                     before_dt.timestamp_millis()
                 )
             }
         } else if let Some(limit_val) = limit {
             format!(
-                "SELECT * FROM session_history WHERE vizier_session == $vizier_session ORDER BY content.timestamp DESC LIMIT {}",
+                "SELECT * FROM session_history WHERE vizier_session == $vizier_session ORDER BY timestamp DESC LIMIT {}",
                 limit_val
             )
         } else {
-            "SELECT * FROM session_history WHERE vizier_session == $vizier_session ORDER BY content.timestamp DESC"
+            "SELECT * FROM session_history WHERE vizier_session == $vizier_session ORDER BY timestamp DESC"
                 .to_string()
         };
 
@@ -71,17 +72,7 @@ impl HistoryStorage for SurrealStorage {
 
         let mut list: Vec<SessionHistory> = response.take(0)?;
 
-        list.sort_by(|a, b| {
-            let a_ts = match &a.content {
-                SessionHistoryContent::Request(r) => r.timestamp,
-                SessionHistoryContent::Response(r) => r.timestamp,
-            };
-            let b_ts = match &b.content {
-                SessionHistoryContent::Request(r) => r.timestamp,
-                SessionHistoryContent::Response(r) => r.timestamp,
-            };
-            a_ts.cmp(&b_ts)
-        });
+        list.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
         Ok(list)
     }
@@ -121,18 +112,18 @@ impl HistoryStorage for SurrealStorage {
 
         let query = if start_date.is_some() && end_date.is_some() {
             format!(
-                "SELECT * FROM session_history WHERE vizier_session.0 == $agent_id AND content.timestamp >= {} AND content.timestamp <= {}",
+                "SELECT * FROM session_history WHERE vizier_session.0 == $agent_id AND timestamp >= {} AND timestamp <= {}",
                 start_date.unwrap().timestamp_millis(),
                 end_date.unwrap().timestamp_millis()
             )
         } else if start_date.is_some() {
             format!(
-                "SELECT * FROM session_history WHERE vizier_session.0 == $agent_id AND content.timestamp >= {}",
+                "SELECT * FROM session_history WHERE vizier_session.0 == $agent_id AND timestamp >= {}",
                 start_date.unwrap().timestamp_millis()
             )
         } else if end_date.is_some() {
             format!(
-                "SELECT * FROM session_history WHERE vizier_session.0 == $agent_id AND content.timestamp <= {}",
+                "SELECT * FROM session_history WHERE vizier_session.0 == $agent_id AND timestamp <= {}",
                 end_date.unwrap().timestamp_millis()
             )
         } else {
@@ -163,7 +154,7 @@ impl HistoryStorage for SurrealStorage {
 
                     let channel_slug = history.vizier_session.1.to_slug();
                     let channel_type = get_channel_type(&channel_slug);
-                    let date = resp.timestamp.date_naive();
+                    let date = history.timestamp.date_naive();
 
                     let channel_entry = by_channel_type
                         .entry(channel_type.clone())
@@ -264,22 +255,22 @@ impl HistoryStorage for SurrealStorage {
     ) -> Result<Vec<SessionHistory>> {
         let query = if start_datetime.is_some() && end_datetime.is_some() {
             format!(
-                "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND content.timestamp >= {} AND content.timestamp <= {} ORDER BY content.timestamp DESC",
+                "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND timestamp >= {} AND timestamp <= {} ORDER BY timestamp DESC",
                 start_datetime.unwrap().timestamp_millis(),
                 end_datetime.unwrap().timestamp_millis()
             )
         } else if start_datetime.is_some() {
             format!(
-                "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND content.timestamp >= {} ORDER BY content.timestamp DESC",
+                "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND timestamp >= {} ORDER BY timestamp DESC",
                 start_datetime.unwrap().timestamp_millis()
             )
         } else if end_datetime.is_some() {
             format!(
-                "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND content.timestamp <= {} ORDER BY content.timestamp DESC",
+                "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND timestamp <= {} ORDER BY timestamp DESC",
                 end_datetime.unwrap().timestamp_millis()
             )
         } else {
-            "SELECT * FROM session_history WHERE vizier_session == $vizier_session ORDER BY content.timestamp DESC"
+            "SELECT * FROM session_history WHERE vizier_session == $vizier_session ORDER BY timestamp DESC"
                 .to_string()
         };
 
@@ -291,17 +282,7 @@ impl HistoryStorage for SurrealStorage {
 
         let mut list: Vec<SessionHistory> = response.take(0)?;
 
-        list.sort_by(|a, b| {
-            let a_ts = match &a.content {
-                SessionHistoryContent::Request(r) => r.timestamp,
-                SessionHistoryContent::Response(r) => r.timestamp,
-            };
-            let b_ts = match &b.content {
-                SessionHistoryContent::Request(r) => r.timestamp,
-                SessionHistoryContent::Response(r) => r.timestamp,
-            };
-            a_ts.cmp(&b_ts)
-        });
+        list.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
         Ok(list)
     }
@@ -313,7 +294,7 @@ impl HistoryStorage for SurrealStorage {
         end: DateTime<Utc>,
     ) -> Result<Vec<VizierSession>> {
         let query = format!(
-            "SELECT DISTINCT vizier_session FROM session_history WHERE vizier_session.0 == $agent_id AND content.timestamp >= {} AND content.timestamp <= {}",
+            "SELECT DISTINCT vizier_session FROM session_history WHERE vizier_session.0 == $agent_id AND timestamp >= {} AND timestamp <= {}",
             start.timestamp_millis(),
             end.timestamp_millis()
         );
