@@ -8,9 +8,10 @@ use slugify::slugify;
 use crate::agents::tools::{ToolContext, VizierTool};
 use crate::error::VizierError;
 use crate::indexer::VizierIndexer;
-use crate::schema::{AgentId, MemoryVisibility};
+use crate::schema::{AgentId, MemoryVisibility, VizierAttachment, VizierAttachmentContent};
 use crate::storage::VizierStorage;
 use crate::storage::memory::MemoryStorage;
+use crate::storage::session_file::SessionFileStorage;
 
 pub fn init_vector_memory(
     agent_id: String,
@@ -72,6 +73,7 @@ pub struct MemorySummary {
     pub visibility: String,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
+    pub attachment_count: usize,
 }
 
 pub type MemoryList = ListVectorMemory;
@@ -117,6 +119,7 @@ impl VizierTool for MemoryList {
                 visibility: m.visibility.to_string(),
                 tags: m.tags,
                 relations: m.relations,
+                attachment_count: m.attachments.len(),
             })
             .collect())
     }
@@ -180,6 +183,10 @@ pub struct MemoryWriteArgs {
     #[schemars(description = "list of agent IDs to share with (only when visibility is 'shared')")]
     #[serde(default)]
     pub shared_to: Vec<String>,
+
+    #[schemars(description = "filenames of session files to attach (use list_session_files to see available files)")]
+    #[serde(default)]
+    pub attachments: Option<Vec<String>>,
 }
 
 fn default_visibility() -> String {
@@ -199,7 +206,7 @@ impl VizierTool for MemoryWrite {
         "Write or update a memory. Use [[slug]] syntax in content to link to other memories (e.g. 'see [[project-architecture]] for details'). Tags can be added for categorization.".into()
     }
 
-    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let slug = slugify!(&args.title).to_string();
         let visibility: MemoryVisibility = args
             .visibility
@@ -213,6 +220,33 @@ impl VizierTool for MemoryWrite {
             Utc::now()
         );
 
+        let mut attachments = Vec::new();
+        if let Some(filenames) = &args.attachments {
+            for filename in filenames {
+                match self.1.get_session_file(&ctx.session, filename).await {
+                    Ok(Some(record)) => {
+                        let url = format!("/api/v1/files/{}", record.file_id);
+                        attachments.push(VizierAttachment {
+                            filename: record.filename,
+                            content: VizierAttachmentContent::Local(url),
+                        });
+                    }
+                    Ok(None) => {
+                        return Err(VizierError(format!(
+                            "session file '{}' not found",
+                            filename
+                        )));
+                    }
+                    Err(e) => {
+                        return Err(VizierError(format!(
+                            "failed to look up session file '{}': {}",
+                            filename, e
+                        )));
+                    }
+                }
+            }
+        }
+
         let memory = self
             .1
             .write_memory(
@@ -223,6 +257,7 @@ impl VizierTool for MemoryWrite {
                 visibility.clone(),
                 args.shared_to.clone(),
                 args.tags.clone(),
+                attachments,
                 &self.2,
             )
             .await
@@ -237,9 +272,16 @@ impl VizierTool for MemoryWrite {
             )
         };
 
+        let attachments_info = if memory.attachments.is_empty() {
+            String::new()
+        } else {
+            let files = memory.attachments.iter().map(|a| a.filename.as_str()).collect::<Vec<_>>().join(", ");
+            format!("\n\n[+{} to session files]", files)
+        };
+
         Ok(format!(
-            "memory {} is written with {} visibility{}",
-            slug, visibility, relations_info
+            "memory {} is written with {} visibility{}{}",
+            slug, visibility, relations_info, attachments_info
         ))
     }
 }
@@ -270,6 +312,7 @@ pub struct MemoryDetailOutput {
     pub shared_to: Vec<String>,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
+    pub attachments: Vec<String>,
 }
 
 #[async_trait::async_trait]
@@ -285,23 +328,27 @@ impl VizierTool for MemoryDetail {
         "Get full memory content by slug. Content may contain [[slug]] links to related memories — call this tool with those slugs to traverse the knowledge graph.".into()
     }
 
-    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let memory = self
             .1
             .get_memory_detail(self.0.clone(), args.slug)
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
-        Ok(memory.map(|m| MemoryDetailOutput {
-            slug: m.slug,
-            title: m.title,
-            content: m.content,
-            timestamp: m.timestamp,
-            agent_id: m.agent_id,
-            visibility: m.visibility.to_string(),
-            shared_to: m.shared_to,
-            tags: m.tags,
-            relations: m.relations,
+        Ok(memory.map(|m| {
+            let attachment_names: Vec<String> = m.attachments.iter().map(|a| a.filename.clone()).collect();
+            MemoryDetailOutput {
+                slug: m.slug,
+                title: m.title,
+                content: m.content,
+                timestamp: m.timestamp,
+                agent_id: m.agent_id,
+                visibility: m.visibility.to_string(),
+                shared_to: m.shared_to,
+                tags: m.tags,
+                relations: m.relations,
+                attachments: attachment_names,
+            }
         }))
     }
 }
@@ -366,6 +413,7 @@ impl VizierTool for MemoryFollow {
 
                 for memory in related {
                     if !visited.contains(&memory.slug) {
+                        let attachment_names: Vec<String> = memory.attachments.iter().map(|a| a.filename.clone()).collect();
                         result.push(MemoryDetailOutput {
                             slug: memory.slug.clone(),
                             title: memory.title,
@@ -376,6 +424,7 @@ impl VizierTool for MemoryFollow {
                             shared_to: memory.shared_to,
                             tags: memory.tags,
                             relations: memory.relations,
+                            attachments: attachment_names,
                         });
                         next_slugs.push(memory.slug);
                     }

@@ -9,7 +9,7 @@ use crate::{
     indexer::{DocumentIndexer, VizierIndexer},
     schema::{
         Memory, MemoryFrontMatter, MemoryGraph, MemoryGraphEdge, MemoryGraphNode,
-        MemoryQueryParams, MemoryVisibility, PaginatedMemory,
+        MemoryQueryParams, MemoryVisibility, PaginatedMemory, VizierAttachment,
     },
     storage::{
         fs::{FileSystemStorage, MEMORY_PATH},
@@ -66,6 +66,7 @@ impl FileSystemStorage {
             tags: frontmatter.tags,
             keywords: frontmatter.keywords,
             relations: frontmatter.relations,
+            attachments: frontmatter.attachments,
         }
     }
 }
@@ -81,6 +82,7 @@ impl MemoryStorage for FileSystemStorage {
         visibility: MemoryVisibility,
         shared_to: Vec<String>,
         tags: Vec<String>,
+        attachments: Vec<VizierAttachment>,
         indexer: &VizierIndexer,
     ) -> Result<Memory> {
         let slug = slug.unwrap_or_else(|| slugify!(&title));
@@ -131,6 +133,7 @@ impl MemoryStorage for FileSystemStorage {
             tags: tags.clone(),
             keywords: vec![],
             relations: relations.clone(),
+            attachments: attachments.clone(),
         };
 
         utils::markdown::write_markdown(&frontmatter, content.clone(), path.clone())?;
@@ -151,6 +154,7 @@ impl MemoryStorage for FileSystemStorage {
             tags,
             keywords: vec![],
             relations,
+            attachments,
         })
     }
 

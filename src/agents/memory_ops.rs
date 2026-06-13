@@ -34,6 +34,7 @@ async fn dispatch_memory_op(
             visibility,
             shared_to,
             tags,
+            attachments,
         } => storage
             .write_memory(
                 agent_id.to_string(),
@@ -43,6 +44,7 @@ async fn dispatch_memory_op(
                 visibility.clone(),
                 shared_to.clone(),
                 tags.clone(),
+                attachments.clone(),
                 indexer,
             )
             .await

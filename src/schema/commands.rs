@@ -107,6 +107,7 @@ pub enum MemoryOpRequest {
         visibility: MemoryVisibility,
         shared_to: Vec<String>,
         tags: Vec<String>,
+        attachments: Vec<VizierAttachment>,
     },
     Query {
         query: String,

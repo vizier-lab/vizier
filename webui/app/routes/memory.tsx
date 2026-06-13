@@ -14,9 +14,12 @@ import {
   getAgentDetail,
 } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
-import { FaPlus, FaTrash, FaPenToSquare, FaMagnifyingGlass, FaList, FaDiagramProject } from 'react-icons/fa6'
+import { FaPlus, FaTrash, FaPenToSquare, FaMagnifyingGlass, FaList, FaDiagramProject, FaPaperclip } from 'react-icons/fa6'
 import { Skeleton } from '../components/Skeleton'
 import { useToastStore } from '../hooks/toastStore'
+import { useFileAttachments } from '../hooks/useFileAttachments'
+import AttachmentChip from '../components/AttachmentChip'
+import AttachmentPreviewModal from '../components/AttachmentPreviewModal'
 import type {
   AgentDetail,
   Memory,
@@ -24,6 +27,7 @@ import type {
   MemoryVisibility,
   MemoryGraph as MemoryGraphType,
   PaginatedMemoryResponse,
+  VizierAttachment,
 } from '../interfaces/types'
 import MarkdownEditor from '../components/MarkdownEditor'
 import MemoryGraph from '../components/MemoryGraph'
@@ -89,6 +93,25 @@ export default function MemoryManagement() {
   const [graph, setGraph] = useState<MemoryGraphType | null>(null)
   const [graphLoading, setGraphLoading] = useState(false)
   const [agentDetail, setAgentDetail] = useState<AgentDetail | null>(null)
+
+  const [existingAttachments, setExistingAttachments] = useState<VizierAttachment[]>([])
+  const [previewAttachment, setPreviewAttachment] = useState<VizierAttachment | null>(null)
+
+  const {
+    attachments: pendingAttachments,
+    isDragOver,
+    fileInputRef,
+    processFiles,
+    removeAttachment,
+    clearAttachments,
+    handleFileSelect,
+    handleDragEnter,
+    handleDragLeave,
+    handleDragOver,
+    handleDrop,
+    handlePaste,
+    uploadAll,
+  } = useFileAttachments()
 
   const { addToast } = useToastStore()
 
@@ -186,6 +209,8 @@ export default function MemoryManagement() {
     setFormVisibility(detail.visibility)
     setFormSharedTo(detail.shared_to?.join(', ') || '')
     setFormTags(detail.tags?.join(', ') || '')
+    setExistingAttachments(detail.attachments || [])
+    clearAttachments()
     setModalMode('edit')
   }
 
@@ -196,6 +221,8 @@ export default function MemoryManagement() {
     setFormVisibility('private')
     setFormSharedTo('')
     setFormTags('')
+    setExistingAttachments([])
+    clearAttachments()
     setModalMode('create')
   }
 
@@ -215,11 +242,14 @@ export default function MemoryManagement() {
 
       const sanitizedContent = formContent.replace(/\\\[\\\[(.+?)\]\]/g, '[[$1]]')
 
+      const newAttachments = await uploadAll()
+      const allAttachments = [...existingAttachments, ...newAttachments]
+
       if (modalMode === 'create') {
-        await createMemory(agentId, formTitle, sanitizedContent, finalSlug || undefined, formVisibility, sharedTo, tags)
+        await createMemory(agentId, formTitle, sanitizedContent, finalSlug || undefined, formVisibility, sharedTo, tags, allAttachments.length > 0 ? allAttachments : undefined)
         addToast('success', 'Memory created successfully')
       } else if (modalMode === 'edit' && selectedMemory) {
-        await updateMemory(agentId, selectedMemory.slug, formTitle, sanitizedContent, formVisibility, sharedTo, tags)
+        await updateMemory(agentId, selectedMemory.slug, formTitle, sanitizedContent, formVisibility, sharedTo, tags, allAttachments.length > 0 ? allAttachments : undefined)
         addToast('success', 'Memory updated successfully')
       }
       await loadMemories()
@@ -256,6 +286,8 @@ export default function MemoryManagement() {
     setFormVisibility('private')
     setFormSharedTo('')
     setFormTags('')
+    setExistingAttachments([])
+    clearAttachments()
   }
 
   const handleSearchChange = useCallback((value: string) => {
@@ -434,7 +466,12 @@ export default function MemoryManagement() {
                 <tbody>
                   {filteredMemories.map((memory) => (
                     <tr key={memory.slug} onClick={() => handleViewMemory(memory.slug)}>
-                      <td style={{ fontWeight: 500 }}>{memory.title}</td>
+                      <td style={{ fontWeight: 500 }}>
+                        {memory.title}
+                        {memory.attachments && memory.attachments.length > 0 && (
+                          <FaPaperclip size={12} style={{ marginLeft: '6px', color: 'var(--text-tertiary)', verticalAlign: 'middle' }} />
+                        )}
+                      </td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
                         {memory.slug}
                       </td>
@@ -603,6 +640,23 @@ export default function MemoryManagement() {
               </ReactMarkdown>
             </div>
 
+            {selectedMemory.attachments && selectedMemory.attachments.length > 0 && (
+              <div>
+                <h4 style={{ marginBottom: '0.5rem', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  Attachments ({selectedMemory.attachments.length})
+                </h4>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {selectedMemory.attachments.map((att, idx) => (
+                    <AttachmentChip
+                      key={idx}
+                      attachment={att}
+                      onClick={() => setPreviewAttachment(att)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
             {selectedMemory.relations && selectedMemory.relations.length > 0 && (
               <div>
                 <h4 style={{ marginBottom: '0.5rem', fontSize: '13px', color: 'var(--text-secondary)' }}>
@@ -641,7 +695,30 @@ export default function MemoryManagement() {
         )}
 
         {(modalMode === 'create' || modalMode === 'edit') && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, height: '100%' }}>
+          <div
+            style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, height: '100%', position: 'relative' }}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+          >
+            {isDragOver && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--surface)',
+                border: '2px dashed var(--accent-primary)',
+                borderRadius: '8px',
+                zIndex: 10,
+                color: 'var(--accent-primary)',
+                fontSize: '14px',
+              }}>
+                Drop files here
+              </div>
+            )}
             {modalMode === 'create' && (
               <div className="input-group" style={{ marginBottom: 0 }}>
                 <label htmlFor="slug">Slug (optional)</label>
@@ -694,6 +771,42 @@ export default function MemoryManagement() {
                 />
               </div>
             </div>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              multiple
+              accept="image/*,.pdf,.doc,.docx,.txt,video/*,audio/*"
+              style={{ display: 'none' }}
+            />
+            {modalMode === 'edit' && existingAttachments.length > 0 && (
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label>Existing Attachments</label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {existingAttachments.map((att, idx) => (
+                    <AttachmentChip key={idx} attachment={att} />
+                  ))}
+                </div>
+              </div>
+            )}
+            {pendingAttachments.length > 0 && (
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label>New Attachments</label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {pendingAttachments.map((att, idx) => (
+                    <AttachmentChip
+                      key={idx}
+                      attachment={{ filename: att.file.name, content: { local: '' } }}
+                      previewUrl={att.previewUrl}
+                      onRemove={() => removeAttachment(idx)}
+                    />
+                  ))}
+                  <button onClick={clearAttachments} className="btn btn-ghost" style={{ fontSize: '12px' }}>
+                    Clear all
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="input-group" style={{ marginBottom: 0 }}>
               <label htmlFor="tags">
                 Tags
@@ -759,6 +872,11 @@ export default function MemoryManagement() {
           </div>
         )}
       </SlideOver>
+
+      <AttachmentPreviewModal
+        attachment={previewAttachment}
+        onClose={() => setPreviewAttachment(null)}
+      />
     </>
   )
 }

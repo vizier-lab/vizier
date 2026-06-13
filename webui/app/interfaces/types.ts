@@ -566,6 +566,7 @@ export interface Memory {
   tags: string[]
   keywords: string[]
   relations: string[]
+  attachments: VizierAttachment[]
 }
 
 export interface MemoryDetail extends Memory {
@@ -579,6 +580,7 @@ export interface CreateMemoryRequest {
   visibility?: MemoryVisibility
   shared_to?: string[]
   tags?: string[]
+  attachments?: VizierAttachment[]
 }
 
 export interface UpdateMemoryRequest {
@@ -587,6 +589,7 @@ export interface UpdateMemoryRequest {
   visibility?: MemoryVisibility
   shared_to?: string[]
   tags?: string[]
+  attachments?: VizierAttachment[]
 }
 
 export interface PaginatedMemoryResponse {

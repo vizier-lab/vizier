@@ -18,7 +18,7 @@ use crate::{
     },
     schema::{
         Memory, MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams, MemoryVisibility,
-        PaginatedMemory,
+        PaginatedMemory, VizierAttachment,
     },
     storage::{agent::AgentStorage, memory::MemoryStorage},
 };
@@ -48,6 +48,8 @@ pub struct CreateMemoryRequest {
     shared_to: Vec<String>,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    attachments: Option<Vec<VizierAttachment>>,
 }
 
 fn default_visibility() -> String {
@@ -64,6 +66,8 @@ pub struct UpdateMemoryRequest {
     shared_to: Vec<String>,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    attachments: Option<Vec<VizierAttachment>>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -117,6 +121,7 @@ pub struct MemorySummary {
     pub shared_to: Vec<String>,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
+    pub attachment_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
@@ -130,6 +135,7 @@ pub struct MemoryDetail {
     pub shared_to: Vec<String>,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
+    pub attachments: Vec<VizierAttachment>,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
@@ -169,6 +175,7 @@ fn summarize_memory(memory: &Memory) -> MemorySummary {
         shared_to: memory.shared_to.clone(),
         tags: memory.tags.clone(),
         relations: memory.relations.clone(),
+        attachment_count: memory.attachments.len(),
     }
 }
 
@@ -183,6 +190,7 @@ fn detail_from_memory(memory: &Memory) -> MemoryDetail {
         shared_to: memory.shared_to.clone(),
         tags: memory.tags.clone(),
         relations: memory.relations.clone(),
+        attachments: memory.attachments.clone(),
     }
 }
 
@@ -307,6 +315,7 @@ pub async fn create_memory(
                 visibility,
                 shared_to: body.shared_to,
                 tags: body.tags.clone(),
+                attachments: body.attachments.unwrap_or_default(),
             },
         )
         .await
@@ -370,6 +379,7 @@ pub async fn update_memory(
                 visibility,
                 shared_to: body.shared_to,
                 tags: body.tags.clone(),
+                attachments: body.attachments.unwrap_or_default(),
             },
         )
         .await

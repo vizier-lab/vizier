@@ -1,4 +1,5 @@
 import axios, { AxiosError } from 'axios'
+import type { VizierAttachment } from '../interfaces/types'
 
 export const base_url = import.meta.env.DEV
   ? 'localhost:9999'
@@ -337,7 +338,8 @@ export const createMemory = async (
   slug?: string,
   visibility?: string,
   sharedTo?: string[],
-  tags?: string[]
+  tags?: string[],
+  attachments?: VizierAttachment[]
 ) => {
   const res = await apiClient.post(`/agents/${agentId}/memory`, {
     title,
@@ -346,6 +348,7 @@ export const createMemory = async (
     visibility,
     shared_to: sharedTo,
     tags,
+    attachments,
   })
   return res.data
 }
@@ -357,7 +360,8 @@ export const updateMemory = async (
   content: string,
   visibility?: string,
   sharedTo?: string[],
-  tags?: string[]
+  tags?: string[],
+  attachments?: VizierAttachment[]
 ) => {
   const res = await apiClient.put(`/agents/${agentId}/memory/${slug}`, {
     title,
@@ -365,6 +369,7 @@ export const updateMemory = async (
     visibility,
     shared_to: sharedTo,
     tags,
+    attachments,
   })
   return res.data
 }

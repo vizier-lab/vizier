@@ -4,7 +4,7 @@ use crate::{
     indexer::VizierIndexer,
     schema::{
         Memory, MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams,
-        MemoryVisibility, PaginatedMemory,
+        MemoryVisibility, PaginatedMemory, VizierAttachment,
     },
     storage::VizierStorage,
 };
@@ -20,6 +20,7 @@ pub trait MemoryStorage {
         visibility: MemoryVisibility,
         shared_to: Vec<String>,
         tags: Vec<String>,
+        attachments: Vec<VizierAttachment>,
         indexer: &VizierIndexer,
     ) -> Result<Memory>;
 
@@ -68,10 +69,11 @@ impl MemoryStorage for VizierStorage {
         visibility: MemoryVisibility,
         shared_to: Vec<String>,
         tags: Vec<String>,
+        attachments: Vec<VizierAttachment>,
         indexer: &VizierIndexer,
     ) -> Result<Memory> {
         self.0
-            .write_memory(agent_id, slug, title, content, visibility, shared_to, tags, indexer)
+            .write_memory(agent_id, slug, title, content, visibility, shared_to, tags, attachments, indexer)
             .await
     }
 

@@ -6,7 +6,7 @@ use crate::{
     indexer::VizierIndexer,
     schema::{
         Memory, MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams, MemoryVisibility,
-        PaginatedMemory,
+        PaginatedMemory, VizierAttachment,
     },
     storage::{
         memory::MemoryStorage,
@@ -36,6 +36,7 @@ impl MemoryStorage for SurrealStorage {
         visibility: MemoryVisibility,
         shared_to: Vec<String>,
         tags: Vec<String>,
+        attachments: Vec<VizierAttachment>,
         indexer: &VizierIndexer,
     ) -> Result<Memory> {
         let slug = slug.unwrap_or_else(|| slugify!(&title));
@@ -71,6 +72,7 @@ impl MemoryStorage for SurrealStorage {
             tags,
             keywords: vec![],
             relations,
+            attachments,
         };
 
         let _: Option<Memory> = self

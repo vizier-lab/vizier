@@ -2,7 +2,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use surrealdb_types::SurrealValue;
 
-use crate::{schema::AgentId, utils::markdown::MarkdownDoc};
+use crate::{
+    schema::{AgentId, VizierAttachment},
+    utils::markdown::MarkdownDoc,
+};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, SurrealValue, utoipa::ToSchema)]
 pub enum MemoryVisibility {
@@ -56,6 +59,8 @@ pub struct Memory {
     pub keywords: Vec<String>,
     #[serde(default)]
     pub relations: Vec<String>,
+    #[serde(default)]
+    pub attachments: Vec<VizierAttachment>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
