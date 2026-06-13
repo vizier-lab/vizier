@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 
 use crate::{
     schema::{
         AgentId,
         DreamStage,
         dream_journal::DreamJournalEntry,
+        DreamJournalEntryFrontMatter,
     },
     storage::{
         dream_journal::DreamJournalStorage,
@@ -15,40 +15,6 @@ use crate::{
     },
     utils,
 };
-
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-struct DreamJournalFrontMatter {
-    pub id: String,
-    pub dream_cycle_id: String,
-    pub agent_id: AgentId,
-    pub timestamp: DateTime<Utc>,
-    pub stage: DreamStage,
-    pub source_sessions: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_context: Option<String>,
-    pub duration_ms: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_used: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_used: Option<String>,
-}
-
-impl From<&DreamJournalEntry> for DreamJournalFrontMatter {
-    fn from(entry: &DreamJournalEntry) -> Self {
-        Self {
-            id: entry.id.clone(),
-            dream_cycle_id: entry.dream_cycle_id.clone(),
-            agent_id: entry.agent_id.clone(),
-            timestamp: entry.timestamp,
-            stage: entry.stage.clone(),
-            source_sessions: entry.source_sessions.clone(),
-            session_context: entry.session_context.clone(),
-            duration_ms: entry.duration_ms,
-            provider_used: entry.provider_used.clone(),
-            model_used: entry.model_used.clone(),
-        }
-    }
-}
 
 fn entry_to_path(workspace: &str, agent_id: &str, entry: &DreamJournalEntry) -> PathBuf {
     PathBuf::from(format!(
@@ -65,7 +31,7 @@ fn dreams_dir(workspace: &str, agent_id: &str) -> String {
 }
 
 fn read_entry_from_path(path: PathBuf) -> Result<DreamJournalEntry> {
-    let (fm, content) = utils::markdown::read_markdown::<DreamJournalFrontMatter>(path)?;
+    let (fm, content) = utils::markdown::read_markdown::<DreamJournalEntryFrontMatter>(path)?;
     Ok(DreamJournalEntry {
         id: fm.id,
         dream_cycle_id: fm.dream_cycle_id,
@@ -84,7 +50,7 @@ fn read_entry_from_path(path: PathBuf) -> Result<DreamJournalEntry> {
 #[async_trait::async_trait]
 impl DreamJournalStorage for FileSystemStorage {
     async fn save_dream_entry(&self, entry: DreamJournalEntry) -> Result<()> {
-        let frontmatter = DreamJournalFrontMatter::from(&entry);
+        let frontmatter = DreamJournalEntryFrontMatter::from(entry.clone());
         let path = entry_to_path(&self.workspace, &entry.agent_id, &entry);
         utils::markdown::write_markdown(&frontmatter, entry.content, path)?;
         Ok(())

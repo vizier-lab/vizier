@@ -12286,6 +12286,16 @@ dependencies = [
  "utoipa-axum",
  "utoipa-swagger-ui",
  "uuid 1.23.2",
+ "vizier-derive",
+]
+
+[[package]]
+name = "vizier-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.114",
 ]
 
 [[package]]

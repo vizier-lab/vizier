@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    schema::{Skill, SkillActivation},
+    schema::{Skill, SkillFrontMatter},
     utils::{build_path, markdown::read_markdown},
 };
 
@@ -30,56 +30,6 @@ pub enum SkillSource {
     Local,
     #[serde(rename = "created")]
     Created,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct SkillFrontMatter {
-    pub name: String,
-    pub author: String,
-    pub description: String,
-    #[serde(default)]
-    pub keywords: Vec<String>,
-    #[serde(default = "default_activation")]
-    pub activation: SkillActivation,
-    #[serde(default = "default_version")]
-    pub version: u32,
-}
-
-fn default_activation() -> SkillActivation {
-    SkillActivation::OnDemand
-}
-
-fn default_version() -> u32 {
-    1
-}
-
-impl From<Skill> for SkillFrontMatter {
-    fn from(skill: Skill) -> Self {
-        Self {
-            name: skill.name,
-            author: skill.author,
-            description: skill.description,
-            keywords: skill.keywords,
-            activation: skill.activation,
-            version: skill.version,
-        }
-    }
-}
-
-impl From<SkillFrontMatter> for Skill {
-    fn from(fm: SkillFrontMatter) -> Self {
-        Self {
-            name: fm.name,
-            agent_id: None,
-            author: fm.author,
-            description: fm.description,
-            content: String::new(),
-            keywords: fm.keywords,
-            activation: fm.activation,
-            version: fm.version,
-            resources: Vec::new(),
-        }
-    }
 }
 
 #[derive(Clone)]

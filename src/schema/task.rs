@@ -3,12 +3,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use surrealdb_types::SurrealValue;
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue, JsonSchema, utoipa::ToSchema)]
+use crate::utils::markdown::MarkdownDoc;
+
+#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue, JsonSchema, utoipa::ToSchema, MarkdownDoc)]
 pub struct Task {
     pub slug: String,
     pub user: String,
     pub agent_id: String,
     pub title: String,
+    #[markdown(content)]
     pub instruction: String,
     pub is_active: bool,
     pub schedule: TaskSchedule,

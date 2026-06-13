@@ -115,7 +115,7 @@ fn install_from_registry(
         return Err(crate::VizierError(format!("SKILL.md not found for skill '{}'", slug)));
     }
 
-    let (frontmatter, _) = crate::utils::markdown::read_markdown::<crate::skill::SkillFrontMatter>(skill_md)
+    let (frontmatter, _) = crate::utils::markdown::read_markdown::<crate::schema::SkillFrontMatter>(skill_md)
         .map_err(|e| crate::VizierError(format!("Failed to read SKILL.md: {}", e)))?;
 
     // Copy to target
@@ -180,7 +180,7 @@ fn install_from_git(
         // Read version
         let skill_md = source_dir.join("SKILL.md");
         let version = if skill_md.exists() {
-            let (frontmatter, _) = crate::utils::markdown::read_markdown::<crate::skill::SkillFrontMatter>(skill_md)
+            let (frontmatter, _) = crate::utils::markdown::read_markdown::<crate::schema::SkillFrontMatter>(skill_md)
                 .map_err(|e| crate::VizierError(format!("Failed to read SKILL.md: {}", e)))?;
             frontmatter.version
         } else {
@@ -216,7 +216,7 @@ fn install_from_git(
 
                     let skill_md = path.join("SKILL.md");
                     let version = if skill_md.exists() {
-                        let (frontmatter, _) = crate::utils::markdown::read_markdown::<crate::skill::SkillFrontMatter>(skill_md)
+                        let (frontmatter, _) = crate::utils::markdown::read_markdown::<crate::schema::SkillFrontMatter>(skill_md)
                             .map_err(|e| crate::VizierError(format!("Failed to read SKILL.md: {}", e)))?;
                         frontmatter.version
                     } else {
@@ -267,7 +267,7 @@ fn install_from_local(
         }
         copy_dir_all(&source_dir, &dest)?;
 
-        let (frontmatter, _) = crate::utils::markdown::read_markdown::<crate::skill::SkillFrontMatter>(source_dir.join("SKILL.md"))
+        let (frontmatter, _) = crate::utils::markdown::read_markdown::<crate::schema::SkillFrontMatter>(source_dir.join("SKILL.md"))
             .map_err(|e| crate::VizierError(format!("Failed to read SKILL.md: {}", e)))?;
 
         let meta = SkillMeta {
@@ -296,7 +296,7 @@ fn install_from_local(
                 }
                 copy_dir_all(&path, &dest)?;
 
-                let (frontmatter, _) = crate::utils::markdown::read_markdown::<crate::skill::SkillFrontMatter>(path.join("SKILL.md"))
+                let (frontmatter, _) = crate::utils::markdown::read_markdown::<crate::schema::SkillFrontMatter>(path.join("SKILL.md"))
                     .map_err(|e| crate::VizierError(format!("Failed to read SKILL.md: {}", e)))?;
 
                 let meta = SkillMeta {

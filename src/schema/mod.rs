@@ -23,7 +23,7 @@ pub use commands::{
     CommandRequest, CommandResponse, FileCommand, MemoryOpEnvelope, MemoryOpRequest,
     MemoryOpResponse,
 };
-pub use dream_journal::DreamJournalEntry;
+pub use dream_journal::{DreamJournalEntry, DreamJournalEntryFrontMatter};
 pub use file::FileRecord;
 pub use global_config::{GlobalConfigEntry, GlobalConfigValue};
 pub use history::{SessionHistory, SessionHistoryContent};
@@ -42,10 +42,11 @@ pub use session::{
 };
 pub use session_file::SessionFileRecord;
 pub use storage::{
-    DocumentIndex, Memory, MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams,
-    MemoryVisibility, PaginatedMemory, Skill, SkillActivation,
+    DocumentIndex, Memory, MemoryFrontMatter, MemoryGraph, MemoryGraphEdge, MemoryGraphNode,
+    MemoryQueryParams, MemoryVisibility, PaginatedMemory, Skill, SkillActivation,
+    SkillFrontMatter,
 };
-pub use task::{Task, TaskSchedule};
+pub use task::{Task, TaskFrontMatter, TaskSchedule};
 
 use serde::{Deserialize, Serialize};
 use surrealdb_types::SurrealValue;

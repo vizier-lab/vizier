@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use surrealdb_types::SurrealValue;
 
-use crate::schema::AgentId;
+use crate::{schema::AgentId, utils::markdown::MarkdownDoc};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, SurrealValue, utoipa::ToSchema)]
 pub enum MemoryVisibility {
@@ -38,10 +38,11 @@ impl std::str::FromStr for MemoryVisibility {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
+#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue, MarkdownDoc)]
 pub struct Memory {
     pub slug: String,
     pub title: String,
+    #[markdown(content)]
     pub content: String,
     pub timestamp: DateTime<Utc>,
     pub agent_id: String,
@@ -121,12 +122,13 @@ impl Default for SkillActivation {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
+#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue, MarkdownDoc)]
 pub struct Skill {
     pub name: String,
     pub agent_id: Option<AgentId>,
     pub author: String,
     pub description: String,
+    #[markdown(content)]
     pub content: String,
     #[serde(default)]
     pub keywords: Vec<String>,

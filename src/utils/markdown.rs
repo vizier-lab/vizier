@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use serde::{de::DeserializeOwned, Serialize};
 
+pub use vizier_derive::MarkdownDoc;
+
 use crate::error::VizierError;
 
 pub fn read_content(path: PathBuf) -> Result<String, VizierError> {

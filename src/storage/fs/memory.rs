@@ -3,14 +3,13 @@ use std::path::PathBuf;
 use anyhow::{Ok, Result};
 use chrono::Utc;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
 use crate::{
     indexer::{DocumentIndexer, VizierIndexer},
     schema::{
-        Memory, MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams,
-        MemoryVisibility, PaginatedMemory,
+        Memory, MemoryFrontMatter, MemoryGraph, MemoryGraphEdge, MemoryGraphNode,
+        MemoryQueryParams, MemoryVisibility, PaginatedMemory,
     },
     storage::{
         fs::{FileSystemStorage, MEMORY_PATH},
@@ -26,40 +25,6 @@ fn parse_wikilinks(content: &str) -> Vec<String> {
     re.captures_iter(content)
         .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
         .collect()
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct MemoryFrontMatter {
-    pub slug: String,
-    pub title: String,
-    pub timestamp: chrono::DateTime<Utc>,
-    pub agent_id: String,
-    #[serde(default)]
-    pub visibility: MemoryVisibility,
-    #[serde(default)]
-    pub shared_to: Vec<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub keywords: Vec<String>,
-    #[serde(default)]
-    pub relations: Vec<String>,
-}
-
-impl From<Memory> for MemoryFrontMatter {
-    fn from(value: Memory) -> Self {
-        Self {
-            slug: value.slug,
-            title: value.title,
-            timestamp: value.timestamp,
-            agent_id: value.agent_id,
-            visibility: value.visibility,
-            shared_to: value.shared_to,
-            tags: value.tags,
-            keywords: value.keywords,
-            relations: value.relations,
-        }
-    }
 }
 
 impl FileSystemStorage {
