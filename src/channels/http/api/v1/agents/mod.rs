@@ -149,6 +149,7 @@ pub struct AgentDetail {
     pub thinking_depth: usize,
     pub session_memory_capacity: usize,
     pub max_tokens: Option<u64>,
+    pub context_window: Option<u64>,
     pub shell: Option<ShellConfig>,
     pub brave_search: bool,
     pub brave_search_settings: Option<BraveSearchToolSettings>,
@@ -217,6 +218,7 @@ async fn agent_detail(
                 thinking_depth: config.thinking_depth,
                 session_memory_capacity: config.session_memory.max_capacity,
                 max_tokens: config.max_tokens,
+                context_window: config.context_window,
                 shell: config.tools.shell,
                 brave_search: config.tools.brave_search.enabled,
                 brave_search_settings: if config.tools.brave_search.settings.api_key.is_some()
@@ -311,6 +313,8 @@ pub struct CreateAgentRequest {
     pub session_memory_capacity: Option<usize>,
     #[serde(default)]
     pub max_tokens: Option<u64>,
+    #[serde(default)]
+    pub context_window: Option<u64>,
     #[serde(default)]
     pub tools: Option<CreateAgentTools>,
     #[serde(default)]
@@ -420,6 +424,7 @@ impl CreateAgentRequest {
             },
             thinking_depth: self.thinking_depth.unwrap_or(10),
             max_tokens: self.max_tokens,
+            context_window: self.context_window,
             tools: AgentToolsConfig {
                 timeout: duration_string::DurationString::from_string(
                     tools.timeout.unwrap_or_else(|| "1m".into()),

@@ -527,6 +527,9 @@ impl VizierAgent {
             let mut total_input_tokens: u64 = 0;
             let mut total_output_tokens: u64 = 0;
             let mut total_tokens: u64 = 0;
+            let mut cache_creation_input_tokens: u64 = 0;
+            let mut total_cache_creation_input_tokens: u64 = 0;
+            let mut current_context_size: Option<u64> = None;
 
             loop {
                 turn_depth += 1;
@@ -551,13 +554,16 @@ impl VizierAgent {
 
                 if turn_depth == 1 {
                     input_tokens = usage.input_tokens;
-                    cached_input_tokens = usage.input_tokens;
+                    cached_input_tokens = usage.cached_input_tokens;
+                    cache_creation_input_tokens = usage.cache_creation_input_tokens;
                 }
 
                 total_input_tokens += usage.input_tokens;
-                total_cached_input_tokens += usage.input_tokens;
+                total_cached_input_tokens += usage.cached_input_tokens;
+                total_cache_creation_input_tokens += usage.cache_creation_input_tokens;
                 total_output_tokens += usage.output_tokens;
                 total_tokens += usage.total_tokens;
+                current_context_size = Some(usage.input_tokens);
 
                 let (tool_calls, others): (Vec<_>, Vec<_>) = choices
                     .iter()
@@ -737,6 +743,10 @@ impl VizierAgent {
                     input_tokens,
                     cached_input_tokens,
                     duration: start.elapsed(),
+                    cache_creation_input_tokens,
+                    total_cache_creation_input_tokens,
+                    current_context_size,
+                    context_window: self.model.context_window(),
                 },
                 attachments,
                 history,
@@ -850,6 +860,9 @@ impl VizierAgent {
             let mut total_input_tokens: u64 = 0;
             let mut total_output_tokens: u64 = 0;
             let mut total_tokens: u64 = 0;
+            let mut cache_creation_input_tokens: u64 = 0;
+            let mut total_cache_creation_input_tokens: u64 = 0;
+            let mut current_context_size: Option<u64> = None;
 
             loop {
                 turn_depth += 1;
@@ -873,13 +886,16 @@ impl VizierAgent {
 
                 if turn_depth == 1 {
                     input_tokens = usage.input_tokens;
-                    cached_input_tokens = usage.input_tokens;
+                    cached_input_tokens = usage.cached_input_tokens;
+                    cache_creation_input_tokens = usage.cache_creation_input_tokens;
                 }
 
                 total_input_tokens += usage.input_tokens;
-                total_cached_input_tokens += usage.input_tokens;
+                total_cached_input_tokens += usage.cached_input_tokens;
+                total_cache_creation_input_tokens += usage.cache_creation_input_tokens;
                 total_output_tokens += usage.output_tokens;
                 total_tokens += usage.total_tokens;
+                current_context_size = Some(usage.input_tokens);
 
                 let (tool_calls, others): (Vec<_>, Vec<_>) = choices
                     .iter()
@@ -1062,6 +1078,10 @@ impl VizierAgent {
                     input_tokens,
                     cached_input_tokens,
                     duration: start.elapsed(),
+                    cache_creation_input_tokens,
+                    total_cache_creation_input_tokens,
+                    current_context_size,
+                    context_window: model.context_window(),
                 },
             ))
         })

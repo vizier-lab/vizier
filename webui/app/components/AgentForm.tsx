@@ -91,6 +91,7 @@ const DEFAULT_FORM: CreateAgentRequest = {
   thinking_depth: 10,
   session_memory_capacity: 10,
   max_tokens: 100000,
+  context_window: undefined,
   show_thinking: false,
   show_tool_calls: false,
   silent_read_initiative_chance: 0.0,
@@ -778,24 +779,24 @@ export default function AgentForm({
                     >
                       <label style={labelStyle}>
                         <TooltipLabel
-                          label="Memory Capacity"
-                          tooltip="Maximum recent conversation messages loaded as context."
+                          label="Context Window"
+                          tooltip="Maximum context window size in tokens. Leave empty to auto-detect from provider."
                         />
                       </label>
                       <input
                         style={inputStyle}
                         type="number"
                         min={1}
-                        value={
-                          form.session_memory_capacity ||
-                          10
-                        }
+                        placeholder="Auto-detect"
+                        value={form.context_window ?? ''}
                         onChange={(e) =>
                           updateField(
-                            'session_memory_capacity',
-                            parseInt(
-                              e.target.value
-                            ) || 10
+                            'context_window',
+                            e.target.value
+                              ? parseInt(
+                                e.target.value
+                              )
+                              : undefined
                           )
                         }
                       />
@@ -3335,6 +3336,12 @@ export default function AgentForm({
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Max Tokens</span>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
                       {form.max_tokens}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Context Window</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                      {form.context_window ?? 'Auto-detect'}
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>

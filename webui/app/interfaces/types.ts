@@ -334,6 +334,7 @@ export interface CreateAgentRequest {
   system_prompt?: string
   thinking_depth?: number
   max_tokens?: number
+  context_window?: number
   session_memory_capacity?: number
   show_thinking?: boolean
   show_tool_calls?: boolean
@@ -381,6 +382,7 @@ export interface AgentDetail {
   system_prompt?: string
   thinking_depth: number
   max_tokens?: number
+  context_window?: number
   session_memory_capacity: number
   show_thinking?: boolean
   show_tool_calls?: boolean
@@ -513,6 +515,10 @@ export interface VizierResponseStats {
   total_output_tokens: number
   total_tokens: number
   duration: { secs: number; nanos: number }
+  cache_creation_input_tokens: number
+  total_cache_creation_input_tokens: number
+  current_context_size?: number
+  context_window?: number
 }
 
 export interface ChatMessage {

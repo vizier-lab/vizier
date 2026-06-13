@@ -220,6 +220,25 @@ export default function Chat() {
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const { user } = useUserStore()
 
+  // Context window info from the last response's stats
+  const lastResponseMsg = [...messages].reverse().find(m => m.content.Response)
+  const lastResponse = lastResponseMsg?.content?.Response as any
+  const lastMsgContent = lastResponse?.content?.message
+  const lastMsgStats = lastMsgContent?.stats as VizierResponseStats | undefined
+  const contextSize = lastMsgStats?.current_context_size
+  const contextWindow = lastMsgStats?.context_window
+
+  // Format token count for display (e.g., 14000 -> "14K", 1500000 -> "1.5M")
+  const formatTokenCount = (tokens: number): string => {
+    if (tokens >= 1_000_000) {
+      return `${(tokens / 1_000_000).toFixed(1)}M`
+    }
+    if (tokens >= 1_000) {
+      return `${Math.round(tokens / 1_000)}K`
+    }
+    return tokens.toString()
+  }
+
   const placeholder = useMemo(
     () => PLACEHOLDERS[Math.floor(placeholderSeed * PLACEHOLDERS.length)],
     [placeholderSeed]
@@ -1638,6 +1657,19 @@ export default function Chat() {
                     </div>
                   )}
                   <div className="chat-input-bottom-row">
+                    {/* Context window display */}
+                    {contextSize !== undefined && (
+                      <div
+                        className="chat-context-hint visible"
+                        title={contextWindow ? `Context: ${contextSize.toLocaleString()} / ${contextWindow.toLocaleString()} tokens` : `Context: ${contextSize.toLocaleString()} tokens`}
+                      >
+                        {contextWindow ? (
+                          <>{formatTokenCount(contextSize)}/{formatTokenCount(contextWindow)} ({Math.round((contextSize / contextWindow) * 100)}%)</>
+                        ) : (
+                          <>{formatTokenCount(contextSize)} tokens</>
+                        )}
+                      </div>
+                    )}
                     {/* Keyboard hint */}
                     <div
                       className={`chat-keyboard-hint${input.trim() || recordingState !== 'idle' ? ' visible' : ''}`}

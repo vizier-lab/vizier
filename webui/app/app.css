@@ -2386,6 +2386,17 @@ select:focus {
   height: auto;
 }
 
+.chat-context-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.chat-context-hint.visible {
+  opacity: 1;
+}
+
 /* ============================================================================
    SCROLL TO BOTTOM BUTTON
    ============================================================================ */

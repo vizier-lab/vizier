@@ -109,6 +109,7 @@ export default function AgentSettings() {
     thinking_depth: 10,
     session_memory_capacity: 10,
     max_tokens: 100000,
+    context_window: undefined,
     show_thinking: false,
     show_tool_calls: false,
     silent_read_initiative_chance: 0.0,
@@ -202,6 +203,7 @@ export default function AgentSettings() {
           thinking_depth: d.thinking_depth,
           session_memory_capacity: d.session_memory_capacity,
           max_tokens: d.max_tokens,
+          context_window: d.context_window,
           show_thinking: d.show_thinking ?? false,
           show_tool_calls: d.show_tool_calls ?? false,
           silent_read_initiative_chance:
@@ -910,6 +912,33 @@ export default function AgentSettings() {
                         onChange={(e) =>
                           updateField(
                             'max_tokens',
+                            e.target.value
+                              ? parseInt(
+                                e.target.value
+                              )
+                              : undefined
+                          )
+                        }
+                      />
+                    </section>
+                    <section
+                      style={{ ...fieldStyle, flex: 1 }}
+                    >
+                      <label style={labelStyle}>
+                        <TooltipLabel
+                          label="Context Window"
+                          tooltip="Maximum context window size in tokens. Leave empty to auto-detect from provider."
+                        />
+                      </label>
+                      <input
+                        style={inputStyle}
+                        type="number"
+                        min={1}
+                        placeholder="Auto-detect"
+                        value={form.context_window ?? ''}
+                        onChange={(e) =>
+                          updateField(
+                            'context_window',
                             e.target.value
                               ? parseInt(
                                 e.target.value

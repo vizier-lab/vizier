@@ -23,6 +23,43 @@ use crate::{
 };
 
 mod provider;
+mod registry;
+
+/// Try to fetch context window size from provider's ModelListing API.
+/// Falls back to model name detection.
+async fn fetch_context_window_from_api<C>(client: &C, model_name: &str) -> Option<u64>
+where
+    C: rig_core::client::ModelListingClient,
+{
+    use rig_core::client::ModelListingClient;
+
+    match client.list_models().await {
+        Ok(models) => {
+            if let Some(m) = models.iter().find(|m| m.id == model_name) {
+                if let Some(ctx) = m.context_length {
+                    log::debug!(
+                        "Fetched context window for {}: {} tokens (from provider API)",
+                        model_name,
+                        ctx
+                    );
+                    return Some(ctx as u64);
+                }
+            }
+            log::debug!(
+                "Model '{}' not found in provider's model list, falling back to name detection",
+                model_name
+            );
+            registry::detect_context_window(model_name)
+        }
+        Err(e) => {
+            log::debug!(
+                "Failed to list models from provider: {}, falling back to name detection",
+                e
+            );
+            registry::detect_context_window(model_name)
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct VizierModel(Arc<Box<dyn VizierModelTrait + Sync + Send + 'static>>);
@@ -30,6 +67,10 @@ pub struct VizierModel(Arc<Box<dyn VizierModelTrait + Sync + Send + 'static>>);
 impl VizierModel {
     fn build<Model: VizierModelTrait + Sync + Send + 'static>(model: Model) -> Self {
         Self(Arc::new(Box::new(model)))
+    }
+
+    pub fn context_window(&self) -> Option<u64> {
+        self.0.context_window()
     }
 
     // NOTE: `mistralrs` is the in-tree local inference runner (mistral.rs
@@ -47,87 +88,184 @@ impl VizierModel {
         }
 
         let resolved = resolve_provider(&deps.storage, &agent_config.provider).await?;
+        let model_name = &agent_config.model;
+        let max_tokens = agent_config.max_tokens;
+        // Config override takes priority over API/pattern detection
+        let config_context_window = agent_config.context_window;
 
         Ok(match agent_config.provider {
-            ProviderVariant::ollama => Self::build(
-                VizierModelImpl::<ollama::Client>::build(&resolved, agent_config).await?,
-            ),
-            ProviderVariant::openai => Self::build(
-                VizierModelImpl::<openai::Client>::build(&resolved, agent_config).await?,
-            ),
-            ProviderVariant::anthropic => Self::build(
-                VizierModelImpl::<anthropic::Client>::build(&resolved, agent_config).await?,
-            ),
-            ProviderVariant::openrouter => Self::build(
-                VizierModelImpl::<openrouter::Client>::build(&resolved, agent_config).await?,
-            ),
-            ProviderVariant::gemini => Self::build(
-                VizierModelImpl::<gemini::Client>::build(&resolved, agent_config).await?,
-            ),
-            ProviderVariant::deepseek => Self::build(
-                VizierModelImpl::<deepseek::Client>::build(&resolved, agent_config).await?,
-            ),
-            ProviderVariant::mimo => Self::build(
-                VizierModelImpl::<xiaomimimo::Client>::build(&resolved, agent_config).await?,
-            ),
-            ProviderVariant::llama_cpp => Self::build(
-                VizierModelImpl::<llamafile::Client>::build(&resolved, agent_config).await?,
-            ),
+            // Providers that support ModelListing — try API first (unless config override)
+            ProviderVariant::openrouter => {
+                let client = openrouter::Client::new(resolved.api_key.clone())?;
+                let context_window = config_context_window.or(
+                    fetch_context_window_from_api(&client, model_name).await,
+                );
+                Self::build(VizierModelImpl::build_with_client(
+                    &client,
+                    model_name,
+                    max_tokens,
+                    context_window,
+                ))
+            }
+            ProviderVariant::openai => {
+                let client = openai::Client::new(&resolved.api_key)?;
+                let context_window = config_context_window.or(
+                    fetch_context_window_from_api(&client, model_name).await,
+                );
+                Self::build(VizierModelImpl::build_with_client(
+                    &client,
+                    model_name,
+                    max_tokens,
+                    context_window,
+                ))
+            }
+            ProviderVariant::anthropic => {
+                let client = anthropic::Client::new(resolved.api_key.clone())?;
+                let context_window = config_context_window.or(
+                    fetch_context_window_from_api(&client, model_name).await,
+                );
+                Self::build(VizierModelImpl::build_with_client(
+                    &client,
+                    model_name,
+                    max_tokens,
+                    context_window,
+                ))
+            }
+            ProviderVariant::gemini => {
+                let client = gemini::Client::new(resolved.api_key.clone())?;
+                let context_window = config_context_window.or(
+                    fetch_context_window_from_api(&client, model_name).await,
+                );
+                Self::build(VizierModelImpl::build_with_client(
+                    &client,
+                    model_name,
+                    max_tokens,
+                    context_window,
+                ))
+            }
+            ProviderVariant::deepseek => {
+                let client = deepseek::Client::new(resolved.api_key.clone())?;
+                let context_window = config_context_window.or(
+                    fetch_context_window_from_api(&client, model_name).await,
+                );
+                Self::build(VizierModelImpl::build_with_client(
+                    &client,
+                    model_name,
+                    max_tokens,
+                    context_window,
+                ))
+            }
+            ProviderVariant::mistral => {
+                let client = mistral::Client::new(&resolved.api_key)?;
+                let context_window = config_context_window.or(
+                    fetch_context_window_from_api(&client, model_name).await,
+                );
+                Self::build(VizierModelImpl::build_with_client(
+                    &client,
+                    model_name,
+                    max_tokens,
+                    context_window,
+                ))
+            }
+            ProviderVariant::ollama => {
+                let base_url = resolved
+                    .base_url
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("ollama resolved provider missing base_url"))?;
+                let client = ollama::Client::builder()
+                    .base_url(base_url)
+                    .api_key(rig_core::client::Nothing)
+                    .build()?;
+                let context_window = config_context_window.or(
+                    fetch_context_window_from_api(&client, model_name).await,
+                );
+                Self::build(VizierModelImpl::build_with_client(
+                    &client,
+                    model_name,
+                    max_tokens,
+                    context_window,
+                ))
+            }
+            ProviderVariant::copilot => {
+                let client = copilot::Client::builder()
+                    .api_key(copilot::CopilotAuth::ApiKey(resolved.api_key.clone()))
+                    .build()?;
+                let context_window = config_context_window.or(
+                    fetch_context_window_from_api(&client, model_name).await,
+                );
+                Self::build(VizierModelImpl::build_with_client(
+                    &client,
+                    model_name,
+                    max_tokens,
+                    context_window,
+                ))
+            }
+            ProviderVariant::mimo => {
+                let client = xiaomimimo::Client::new(resolved.api_key.clone())?;
+                let context_window = config_context_window.or(
+                    fetch_context_window_from_api(&client, model_name).await,
+                );
+                Self::build(VizierModelImpl::build_with_client(
+                    &client,
+                    model_name,
+                    max_tokens,
+                    context_window,
+                ))
+            }
+
+            // Providers without ModelListing — use config override or model name detection
             ProviderVariant::groq => Self::build(
-                VizierModelImpl::<groq::Client>::build(&resolved, agent_config).await?,
-            ),
-            ProviderVariant::mistral => Self::build(
-                VizierModelImpl::<mistral::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<groq::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
             ProviderVariant::xai => Self::build(
-                VizierModelImpl::<xai::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<xai::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
             ProviderVariant::perplexity => Self::build(
-                VizierModelImpl::<perplexity::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<perplexity::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
             ProviderVariant::moonshot => Self::build(
-                VizierModelImpl::<moonshot::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<moonshot::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
             ProviderVariant::zai => Self::build(
-                VizierModelImpl::<zai::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<zai::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
             ProviderVariant::minimax => Self::build(
-                VizierModelImpl::<minimax::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<minimax::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
             ProviderVariant::together => Self::build(
-                VizierModelImpl::<together::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<together::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
             ProviderVariant::cohere => Self::build(
-                VizierModelImpl::<cohere::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<cohere::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
             ProviderVariant::huggingface => Self::build(
-                VizierModelImpl::<huggingface::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<huggingface::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
             ProviderVariant::hyperbolic => Self::build(
-                VizierModelImpl::<hyperbolic::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<hyperbolic::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
             ProviderVariant::voyageai => {
                 anyhow::bail!("voyageai is an embedding-only provider")
             }
             ProviderVariant::galadriel => Self::build(
-                VizierModelImpl::<galadriel::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<galadriel::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
             ProviderVariant::mira => Self::build(
-                VizierModelImpl::<mira::Client>::build(&resolved, agent_config).await?,
-            ),
-            ProviderVariant::copilot => Self::build(
-                VizierModelImpl::<copilot::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<mira::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
             ProviderVariant::chatgpt => Self::build(
-                VizierModelImpl::<chatgpt::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<chatgpt::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
             ProviderVariant::azure => Self::build(
-                VizierModelImpl::<azure::Client>::build(&resolved, agent_config).await?,
+                VizierModelImpl::<azure::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
-            ProviderVariant::mistralrs => unreachable!(),
+            ProviderVariant::llama_cpp => Self::build(
+                VizierModelImpl::<llamafile::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
+            ),
             ProviderVariant::elevenlabs => {
-                anyhow::bail!("elevenlabs is not a completion model provider")
+                anyhow::bail!("elevenlabs is a TTS-only provider")
             }
+            ProviderVariant::mistralrs => unreachable!(),
         })
     }
 
@@ -336,6 +474,10 @@ impl VizierModelTrait for VizierModel {
     ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
         self.0.completion(message, history, tools).await
     }
+
+    fn context_window(&self) -> Option<u64> {
+        self.0.context_window()
+    }
 }
 
 #[async_trait::async_trait]
@@ -350,12 +492,37 @@ where
         agent_config: &AgentConfig,
     ) -> Result<VizierModelImpl<Client>> {
         let model = &agent_config.model;
+        let client = Self::init_client(resolved).await?;
+        let completion_model = client.completion_model(model);
 
-        let model = Self::init_client(resolved).await?.completion_model(model);
+        // Detect context window from model name
+        let context_window = registry::detect_context_window(model);
 
         Ok(VizierModelImpl::<Client> {
-            model,
+            model: completion_model,
             max_tokens: agent_config.max_tokens,
+            context_window,
+        })
+    }
+
+    /// Build with an explicit context_window override (from agent config).
+    async fn build_with_client_fn(
+        resolved: &ResolvedProvider,
+        agent_config: &AgentConfig,
+        context_window_override: Option<u64>,
+    ) -> Result<VizierModelImpl<Client>> {
+        let model = &agent_config.model;
+        let client = Self::init_client(resolved).await?;
+        let completion_model = client.completion_model(model);
+
+        // Config override > model name detection
+        let context_window = context_window_override
+            .or_else(|| registry::detect_context_window(model));
+
+        Ok(VizierModelImpl::<Client> {
+            model: completion_model,
+            max_tokens: agent_config.max_tokens,
+            context_window,
         })
     }
 }
@@ -368,6 +535,8 @@ pub trait VizierModelTrait {
         history: Vec<Message>,
         tools: Vec<ToolDefinition>,
     ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)>;
+
+    fn context_window(&self) -> Option<u64>;
 }
 
 pub struct VizierModelImpl<T>
@@ -376,6 +545,24 @@ where
 {
     model: T::CompletionModel,
     max_tokens: Option<u64>,
+    context_window: Option<u64>,
+}
+
+impl<T: rig_core::client::CompletionClient> VizierModelImpl<T> {
+    /// Build a VizierModelImpl from a pre-constructed client with a known context window.
+    pub fn build_with_client(
+        client: &T,
+        model_name: &str,
+        max_tokens: Option<u64>,
+        context_window: Option<u64>,
+    ) -> Self {
+        let model = client.completion_model(model_name);
+        Self {
+            model,
+            max_tokens,
+            context_window,
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -402,11 +589,16 @@ impl<T: rig_core::client::CompletionClient> VizierModelTrait for VizierModelImpl
 
         Ok((response.message_id, response.choice, response.usage))
     }
+
+    fn context_window(&self) -> Option<u64> {
+        self.context_window
+    }
 }
 
 pub struct MistralRsModel {
     model: mistralrs::Model,
     max_tokens: Option<u64>,
+    context_window: Option<u64>,
 }
 
 impl MistralRsModel {
@@ -439,9 +631,13 @@ impl MistralRsModel {
 
         let model = builder.build().await?;
 
+        // Detect context window from model name (local models don't have API)
+        let context_window = registry::detect_context_window(&agent_config.model);
+
         Ok(Self {
             model,
             max_tokens: agent_config.max_tokens,
+            context_window,
         })
     }
 }
@@ -597,5 +793,9 @@ impl VizierModelTrait for MistralRsModel {
         };
 
         Ok((None, one_or_many, usage))
+    }
+
+    fn context_window(&self) -> Option<u64> {
+        self.context_window
     }
 }

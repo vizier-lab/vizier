@@ -24,6 +24,10 @@ pub struct VizierResponseStats {
     pub total_output_tokens: u64,
     pub total_tokens: u64,
     pub duration: tokio::time::Duration,
+    pub cache_creation_input_tokens: u64,
+    pub total_cache_creation_input_tokens: u64,
+    pub current_context_size: Option<u64>,
+    pub context_window: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
