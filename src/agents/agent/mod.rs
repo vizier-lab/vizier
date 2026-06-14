@@ -466,7 +466,8 @@ impl VizierAgent {
             Err((err, partial_history)) => {
                 // Save tool call/result entries from partial history
                 let new_messages = &partial_history[original_history_len..];
-                let tool_entries = messages_to_history_entries(new_messages);
+                let mut tool_entries = messages_to_history_entries(new_messages);
+                tool_entries.retain(|e| !matches!(e, SessionHistoryContent::AssistantMessage(_)));
                 for entry in tool_entries {
                     self.storage
                         .save_session_history(session.clone(), entry)
@@ -500,8 +501,9 @@ impl VizierAgent {
         // (final assistant response) which is saved explicitly below with full stats
         let new_messages = &final_history[original_history_len..];
         if new_messages.len() > 1 {
-            let tool_entries =
+            let mut tool_entries =
                 messages_to_history_entries(&new_messages[..new_messages.len() - 1]);
+            tool_entries.retain(|e| !matches!(e, SessionHistoryContent::AssistantMessage(_)));
             for entry in tool_entries {
                 self.storage
                     .save_session_history(session.clone(), entry)
