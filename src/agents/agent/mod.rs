@@ -29,7 +29,7 @@ use crate::{
     image_generation::VizierImageGen,
     indexer::VizierIndexer,
     schema::{
-        AgentConfig, Memory, SessionHistory, SessionHistoryContent, VizierAttachment,
+        AgentConfig, ErrorKind, Memory, SessionHistory, SessionHistoryContent, VizierAttachment,
         VizierAttachmentContent, VizierRequest, VizierRequestContent, VizierResponse,
         VizierResponseContent, VizierResponseStats, VizierSession,
         history_entries_to_messages, messages_to_history_entries,
@@ -447,7 +447,7 @@ impl VizierAgent {
 
         let original_history_len = history.len();
 
-        let (output, stats, attachments, final_history) = self
+        let prompt_result = self
             .prompt(
                 req.to_message(&self.global_workspace)?,
                 history,
@@ -459,7 +459,50 @@ impl VizierAgent {
                     pending_attachments: Arc::new(Mutex::new(vec![])),
                 },
             )
-            .await?;
+            .await;
+
+        let (output, stats, attachments, final_history) = match prompt_result {
+            Ok(result) => result,
+            Err((err, partial_history)) => {
+                // Save tool call/result entries from partial history
+                let new_messages = &partial_history[original_history_len..];
+                let tool_entries = messages_to_history_entries(new_messages);
+                for entry in tool_entries {
+                    self.storage
+                        .save_session_history(session.clone(), entry)
+                        .await?;
+                }
+
+                // Determine error kind
+                let err_str = err.to_string();
+                let kind = if err_str.contains("timed out") && err_str.contains("Tool") {
+                    ErrorKind::ToolTimeout
+                } else if err_str.contains("thinking depth") {
+                    ErrorKind::PromptTimeout
+                } else if err_str.contains("prompt timed out") {
+                    ErrorKind::PromptTimeout
+                } else {
+                    ErrorKind::Completion
+                };
+
+                // Save error entry as Response with Error content
+                self.storage
+                    .save_session_history(
+                        session.clone(),
+                        SessionHistoryContent::Response(VizierResponse {
+                            timestamp: chrono::Utc::now(),
+                            content: VizierResponseContent::Error {
+                                kind,
+                                message: err_str,
+                            },
+                            attachments: vec![],
+                        }),
+                    )
+                    .await?;
+
+                return Err(err.into());
+            }
+        };
 
         // Save tool calls/results from the delta, skipping the last message
         // (final assistant response) which is saved explicitly below with full stats
@@ -507,43 +550,52 @@ impl VizierAgent {
         hooks: Option<Arc<VizierSessionHooks>>,
         _is_subagent: bool,
         ctx: &ToolContext,
-    ) -> Result<(String, VizierResponseStats, Vec<VizierAttachment>, Vec<Message>)> {
-        timeout(*self.config.prompt_timeout, async {
-            let mut history = history.clone();
-            let mut turn_depth = turn_depth;
-            let max_turn_depth = self.config.thinking_depth;
-            let mut tools = self.tools.tools().await?;
-            tools.extend(self.skills.get_ondemand_skills().await?);
+    ) -> std::result::Result<(String, VizierResponseStats, Vec<VizierAttachment>, Vec<Message>), (anyhow::Error, Vec<Message>)> {
+        let mut history = history.clone();
+        let mut turn_depth = turn_depth;
+        let max_turn_depth = self.config.thinking_depth;
+        let mut tools = self.tools.tools().await.map_err(|e| (e, history.clone()))?;
+        tools.extend(self.skills.get_ondemand_skills().await.map_err(|e| (e, history.clone()))?);
 
-            let output: String;
+        let output: String;
 
-            let mut message = message;
+        let mut message = message;
 
-            let start = Instant::now();
+        let start = Instant::now();
+        let prompt_timeout = *self.config.prompt_timeout;
 
-            let mut input_tokens: u64 = 0;
-            let mut cached_input_tokens: u64 = 0;
-            let mut total_cached_input_tokens: u64 = 0;
-            let mut total_input_tokens: u64 = 0;
-            let mut total_output_tokens: u64 = 0;
-            let mut total_tokens: u64 = 0;
-            let mut cache_creation_input_tokens: u64 = 0;
-            let mut total_cache_creation_input_tokens: u64 = 0;
-            let mut current_context_size: Option<u64> = None;
+        let mut input_tokens: u64 = 0;
+        let mut cached_input_tokens: u64 = 0;
+        let mut total_cached_input_tokens: u64 = 0;
+        let mut total_input_tokens: u64 = 0;
+        let mut total_output_tokens: u64 = 0;
+        let mut total_tokens: u64 = 0;
+        let mut cache_creation_input_tokens: u64 = 0;
+        let mut total_cache_creation_input_tokens: u64 = 0;
+        let mut current_context_size: Option<u64> = None;
 
             loop {
                 turn_depth += 1;
                 if max_turn_depth > 0 && turn_depth > max_turn_depth {
-                    return Err(anyhow::anyhow!(VizierError(format!(
+                    return Err((anyhow::anyhow!(VizierError(format!(
                         "thinking depth exceeding {}",
                         max_turn_depth
-                    ))));
+                    ))), history));
+                }
+
+                // Check prompt timeout
+                if start.elapsed() > prompt_timeout {
+                    return Err((anyhow::anyhow!(VizierError(format!(
+                        "prompt timed out after {:?}",
+                        prompt_timeout
+                    ))), history));
                 }
 
                 let (message_id, choices, usage) = self
                     .model
                     .completion(message.clone(), history.clone(), tools.clone())
-                    .await?;
+                    .await
+                    .map_err(|e| (e, history.clone()))?;
 
                 history.push(message);
 
@@ -599,7 +651,7 @@ impl VizierAgent {
                         serde_json::to_string(&call.function.arguments).unwrap(),
                     );
                     if let Some(hooks) = hooks.clone() {
-                        (function_name, args) = hooks.on_tool_call(function_name, args).await?;
+                        (function_name, args) = hooks.on_tool_call(function_name, args).await.map_err(|e| (e, history.clone()))?;
                     }
 
                     // handle custom skill
@@ -620,21 +672,29 @@ impl VizierAgent {
                                 .call(function_name.clone(), args, &ctx_clone)
                                 .await
                         })
-                        .await?
+                        .await
                         {
-                            Err(err) => VizierResponse {
+                            Err(_elapsed) => {
+                                // Tool timeout - return error with partial history
+                                return Err((anyhow::anyhow!(VizierError(format!(
+                                    "Tool '{}' timed out after {:?}",
+                                    function_name,
+                                    *self.config.tools.timeout
+                                ))), history));
+                            }
+                            Ok(Err(err)) => VizierResponse {
                                 timestamp: Utc::now(),
                                 content: VizierResponseContent::ToolResponse {
                                     response: serde_json::Value::String(err.to_string()),
                                 },
                                 attachments: vec![],
                             },
-                            Ok(s) => s,
+                            Ok(Ok(s)) => s,
                         }
                     };
 
                     if let Some(hooks) = hooks.clone() {
-                        tool_res = hooks.on_tool_response(tool_res).await?;
+                        tool_res = hooks.on_tool_response(tool_res).await.map_err(|e| (e, history.clone()))?;
                     }
 
                     // Store tool attachments in SessionFiles (except from read_image_file)
@@ -691,17 +751,17 @@ impl VizierAgent {
                             call.id.clone(),
                             call.call_id.clone(),
                             &self.global_workspace,
-                        )?);
+                        ).map_err(|e| (e, history.clone()))?);
                         for attachment in &image_attachments {
                             pending_images
-                                .push(attachment.to_user_content(&self.global_workspace)?);
+                                .push(attachment.to_user_content(&self.global_workspace).map_err(|e| (e, history.clone()))?);
                         }
                     } else {
                         tool_responses.push(tool_res.to_tool_response_content(
                             call.id.clone(),
                             call.call_id.clone(),
                             &self.global_workspace,
-                        )?);
+                        ).map_err(|e| (e, history.clone()))?);
                     }
                 }
 
@@ -751,8 +811,6 @@ impl VizierAgent {
                 attachments,
                 history,
             ))
-        })
-        .await?
     }
 
     pub async fn call_skill(&self, skill_name: String) -> String {

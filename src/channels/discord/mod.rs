@@ -515,6 +515,25 @@ If I am halucinating, feel free to `/lobotomy` me
                             )
                             .await;
                         }
+                        VizierResponse {
+                            content: VizierResponseContent::Error { kind, message },
+                            ..
+                        } => {
+                            if let Some(typing) = typing_state.take() {
+                                typing.stop();
+                            }
+                            let kind_str = match kind {
+                                crate::schema::ErrorKind::Completion => "Completion Error",
+                                crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
+                                crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
+                            };
+                            let _ = crate::utils::discord::send_message(
+                                http.clone(),
+                                &discord_channel_id,
+                                format!("**{}**: {}", kind_str, message),
+                            )
+                            .await;
+                        }
                     _ => {}
                 }
             }

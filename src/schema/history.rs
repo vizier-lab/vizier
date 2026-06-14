@@ -132,10 +132,21 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
                 flush_pending_tool_calls(&mut pending_tool_calls, &mut messages);
                 flush_pending_tool_results(&mut pending_tool_results, &mut messages);
 
-                if let VizierResponseContent::Message { content, .. } = &res.content {
-                    if !content.is_empty() {
-                        messages.push(Message::assistant(content.clone()));
+                match &res.content {
+                    VizierResponseContent::Message { content, .. } => {
+                        if !content.is_empty() {
+                            messages.push(Message::assistant(content.clone()));
+                        }
                     }
+                    VizierResponseContent::Error { kind, message } => {
+                        let kind_str = match kind {
+                            crate::schema::ErrorKind::Completion => "completion",
+                            crate::schema::ErrorKind::ToolTimeout => "tool_timeout",
+                            crate::schema::ErrorKind::PromptTimeout => "prompt_timeout",
+                        };
+                        messages.push(Message::user(format!("[Error: {}] {}", kind_str, message)));
+                    }
+                    _ => {}
                 }
             }
             SessionHistoryContent::AssistantMessage(text) => {

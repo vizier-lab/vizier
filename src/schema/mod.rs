@@ -36,7 +36,7 @@ pub use request::{
     PlatformMessageId, ReactionAction, ReactionEntry, ReactionEvent, VizierAttachment,
     VizierAttachmentContent, VizierRequest, VizierRequestContent,
 };
-pub use response::{VizierResponse, VizierResponseContent, VizierResponseStats};
+pub use response::{ErrorKind, VizierResponse, VizierResponseContent, VizierResponseStats};
 pub use session::{
     AgentId, DreamStage, DreamStatus, TopicId, VizierChannelId, VizierSession, VizierSessionDetail,
 };

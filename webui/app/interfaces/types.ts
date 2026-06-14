@@ -488,6 +488,7 @@ export type VizierResponseContent =
   | { tool_choice: { name: string; args: Record<string, unknown> } }
   | { message: { content: string; stats?: VizierResponseStats } }
   | { audio_reply: [VizierAttachment, string | null, VizierResponseStats | null] }
+  | { error: { kind: 'completion' | 'tool_timeout' | 'prompt_timeout'; message: string } }
   | 'empty'
   | 'abort'
 

@@ -580,6 +580,44 @@ export default function Chat() {
         return
       }
 
+      if ('error' in content) {
+        setIsThinking(false)
+        clearInlineEvents()
+        setMessages((prev) => {
+          if (
+            prev.some(
+              (m) => m.content.Response?.timestamp === timestamp
+            )
+          ) {
+            return prev
+          }
+          const newMessage: ChatMessage = {
+            uid: timestamp,
+            vizier_session: {
+              agent_id: agentId!,
+              channel: 'vizier-webui',
+              topic: currentTopicRef.current!,
+            },
+            content: {
+              Response: {
+                timestamp,
+                content,
+                attachments: wsResponse.attachments,
+              },
+            },
+          }
+          return [...prev, newMessage]
+        })
+        // Move first queued message to normal messages
+        setQueuedMessages((prev) => {
+          if (prev.length === 0) return prev
+          const [first, ...rest] = prev
+          setMessages((msgs) => [...msgs, first])
+          return rest
+        })
+        return
+      }
+
       if ('audio_reply' in content) {
         setIsThinking(false)
         clearInlineEvents()
@@ -1391,6 +1429,7 @@ export default function Chat() {
                 let isVoiceMessage = false
                 let voiceSrc: string | undefined
                 let audioReplySrc: string | undefined
+                let isError = false
 
                 if (isUserMessage && msg.content.Request) {
                   const request = msg.content.Request as any
@@ -1421,6 +1460,13 @@ export default function Chat() {
                       ?.stats as
                       | VizierResponseStats
                       | undefined
+                  } else if (response?.content?.error) {
+                    isError = true
+                    const errorContent = response.content.error
+                    const kindStr = errorContent.kind === 'completion' ? 'Completion Error' :
+                                    errorContent.kind === 'tool_timeout' ? 'Tool Timeout' :
+                                    'Prompt Timeout'
+                    content = `**${kindStr}**: ${errorContent.message}`
                   } else if (response?.content?.audio_reply) {
                     const [att, text, replyStats] = response.content.audio_reply
                     content = text || '🔊 Audio reply'
@@ -1459,6 +1505,7 @@ export default function Chat() {
                     isVoiceMessage={isVoiceMessage}
                     voiceSrc={voiceSrc}
                     audioReplySrc={audioReplySrc}
+                    isError={isError}
                   />
                 )
               })}

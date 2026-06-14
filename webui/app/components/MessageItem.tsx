@@ -24,6 +24,7 @@ interface MessageItemProps {
   isVoiceMessage?: boolean
   voiceSrc?: string
   audioReplySrc?: string
+  isError?: boolean
 }
 
 function MessageItemComponent({
@@ -41,6 +42,7 @@ function MessageItemComponent({
   isVoiceMessage,
   voiceSrc,
   audioReplySrc,
+  isError = false,
 }: MessageItemProps) {
   const [showPicker, setShowPicker] = useState(false)
 
@@ -112,7 +114,7 @@ function MessageItemComponent({
         <div style={{
           fontWeight: '600',
           fontSize: '14px',
-          color: isUserMessage ? 'var(--text-primary)' : 'var(--accent-primary)',
+          color: isUserMessage ? 'var(--text-primary)' : isError ? '#ef4444' : 'var(--accent-primary)',
         }}>
           {senderName}
         </div>
@@ -122,7 +124,7 @@ function MessageItemComponent({
           padding: '12px 16px',
           background: isUserMessage ? 'var(--surface)' : 'transparent',
           borderRadius: '8px',
-          borderLeft: isUserMessage ? 'none' : '3px solid var(--accent-primary)',
+          borderLeft: isUserMessage ? 'none' : `3px solid ${isError ? '#ef4444' : 'var(--accent-primary)'}`,
           boxShadow: isUserMessage ? 'var(--shadow-sm)' : 'none',
         }}
       >

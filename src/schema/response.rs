@@ -37,6 +37,14 @@ pub struct VizierResponse {
     pub attachments: Vec<VizierAttachment>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorKind {
+    Completion,
+    ToolTimeout,
+    PromptTimeout,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum VizierResponseContent {
@@ -54,6 +62,10 @@ pub enum VizierResponseContent {
         stats: Option<VizierResponseStats>,
     },
     AudioReply(VizierAttachment, Option<String>, Option<VizierResponseStats>),
+    Error {
+        kind: ErrorKind,
+        message: String,
+    },
     Empty,
     Abort,
 }
@@ -116,6 +128,15 @@ impl VizierResponse {
 
             VizierResponseContent::ToolResponse { response } => {
                 vec![ToolResultContent::text(serde_json::to_string(&response)?)]
+            }
+
+            VizierResponseContent::Error { kind, message } => {
+                let kind_str = match kind {
+                    ErrorKind::Completion => "completion",
+                    ErrorKind::ToolTimeout => "tool_timeout",
+                    ErrorKind::PromptTimeout => "prompt_timeout",
+                };
+                vec![ToolResultContent::text(format!("[Error: {}] {}", kind_str, message))]
             }
 
             _ => return Err(VizierError("unimplemented".into()).into()),

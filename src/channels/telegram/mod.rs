@@ -479,6 +479,25 @@ impl TelegramChannelReader {
                         )
                         .await;
                     }
+                    VizierResponse {
+                        content: VizierResponseContent::Error { kind, message },
+                        ..
+                    } => {
+                        if let Some(handle) = typing_handle.take() {
+                            handle.abort();
+                        }
+                        let kind_str = match kind {
+                            crate::schema::ErrorKind::Completion => "Completion Error",
+                            crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
+                            crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
+                        };
+                        let _ = crate::utils::telegram::send_message(
+                            &bot,
+                            chat_id_copy,
+                            format!("**{}**: {}", kind_str, message),
+                        )
+                        .await;
+                    }
                     _ => {}
                 }
             }

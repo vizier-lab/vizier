@@ -8,10 +8,10 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     schema::{
         AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage,
-        DailyChannelTypeUsage, DailyUsage, ReactionEntry, SessionHistory, SessionHistoryContent,
-        UsageSummary, VizierAttachment, VizierAttachmentContent, VizierRequest,
-        VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
-        VizierSession,
+        DailyChannelTypeUsage, DailyUsage, ErrorKind, ReactionEntry, SessionHistory,
+        SessionHistoryContent, UsageSummary, VizierAttachment, VizierAttachmentContent,
+        VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent,
+        VizierResponseStats, VizierSession,
     },
     storage::{
         fs::{FileSystemStorage, HISTORY_PATH},
@@ -47,6 +47,12 @@ enum ContentMetadata {
         audio_reply: Option<VizierAttachment>,
         #[serde(default)]
         audio_reply_text: Option<String>,
+        #[serde(default)]
+        is_error: bool,
+        #[serde(default)]
+        error_kind: Option<ErrorKind>,
+        #[serde(default)]
+        error_message: Option<String>,
     },
     assistant_message {},
     tool_call {
@@ -130,6 +136,9 @@ impl From<SessionHistory> for SessionHistoryFrontMatter {
                             is_audio_reply: false,
                             audio_reply: None,
                             audio_reply_text: None,
+                            is_error: false,
+                            error_kind: None,
+                            error_message: None,
                         }
                     }
                     VizierResponseContent::AudioReply(att, text, stats) => {
@@ -139,6 +148,21 @@ impl From<SessionHistory> for SessionHistoryFrontMatter {
                             is_audio_reply: true,
                             audio_reply: Some(att.clone()),
                             audio_reply_text: text.clone(),
+                            is_error: false,
+                            error_kind: None,
+                            error_message: None,
+                        }
+                    }
+                    VizierResponseContent::Error { kind, message } => {
+                        ContentMetadata::response {
+                            stats: None,
+                            attachments: r.attachments,
+                            is_audio_reply: false,
+                            audio_reply: None,
+                            audio_reply_text: None,
+                            is_error: true,
+                            error_kind: Some(kind.clone()),
+                            error_message: Some(message.clone()),
                         }
                     }
                     _ => ContentMetadata::response {
@@ -147,6 +171,9 @@ impl From<SessionHistory> for SessionHistoryFrontMatter {
                         is_audio_reply: false,
                         audio_reply: None,
                         audio_reply_text: None,
+                        is_error: false,
+                        error_kind: None,
+                        error_message: None,
                     },
                 },
                 SessionHistoryContent::AssistantMessage(_) => {
@@ -186,6 +213,14 @@ impl HistoryStorage for FileSystemStorage {
             SessionHistoryContent::Response(r) => match &r.content {
                 VizierResponseContent::Message { content, stats: _ } => content.clone(),
                 VizierResponseContent::AudioReply(_, text, _) => text.clone().unwrap_or_default(),
+                VizierResponseContent::Error { kind, message } => {
+                    let kind_str = match kind {
+                        ErrorKind::Completion => "completion",
+                        ErrorKind::ToolTimeout => "tool_timeout",
+                        ErrorKind::PromptTimeout => "prompt_timeout",
+                    };
+                    format!("[Error: {}] {}", kind_str, message)
+                }
                 _ => String::new(),
             },
             SessionHistoryContent::AssistantMessage(text) => text.clone(),
@@ -291,10 +326,15 @@ impl HistoryStorage for FileSystemStorage {
                             attachments,
                             expect_audio_reply: None,
                         }),
-                        ContentMetadata::response { stats, attachments, is_audio_reply, audio_reply, audio_reply_text } => {
+                        ContentMetadata::response { stats, attachments, is_audio_reply, audio_reply, audio_reply_text, is_error, error_kind, error_message } => {
                             SessionHistoryContent::Response(VizierResponse {
                                 timestamp: frontmatter.timestamp,
-                                content: if is_audio_reply {
+                                content: if is_error {
+                                    VizierResponseContent::Error {
+                                        kind: error_kind.unwrap_or(ErrorKind::Completion),
+                                        message: error_message.unwrap_or_default(),
+                                    }
+                                } else if is_audio_reply {
                                     let att = audio_reply.unwrap_or_else(|| VizierAttachment {
                                         filename: "audio_reply.wav".into(),
                                         content: VizierAttachmentContent::Local("".into()),
@@ -426,10 +466,15 @@ impl HistoryStorage for FileSystemStorage {
                                 attachments,
                                 expect_audio_reply: None,
                             }),
-                            ContentMetadata::response { stats, attachments, is_audio_reply, audio_reply, audio_reply_text } => {
+                            ContentMetadata::response { stats, attachments, is_audio_reply, audio_reply, audio_reply_text, is_error, error_kind, error_message } => {
                                 SessionHistoryContent::Response(VizierResponse {
                                     timestamp: updated_frontmatter.timestamp,
-                                    content: if is_audio_reply {
+                                    content: if is_error {
+                                        VizierResponseContent::Error {
+                                            kind: error_kind.unwrap_or(ErrorKind::Completion),
+                                            message: error_message.unwrap_or_default(),
+                                        }
+                                    } else if is_audio_reply {
                                         let att = audio_reply.unwrap_or_else(|| VizierAttachment {
                                             filename: "audio_reply.wav".into(),
                                             content: VizierAttachmentContent::Local("".into()),
@@ -452,13 +497,13 @@ impl HistoryStorage for FileSystemStorage {
                                     arguments: args,
                                 }
                             }
-                            ContentMetadata::tool_result { call_id } => {
-                                SessionHistoryContent::ToolResult {
-                                    call_id,
-                                    content: content_text.clone(),
-                                }
+                        ContentMetadata::tool_result { call_id } => {
+                            SessionHistoryContent::ToolResult {
+                                call_id,
+                                content: content_text.clone(),
                             }
-                        },
+                        }
+                    },
                         reactions: updated_frontmatter.reactions.clone().unwrap_or_default(),
                     };
 
@@ -688,8 +733,9 @@ impl HistoryStorage for FileSystemStorage {
                             timestamp,
                             user,
                             metadata,
-                            content: match (is_silent_read, is_task, is_chat, is_prompt, is_command, is_audio_chat)
-                            {
+                            content: match (
+                                is_silent_read, is_task, is_chat, is_prompt, is_command, is_audio_chat,
+                            ) {
                                 (true, _, _, _, _, _) => VizierRequestContent::SilentRead(content),
                                 (_, true, _, _, _, _) => VizierRequestContent::Task(content),
                                 (_, _, true, _, _, _) => VizierRequestContent::Chat(content),
@@ -708,10 +754,15 @@ impl HistoryStorage for FileSystemStorage {
                             attachments,
                             expect_audio_reply: None,
                         }),
-                        ContentMetadata::response { stats, attachments, is_audio_reply, audio_reply, audio_reply_text } => {
+                        ContentMetadata::response { stats, attachments, is_audio_reply, audio_reply, audio_reply_text, is_error, error_kind, error_message } => {
                             SessionHistoryContent::Response(VizierResponse {
                                 timestamp,
-                                content: if is_audio_reply {
+                                content: if is_error {
+                                    VizierResponseContent::Error {
+                                        kind: error_kind.unwrap_or(ErrorKind::Completion),
+                                        message: error_message.unwrap_or_default(),
+                                    }
+                                } else if is_audio_reply {
                                     let att = audio_reply.unwrap_or_else(|| VizierAttachment {
                                         filename: "audio_reply.wav".into(),
                                         content: VizierAttachmentContent::Local("".into()),
