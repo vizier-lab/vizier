@@ -1349,6 +1349,26 @@ select:focus {
   margin: 0.25em 0;
 }
 
+.prose li.task-list-item {
+  list-style: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+
+.prose li.task-list-item > p {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.prose li input[type="checkbox"] {
+  accent-color: var(--accent-primary);
+  flex-shrink: 0;
+  margin: 0.35em 0 0 0;
+  cursor: default;
+}
+
 .prose a {
   color: var(--accent-primary);
   text-decoration: underline;
