@@ -1,4 +1,4 @@
-import { memo, useState, useCallback } from 'react'
+import { memo, useState, useCallback, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -8,6 +8,8 @@ import { base_url, api_protocol } from '~/services/vizier'
 import { EmojiPickerPopup } from './EmojiPickerPopup'
 import { ReactionBadges } from './ReactionBadges'
 import { VoiceMessagePlayer } from './VoiceMessagePlayer'
+import { exportElementAsPdf } from '~/utils/exportPdf'
+import { useToastStore } from '~/hooks/toastStore'
 
 interface MessageItemProps {
   uid: string
@@ -45,6 +47,21 @@ function MessageItemComponent({
   isError = false,
 }: MessageItemProps) {
   const [showPicker, setShowPicker] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const addToast = useToastStore((s) => s.addToast)
+
+  const handleExportPdf = useCallback(async () => {
+    if (!rootRef.current) return
+    try {
+      await exportElementAsPdf(
+        rootRef.current,
+        `vizier-message-${uid.slice(0, 8)}.pdf`,
+      )
+      addToast('success', 'Exported!', 'PDF downloaded')
+    } catch (err) {
+      addToast('error', 'Export failed', err instanceof Error ? err.message : String(err))
+    }
+  }, [uid, addToast])
 
   const isImage = (filename: string) => /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(filename)
 
@@ -100,6 +117,7 @@ function MessageItemComponent({
 
   return (
     <div
+      ref={rootRef}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -141,16 +159,28 @@ function MessageItemComponent({
               </ReactMarkdown>
             )}
           </div>
-          <button
-            onClick={() => onCopy(content)}
-            className='sticky border flex items-center justify-center mt-1!'
-            style={{
-              color: 'var(--text-tertiary)',
-            }}
-            title="Copy to clipboard"
-          >
-            <FaCopy size={14} />
-          </button>
+          <div className='flex items-start gap-1 mt-1!'>
+            <button
+              onClick={() => onCopy(content)}
+              className='border flex items-center justify-center'
+              style={{
+                color: 'var(--text-tertiary)',
+              }}
+              title="Copy to clipboard"
+            >
+              <FaCopy size={14} />
+            </button>
+            <button
+              onClick={handleExportPdf}
+              className='border flex items-center justify-center'
+              style={{
+                color: 'var(--text-tertiary)',
+              }}
+              title="Export as PDF"
+            >
+              <FaFilePdf size={14} />
+            </button>
+          </div>
         </div>
 
         {attachments && attachments.length > 0 && (
