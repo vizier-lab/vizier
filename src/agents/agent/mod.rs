@@ -475,15 +475,7 @@ impl VizierAgent {
 
                 // Determine error kind
                 let err_str = err.to_string();
-                let kind = if err_str.contains("timed out") && err_str.contains("Tool") {
-                    ErrorKind::ToolTimeout
-                } else if err_str.contains("thinking depth") {
-                    ErrorKind::PromptTimeout
-                } else if err_str.contains("prompt timed out") {
-                    ErrorKind::PromptTimeout
-                } else {
-                    ErrorKind::Completion
-                };
+                let kind = ErrorKind::classify(&err_str);
 
                 // Save error entry as Response with Error content
                 self.storage

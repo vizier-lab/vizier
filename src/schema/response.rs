@@ -45,6 +45,22 @@ pub enum ErrorKind {
     PromptTimeout,
 }
 
+impl ErrorKind {
+    /// Classify an error string into the appropriate `ErrorKind`.
+    /// Used by the agent when persisting errors and by the transport
+    /// when forwarding errors to live channels, so the two paths stay
+    /// in sync.
+    pub fn classify(err_str: &str) -> Self {
+        if err_str.contains("timed out") && err_str.contains("Tool") {
+            ErrorKind::ToolTimeout
+        } else if err_str.contains("thinking depth") || err_str.contains("prompt timed out") {
+            ErrorKind::PromptTimeout
+        } else {
+            ErrorKind::Completion
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum VizierResponseContent {

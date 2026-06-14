@@ -20,9 +20,9 @@ use crate::{
     dependencies::VizierDependencies,
     indexer::VizierIndexer,
     schema::{
-        AgentConfig, AgentId, DreamStage, VizierChannelId, VizierRequest, VizierRequestContent,
-        VizierResponse, VizierResponseContent, VizierSession, VizierSessionDetail,
-        dream_journal::DreamJournalEntry,
+        AgentConfig, AgentId, DreamStage, ErrorKind, VizierChannelId, VizierRequest,
+        VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
+        VizierSessionDetail, dream_journal::DreamJournalEntry,
     },
     storage::{
         VizierStorage, dream_journal::DreamJournalStorage, history::HistoryStorage,
@@ -306,12 +306,13 @@ pub async fn agent_process(
                         {
                             tracing::error!("{}", err);
                             if let Some(ref tx) = response_tx {
+                                let err_str = err.to_string();
                                 let _ = tx
                                     .send_async(VizierResponse {
                                         timestamp: chrono::Utc::now(),
-                                        content: crate::schema::VizierResponseContent::Message {
-                                            content: format!("ERR: {}", err),
-                                            stats: None,
+                                        content: VizierResponseContent::Error {
+                                            kind: ErrorKind::classify(&err_str),
+                                            message: err_str,
                                         },
                                         attachments: vec![],
                                     })
@@ -397,12 +398,13 @@ pub async fn agent_process(
                                 {
                                     tracing::error!("{}", err);
                                     if let Some(ref tx) = response_tx {
+                                        let err_str = err.to_string();
                                         let _ = tx
                                             .send_async(VizierResponse {
                                                 timestamp: chrono::Utc::now(),
-                                                content: crate::schema::VizierResponseContent::Message {
-                                                    content: format!("ERR: {}", err),
-                                                    stats: None,
+                                                content: VizierResponseContent::Error {
+                                                    kind: ErrorKind::classify(&err_str),
+                                                    message: err_str,
                                                 },
                                                 attachments: vec![],
                                             })
