@@ -978,7 +978,7 @@ export default function Chat() {
       }
 
       // If agent is thinking, queue the message; otherwise add to messages
-      if (inlineEvents.length > 0) {
+      if (isThinking) {
         setQueuedMessages((prev) => [...prev, userMessage])
       } else {
         setMessages((prev) => [...prev, userMessage])
@@ -1002,7 +1002,7 @@ export default function Chat() {
       sendMessage(message)
       setPlaceholderSeed(Math.random())
     },
-    [agentId, resolvedTopicId, connected, sendMessage, attachments, addToast, inlineEvents, recordingState, recordedBlob, recordedUrl]
+    [agentId, resolvedTopicId, connected, sendMessage, attachments, addToast, isThinking, recordingState, recordedBlob, recordedUrl]
   )
 
   const handleEditorChange = useCallback((value: string) => {
