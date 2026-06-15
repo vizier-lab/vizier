@@ -90,6 +90,12 @@ const PLACEHOLDERS = [
   'Ready when you are...',
 ]
 
+const SLASH_COMMANDS = [
+  { name: '/checkpoint', description: 'Save checkpoint with handover' },
+  { name: '/lobotomy', description: 'Save checkpoint without handover' },
+  { name: '/abort', description: 'Abort current thinking' },
+]
+
 const formatToolChoice = (
   name: string,
   args: Record<string, unknown>,
@@ -205,6 +211,8 @@ export default function Chat() {
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
   const [recordingTime, setRecordingTime] = useState(0)
   const [expectAudioReply, setExpectAudioReply] = useState(false)
+  const [showCommandSuggestions, setShowCommandSuggestions] = useState(false)
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
   const prevInputRef = useRef('')
   const currentInputRef = useRef('')
   const dragCounterRef = useRef(0)
@@ -244,6 +252,15 @@ export default function Chat() {
     () => PLACEHOLDERS[Math.floor(placeholderSeed * PLACEHOLDERS.length)],
     [placeholderSeed]
   )
+
+  const filteredCommands = useMemo(() => {
+    if (!input.startsWith('/')) return []
+    const query = input.toLowerCase()
+    return SLASH_COMMANDS.filter((cmd) =>
+      cmd.name.toLowerCase().startsWith(query)
+    )
+  }, [input])
+
   const { addToast } = useToastStore()
   const {
     connected,
@@ -271,6 +288,16 @@ export default function Chat() {
       return () => clearTimeout(timer)
     }
     prevInputRef.current = input
+  }, [input])
+
+  // Show/hide command suggestions based on input
+  useEffect(() => {
+    if (input.startsWith('/') && input.length > 0) {
+      setShowCommandSuggestions(true)
+      setSelectedCommandIndex(0)
+    } else {
+      setShowCommandSuggestions(false)
+    }
   }, [input])
 
   // Cleanup image preview object URLs on unmount
@@ -545,6 +572,8 @@ export default function Chat() {
 
       if ('checkpoint' in content) {
         // Add checkpoint to messages
+        setIsThinking(false)
+        clearInlineEvents()
         setMessages((prev) => {
           const newMessage: ChatMessage = {
             uid: `checkpoint-${timestamp}`,
@@ -910,6 +939,40 @@ export default function Chat() {
       }
 
       const username = getCurrentUsername()
+
+      // Handle slash commands
+      const text = currentInput.trim()
+      if (text === '/checkpoint' || text === '/lobotomy' || text === '/abort') {
+        const command = text.slice(1) // Remove leading /
+        const message: WebSocketMessage = {
+          timestamp: new Date().toISOString(),
+          user: username,
+          content: { command },
+          metadata: null as any,
+        }
+
+        // Add command to chat history
+        const userMessage: ChatMessage = {
+          uid: Date.now().toString(),
+          vizier_session: {
+            agent_id: agentId,
+            channel: 'vizier-webui',
+            topic: resolvedTopicId,
+          },
+          content: {
+            Command: command,
+          },
+        }
+        setMessages((prev) => [...prev, userMessage])
+
+        sendMessage(message)
+        setInput('')
+        currentInputRef.current = ''
+        setClearKey((k) => k + 1)
+        setShowCommandSuggestions(false)
+        setPlaceholderSeed(Math.random())
+        return
+      }
 
       // Upload attachments first
       let uploadedAttachments: VizierAttachment[] | undefined
@@ -1455,6 +1518,16 @@ export default function Chat() {
                   )
                 }
 
+                // Handle command entries
+                if (msg.content.Command) {
+                  return (
+                    <div key={msg.uid} className="command-history-entry">
+                      <span className="command-history-icon">⚡</span>
+                      <span className="command-history-text">/{msg.content.Command}</span>
+                    </div>
+                  )
+                }
+
                 const isUserMessage =
                   msg.content.Request !== undefined
                 let content: string | undefined
@@ -1621,6 +1694,48 @@ export default function Chat() {
                 </button>
               </div>
             )}
+            {/* Command suggestions */}
+            {showCommandSuggestions && filteredCommands.length > 0 && (
+              <div className="command-suggestions">
+                {filteredCommands.map((cmd, index) => (
+                  <div
+                    key={cmd.name}
+                    className={`command-suggestion-item ${index === selectedCommandIndex ? 'selected' : ''}`}
+                    onClick={() => {
+                      const command = cmd.name.slice(1) // Remove leading /
+                      const message: WebSocketMessage = {
+                        timestamp: new Date().toISOString(),
+                        user: getCurrentUsername(),
+                        content: { command },
+                        metadata: null as any,
+                      }
+                      const userMessage: ChatMessage = {
+                        uid: Date.now().toString(),
+                        vizier_session: {
+                          agent_id: agentId!,
+                          channel: 'vizier-webui',
+                          topic: resolvedTopicId,
+                        },
+                        content: {
+                          Command: command,
+                        },
+                      }
+                      setMessages((prev) => [...prev, userMessage])
+                      sendMessage(message)
+                      setInput('')
+                      currentInputRef.current = ''
+                      setClearKey((k) => k + 1)
+                      setShowCommandSuggestions(false)
+                      setPlaceholderSeed(Math.random())
+                    }}
+                    onMouseEnter={() => setSelectedCommandIndex(index)}
+                  >
+                    <span className="command-suggestion-name">{cmd.name}</span>
+                    <span className="command-suggestion-description">{cmd.description}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             {/* Input container */}
             <div
               className={`chat-input-container${isDragOver ? ' drag-over' : ''}`}
@@ -1633,6 +1748,30 @@ export default function Chat() {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault()
                   handleSendMessage(e as any)
+                }
+                // Command suggestions keyboard navigation
+                if (showCommandSuggestions && filteredCommands.length > 0) {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    setSelectedCommandIndex((prev) =>
+                      prev < filteredCommands.length - 1 ? prev + 1 : 0
+                    )
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    setSelectedCommandIndex((prev) =>
+                      prev > 0 ? prev - 1 : filteredCommands.length - 1
+                    )
+                  } else if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
+                    e.preventDefault()
+                    const selected = filteredCommands[selectedCommandIndex]
+                    if (selected) {
+                      setInput(selected.name)
+                      currentInputRef.current = selected.name
+                      setShowCommandSuggestions(false)
+                    }
+                  } else if (e.key === 'Escape') {
+                    setShowCommandSuggestions(false)
+                  }
                 }
               }}
               style={{

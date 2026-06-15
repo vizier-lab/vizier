@@ -886,7 +886,7 @@ impl VizierAgent {
         Ok(())
     }
 
-    async fn generate_handover_message(
+    pub async fn generate_handover_message(
         &self,
         history: &[Message],
         _ctx: &ToolContext,

@@ -20,9 +20,9 @@ use crate::{
     dependencies::VizierDependencies,
     indexer::VizierIndexer,
     schema::{
-        AgentConfig, AgentId, DreamStage, ErrorKind, VizierChannelId, VizierRequest,
+        AgentConfig, AgentId, DreamStage, ErrorKind, SessionHistoryContent, VizierChannelId, VizierRequest,
         VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
-        VizierSessionDetail, dream_journal::DreamJournalEntry,
+        VizierSessionDetail, dream_journal::DreamJournalEntry, history_entries_to_messages,
     },
     storage::{
         VizierStorage, dream_journal::DreamJournalStorage, history::HistoryStorage,
@@ -172,6 +172,14 @@ pub async fn agent_process(
                 // Handle abort command
                 if let VizierRequestContent::Command(ref cmd) = request.content {
                     if cmd == "abort" {
+                        // Save command to history for display
+                        let _ = deps.storage
+                            .save_session_history(
+                                session.clone(),
+                                SessionHistoryContent::Command(cmd.clone()),
+                            )
+                            .await;
+
                         // Abort active task for this session
                         if let Some(handle) = main_handles.get(&session) {
                             if !handle.is_finished() {
@@ -236,6 +244,165 @@ pub async fn agent_process(
                                 cycle_id: None,
                             })
                             .await;
+                        continue;
+                    }
+                }
+
+                // Handle checkpoint command
+                if let VizierRequestContent::Command(ref cmd) = request.content {
+                    if cmd == "checkpoint" {
+                        // Save command to history for display
+                        let _ = deps.storage
+                            .save_session_history(
+                                session.clone(),
+                                SessionHistoryContent::Command(cmd.clone()),
+                            )
+                            .await;
+
+                        let session_clone = session.clone();
+                        let agent_clone = agent.clone();
+                        let storage_clone = deps.storage.clone();
+                        let response_tx_clone = response_tx.clone();
+                        let agent_id_clone = agent_id.clone();
+
+                        tokio::spawn(async move {
+                            // Get session history
+                            let history = match storage_clone
+                                .list_session_history(session_clone.clone(), None, None)
+                                .await
+                            {
+                                Ok(h) => h,
+                                Err(e) => {
+                                    tracing::error!("Failed to get session history for checkpoint: {}", e);
+                                    if let Some(ref tx) = response_tx_clone {
+                                        let _ = tx
+                                            .send_async(VizierResponse {
+                                                timestamp: chrono::Utc::now(),
+                                                content: VizierResponseContent::Message {
+                                                    content: "Failed to create checkpoint: could not retrieve history.".to_string(),
+                                                    stats: None,
+                                                },
+                                                attachments: vec![],
+                                            })
+                                            .await;
+                                    }
+                                    return;
+                                }
+                            };
+
+                            let messages = history_entries_to_messages(&history);
+                            let ctx = ToolContext {
+                                session: session_clone.clone(),
+                                pending_attachments: Arc::new(Mutex::new(vec![])),
+                            };
+
+                            // Generate handover
+                            let handover = match agent_clone.generate_handover_message(&messages, &ctx).await {
+                                Ok(h) => h,
+                                Err(e) => {
+                                    tracing::error!("Failed to generate handover: {}", e);
+                                    if let Some(ref tx) = response_tx_clone {
+                                        let _ = tx
+                                            .send_async(VizierResponse {
+                                                timestamp: chrono::Utc::now(),
+                                                content: VizierResponseContent::Message {
+                                                    content: format!("Failed to create checkpoint: {}", e),
+                                                    stats: None,
+                                                },
+                                                attachments: vec![],
+                                            })
+                                            .await;
+                                    }
+                                    return;
+                                }
+                            };
+
+                            // Save checkpoint
+                            if let Err(e) = storage_clone.save_checkpoint(session_clone.clone(), handover.clone()).await {
+                                tracing::error!("Failed to save checkpoint: {}", e);
+                                if let Some(ref tx) = response_tx_clone {
+                                    let _ = tx
+                                        .send_async(VizierResponse {
+                                            timestamp: chrono::Utc::now(),
+                                            content: VizierResponseContent::Message {
+                                                content: format!("Failed to save checkpoint: {}", e),
+                                                stats: None,
+                                            },
+                                            attachments: vec![],
+                                        })
+                                        .await;
+                                }
+                                return;
+                            }
+
+                            // Send checkpoint response
+                            if let Some(ref tx) = response_tx_clone {
+                                let _ = tx
+                                    .send_async(VizierResponse {
+                                        timestamp: chrono::Utc::now(),
+                                        content: VizierResponseContent::Checkpoint {
+                                            handover,
+                                        },
+                                        attachments: vec![],
+                                    })
+                                    .await;
+                            }
+
+                            log::info!("Manual checkpoint created for session {:?}", session_clone);
+                        });
+                        continue;
+                    }
+                }
+
+                // Handle lobotomy command
+                if let VizierRequestContent::Command(ref cmd) = request.content {
+                    if cmd == "lobotomy" {
+                        // Save command to history for display
+                        let _ = deps.storage
+                            .save_session_history(
+                                session.clone(),
+                                SessionHistoryContent::Command(cmd.clone()),
+                            )
+                            .await;
+
+                        let session_clone = session.clone();
+                        let storage_clone = deps.storage.clone();
+                        let response_tx_clone = response_tx.clone();
+
+                        tokio::spawn(async move {
+                            // Save checkpoint with no handover
+                            if let Err(e) = storage_clone.save_checkpoint(session_clone.clone(), None).await {
+                                tracing::error!("Failed to save lobotomy checkpoint: {}", e);
+                                if let Some(ref tx) = response_tx_clone {
+                                    let _ = tx
+                                        .send_async(VizierResponse {
+                                            timestamp: chrono::Utc::now(),
+                                            content: VizierResponseContent::Message {
+                                                content: format!("Failed to create lobotomy: {}", e),
+                                                stats: None,
+                                            },
+                                            attachments: vec![],
+                                        })
+                                        .await;
+                                }
+                                return;
+                            }
+
+                            // Send checkpoint response with no handover
+                            if let Some(ref tx) = response_tx_clone {
+                                let _ = tx
+                                    .send_async(VizierResponse {
+                                        timestamp: chrono::Utc::now(),
+                                        content: VizierResponseContent::Checkpoint {
+                                            handover: None,
+                                        },
+                                        attachments: vec![],
+                                    })
+                                    .await;
+                            }
+
+                            log::info!("Lobotomy created for session {:?}", session_clone);
+                        });
                         continue;
                     }
                 }

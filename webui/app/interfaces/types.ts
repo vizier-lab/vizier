@@ -539,6 +539,7 @@ export interface ChatMessage {
       attachments?: VizierAttachment[]
     }
     Checkpoint?: string | { handover: string | null; timestamp: string }
+    Command?: string
   }
   reactions?: ReactionEntry[]
 }

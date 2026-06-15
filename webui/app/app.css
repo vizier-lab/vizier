@@ -1776,6 +1776,68 @@ select:focus {
   box-shadow: 0 0 0 3px var(--accent-light), var(--shadow-md);
 }
 
+/* Command suggestions */
+.command-suggestions {
+  position: absolute;
+  margin: 1rem 1.5rem;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  margin-bottom: 8px;
+}
+
+.command-suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.command-suggestion-item:hover,
+.command-suggestion-item.selected {
+  background: var(--hover);
+}
+
+.command-suggestion-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--accent-primary);
+  font-family: var(--font-mono);
+}
+
+.command-suggestion-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* Command history entry */
+.command-history-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.command-history-icon {
+  color: var(--accent-primary);
+}
+
+.command-history-text {
+  font-weight: 500;
+}
+
 .chat-input-textarea {
   flex: 1;
   resize: none;

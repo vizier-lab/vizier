@@ -282,6 +282,62 @@ impl TelegramChannelReader {
             return Ok(());
         }
 
+        if text.starts_with("/checkpoint") {
+            let session = VizierSession(
+                self.agent_id.clone(),
+                channel.clone(),
+                topic_id.clone(),
+            );
+            let _ = transport
+                .send_request(
+                    session,
+                    VizierRequest {
+                        timestamp: Utc::now(),
+                        user: user.clone(),
+                        content: VizierRequestContent::Command("checkpoint".to_string()),
+                        platform_message_id: None,
+                        metadata: serde_json::json!({}),
+                        attachments: vec![],
+                        expect_audio_reply: None,
+                    },
+                    None,
+                )
+                .await;
+            let _ = self
+                .bot
+                .send_message(chat_id, "creating checkpoint...")
+                .await?;
+            return Ok(());
+        }
+
+        if text.starts_with("/lobotomy") {
+            let session = VizierSession(
+                self.agent_id.clone(),
+                channel.clone(),
+                topic_id.clone(),
+            );
+            let _ = transport
+                .send_request(
+                    session,
+                    VizierRequest {
+                        timestamp: Utc::now(),
+                        user: user.clone(),
+                        content: VizierRequestContent::Command("lobotomy".to_string()),
+                        platform_message_id: None,
+                        metadata: serde_json::json!({}),
+                        attachments: vec![],
+                        expect_audio_reply: None,
+                    },
+                    None,
+                )
+                .await;
+            let _ = self
+                .bot
+                .send_message(chat_id, "performing lobotomy...")
+                .await?;
+            return Ok(());
+        }
+
         let should_respond = is_mention || text.starts_with(&format!("/{}", bot_username)) || is_dm;
 
         let session = VizierSession(

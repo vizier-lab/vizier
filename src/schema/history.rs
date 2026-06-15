@@ -35,6 +35,7 @@ pub enum SessionHistoryContent {
         content: String,
     },
     Checkpoint(Option<String>),
+    Command(String),
 }
 
 /// Convert rig Messages to SessionHistoryContent entries.
@@ -183,6 +184,9 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
             }
             SessionHistoryContent::Checkpoint(_) => {
                 // Skip checkpoint entries - they are metadata, not conversation messages
+            }
+            SessionHistoryContent::Command(_) => {
+                // Skip command entries - they are for display only, not agent context
             }
         }
     }

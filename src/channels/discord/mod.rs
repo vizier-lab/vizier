@@ -81,6 +81,12 @@ impl EventHandler for Handler {
 
         let abort = CreateCommand::new("abort").description("abort current thinking");
         let _ = Command::create_global_command(ctx.http.clone(), abort).await;
+
+        let checkpoint = CreateCommand::new("checkpoint").description("save checkpoint with handover summary");
+        let _ = Command::create_global_command(ctx.http.clone(), checkpoint).await;
+
+        let lobotomy = CreateCommand::new("lobotomy").description("save checkpoint without handover (clean break)");
+        let _ = Command::create_global_command(ctx.http.clone(), lobotomy).await;
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
@@ -225,6 +231,13 @@ impl EventHandler for Handler {
 Just mention me when you need to summon me.
 I will only read the chat otherwise.
 If I am halucinating, feel free to `/lobotomy` me
+
+**Commands:**
+• `/checkpoint` — Save checkpoint with handover summary
+• `/lobotomy` — Save checkpoint without handover (clean break)
+• `/abort` — Abort current thinking
+• `/new` — Create new session
+• `/session` — List or switch sessions
                             "#,
                             ),
                         ),
@@ -270,6 +283,86 @@ If I am halucinating, feel free to `/lobotomy` me
                         ctx.http.clone(),
                         serenity::all::CreateInteractionResponse::Message(
                             CreateInteractionResponseMessage::new().content("aborting..."),
+                        ),
+                    )
+                    .await;
+            }
+
+            if command.data.name == "checkpoint" {
+                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
+                let key = format!("{}__{}", agent_id, channel.to_slug());
+                let topic_id = if let Ok(Some(value)) = self.1.storage.get_state(key).await {
+                    serde_json::from_value::<ChannelState>(value)
+                        .ok()
+                        .and_then(|s| s.active_topic)
+                } else {
+                    None
+                };
+
+                let session = VizierSession(agent_id.clone(), channel, topic_id);
+                let _ = self
+                    .1
+                    .transport
+                    .send_request(
+                        session,
+                        VizierRequest {
+                            timestamp: Utc::now(),
+                            user: agent_id.clone(),
+                            content: VizierRequestContent::Command("checkpoint".to_string()),
+                            platform_message_id: None,
+                            metadata: serde_json::json!({}),
+                            attachments: vec![],
+                            expect_audio_reply: None,
+                        },
+                        None,
+                    )
+                    .await;
+
+                let _ = command
+                    .create_response(
+                        ctx.http.clone(),
+                        serenity::all::CreateInteractionResponse::Message(
+                            CreateInteractionResponseMessage::new().content("creating checkpoint..."),
+                        ),
+                    )
+                    .await;
+            }
+
+            if command.data.name == "lobotomy" {
+                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
+                let key = format!("{}__{}", agent_id, channel.to_slug());
+                let topic_id = if let Ok(Some(value)) = self.1.storage.get_state(key).await {
+                    serde_json::from_value::<ChannelState>(value)
+                        .ok()
+                        .and_then(|s| s.active_topic)
+                } else {
+                    None
+                };
+
+                let session = VizierSession(agent_id.clone(), channel, topic_id);
+                let _ = self
+                    .1
+                    .transport
+                    .send_request(
+                        session,
+                        VizierRequest {
+                            timestamp: Utc::now(),
+                            user: agent_id.clone(),
+                            content: VizierRequestContent::Command("lobotomy".to_string()),
+                            platform_message_id: None,
+                            metadata: serde_json::json!({}),
+                            attachments: vec![],
+                            expect_audio_reply: None,
+                        },
+                        None,
+                    )
+                    .await;
+
+                let _ = command
+                    .create_response(
+                        ctx.http.clone(),
+                        serenity::all::CreateInteractionResponse::Message(
+                            CreateInteractionResponseMessage::new().content("performing lobotomy..."),
                         ),
                     )
                     .await;
