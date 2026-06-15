@@ -304,6 +304,7 @@ impl VizierAgent {
         session_history: Vec<SessionHistory>,
         memory: Vec<Memory>,
         hooks: Option<Arc<VizierSessionHooks>>,
+        checkpoint_handover: Option<String>,
     ) -> Result<VizierResponse> {
         let mut tools = self.tools.tools().await?;
         tools.extend(self.skills.get_ondemand_skills().await?);
@@ -365,6 +366,16 @@ impl VizierAgent {
         let initiative_factor = rng.random_range(0_f32..=1_f32);
 
         let mut history = self.prepare_system_prompts().await;
+
+        // Inject checkpoint handover as system context
+        if let Some(handover) = checkpoint_handover {
+            history.push(Message::system(format!(
+                "# Conversation Context (Previous Checkpoint)\n\
+                 The following is a summary of the conversation before this session was checkpointed. \
+                 Use this to maintain context and continuity.\n\n{}",
+                handover
+            )));
+        }
 
         if memory.len() > 0 {
             let summarize_memories = memory
@@ -546,10 +557,11 @@ impl VizierAgent {
         ctx: &ToolContext,
     ) -> std::result::Result<(String, VizierResponseStats, Vec<VizierAttachment>, Vec<Message>), (anyhow::Error, Vec<Message>)> {
         let mut history = history.clone();
+        let mut full_history = history.clone();
         let mut turn_depth = turn_depth;
         let max_turn_depth = self.config.thinking_depth;
-        let mut tools = self.tools.tools().await.map_err(|e| (e, history.clone()))?;
-        tools.extend(self.skills.get_ondemand_skills().await.map_err(|e| (e, history.clone()))?);
+        let mut tools = self.tools.tools().await.map_err(|e| (e, full_history.clone()))?;
+        tools.extend(self.skills.get_ondemand_skills().await.map_err(|e| (e, full_history.clone()))?);
 
         let output: String;
 
@@ -589,11 +601,16 @@ impl VizierAgent {
                     .model
                     .completion(message.clone(), history.clone(), tools.clone())
                     .await
-                    .map_err(|e| (e, history.clone()))?;
+                    .map_err(|e| (e, full_history.clone()))?;
 
-                history.push(message);
+                history.push(message.clone());
+                full_history.push(message.clone());
 
                 history.push(Message::Assistant {
+                    id: message_id.clone(),
+                    content: choices.clone(),
+                });
+                full_history.push(Message::Assistant {
                     id: message_id.clone(),
                     content: choices.clone(),
                 });
@@ -610,6 +627,54 @@ impl VizierAgent {
                 total_output_tokens += usage.output_tokens;
                 total_tokens += usage.total_tokens;
                 current_context_size = Some(usage.input_tokens);
+
+                // Check for context window overflow - create checkpoint if needed
+                let mut checkpoint_created = false;
+                if let (Some(ctx_size), Some(ctx_window)) = 
+                    (current_context_size, self.model.context_window()) 
+                {
+                    let usage_ratio = ctx_size as f64 / ctx_window as f64;
+                    if usage_ratio >= self.config.checkpoint_threshold {
+                        log::info!(
+                            "Context window usage at {:.1}% ({} / {} tokens), creating checkpoint",
+                            usage_ratio * 100.0, ctx_size, ctx_window
+                        );
+                        
+                        // Generate handover message
+                        let handover = self.generate_handover_message(&history, ctx).await
+                            .map_err(|e| (e, full_history.clone()))?;
+                        
+                        // Save checkpoint to storage
+                        if let Err(e) = self.save_checkpoint(ctx.session.clone(), handover.clone()).await {
+                            log::error!("Failed to save checkpoint: {}", e);
+                        }
+                        
+                        // Notify hooks about handover
+                        if let Some(ref hooks) = hooks {
+                            if let Err(e) = hooks.on_handover(handover.clone()).await {
+                                log::error!("Failed to notify hooks about handover: {}", e);
+                            }
+                        }
+                        
+                        // Clear LLM history and rebuild with fresh context
+                        history.clear();
+                        history.extend(self.prepare_system_prompts().await);
+                        
+                        // Inject the new handover
+                        if let Some(ref msg) = handover {
+                            history.push(Message::system(format!(
+                                "# Conversation Context (Previous Checkpoint)\n\
+                                 The following is a summary of the conversation before this session was checkpointed.\n\n{}",
+                                msg
+                            )));
+                        }
+                        
+                        // Re-add current user message to LLM history
+                        history.push(message.clone());
+                        
+                        checkpoint_created = true;
+                    }
+                }
 
                 let (tool_calls, others): (Vec<_>, Vec<_>) = choices
                     .iter()
@@ -645,7 +710,7 @@ impl VizierAgent {
                         serde_json::to_string(&call.function.arguments).unwrap(),
                     );
                     if let Some(hooks) = hooks.clone() {
-                        (function_name, args) = hooks.on_tool_call(function_name, args).await.map_err(|e| (e, history.clone()))?;
+                        (function_name, args) = hooks.on_tool_call(function_name, args).await.map_err(|e| (e, full_history.clone()))?;
                     }
 
                     // handle custom skill
@@ -688,7 +753,7 @@ impl VizierAgent {
                     };
 
                     if let Some(hooks) = hooks.clone() {
-                        tool_res = hooks.on_tool_response(tool_res).await.map_err(|e| (e, history.clone()))?;
+                        tool_res = hooks.on_tool_response(tool_res).await.map_err(|e| (e, full_history.clone()))?;
                     }
 
                     // Store tool attachments in SessionFiles (except from read_image_file)
@@ -745,17 +810,17 @@ impl VizierAgent {
                             call.id.clone(),
                             call.call_id.clone(),
                             &self.global_workspace,
-                        ).map_err(|e| (e, history.clone()))?);
+                        ).map_err(|e| (e, full_history.clone()))?);
                         for attachment in &image_attachments {
                             pending_images
-                                .push(attachment.to_user_content(&self.global_workspace).map_err(|e| (e, history.clone()))?);
+                                .push(attachment.to_user_content(&self.global_workspace).map_err(|e| (e, full_history.clone()))?);
                         }
                     } else {
                         tool_responses.push(tool_res.to_tool_response_content(
                             call.id.clone(),
                             call.call_id.clone(),
                             &self.global_workspace,
-                        ).map_err(|e| (e, history.clone()))?);
+                        ).map_err(|e| (e, full_history.clone()))?);
                     }
                 }
 
@@ -767,13 +832,16 @@ impl VizierAgent {
                 if pending_images.is_empty() {
                     message = tool_message
                 } else {
-                    history.push(tool_message);
+                    history.push(tool_message.clone());
+                    full_history.push(tool_message.clone());
 
                     // Push each image as a separate user message
                     for img_content in pending_images {
-                        history.push(Message::User {
+                        let img_msg = Message::User {
                             content: OneOrMany::one(img_content),
-                        });
+                        };
+                        history.push(img_msg.clone());
+                        full_history.push(img_msg);
                     }
 
                     // Continue loop with next model call
@@ -803,8 +871,64 @@ impl VizierAgent {
                     context_window: self.model.context_window(),
                 },
                 attachments,
-                history,
+                full_history,
             ))
+    }
+
+    async fn save_checkpoint(
+        &self,
+        session: VizierSession,
+        handover: Option<String>,
+    ) -> Result<()> {
+        self.storage
+            .save_checkpoint(session, handover)
+            .await?;
+        Ok(())
+    }
+
+    async fn generate_handover_message(
+        &self,
+        history: &[Message],
+        _ctx: &ToolContext,
+    ) -> Result<Option<String>> {
+        let mut summary_history = history.to_vec();
+        
+        summary_history.push(Message::user(
+            "Analyze this conversation and extract key context for continuation. Include:\n\
+             1. **Key Facts**: Important information, data, or discoveries\n\
+             2. **Decisions Made**: Any choices, directions, or conclusions reached\n\
+             3. **Current State**: What is being worked on right now\n\
+             4. **Pending Tasks**: Incomplete work or next steps\n\
+             5. **Constraints**: Any limitations, preferences, or requirements\n\n\
+             Format as a concise structured summary. Be factual and precise."
+        ));
+        
+        let (_message_id, choices, _usage) = self
+            .model
+            .completion(
+                Message::user("Extract conversation context for checkpoint."),
+                summary_history,
+                vec![],
+            )
+            .await?;
+        
+        let output = choices
+            .iter()
+            .filter_map(|item| {
+                if let AssistantContent::Text(text) = item {
+                    Some(text.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        
+        if output.trim().is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(output))
+        }
     }
 
     pub async fn call_skill(&self, skill_name: String) -> String {

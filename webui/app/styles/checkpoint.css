@@ -1,0 +1,144 @@
+.checkpoint-wrapper {
+  padding: 12px 0;
+}
+
+.checkpoint-wrapper--expanded {
+  padding-bottom: 8px;
+}
+
+.checkpoint-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.checkpoint-divider--clickable {
+  cursor: pointer;
+}
+
+.checkpoint-divider--clickable:hover .checkpoint-label {
+  background: var(--hover);
+}
+
+.checkpoint-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.checkpoint-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  user-select: none;
+  transition: background var(--transition-fast);
+}
+
+.checkpoint-icon {
+  color: var(--accent-primary);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.checkpoint-text {
+  font-weight: 500;
+}
+
+.checkpoint-sep {
+  color: var(--text-tertiary);
+}
+
+.checkpoint-time {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.checkpoint-chevron {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  transition: transform var(--transition-base);
+  flex-shrink: 0;
+}
+
+.checkpoint-chevron--open {
+  transform: rotate(180deg);
+}
+
+.checkpoint-expanded {
+  margin: 8px auto 0;
+  background: transparent;
+  border: none;
+  border-left: 3px solid var(--text-tertiary);
+  border-radius: 8px;
+  padding: 8px 16px;
+  box-shadow: none;
+}
+
+.checkpoint-expanded-header {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.checkpoint-expanded-content {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  overflow-y: auto;
+}
+
+.checkpoint-expanded-content h1,
+.checkpoint-expanded-content h2,
+.checkpoint-expanded-content h3,
+.checkpoint-expanded-content h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 12px 0 4px 0;
+}
+
+.checkpoint-expanded-content h1:first-child,
+.checkpoint-expanded-content h2:first-child,
+.checkpoint-expanded-content h3:first-child {
+  margin-top: 0;
+}
+
+.checkpoint-expanded-content p {
+  margin: 4px 0;
+}
+
+.checkpoint-expanded-content ul,
+.checkpoint-expanded-content ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.checkpoint-expanded-content li {
+  margin: 2px 0;
+}
+
+.checkpoint-expanded-content strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.checkpoint-expanded-content code {
+  font-size: 12px;
+  background: var(--hover);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.checkpoint-expanded-empty {
+  color: var(--text-tertiary);
+  font-style: italic;
+}

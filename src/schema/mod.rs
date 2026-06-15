@@ -16,7 +16,7 @@ mod task;
 pub use agent::{
     AgentConfig, AgentToolsConfig, BraveSearchToolSettings, EmbeddingProvider,
     EmbeddingConfig, ImageGenProvider, ImageGenToolSettings, IndexerConfig, IndexerKind,
-    MemoryConfig, ReadImageToolSettings, SttToolSettings, ToolConfig, TtsToolSettings,
+    ReadImageToolSettings, SttToolSettings, ToolConfig, TtsToolSettings,
 };
 pub use commands::{
     AgentCommand, AgentCommandResult, AgentHealthStatus, AgentSummary, ChannelCommand,

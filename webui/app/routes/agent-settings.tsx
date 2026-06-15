@@ -107,7 +107,7 @@ export default function AgentSettings() {
     quantization: 'auto_4',
     system_prompt: '',
     thinking_depth: 10,
-    session_memory_capacity: 10,
+    checkpoint_threshold: 80,
     max_tokens: 100000,
     context_window: undefined,
     show_thinking: false,
@@ -201,7 +201,7 @@ export default function AgentSettings() {
           quantization: d.quantization || 'auto_4',
           system_prompt: d.system_prompt || '',
           thinking_depth: d.thinking_depth,
-          session_memory_capacity: d.session_memory_capacity,
+          checkpoint_threshold: (d.checkpoint_threshold ?? 0.8) * 100,
           max_tokens: d.max_tokens,
           context_window: d.context_window,
           show_thinking: d.show_thinking ?? false,
@@ -899,6 +899,29 @@ export default function AgentSettings() {
                     >
                       <label style={labelStyle}>
                         <TooltipLabel
+                          label="Checkpoint Threshold"
+                          tooltip="Context window usage percentage to trigger a checkpoint (default: 80%)."
+                        />
+                      </label>
+                      <input
+                        style={inputStyle}
+                        type="number"
+                        min={10}
+                        max={100}
+                        value={form.checkpoint_threshold || 80}
+                        onChange={(e) =>
+                          updateField(
+                            'checkpoint_threshold',
+                            Math.min(100, Math.max(10, parseInt(e.target.value) || 80))
+                          )
+                        }
+                      />
+                    </section>
+                    <section
+                      style={{ ...fieldStyle, flex: 1 }}
+                    >
+                      <label style={labelStyle}>
+                        <TooltipLabel
                           label="Max Tokens"
                           tooltip="Maximum output tokens per LLM completion request."
                         />
@@ -944,33 +967,6 @@ export default function AgentSettings() {
                                 e.target.value
                               )
                               : undefined
-                          )
-                        }
-                      />
-                    </section>
-                    <section
-                      style={{ ...fieldStyle, flex: 1 }}
-                    >
-                      <label style={labelStyle}>
-                        <TooltipLabel
-                          label="Memory Capacity"
-                          tooltip="Maximum recent conversation messages loaded as context."
-                        />
-                      </label>
-                      <input
-                        style={inputStyle}
-                        type="number"
-                        min={1}
-                        value={
-                          form.session_memory_capacity ||
-                          10
-                        }
-                        onChange={(e) =>
-                          updateField(
-                            'session_memory_capacity',
-                            parseInt(
-                              e.target.value
-                            ) || 10
                           )
                         }
                       />

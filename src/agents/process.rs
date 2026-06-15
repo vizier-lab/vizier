@@ -12,8 +12,8 @@ use crate::{
     agents::{
         agent::{VizierAgent, read_md_file},
         hook::{
-            VizierSessionHooks, debug::DebugHook, thinking::ThinkingHook,
-            tool_calls::ToolCallsHook,
+            VizierSessionHooks, debug::DebugHook, handover::HandoverSenderHook,
+            thinking::ThinkingHook, tool_calls::ToolCallsHook,
         },
         tools::ToolContext,
     },
@@ -463,6 +463,11 @@ pub async fn handle_request(
         }
     }
 
+    // Register HandoverSenderHook if response_tx is available
+    if let Some(ref tx) = response_tx {
+        hooks = hooks.hook(HandoverSenderHook::new(tx.clone(), session.clone()));
+    }
+
     let hooks = Arc::new(hooks);
 
     match &request.content {
@@ -473,11 +478,10 @@ pub async fn handle_request(
                 VizierRequestContent::AudioChat(_, None) => "[Voice message]".to_string(),
                 _ => unreachable!(),
             };
-            let history = storage
-                .list_session_history(
+            let (history, checkpoint_handover) = storage
+                .list_session_history_until_checkpoint(
                     session.clone(),
                     Some(request.timestamp.clone()),
-                    Some(agent_config.session_memory.max_capacity),
                 )
                 .await?;
 
@@ -487,20 +491,19 @@ pub async fn handle_request(
                     .await?,
                 None => Vec::new(),
             };
-            let res = agent.chat(request, session.clone(), history, memory, Some(hooks)).await?;
+            let res = agent.chat(request, session.clone(), history, memory, Some(hooks), checkpoint_handover).await?;
             if let Some(ref tx) = response_tx {
                 let _ = tx.send_async(res).await;
             }
         }
         VizierRequestContent::SilentRead(_) => {
-            let history = storage
-                .list_session_history(
+            let (history, checkpoint_handover) = storage
+                .list_session_history_until_checkpoint(
                     session.clone(),
                     Some(request.timestamp.clone()),
-                    Some(agent_config.session_memory.max_capacity),
                 )
                 .await?;
-            let res = agent.chat(request, session.clone(), history, vec![], Some(hooks)).await?;
+            let res = agent.chat(request, session.clone(), history, vec![], Some(hooks), checkpoint_handover).await?;
             if let Some(ref tx) = response_tx {
                 let _ = tx.send_async(res).await;
             }
@@ -612,7 +615,7 @@ pub async fn handle_request(
                         }
                     }
                 }
-                _ => agent.chat(request, session.clone(), vec![], vec![], Some(hooks)).await?,
+                _ => agent.chat(request, session.clone(), vec![], vec![], Some(hooks), None).await?,
             };
 
             if let Some(ref tx) = response_tx {

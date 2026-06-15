@@ -294,7 +294,7 @@ impl HistoryStorage for SurrealStorage {
         end: DateTime<Utc>,
     ) -> Result<Vec<VizierSession>> {
         let query = format!(
-            "SELECT DISTINCT vizier_session FROM session_history WHERE vizier_session.0 == $agent_id AND timestamp >= {} AND timestamp <= {}",
+            "SELECT * FROM session_history WHERE vizier_session.0 == $agent_id AND timestamp >= {} AND timestamp <= {} ORDER BY timestamp DESC",
             start.timestamp_millis(),
             end.timestamp_millis()
         );
@@ -324,6 +324,96 @@ impl HistoryStorage for SurrealStorage {
         }
 
         Ok(sessions)
+    }
+
+    async fn list_session_history_until_checkpoint(
+        &self,
+        session: VizierSession,
+        before: Option<DateTime<Utc>>,
+    ) -> Result<(Vec<SessionHistory>, Option<String>)> {
+        // Find the latest checkpoint for this session
+        let checkpoint_query = if let Some(before_dt) = before {
+            format!(
+                "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND content.Checkpoint IS NOT NONE AND timestamp < {} ORDER BY timestamp DESC LIMIT 1",
+                before_dt.timestamp_millis()
+            )
+        } else {
+            "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND content.Checkpoint IS NOT NONE ORDER BY timestamp DESC LIMIT 1".to_string()
+        };
+
+        let mut checkpoint_response = self
+            .conn
+            .query(checkpoint_query)
+            .bind(("vizier_session", session.clone()))
+            .await?;
+
+        let checkpoints: Vec<SessionHistory> = checkpoint_response.take(0)?;
+
+        let (checkpoint_timestamp, handover) = if let Some(checkpoint) = checkpoints.first() {
+            let handover = match &checkpoint.content {
+                SessionHistoryContent::Checkpoint(h) => h.clone(),
+                _ => None,
+            };
+            (Some(checkpoint.timestamp), handover)
+        } else {
+            (None, None)
+        };
+
+        // Get all history after the checkpoint
+        let history_query = if let Some(before_dt) = before {
+            if let Some(checkpoint_ts) = checkpoint_timestamp {
+                format!(
+                    "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND timestamp > {} AND timestamp < {} ORDER BY timestamp ASC",
+                    checkpoint_ts.timestamp_millis(),
+                    before_dt.timestamp_millis()
+                )
+            } else {
+                format!(
+                    "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND timestamp < {} ORDER BY timestamp ASC",
+                    before_dt.timestamp_millis()
+                )
+            }
+        } else if let Some(checkpoint_ts) = checkpoint_timestamp {
+            format!(
+                "SELECT * FROM session_history WHERE vizier_session == $vizier_session AND timestamp > {} ORDER BY timestamp ASC",
+                checkpoint_ts.timestamp_millis()
+            )
+        } else {
+            "SELECT * FROM session_history WHERE vizier_session == $vizier_session ORDER BY timestamp ASC".to_string()
+        };
+
+        let mut history_response = self
+            .conn
+            .query(history_query)
+            .bind(("vizier_session", session.clone()))
+            .await?;
+
+        let history: Vec<SessionHistory> = history_response.take(0)?;
+
+        Ok((history, handover))
+    }
+
+    async fn save_checkpoint(
+        &self,
+        session: VizierSession,
+        handover: Option<String>,
+    ) -> Result<SessionHistory> {
+        let uuid = Uuid::new_v4();
+        let entry = SessionHistory {
+            uid: uuid.to_string(),
+            vizier_session: session.clone(),
+            content: SessionHistoryContent::Checkpoint(handover),
+            timestamp: Utc::now(),
+            reactions: vec![],
+        };
+
+        let _: Option<SessionHistory> = self
+            .conn
+            .create(("session_history", uuid.to_string()))
+            .content(entry.clone())
+            .await?;
+
+        Ok(entry)
     }
 }
 

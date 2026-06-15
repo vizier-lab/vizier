@@ -330,6 +330,82 @@ impl HistoryStorage for FileSystemStorage {
 
         Ok(sessions)
     }
+
+    async fn list_session_history_until_checkpoint(
+        &self,
+        session: VizierSession,
+        before: Option<DateTime<Utc>>,
+    ) -> Result<(Vec<SessionHistory>, Option<String>)> {
+        let pattern = format!("{}/*.json", topic_dir(&self.workspace, &session).display());
+        let mut all_entries: Vec<SessionHistory> = glob::glob(&pattern)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.is_file())
+            .filter_map(|path| read_entry(&path))
+            .collect();
+
+        all_entries.sort_by_key(|b| std::cmp::Reverse(b.timestamp));
+
+        // Filter by timestamp if before is specified
+        if let Some(before_dt) = before {
+            all_entries.retain(|item| item.timestamp < before_dt);
+        }
+
+        // Find the latest checkpoint
+        let checkpoint = all_entries
+            .iter()
+            .find(|e| matches!(e.content, SessionHistoryContent::Checkpoint(_)));
+
+        let (checkpoint_timestamp, handover) = if let Some(cp) = checkpoint {
+            let handover = match &cp.content {
+                SessionHistoryContent::Checkpoint(h) => h.clone(),
+                _ => None,
+            };
+            (Some(cp.timestamp), handover)
+        } else {
+            (None, None)
+        };
+
+        // Get all history after the checkpoint
+        let mut history: Vec<SessionHistory> = all_entries
+            .into_iter()
+            .filter(|e| {
+                if let Some(cp_ts) = checkpoint_timestamp {
+                    e.timestamp > cp_ts
+                } else {
+                    true
+                }
+            })
+            .collect();
+
+        history.sort_by_key(|a| a.timestamp);
+
+        Ok((history, handover))
+    }
+
+    async fn save_checkpoint(
+        &self,
+        session: VizierSession,
+        handover: Option<String>,
+    ) -> Result<SessionHistory> {
+        let uid = Uuid::new_v4().to_string();
+        let entry = SessionHistory {
+            uid: uid.clone(),
+            vizier_session: session.clone(),
+            content: SessionHistoryContent::Checkpoint(handover),
+            timestamp: Utc::now(),
+            reactions: vec![],
+        };
+
+        let path = entry_path(&self.workspace, &session, &uid);
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        let json = serde_json::to_string_pretty(&entry)?;
+        tokio::fs::write(&path, json).await?;
+
+        Ok(entry)
+    }
 }
 
 fn is_non_user_channel(channel_slug: &str) -> bool {

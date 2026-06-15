@@ -84,6 +84,9 @@ pub enum VizierResponseContent {
     },
     Empty,
     Abort,
+    Checkpoint {
+        handover: Option<String>,
+    },
 }
 
 impl VizierAttachment {

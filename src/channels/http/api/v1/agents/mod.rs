@@ -19,7 +19,7 @@ use crate::{
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
         AgentToolsConfig, AgentUsageStats, BraveSearchToolSettings, EmbeddingConfig,
-        ImageGenToolSettings, IndexerConfig, MemoryConfig, ReadImageToolSettings, ToolConfig,
+        ImageGenToolSettings, IndexerConfig, ReadImageToolSettings, ToolConfig,
         TtsToolSettings,
         agent::{EmbeddingProvider, IndexerKind, SttToolSettings},
         VizierAttachment, VizierChannelId, VizierRequest, VizierRequestContent,
@@ -147,7 +147,7 @@ pub struct AgentDetail {
     pub model: String,
     pub system_prompt: Option<String>,
     pub thinking_depth: usize,
-    pub session_memory_capacity: usize,
+    pub checkpoint_threshold: f64,
     pub max_tokens: Option<u64>,
     pub context_window: Option<u64>,
     pub shell: Option<ShellConfig>,
@@ -216,7 +216,7 @@ async fn agent_detail(
                 model: config.model,
                 system_prompt: config.system_prompt,
                 thinking_depth: config.thinking_depth,
-                session_memory_capacity: config.session_memory.max_capacity,
+                checkpoint_threshold: config.checkpoint_threshold,
                 max_tokens: config.max_tokens,
                 context_window: config.context_window,
                 shell: config.tools.shell,
@@ -310,7 +310,7 @@ pub struct CreateAgentRequest {
     #[serde(default)]
     pub thinking_depth: Option<usize>,
     #[serde(default)]
-    pub session_memory_capacity: Option<usize>,
+    pub checkpoint_threshold: Option<f64>,
     #[serde(default)]
     pub max_tokens: Option<u64>,
     #[serde(default)]
@@ -419,10 +419,8 @@ impl CreateAgentRequest {
             provider: self.provider,
             model: self.model,
             quantization: self.quantization,
-            session_memory: MemoryConfig {
-                max_capacity: self.session_memory_capacity.unwrap_or(10),
-            },
             thinking_depth: self.thinking_depth.unwrap_or(10),
+            checkpoint_threshold: self.checkpoint_threshold.unwrap_or(0.8),
             max_tokens: self.max_tokens,
             context_window: self.context_window,
             tools: AgentToolsConfig {

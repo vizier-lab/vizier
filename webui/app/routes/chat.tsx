@@ -44,6 +44,7 @@ import { useUserStore } from '../hooks/userStore'
 import { useQuickChatStore } from '../hooks/quickChatStore'
 import { MessageItem } from '../components/MessageItem'
 import { ThinkingIndicator } from '../components/ThinkingIndicator'
+import { CheckpointDivider } from '../components/CheckpointDivider'
 import MarkdownEditor from '../components/MarkdownEditor'
 import AttachmentPreviewModal from '../components/AttachmentPreviewModal'
 import { useMeasure } from '@uidotdev/usehooks'
@@ -539,6 +540,28 @@ export default function Chat() {
           agentNames
         )
         addInlineEvent('tool_choice', toolContent)
+        return
+      }
+
+      if ('checkpoint' in content) {
+        // Add checkpoint to messages
+        setMessages((prev) => {
+          const newMessage: ChatMessage = {
+            uid: `checkpoint-${timestamp}`,
+            vizier_session: {
+              agent_id: agentId!,
+              channel: 'vizier-webui',
+              topic: currentTopicRef.current!,
+            },
+            content: {
+              Checkpoint: {
+                handover: content.checkpoint.handover,
+                timestamp,
+              },
+            },
+          }
+          return [...prev, newMessage]
+        })
         return
       }
 
@@ -1418,6 +1441,20 @@ export default function Chat() {
           ) : (
             <>
               {messages.map((msg) => {
+                // Handle checkpoint entries
+                if (msg.content.Checkpoint) {
+                  const cp = msg.content.Checkpoint
+                  const handover = typeof cp === 'string' ? cp : cp.handover
+                  const timestamp = typeof cp === 'string' ? (msg.timestamp || new Date().toISOString()) : cp.timestamp
+                  return (
+                    <CheckpointDivider
+                      key={msg.uid}
+                      handover={handover}
+                      timestamp={timestamp}
+                    />
+                  )
+                }
+
                 const isUserMessage =
                   msg.content.Request !== undefined
                 let content: string | undefined

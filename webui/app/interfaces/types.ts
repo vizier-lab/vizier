@@ -306,8 +306,8 @@ export interface AgentConfig {
   description?: string
   provider: string
   model: string
-  session_memory: { max_capacity: number }
   thinking_depth: number
+  checkpoint_threshold: number
   tools: AgentToolsConfig
   silent_read_initiative_chance: number
   show_thinking?: boolean
@@ -333,9 +333,9 @@ export interface CreateAgentRequest {
   quantization?: string
   system_prompt?: string
   thinking_depth?: number
+  checkpoint_threshold?: number
   max_tokens?: number
   context_window?: number
-  session_memory_capacity?: number
   show_thinking?: boolean
   show_tool_calls?: boolean
   silent_read_initiative_chance?: number
@@ -381,9 +381,9 @@ export interface AgentDetail {
   quantization?: string
   system_prompt?: string
   thinking_depth: number
+  checkpoint_threshold: number
   max_tokens?: number
   context_window?: number
-  session_memory_capacity: number
   show_thinking?: boolean
   show_tool_calls?: boolean
   silent_read_initiative_chance?: number
@@ -491,6 +491,7 @@ export type VizierResponseContent =
   | { error: { kind: 'completion' | 'tool_timeout' | 'prompt_timeout'; message: string } }
   | 'empty'
   | 'abort'
+  | { checkpoint: { handover: string | null } }
 
 // VizierRequest as returned by backend
 export interface VizierRequestMessage {
@@ -524,6 +525,7 @@ export interface VizierResponseStats {
 
 export interface ChatMessage {
   uid: string
+  timestamp?: string
   vizier_session: {
     agent_id: string
     channel: string
@@ -536,6 +538,7 @@ export interface ChatMessage {
       content: VizierResponseContent
       attachments?: VizierAttachment[]
     }
+    Checkpoint?: string | { handover: string | null; timestamp: string }
   }
   reactions?: ReactionEntry[]
 }

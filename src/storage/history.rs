@@ -48,6 +48,18 @@ pub trait HistoryStorage {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<VizierSession>>;
+
+    async fn list_session_history_until_checkpoint(
+        &self,
+        session: VizierSession,
+        before: Option<DateTime<Utc>>,
+    ) -> Result<(Vec<SessionHistory>, Option<String>)>;
+
+    async fn save_checkpoint(
+        &self,
+        session: VizierSession,
+        handover: Option<String>,
+    ) -> Result<SessionHistory>;
 }
 
 #[async_trait::async_trait]
@@ -109,5 +121,23 @@ impl HistoryStorage for VizierStorage {
         self.0
             .list_user_sessions_in_window(agent_id, start, end)
             .await
+    }
+
+    async fn list_session_history_until_checkpoint(
+        &self,
+        session: VizierSession,
+        before: Option<DateTime<Utc>>,
+    ) -> Result<(Vec<SessionHistory>, Option<String>)> {
+        self.0
+            .list_session_history_until_checkpoint(session, before)
+            .await
+    }
+
+    async fn save_checkpoint(
+        &self,
+        session: VizierSession,
+        handover: Option<String>,
+    ) -> Result<SessionHistory> {
+        self.0.save_checkpoint(session, handover).await
     }
 }

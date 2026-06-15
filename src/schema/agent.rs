@@ -24,8 +24,9 @@ pub struct AgentConfig {
     pub model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quantization: Option<Quantization>,
-    pub session_memory: MemoryConfig,
     pub thinking_depth: usize,
+    #[serde(default = "default_checkpoint_threshold")]
+    pub checkpoint_threshold: f64,
     pub tools: AgentToolsConfig,
     pub silent_read_initiative_chance: f32,
     pub show_thinking: Option<bool>,
@@ -60,9 +61,8 @@ pub struct AgentConfig {
     pub indexer: Option<IndexerConfig>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct MemoryConfig {
-    pub max_capacity: usize,
+fn default_checkpoint_threshold() -> f64 {
+    0.8
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

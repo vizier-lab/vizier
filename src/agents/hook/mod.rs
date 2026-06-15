@@ -4,6 +4,7 @@ use crate::schema::{VizierRequest, VizierResponse};
 use anyhow::Result;
 
 pub mod debug;
+pub mod handover;
 pub mod thinking;
 pub mod tool_calls;
 
@@ -26,6 +27,10 @@ where
 
     async fn on_tool_response(&self, res: VizierResponse) -> Result<VizierResponse> {
         Ok(res)
+    }
+
+    async fn on_handover(&self, handover: Option<String>) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -83,5 +88,12 @@ impl VizierSessionHook for VizierSessionHooks {
         }
 
         Ok(res)
+    }
+
+    async fn on_handover(&self, handover: Option<String>) -> Result<()> {
+        for hook in self.0.iter() {
+            hook.on_handover(handover.clone()).await?;
+        }
+        Ok(())
     }
 }

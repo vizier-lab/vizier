@@ -34,6 +34,7 @@ pub enum SessionHistoryContent {
         call_id: String,
         content: String,
     },
+    Checkpoint(Option<String>),
 }
 
 /// Convert rig Messages to SessionHistoryContent entries.
@@ -179,6 +180,9 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
                     call_id: None,
                     content: OneOrMany::one(ToolResultContent::text(content.clone())),
                 });
+            }
+            SessionHistoryContent::Checkpoint(_) => {
+                // Skip checkpoint entries - they are metadata, not conversation messages
             }
         }
     }
