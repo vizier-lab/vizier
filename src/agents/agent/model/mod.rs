@@ -37,7 +37,7 @@ where
         Ok(models) => {
             if let Some(m) = models.iter().find(|m| m.id == model_name) {
                 if let Some(ctx) = m.context_length {
-                    log::debug!(
+                    tracing::debug!(
                         "Fetched context window for {}: {} tokens (from provider API)",
                         model_name,
                         ctx
@@ -45,14 +45,14 @@ where
                     return Some(ctx as u64);
                 }
             }
-            log::debug!(
+            tracing::debug!(
                 "Model '{}' not found in provider's model list, falling back to name detection",
                 model_name
             );
             registry::detect_context_window(model_name)
         }
         Err(e) => {
-            log::debug!(
+            tracing::debug!(
                 "Failed to list models from provider: {}, falling back to name detection",
                 e
             );

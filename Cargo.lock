@@ -12244,7 +12244,6 @@ dependencies = [
  "indicatif 0.17.11",
  "inquire",
  "jsonwebtoken 9.3.1",
- "log",
  "mime_guess",
  "mistralrs",
  "nanoid",

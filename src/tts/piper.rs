@@ -31,7 +31,7 @@ impl PiperTtsModel {
 
         let sample_rate = tts.sample_rate();
 
-        log::info!(
+        tracing::info!(
             "piper TTS loaded from {} (sample_rate={})",
             model_dir.display(),
             sample_rate
@@ -116,7 +116,7 @@ async fn resolve_model_dir(settings: &TtsToolSettings, workspace: &str) -> Resul
             }
 
             if looks_like_piper_model_id(model) {
-                log::info!("auto-downloading piper model '{}'", model);
+                tracing::info!("auto-downloading piper model '{}'", model);
                 return piper_prefetch_model(workspace, model).await.map_err(|e| {
                     VizierError(format!("failed to download piper model '{}': {}", model, e))
                 });
@@ -134,7 +134,7 @@ async fn resolve_model_dir(settings: &TtsToolSettings, workspace: &str) -> Resul
             }
 
             let default_model = "en_US-joe-medium";
-            log::info!(
+            tracing::info!(
                 "no TTS model found, auto-downloading default: '{}'",
                 default_model
             );

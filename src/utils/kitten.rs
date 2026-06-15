@@ -42,12 +42,12 @@ pub async fn kitten_prefetch_model(workspace: &str, model_id: &str) -> Result<Pa
     let model_dir = kitten_model_dir(workspace, model_id);
 
     if is_model_cached(&model_dir) {
-        log::info!("kitten model already cached: {}", model_dir.display());
+        tracing::info!("kitten model already cached: {}", model_dir.display());
         return Ok(model_dir);
     }
 
     let url = format!("{}/{}.tar.bz2", KITTEN_RELEASE_BASE, model_id);
-    log::info!("downloading kitten model from {}", url);
+    tracing::info!("downloading kitten model from {}", url);
 
     std::fs::create_dir_all(&model_dir)?;
 
@@ -90,7 +90,7 @@ pub async fn kitten_prefetch_model(workspace: &str, model_id: &str) -> Result<Pa
         .map_err(|e| anyhow::anyhow!("failed to extract kitten model: {}", e))?;
 
     pb.finish_with_message(format!("kitten model {} ready", model_id));
-    log::info!("kitten model extracted to {}", model_dir.display());
+    tracing::info!("kitten model extracted to {}", model_dir.display());
 
     Ok(model_dir)
 }

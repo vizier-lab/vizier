@@ -112,12 +112,15 @@ impl VizierToolSet {
         args: String,
         ctx: &ToolContext,
     ) -> Result<serde_json::Value, VizierError> {
+        let _span = tracing::info_span!("tool_call", function = %function_name).entered();
+        tracing::trace!(function = %function_name, "tool call started");
         let tool = self
             .tools
             .get(&function_name)
             .ok_or(VizierError(format!("{function_name} does not exists")))?;
 
         let output = tool.tool_call(args, ctx).await?;
+        tracing::trace!(function = %function_name, "tool call completed");
         Ok(serde_json::from_str(&output).map_err(|err| VizierError(err.to_string()))?)
     }
 }

@@ -31,7 +31,7 @@ impl KittenTtsModel {
 
         let sample_rate = tts.sample_rate();
 
-        log::info!(
+        tracing::info!(
             "kitten TTS loaded from {} (sample_rate={})",
             model_dir.display(),
             sample_rate
@@ -115,7 +115,7 @@ async fn resolve_model_dir(settings: &TtsToolSettings, workspace: &str) -> Resul
                 return Ok(direct);
             }
 
-            log::info!("auto-downloading kitten model '{}'", model);
+            tracing::info!("auto-downloading kitten model '{}'", model);
             kitten_prefetch_model(workspace, model).await.map_err(|e| {
                 VizierError(format!(
                     "failed to download kitten model '{}': {}",
@@ -129,7 +129,7 @@ async fn resolve_model_dir(settings: &TtsToolSettings, workspace: &str) -> Resul
             }
 
             let default_model = "kitten-nano-en-v0_1-fp16";
-            log::info!(
+            tracing::info!(
                 "no kitten model found, auto-downloading default: '{}'",
                 default_model
             );

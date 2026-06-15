@@ -45,12 +45,12 @@ pub async fn piper_prefetch_model(workspace: &str, model_id: &str) -> Result<Pat
     let model_dir = piper_model_dir(workspace, model_id);
 
     if is_model_cached(&model_dir) {
-        log::info!("piper model already cached: {}", model_dir.display());
+        tracing::info!("piper model already cached: {}", model_dir.display());
         return Ok(model_dir);
     }
 
     let repo_id = hf_repo_for_model(model_id);
-    log::info!("downloading piper model from {}", repo_id);
+    tracing::info!("downloading piper model from {}", repo_id);
 
     std::fs::create_dir_all(&model_dir)?;
 
@@ -117,7 +117,7 @@ pub async fn piper_prefetch_model(workspace: &str, model_id: &str) -> Result<Pat
     }
 
     pb.finish_with_message(format!("piper model {} ready", model_id));
-    log::info!("piper model downloaded to {}", model_dir.display());
+    tracing::info!("piper model downloaded to {}", model_dir.display());
 
     Ok(model_dir)
 }

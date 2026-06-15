@@ -43,12 +43,12 @@ pub async fn sense_voice_prefetch_model(workspace: &str, model_id: &str) -> Resu
     let model_dir = sense_voice_model_dir(workspace, model_id);
 
     if is_model_cached(&model_dir) {
-        log::info!("sense_voice model already cached: {}", model_dir.display());
+        tracing::info!("sense_voice model already cached: {}", model_dir.display());
         return Ok(model_dir);
     }
 
     let url = format!("{}/{}.tar.bz2", SENSE_VOICE_RELEASE_BASE, model_id);
-    log::info!("downloading sense_voice model from {}", url);
+    tracing::info!("downloading sense_voice model from {}", url);
 
     let models_dir = sense_voice_models_dir(workspace);
     std::fs::create_dir_all(&models_dir)?;
@@ -95,7 +95,7 @@ pub async fn sense_voice_prefetch_model(workspace: &str, model_id: &str) -> Resu
     }
 
     pb.set_message("extracting...");
-    log::info!("download complete, extracting to {}", models_dir.display());
+    tracing::info!("download complete, extracting to {}", models_dir.display());
 
     let file = std::fs::File::open(&archive_path)?;
     let decoder = BzDecoder::new(file);
@@ -109,7 +109,7 @@ pub async fn sense_voice_prefetch_model(workspace: &str, model_id: &str) -> Resu
     let _ = std::fs::remove_file(&archive_path);
 
     pb.finish_with_message(format!("sense_voice model {} ready", model_id));
-    log::info!("sense_voice model extracted to {}", model_dir.display());
+    tracing::info!("sense_voice model extracted to {}", model_dir.display());
 
     Ok(model_dir)
 }

@@ -91,6 +91,8 @@ pub async fn agent_process(
     let mut message_counts = HashMap::<VizierSession, usize>::new();
     let (complete_tx, mut complete_rx) = mpsc::unbounded_channel::<VizierSession>();
 
+    tracing::info!(agent_id = %agent_id, "agent process loop started");
+
     loop {
         tokio::select! {
             result = recv.recv_async() => {
@@ -98,6 +100,7 @@ pub async fn agent_process(
                 let session = envelope.session;
                 let request = envelope.request;
                 let response_tx = envelope.response_tx;
+                tracing::trace!(agent_id = %session.0, channel = ?session.1, "incoming request");
 
                 // handle session_detail
                 let session_detail_storage = deps.storage.clone();
@@ -348,7 +351,7 @@ pub async fn agent_process(
                                     .await;
                             }
 
-                            log::info!("Manual checkpoint created for session {:?}", session_clone);
+                            tracing::info!("Manual checkpoint created for session {:?}", session_clone);
                         });
                         continue;
                     }
@@ -401,7 +404,7 @@ pub async fn agent_process(
                                     .await;
                             }
 
-                            log::info!("Lobotomy created for session {:?}", session_clone);
+                            tracing::info!("Lobotomy created for session {:?}", session_clone);
                         });
                         continue;
                     }
@@ -410,6 +413,7 @@ pub async fn agent_process(
                 // Queue message if a task is already running for this session
                 if let Some(handle) = main_handles.get(&session) {
                     if !handle.is_finished() {
+                        tracing::debug!(agent_id = %session.0, "queuing message while task in progress");
                         session_queues.entry(session.clone()).or_default().push_back((request, response_tx));
                         continue;
                     }
@@ -793,7 +797,7 @@ pub async fn handle_request(
             tracing::warn!("unhandled command: {}", cmd);
         }
         VizierRequestContent::Reaction(event) => {
-            log::info!(
+            tracing::info!(
                 "Reaction recorded: user={}, emoji={}, action={}, message={:?}",
                 event.user_id,
                 event.emoji,

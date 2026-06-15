@@ -603,6 +603,14 @@ impl VizierAgent {
                     .await
                     .map_err(|e| (e, full_history.clone()))?;
 
+                tracing::debug!(
+                    turn_depth = turn_depth,
+                    input_tokens = usage.input_tokens,
+                    output_tokens = usage.output_tokens,
+                    cached_input_tokens = usage.cached_input_tokens,
+                    "LLM completion received"
+                );
+
                 history.push(message.clone());
                 full_history.push(message.clone());
 
@@ -635,7 +643,7 @@ impl VizierAgent {
                 {
                     let usage_ratio = ctx_size as f64 / ctx_window as f64;
                     if usage_ratio >= self.config.checkpoint_threshold {
-                        log::info!(
+                        tracing::info!(
                             "Context window usage at {:.1}% ({} / {} tokens), creating checkpoint",
                             usage_ratio * 100.0, ctx_size, ctx_window
                         );
@@ -646,13 +654,13 @@ impl VizierAgent {
                         
                         // Save checkpoint to storage
                         if let Err(e) = self.save_checkpoint(ctx.session.clone(), handover.clone()).await {
-                            log::error!("Failed to save checkpoint: {}", e);
+                            tracing::error!("Failed to save checkpoint: {}", e);
                         }
                         
                         // Notify hooks about handover
                         if let Some(ref hooks) = hooks {
                             if let Err(e) = hooks.on_handover(handover.clone()).await {
-                                log::error!("Failed to notify hooks about handover: {}", e);
+                                tracing::error!("Failed to notify hooks about handover: {}", e);
                             }
                         }
                         

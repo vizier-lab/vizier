@@ -27,7 +27,7 @@ impl SenseVoiceSttModel {
         .await
         .map_err(|e| VizierError(e.to_string()))??;
 
-        log::info!(
+        tracing::info!(
             "sense_voice STT loaded from {}",
             model_dir.display()
         );
@@ -91,7 +91,7 @@ async fn resolve_model_dir(settings: &SttToolSettings, workspace: &str) -> Resul
                 return Ok(direct);
             }
 
-            log::info!("auto-downloading sense_voice model '{}'", model);
+            tracing::info!("auto-downloading sense_voice model '{}'", model);
             sense_voice_prefetch_model(workspace, model)
                 .await
                 .map_err(|e| {
@@ -107,7 +107,7 @@ async fn resolve_model_dir(settings: &SttToolSettings, workspace: &str) -> Resul
             }
 
             let default_model = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17";
-            log::info!(
+            tracing::info!(
                 "no STT model found, auto-downloading default: '{}'",
                 default_model
             );
