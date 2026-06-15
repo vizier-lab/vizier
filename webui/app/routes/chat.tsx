@@ -1505,10 +1505,12 @@ export default function Chat() {
             <>
               {messages.map((msg) => {
                 // Handle checkpoint entries
-                if (msg.content.Checkpoint) {
+                if (msg.content.Checkpoint !== undefined) {
                   const cp = msg.content.Checkpoint
-                  const handover = typeof cp === 'string' ? cp : cp.handover
-                  const timestamp = typeof cp === 'string' ? (msg.timestamp || new Date().toISOString()) : cp.timestamp
+                  const handover = typeof cp === 'string' ? cp : cp?.handover ?? null
+                  const timestamp = typeof cp === 'string'
+                    ? (msg.timestamp || new Date().toISOString())
+                    : cp?.timestamp || msg.timestamp || new Date().toISOString()
                   return (
                     <CheckpointDivider
                       key={msg.uid}
