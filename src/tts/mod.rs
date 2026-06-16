@@ -1,6 +1,7 @@
 pub mod elevenlabs;
 pub mod hyperbolic;
 pub mod kitten;
+pub mod kokoro;
 pub mod openai;
 pub mod openrouter;
 pub mod piper;
@@ -30,6 +31,9 @@ impl VizierTts {
             TtsProvider::Piper => Arc::new(piper::PiperTtsModel::new(settings, workspace).await?),
             TtsProvider::Kitten => {
                 Arc::new(kitten::KittenTtsModel::new(settings, workspace).await?)
+            }
+            TtsProvider::Kokoro => {
+                Arc::new(kokoro::KokoroTtsModel::new(settings, workspace).await?)
             }
             TtsProvider::Openai => {
                 let resolved = crate::provider_keys::resolve_provider_key(

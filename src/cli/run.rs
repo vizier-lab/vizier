@@ -50,16 +50,16 @@ pub fn run_server(config: VizierConfig) -> Result<()> {
             }
         });
 
-        let mut agents = VizierAgents::new(deps.clone()).await?;
+        let mut channels = VizierChannels::new(config.channels.http.clone(), deps.clone())?;
         set.spawn(async move {
-            if let Err(err) = agents.run().await {
+            if let Err(err) = channels.run().await {
                 tracing::error!("{}", err);
             }
         });
 
-        let mut channels = VizierChannels::new(config.channels.http.clone(), deps.clone())?;
+        let mut agents = VizierAgents::new(deps.clone()).await?;
         set.spawn(async move {
-            if let Err(err) = channels.run().await {
+            if let Err(err) = agents.run().await {
                 tracing::error!("{}", err);
             }
         });

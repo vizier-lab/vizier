@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::time::Duration;
 
 use anyhow::Result;
 use bzip2::read::BzDecoder;
@@ -53,11 +52,7 @@ pub async fn sense_voice_prefetch_model(workspace: &str, model_id: &str) -> Resu
     let models_dir = sense_voice_models_dir(workspace);
     std::fs::create_dir_all(&models_dir)?;
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()?;
-
-    let response = client.get(&url).send().await.map_err(|e| {
+    let response = reqwest::get(&url).await.map_err(|e| {
         anyhow::anyhow!("failed to download sense_voice model '{}': {}", model_id, e)
     })?;
 
@@ -87,6 +82,7 @@ pub async fn sense_voice_prefetch_model(workspace: &str, model_id: &str) -> Resu
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| {
+            pb.finish_and_clear();
             anyhow::anyhow!("failed to download sense_voice model '{}': {}", model_id, e)
         })?;
         std::io::Write::write_all(&mut file, &chunk)?;

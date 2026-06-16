@@ -34,12 +34,21 @@ import type {
   CreateAgentRequest,
   AgentDetail,
   User,
+  ChatProvider,
   EmbeddingToolSettings,
   IndexerConfig,
   McpServerConfig,
   ShellConfigData,
 } from '../interfaces/types'
-import { CHAT_PROVIDERS } from '../interfaces/types'
+import {
+  CHAT_PROVIDERS,
+  CHAT_PROVIDER_MODELS,
+  TTS_PROVIDER_MODELS,
+  TTS_PROVIDER_VOICES,
+  STT_PROVIDER_MODELS,
+  IMAGE_GEN_PROVIDER_MODELS,
+} from '../interfaces/types'
+import ModelSelect from '../components/ModelSelect'
 
 function getErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'response' in err) {
@@ -826,15 +835,12 @@ export default function AgentSettings() {
                           tooltip="The model identifier for the selected provider."
                         />
                       </label>
-                      <input
-                        style={inputStyle}
+                      <ModelSelect
+                        options={CHAT_PROVIDER_MODELS[form.provider as ChatProvider] || []}
                         value={form.model}
-                        onChange={(e) =>
-                          updateField(
-                            'model',
-                            e.target.value
-                          )
-                        }
+                        onChange={(value) => updateField('model', value)}
+                        placeholder="Select or enter model"
+                        style={inputStyle}
                       />
                     </section>
                   </div>
@@ -1268,15 +1274,15 @@ export default function AgentSettings() {
                                 tooltip="Model to use for dreaming. Required when not using the main model."
                               />
                             </label>
-                            <input
+                            <ModelSelect
+                              options={CHAT_PROVIDER_MODELS[form.dream_provider as ChatProvider] || []}
+                              value={form.dream_model || ''}
+                              onChange={(value) => updateField('dream_model', value)}
+                              placeholder="Select or enter model"
                               style={{
                                 ...inputStyle,
                                 borderColor: !form.dream_model ? 'var(--error, #ef4444)' : undefined,
                               }}
-                              value={form.dream_model || ''}
-                              onChange={(e) =>
-                                updateField('dream_model', e.target.value)
-                              }
                             />
                           </section>
                         </div>
@@ -1889,6 +1895,7 @@ export default function AgentSettings() {
                         >
                           <option value="piper">Piper (Local)</option>
                           <option value="kitten">Kitten (Local)</option>
+                          <option value="kokoro">Kokoro (Local)</option>
                           <option value="openai">OpenAI</option>
                           <option value="openrouter">
                             OpenRouter
@@ -1909,32 +1916,23 @@ export default function AgentSettings() {
                         >
                           Model (optional)
                         </label>
-                        <input
-                          style={inputStyle}
-                          type="text"
-                          placeholder={
-                            (form.tools?.tts_settings?.provider || 'piper') === 'piper'
-                              ? 'Model name in .vizier/models/tts/'
-                              : (form.tools?.tts_settings?.provider || 'piper') === 'kitten'
-                                ? 'e.g. kitten-nano-en-v0_1-fp16'
-                                : 'Provider default'
-                          }
-                          value={
-                            form.tools?.tts_settings?.model || ''
-                          }
-                          onChange={(e) =>
+                        <ModelSelect
+                          options={TTS_PROVIDER_MODELS[(form.tools?.tts_settings?.provider || 'piper') as import('../interfaces/types').TtsProvider] || []}
+                          value={form.tools?.tts_settings?.model || ''}
+                          onChange={(value) =>
                             setForm((prev) => ({
                               ...prev,
                               tools: {
                                 ...prev.tools!,
                                 tts_settings: {
                                   ...prev.tools?.tts_settings,
-                                  model:
-                                    e.target.value || undefined,
+                                  model: value || undefined,
                                 },
                               },
                             }))
                           }
+                          placeholder="Model name"
+                          style={inputStyle}
                         />
                       </div>
                       <div>
@@ -1948,32 +1946,23 @@ export default function AgentSettings() {
                         >
                           Voice (optional)
                         </label>
-                        <input
-                          style={inputStyle}
-                          type="text"
-                          placeholder={
-                            (form.tools?.tts_settings?.provider || 'piper') === 'piper'
-                              ? 'Default: "0" (speaker ID)'
-                              : (form.tools?.tts_settings?.provider || 'piper') === 'kitten'
-                                ? 'Default: "0" (0-7, 4M/4F)'
-                                : 'Default: "alloy"'
-                          }
-                          value={
-                            form.tools?.tts_settings?.voice || ''
-                          }
-                          onChange={(e) =>
+                        <ModelSelect
+                          options={TTS_PROVIDER_VOICES[(form.tools?.tts_settings?.provider || 'piper') as import('../interfaces/types').TtsProvider] || []}
+                          value={form.tools?.tts_settings?.voice || ''}
+                          onChange={(value) =>
                             setForm((prev) => ({
                               ...prev,
                               tools: {
                                 ...prev.tools!,
                                 tts_settings: {
                                   ...prev.tools?.tts_settings,
-                                  voice:
-                                    e.target.value || undefined,
+                                  voice: value || undefined,
                                 },
                               },
                             }))
                           }
+                          placeholder="Select or enter voice"
+                          style={inputStyle}
                         />
                       </div>
                       <div>
@@ -2120,32 +2109,23 @@ export default function AgentSettings() {
                         >
                           Model (optional)
                         </label>
-                        <input
-                          style={inputStyle}
-                          type="text"
-                          placeholder={
-                            (form.tools?.stt_settings?.provider || 'sense_voice') === 'sense_voice'
-                              ? 'e.g. sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17'
-                              : (form.tools?.stt_settings?.provider || 'sense_voice') === 'openai'
-                                ? 'whisper-1'
-                                : 'scribe_v1'
-                          }
-                          value={
-                            form.tools?.stt_settings?.model || ''
-                          }
-                          onChange={(e) =>
+                        <ModelSelect
+                          options={STT_PROVIDER_MODELS[(form.tools?.stt_settings?.provider || 'sense_voice') as import('../interfaces/types').SttProvider] || []}
+                          value={form.tools?.stt_settings?.model || ''}
+                          onChange={(value) =>
                             setForm((prev) => ({
                               ...prev,
                               tools: {
                                 ...prev.tools!,
                                 stt_settings: {
                                   ...prev.tools?.stt_settings,
-                                  model:
-                                    e.target.value || undefined,
+                                  model: value || undefined,
                                 },
                               },
                             }))
                           }
+                          placeholder="Select or enter model"
+                          style={inputStyle}
                         />
                       </div>
                       <div>
@@ -2277,26 +2257,23 @@ export default function AgentSettings() {
                             tooltip="Model identifier for the selected provider (e.g. gpt-4o, claude-sonnet-4-5, llama3.2-vision)."
                           />
                         </label>
-                        <input
-                          style={inputStyle}
-                          type="text"
-                          placeholder="e.g. gpt-4o, claude-sonnet-4-5, llama3.2-vision"
-                          value={
-                            form.tools?.read_image_settings?.model || ''
-                          }
-                          onChange={(e) =>
+                        <ModelSelect
+                          options={CHAT_PROVIDER_MODELS[(form.tools?.read_image_settings?.provider || '') as ChatProvider] || []}
+                          value={form.tools?.read_image_settings?.model || ''}
+                          onChange={(value) =>
                             setForm((prev) => ({
                               ...prev,
                               tools: {
                                 ...prev.tools!,
                                 read_image_settings: {
                                   ...prev.tools?.read_image_settings,
-                                  model:
-                                    e.target.value || undefined,
+                                  model: value || undefined,
                                 },
                               },
                             }))
                           }
+                          placeholder="Select or enter model"
+                          style={inputStyle}
                         />
                       </section>
                     </div>
@@ -2392,26 +2369,23 @@ export default function AgentSettings() {
                             tooltip="Provider default is used if blank (dall-e-3)."
                           />
                         </label>
-                        <input
-                          style={inputStyle}
-                          type="text"
-                          placeholder="e.g. dall-e-3, gpt-image-1"
-                          value={
-                            form.tools?.image_gen_settings?.model || ''
-                          }
-                          onChange={(e) =>
+                        <ModelSelect
+                          options={IMAGE_GEN_PROVIDER_MODELS[(form.tools?.image_gen_settings?.provider || 'openai') as import('../interfaces/types').ImageGenProvider] || []}
+                          value={form.tools?.image_gen_settings?.model || ''}
+                          onChange={(value) =>
                             setForm((prev) => ({
                               ...prev,
                               tools: {
                                 ...prev.tools!,
                                 image_gen_settings: {
                                   ...prev.tools?.image_gen_settings,
-                                  model:
-                                    e.target.value || undefined,
+                                  model: value || undefined,
                                 },
                               },
                             }))
                           }
+                          placeholder="Select or enter model"
+                          style={inputStyle}
                         />
                       </section>
                       <section style={fieldStyle}>

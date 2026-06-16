@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tokio::task::JoinSet;
 
 use crate::agents::process::agent_process;
 use crate::config::provider::ProviderVariant;
@@ -45,14 +46,27 @@ impl VizierAgents {
         let mut processes = HashMap::new();
 
         let stored_agents = deps.storage.list_agents().await?;
+        let mut join_set = JoinSet::new();
+
         for (agent_id, config) in stored_agents {
             tracing::info!("starting agent: {}", agent_id);
-            match Self::spawn_agent(&deps, &agent_id, &config).await {
-                Ok(process) => {
+            let deps = deps.clone();
+            join_set.spawn(async move {
+                let result = Self::spawn_agent(&deps, &agent_id, &config).await;
+                (agent_id, result)
+            });
+        }
+
+        while let Some(result) = join_set.join_next().await {
+            match result {
+                Ok((agent_id, Ok(process))) => {
                     processes.insert(agent_id, process);
                 }
-                Err(e) => {
+                Ok((agent_id, Err(e))) => {
                     tracing::error!("failed to start agent '{}': {}", agent_id, e);
+                }
+                Err(e) => {
+                    tracing::error!("agent spawn task failed: {}", e);
                 }
             }
         }
@@ -245,15 +259,14 @@ impl VizierAgents {
                     .await;
                 AgentCommandResult::Ok(summary)
             }
-            Err(e) => {
-                let _ = self.deps.storage.delete_agent(agent_id).await;
-                AgentCommandResult::Error(format!("failed to start agent: {}", e))
-            }
+            Err(e) => AgentCommandResult::Error(format!("failed to start agent: {}", e))
         }
     }
 
     async fn handle_update(&mut self, agent_id: &str, config: AgentConfig) -> AgentCommandResult {
-        if !self.processes.contains_key(agent_id) {
+        if !self.processes.contains_key(agent_id)
+            && self.deps.storage.get_agent(agent_id).await.ok().flatten().is_none()
+        {
             return AgentCommandResult::Error(format!("agent '{}' not found", agent_id));
         }
 

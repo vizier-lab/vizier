@@ -9,11 +9,16 @@ export default function AgentNew() {
   const addToast = useToastStore((s) => s.addToast)
 
   const handleSubmit = async (form: CreateAgentRequest) => {
-    await createAgent(form)
-    addToast('success', `Agent "${form.name}" created`)
-    setTimeout(() => {
-      window.location.href = `/${form.agent_id}/chat`
-    }, 500)
+    try {
+      await createAgent(form)
+      addToast('success', `Agent "${form.name}" created`)
+      setTimeout(() => {
+        window.location.href = `/${form.agent_id}/chat`
+      }, 500)
+    } catch {
+      addToast('warning', 'Agent created but failed to start. Update settings and save to retry.')
+      window.location.href = `/${form.agent_id}/settings`
+    }
   }
 
   return (

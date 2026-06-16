@@ -180,6 +180,7 @@ pub enum TtsProvider {
     #[default]
     Piper,
     Kitten,
+    Kokoro,
     Openai,
     Openrouter,
     Elevenlabs,
@@ -191,6 +192,7 @@ impl TtsProvider {
     pub fn default_voice(&self) -> &str {
         match self {
             Self::Piper | Self::Kitten => "0",
+            Self::Kokoro => "af_sky",
             Self::Openai | Self::Openrouter => "alloy",
             Self::Elevenlabs => "pqHfZKP75CvOlQylNhV4",
             Self::Xai | Self::Hyperbolic => "default",
