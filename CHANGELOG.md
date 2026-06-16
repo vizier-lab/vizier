@@ -53,6 +53,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Bump version to 0.10.0
+- Bump version to 0.10.1
 ## [0.10.0-rc.3] - 2026-06-10
 
 ### 🚀 Features

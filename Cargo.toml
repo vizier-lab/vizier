@@ -3,7 +3,7 @@ members = ["vizier-derive"]
 
 [package]
 name = "vizier"
-version = "0.10.1"
+version = "0.10.2"
 edition = "2024"
 authors = ["Ganesha Danu <hi@blinfoldking.dev>"]
 description = "21st Century Digital Steward; Right hand agent for you majesty"
