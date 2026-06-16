@@ -47,7 +47,8 @@ config file:
 4. Built-in defaults
 
 In the config-less path, the workspace resolves to
-`$VIZIER_DATA_DIR` if set, otherwise `$HOME/.vizier`.
+`$VIZIER_DATA_DIR` if set, otherwise `$HOME/.vizier`. Storage
+defaults to `sqlite`; mount a volume to persist.
 
 `vizier shutdown` and `vizier agent ps` also work without a config
 file. They compute the daemon's socket path from the same workspace
@@ -77,7 +78,7 @@ with no env-var translation.
 | `VIZIER_CONFIG` | `-c` | Path to `.vizier.yaml`. Loaded first, then env-var overrides are applied on top. |
 | `VIZIER_DATA_DIR` (or `VIZIER_WORKSPACE`) | `--data-dir` | Container data dir. Precedence: CLI flag > env var > `$HOME/.vizier`. Use a volume to persist. |
 | `VIZIER_PORT` | `--port` | HTTP server port. Default `9999`. |
-| `VIZIER_STORAGE` | `--storage` | `filesystem` or `sqlite`. Default `filesystem`. |
+| `VIZIER_STORAGE` | `--storage` | `filesystem` or `sqlite`. Default `sqlite`. |
 | `VIZIER_WORKERS` | `--workers` | Tokio worker thread count. Default `4`. |
 | `VIZIER_WS_IDLE_TIMEOUT` | `--ws-idle-timeout` | WebSocket idle timeout (seconds). Default `300`. |
 | `VIZIER_JWT_SECRET` | (env var consumed by vizier) | Hardcoded fallback `vizier-default-secret-change-me` if unset. **Set to a strong value in production.** |

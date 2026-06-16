@@ -160,7 +160,7 @@ The `ghcr.io/vizier-lab/vizier` image starts vizier with no config file. Configu
 | `VIZIER_CONFIG` | Path to a `.vizier.yaml` to load. If set, file is loaded first, then env-var overrides apply on top. | unset |
 | `VIZIER_DATA_DIR` (or `VIZIER_WORKSPACE`) | Container data directory. | `$HOME/.vizier` (use a volume to persist) |
 | `VIZIER_PORT` | HTTP server port. | `9999` |
-| `VIZIER_STORAGE` | `filesystem` or `sqlite`. | `filesystem` |
+| `VIZIER_STORAGE` | `filesystem` or `sqlite`. | `sqlite` |
 | `VIZIER_WORKERS` | Tokio worker thread count. | `4` |
 | `VIZIER_WS_IDLE_TIMEOUT` | WebSocket idle timeout (seconds). | `300` |
 | `VIZIER_JWT_SECRET` | JWT signing secret. **Set to a strong value in production.** | `vizier-default-secret-change-me` |
@@ -172,7 +172,7 @@ Examples:
 # Config-less, port 8080
 docker run -p 8080:8080 -e VIZIER_PORT=8080 ghcr.io/vizier-lab/vizier
 
-# Persist data with a named volume
+# Config-less with persisted data (sqlite is the default storage)
 docker run -p 9999:9999 -v vizier-data:/data -e VIZIER_DATA_DIR=/data \
   ghcr.io/vizier-lab/vizier
 

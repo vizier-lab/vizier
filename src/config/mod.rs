@@ -216,7 +216,7 @@ impl Default for VizierConfig {
     fn default() -> Self {
         VizierConfig {
             workspace: String::new(),
-            storage: StorageConfig::Filesystem,
+            storage: StorageConfig::Sqlite,
             providers: ProviderConfig {
                 ollama: Some(OllamaProviderConfig::default()),
                 deepseek: None,
