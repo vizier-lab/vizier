@@ -131,7 +131,7 @@ export default function AgentSettings() {
       fetch: false,
       http_client: false,
       programmatic_sandbox: false,
-      timeout: '1m',
+      timeout: '30m',
       mcp_servers: {},
       tts: false,
       tts_settings: {},
@@ -142,7 +142,7 @@ export default function AgentSettings() {
       image_gen: false,
       image_gen_settings: {},
     },
-    prompt_timeout: '5m',
+    prompt_timeout: '60m',
     heartbeat_interval: '30m',
     dream_enabled: false,
     dream_schedule: '',
@@ -226,7 +226,7 @@ export default function AgentSettings() {
             fetch: d.fetch,
             http_client: d.http_client,
             programmatic_sandbox: d.programmatic_sandbox ?? false,
-            timeout: d.tools_timeout || '1m',
+            timeout: d.tools_timeout || '30m',
             mcp_servers: d.mcp_servers || {},
             tts: d.tts,
             tts_settings: d.tts_settings || {},
@@ -1133,7 +1133,7 @@ export default function AgentSettings() {
                     </label>
                     <input
                       style={inputStyle}
-                      placeholder="5m"
+                      placeholder="60m"
                       value={form.prompt_timeout || ''}
                       onChange={(e) =>
                         updateField(
@@ -1631,7 +1631,7 @@ export default function AgentSettings() {
                   </label>
                   <input
                     style={{ ...inputStyle, maxWidth: '200px' }}
-                    placeholder="1m"
+                    placeholder="30m"
                     value={form.tools?.timeout || ''}
                     onChange={(e) =>
                       updateToolField('timeout', e.target.value)

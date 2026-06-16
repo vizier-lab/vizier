@@ -425,9 +425,9 @@ impl CreateAgentRequest {
             context_window: self.context_window,
             tools: AgentToolsConfig {
                 timeout: duration_string::DurationString::from_string(
-                    tools.timeout.unwrap_or_else(|| "1m".into()),
+                    tools.timeout.unwrap_or_else(|| "30m".into()),
                 )
-                .unwrap_or(duration_string::DurationString::from_string("1m".into()).unwrap()),
+                .unwrap_or(duration_string::DurationString::from_string("30m".into()).unwrap()),
                 programmatic_sandbox: tools.programmatic_sandbox.unwrap_or(false),
                 shell: tools.shell,
                 brave_search: ToolConfig {
@@ -473,7 +473,7 @@ impl CreateAgentRequest {
             show_tool_calls: self.show_tool_calls,
             include_documents: None,
             prompt_timeout: duration_string::DurationString::from_string(
-                self.prompt_timeout.unwrap_or("5m".into()),
+                self.prompt_timeout.unwrap_or("60m".into()),
             )
             .unwrap(),
             documents: vec![],
