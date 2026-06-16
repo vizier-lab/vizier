@@ -77,7 +77,13 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
     };
 
     let content = match &*name.clone() {
-        "think" => format!("\n> {}", args["thought"].as_str().unwrap()),
+        "think" => args["thought"]
+            .as_str()
+            .unwrap()
+            .split('\n')
+            .map(|line| format!("> {}", line))
+            .collect::<Vec<_>>()
+            .join("\n"),
         "python_interpreter" => format!("```python\n{}\n```", args["script"].as_str().unwrap()),
         "memory_read" => format!("searching for '{}'", args["query"].as_str().unwrap()),
         "memory_write" => format!("writing '{}'", args["title"].as_str().unwrap()),
