@@ -26,13 +26,83 @@ cargo clippy          # lint (CI expectation: zero warnings)
 
 | Subcommand | Flags | Description |
 |------------|-------|-------------|
-| `run` | `-c/--config <PATH>`, `-a/--attached` | Run agents, server, and channels. Without `-a`, daemonizes (PID at `/tmp/vizier.pid`, logs to `.vizier/.runtime/logs/`). |
-| `shutdown` | `-c/--config <PATH>` | Stop a running daemonized instance. |
+| `run` | `-c/--config <PATH>`, `-a/--attached`, `--port <PORT>`, `--workspace <PATH>`, `--data-dir <PATH>`, `--storage <filesystem\|sqlite>`, `--workers <N>`, `--ws-idle-timeout <SECS>` | Run agents, server, and channels. Without `-a`, daemonizes (PID at `/tmp/vizier.pid`, logs to `.vizier/.runtime/logs/`). `-c` is optional — config-less mode uses built-in defaults. |
+| `shutdown` | `-c/--config <PATH>` | Stop a running daemonized instance. `-c` is optional. |
 | `onboard` | `-p/--path <PATH>` | Interactive wizard to generate `.vizier.yaml` seed config. |
 | `skill` | `install`, `list`, `uninstall`, `update` | Manage skills — install from registry/git/local, list, uninstall, update. |
+| `agent` | `-c/--config <PATH>`, subcommand `ps` | List running agents and their status. `-c` is optional. |
 
-There is no `init`, `configure`, or `agent` subcommand. Agents are
-created and managed at runtime via the WebUI or HTTP API.
+There is no `init` or `configure` subcommand. Agents are created and
+managed at runtime via the WebUI or HTTP API.
+
+## Config-less mode
+
+`vizier run` works without a config file. Resolution order for the
+config file:
+
+1. Explicit `-c <PATH>` (must exist)
+2. `$VIZIER_CONFIG` env var (must exist)
+3. `./.vizier.yaml` if it exists in the current directory (backward
+   compat with `onboard`)
+4. Built-in defaults
+
+In the config-less path, the workspace resolves to
+`$VIZIER_DATA_DIR` if set, otherwise `$HOME/.vizier`.
+
+`vizier shutdown` and `vizier agent ps` also work without a config
+file. They compute the daemon's socket path from the same workspace
+and print a clear error if no daemon is running.
+
+CLI flag overrides on `vizier run` (all optional, applied on top of
+whatever config was loaded):
+
+| Flag | Maps to |
+|------|---------|
+| `--port` | `channels.http.port` |
+| `--workspace` / `--data-dir` | `workspace` (`--data-dir` wins if both set) |
+| `--storage` | `storage` |
+| `--workers` | `worker_threads` |
+| `--ws-idle-timeout` | `channels.http.ws_idle_timeout_secs` |
+
+## Docker
+
+The Docker image (`ghcr.io/vizier-lab/vizier`) starts vizier with no
+config file. `docker-entrypoint.sh` translates env vars to CLI flags
+and `exec`s the binary so signals propagate correctly. Subcommands
+other than `run` (`shutdown`, `agent`, `skill`) are passed through
+with no env-var translation.
+
+| Env var | Maps to | Notes |
+|---|---|---|
+| `VIZIER_CONFIG` | `-c` | Path to `.vizier.yaml`. Loaded first, then env-var overrides are applied on top. |
+| `VIZIER_DATA_DIR` (or `VIZIER_WORKSPACE`) | `--data-dir` | Container data dir. Precedence: CLI flag > env var > `$HOME/.vizier`. Use a volume to persist. |
+| `VIZIER_PORT` | `--port` | HTTP server port. Default `9999`. |
+| `VIZIER_STORAGE` | `--storage` | `filesystem` or `sqlite`. Default `filesystem`. |
+| `VIZIER_WORKERS` | `--workers` | Tokio worker thread count. Default `4`. |
+| `VIZIER_WS_IDLE_TIMEOUT` | `--ws-idle-timeout` | WebSocket idle timeout (seconds). Default `300`. |
+| `VIZIER_JWT_SECRET` | (env var consumed by vizier) | Hardcoded fallback `vizier-default-secret-change-me` if unset. **Set to a strong value in production.** |
+| `VIZIER_EXTRA_ARGS` | (raw) | Append arbitrary extra args. Useful for flags not yet env-var-mapped. |
+
+Examples:
+
+```sh
+# Config-less, port 8080
+docker run -p 8080:8080 -e VIZIER_PORT=8080 ghcr.io/vizier-lab/vizier
+
+# Persist data with a named volume
+docker run -p 9999:9999 -v vizier-data:/data -e VIZIER_DATA_DIR=/data \
+  ghcr.io/vizier-lab/vizier
+
+# Pass a config file plus overrides
+docker run -p 9999:9999 \
+  -v $PWD/dev.vizier.yaml:/cfg.yaml \
+  -e VIZIER_CONFIG=/cfg.yaml \
+  -e VIZIER_PORT=8080 \
+  ghcr.io/vizier-lab/vizier
+
+# Subcommand passthrough (env vars skipped)
+docker run ghcr.io/vizier-lab/vizier shutdown
+```
 
 ## Build gotcha: `build.rs` auto-builds WebUI
 

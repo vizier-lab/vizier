@@ -1,4 +1,6 @@
-use anyhow::Result;
+use std::path::PathBuf;
+
+use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
 
 use crate::{command::VizierCommandClient, config::VizierConfig, schema::CommandRequest};
@@ -10,7 +12,7 @@ pub struct AgentArgs {
         long,
         value_name = "PATH",
         value_hint = clap::ValueHint::DirPath,
-        help = "path to .vizier.yaml or .vizier/config.yaml config file",
+        help = "path to .vizier.yaml or .vizier/config.yaml (optional, uses defaults if omitted)",
     )]
     config: Option<std::path::PathBuf>,
 
@@ -32,6 +34,13 @@ pub fn agent(args: AgentArgs) -> Result<()> {
 
 fn ps(config_path: Option<std::path::PathBuf>) -> Result<()> {
     let config = VizierConfig::load(config_path)?;
+
+    let sock_path = PathBuf::from(&config.workspace)
+        .join(".runtime")
+        .join(".vizier.sock");
+    if !sock_path.exists() {
+        bail!("no vizier daemon running at {}", sock_path.display());
+    }
 
     tokio::runtime::Runtime::new()?.block_on(async move {
         let client = VizierCommandClient::new(config)?;

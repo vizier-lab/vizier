@@ -23,5 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /staging/vizier-${TARGET_DIR}/vizier /usr/local/bin/vizier
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-ENTRYPOINT ["vizier"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD []

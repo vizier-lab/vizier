@@ -1,15 +1,35 @@
 use std::{fs, path::PathBuf};
 
 use anyhow::Result;
-use clap::Args;
+use clap::{Args, ValueEnum};
 use daemonize::Daemonize;
 use tokio::task::JoinSet;
 
 use crate::{
     agents::VizierAgents, channels::VizierChannels, command::VizierCommandServer,
-    config::VizierConfig, dependencies::VizierDependencies,
+    config::{
+        storage::StorageConfig,
+        RunOverrides, VizierConfig,
+    },
+    dependencies::VizierDependencies,
     scheduler::VizierScheduler,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[clap(rename_all = "lowercase")]
+enum StorageKind {
+    Filesystem,
+    Sqlite,
+}
+
+impl From<StorageKind> for StorageConfig {
+    fn from(kind: StorageKind) -> Self {
+        match kind {
+            StorageKind::Filesystem => StorageConfig::Filesystem,
+            StorageKind::Sqlite => StorageConfig::Sqlite,
+        }
+    }
+}
 
 #[derive(Debug, Args, Clone)]
 pub struct RunArgs {
@@ -18,7 +38,7 @@ pub struct RunArgs {
         long,
         value_name = "PATH",
         value_hint = clap::ValueHint::DirPath,
-        help = "path to .vizier.yaml or .vizier/config.yaml config file",
+        help = "path to .vizier.yaml or .vizier/config.yaml (optional, uses defaults if omitted)"
     )]
     config: Option<std::path::PathBuf>,
 
@@ -28,6 +48,42 @@ pub struct RunArgs {
         help = "run the server and attach to current terminal session"
     )]
     attached: bool,
+
+    #[arg(long, value_name = "PORT", help = "HTTP server port (overrides config)")]
+    port: Option<u32>,
+
+    #[arg(
+        long,
+        value_name = "PATH",
+        value_hint = clap::ValueHint::DirPath,
+        help = "workspace directory (overrides config and VIZIER_DATA_DIR)"
+    )]
+    workspace: Option<PathBuf>,
+
+    #[arg(
+        long,
+        value_name = "PATH",
+        value_hint = clap::ValueHint::DirPath,
+        help = "alias of --workspace, friendlier name; wins over --workspace if both are set"
+    )]
+    data_dir: Option<PathBuf>,
+
+    #[arg(
+        long,
+        value_name = "STORAGE",
+        help = "storage backend: filesystem or sqlite"
+    )]
+    storage: Option<StorageKind>,
+
+    #[arg(long, value_name = "N", help = "tokio worker thread count")]
+    workers: Option<usize>,
+
+    #[arg(
+        long,
+        value_name = "SECS",
+        help = "websocket idle timeout in seconds"
+    )]
+    ws_idle_timeout: Option<u64>,
 }
 
 pub fn run_server(config: VizierConfig) -> Result<()> {
@@ -89,7 +145,17 @@ pub fn run_server(config: VizierConfig) -> Result<()> {
 pub fn run(args: RunArgs) -> Result<()> {
     crate::utils::logo::print_logo();
 
-    let config = VizierConfig::load(args.config.clone())?;
+    let mut config = VizierConfig::load(args.config.clone())?;
+
+    let workspace_override = args.data_dir.clone().or(args.workspace.clone());
+    let overrides = RunOverrides {
+        workspace: workspace_override,
+        port: args.port,
+        storage: args.storage.map(Into::into),
+        workers: args.workers,
+        ws_idle_timeout: args.ws_idle_timeout,
+    };
+    config.apply_overrides(&overrides);
 
     let workspace = PathBuf::from(&config.workspace);
 

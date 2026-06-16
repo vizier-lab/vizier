@@ -144,11 +144,48 @@ See the [`Justfile`](Justfile) for available commands:
 
 The `vizier` binary provides these subcommands:
 
-- `vizier run --config <path>`: Start agents, server, and channels (daemonizes by default; use `-a` for attached mode)
-- `vizier shutdown --config <path>`: Stop a running daemonized instance
+- `vizier run [--config <path>]`: Start agents, server, and channels (daemonizes by default; use `-a` for attached mode). Works without a config file — see the [Docker](#docker) section for env-var configuration.
+- `vizier shutdown [--config <path>]`: Stop a running daemonized instance
 - `vizier onboard --path <path>`: Interactive wizard to generate seed config
+- `vizier agent ps`: List running agents and their status
 
-Agents are created and managed at runtime via the WebUI or HTTP API — there is no CLI subcommand for agent management.
+Agents are created and managed at runtime via the WebUI or HTTP API — there is no CLI subcommand for agent management beyond `ps`.
+
+### Docker
+
+The `ghcr.io/vizier-lab/vizier` image starts vizier with no config file. Configure via env vars (consumed by `docker-entrypoint.sh`):
+
+| Env var | Purpose | Default |
+|---|---|---|
+| `VIZIER_CONFIG` | Path to a `.vizier.yaml` to load. If set, file is loaded first, then env-var overrides apply on top. | unset |
+| `VIZIER_DATA_DIR` (or `VIZIER_WORKSPACE`) | Container data directory. | `$HOME/.vizier` (use a volume to persist) |
+| `VIZIER_PORT` | HTTP server port. | `9999` |
+| `VIZIER_STORAGE` | `filesystem` or `sqlite`. | `filesystem` |
+| `VIZIER_WORKERS` | Tokio worker thread count. | `4` |
+| `VIZIER_WS_IDLE_TIMEOUT` | WebSocket idle timeout (seconds). | `300` |
+| `VIZIER_JWT_SECRET` | JWT signing secret. **Set to a strong value in production.** | `vizier-default-secret-change-me` |
+| `VIZIER_EXTRA_ARGS` | Append arbitrary extra CLI args. | unset |
+
+Examples:
+
+```sh
+# Config-less, port 8080
+docker run -p 8080:8080 -e VIZIER_PORT=8080 ghcr.io/vizier-lab/vizier
+
+# Persist data with a named volume
+docker run -p 9999:9999 -v vizier-data:/data -e VIZIER_DATA_DIR=/data \
+  ghcr.io/vizier-lab/vizier
+
+# Pass a config file plus overrides
+docker run -p 9999:9999 \
+  -v $PWD/dev.vizier.yaml:/cfg.yaml \
+  -e VIZIER_CONFIG=/cfg.yaml \
+  -e VIZIER_PORT=8080 \
+  ghcr.io/vizier-lab/vizier
+
+# Subcommand passthrough (env vars skipped)
+docker run ghcr.io/vizier-lab/vizier shutdown
+```
 
 ### Adding New Features
 
