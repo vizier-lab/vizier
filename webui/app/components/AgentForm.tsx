@@ -109,7 +109,6 @@ const DEFAULT_FORM: CreateAgentRequest = {
     telegram: false,
     fetch: false,
     http_client: false,
-    programmatic_sandbox: false,
     timeout: '30m',
     mcp_servers: {},
     tts: false,
@@ -190,7 +189,6 @@ export default function AgentForm({
           telegram: d.telegram,
           fetch: d.fetch,
           http_client: d.http_client,
-          programmatic_sandbox: d.programmatic_sandbox ?? false,
           timeout: d.tools_timeout || '30m',
           mcp_servers: d.mcp_servers || {},
           tts: d.tts,
@@ -1354,45 +1352,6 @@ export default function AgentForm({
                     }
                   />
                 </section>
-              </div>
-
-              {/* Programmatic Sandbox */}
-              <div>
-                <h4
-                  style={{
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    color: 'var(--text-primary)',
-                    marginBottom: '0.75rem',
-                    paddingBottom: '0.5rem',
-                    borderBottom: '1px solid var(--border)',
-                  }}
-                >
-                  Programmatic Sandbox
-                </h4>
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem',
-                    fontSize: '0.8rem',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={
-                      form.tools?.programmatic_sandbox ?? false
-                    }
-                    onChange={(e) =>
-                      updateTool(
-                        'programmatic_sandbox',
-                        e.target.checked
-                      )
-                    }
-                  />
-                  Enable sandboxed execution
-                </label>
               </div>
 
               {/* Brave Search */}
@@ -3370,11 +3329,6 @@ export default function AgentForm({
                       HTTP Client
                     </span>
                   )}
-                  {form.tools?.programmatic_sandbox && (
-                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
-                      Sandbox
-                    </span>
-                  )}
                   {form.tools?.tts && (
                     <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
                       TTS
@@ -3402,7 +3356,7 @@ export default function AgentForm({
                   )}
                   {!form.tools?.brave_search && !form.tools?.discord &&
                     !form.tools?.telegram && !form.tools?.fetch && !form.tools?.http_client &&
-                    !form.tools?.programmatic_sandbox && !form.tools?.tts && !form.tools?.stt &&
+                    !form.tools?.tts && !form.tools?.stt &&
                     !form.tools?.read_image && !form.tools?.image_gen && (
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
                       No tools enabled

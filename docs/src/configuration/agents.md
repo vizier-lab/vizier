@@ -51,7 +51,6 @@ Each tool can be configured per-agent:
 |------|-----------|-------------------------|------|
 | `shell_access` | N/A (use `true`/`false`) | N/A | Subject to global shell config |
 | `timeout` | N/A | N/A | Global tool execution timeout |
-| `programmatic_sandbox` | N/A (use `true`/`false`) | N/A | Wrap tools in Python sandbox |
 | `mcp_servers` | N/A | N/A | List of MCP server names from global config |
 | `brave_search` | Enable web search | Allow tools to invoke search | Requires Brave Search API key |
 | `vector_memory` | Enable memory | Allow tools to use memory | Requires embedding config |
@@ -89,7 +88,6 @@ These are edited through the WebUI's markdown editor and stored as files on disk
   "tools": {
     "timeout": "1m",
     "shell_access": false,
-    "programmatic_sandbox": false,
     "mcp_servers": [],
     "brave_search": { "enabled": true },
     "vector_memory": { "enabled": true },

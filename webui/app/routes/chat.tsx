@@ -132,8 +132,6 @@ const formatToolChoice = (
       return `📰 Finding news about '${args.query as string}'`
     case 'shell_exec':
       return `🖥️ Running shell command:\n\`\`\`bash\n${args.commands as string}\n\`\`\``
-    case 'programmatic_sandbox':
-      return `🐍 Running Python script:\n\`\`\`python\n${args.script as string}\n\`\`\``
     case 'list_task': {
       const isActive = args.is_active as boolean | undefined
       if (isActive !== undefined) {

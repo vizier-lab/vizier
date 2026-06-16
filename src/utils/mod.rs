@@ -94,7 +94,6 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "web_search" => "🌐 Searching web:".to_string(),
         "news_search" => "📰 Finding news:".to_string(),
         "shell_exec" => "🖥️ Running shell:".to_string(),
-        "programmatic_sandbox" => "🐍 Running Python:".to_string(),
         "tts_generate" => "🔊 Generating speech:".to_string(),
         "stt_transcribe" => "🎤 Transcribing:".to_string(),
         "image_generate" => "🎨 Generating image:".to_string(),
@@ -131,7 +130,7 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
             .map(|line| format!("> {}", line))
             .collect::<Vec<_>>()
             .join("\n"),
-        "python_interpreter" | "programmatic_sandbox" => {
+        "python_interpreter" => {
             format!("```python\n{}\n```", args["script"].as_str().unwrap())
         }
         "shell_exec" => format!("```bash\n{}\n```", args["commands"].as_str().unwrap()),

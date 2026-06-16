@@ -66,7 +66,6 @@ Supported cloud providers: `openrouter`, `ollama`, `openai`, `gemini`
 Most tool settings are configured per-agent via the WebUI or API. See [Agent Configuration](./agents.md) for the full list of per-agent tool options including:
 
 - `shell_access` — shell command execution
-- `programmatic_sandbox` — Python sandbox for tool calls
 - `brave_search` — per-agent API key and settings
 - `fetch` — web page fetching
 - `http_client` — arbitrary HTTP requests

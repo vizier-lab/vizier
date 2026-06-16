@@ -130,7 +130,6 @@ export default function AgentSettings() {
       telegram: false,
       fetch: false,
       http_client: false,
-      programmatic_sandbox: false,
       timeout: '30m',
       mcp_servers: {},
       tts: false,
@@ -225,7 +224,6 @@ export default function AgentSettings() {
             telegram: d.telegram,
             fetch: d.fetch,
             http_client: d.http_client,
-            programmatic_sandbox: d.programmatic_sandbox ?? false,
             timeout: d.tools_timeout || '30m',
             mcp_servers: d.mcp_servers || {},
             tts: d.tts,
@@ -1638,45 +1636,6 @@ export default function AgentSettings() {
                     }
                   />
                 </section>
-              </div>
-
-              {/* Programmatic Sandbox */}
-              <div>
-                <h4
-                  style={{
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    color: 'var(--text-primary)',
-                    marginBottom: '0.75rem',
-                    paddingBottom: '0.5rem',
-                    borderBottom: '1px solid var(--border)',
-                  }}
-                >
-                  Programmatic Sandbox
-                </h4>
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem',
-                    fontSize: '0.8rem',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={
-                      form.tools?.programmatic_sandbox ?? false
-                    }
-                    onChange={(e) =>
-                      updateTool(
-                        'programmatic_sandbox',
-                        e.target.checked
-                      )
-                    }
-                  />
-                  Enable sandboxed execution
-                </label>
               </div>
 
               {/* Brave Search */}

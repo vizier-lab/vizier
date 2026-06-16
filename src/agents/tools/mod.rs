@@ -17,8 +17,7 @@ use crate::{
         dream_journal::ReadDreamJournal,
         fetch::FetchWebpage,
         http_client::HttpClient,
-        ptc::ProgramaticSandbox,
-        scheduler::{DeleteTask, GetTaskDetail, ListTask, ScheduleCronTask, ScheduleOneTimeTask},
+scheduler::{DeleteTask, GetTaskDetail, ListTask, ScheduleCronTask, ScheduleOneTimeTask},
         read_image::ReadImageFile,
         session_files::{ListSessionFiles, ReadDocumentFile, SendAttachment},
         shell::ShellExec,
@@ -54,7 +53,6 @@ mod discord;
 mod dream_journal;
 mod fetch;
 mod http_client;
-mod ptc;
 mod read_image;
 mod scheduler;
 mod session_files;
@@ -604,18 +602,6 @@ impl VizierTools {
                     );
                 }
             }
-        }
-
-        if agent_config.tools.programmatic_sandbox {
-            let ptc_toolset = VizierToolSet::new().tool(ProgramaticSandbox {
-                tools: Arc::new(user_toolset),
-            });
-            let tools = Self {
-                default_toolset: default_toolset.clone(),
-                user_toolset: ptc_toolset,
-                mcp: mcp.clone(),
-            };
-            return Ok(tools);
         }
 
         let tools = Self {

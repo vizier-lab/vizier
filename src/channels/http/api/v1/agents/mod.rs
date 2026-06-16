@@ -171,7 +171,6 @@ pub struct AgentDetail {
     pub show_thinking: Option<bool>,
     pub show_tool_calls: Option<bool>,
     pub silent_read_initiative_chance: f32,
-    pub programmatic_sandbox: bool,
     pub tts: bool,
     pub tts_settings: Option<TtsToolSettings>,
     pub stt: bool,
@@ -246,7 +245,6 @@ async fn agent_detail(
                 show_thinking: config.show_thinking,
                 show_tool_calls: config.show_tool_calls,
                 silent_read_initiative_chance: config.silent_read_initiative_chance,
-                programmatic_sandbox: config.tools.programmatic_sandbox,
                 tts: config.tools.tts.enabled,
                 tts_settings: if config.tools.tts.settings.provider
                     != crate::schema::agent::TtsProvider::default()
@@ -368,8 +366,6 @@ pub struct CreateAgentTools {
     #[serde(default)]
     pub mcp_servers: Option<std::collections::HashMap<String, McpClientConfig>>,
     #[serde(default)]
-    pub programmatic_sandbox: Option<bool>,
-    #[serde(default)]
     pub tts: Option<bool>,
     #[serde(default)]
     pub tts_settings: Option<TtsToolSettings>,
@@ -399,7 +395,6 @@ impl CreateAgentRequest {
             http_client: None,
             timeout: None,
             mcp_servers: None,
-            programmatic_sandbox: None,
             tts: None,
             tts_settings: None,
             stt: None,
@@ -428,7 +423,6 @@ impl CreateAgentRequest {
                     tools.timeout.unwrap_or_else(|| "30m".into()),
                 )
                 .unwrap_or(duration_string::DurationString::from_string("30m".into()).unwrap()),
-                programmatic_sandbox: tools.programmatic_sandbox.unwrap_or(false),
                 shell: tools.shell,
                 brave_search: ToolConfig {
                     enabled: tools.brave_search.unwrap_or(false),

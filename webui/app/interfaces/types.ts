@@ -377,7 +377,6 @@ export interface ImageGenToolSettings {
 
 export interface AgentToolsConfig {
   timeout: string
-  programmatic_sandbox: boolean
   shell: ShellConfigData | null
   brave_search: AgentToolConfig
   brave_search_settings?: BraveSearchToolSettings
@@ -443,7 +442,6 @@ export interface CreateAgentRequest {
     telegram?: boolean
     fetch?: boolean
     http_client?: boolean
-    programmatic_sandbox?: boolean
     timeout?: string
     mcp_servers?: Record<string, McpServerConfig>
     tts?: boolean
@@ -490,7 +488,6 @@ export interface AgentDetail {
   telegram: boolean
   fetch: boolean
   http_client: boolean
-  programmatic_sandbox?: boolean
   prompt_timeout: string
   heartbeat_interval: string
   dream_enabled: boolean

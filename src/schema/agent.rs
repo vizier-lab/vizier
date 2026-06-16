@@ -69,8 +69,6 @@ fn default_checkpoint_threshold() -> f64 {
 pub struct AgentToolsConfig {
     pub timeout: DurationString,
     #[serde(default)]
-    pub programmatic_sandbox: bool,
-    #[serde(default)]
     pub shell: Option<ShellConfig>,
     #[serde(default)]
     pub brave_search: ToolConfig<BraveSearchToolSettings>,
