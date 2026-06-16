@@ -2,6 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0] - 2026-06-16
+
+### 🚀 Features
+
+- Implement rest api chat
+- Implement vision model tool
+- Add image gen tools
+- Implement various providers
+- Memory with attachments
+- Add context window stats
+- Persistant error context
+- Add pdf export
+- Implement checkpoint system
+- Add lobotomy and checkpoint command
+- Implement kokoro tts
+- Add additional tool call formating
+- Replace surreal in favor of sqlite
+
+### 🐛 Bug Fixes
+
+- Image in context halucination
+- Agent not aware of memory attachemnts
+- Add additional headers to webfetch
+- Queue indicator
+- Align checkbox
+- Checkpoint not shown
+- Agent spawning blocking
+- Thought rendering in discord/telegram
+- Silent read and sqlite missing history
+
+### 💼 Other
+
+- Adjust defaults
+
+### 🚜 Refactor
+
+- Separate image read
+- Uniformised api key resolver
+- Move embedding and indexing to per agent basis
+- Rename embedding config
+- Add MarkdownDoc helper
+- Save tool calls to history
+- Save history as plain json
+- Exclude assistant message
+- Uniformize logging
+- Remove ptc
 ## [0.10.0-rc.3] - 2026-06-10
 
 ### 🚀 Features
@@ -9,12 +55,17 @@ All notable changes to this project will be documented in this file.
 - Implement stt models
 - Implement audio message
 - Implement auto-tts mode
+- Adjust prompt and core document
 
 ### 🚜 Refactor
 
 - Rename context files to session files
 - Adjust prompt
 - Change audio models target directory
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.10.0-rc.3
 ## [0.10.0-rc.2] - 2026-06-08
 
 ### 🐛 Bug Fixes
