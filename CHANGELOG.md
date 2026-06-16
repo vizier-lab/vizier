@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.10.0] - 2026-06-16
+## [0.10.1] - 2026-06-16
 
 ### 🚀 Features
 
@@ -35,6 +35,7 @@ All notable changes to this project will be documented in this file.
 ### 💼 Other
 
 - Adjust defaults
+- Add vizier-derive publish step
 
 ### 🚜 Refactor
 
@@ -48,6 +49,10 @@ All notable changes to this project will be documented in this file.
 - Exclude assistant message
 - Uniformize logging
 - Remove ptc
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.10.0
 ## [0.10.0-rc.3] - 2026-06-10
 
 ### 🚀 Features
