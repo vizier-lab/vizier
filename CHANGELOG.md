@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.3] - 2026-06-16
+
+### 🚀 Features
+
+- Add sample docker-compose
+## [0.10.2] - 2026-06-16
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.10.2
 ## [0.10.1] - 2026-06-16
 
 ### 🚀 Features
@@ -19,6 +29,7 @@ All notable changes to this project will be documented in this file.
 - Implement kokoro tts
 - Add additional tool call formating
 - Replace surreal in favor of sqlite
+- Implement config-less run
 
 ### 🐛 Bug Fixes
 
@@ -36,6 +47,7 @@ All notable changes to this project will be documented in this file.
 
 - Adjust defaults
 - Add vizier-derive publish step
+- Set default to sqlite
 
 ### 🚜 Refactor
 
