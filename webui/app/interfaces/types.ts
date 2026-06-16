@@ -104,7 +104,7 @@ export interface AgentToolConfig {
   enabled: boolean
 }
 
-export type IndexerKind = 'surreal'
+export type IndexerKind = 'sqlite'
 
 export interface IndexerConfig {
   kind: IndexerKind

@@ -3,32 +3,38 @@ use chrono::{DateTime, Utc};
 
 use crate::{
     schema::DreamStatus,
-    storage::{dream::DreamStorage, state::StateStorage, surreal::SurrealStorage},
+    storage::{dream::DreamStorage, state::StateStorage, sqlite::SqliteStorage},
 };
 
 #[async_trait::async_trait]
-impl StateStorage for SurrealStorage {
+impl StateStorage for SqliteStorage {
     async fn save_state(&self, key: String, value: serde_json::Value) -> Result<()> {
-        let _: Option<serde_json::Value> = self.conn.upsert(("state", key)).content(value).await?;
-
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT OR REPLACE INTO state (key, value) VALUES (?1, ?2)",
+            rusqlite::params![key, serde_json::to_string(&value)?],
+        )?;
         Ok(())
     }
 
     async fn get_state(&self, key: String) -> Result<Option<serde_json::Value>> {
-        let mut response = self
-            .conn
-            .query("SELECT * FROM state WHERE id = $key")
-            .bind(("key", key))
-            .await?;
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT value FROM state WHERE key = ?1")?;
+        let mut rows = stmt.query_map(rusqlite::params![key], |row| {
+            let val: String = row.get(0)?;
+            Ok(val)
+        })?;
 
-        let value: Option<serde_json::Value> = response.take(0)?;
-
-        Ok(value)
+        match rows.next() {
+            Some(Ok(val)) => Ok(Some(serde_json::from_str(&val)?)),
+            Some(Err(e)) => Err(e.into()),
+            None => Ok(None),
+        }
     }
 }
 
 #[async_trait::async_trait]
-impl DreamStorage for SurrealStorage {
+impl DreamStorage for SqliteStorage {
     async fn get_last_dream_time(&self, agent_id: &str) -> Result<Option<DateTime<Utc>>> {
         let key = format!("dream_last_time:{}", agent_id);
         match self.get_state(key).await? {

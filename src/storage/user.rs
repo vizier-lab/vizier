@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use surrealdb_types::SurrealValue;
+
 
 pub const AVAILABLE_PERMISSIONS: &[&str] = &[
     "all_agents:view",
@@ -20,7 +20,7 @@ pub const AVAILABLE_PERMISSIONS: &[&str] = &[
     "roles:manage",
 ];
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Role {
     pub role_id: String,
     pub name: String,
@@ -29,7 +29,7 @@ pub struct Role {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub user_id: String,
     pub username: String,
@@ -38,7 +38,7 @@ pub struct User {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserProfile {
     pub user_id: String,
     pub discord_id: Option<String>,
@@ -49,7 +49,7 @@ pub struct UserProfile {
     pub alias: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiKey {
     pub id: String,
     pub user_id: String,

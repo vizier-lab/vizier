@@ -1,11 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use surrealdb_types::SurrealValue;
+
 
 use super::{AgentId, DreamStage};
 use crate::utils::markdown::MarkdownDoc;
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, utoipa::ToSchema, MarkdownDoc)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, MarkdownDoc)]
 pub struct DreamJournalEntry {
     pub id: String,
     pub dream_cycle_id: String,

@@ -7,7 +7,7 @@ use rig_core::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use surrealdb_types::SurrealValue;
+
 
 use crate::{
     error::VizierError,
@@ -15,7 +15,7 @@ use crate::{
     utils::get_mime_type,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct VizierResponseStats {
     pub input_tokens: u64,
     pub cached_input_tokens: u64,
@@ -30,14 +30,14 @@ pub struct VizierResponseStats {
     pub context_window: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct VizierResponse {
     pub timestamp: DateTime<Utc>,
     pub content: VizierResponseContent,
     pub attachments: Vec<VizierAttachment>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorKind {
     Completion,
@@ -61,7 +61,7 @@ impl ErrorKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum VizierResponseContent {
     ThinkingStart,

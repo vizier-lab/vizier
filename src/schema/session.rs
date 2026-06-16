@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use surrealdb_types::SurrealValue;
+
 
 pub type AgentId = String;
 
@@ -15,7 +15,6 @@ pub type TopicId = String;
     Eq,
     Serialize,
     Deserialize,
-    SurrealValue,
     JsonSchema,
     utoipa::ToSchema,
 )]
@@ -40,7 +39,6 @@ impl VizierSession {
     Eq,
     Serialize,
     Deserialize,
-    SurrealValue,
     JsonSchema,
     utoipa::ToSchema,
 )]
@@ -84,7 +82,7 @@ impl VizierChannelId {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VizierSessionDetail {
     pub agent_id: AgentId,
     pub channel: VizierChannelId,
@@ -95,7 +93,7 @@ pub struct VizierSessionDetail {
 }
 
 #[derive(
-    Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema,
+    Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize, JsonSchema, utoipa::ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum DreamStage {

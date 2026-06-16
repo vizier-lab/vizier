@@ -151,7 +151,7 @@ export default function AgentSettings() {
       provider: 'local',
       model: 'all_mini_lml6_v2',
     },
-    indexer: { kind: 'surreal' },
+    indexer: { kind: 'sqlite' },
   })
 
   // ── Dream model toggle (UI-only state) ──
@@ -248,7 +248,7 @@ export default function AgentSettings() {
             provider: 'local',
             model: 'all_mini_lml6_v2',
           },
-          indexer: d.indexer || { kind: 'surreal' },
+          indexer: d.indexer || { kind: 'sqlite' },
         })
         setUseSameModel(!d.dream_provider && !d.dream_model)
       } catch {
@@ -1292,7 +1292,7 @@ export default function AgentSettings() {
 
               <EmbeddingIndexerSection
                 embedding={form.embedding || { provider: 'local', model: 'all_mini_lml6_v2' }}
-                indexer={form.indexer || { kind: 'surreal' }}
+                indexer={form.indexer || { kind: 'sqlite' }}
                 onEmbeddingChange={(next) => updateField('embedding', next)}
                 onIndexerChange={(next) => updateField('indexer', next)}
                 inputStyle={inputStyle}

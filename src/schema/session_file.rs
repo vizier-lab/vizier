@@ -1,11 +1,11 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use surrealdb_types::SurrealValue;
+
 
 use crate::schema::VizierSession;
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct SessionFileRecord {
     pub id: String,
     pub session_slug: String,

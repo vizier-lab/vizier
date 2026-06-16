@@ -49,9 +49,9 @@ pub use storage::{
 pub use task::{Task, TaskFrontMatter, TaskSchedule};
 
 use serde::{Deserialize, Serialize};
-use surrealdb_types::SurrealValue;
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct User {
     pub username: String,
     pub password_hash: String,

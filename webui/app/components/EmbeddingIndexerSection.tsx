@@ -205,7 +205,7 @@ export default function EmbeddingIndexerSection({
                 onIndexerChange({ kind: e.target.value as IndexerKind })
               }
             >
-              <option value="surreal">Surreal (vector store)</option>
+              <option value="sqlite">SQLite (vector store)</option>
             </select>
           </section>
         </div>

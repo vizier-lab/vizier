@@ -10,7 +10,7 @@ use crate::config::provider::ProviderVariant;
 use crate::dependencies::VizierDependencies;
 use crate::embedding::VizierEmbedder;
 use crate::indexer::VizierIndexer;
-use crate::indexer::surreal::SurrealIndexer;
+use crate::indexer::sqlite::SqliteIndexer;
 use crate::schema::{
     AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentId, AgentSummary,
     ChannelCommand, ProviderEntryConfig,
@@ -78,9 +78,14 @@ impl VizierAgents {
         deps: &VizierDependencies,
         config: &AgentConfig,
     ) -> Result<Option<VizierIndexer>> {
-        let (emb_settings, idx_cfg) = match (&config.embedding, &config.indexer) {
+        let (emb_settings, _idx_cfg) = match (&config.embedding, &config.indexer) {
             (Some(e), Some(i)) => (e, i),
             _ => return Ok(None),
+        };
+
+        let conn = match &deps.sqlite_conn {
+            Some(conn) => conn.clone(),
+            None => return Ok(None),
         };
 
         let embedder = Arc::new(
@@ -91,9 +96,8 @@ impl VizierAgents {
             )
             .await?,
         );
-        let surreal_idx = SurrealIndexer::new(deps.surreal_conn.clone(), embedder);
-        let _ = idx_cfg;
-        Ok(Some(VizierIndexer::build(surreal_idx)))
+        let sqlite_idx = SqliteIndexer::new(conn, embedder).await?;
+        Ok(Some(VizierIndexer::build(sqlite_idx)))
     }
 
     async fn spawn_agent(

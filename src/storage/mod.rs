@@ -27,7 +27,7 @@ pub mod task;
 pub mod user;
 
 pub mod fs;
-pub mod surreal;
+pub mod sqlite;
 
 pub trait VizierStorageProvider
 where

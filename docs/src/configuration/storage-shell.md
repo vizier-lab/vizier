@@ -17,14 +17,14 @@ storage:
 | Type | Description |
 |------|-------------|
 | `filesystem` | Store data in `.vizier/` directory (default) |
-| `surreal` | Use SurrealDB for data storage |
+| `sqlite` | Use SQLite for data storage |
 
 ### Indexer Types
 
 | Type | Description |
 |------|-------------|
 | `in_mem` | In-memory indexer (default, fast, non-persistent) |
-| `surreal` | SurrealDB-based indexer (persistent, slower) |
+| `sqlite` | SQLite-based indexer (persistent, vector search) |
 
 ## `shell`
 

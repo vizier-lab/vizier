@@ -5,11 +5,11 @@ use rig_core::{
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use surrealdb_types::SurrealValue;
+
 
 use crate::schema::{ReactionEntry, VizierRequest, VizierResponse, VizierResponseContent, VizierSession};
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct SessionHistory {
     pub uid: String,
     pub vizier_session: VizierSession,
@@ -20,7 +20,7 @@ pub struct SessionHistory {
     pub reactions: Vec<ReactionEntry>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, utoipa::ToSchema)]
 pub enum SessionHistoryContent {
     Request(VizierRequest),
     Response(VizierResponse),

@@ -121,10 +121,10 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         _ => unreachable!(),
     }
 
-    let storage_type = Select::new("Storage type:", vec!["Filesystem", "Surreal"]).prompt()?;
+    let storage_type = Select::new("Storage type:", vec!["Filesystem", "SQLite"]).prompt()?;
 
-    let storage = if storage_type == "Surreal" {
-        StorageConfig::Surreal
+    let storage = if storage_type == "SQLite" {
+        StorageConfig::Sqlite
     } else {
         StorageConfig::Filesystem
     };

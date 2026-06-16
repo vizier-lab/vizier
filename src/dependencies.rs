@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use surrealdb::Surreal;
-use surrealdb::engine::local::Db;
+use parking_lot::Mutex;
 
 use crate::{
     config::{
@@ -18,7 +17,7 @@ use crate::{
         fs::FileSystemStorage,
         global_config::GlobalConfigStorage,
         provider::ProviderStorage,
-        surreal::SurrealStorage,
+        sqlite::SqliteStorage,
         user::{AVAILABLE_PERMISSIONS, UserStorage},
     },
     transport::VizierTransport,
@@ -27,23 +26,26 @@ use crate::{
 #[derive(Clone)]
 pub struct VizierDependencies {
     pub config: Arc<VizierConfig>,
-    pub surreal_conn: Arc<Surreal<Db>>,
-    pub transport: VizierTransport,
     pub storage: Arc<VizierStorage>,
+    pub sqlite_conn: Option<Arc<Mutex<rusqlite::Connection>>>,
+    pub transport: VizierTransport,
     pub file_manager: FileManager,
 }
 
 impl VizierDependencies {
     pub async fn new(config: VizierConfig) -> Result<Self> {
-        let surreal_conn = SurrealStorage::open_connection(&config.workspace).await?;
-
-        let storage = match &config.storage {
-            StorageConfig::Surreal => {
-                VizierStorage::new(SurrealStorage::from_conn(surreal_conn.clone()))
+        let (storage, sqlite_conn) = match &config.storage {
+            StorageConfig::Sqlite => {
+                let conn = SqliteStorage::open_connection(&config.workspace)?;
+                let conn = Arc::new(Mutex::new(conn));
+                (
+                    VizierStorage::new(SqliteStorage::new(conn.clone())),
+                    Some(conn),
+                )
             }
             StorageConfig::Filesystem => {
                 let fs = FileSystemStorage::new(config.workspace.clone()).await?;
-                VizierStorage::new(fs)
+                (VizierStorage::new(fs), None)
             }
         };
 
@@ -63,8 +65,8 @@ impl VizierDependencies {
 
         Ok(Self {
             config: Arc::new(config.clone()),
-            surreal_conn,
             storage: Arc::new(storage),
+            sqlite_conn,
             transport,
             file_manager,
         })

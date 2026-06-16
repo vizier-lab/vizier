@@ -490,7 +490,7 @@ impl CreateAgentRequest {
             })),
             indexer: Some(
                 self.indexer
-                    .unwrap_or(IndexerConfig { kind: IndexerKind::Surreal }),
+                    .unwrap_or(IndexerConfig { kind: IndexerKind::Sqlite }),
             ),
         }
     }

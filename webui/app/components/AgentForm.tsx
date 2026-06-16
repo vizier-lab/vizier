@@ -131,7 +131,7 @@ const DEFAULT_FORM: CreateAgentRequest = {
     provider: 'local',
     model: 'all_mini_lml6_v2',
   },
-  indexer: { kind: 'surreal' },
+  indexer: { kind: 'sqlite' },
 }
 
 export default function AgentForm({
@@ -213,7 +213,7 @@ export default function AgentForm({
           provider: 'local',
           model: 'all_mini_lml6_v2',
         },
-        indexer: d.indexer || { kind: 'surreal' },
+        indexer: d.indexer || { kind: 'sqlite' },
       })
       setUseSameModel(!d.dream_provider && !d.dream_model)
     }
@@ -1118,7 +1118,7 @@ export default function AgentForm({
 
               <EmbeddingIndexerSection
                 embedding={form.embedding || { provider: 'local', model: 'all_mini_lml6_v2' }}
-                indexer={form.indexer || { kind: 'surreal' }}
+                indexer={form.indexer || { kind: 'sqlite' }}
                 onEmbeddingChange={(next) => updateField('embedding', next)}
                 onIndexerChange={(next) => updateField('indexer', next)}
                 inputStyle={inputStyle}

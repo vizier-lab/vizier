@@ -47,12 +47,11 @@ fn main() -> Result<()> {
             .add_directive("h2=error".parse().unwrap())
             .add_directive("tracing=off".parse().unwrap())
             .add_directive("rustls=off".parse().unwrap())
-            .add_directive("surrealdb=off".parse().unwrap())
+            .add_directive("sqlite=off".parse().unwrap())
             .add_directive("ort=off".parse().unwrap())
             .add_directive("ureq=off".parse().unwrap())
             .add_directive("bollard=off".parse().unwrap())
-            .add_directive("rmcp=off".parse().unwrap())
-            .add_directive("rustpython=off".parse().unwrap());
+            .add_directive("rmcp=off".parse().unwrap());
 
         fmt().with_env_filter(filter).compact().init();
     } else {

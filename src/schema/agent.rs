@@ -155,13 +155,13 @@ pub struct IndexerConfig {
 #[serde(rename_all = "snake_case")]
 pub enum IndexerKind {
     #[default]
-    Surreal,
+    Sqlite,
 }
 
 impl IndexerKind {
     pub fn display_name(&self) -> &'static str {
         match self {
-            Self::Surreal => "surreal",
+            Self::Sqlite => "sqlite",
         }
     }
 }

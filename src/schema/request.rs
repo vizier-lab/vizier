@@ -11,12 +11,12 @@ use rig_core::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use surrealdb_types::SurrealValue;
+
 
 use crate::{error::VizierError, utils::get_mime_type};
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema, PartialEq,
+    Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum PlatformMessageId {
@@ -24,14 +24,14 @@ pub enum PlatformMessageId {
     Telegram(i64),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ReactionAction {
     Added,
     Removed,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct ReactionEvent {
     #[serde(default)]
     pub platform_message_id: Option<PlatformMessageId>,
@@ -50,14 +50,14 @@ impl ReactionEvent {
 }
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema, PartialEq,
+    Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq,
 )]
 pub struct ReactionEntry {
     pub user_id: String,
     pub emoji: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum VizierRequestContent {
     Chat(String),
@@ -105,7 +105,7 @@ impl Display for VizierRequestContent {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum VizierAttachmentContent {
     Bytes(Vec<u8>),
@@ -114,7 +114,7 @@ pub enum VizierAttachmentContent {
     Local(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct VizierAttachment {
     pub filename: String,
     pub content: VizierAttachmentContent,
@@ -195,7 +195,7 @@ impl VizierAttachment {
 }
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, SurrealValue, JsonSchema, utoipa::ToSchema, Default,
+    Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, Default,
 )]
 pub struct VizierRequest {
     pub timestamp: DateTime<Utc>,

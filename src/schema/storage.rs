@@ -1,13 +1,13 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use surrealdb_types::SurrealValue;
+
 
 use crate::{
     schema::{AgentId, VizierAttachment},
     utils::markdown::MarkdownDoc,
 };
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, SurrealValue, utoipa::ToSchema)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, utoipa::ToSchema)]
 pub enum MemoryVisibility {
     #[serde(rename = "private")]
     #[default]
@@ -41,7 +41,7 @@ impl std::str::FromStr for MemoryVisibility {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue, MarkdownDoc)]
+#[derive(Debug, Serialize, Deserialize, Clone, MarkdownDoc)]
 pub struct Memory {
     pub slug: String,
     pub title: String,
@@ -104,14 +104,14 @@ pub struct MemoryGraph {
     pub edges: Vec<MemoryGraphEdge>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DocumentIndex {
     pub path: String,
     pub embedding: Vec<f64>,
     pub context: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, schemars::JsonSchema, SurrealValue)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, schemars::JsonSchema)]
 pub enum SkillActivation {
     #[serde(rename = "always")]
     Always,
@@ -127,7 +127,7 @@ impl Default for SkillActivation {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue, MarkdownDoc)]
+#[derive(Debug, Serialize, Deserialize, Clone, MarkdownDoc)]
 pub struct Skill {
     pub name: String,
     pub agent_id: Option<AgentId>,

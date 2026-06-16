@@ -1,11 +1,11 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use surrealdb_types::SurrealValue;
+
 
 use crate::utils::markdown::MarkdownDoc;
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue, JsonSchema, utoipa::ToSchema, MarkdownDoc)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, utoipa::ToSchema, MarkdownDoc)]
 pub struct Task {
     pub slug: String,
     pub user: String,
@@ -19,7 +19,7 @@ pub struct Task {
     pub timestamp: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, utoipa::ToSchema)]
 pub enum TaskSchedule {
     CronTask(String),
     OneTimeTask(DateTime<Utc>),
