@@ -108,14 +108,24 @@ const formatToolChoice = (
       return `🔍 Searching memory for '${args.query as string}'`
     case 'memory_write':
       return `💾 Remembering: '${args.title as string}'`
-    case 'memory_list':
-      return `📚 Listing memories`
+    case 'memory_list': {
+      const limit = (args.limit as number) || 50
+      const offset = (args.offset as number) || 0
+      return `📚 Listing memories (showing ${limit} starting at ${offset})`
+    }
     case 'memory_detail':
       return `🔎 Getting memory detail for '${args.slug as string}'`
     case 'memory_follow':
       return `🔗 Following links from '${args.slug as string}' (depth: ${args.depth || 1})`
-    case 'memory_graph':
+    case 'memory_graph': {
+      const tags = args.tags as string[] | undefined
+      if (tags && tags.length > 0) {
+        return `📊 Loading knowledge graph (tags: [${tags.join(', ')}])`
+      }
       return `📊 Loading knowledge graph`
+    }
+    case 'memory_delete':
+      return `🗑️ Deleting memory '${args.slug as string}'`
     case 'web_search':
       return `🌐 Searching the web for '${args.query as string}'`
     case 'news_search':
@@ -124,6 +134,17 @@ const formatToolChoice = (
       return `🖥️ Running shell command:\n\`\`\`bash\n${args.commands as string}\n\`\`\``
     case 'programmatic_sandbox':
       return `🐍 Running Python script:\n\`\`\`python\n${args.script as string}\n\`\`\``
+    case 'list_task': {
+      const isActive = args.is_active as boolean | undefined
+      if (isActive !== undefined) {
+        return `📋 Listing tasks (filter: active=${isActive})`
+      }
+      return `📋 Listing all tasks`
+    }
+    case 'delete_task':
+      return `🗑️ Deleting task '${args.slug as string}'`
+    case 'get_task_detail':
+      return `📋 Getting task detail for '${args.slug as string}'`
     case 'schedule_one_time_task':
       return `⏰ Scheduling task: '${args.title as string}'`
     case 'schedule_cron_task':
@@ -142,6 +163,54 @@ const formatToolChoice = (
       return `⚡ Running parallel tasks`
     case 'create_skill':
       return `🎯 Creating skill: '${args.name as string}'`
+    case 'update_skill':
+      return `✏️ Updating skill '${args.slug as string}'`
+    case 'delete_skill':
+      return `🗑️ Deleting skill '${args.slug as string}'`
+    case 'list_skills': {
+      const keyword = args.keyword as string | undefined
+      if (keyword) {
+        return `📚 Listing skills (keyword: '${keyword}')`
+      }
+      return `📚 Listing all skills`
+    }
+    case 'read_skill_resource':
+      return `📖 Reading skill resource '${args.slug as string}/${args.path as string}'`
+    case 'execute_skill_resource':
+      return `▶️ Executing skill resource '${args.slug as string}/${args.path as string}'`
+    case 'list_session_files':
+      return `📂 Listing session files`
+    case 'read_document_file':
+      return `📄 Reading document '${args.filename as string}'`
+    case 'send_attachment':
+      return `📎 Sending attachment '${args.filename as string}'`
+    case 'fetch':
+      return `🌐 Fetching '${args.url as string}'`
+    case 'http_client':
+      return `🔗 HTTP ${(args.method as string) || 'GET'} '${args.url as string}'`
+    case 'tts_generate': {
+      const text = (args.text as string) || ''
+      const truncated = text.length > 60 ? `${text.slice(0, 60)}...` : text
+      return `🔊 Generating speech: '${truncated}'`
+    }
+    case 'stt_transcribe':
+      return `🎤 Transcribing '${args.filename as string}'`
+    case 'image_generate': {
+      const prompt = (args.prompt as string) || ''
+      const truncated = prompt.length > 60 ? `${prompt.slice(0, 60)}...` : prompt
+      return `🎨 Generating image: '${truncated}'`
+    }
+    case 'read_image_file':
+      return `🖼️ Reading image '${args.filename as string}'`
+    case 'write_dream_journal':
+      return `💤 Writing dream journal (${args.stage as string})`
+    case 'read_dream_journal': {
+      const filters: string[] = []
+      if (args.stage) filters.push(`stage: ${args.stage as string}`)
+      if (args.cycle_id) filters.push(`cycle: ${args.cycle_id as string}`)
+      if (args.limit) filters.push(`limit: ${args.limit as number}`)
+      return `💤 Reading dream journal${filters.length > 0 ? ` (${filters.join(', ')})` : ''}`
+    }
     case 'WRITE_SOUL':
       return `📝 Updating agent notes`
     case 'READ_SOUL':
@@ -166,12 +235,16 @@ const formatToolChoice = (
       return `👍 Reacting on Telegram`
     case 'telegram_get_message_by_id':
       return `📩 Getting Telegram message`
+    case 'webui_send_message':
+      return `💬 Sending WebUI message to @${args.username as string}`
+    case 'webui_list_topics':
+      return `📋 Listing WebUI topics for @${args.username as string}`
     default:
       if (name.startsWith('mcp_')) {
         const parts = name.replace('mcp_', '').split('__')
         const server = parts[0]
         const toolName = parts.slice(1).join('__')
-        return `🔌 Using MCP tool: ${toolName} (${server})`
+        return `🔌 MCP tool: ${toolName} (${server})`
       }
       const formattedArgs = `\`\`\`js\n${JSON.stringify(args, null, 2)}\n\`\`\``
       return `🔧 Using ${name}\n${formattedArgs}`
