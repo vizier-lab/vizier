@@ -105,7 +105,7 @@ calamine = "0.35"
 sherpa-onnx = "1.13.2"
 hound = "3.5"
 symphonia = { version = "0.5.5", features = ["mp3", "ogg", "vorbis", "wav", "flac", "isomp4", "mkv", "pcm"] }
-vizier-derive = { path = "vizier-derive" }
+vizier-derive = { path = "vizier-derive", version = "0.10.0" }
 
 [features]
 default = []

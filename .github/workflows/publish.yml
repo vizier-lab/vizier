@@ -84,7 +84,16 @@ jobs:
           echo "Package size:"
           cargo package --allow-dirty --no-verify 2>&1 | grep -E "Packaged|Compressing" || true
 
-      - name: Publish to crates.io
+      - name: Publish vizier-derive
+        if: ${{ !inputs.dry_run }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          cargo publish -p vizier-derive --allow-dirty --no-verify
+          # Give crates.io time to index the new crate before vizier resolves it.
+          sleep 30
+
+      - name: Publish vizier
         if: ${{ !inputs.dry_run }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -97,8 +106,10 @@ jobs:
           echo "## Dry Run - Would publish:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- Package: vizier" >> $GITHUB_STEP_SUMMARY
+          echo "- Package: vizier-derive" >> $GITHUB_STEP_SUMMARY
           echo "- Version: ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          cargo publish -p vizier-derive --allow-dirty --no-verify --dry-run
           cargo publish --allow-dirty --no-verify --dry-run
 
       - name: Post-publish summary

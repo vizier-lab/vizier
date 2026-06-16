@@ -67,10 +67,15 @@ jobs:
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Update Cargo.toml version
+      - name: Update Cargo.toml versions
         run: |
-          sed -i 's/^version = ".*"/version = "${{ steps.version.outputs.version }}"/' Cargo.toml
-          cat Cargo.toml | grep "^version"
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i 's/^version = ".*"/version = "'"$VERSION"'"/' Cargo.toml
+          sed -i 's/^version = ".*"/version = "'"$VERSION"'"/' vizier-derive/Cargo.toml
+          echo "Root: $(grep -m1 '^version = ' Cargo.toml)"
+          echo "Derive: $(grep -m1 '^version = ' vizier-derive/Cargo.toml)"
+          grep -q "^version = \"$VERSION\"$" Cargo.toml || (echo "::error::root version not bumped"; exit 1)
+          grep -q "^version = \"$VERSION\"$" vizier-derive/Cargo.toml || (echo "::error::vizier-derive version not bumped"; exit 1)
 
       - name: Install git-cliff
         uses: taiki-e/install-action@git-cliff
@@ -97,7 +102,7 @@ jobs:
 
       - name: Commit version bump
         run: |
-          git add Cargo.toml CHANGELOG.md
+          git add Cargo.toml vizier-derive/Cargo.toml CHANGELOG.md
           git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
           git tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
 
