@@ -16,8 +16,6 @@ if [ "$SUBCOMMAND" != "run" ]; then
   exec vizier "$@"
 fi
 
-shift  # drop "run" — remaining args are explicit user flags
-
 # Hardcoded fallback for local/dev use. Set VIZIER_JWT_SECRET in production
 # (e.g. via -e, secrets manager, or compose file) to a strong random string.
 export VIZIER_JWT_SECRET="${VIZIER_JWT_SECRET:-vizier-default-secret-change-me}"
@@ -36,6 +34,11 @@ args=(run)
 [ -n "${VIZIER_WS_IDLE_TIMEOUT:-}" ] && args+=(--ws-idle-timeout "$VIZIER_WS_IDLE_TIMEOUT")
 [ -n "${VIZIER_EXTRA_ARGS:-}" ]      && args+=($VIZIER_EXTRA_ARGS)
 
-args+=("$@")
+# Append explicit user args (everything after "run", if any).
+# Guarded: `${@:2}` is empty when $# is 0 or 1, but checking avoids any
+# "set -e" issues on edge cases across bash versions.
+if [ "$#" -ge 2 ]; then
+  args+=("${@:2}")
+fi
 
 exec vizier "${args[@]}"

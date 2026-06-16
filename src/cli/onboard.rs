@@ -9,7 +9,6 @@ use crate::config::{
     ChannelsConfig, HTTPChannelConfig, VizierConfig,
     provider::ProviderConfig,
     storage::StorageConfig,
-    tools::ToolsConfig,
 };
 
 #[derive(Debug, Args, Clone)]
@@ -181,17 +180,12 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         providers,
         storage,
         channels: ChannelsConfig {
-            discord: None,
             http: Some(HTTPChannelConfig {
                 port,
                 jwt_secret,
                 jwt_expiry_hours: 720,
                 ws_idle_timeout_secs,
             }),
-            telegram: None,
-        },
-        tools: ToolsConfig {
-            brave_search: None,
         },
         worker_threads,
     };

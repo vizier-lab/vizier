@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env::current_dir, fs, path::PathBuf, str::FromStr};
+use std::{env::current_dir, fs, path::PathBuf, str::FromStr};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -13,42 +13,13 @@ use crate::{
     config::{
         provider::{LlamaCppProviderConfig, MistralrsProviderConfig, OllamaProviderConfig, ProviderConfig},
         storage::StorageConfig,
-        tools::{BraveSearchConfig, ToolsConfig},
     },
     constant,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChannelsConfig {
-    pub discord: Option<HashMap<String, DiscordChannelConfig>>,
     pub http: Option<HTTPChannelConfig>,
-    pub telegram: Option<HashMap<String, TelegramChannelConfig>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DiscordChannelConfig {
-    pub token: String,
-}
-
-impl Default for DiscordChannelConfig {
-    fn default() -> Self {
-        Self {
-            token: "${DISCORD_BOT_TOKEN}".into(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TelegramChannelConfig {
-    pub token: String,
-}
-
-impl Default for TelegramChannelConfig {
-    fn default() -> Self {
-        Self {
-            token: "${TELEGRAM_BOT_TOKEN}".into(),
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -76,7 +47,6 @@ pub struct VizierConfig {
     pub providers: ProviderConfig,
     pub storage: StorageConfig,
     pub channels: ChannelsConfig,
-    pub tools: ToolsConfig,
     #[serde(default = "default_worker_threads")]
     pub worker_threads: usize,
 }
@@ -247,16 +217,7 @@ impl Default for VizierConfig {
                 azure: None,
             },
             channels: ChannelsConfig {
-                discord: Some(
-                    [("vizier".to_string(), DiscordChannelConfig::default())]
-                        .into_iter()
-                        .collect::<HashMap<String, DiscordChannelConfig>>(),
-                ),
                 http: Some(default_http_channel()),
-                telegram: None,
-            },
-            tools: ToolsConfig {
-                brave_search: Some(BraveSearchConfig::default()),
             },
             worker_threads: 4,
         }

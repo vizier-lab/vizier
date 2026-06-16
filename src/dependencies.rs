@@ -51,7 +51,6 @@ impl VizierDependencies {
 
         Self::migrate_users(&storage).await?;
         Self::migrate_providers(&config, &storage).await?;
-        Self::migrate_channel_tokens(&config, &storage).await?;
         Self::migrate_agent_tools(&storage).await?;
 
         let transport = VizierTransport::new();
@@ -182,72 +181,6 @@ impl VizierDependencies {
         for entry in entries {
             if let Err(e) = storage.upsert_provider(&entry).await {
                 tracing::warn!("failed to migrate provider {:?}: {}", entry.variant, e);
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn migrate_channel_tokens(config: &VizierConfig, storage: &VizierStorage) -> Result<()> {
-        let agents = storage.list_agents().await?;
-        if agents.is_empty() {
-            return Ok(());
-        }
-
-        let mut needs_update = false;
-        for (_, agent_config) in &agents {
-            if agent_config.discord_token.is_some() || agent_config.telegram_token.is_some() {
-                needs_update = true;
-                break;
-            }
-        }
-
-        if needs_update {
-            return Ok(());
-        }
-
-        let has_discord = config
-            .channels
-            .discord
-            .as_ref()
-            .map_or(false, |d| !d.is_empty());
-        let has_telegram = config
-            .channels
-            .telegram
-            .as_ref()
-            .map_or(false, |t| !t.is_empty());
-
-        if !has_discord && !has_telegram {
-            return Ok(());
-        }
-
-        tracing::info!("migrating channel tokens from YAML config to agent configs");
-
-        for (agent_id, mut agent_config) in agents {
-            let mut changed = false;
-
-            if let Some(discord_configs) = &config.channels.discord {
-                if let Some(discord_config) = discord_configs.get(&agent_id) {
-                    agent_config.discord_token = Some(discord_config.token.clone());
-                    changed = true;
-                }
-            }
-
-            if let Some(telegram_configs) = &config.channels.telegram {
-                if let Some(telegram_config) = telegram_configs.get(&agent_id) {
-                    agent_config.telegram_token = Some(telegram_config.token.clone());
-                    changed = true;
-                }
-            }
-
-            if changed {
-                if let Err(e) = storage.update_agent(&agent_id, &agent_config).await {
-                    tracing::warn!(
-                        "failed to migrate channel tokens for agent '{}': {}",
-                        agent_id,
-                        e
-                    );
-                }
             }
         }
 

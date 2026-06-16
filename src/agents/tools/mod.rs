@@ -366,7 +366,6 @@ impl VizierTools {
         tts: Option<Arc<crate::tts::VizierTts>>,
         image_gen: Option<Arc<crate::image_generation::VizierImageGen>>,
     ) -> Result<Self> {
-        let tool_config = deps.config.tools.clone();
         let workspace = deps.config.workspace.clone();
         let agent_workspace_path = agent_workspace(&workspace, &agent_id);
         let agent_workspace = agent_workspace_path.to_string_lossy().to_string();
@@ -495,13 +494,9 @@ impl VizierTools {
             });
 
         if agent_config.tools.brave_search.enabled {
-            let global = tool_config.brave_search.as_ref();
             let per_agent = &agent_config.tools.brave_search.settings;
 
-            let api_key = per_agent.api_key.as_ref().or(global.map(|g| &g.api_key));
-            let safesearch = per_agent.safesearch.or(global.map(|g| g.safesearch));
-
-            if let (Some(key), Some(ss)) = (api_key, safesearch) {
+            if let (Some(key), Some(ss)) = (per_agent.api_key.as_ref(), per_agent.safesearch) {
                 let cfg = crate::config::tools::BraveSearchConfig {
                     api_key: key.clone(),
                     safesearch: ss,

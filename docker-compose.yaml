@@ -24,8 +24,8 @@ services:
       VIZIER_DATA_DIR: /data
       VIZIER_PORT: "9999"
       VIZIER_STORAGE: sqlite
-      VIZIER_JWT_SECRET: ${VIZIER_JWT_SECRET:?VIZIER_JWT_SECRET must be set}
       VIZIER_WORKERS: "4"
+      VIZIER_EXTRA_ARGS: "-a"
       RUST_LOG: vizier=info
 
 volumes:
