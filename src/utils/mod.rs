@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 pub mod discord;
 pub mod kitten;
+pub mod kokoro;
 pub mod logo;
 pub mod markdown;
 pub mod mistralrs;
