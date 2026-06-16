@@ -414,8 +414,8 @@ impl CreateAgentRequest {
             provider: self.provider,
             model: self.model,
             quantization: self.quantization,
-            thinking_depth: self.thinking_depth.unwrap_or(10),
-            checkpoint_threshold: self.checkpoint_threshold.unwrap_or(0.8),
+            thinking_depth: self.thinking_depth.unwrap_or(100),
+            checkpoint_threshold: self.checkpoint_threshold.unwrap_or(0.8).clamp(0.0, 1.0),
             max_tokens: self.max_tokens,
             context_window: self.context_window,
             tools: AgentToolsConfig {

@@ -115,7 +115,7 @@ export default function AgentSettings() {
     model: '',
     quantization: 'auto_4',
     system_prompt: '',
-    thinking_depth: 10,
+    thinking_depth: 100,
     checkpoint_threshold: 80,
     max_tokens: 100000,
     context_window: undefined,
@@ -439,6 +439,7 @@ export default function AgentSettings() {
       await updateAgent(agentId, {
         ...form,
         avatar_url: avatarUrl,
+        checkpoint_threshold: (form.checkpoint_threshold ?? 80) / 100,
         dream_schedule: form.dream_enabled ? (form.dream_schedule || '0 2 * * *') : '',
         dream_provider: (!form.dream_enabled || useSameModel) ? null : form.dream_provider || null,
         dream_model: (!form.dream_enabled || useSameModel) ? null : form.dream_model || null,

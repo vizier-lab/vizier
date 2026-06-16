@@ -94,7 +94,7 @@ const DEFAULT_FORM: CreateAgentRequest = {
   model: 'qwen3.5:4b',
   quantization: 'auto_4',
   system_prompt: defaultPrompt,
-  thinking_depth: 10,
+  thinking_depth: 100,
   checkpoint_threshold: 80,
   max_tokens: 100000,
   context_window: undefined,
@@ -351,6 +351,7 @@ export default function AgentForm({
       await onSubmit({
         ...form,
         avatar_url: avatarUrl,
+        checkpoint_threshold: (form.checkpoint_threshold ?? 80) / 100,
         dream_schedule: form.dream_enabled ? (form.dream_schedule || '0 2 * * *') : '',
         dream_provider: (!form.dream_enabled || useSameModel) ? null : form.dream_provider || null,
         dream_model: (!form.dream_enabled || useSameModel) ? null : form.dream_model || null,
@@ -743,6 +744,29 @@ export default function AgentForm({
                             parseInt(
                               e.target.value
                             ) || 10
+                          )
+                        }
+                      />
+                    </section>
+                    <section
+                      style={{ ...fieldStyle, flex: 1 }}
+                    >
+                      <label style={labelStyle}>
+                        <TooltipLabel
+                          label="Checkpoint Threshold"
+                          tooltip="Context window usage percentage to trigger a checkpoint (default: 80%)."
+                        />
+                      </label>
+                      <input
+                        style={inputStyle}
+                        type="number"
+                        min={10}
+                        max={100}
+                        value={form.checkpoint_threshold || 80}
+                        onChange={(e) =>
+                          updateField(
+                            'checkpoint_threshold',
+                            Math.min(100, Math.max(10, parseInt(e.target.value) || 80))
                           )
                         }
                       />
@@ -3277,6 +3301,12 @@ export default function AgentForm({
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Thinking Depth</span>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
                       {form.thinking_depth}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Checkpoint Threshold</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                      {form.checkpoint_threshold}%
                     </span>
                   </div>
                 </div>

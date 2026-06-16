@@ -668,13 +668,23 @@ pub async fn handle_request(
             }
         }
         VizierRequestContent::SilentRead(_) => {
+            let prompt = match &request.content {
+                VizierRequestContent::SilentRead(p) => p.clone(),
+                _ => unreachable!(),
+            };
             let (history, checkpoint_handover) = storage
                 .list_session_history_until_checkpoint(
                     session.clone(),
                     Some(request.timestamp.clone()),
                 )
                 .await?;
-            let res = agent.chat(request, session.clone(), history, vec![], Some(hooks), checkpoint_handover).await?;
+            let memory = match &indexer {
+                Some(idx) => storage
+                    .query_memory(session.0.clone(), prompt, 10, 0.5, idx)
+                    .await?,
+                None => Vec::new(),
+            };
+            let res = agent.chat(request, session.clone(), history, memory, Some(hooks), checkpoint_handover).await?;
             if let Some(ref tx) = response_tx {
                 let _ = tx.send_async(res).await;
             }

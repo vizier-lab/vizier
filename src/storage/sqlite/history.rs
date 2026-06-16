@@ -97,8 +97,15 @@ impl HistoryStorage for SqliteStorage {
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>> {
         let conn = self.conn.lock();
-        let mut sql = "SELECT data FROM session_history WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3".to_string();
-        let mut param_idx = 4;
+        let mut sql = "SELECT data FROM session_history WHERE agent_id = ?1 AND channel = ?2".to_string();
+        let mut param_idx = 3;
+
+        if session.2.is_some() {
+            sql.push_str(&format!(" AND topic = ?{}", param_idx));
+            param_idx += 1;
+        } else {
+            sql.push_str(" AND topic IS NULL");
+        }
 
         if before.is_some() {
             sql.push_str(&format!(" AND timestamp < ?{}", param_idx));
@@ -114,8 +121,10 @@ impl HistoryStorage for SqliteStorage {
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
             Box::new(session.0.clone()),
             Box::new(session.1.to_slug()),
-            Box::new(session.2.clone()),
         ];
+        if let Some(ref topic) = session.2 {
+            params.push(Box::new(topic.clone()));
+        }
         if let Some(before_dt) = before {
             params.push(Box::new(before_dt.timestamp_millis()));
         }
@@ -144,8 +153,7 @@ impl HistoryStorage for SqliteStorage {
     ) -> Result<()> {
         let conn = self.conn.lock();
         let data: String = {
-            let mut stmt =
-                conn.prepare("SELECT data FROM session_history WHERE uid = ?1")?;
+            let mut stmt = conn.prepare("SELECT data FROM session_history WHERE uid = ?1")?;
             let mut rows = stmt.query_map(rusqlite::params![uid], |row| {
                 let data: String = row.get(0)?;
                 Ok(data)
@@ -174,10 +182,8 @@ impl HistoryStorage for SqliteStorage {
         end_date: Option<DateTime<Utc>>,
     ) -> Result<AgentUsageStats> {
         let conn = self.conn.lock();
-        let mut sql =
-            "SELECT data FROM session_history WHERE agent_id = ?1".to_string();
-        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> =
-            vec![Box::new(agent_id.to_string())];
+        let mut sql = "SELECT data FROM session_history WHERE agent_id = ?1".to_string();
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(agent_id.to_string())];
         let mut param_idx = 2;
 
         if let Some(start) = start_date {
@@ -231,13 +237,14 @@ impl HistoryStorage for SqliteStorage {
                     let channel_type = get_channel_type(&channel_slug);
                     let date = history.timestamp.date_naive();
 
-                    let channel_entry = by_channel_type
-                        .entry(channel_type.clone())
-                        .or_insert_with(|| ChannelTypeUsage {
-                            total_tokens: 0,
-                            total_requests: 0,
-                            channels: Vec::new(),
-                        });
+                    let channel_entry =
+                        by_channel_type
+                            .entry(channel_type.clone())
+                            .or_insert_with(|| ChannelTypeUsage {
+                                total_tokens: 0,
+                                total_requests: 0,
+                                channels: Vec::new(),
+                            });
                     channel_entry.total_tokens += stats.total_tokens;
                     channel_entry.total_requests += 1;
 
@@ -269,8 +276,7 @@ impl HistoryStorage for SqliteStorage {
                     day_entry.output_tokens += stats.total_output_tokens;
                     day_entry.total_requests += 1;
 
-                    let day_channel_entry =
-                        by_day_and_channel_type.entry(date).or_default();
+                    let day_channel_entry = by_day_and_channel_type.entry(date).or_default();
                     let channel_detail = day_channel_entry
                         .entry(channel_type.clone())
                         .or_insert_with(|| ChannelTypeUsageDetail {
@@ -290,14 +296,13 @@ impl HistoryStorage for SqliteStorage {
         let mut by_day_vec: Vec<DailyUsage> = by_day.into_values().collect();
         by_day_vec.sort_by_key(|a| a.date);
 
-        let mut by_day_and_channel_type_vec: Vec<DailyChannelTypeUsage> =
-            by_day_and_channel_type
-                .into_iter()
-                .map(|(date, channel_map)| DailyChannelTypeUsage {
-                    date,
-                    by_channel_type: channel_map,
-                })
-                .collect();
+        let mut by_day_and_channel_type_vec: Vec<DailyChannelTypeUsage> = by_day_and_channel_type
+            .into_iter()
+            .map(|(date, channel_map)| DailyChannelTypeUsage {
+                date,
+                by_channel_type: channel_map,
+            })
+            .collect();
         by_day_and_channel_type_vec.sort_by_key(|a| a.date);
 
         let avg_duration_ms = if total_requests > 0 {
@@ -327,13 +332,20 @@ impl HistoryStorage for SqliteStorage {
         end_datetime: Option<DateTime<Utc>>,
     ) -> Result<Vec<SessionHistory>> {
         let conn = self.conn.lock();
-        let mut sql = "SELECT data FROM session_history WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3".to_string();
+        let mut sql = "SELECT data FROM session_history WHERE agent_id = ?1 AND channel = ?2".to_string();
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
             Box::new(session.0.clone()),
             Box::new(session.1.to_slug()),
-            Box::new(session.2.clone()),
         ];
-        let mut param_idx = 4;
+        let mut param_idx = 3;
+
+        if session.2.is_some() {
+            sql.push_str(&format!(" AND topic = ?{}", param_idx));
+            params.push(Box::new(session.2.clone()));
+            param_idx += 1;
+        } else {
+            sql.push_str(" AND topic IS NULL");
+        }
 
         if let Some(start) = start_datetime {
             sql.push_str(&format!(" AND timestamp >= ?{}", param_idx));
@@ -408,15 +420,24 @@ impl HistoryStorage for SqliteStorage {
         let conn = self.conn.lock();
 
         // Find latest checkpoint
-        let mut cp_sql = "SELECT data FROM session_history WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3 AND content_type = 'Checkpoint'".to_string();
+        let mut cp_sql = "SELECT data FROM session_history WHERE agent_id = ?1 AND channel = ?2 AND content_type = 'Checkpoint'".to_string();
         let mut cp_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
             Box::new(session.0.clone()),
             Box::new(session.1.to_slug()),
-            Box::new(session.2.clone()),
         ];
-        if let Some(before_dt) = before {
-            cp_sql.push_str(" AND timestamp < ?4");
-            cp_params.push(Box::new(before_dt.timestamp_millis()));
+        let mut cp_param_idx = 3;
+
+        if session.2.is_some() {
+            cp_sql.push_str(&format!(" AND topic = ?{}", cp_param_idx));
+            cp_params.push(Box::new(session.2.clone()));
+            cp_param_idx += 1;
+        } else {
+            cp_sql.push_str(" AND topic IS NULL");
+        }
+
+        if before.is_some() {
+            cp_sql.push_str(&format!(" AND timestamp < ?{}", cp_param_idx));
+            cp_params.push(Box::new(before.unwrap().timestamp_millis()));
         }
         cp_sql.push_str(" ORDER BY timestamp DESC LIMIT 1");
 
@@ -444,13 +465,20 @@ impl HistoryStorage for SqliteStorage {
         };
 
         // Get history after checkpoint
-        let mut hist_sql = "SELECT data FROM session_history WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3".to_string();
+        let mut hist_sql = "SELECT data FROM session_history WHERE agent_id = ?1 AND channel = ?2".to_string();
         let mut hist_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
             Box::new(session.0.clone()),
             Box::new(session.1.to_slug()),
-            Box::new(session.2.clone()),
         ];
-        let mut param_idx = 4;
+        let mut param_idx = 3;
+
+        if session.2.is_some() {
+            hist_sql.push_str(&format!(" AND topic = ?{}", param_idx));
+            hist_params.push(Box::new(session.2.clone()));
+            param_idx += 1;
+        } else {
+            hist_sql.push_str(" AND topic IS NULL");
+        }
 
         if let Some(cp_ts) = checkpoint_timestamp {
             hist_sql.push_str(&format!(" AND timestamp > ?{}", param_idx));

@@ -31,8 +31,8 @@ use crate::{
     schema::{
         AgentConfig, ErrorKind, Memory, SessionHistory, SessionHistoryContent, VizierAttachment,
         VizierAttachmentContent, VizierRequest, VizierRequestContent, VizierResponse,
-        VizierResponseContent, VizierResponseStats, VizierSession,
-        history_entries_to_messages, messages_to_history_entries,
+        VizierResponseContent, VizierResponseStats, VizierSession, history_entries_to_messages,
+        messages_to_history_entries,
     },
     storage::{
         VizierStorage,
@@ -382,25 +382,17 @@ impl VizierAgent {
                 .iter()
                 .map(|memory| {
                     let mut truncated_content = memory.content.clone();
-                    truncated_content.truncate(200);
-
-                    let attachments_line = if memory.attachments.is_empty() {
-                        String::new()
-                    } else {
-                        let files = memory.attachments.iter().map(|a| a.filename.as_str()).collect::<Vec<_>>().join(", ");
-                        format!("\n**Attachments:** {} — use `memory_detail` to access\n", files)
-                    };
 
                     format!(
-                        "## {}\nslug: **{}**\n{}...\n{}**use the slug for more detail of this memory**\n \n---",
-                        memory.title, memory.slug, truncated_content, attachments_line,
+                        "## {}\nslug: **{}**\n**use the slug for more detail of this memory**\n \n---",
+                        memory.title, memory.slug
                     )
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
 
             history.push(Message::system(format!(
-                "# Related Memories\n{}",
+                "# Possible Related Memories\nprovided below are memory that could be (but not always) related to user message \n{}",
                 summarize_memories
             )));
         }
@@ -438,6 +430,11 @@ impl VizierAgent {
         // Clear attachments so they don't get injected directly into the conversation
         req.attachments.clear();
 
+        // Always save request to history (even for SilentRead that may not get a response)
+        self.storage
+            .save_session_history(session.clone(), SessionHistoryContent::Request(req.clone()))
+            .await?;
+
         if let VizierRequestContent::SilentRead(_) = req.content {
             if initiative_factor > self.config.silent_read_initiative_chance {
                 return Ok(VizierResponse {
@@ -447,14 +444,6 @@ impl VizierAgent {
                 });
             }
         }
-
-        // Optimistically save request before prompt
-        self.storage
-            .save_session_history(
-                session.clone(),
-                SessionHistoryContent::Request(req.clone()),
-            )
-            .await?;
 
         let original_history_len = history.len();
 
@@ -555,13 +544,30 @@ impl VizierAgent {
         hooks: Option<Arc<VizierSessionHooks>>,
         _is_subagent: bool,
         ctx: &ToolContext,
-    ) -> std::result::Result<(String, VizierResponseStats, Vec<VizierAttachment>, Vec<Message>), (anyhow::Error, Vec<Message>)> {
+    ) -> std::result::Result<
+        (
+            String,
+            VizierResponseStats,
+            Vec<VizierAttachment>,
+            Vec<Message>,
+        ),
+        (anyhow::Error, Vec<Message>),
+    > {
         let mut history = history.clone();
         let mut full_history = history.clone();
         let mut turn_depth = turn_depth;
         let max_turn_depth = self.config.thinking_depth;
-        let mut tools = self.tools.tools().await.map_err(|e| (e, full_history.clone()))?;
-        tools.extend(self.skills.get_ondemand_skills().await.map_err(|e| (e, full_history.clone()))?);
+        let mut tools = self
+            .tools
+            .tools()
+            .await
+            .map_err(|e| (e, full_history.clone()))?;
+        tools.extend(
+            self.skills
+                .get_ondemand_skills()
+                .await
+                .map_err(|e| (e, full_history.clone()))?,
+        );
 
         let output: String;
 
@@ -580,307 +586,339 @@ impl VizierAgent {
         let mut total_cache_creation_input_tokens: u64 = 0;
         let mut current_context_size: Option<u64> = None;
 
-            loop {
-                turn_depth += 1;
-                if max_turn_depth > 0 && turn_depth > max_turn_depth {
-                    return Err((anyhow::anyhow!(VizierError(format!(
+        loop {
+            turn_depth += 1;
+            if max_turn_depth > 0 && turn_depth > max_turn_depth {
+                return Err((
+                    anyhow::anyhow!(VizierError(format!(
                         "thinking depth exceeding {}",
                         max_turn_depth
-                    ))), history));
-                }
+                    ))),
+                    history,
+                ));
+            }
 
-                // Check prompt timeout
-                if start.elapsed() > prompt_timeout {
-                    return Err((anyhow::anyhow!(VizierError(format!(
+            // Check prompt timeout
+            if start.elapsed() > prompt_timeout {
+                return Err((
+                    anyhow::anyhow!(VizierError(format!(
                         "prompt timed out after {:?}",
                         prompt_timeout
-                    ))), history));
-                }
+                    ))),
+                    history,
+                ));
+            }
 
-                let (message_id, choices, usage) = self
-                    .model
-                    .completion(message.clone(), history.clone(), tools.clone())
-                    .await
-                    .map_err(|e| (e, full_history.clone()))?;
+            let (message_id, choices, usage) = self
+                .model
+                .completion(message.clone(), history.clone(), tools.clone())
+                .await
+                .map_err(|e| (e, full_history.clone()))?;
 
-                tracing::debug!(
-                    turn_depth = turn_depth,
-                    input_tokens = usage.input_tokens,
-                    output_tokens = usage.output_tokens,
-                    cached_input_tokens = usage.cached_input_tokens,
-                    "LLM completion received"
-                );
+            tracing::debug!(
+                turn_depth = turn_depth,
+                input_tokens = usage.input_tokens,
+                output_tokens = usage.output_tokens,
+                cached_input_tokens = usage.cached_input_tokens,
+                "LLM completion received"
+            );
 
-                history.push(message.clone());
-                full_history.push(message.clone());
+            history.push(message.clone());
+            full_history.push(message.clone());
 
-                history.push(Message::Assistant {
-                    id: message_id.clone(),
-                    content: choices.clone(),
-                });
-                full_history.push(Message::Assistant {
-                    id: message_id.clone(),
-                    content: choices.clone(),
-                });
+            history.push(Message::Assistant {
+                id: message_id.clone(),
+                content: choices.clone(),
+            });
+            full_history.push(Message::Assistant {
+                id: message_id.clone(),
+                content: choices.clone(),
+            });
 
-                if turn_depth == 1 {
-                    input_tokens = usage.input_tokens;
-                    cached_input_tokens = usage.cached_input_tokens;
-                    cache_creation_input_tokens = usage.cache_creation_input_tokens;
-                }
+            if turn_depth == 1 {
+                input_tokens = usage.input_tokens;
+                cached_input_tokens = usage.cached_input_tokens;
+                cache_creation_input_tokens = usage.cache_creation_input_tokens;
+            }
 
-                total_input_tokens += usage.input_tokens;
-                total_cached_input_tokens += usage.cached_input_tokens;
-                total_cache_creation_input_tokens += usage.cache_creation_input_tokens;
-                total_output_tokens += usage.output_tokens;
-                total_tokens += usage.total_tokens;
-                current_context_size = Some(usage.input_tokens);
+            total_input_tokens += usage.input_tokens;
+            total_cached_input_tokens += usage.cached_input_tokens;
+            total_cache_creation_input_tokens += usage.cache_creation_input_tokens;
+            total_output_tokens += usage.output_tokens;
+            total_tokens += usage.total_tokens;
+            current_context_size = Some(usage.input_tokens);
 
-                // Check for context window overflow - create checkpoint if needed
-                let mut checkpoint_created = false;
-                if let (Some(ctx_size), Some(ctx_window)) = 
-                    (current_context_size, self.model.context_window()) 
-                {
-                    let usage_ratio = ctx_size as f64 / ctx_window as f64;
-                    if usage_ratio >= self.config.checkpoint_threshold {
-                        tracing::info!(
-                            "Context window usage at {:.1}% ({} / {} tokens), creating checkpoint",
-                            usage_ratio * 100.0, ctx_size, ctx_window
-                        );
-                        
-                        // Generate handover message
-                        let handover = self.generate_handover_message(&history, ctx).await
-                            .map_err(|e| (e, full_history.clone()))?;
-                        
-                        // Save checkpoint to storage
-                        if let Err(e) = self.save_checkpoint(ctx.session.clone(), handover.clone()).await {
-                            tracing::error!("Failed to save checkpoint: {}", e);
+            // Check for context window overflow - create checkpoint if needed
+            let mut checkpoint_created = false;
+            if let (Some(ctx_size), Some(ctx_window)) =
+                (current_context_size, self.model.context_window())
+            {
+                let usage_ratio = ctx_size as f64 / ctx_window as f64;
+                if usage_ratio >= self.config.checkpoint_threshold {
+                    tracing::info!(
+                        "Context window usage at {:.1}% ({} / {} tokens), creating checkpoint",
+                        usage_ratio * 100.0,
+                        ctx_size,
+                        ctx_window
+                    );
+
+                    // Generate handover message
+                    let handover = self
+                        .generate_handover_message(&history, ctx)
+                        .await
+                        .map_err(|e| (e, full_history.clone()))?;
+
+                    // Save checkpoint to storage
+                    if let Err(e) = self
+                        .save_checkpoint(ctx.session.clone(), handover.clone())
+                        .await
+                    {
+                        tracing::error!("Failed to save checkpoint: {}", e);
+                    }
+
+                    // Notify hooks about handover
+                    if let Some(ref hooks) = hooks {
+                        if let Err(e) = hooks.on_handover(handover.clone()).await {
+                            tracing::error!("Failed to notify hooks about handover: {}", e);
                         }
-                        
-                        // Notify hooks about handover
-                        if let Some(ref hooks) = hooks {
-                            if let Err(e) = hooks.on_handover(handover.clone()).await {
-                                tracing::error!("Failed to notify hooks about handover: {}", e);
-                            }
-                        }
-                        
-                        // Clear LLM history and rebuild with fresh context
-                        history.clear();
-                        history.extend(self.prepare_system_prompts().await);
-                        
-                        // Inject the new handover
-                        if let Some(ref msg) = handover {
-                            history.push(Message::system(format!(
+                    }
+
+                    // Clear LLM history and rebuild with fresh context
+                    history.clear();
+                    history.extend(self.prepare_system_prompts().await);
+
+                    // Inject the new handover
+                    if let Some(ref msg) = handover {
+                        history.push(Message::system(format!(
                                 "# Conversation Context (Previous Checkpoint)\n\
                                  The following is a summary of the conversation before this session was checkpointed.\n\n{}",
                                 msg
                             )));
-                        }
-                        
-                        // Re-add current user message to LLM history
-                        history.push(message.clone());
-                        
-                        checkpoint_created = true;
-                    }
-                }
-
-                let (tool_calls, others): (Vec<_>, Vec<_>) = choices
-                    .iter()
-                    .partition(|choice| matches!(choice, AssistantContent::ToolCall(_)));
-
-                if tool_calls.is_empty() {
-                    output = others
-                        .iter()
-                        .filter_map(|item| {
-                            if let AssistantContent::Text(text) = item {
-                                Some(text.to_string())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-
-                    break;
-                }
-
-                let mut tool_responses = vec![];
-                let mut pending_images: Vec<UserContent> = vec![];
-                for call in tool_calls.iter().filter_map(|item| {
-                    if let AssistantContent::ToolCall(call) = item {
-                        Some(call)
-                    } else {
-                        None
-                    }
-                }) {
-                    let (mut function_name, mut args) = (
-                        call.function.name.clone(),
-                        serde_json::to_string(&call.function.arguments).unwrap(),
-                    );
-                    if let Some(hooks) = hooks.clone() {
-                        (function_name, args) = hooks.on_tool_call(function_name, args).await.map_err(|e| (e, full_history.clone()))?;
                     }
 
-                    // handle custom skill
-                    let mut tool_res = if function_name.clone().starts_with("SKILL__") {
-                        let output = self.call_skill(function_name.clone()).await;
-                        VizierResponse {
-                            timestamp: Utc::now(),
-                            content: VizierResponseContent::ToolResponse {
-                                response: serde_json::Value::String(output),
-                            },
-                            attachments: vec![],
-                        }
-                    } else {
-                        let tool_server = self.tools.clone();
-                        let ctx_clone = ctx.clone();
-                        match timeout(*self.config.tools.timeout, async {
-                            tool_server
-                                .call(function_name.clone(), args, &ctx_clone)
-                                .await
-                        })
-                        .await
-                        {
-                            Err(_elapsed) => {
-                                // Tool timeout - return error with partial history
-                                return Err((anyhow::anyhow!(VizierError(format!(
-                                    "Tool '{}' timed out after {:?}",
-                                    function_name,
-                                    *self.config.tools.timeout
-                                ))), history));
-                            }
-                            Ok(Err(err)) => VizierResponse {
-                                timestamp: Utc::now(),
-                                content: VizierResponseContent::ToolResponse {
-                                    response: serde_json::Value::String(err.to_string()),
-                                },
-                                attachments: vec![],
-                            },
-                            Ok(Ok(s)) => s,
-                        }
-                    };
+                    // Re-add current user message to LLM history
+                    history.push(message.clone());
 
-                    if let Some(hooks) = hooks.clone() {
-                        tool_res = hooks.on_tool_response(tool_res).await.map_err(|e| (e, full_history.clone()))?;
-                    }
-
-                    // Store tool attachments in SessionFiles (except from read_image_file)
-                    if !tool_res.attachments.is_empty() && function_name != "read_image_file" {
-                        let mut stored_files = vec![];
-                        for attachment in &tool_res.attachments {
-                            if let Ok(content) =
-                                self.transport.send_file_resolve(attachment.clone()).await
-                            {
-                                if let Ok(file_record) = self
-                                    .transport
-                                    .send_file_upload(attachment.filename.clone(), content)
-                                    .await
-                                {
-                                    let mime_type = get_mime_type(&attachment.filename);
-                                    if self
-                                        .storage
-                                        .save_session_file(
-                                            &ctx.session,
-                                            &attachment.filename,
-                                            &mime_type,
-                                            file_record.size,
-                                            &file_record.id,
-                                        )
-                                        .await
-                                        .is_ok()
-                                    {
-                                        stored_files.push(attachment.filename.clone());
-                                    }
-                                }
-                            }
-                        }
-                        tool_res.attachments.clear();
-                        if !stored_files.is_empty() {
-                            if let VizierResponseContent::ToolResponse { response } =
-                                &mut tool_res.content
-                            {
-                                let files = stored_files.join(", ");
-                                let notification = format!("\n\n[+{} to session files]", files);
-                                *response = serde_json::Value::String(format!(
-                                    "{}{}",
-                                    response.as_str().unwrap_or(""),
-                                    notification
-                                ));
-                            }
-                        }
-                    }
-
-                    // For read_image_file with images: collect for separate user messages
-                    // (most providers drop images from tool results)
-                    if function_name == "read_image_file" && !tool_res.attachments.is_empty() {
-                        let image_attachments: Vec<_> = tool_res.attachments.drain(..).collect();
-                        tool_responses.push(tool_res.to_tool_response_content(
-                            call.id.clone(),
-                            call.call_id.clone(),
-                            &self.global_workspace,
-                        ).map_err(|e| (e, full_history.clone()))?);
-                        for attachment in &image_attachments {
-                            pending_images
-                                .push(attachment.to_user_content(&self.global_workspace).map_err(|e| (e, full_history.clone()))?);
-                        }
-                    } else {
-                        tool_responses.push(tool_res.to_tool_response_content(
-                            call.id.clone(),
-                            call.call_id.clone(),
-                            &self.global_workspace,
-                        ).map_err(|e| (e, full_history.clone()))?);
-                    }
-                }
-
-                // Push tool response message to history
-                let tool_message = Message::User {
-                    content: OneOrMany::many(tool_responses).unwrap(),
-                };
-
-                if pending_images.is_empty() {
-                    message = tool_message
-                } else {
-                    history.push(tool_message.clone());
-                    full_history.push(tool_message.clone());
-
-                    // Push each image as a separate user message
-                    for img_content in pending_images {
-                        let img_msg = Message::User {
-                            content: OneOrMany::one(img_content),
-                        };
-                        history.push(img_msg.clone());
-                        full_history.push(img_msg);
-                    }
-
-                    // Continue loop with next model call
-                    message = Message::User {
-                        content: OneOrMany::one(rig_core::message::UserContent::Text(
-                            "[Images loaded into context. Continue processing.]".into(),
-                        )),
-                    };
+                    checkpoint_created = true;
                 }
             }
 
-            let attachments = ctx.pending_attachments.lock().await.drain(..).collect();
+            let (tool_calls, others): (Vec<_>, Vec<_>) = choices
+                .iter()
+                .partition(|choice| matches!(choice, AssistantContent::ToolCall(_)));
 
-            Ok((
-                output,
-                VizierResponseStats {
-                    total_tokens,
-                    total_cached_input_tokens,
-                    total_input_tokens,
-                    total_output_tokens,
-                    input_tokens,
-                    cached_input_tokens,
-                    duration: start.elapsed(),
-                    cache_creation_input_tokens,
-                    total_cache_creation_input_tokens,
-                    current_context_size,
-                    context_window: self.model.context_window(),
-                },
-                attachments,
-                full_history,
-            ))
+            if tool_calls.is_empty() {
+                output = others
+                    .iter()
+                    .filter_map(|item| {
+                        if let AssistantContent::Text(text) = item {
+                            Some(text.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                break;
+            }
+
+            let mut tool_responses = vec![];
+            let mut pending_images: Vec<UserContent> = vec![];
+            for call in tool_calls.iter().filter_map(|item| {
+                if let AssistantContent::ToolCall(call) = item {
+                    Some(call)
+                } else {
+                    None
+                }
+            }) {
+                let (mut function_name, mut args) = (
+                    call.function.name.clone(),
+                    serde_json::to_string(&call.function.arguments).unwrap(),
+                );
+                if let Some(hooks) = hooks.clone() {
+                    (function_name, args) = hooks
+                        .on_tool_call(function_name, args)
+                        .await
+                        .map_err(|e| (e, full_history.clone()))?;
+                }
+
+                // handle custom skill
+                let mut tool_res = if function_name.clone().starts_with("SKILL__") {
+                    let output = self.call_skill(function_name.clone()).await;
+                    VizierResponse {
+                        timestamp: Utc::now(),
+                        content: VizierResponseContent::ToolResponse {
+                            response: serde_json::Value::String(output),
+                        },
+                        attachments: vec![],
+                    }
+                } else {
+                    let tool_server = self.tools.clone();
+                    let ctx_clone = ctx.clone();
+                    match timeout(*self.config.tools.timeout, async {
+                        tool_server
+                            .call(function_name.clone(), args, &ctx_clone)
+                            .await
+                    })
+                    .await
+                    {
+                        Err(_elapsed) => {
+                            // Tool timeout - return error with partial history
+                            return Err((
+                                anyhow::anyhow!(VizierError(format!(
+                                    "Tool '{}' timed out after {:?}",
+                                    function_name, *self.config.tools.timeout
+                                ))),
+                                history,
+                            ));
+                        }
+                        Ok(Err(err)) => VizierResponse {
+                            timestamp: Utc::now(),
+                            content: VizierResponseContent::ToolResponse {
+                                response: serde_json::Value::String(err.to_string()),
+                            },
+                            attachments: vec![],
+                        },
+                        Ok(Ok(s)) => s,
+                    }
+                };
+
+                if let Some(hooks) = hooks.clone() {
+                    tool_res = hooks
+                        .on_tool_response(tool_res)
+                        .await
+                        .map_err(|e| (e, full_history.clone()))?;
+                }
+
+                // Store tool attachments in SessionFiles (except from read_image_file)
+                if !tool_res.attachments.is_empty() && function_name != "read_image_file" {
+                    let mut stored_files = vec![];
+                    for attachment in &tool_res.attachments {
+                        if let Ok(content) =
+                            self.transport.send_file_resolve(attachment.clone()).await
+                        {
+                            if let Ok(file_record) = self
+                                .transport
+                                .send_file_upload(attachment.filename.clone(), content)
+                                .await
+                            {
+                                let mime_type = get_mime_type(&attachment.filename);
+                                if self
+                                    .storage
+                                    .save_session_file(
+                                        &ctx.session,
+                                        &attachment.filename,
+                                        &mime_type,
+                                        file_record.size,
+                                        &file_record.id,
+                                    )
+                                    .await
+                                    .is_ok()
+                                {
+                                    stored_files.push(attachment.filename.clone());
+                                }
+                            }
+                        }
+                    }
+                    tool_res.attachments.clear();
+                    if !stored_files.is_empty() {
+                        if let VizierResponseContent::ToolResponse { response } =
+                            &mut tool_res.content
+                        {
+                            let files = stored_files.join(", ");
+                            let notification = format!("\n\n[+{} to session files]", files);
+                            *response = serde_json::Value::String(format!(
+                                "{}{}",
+                                response.as_str().unwrap_or(""),
+                                notification
+                            ));
+                        }
+                    }
+                }
+
+                // For read_image_file with images: collect for separate user messages
+                // (most providers drop images from tool results)
+                if function_name == "read_image_file" && !tool_res.attachments.is_empty() {
+                    let image_attachments: Vec<_> = tool_res.attachments.drain(..).collect();
+                    tool_responses.push(
+                        tool_res
+                            .to_tool_response_content(
+                                call.id.clone(),
+                                call.call_id.clone(),
+                                &self.global_workspace,
+                            )
+                            .map_err(|e| (e, full_history.clone()))?,
+                    );
+                    for attachment in &image_attachments {
+                        pending_images.push(
+                            attachment
+                                .to_user_content(&self.global_workspace)
+                                .map_err(|e| (e, full_history.clone()))?,
+                        );
+                    }
+                } else {
+                    tool_responses.push(
+                        tool_res
+                            .to_tool_response_content(
+                                call.id.clone(),
+                                call.call_id.clone(),
+                                &self.global_workspace,
+                            )
+                            .map_err(|e| (e, full_history.clone()))?,
+                    );
+                }
+            }
+
+            // Push tool response message to history
+            let tool_message = Message::User {
+                content: OneOrMany::many(tool_responses).unwrap(),
+            };
+
+            if pending_images.is_empty() {
+                message = tool_message
+            } else {
+                history.push(tool_message.clone());
+                full_history.push(tool_message.clone());
+
+                // Push each image as a separate user message
+                for img_content in pending_images {
+                    let img_msg = Message::User {
+                        content: OneOrMany::one(img_content),
+                    };
+                    history.push(img_msg.clone());
+                    full_history.push(img_msg);
+                }
+
+                // Continue loop with next model call
+                message = Message::User {
+                    content: OneOrMany::one(rig_core::message::UserContent::Text(
+                        "[Images loaded into context. Continue processing.]".into(),
+                    )),
+                };
+            }
+        }
+
+        let attachments = ctx.pending_attachments.lock().await.drain(..).collect();
+
+        Ok((
+            output,
+            VizierResponseStats {
+                total_tokens,
+                total_cached_input_tokens,
+                total_input_tokens,
+                total_output_tokens,
+                input_tokens,
+                cached_input_tokens,
+                duration: start.elapsed(),
+                cache_creation_input_tokens,
+                total_cache_creation_input_tokens,
+                current_context_size,
+                context_window: self.model.context_window(),
+            },
+            attachments,
+            full_history,
+        ))
     }
 
     async fn save_checkpoint(
@@ -888,9 +926,7 @@ impl VizierAgent {
         session: VizierSession,
         handover: Option<String>,
     ) -> Result<()> {
-        self.storage
-            .save_checkpoint(session, handover)
-            .await?;
+        self.storage.save_checkpoint(session, handover).await?;
         Ok(())
     }
 
@@ -900,7 +936,7 @@ impl VizierAgent {
         _ctx: &ToolContext,
     ) -> Result<Option<String>> {
         let mut summary_history = history.to_vec();
-        
+
         summary_history.push(Message::user(
             "Analyze this conversation and extract key context for continuation. Include:\n\
              1. **Key Facts**: Important information, data, or discoveries\n\
@@ -908,9 +944,9 @@ impl VizierAgent {
              3. **Current State**: What is being worked on right now\n\
              4. **Pending Tasks**: Incomplete work or next steps\n\
              5. **Constraints**: Any limitations, preferences, or requirements\n\n\
-             Format as a concise structured summary. Be factual and precise."
+             Format as a concise structured summary. Be factual and precise.",
         ));
-        
+
         let (_message_id, choices, _usage) = self
             .model
             .completion(
@@ -919,7 +955,7 @@ impl VizierAgent {
                 vec![],
             )
             .await?;
-        
+
         let output = choices
             .iter()
             .filter_map(|item| {
@@ -931,7 +967,7 @@ impl VizierAgent {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        
+
         if output.trim().is_empty() {
             Ok(None)
         } else {
