@@ -14,56 +14,44 @@ permissions:
 
 jobs:
   build-push:
-    name: Build & Push - ${{ matrix.platform }}
+    name: Build & Push Multi-Arch
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            platform: linux/amd64
-            arch_suffix: ""
-          - target: aarch64-unknown-linux-gnu
-            platform: linux/arm64/v8
-            arch_suffix: "-arm64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Determine if stable release and prepare tags
-        id: stable
-        run: |
-          VERSION="${{ inputs.version }}"
-          ARCH_SUFFIX="${{ matrix.arch_suffix }}"
-          TAGS="ghcr.io/${{ github.repository }}:${VERSION}${ARCH_SUFFIX}"
-          if [[ "$VERSION" == *-* ]]; then
-            echo "stable=false" >> $GITHUB_OUTPUT
-          else
-            echo "stable=true" >> $GITHUB_OUTPUT
-            TAGS="$TAGS,ghcr.io/${{ github.repository }}:latest${ARCH_SUFFIX}"
-          fi
-          echo "tags=$TAGS" >> $GITHUB_OUTPUT
-
-      - name: Download release asset for ${{ matrix.target }}
+      - name: Download Linux release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download v${{ inputs.version }} \
-            --dir . \
-            --pattern "vizier-v${{ inputs.version }}-${{ matrix.target }}.tar.gz"
-          echo "ASSET_NAME=vizier-v${{ inputs.version }}-${{ matrix.target }}.tar.gz" >> $GITHUB_OUTPUT
+          mkdir -p release-assets
+          gh release download "v${{ inputs.version }}" \
+            --dir release-assets \
+            --pattern "vizier-v${{ inputs.version }}-*-linux-gnu.tar.gz"
+          ls -lh release-assets/
 
-      - name: Verify downloaded files
+      - name: Stage assets for buildx
         run: |
-          echo "Downloaded files:"
+          VERSION="${{ inputs.version }}"
+          mv "release-assets/vizier-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+             "vizier-v${VERSION}-amd64.tar.gz"
+          mv "release-assets/vizier-v${VERSION}-aarch64-unknown-linux-gnu.tar.gz" \
+             "vizier-v${VERSION}-arm64.tar.gz"
           ls -lh *.tar.gz
-          echo "Expected file: vizier-v${{ inputs.version }}-${{ matrix.target }}.tar.gz"
+
+      - name: Determine tags
+        id: tags
+        run: |
+          VERSION="${{ inputs.version }}"
+          TAGS="ghcr.io/${{ github.repository }}:${VERSION}"
+          if [[ "$VERSION" != *-* ]]; then
+            TAGS="$TAGS,ghcr.io/${{ github.repository }}:latest"
+          fi
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "Tags: $TAGS"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v4
@@ -72,17 +60,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push multi-arch manifest list
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.stable.outputs.tags }}
+          tags: ${{ steps.tags.outputs.tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ inputs.version }}
             org.opencontainers.image.title=vizier
             org.opencontainers.image.description=21st Century Digital Steward
           build-args: |
-            TARGET_DIR=v${{ inputs.version }}-${{ matrix.target }}
+            VERSION=${{ inputs.version }}

@@ -1,0 +1,17 @@
+target/
+.git/
+.github/
+webui/
+webui/node_modules/
+.vizier/
+.vizier.yaml
+dev.vizier.yaml
+.env
+.env.old
+*.log
+Cargo.lock.bak
+docs/
+skills/
+templates/
+*.tar.gz
+!vizier-v*.tar.gz
