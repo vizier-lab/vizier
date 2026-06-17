@@ -12,8 +12,9 @@
 
 services:
   vizier:
-    image: ghcr.io/vizier-lab/vizier:latest
+    image: blinfoldking/vizier:latest
     # For production, pin a specific version (e.g. ...:0.10.0).
+    # Also published to ghcr.io/vizier-lab/vizier — either image works.
     container_name: vizier
     restart: unless-stopped
     ports:

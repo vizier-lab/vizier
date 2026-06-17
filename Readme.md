@@ -153,7 +153,12 @@ Agents are created and managed at runtime via the WebUI or HTTP API — there is
 
 ### Docker
 
-The `ghcr.io/vizier-lab/vizier` image starts vizier with no config file. Configure via env vars (consumed by `docker-entrypoint.sh`):
+The image is published to both registries below. **Docker Hub is the recommended primary**; the GHCR image is identical and can be used interchangeably.
+
+- Docker Hub: `blinfoldking/vizier`
+- GHCR: `ghcr.io/vizier-lab/vizier`
+
+The image starts vizier with no config file. Configure via env vars (consumed by `docker-entrypoint.sh`):
 
 | Env var | Purpose | Default |
 |---|---|---|
@@ -166,25 +171,25 @@ The `ghcr.io/vizier-lab/vizier` image starts vizier with no config file. Configu
 | `VIZIER_JWT_SECRET` | JWT signing secret. **Set to a strong value in production.** | `vizier-default-secret-change-me` |
 | `VIZIER_EXTRA_ARGS` | Append arbitrary extra CLI args. | unset |
 
-Examples:
+Examples (using Docker Hub; substitute `ghcr.io/vizier-lab/vizier` to use GHCR):
 
 ```sh
 # Config-less, port 8080
-docker run -p 8080:8080 -e VIZIER_PORT=8080 ghcr.io/vizier-lab/vizier
+docker run -p 8080:8080 -e VIZIER_PORT=8080 blinfoldking/vizier
 
 # Config-less with persisted data (sqlite is the default storage)
 docker run -p 9999:9999 -v vizier-data:/data -e VIZIER_DATA_DIR=/data \
-  ghcr.io/vizier-lab/vizier
+  blinfoldking/vizier
 
 # Pass a config file plus overrides
 docker run -p 9999:9999 \
   -v $PWD/dev.vizier.yaml:/cfg.yaml \
   -e VIZIER_CONFIG=/cfg.yaml \
   -e VIZIER_PORT=8080 \
-  ghcr.io/vizier-lab/vizier
+  blinfoldking/vizier
 
 # Subcommand passthrough (env vars skipped)
-docker run ghcr.io/vizier-lab/vizier shutdown
+docker run blinfoldking/vizier shutdown
 ```
 
 ### Adding New Features

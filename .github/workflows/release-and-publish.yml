@@ -59,6 +59,7 @@ jobs:
           echo "- ✅ Binaries built for all platforms" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ GitHub Release created with assets" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Published to crates.io" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Published Docker image to Docker Hub & GHCR" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Install:" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY

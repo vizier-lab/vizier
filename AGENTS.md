@@ -67,11 +67,16 @@ whatever config was loaded):
 
 ## Docker
 
-The Docker image (`ghcr.io/vizier-lab/vizier`) starts vizier with no
-config file. `docker-entrypoint.sh` translates env vars to CLI flags
-and `exec`s the binary so signals propagate correctly. Subcommands
-other than `run` (`shutdown`, `agent`, `skill`) are passed through
-with no env-var translation.
+The Docker image is published to both registries below (identical
+images; **Docker Hub is the recommended primary**):
+
+- Docker Hub: `blinfoldking/vizier`
+- GHCR: `ghcr.io/vizier-lab/vizier`
+
+The image starts vizier with no config file. `docker-entrypoint.sh`
+translates env vars to CLI flags and `exec`s the binary so signals
+propagate correctly. Subcommands other than `run` (`shutdown`,
+`agent`, `skill`) are passed through with no env-var translation.
 
 | Env var | Maps to | Notes |
 |---|---|---|
@@ -84,25 +89,26 @@ with no env-var translation.
 | `VIZIER_JWT_SECRET` | (env var consumed by vizier) | Hardcoded fallback `vizier-default-secret-change-me` if unset. **Set to a strong value in production.** |
 | `VIZIER_EXTRA_ARGS` | (raw) | Append arbitrary extra args. Useful for flags not yet env-var-mapped. |
 
-Examples:
+Examples (using Docker Hub; substitute `ghcr.io/vizier-lab/vizier`
+to use GHCR):
 
 ```sh
 # Config-less, port 8080
-docker run -p 8080:8080 -e VIZIER_PORT=8080 ghcr.io/vizier-lab/vizier
+docker run -p 8080:8080 -e VIZIER_PORT=8080 blinfoldking/vizier
 
 # Persist data with a named volume
 docker run -p 9999:9999 -v vizier-data:/data -e VIZIER_DATA_DIR=/data \
-  ghcr.io/vizier-lab/vizier
+  blinfoldking/vizier
 
 # Pass a config file plus overrides
 docker run -p 9999:9999 \
   -v $PWD/dev.vizier.yaml:/cfg.yaml \
   -e VIZIER_CONFIG=/cfg.yaml \
   -e VIZIER_PORT=8080 \
-  ghcr.io/vizier-lab/vizier
+  blinfoldking/vizier
 
 # Subcommand passthrough (env vars skipped)
-docker run ghcr.io/vizier-lab/vizier shutdown
+docker run blinfoldking/vizier shutdown
 ```
 
 ## Build gotcha: `build.rs` auto-builds WebUI
