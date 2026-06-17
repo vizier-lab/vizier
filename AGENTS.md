@@ -9,7 +9,7 @@ Single binary, embedded SurrealDB (kv-rocksdb), async tokio runtime.
 just install          # cargo fetch + npm i in webui/
 just dev              # cargo watch -s "just run"
 just run              # cargo run -- run --config dev.vizier.yaml
-just run-a            # cargo run -- run -a --config dev.vizier.yaml (attached mode)
+just run-d            # cargo run -- run -d --config dev.vizier.yaml (detached mode)
 just shutdown         # cargo run -- shutdown --config dev.vizier.yaml
 just build            # cd webui && npm run build
 just release          # cargo build --release
@@ -26,8 +26,8 @@ cargo clippy          # lint (CI expectation: zero warnings)
 
 | Subcommand | Flags | Description |
 |------------|-------|-------------|
-| `run` | `-c/--config <PATH>`, `-a/--attached`, `--port <PORT>`, `--workspace <PATH>`, `--data-dir <PATH>`, `--storage <filesystem\|sqlite>`, `--workers <N>`, `--ws-idle-timeout <SECS>` | Run agents, server, and channels. Without `-a`, daemonizes (PID at `/tmp/vizier.pid`, logs to `.vizier/.runtime/logs/`). `-c` is optional — config-less mode uses built-in defaults. |
-| `shutdown` | `-c/--config <PATH>` | Stop a running daemonized instance. `-c` is optional. |
+| `run` | `-c/--config <PATH>`, `-d/--detached`, `--port <PORT>`, `--workspace <PATH>`, `--data-dir <PATH>`, `--storage <filesystem\|sqlite>`, `--workers <N>`, `--ws-idle-timeout <SECS>` | Run agents, server, and channels in the foreground. Use `-d` / `--detached` to run in the background (PID at `/tmp/vizier.pid`, logs to `.vizier/.runtime/logs/`). `-c` is optional — config-less mode uses built-in defaults. |
+| `shutdown` | `-c/--config <PATH>` | Stop a running instance. `-c` is optional. |
 | `onboard` | `-p/--path <PATH>` | Interactive wizard to generate `.vizier.yaml` seed config. |
 | `skill` | `install`, `list`, `uninstall`, `update` | Manage skills — install from registry/git/local, list, uninstall, update. |
 | `agent` | `-c/--config <PATH>`, subcommand `ps` | List running agents and their status. `-c` is optional. |
@@ -52,7 +52,7 @@ defaults to `sqlite`; mount a volume to persist.
 
 `vizier shutdown` and `vizier agent ps` also work without a config
 file. They compute the daemon's socket path from the same workspace
-and print a clear error if no daemon is running.
+and print a clear error if no vizier instance is running.
 
 CLI flag overrides on `vizier run` (all optional, applied on top of
 whatever config was loaded):

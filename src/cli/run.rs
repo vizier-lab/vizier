@@ -43,11 +43,11 @@ pub struct RunArgs {
     config: Option<std::path::PathBuf>,
 
     #[arg(
-        short,
-        long,
-        help = "run the server and attach to current terminal session"
+        short = 'd',
+        long = "detached",
+        help = "run the server detached (daemonize) in the background"
     )]
-    attached: bool,
+    detached: bool,
 
     #[arg(long, value_name = "PORT", help = "HTTP server port (overrides config)")]
     port: Option<u32>,
@@ -158,31 +158,30 @@ pub fn run(args: RunArgs) -> Result<()> {
     config.apply_overrides(&overrides);
 
     let workspace = PathBuf::from(&config.workspace);
-
-    let mut runtime_dir = workspace.clone();
-    runtime_dir.push(".runtime");
-    runtime_dir.push("logs");
-    let _ = fs::create_dir_all(&runtime_dir);
-
-    let mut stdout_path = runtime_dir.clone();
-    let now = chrono::Utc::now().to_string();
-
-    stdout_path.push(format!("{}.out", now));
-    let stdout = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(stdout_path)?;
-
-    let mut stderr_path = runtime_dir.clone();
-    stderr_path.push(format!("{}.err", now));
-    let stderr = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(stderr_path)?;
-
     let config = config.clone();
 
-    if !args.attached {
+    if args.detached {
+        let mut runtime_dir = workspace.clone();
+        runtime_dir.push(".runtime");
+        runtime_dir.push("logs");
+        let _ = fs::create_dir_all(&runtime_dir);
+
+        let mut stdout_path = runtime_dir.clone();
+        let now = chrono::Utc::now().to_string();
+
+        stdout_path.push(format!("{}.out", now));
+        let stdout = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(stdout_path)?;
+
+        let mut stderr_path = runtime_dir.clone();
+        stderr_path.push(format!("{}.err", now));
+        let stderr = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(stderr_path)?;
+
         tracing::info!("vizier will run in the background...");
 
         let daemonize = Daemonize::new()
@@ -191,7 +190,7 @@ pub fn run(args: RunArgs) -> Result<()> {
             .umask(0o022)
             .stdout(stdout)
             .stderr(stderr);
-        let _ = daemonize.start()?;
+        daemonize.start()?;
     }
 
     if let Err(err) = run_server(config) {

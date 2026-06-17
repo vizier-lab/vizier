@@ -144,8 +144,8 @@ See the [`Justfile`](Justfile) for available commands:
 
 The `vizier` binary provides these subcommands:
 
-- `vizier run [--config <path>]`: Start agents, server, and channels (daemonizes by default; use `-a` for attached mode). Works without a config file — see the [Docker](#docker) section for env-var configuration.
-- `vizier shutdown [--config <path>]`: Stop a running daemonized instance
+- `vizier run [--config <path>]`: Start agents, server, and channels (runs in the foreground by default; use `-d` / `--detached` to run in the background). Works without a config file — see the [Docker](#docker) section for env-var configuration.
+- `vizier shutdown [--config <path>]`: Stop a running instance
 - `vizier onboard --path <path>`: Interactive wizard to generate seed config
 - `vizier agent ps`: List running agents and their status
 

@@ -76,7 +76,7 @@ just build
 | `just install` | Install all dependencies (Rust crates + webui npm packages) |
 | `just dev` | Run in development mode with hot-reload |
 | `just run` | Run in attached mode |
-| `just shutdown` | Stop a running daemonized instance |
+| `just shutdown` | Stop a running instance |
 | `just release` | Build release binary |
 | `just docker` | Start Docker services (database, etc.) |
 | `just build` | Build the webui frontend |

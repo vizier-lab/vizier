@@ -1,6 +1,6 @@
 #!/bin/bash
 # Translate container env vars to `vizier run` CLI flags, then exec the binary
-# so signals (SIGTERM, SIGINT) propagate correctly to the daemon.
+# so signals (SIGTERM, SIGINT) propagate correctly to the foreground process.
 #
 # Resolution order for the workspace:
 #   1. VIZIER_DATA_DIR or VIZIER_WORKSPACE (env var)

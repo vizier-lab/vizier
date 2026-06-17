@@ -10,8 +10,8 @@ install:
 run:
   @cargo run -- run --config dev.vizier.yaml
 
-run-a:
-  @cargo run -- run -a --config dev.vizier.yaml
+run-d:
+  @cargo run -- run -d --config dev.vizier.yaml
 
 shutdown:
   @cargo run -- shutdown --config dev.vizier.yaml

@@ -35,16 +35,16 @@ vizier run --config /path/to/.vizier.yaml
 | Flag | Description |
 |------|-------------|
 | `-c, --config <PATH>` | Path to `.vizier.yaml` config file |
-| `-a, --attached` | Run in foreground (no daemonization) |
+| `-d, --detached` | Run in the background (daemonize) |
 
-By default, `vizier run` daemonizes the process:
+By default, `vizier run` runs in the foreground (useful for development; Ctrl-C stops it). Use `-d` / `--detached` to run in the background — in that case:
+
 - PID is written to `/tmp/vizier.pid`
 - Logs go to `.vizier/.runtime/logs/`
-- Use `-a` / `--attached` to run in the foreground (useful for development)
 
 ### `vizier shutdown`
 
-Stop a running daemonized instance.
+Stop a running instance.
 
 ```sh
 vizier shutdown --config /path/to/.vizier.yaml
