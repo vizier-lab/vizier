@@ -7,6 +7,11 @@ on:
         description: 'Version to publish (e.g., 0.2.0)'
         required: true
         type: string
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
 
 permissions:
   contents: read

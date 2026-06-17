@@ -38,13 +38,25 @@ jobs:
     secrets: inherit
 
   # ====================
+  # Step 3: Docker Publish
+  # ====================
+  docker:
+    name: Docker Publish
+    needs: release
+    if: ${{ !inputs.dry_run }}
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      version: ${{ inputs.version }}
+    secrets: inherit
+
+  # ====================
   # Summary
   # ====================
   summary:
     name: Summary
-    needs: [release, publish]
+    needs: [release, publish, docker]
+    if: ${{ always() && !inputs.dry_run && needs.release.result == 'success' }}
     runs-on: ubuntu-latest
-    if: ${{ !inputs.dry_run }}
     steps:
       - name: Create summary
         run: |
