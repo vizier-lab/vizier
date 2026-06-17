@@ -33,10 +33,15 @@ jobs:
       - name: Stage assets for buildx
         run: |
           VERSION="${{ inputs.version }}"
-          mv "release-assets/vizier-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
-             "vizier-v${VERSION}-amd64.tar.gz"
-          mv "release-assets/vizier-v${VERSION}-aarch64-unknown-linux-gnu.tar.gz" \
-             "vizier-v${VERSION}-arm64.tar.gz"
+          declare -A TRIPLES=( [amd64]=x86_64-unknown-linux-gnu [arm64]=aarch64-unknown-linux-gnu )
+          for ARCH in amd64 arm64; do
+            TRIPLE="${TRIPLES[$ARCH]}"
+            tar -xzf "release-assets/vizier-v${VERSION}-${TRIPLE}.tar.gz"
+            mv "vizier-v${VERSION}-${TRIPLE}" "vizier-v${VERSION}-${ARCH}"
+            tar -czf "vizier-v${VERSION}-${ARCH}.tar.gz" "vizier-v${VERSION}-${ARCH}"
+            rm -rf "vizier-v${VERSION}-${ARCH}"
+          done
+          rm -rf release-assets/
           ls -lh *.tar.gz
 
       - name: Determine tags
