@@ -13,7 +13,7 @@ use crate::indexer::VizierIndexer;
 use crate::indexer::sqlite::SqliteIndexer;
 use crate::schema::{
     AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentId, AgentSummary,
-    ChannelCommand, ProviderEntryConfig,
+    ProviderEntryConfig,
 };
 use crate::storage::agent::AgentStorage;
 use crate::storage::provider::ProviderStorage;
@@ -253,14 +253,6 @@ impl VizierAgents {
                     shared_to: config.shared_to.clone(),
                 };
                 self.processes.insert(agent_id.to_string(), process);
-                let _ = self
-                    .deps
-                    .transport
-                    .send_channel_command(ChannelCommand::AgentCreated {
-                        agent_id: agent_id.to_string(),
-                        config,
-                    })
-                    .await;
                 AgentCommandResult::Ok(summary)
             }
             Err(e) => AgentCommandResult::Error(format!("failed to start agent: {}", e))
@@ -309,14 +301,6 @@ impl VizierAgents {
                     shared_to: config.shared_to.clone(),
                 };
                 self.processes.insert(agent_id.to_string(), process);
-                let _ = self
-                    .deps
-                    .transport
-                    .send_channel_command(ChannelCommand::AgentUpdated {
-                        agent_id: agent_id.to_string(),
-                        config,
-                    })
-                    .await;
                 AgentCommandResult::Ok(summary)
             }
             Err(e) => AgentCommandResult::Error(format!("failed to restart agent: {}", e)),
@@ -348,14 +332,6 @@ impl VizierAgents {
         self.deps
             .transport
             .unregister_memory_op(&agent_id.to_string())
-            .await;
-
-        let _ = self
-            .deps
-            .transport
-            .send_channel_command(ChannelCommand::AgentDeleted {
-                agent_id: agent_id.to_string(),
-            })
             .await;
 
         if delete_workspace {

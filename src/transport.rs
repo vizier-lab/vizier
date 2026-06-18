@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 
 use crate::schema::{
-    AgentCommand, AgentId, ChannelCommand, CommandRequest, CommandResponse, FileCommand,
+    AgentCommand, AgentId, CommandRequest, CommandResponse, FileCommand,
     MemoryOpEnvelope, VizierAttachment, VizierRequest, VizierResponse, VizierSession,
 };
 
@@ -42,11 +42,6 @@ pub struct VizierTransport {
 
     agent_command_channel: Arc<(flume::Sender<AgentCommand>, flume::Receiver<AgentCommand>)>,
 
-    channel_command_channel: Arc<(
-        flume::Sender<ChannelCommand>,
-        flume::Receiver<ChannelCommand>,
-    )>,
-
     exit_channel: Arc<(flume::Sender<bool>, flume::Receiver<bool>)>,
 
     dream_command_channel: Arc<(flume::Sender<DreamCommand>, flume::Receiver<DreamCommand>)>,
@@ -59,7 +54,6 @@ impl VizierTransport {
         let command_request_channel = Arc::new(flume::unbounded());
         let command_response_channel = Arc::new(flume::unbounded());
         let agent_command_channel = Arc::new(flume::unbounded());
-        let channel_command_channel = Arc::new(flume::unbounded());
         let exit_channel = Arc::new(flume::unbounded());
         let dream_command_channel = Arc::new(flume::unbounded());
         let file_command_channel = Arc::new(flume::unbounded());
@@ -70,7 +64,6 @@ impl VizierTransport {
             command_request_channel,
             command_response_channel,
             agent_command_channel,
-            channel_command_channel,
             exit_channel,
             dream_command_channel,
             file_command_channel,
@@ -166,14 +159,6 @@ impl VizierTransport {
 
     pub async fn recv_agent_command(&self) -> Result<AgentCommand> {
         Ok(self.agent_command_channel.1.recv_async().await?)
-    }
-
-    pub async fn send_channel_command(&self, cmd: ChannelCommand) -> Result<()> {
-        Ok(self.channel_command_channel.0.send_async(cmd).await?)
-    }
-
-    pub async fn recv_channel_command(&self) -> Result<ChannelCommand> {
-        Ok(self.channel_command_channel.1.recv_async().await?)
     }
 
     pub async fn send_dream_command(&self, cmd: DreamCommand) -> Result<()> {

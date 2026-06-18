@@ -17,6 +17,7 @@ use crate::{
         },
         tools::ToolContext,
     },
+    channels::{VizierChannel, discord::DiscordChannelReader, telegram::TelegramChannelReader},
     dependencies::VizierDependencies,
     indexer::VizierIndexer,
     schema::{
@@ -36,13 +37,16 @@ pub async fn agent_process(
     deps: VizierDependencies,
     agent_config: AgentConfig,
     indexer: Option<crate::indexer::VizierIndexer>,
-    _shutdown_rx: watch::Receiver<bool>,
+    mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
     let agent = Arc::new(
         VizierAgent::new(agent_id.clone(), &deps, &agent_config, indexer.clone()).await?,
     );
 
     let recv = deps.transport.register_agent(agent_id.clone()).await;
+
+    let mut channel_tasks: JoinSet<()> = JoinSet::new();
+    spawn_agent_channels(&agent_id, &agent_config, &deps, &mut channel_tasks);
 
     let mut main_handles = HashMap::<VizierSession, JoinHandle<()>>::new();
     let mut thinking_handles = HashMap::<VizierSession, Arc<JoinHandle<()>>>::new();
@@ -95,6 +99,15 @@ pub async fn agent_process(
 
     loop {
         tokio::select! {
+            _ = shutdown_rx.changed() => {
+                if *shutdown_rx.borrow() {
+                    tracing::info!(agent_id = %agent_id, "shutdown signal received");
+                    break;
+                }
+            }
+            Some(_) = channel_tasks.join_next(), if !channel_tasks.is_empty() => {
+                tracing::warn!(agent_id = %agent_id, "channel reader task ended unexpectedly");
+            }
             result = recv.recv_async() => {
                 let Ok(envelope) = result else { break };
                 let session = envelope.session;
@@ -605,8 +618,57 @@ pub async fn agent_process(
     }
 
     heartbeat.abort();
+    channel_tasks.abort_all();
+    while channel_tasks.join_next().await.is_some() {}
 
     Ok(())
+}
+
+fn spawn_agent_channels(
+    agent_id: &str,
+    agent_config: &AgentConfig,
+    deps: &VizierDependencies,
+    tasks: &mut JoinSet<()>,
+) {
+    if let Some(token) = &agent_config.discord_token
+        && !token.is_empty()
+    {
+        let agent_id_owned = agent_id.to_string();
+        let token_owned = token.clone();
+        let deps_owned = deps.clone();
+        tasks.spawn(async move {
+            match DiscordChannelReader::new(agent_id_owned.clone(), token_owned, deps_owned).await {
+                Ok(mut reader) => {
+                    if let Err(e) = reader.run().await {
+                        tracing::error!("discord reader error: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("failed to create discord reader: {:?}", e);
+                }
+            }
+        });
+    }
+
+    if let Some(token) = &agent_config.telegram_token
+        && !token.is_empty()
+    {
+        let agent_id_owned = agent_id.to_string();
+        let token_owned = token.clone();
+        let deps_owned = deps.clone();
+        tasks.spawn(async move {
+            match TelegramChannelReader::new(agent_id_owned.clone(), token_owned, deps_owned).await {
+                Ok(mut reader) => {
+                    if let Err(e) = reader.run().await {
+                        tracing::error!("telegram reader error: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("failed to create telegram reader: {:?}", e);
+                }
+            }
+        });
+    }
 }
 
 pub async fn handle_request(

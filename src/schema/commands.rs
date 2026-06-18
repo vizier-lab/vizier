@@ -71,21 +71,6 @@ pub struct AgentSummary {
     pub shared_to: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub enum ChannelCommand {
-    AgentCreated {
-        agent_id: String,
-        config: AgentConfig,
-    },
-    AgentUpdated {
-        agent_id: String,
-        config: AgentConfig,
-    },
-    AgentDeleted {
-        agent_id: String,
-    },
-}
-
 pub enum FileCommand {
     Upload {
         filename: String,
