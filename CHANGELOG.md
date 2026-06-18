@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.5] - 2026-06-17
+
+### 🚀 Features
+
+- Attach as default run mode
+
+### 💼 Other
+
+- Single image docker registy
+- Fix docker build
+- Add dockerhub image
+- Integrate docker publish to main workflow
+## [0.10.4] - 2026-06-16
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.10.4
 ## [0.10.3] - 2026-06-16
 
 ### 🚀 Features
