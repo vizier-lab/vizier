@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::task::JoinSet;
@@ -115,7 +116,10 @@ impl VizierAgents {
 
         let indexer = Self::build_indexer(deps, config).await?;
         let memory_op_handle = if let Some(idx) = indexer.clone() {
-            let rx = deps.transport.register_memory_op(agent_id.to_string()).await;
+            let rx = deps
+                .transport
+                .register_memory_op(agent_id.to_string())
+                .await;
             let storage = (*deps.storage).clone();
             let agent_id_owned = agent_id.to_string();
             Some(tokio::spawn(async move {
@@ -217,7 +221,13 @@ impl VizierAgents {
         match Self::spawn_agent(&self.deps, agent_id, &config).await {
             Ok(process) => {
                 let owner_username = if let Some(ref owner_id) = config.owner_id {
-                    self.deps.storage.get_user_by_id(owner_id).await.ok().flatten().map(|u| u.username)
+                    self.deps
+                        .storage
+                        .get_user_by_id(owner_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|u| u.username)
                 } else {
                     None
                 };
@@ -233,13 +243,20 @@ impl VizierAgents {
                 self.processes.insert(agent_id.to_string(), process);
                 AgentCommandResult::Ok(summary)
             }
-            Err(e) => AgentCommandResult::Error(format!("failed to start agent: {}", e))
+            Err(e) => AgentCommandResult::Error(format!("failed to start agent: {}", e)),
         }
     }
 
     async fn handle_update(&mut self, agent_id: &str, config: AgentConfig) -> AgentCommandResult {
         if !self.processes.contains_key(agent_id)
-            && self.deps.storage.get_agent(agent_id).await.ok().flatten().is_none()
+            && self
+                .deps
+                .storage
+                .get_agent(agent_id)
+                .await
+                .ok()
+                .flatten()
+                .is_none()
         {
             return AgentCommandResult::Error(format!("agent '{}' not found", agent_id));
         }
@@ -250,13 +267,15 @@ impl VizierAgents {
 
         if let Some(old) = self.processes.remove(agent_id) {
             let _ = old.shutdown.send(true);
-            old.handle.abort();
             if let Some(mh) = old.memory_op_handle {
                 mh.abort();
             }
         }
 
-        self.deps.transport.unregister_agent(&agent_id.to_string()).await;
+        self.deps
+            .transport
+            .unregister_agent(&agent_id.to_string())
+            .await;
         self.deps
             .transport
             .unregister_memory_op(&agent_id.to_string())
@@ -265,7 +284,13 @@ impl VizierAgents {
         match Self::spawn_agent(&self.deps, agent_id, &config).await {
             Ok(process) => {
                 let owner_username = if let Some(ref owner_id) = config.owner_id {
-                    self.deps.storage.get_user_by_id(owner_id).await.ok().flatten().map(|u| u.username)
+                    self.deps
+                        .storage
+                        .get_user_by_id(owner_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|u| u.username)
                 } else {
                     None
                 };
@@ -300,13 +325,15 @@ impl VizierAgents {
 
         if let Some(process) = self.processes.remove(agent_id) {
             let _ = process.shutdown.send(true);
-            process.handle.abort();
             if let Some(mh) = process.memory_op_handle {
                 mh.abort();
             }
         }
 
-        self.deps.transport.unregister_agent(&agent_id.to_string()).await;
+        self.deps
+            .transport
+            .unregister_agent(&agent_id.to_string())
+            .await;
         self.deps
             .transport
             .unregister_memory_op(&agent_id.to_string())

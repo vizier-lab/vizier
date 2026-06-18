@@ -12,10 +12,11 @@ use serenity::all::{
 use serenity::async_trait;
 use serenity::model::channel::Message;
 use serenity::prelude::*;
+use tokio::sync::watch;
 
 use crate::channels::VizierChannel;
-use crate::error::VizierError;
 use crate::dependencies::VizierDependencies;
+use crate::error::VizierError;
 use crate::schema::{
     PlatformMessageId, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
     VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
@@ -26,29 +27,49 @@ use crate::transport::VizierTransport;
 use crate::utils::remove_think_tags;
 
 pub struct DiscordChannelReader {
-    client: Client,
+    deps: VizierDependencies,
+    token: String,
+    agent_id: String,
+    shutdown: (flume::Sender<bool>, flume::Receiver<bool>),
 }
 
 impl DiscordChannelReader {
-    pub async fn new(
-        agent_id: String,
-        token: String,
-        deps: VizierDependencies,
-    ) -> Result<Self> {
-        let intents = GatewayIntents::all();
-        let client = Client::builder(token.clone(), intents)
-            .event_handler(Handler(agent_id, deps.clone()))
-            .await?;
-
-        Ok(Self { client })
+    pub async fn new(agent_id: String, token: String, deps: VizierDependencies) -> Result<Self> {
+        Ok(Self {
+            deps,
+            agent_id,
+            token,
+            shutdown: flume::bounded(1),
+        })
     }
 }
 
+#[async_trait::async_trait]
 impl VizierChannel for DiscordChannelReader {
-    async fn run(&mut self) -> Result<()> {
-        if let Err(err) = self.client.start().await {
-            tracing::error!("{:?}", err);
-        }
+    async fn run(&self) -> Result<()> {
+        let intents = GatewayIntents::all();
+        let mut client = Client::builder(self.token.clone(), intents)
+            .event_handler(Handler(self.agent_id.clone(), self.deps.clone()))
+            .await?;
+        let shard_manager = client.shard_manager.clone();
+
+        let handle = tokio::spawn(async move {
+            let result = client.start();
+            result.await
+        });
+
+        let shutdown = self.shutdown.clone();
+        tokio::spawn(async move {
+            if shutdown.1.recv_async().await.is_ok() {
+                shard_manager.shutdown_all().await;
+            }
+        });
+
+        Ok(handle.await??)
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        let res = self.shutdown.0.send_async(true).await;
         Ok(())
     }
 }
@@ -82,10 +103,12 @@ impl EventHandler for Handler {
         let abort = CreateCommand::new("abort").description("abort current thinking");
         let _ = Command::create_global_command(ctx.http.clone(), abort).await;
 
-        let checkpoint = CreateCommand::new("checkpoint").description("save checkpoint with handover summary");
+        let checkpoint =
+            CreateCommand::new("checkpoint").description("save checkpoint with handover summary");
         let _ = Command::create_global_command(ctx.http.clone(), checkpoint).await;
 
-        let lobotomy = CreateCommand::new("lobotomy").description("save checkpoint without handover (clean break)");
+        let lobotomy = CreateCommand::new("lobotomy")
+            .description("save checkpoint without handover (clean break)");
         let _ = Command::create_global_command(ctx.http.clone(), lobotomy).await;
     }
 
@@ -322,7 +345,8 @@ If I am halucinating, feel free to `/lobotomy` me
                     .create_response(
                         ctx.http.clone(),
                         serenity::all::CreateInteractionResponse::Message(
-                            CreateInteractionResponseMessage::new().content("creating checkpoint..."),
+                            CreateInteractionResponseMessage::new()
+                                .content("creating checkpoint..."),
                         ),
                     )
                     .await;
@@ -362,7 +386,8 @@ If I am halucinating, feel free to `/lobotomy` me
                     .create_response(
                         ctx.http.clone(),
                         serenity::all::CreateInteractionResponse::Message(
-                            CreateInteractionResponseMessage::new().content("performing lobotomy..."),
+                            CreateInteractionResponseMessage::new()
+                                .content("performing lobotomy..."),
                         ),
                     )
                     .await;
@@ -391,9 +416,15 @@ If I am halucinating, feel free to `/lobotomy` me
                 let bytes_result = async {
                     let resp = reqwest::get(&attachment.url).await?;
                     resp.bytes().await
-                }.await;
+                }
+                .await;
                 if let Ok(bytes) = bytes_result {
-                    if let Ok(file_record) = self.1.transport.send_file_upload(attachment.filename.clone(), bytes.to_vec()).await {
+                    if let Ok(file_record) = self
+                        .1
+                        .transport
+                        .send_file_upload(attachment.filename.clone(), bytes.to_vec())
+                        .await
+                    {
                         attachments.push(VizierAttachment {
                             filename: attachment.filename.clone(),
                             content: VizierAttachmentContent::Local(file_record.url),
@@ -510,10 +541,7 @@ If I am halucinating, feel free to `/lobotomy` me
                             .await;
                         }
                         VizierResponse {
-                            content:
-                                VizierResponseContent::Message {
-                                    content, stats: _
-                                },
+                            content: VizierResponseContent::Message { content, stats: _ },
                             attachments,
                             ..
                         } => {
@@ -553,10 +581,11 @@ If I am halucinating, feel free to `/lobotomy` me
                                     }
                                 }
                             }
+
+                            break;
                         }
                         VizierResponse {
-                            content:
-                                VizierResponseContent::AudioReply(audio_att, text, _),
+                            content: VizierResponseContent::AudioReply(audio_att, text, _),
                             ..
                         } => {
                             if let Some(typing) = typing_state.take() {
@@ -575,14 +604,10 @@ If I am halucinating, feel free to `/lobotomy` me
                                 Ok((filename, bytes)) => {
                                     let files = vec![CreateAttachment::bytes(bytes, &filename)];
                                     let builder = CreateMessage::new();
-                                    if let Err(err) = discord_channel_id
-                                        .send_files(&http, files, builder)
-                                        .await
+                                    if let Err(err) =
+                                        discord_channel_id.send_files(&http, files, builder).await
                                     {
-                                        tracing::error!(
-                                            "Failed to send audio reply: {:?}",
-                                            err
-                                        );
+                                        tracing::error!("Failed to send audio reply: {:?}", err);
                                     }
                                 }
                                 Err(err) => {
@@ -593,6 +618,8 @@ If I am halucinating, feel free to `/lobotomy` me
                                     );
                                 }
                             }
+
+                            break;
                         }
                         VizierResponse {
                             content: VizierResponseContent::Abort,
@@ -607,6 +634,8 @@ If I am halucinating, feel free to `/lobotomy` me
                                 "thinking aborted".into(),
                             )
                             .await;
+
+                            break;
                         }
                         VizierResponse {
                             content: VizierResponseContent::Error { kind, message },
@@ -626,15 +655,19 @@ If I am halucinating, feel free to `/lobotomy` me
                                 format!("**{}**: {}", kind_str, message),
                             )
                             .await;
-                        }
-                    _ => {}
-                }
-            }
 
-            if let Some(typing) = typing_state.take() {
-                typing.stop();
-            }
-        });
+                            break;
+                        }
+                        _ => {
+                            break;
+                        }
+                    }
+                }
+
+                if let Some(typing) = typing_state.take() {
+                    typing.stop();
+                }
+            });
         }
     }
 }

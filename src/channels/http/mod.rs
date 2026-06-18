@@ -32,8 +32,9 @@ impl HTTPChannel {
     }
 }
 
+#[async_trait::async_trait]
 impl VizierChannel for HTTPChannel {
-    async fn run(&mut self) -> Result<()> {
+    async fn run(&self) -> Result<()> {
         let cors = CorsLayer::new()
             .allow_origin(Any)
             .allow_methods([

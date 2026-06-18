@@ -6,8 +6,8 @@ use teloxide::prelude::*;
 use teloxide::types::{ChatAction, InputFile};
 
 use crate::channels::VizierChannel;
-use crate::error::VizierError;
 use crate::dependencies::VizierDependencies;
+use crate::error::VizierError;
 use crate::schema::{
     PlatformMessageId, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
     VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
@@ -26,11 +26,7 @@ pub struct TelegramChannelReader {
 }
 
 impl TelegramChannelReader {
-    pub async fn new(
-        agent_id: String,
-        token: String,
-        deps: VizierDependencies,
-    ) -> Result<Self> {
+    pub async fn new(agent_id: String, token: String, deps: VizierDependencies) -> Result<Self> {
         let bot = Bot::new(token.clone());
 
         Ok(Self {
@@ -43,20 +39,22 @@ impl TelegramChannelReader {
     }
 }
 
+#[async_trait::async_trait]
 impl VizierChannel for TelegramChannelReader {
-    async fn run(&mut self) -> Result<()> {
+    async fn run(&self) -> Result<()> {
+        let mut offset = self.offset;
         loop {
             let updates = self
                 .bot
                 .get_updates()
-                .offset(self.offset as i32)
+                .offset(offset as i32)
                 .timeout(30)
                 .await;
 
             match updates {
                 Ok(updates) => {
                     for update in updates {
-                        self.offset = update.id.0 as i64 + 1;
+                        offset = update.id.0 as i64 + 1;
                         if let Err(e) = self.handle_update(update).await {
                             tracing::error!("Error handling update: {:?}", e);
                         }
@@ -88,7 +86,6 @@ impl TelegramChannelReader {
     }
 
     async fn handle_message(&self, msg: Message) -> Result<()> {
-
         let chat_id = msg.chat.id;
         let channel = VizierChannelId::TelegramChannel(chat_id.0);
 
@@ -136,7 +133,11 @@ impl TelegramChannelReader {
                         self.token, file.path
                     );
                     let bytes = reqwest::get(&url).await?.bytes().await?.to_vec();
-                    let file_record = self.deps.transport.send_file_upload(format!("photo_{}.jpg", file_id), bytes).await
+                    let file_record = self
+                        .deps
+                        .transport
+                        .send_file_upload(format!("photo_{}.jpg", file_id), bytes)
+                        .await
                         .map_err(|e| VizierError(e.to_string()))?;
                     attachments.push(VizierAttachment {
                         filename: format!("photo_{}.jpg", file_id),
@@ -158,9 +159,16 @@ impl TelegramChannelReader {
                     .clone()
                     .unwrap_or_else(|| format!("document_{}", file_id));
                 let bytes = reqwest::get(&url).await?.bytes().await?.to_vec();
-                let file_record = self.deps.transport.send_file_upload(filename.clone(), bytes).await
+                let file_record = self
+                    .deps
+                    .transport
+                    .send_file_upload(filename.clone(), bytes)
+                    .await
                     .map_err(|e| VizierError(e.to_string()))?;
-                attachments.push(VizierAttachment { filename, content: VizierAttachmentContent::Local(file_record.url) });
+                attachments.push(VizierAttachment {
+                    filename,
+                    content: VizierAttachmentContent::Local(file_record.url),
+                });
             }
         }
 
@@ -259,11 +267,7 @@ impl TelegramChannelReader {
         }
 
         if text.starts_with("/abort") {
-            let session = VizierSession(
-                self.agent_id.clone(),
-                channel.clone(),
-                topic_id.clone(),
-            );
+            let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
             let _ = transport
                 .send_request(
                     session,
@@ -283,11 +287,7 @@ impl TelegramChannelReader {
         }
 
         if text.starts_with("/checkpoint") {
-            let session = VizierSession(
-                self.agent_id.clone(),
-                channel.clone(),
-                topic_id.clone(),
-            );
+            let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
             let _ = transport
                 .send_request(
                     session,
@@ -311,11 +311,7 @@ impl TelegramChannelReader {
         }
 
         if text.starts_with("/lobotomy") {
-            let session = VizierSession(
-                self.agent_id.clone(),
-                channel.clone(),
-                topic_id.clone(),
-            );
+            let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
             let _ = transport
                 .send_request(
                     session,
@@ -340,11 +336,7 @@ impl TelegramChannelReader {
 
         let should_respond = is_mention || text.starts_with(&format!("/{}", bot_username)) || is_dm;
 
-        let session = VizierSession(
-            self.agent_id.clone(),
-            channel.clone(),
-            topic_id.clone(),
-        );
+        let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
 
         let (content, request_content) = if should_respond {
             let cleaned = if is_mention {
@@ -432,10 +424,7 @@ impl TelegramChannelReader {
                         .await;
                     }
                     VizierResponse {
-                        content:
-                            VizierResponseContent::Message {
-                                content, stats: _
-                            },
+                        content: VizierResponseContent::Message { content, stats: _ },
                         attachments,
                         ..
                     } => {
@@ -483,8 +472,7 @@ impl TelegramChannelReader {
                         }
                     }
                     VizierResponse {
-                        content:
-                            VizierResponseContent::AudioReply(audio_att, text, _),
+                        content: VizierResponseContent::AudioReply(audio_att, text, _),
                         ..
                     } => {
                         if let Some(handle) = typing_handle.take() {
@@ -492,24 +480,17 @@ impl TelegramChannelReader {
                         }
                         if let Some(content) = text {
                             let content = remove_think_tags(&content);
-                            let _ = crate::utils::telegram::send_message(
-                                &bot,
-                                chat_id_copy,
-                                content,
-                            )
-                            .await;
+                            let _ =
+                                crate::utils::telegram::send_message(&bot, chat_id_copy, content)
+                                    .await;
                         }
                         match file_manager.resolve(&audio_att).await {
                             Ok((filename, bytes)) => {
                                 let input_file =
                                     InputFile::memory(bytes).file_name(filename.clone());
-                                if let Err(err) =
-                                    bot.send_document(chat_id_copy, input_file).await
+                                if let Err(err) = bot.send_document(chat_id_copy, input_file).await
                                 {
-                                    tracing::error!(
-                                        "Failed to send audio reply: {:?}",
-                                        err
-                                    );
+                                    tracing::error!("Failed to send audio reply: {:?}", err);
                                 }
                             }
                             Err(err) => {

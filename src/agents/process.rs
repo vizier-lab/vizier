@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use anyhow::Result;
 use chrono::Utc;
@@ -21,8 +21,8 @@ use crate::{
     dependencies::VizierDependencies,
     indexer::VizierIndexer,
     schema::{
-        AgentConfig, AgentId, DreamStage, ErrorKind, SessionHistoryContent, VizierChannelId, VizierRequest,
-        VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
+        AgentConfig, AgentId, DreamStage, ErrorKind, SessionHistoryContent, VizierChannelId,
+        VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
         VizierSessionDetail, dream_journal::DreamJournalEntry, history_entries_to_messages,
     },
     storage::{
@@ -39,14 +39,13 @@ pub async fn agent_process(
     indexer: Option<crate::indexer::VizierIndexer>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
-    let agent = Arc::new(
-        VizierAgent::new(agent_id.clone(), &deps, &agent_config, indexer.clone()).await?,
-    );
+    let agent =
+        Arc::new(VizierAgent::new(agent_id.clone(), &deps, &agent_config, indexer.clone()).await?);
 
     let recv = deps.transport.register_agent(agent_id.clone()).await;
 
-    let mut channel_tasks: JoinSet<()> = JoinSet::new();
-    spawn_agent_channels(&agent_id, &agent_config, &deps, &mut channel_tasks);
+    let mut agent_channels = spawn_agent_channels(&agent_id, &agent_config, &deps).await;
+    agent_channels.run().await;
 
     let mut main_handles = HashMap::<VizierSession, JoinHandle<()>>::new();
     let mut thinking_handles = HashMap::<VizierSession, Arc<JoinHandle<()>>>::new();
@@ -90,8 +89,10 @@ pub async fn agent_process(
         }
     });
 
-    let mut session_queues =
-        HashMap::<VizierSession, VecDeque<(VizierRequest, Option<flume::Sender<VizierResponse>>)>>::new();
+    let mut session_queues = HashMap::<
+        VizierSession,
+        VecDeque<(VizierRequest, Option<flume::Sender<VizierResponse>>)>,
+    >::new();
     let mut message_counts = HashMap::<VizierSession, usize>::new();
     let (complete_tx, mut complete_rx) = mpsc::unbounded_channel::<VizierSession>();
 
@@ -105,9 +106,9 @@ pub async fn agent_process(
                     break;
                 }
             }
-            Some(_) = channel_tasks.join_next(), if !channel_tasks.is_empty() => {
-                tracing::warn!(agent_id = %agent_id, "channel reader task ended unexpectedly");
-            }
+            // Some(_) = agent_channels.tasks.join_next(), if !agent_channels.tasks.is_empty() => {
+            //     tracing::warn!(agent_id = %agent_id, "channel reader task ended unexpectedly");
+            // }
             result = recv.recv_async() => {
                 let Ok(envelope) = result else { break };
                 let session = envelope.session;
@@ -618,36 +619,76 @@ pub async fn agent_process(
     }
 
     heartbeat.abort();
-    channel_tasks.abort_all();
-    while channel_tasks.join_next().await.is_some() {}
-
+    agent_channels.shutdown().await;
     Ok(())
 }
 
-fn spawn_agent_channels(
+pub struct AgentChannel(Box<dyn VizierChannel + Sync + Send + 'static>);
+
+#[async_trait::async_trait]
+impl VizierChannel for AgentChannel {
+    async fn run(&self) -> Result<()> {
+        self.0.run().await
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        self.0.shutdown().await
+    }
+}
+
+pub struct AgentChannels {
+    channels: Vec<Arc<AgentChannel>>,
+    tasks: JoinSet<()>,
+}
+
+impl AgentChannels {
+    async fn run(&mut self) -> Result<()> {
+        for channel in self.channels.iter() {
+            let mut channel = channel.clone();
+            self.tasks.spawn(async move {
+                if let Err(e) = channel.run().await {
+                    tracing::error!("channel error: {:?}", e);
+                }
+            });
+        }
+
+        Ok(())
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        for channel in self.channels.iter() {
+            channel.shutdown().await;
+        }
+
+        Ok(())
+    }
+}
+
+async fn spawn_agent_channels(
     agent_id: &str,
     agent_config: &AgentConfig,
     deps: &VizierDependencies,
-    tasks: &mut JoinSet<()>,
-) {
+) -> AgentChannels {
+    let mut channels = AgentChannels {
+        channels: vec![],
+        tasks: JoinSet::new(),
+    };
     if let Some(token) = &agent_config.discord_token
         && !token.is_empty()
     {
         let agent_id_owned = agent_id.to_string();
         let token_owned = token.clone();
         let deps_owned = deps.clone();
-        tasks.spawn(async move {
-            match DiscordChannelReader::new(agent_id_owned.clone(), token_owned, deps_owned).await {
-                Ok(mut reader) => {
-                    if let Err(e) = reader.run().await {
-                        tracing::error!("discord reader error: {:?}", e);
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("failed to create discord reader: {:?}", e);
-                }
+        match DiscordChannelReader::new(agent_id_owned.clone(), token_owned, deps_owned).await {
+            Ok(mut reader) => {
+                let mut discord = Arc::new(AgentChannel(Box::new(reader)));
+
+                channels.channels.push(discord.clone());
             }
-        });
+            Err(e) => {
+                tracing::error!("failed to create discord reader: {:?}", e);
+            }
+        }
     }
 
     if let Some(token) = &agent_config.telegram_token
@@ -656,19 +697,19 @@ fn spawn_agent_channels(
         let agent_id_owned = agent_id.to_string();
         let token_owned = token.clone();
         let deps_owned = deps.clone();
-        tasks.spawn(async move {
-            match TelegramChannelReader::new(agent_id_owned.clone(), token_owned, deps_owned).await {
-                Ok(mut reader) => {
-                    if let Err(e) = reader.run().await {
-                        tracing::error!("telegram reader error: {:?}", e);
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("failed to create telegram reader: {:?}", e);
-                }
+        match TelegramChannelReader::new(agent_id_owned.clone(), token_owned, deps_owned).await {
+            Ok(mut reader) => {
+                let mut telegram = Arc::new(AgentChannel(Box::new(reader)));
+
+                channels.channels.push(telegram.clone());
             }
-        });
+            Err(e) => {
+                tracing::error!("failed to create telegram reader: {:?}", e);
+            }
+        }
     }
+
+    channels
 }
 
 pub async fn handle_request(
@@ -681,8 +722,7 @@ pub async fn handle_request(
     indexer: Option<crate::indexer::VizierIndexer>,
     deps: &VizierDependencies,
 ) -> Result<()> {
-    let mut hooks = VizierSessionHooks::new()
-        .hook(DebugHook(session.clone()));
+    let mut hooks = VizierSessionHooks::new().hook(DebugHook(session.clone()));
 
     if let Some(true) = agent_config.show_thinking {
         if let Some(ref tx) = response_tx {
@@ -719,12 +759,23 @@ pub async fn handle_request(
                 .await?;
 
             let memory = match &indexer {
-                Some(idx) => storage
-                    .query_memory(session.0.clone(), prompt, 10, 0.5, idx)
-                    .await?,
+                Some(idx) => {
+                    storage
+                        .query_memory(session.0.clone(), prompt, 10, 0.5, idx)
+                        .await?
+                }
                 None => Vec::new(),
             };
-            let res = agent.chat(request, session.clone(), history, memory, Some(hooks), checkpoint_handover).await?;
+            let res = agent
+                .chat(
+                    request,
+                    session.clone(),
+                    history,
+                    memory,
+                    Some(hooks),
+                    checkpoint_handover,
+                )
+                .await?;
             if let Some(ref tx) = response_tx {
                 let _ = tx.send_async(res).await;
             }
@@ -741,17 +792,30 @@ pub async fn handle_request(
                 )
                 .await?;
             let memory = match &indexer {
-                Some(idx) => storage
-                    .query_memory(session.0.clone(), prompt, 10, 0.5, idx)
-                    .await?,
+                Some(idx) => {
+                    storage
+                        .query_memory(session.0.clone(), prompt, 10, 0.5, idx)
+                        .await?
+                }
                 None => Vec::new(),
             };
-            let res = agent.chat(request, session.clone(), history, memory, Some(hooks), checkpoint_handover).await?;
+            let res = agent
+                .chat(
+                    request,
+                    session.clone(),
+                    history,
+                    memory,
+                    Some(hooks),
+                    checkpoint_handover,
+                )
+                .await?;
             if let Some(ref tx) = response_tx {
                 let _ = tx.send_async(res).await;
             }
         }
-        VizierRequestContent::Prompt(_) | VizierRequestContent::AudioPrompt(_, _) | VizierRequestContent::Task(_) => {
+        VizierRequestContent::Prompt(_)
+        | VizierRequestContent::AudioPrompt(_, _)
+        | VizierRequestContent::Task(_) => {
             let res = match &session.1 {
                 VizierChannelId::Dream(dream_session, stage) => {
                     let dream_start = Utc::now();
@@ -858,7 +922,11 @@ pub async fn handle_request(
                         }
                     }
                 }
-                _ => agent.chat(request, session.clone(), vec![], vec![], Some(hooks), None).await?,
+                _ => {
+                    agent
+                        .chat(request, session.clone(), vec![], vec![], Some(hooks), None)
+                        .await?
+                }
             };
 
             if let Some(ref tx) = response_tx {
@@ -920,6 +988,10 @@ async fn save_dream_entry(
     };
 
     if let Err(e) = storage.save_dream_entry(entry).await {
-        tracing::error!("Failed to save dream journal entry for '{}': {}", agent_id, e);
+        tracing::error!(
+            "Failed to save dream journal entry for '{}': {}",
+            agent_id,
+            e
+        );
     }
 }
