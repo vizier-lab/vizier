@@ -46,7 +46,6 @@ fn provider_to_response(entry: &ProviderEntry) -> ProviderResponse {
         ProviderEntryConfig::Gemini { api_key } => (!api_key.is_empty(), None, None),
         ProviderEntryConfig::Mimo { api_key } => (!api_key.is_empty(), None, None),
         ProviderEntryConfig::LlamaCpp { base_url } => (false, Some(base_url.clone()), None),
-        ProviderEntryConfig::Mistralrs { enabled } => (false, None, Some(*enabled)),
         ProviderEntryConfig::Elevenlabs { api_key } => (!api_key.is_empty(), None, None),
         ProviderEntryConfig::Groq { api_key } => (!api_key.is_empty(), None, None),
         ProviderEntryConfig::Mistral { api_key } => (!api_key.is_empty(), None, None),
@@ -183,9 +182,6 @@ async fn upsert_provider(
             base_url: body
                 .base_url
                 .unwrap_or_else(|| "http://localhost:8080".into()),
-        },
-        ProviderVariant::mistralrs => ProviderEntryConfig::Mistralrs {
-            enabled: body.enabled.unwrap_or(true),
         },
         ProviderVariant::elevenlabs => ProviderEntryConfig::Elevenlabs {
             api_key: body.api_key.unwrap_or_default(),

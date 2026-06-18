@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use crate::config::provider::ProviderVariant;
 use crate::config::shell::ShellConfig;
 use crate::config::tools::mcp::McpClientConfig;
-use crate::schema::provider::Quantization;
 
 pub type AgentConfigs = HashMap<String, AgentConfig>;
 
@@ -22,8 +21,6 @@ pub struct AgentConfig {
     pub description: Option<String>,
     pub provider: ProviderVariant,
     pub model: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub quantization: Option<Quantization>,
     pub thinking_depth: usize,
     #[serde(default = "default_checkpoint_threshold")]
     pub checkpoint_threshold: f64,
@@ -176,9 +173,6 @@ pub struct BraveSearchToolSettings {
 #[serde(rename_all = "snake_case")]
 pub enum TtsProvider {
     #[default]
-    Piper,
-    Kitten,
-    Kokoro,
     Openai,
     Openrouter,
     Elevenlabs,
@@ -189,8 +183,6 @@ pub enum TtsProvider {
 impl TtsProvider {
     pub fn default_voice(&self) -> &str {
         match self {
-            Self::Piper | Self::Kitten => "0",
-            Self::Kokoro => "af_sky",
             Self::Openai | Self::Openrouter => "alloy",
             Self::Elevenlabs => "pqHfZKP75CvOlQylNhV4",
             Self::Xai | Self::Hyperbolic => "default",
@@ -214,7 +206,6 @@ pub struct TtsToolSettings {
 #[serde(rename_all = "snake_case")]
 pub enum SttProvider {
     #[default]
-    SenseVoice,
     Openai,
     Elevenlabs,
     Groq,
@@ -226,7 +217,6 @@ pub enum SttProvider {
 impl SttProvider {
     pub fn default_model(&self) -> &str {
         match self {
-            Self::SenseVoice => "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
             Self::Openai => "whisper-1",
             Self::Elevenlabs => "scribe_v1",
             Self::Groq => "whisper-large-v3",

@@ -113,7 +113,6 @@ export default function AgentSettings() {
     description: '',
     provider: 'ollama',
     model: '',
-    quantization: 'auto_4',
     system_prompt: '',
     thinking_depth: 100,
     checkpoint_threshold: 80,
@@ -206,7 +205,6 @@ export default function AgentSettings() {
           description: d.description || '',
           provider: d.provider,
           model: d.model,
-          quantization: d.quantization || 'auto_4',
           system_prompt: d.system_prompt || '',
           thinking_depth: d.thinking_depth,
           checkpoint_threshold: (d.checkpoint_threshold ?? 0.8) * 100,
@@ -1837,7 +1835,7 @@ export default function AgentSettings() {
                           style={inputStyle}
                           value={
                             form.tools?.tts_settings?.provider ||
-                            'piper'
+                            'openai'
                           }
                           onChange={(e) =>
                             setForm((prev) => ({
@@ -1853,9 +1851,6 @@ export default function AgentSettings() {
                             }))
                           }
                         >
-                          <option value="piper">Piper (Local)</option>
-                          <option value="kitten">Kitten (Local)</option>
-                          <option value="kokoro">Kokoro (Local)</option>
                           <option value="openai">OpenAI</option>
                           <option value="openrouter">
                             OpenRouter
@@ -1877,7 +1872,7 @@ export default function AgentSettings() {
                           Model (optional)
                         </label>
                         <ModelSelect
-                          options={TTS_PROVIDER_MODELS[(form.tools?.tts_settings?.provider || 'piper') as import('../interfaces/types').TtsProvider] || []}
+                          options={TTS_PROVIDER_MODELS[(form.tools?.tts_settings?.provider || 'openai') as import('../interfaces/types').TtsProvider] || []}
                           value={form.tools?.tts_settings?.model || ''}
                           onChange={(value) =>
                             setForm((prev) => ({
@@ -1907,7 +1902,7 @@ export default function AgentSettings() {
                           Voice (optional)
                         </label>
                         <ModelSelect
-                          options={TTS_PROVIDER_VOICES[(form.tools?.tts_settings?.provider || 'piper') as import('../interfaces/types').TtsProvider] || []}
+                          options={TTS_PROVIDER_VOICES[(form.tools?.tts_settings?.provider || 'openai') as import('../interfaces/types').TtsProvider] || []}
                           value={form.tools?.tts_settings?.voice || ''}
                           onChange={(value) =>
                             setForm((prev) => ({
@@ -2033,7 +2028,7 @@ export default function AgentSettings() {
                           style={inputStyle}
                           value={
                             form.tools?.stt_settings?.provider ||
-                            'sense_voice'
+                            'openai'
                           }
                           onChange={(e) =>
                             setForm((prev) => ({
@@ -2049,9 +2044,6 @@ export default function AgentSettings() {
                             }))
                           }
                         >
-                          <option value="sense_voice">
-                            SenseVoice (Local)
-                          </option>
                           <option value="openai">OpenAI Whisper</option>
                           <option value="elevenlabs">
                             ElevenLabs
@@ -2070,7 +2062,7 @@ export default function AgentSettings() {
                           Model (optional)
                         </label>
                         <ModelSelect
-                          options={STT_PROVIDER_MODELS[(form.tools?.stt_settings?.provider || 'sense_voice') as import('../interfaces/types').SttProvider] || []}
+                          options={STT_PROVIDER_MODELS[(form.tools?.stt_settings?.provider || 'openai') as import('../interfaces/types').SttProvider] || []}
                           value={form.tools?.stt_settings?.model || ''}
                           onChange={(value) =>
                             setForm((prev) => ({

@@ -77,8 +77,6 @@ rand = "0.10.0"
 
 dotenvy = "0.15.7"
 async-trait = "0.1.89"
-mistralrs = "0.8"
-hf-hub = "0.4.3"
 
 termimad = "0.34.1"
 utoipa = { version = "5", features = ["chrono"] }
@@ -102,18 +100,12 @@ tempfile = "3"
 pdf-extract = "0.10"
 docx-rs = "0.4"
 calamine = "0.35"
-sherpa-onnx = "1.13.2"
 hound = "3.5"
 symphonia = { version = "0.5.5", features = ["mp3", "ogg", "vorbis", "wav", "flac", "isomp4", "mkv", "pcm"] }
 vizier-derive = { path = "vizier-derive", version = "0.10.0" }
 
 [features]
 default = []
-cuda = ["mistralrs/cuda"]
-metal = ["mistralrs/metal"]
-flash-attn = ["mistralrs/flash-attn", "cuda"]
-accelerate = ["mistralrs/accelerate"]
-mkl = ["mistralrs/mkl"]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/vizier-v{ version }-{ target }.tar.gz"

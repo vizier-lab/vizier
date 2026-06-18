@@ -2,14 +2,9 @@ use regex::Regex;
 use std::path::PathBuf;
 
 pub mod discord;
-pub mod kitten;
-pub mod kokoro;
 pub mod logo;
 pub mod markdown;
-pub mod mistralrs;
 pub mod ollama;
-pub mod piper;
-pub mod sense_voice;
 pub mod tar;
 pub mod telegram;
 

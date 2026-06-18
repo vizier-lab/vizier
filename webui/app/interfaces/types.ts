@@ -148,7 +148,6 @@ export const EMBEDDING_PROVIDERS: EmbeddingProvider[] = [
 ]
 
 export type ChatProvider =
-  | 'mistralrs'
   | 'ollama'
   | 'openai'
   | 'anthropic'
@@ -175,7 +174,6 @@ export type ChatProvider =
   | 'azure'
 
 export const CHAT_PROVIDERS: ChatProvider[] = [
-  'mistralrs',
   'ollama',
   'openai',
   'anthropic',
@@ -203,7 +201,6 @@ export const CHAT_PROVIDERS: ChatProvider[] = [
 ]
 
 export const CHAT_PROVIDER_DEFAULT_MODELS: Record<ChatProvider, string> = {
-  mistralrs: 'google/gemma-4-E4B-it',
   ollama: 'qwen3.5:4b',
   openai: 'gpt-4o-mini',
   anthropic: 'claude-3-haiku-20240307',
@@ -231,7 +228,6 @@ export const CHAT_PROVIDER_DEFAULT_MODELS: Record<ChatProvider, string> = {
 }
 
 export const CHAT_PROVIDER_MODELS: Record<ChatProvider, string[]> = {
-  mistralrs: [],
   ollama: ['qwen3.5:4b', 'qwen3:8b', 'qwen3:14b', 'llama3.2:3b', 'llama3.2:1b', 'llama3.1:8b', 'llama3.1:70b', 'llama3.1:405b', 'mistral:7b', 'codellama:7b', 'phi4:14b', 'phi4-mini:3.8b', 'deepseek-r1:8b', 'deepseek-r1:14b', 'gemma3:4b', 'gemma3:12b', 'nemotron-mini:4b'],
   openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o3', 'o3-mini', 'o4-mini', 'o4-mini-high', 'gpt-4.5-preview'],
   anthropic: ['claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-opus-4-5', 'claude-3-5-sonnet-latest', 'claude-3-haiku-20240307', 'claude-3-5-haiku-latest'],
@@ -259,23 +255,6 @@ export const CHAT_PROVIDER_MODELS: Record<ChatProvider, string[]> = {
 }
 
 export const TTS_PROVIDER_MODELS: Record<TtsProvider, string[]> = {
-  piper: [
-    'en_US-lessac-medium', 'en_US-lessac-high', 'en_US-amy-medium',
-    'en_US-amy-low', 'en_US-joe-medium', 'en_US-ryan-medium',
-    'en_US-ryan-high', 'en_US-kathleen-low', 'en_US-libritts_r-medium',
-    'en_US-libritts-high',
-    'en_GB-alan-medium', 'en_GB-southern_english_female-low',
-    'en_GB-jenny_dioco-medium', 'en_GB-semaine-medium', 'en_GB-vctk-medium',
-    'de_DE-thorsten-medium', 'zh_CN-huayan-medium',
-    'es_ES-davefx-medium', 'fr_FR-siwis-medium', 'ru_RU-irina-medium',
-  ],
-  kitten: [
-    'kitten-nano-en-v0_1-fp16', 'kitten-nano-en-v0_2-fp16',
-    'kitten-mini-en-v0_1-fp16', 'kitten-micro-en-v0_8',
-    'kitten-nano-en-v0_8-int8', 'kitten-nano-en-v0_8-fp32',
-    'kitten-mini-en-v0_8',
-  ],
-  kokoro: ['kokoro-en-v0_19', 'kokoro-multi-lang-v1_0'],
   openai: ['tts-1', 'tts-1-hd'],
   openrouter: [],
   elevenlabs: ['eleven_multilingual_v2', 'eleven_turbo_v2_5', 'eleven_flash_v2_5', 'eleven_monolingual_v1'],
@@ -284,16 +263,6 @@ export const TTS_PROVIDER_MODELS: Record<TtsProvider, string[]> = {
 }
 
 export const TTS_PROVIDER_VOICES: Record<TtsProvider, string[]> = {
-  piper: [],
-  kitten: ['0', '1', '2', '3', '4', '5', '6', '7'],
-  kokoro: [
-    'af_alloy', 'af_aoede', 'af_bella', 'af_heart', 'af_jessica',
-    'af_kore', 'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky',
-    'am_adam', 'am_echo', 'am_eric', 'am_fenrir', 'am_liam',
-    'am_michael', 'am_onyx', 'am_puck', 'am_santa',
-    'bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily',
-    'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis',
-  ],
   openai: ['alloy', 'echo', 'fable', 'nova', 'shimmer', 'coral', 'ash', 'sage'],
   openrouter: ['alloy', 'echo', 'fable', 'nova', 'shimmer'],
   elevenlabs: [],
@@ -302,14 +271,6 @@ export const TTS_PROVIDER_VOICES: Record<TtsProvider, string[]> = {
 }
 
 export const STT_PROVIDER_MODELS: Record<SttProvider, string[]> = {
-  sense_voice: [
-    'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17',
-    'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17',
-    'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09',
-    'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2025-09-09',
-    'sherpa-onnx-sense-voice-funasr-nano-int8-2025-12-17',
-    'sherpa-onnx-sense-voice-funasr-nano-2025-12-17',
-  ],
   openai: ['whisper-1'],
   elevenlabs: ['scribe_v1'],
   groq: ['whisper-large-v3', 'whisper-large-v3-turbo'],
@@ -331,9 +292,6 @@ export interface BraveSearchToolSettings {
 }
 
 export type TtsProvider =
-  | 'piper'
-  | 'kitten'
-  | 'kokoro'
   | 'openai'
   | 'openrouter'
   | 'elevenlabs'
@@ -348,7 +306,6 @@ export interface TtsToolSettings {
 }
 
 export type SttProvider =
-  | 'sense_voice'
   | 'openai'
   | 'elevenlabs'
   | 'groq'
@@ -425,7 +382,6 @@ export interface CreateAgentRequest {
   description?: string
   provider: string
   model: string
-  quantization?: string
   system_prompt?: string
   thinking_depth?: number
   checkpoint_threshold?: number
@@ -472,7 +428,6 @@ export interface AgentDetail {
   description?: string
   provider: string
   model: string
-  quantization?: string
   system_prompt?: string
   thinking_depth: number
   checkpoint_threshold: number

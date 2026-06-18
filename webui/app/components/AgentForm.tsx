@@ -36,23 +36,6 @@ const TABS: { key: FormTab; label: string; icon: typeof FaGear }[] = [
   { key: 'review', label: 'Review', icon: FaCircleCheck },
 ]
 
-const QUANTIZATION_OPTIONS = [
-  { value: 'auto_4', label: 'Auto 4-bit (Recommended)' },
-  { value: 'auto_8', label: 'Auto 8-bit' },
-  { value: 'q4_0', label: 'Q4_0' },
-  { value: 'q4_1', label: 'Q4_1' },
-  { value: 'q4k', label: 'Q4K' },
-  { value: 'q5_0', label: 'Q5_0' },
-  { value: 'q5_1', label: 'Q5_1' },
-  { value: 'q5k', label: 'Q5K' },
-  { value: 'q6k', label: 'Q6K' },
-  { value: 'q8_0', label: 'Q8_0' },
-  { value: 'q8_1', label: 'Q8_1' },
-  { value: 'hqq4', label: 'HQQ4' },
-  { value: 'hqq8', label: 'HQQ8' },
-  { value: 'fp8', label: 'FP8' },
-]
-
 interface AgentFormProps {
   mode: 'create' | 'edit'
   agentId?: string
@@ -92,7 +75,6 @@ const DEFAULT_FORM: CreateAgentRequest = {
   description: '',
   provider: 'ollama',
   model: 'qwen3.5:4b',
-  quantization: 'auto_4',
   system_prompt: defaultPrompt,
   thinking_depth: 100,
   checkpoint_threshold: 80,
@@ -172,7 +154,6 @@ export default function AgentForm({
         description: d.description || '',
         provider: d.provider,
         model: d.model,
-        quantization: d.quantization || 'auto_4',
         system_prompt: d.system_prompt || '',
         thinking_depth: d.thinking_depth,
         checkpoint_threshold: (d.checkpoint_threshold ?? 0.8) * 100,
@@ -663,34 +644,6 @@ export default function AgentForm({
                         style={inputStyle}
                       />
                     </section>
-                    {form.provider === 'mistralrs' && (
-                      <section
-                        style={{ ...fieldStyle, flex: 1 }}
-                      >
-                        <label style={labelStyle}>
-                          <TooltipLabel
-                            label="Quantization"
-                            tooltip="Model quantization for faster inference and lower memory usage."
-                          />
-                        </label>
-                        <select
-                          style={inputStyle}
-                          value={form.quantization || 'auto_4'}
-                          onChange={(e) =>
-                            updateField(
-                              'quantization',
-                              e.target.value
-                            )
-                          }
-                        >
-                          {QUANTIZATION_OPTIONS.map((q) => (
-                            <option key={q.value} value={q.value}>
-                              {q.label}
-                            </option>
-                          ))}
-                        </select>
-                      </section>
-                    )}
                   </div>
                 </div>
               </div>
@@ -1586,7 +1539,7 @@ export default function AgentForm({
                           style={inputStyle}
                           value={
                             form.tools?.tts_settings?.provider ||
-                            'piper'
+                            'openai'
                           }
                           onChange={(e) =>
                             setForm((prev) => ({
@@ -1602,9 +1555,6 @@ export default function AgentForm({
                             }))
                           }
                         >
-                          <option value="piper">Piper (Local)</option>
-                          <option value="kitten">Kitten (Local)</option>
-                          <option value="kokoro">Kokoro (Local)</option>
                           <option value="openai">OpenAI</option>
                           <option value="openrouter">
                             OpenRouter
@@ -1626,7 +1576,7 @@ export default function AgentForm({
                           Model (optional)
                         </label>
                         <ModelSelect
-                          options={TTS_PROVIDER_MODELS[(form.tools?.tts_settings?.provider || 'piper') as import('../interfaces/types').TtsProvider] || []}
+                          options={TTS_PROVIDER_MODELS[(form.tools?.tts_settings?.provider || 'openai') as import('../interfaces/types').TtsProvider] || []}
                           value={form.tools?.tts_settings?.model || ''}
                           onChange={(value) =>
                             setForm((prev) => ({
@@ -1656,7 +1606,7 @@ export default function AgentForm({
                           Voice (optional)
                         </label>
                         <ModelSelect
-                          options={TTS_PROVIDER_VOICES[(form.tools?.tts_settings?.provider || 'piper') as import('../interfaces/types').TtsProvider] || []}
+                          options={TTS_PROVIDER_VOICES[(form.tools?.tts_settings?.provider || 'openai') as import('../interfaces/types').TtsProvider] || []}
                           value={form.tools?.tts_settings?.voice || ''}
                           onChange={(value) =>
                             setForm((prev) => ({
@@ -1782,7 +1732,7 @@ export default function AgentForm({
                           style={inputStyle}
                           value={
                             form.tools?.stt_settings?.provider ||
-                            'sense_voice'
+                            'openai'
                           }
                           onChange={(e) =>
                             setForm((prev) => ({
@@ -1798,9 +1748,6 @@ export default function AgentForm({
                             }))
                           }
                         >
-                          <option value="sense_voice">
-                            SenseVoice (Local)
-                          </option>
                           <option value="openai">OpenAI Whisper</option>
                           <option value="elevenlabs">
                             ElevenLabs
@@ -1819,7 +1766,7 @@ export default function AgentForm({
                           Model (optional)
                         </label>
                         <ModelSelect
-                          options={STT_PROVIDER_MODELS[(form.tools?.stt_settings?.provider || 'sense_voice') as import('../interfaces/types').SttProvider] || []}
+                          options={STT_PROVIDER_MODELS[(form.tools?.stt_settings?.provider || 'openai') as import('../interfaces/types').SttProvider] || []}
                           value={form.tools?.stt_settings?.model || ''}
                           onChange={(value) =>
                             setForm((prev) => ({

@@ -113,28 +113,6 @@ impl VizierAgents {
             }
         }
 
-        if config.provider == ProviderVariant::mistralrs {
-            crate::utils::mistralrs::mistralrs_prefetch_model(
-                &deps.config.workspace,
-                &config.model,
-            )
-            .await?;
-        }
-
-        if config.tools.stt.enabled
-            && config.tools.stt.settings.provider == crate::schema::agent::SttProvider::SenseVoice
-        {
-            let model = config
-                .tools
-                .stt
-                .settings
-                .model
-                .as_deref()
-                .unwrap_or("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17");
-            crate::utils::sense_voice::sense_voice_prefetch_model(&deps.config.workspace, model)
-                .await?;
-        }
-
         let indexer = Self::build_indexer(deps, config).await?;
         let memory_op_handle = if let Some(idx) = indexer.clone() {
             let rx = deps.transport.register_memory_op(agent_id.to_string()).await;

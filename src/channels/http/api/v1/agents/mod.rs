@@ -302,8 +302,6 @@ pub struct CreateAgentRequest {
     pub provider: crate::config::provider::ProviderVariant,
     pub model: String,
     #[serde(default)]
-    pub quantization: Option<crate::schema::provider::Quantization>,
-    #[serde(default)]
     pub system_prompt: Option<String>,
     #[serde(default)]
     pub thinking_depth: Option<usize>,
@@ -413,7 +411,6 @@ impl CreateAgentRequest {
             description: self.description,
             provider: self.provider,
             model: self.model,
-            quantization: self.quantization,
             thinking_depth: self.thinking_depth.unwrap_or(100),
             checkpoint_threshold: self.checkpoint_threshold.unwrap_or(0.8).clamp(0.0, 1.0),
             max_tokens: self.max_tokens,

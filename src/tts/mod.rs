@@ -1,10 +1,7 @@
 pub mod elevenlabs;
 pub mod hyperbolic;
-pub mod kitten;
-pub mod kokoro;
 pub mod openai;
 pub mod openrouter;
-pub mod piper;
 pub mod xai;
 
 use std::sync::Arc;
@@ -25,16 +22,9 @@ impl VizierTts {
     pub async fn new(
         settings: &TtsToolSettings,
         storage: &Arc<VizierStorage>,
-        workspace: &str,
+        _workspace: &str,
     ) -> Result<Self> {
         let model: Arc<dyn VizierTtsModel> = match &settings.provider {
-            TtsProvider::Piper => Arc::new(piper::PiperTtsModel::new(settings, workspace).await?),
-            TtsProvider::Kitten => {
-                Arc::new(kitten::KittenTtsModel::new(settings, workspace).await?)
-            }
-            TtsProvider::Kokoro => {
-                Arc::new(kokoro::KokoroTtsModel::new(settings, workspace).await?)
-            }
             TtsProvider::Openai => {
                 let resolved = crate::provider_keys::resolve_provider_key(
                     storage,

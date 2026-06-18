@@ -11,7 +11,7 @@ pub mod tools;
 
 use crate::{
     config::{
-        provider::{LlamaCppProviderConfig, MistralrsProviderConfig, OllamaProviderConfig, ProviderConfig},
+        provider::{LlamaCppProviderConfig, OllamaProviderConfig, ProviderConfig},
         storage::StorageConfig,
     },
     constant,
@@ -196,7 +196,6 @@ impl Default for VizierConfig {
                 gemini: None,
                 mimo: None,
                 llama_cpp: Some(LlamaCppProviderConfig::default()),
-                mistralrs: Some(MistralrsProviderConfig::default()),
                 elevenlabs: None,
                 groq: None,
                 mistral: None,

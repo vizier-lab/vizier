@@ -161,12 +161,6 @@ impl VizierDependencies {
                     base_url: c.base_url.clone(),
                 },
             }),
-            providers.mistralrs.as_ref().map(|c| ProviderEntry {
-                variant: ProviderVariant::mistralrs,
-                config: ProviderEntryConfig::Mistralrs {
-                    enabled: c.enabled,
-                },
-            }),
             providers.elevenlabs.as_ref().map(|c| ProviderEntry {
                 variant: ProviderVariant::elevenlabs,
                 config: ProviderEntryConfig::Elevenlabs {
