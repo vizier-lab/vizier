@@ -465,7 +465,7 @@ impl VizierTools {
 
         if agent_config.tools.discord.enabled {
             if let Some(token) = &agent_config.discord_token {
-                let (send_message, react_message, get_message) = new_discord_tools(token.clone());
+                let (send_message, react_message, get_message) = new_discord_tools(token.clone(), agent_id.clone(), deps.storage.clone());
                 default_toolset = default_toolset
                     .tool(send_message)
                     .tool(react_message)
@@ -475,7 +475,7 @@ impl VizierTools {
 
         if agent_config.tools.telegram.enabled {
             if let Some(token) = &agent_config.telegram_token {
-                let (send_message, react_message, get_message) = new_telegram_tools(token.clone());
+                let (send_message, react_message, get_message) = new_telegram_tools(token.clone(), agent_id.clone(), deps.storage.clone());
                 default_toolset = default_toolset
                     .tool(send_message)
                     .tool(react_message)
