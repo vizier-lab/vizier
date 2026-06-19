@@ -118,8 +118,6 @@ export default function AgentSettings() {
     checkpoint_threshold: 80,
     max_tokens: 100000,
     context_window: undefined,
-    show_thinking: false,
-    show_tool_calls: false,
     silent_read_initiative_chance: 0.0,
     tools: {
       shell: null,
@@ -210,8 +208,6 @@ export default function AgentSettings() {
           checkpoint_threshold: (d.checkpoint_threshold ?? 0.8) * 100,
           max_tokens: d.max_tokens,
           context_window: d.context_window,
-          show_thinking: d.show_thinking ?? false,
-          show_tool_calls: d.show_tool_calls ?? false,
           silent_read_initiative_chance:
             d.silent_read_initiative_chance ?? 0.0,
           tools: {
@@ -973,81 +969,6 @@ export default function AgentSettings() {
                           )
                         }
                       />
-                    </section>
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: '0.75rem',
-                    }}
-                  >
-                    <section
-                      style={{ ...fieldStyle, flex: 1 }}
-                    >
-                      <label style={labelStyle}>
-                        <TooltipLabel
-                          label="Show Thinking"
-                          tooltip="Display the agent's reasoning/thinking process in chat."
-                        />
-                      </label>
-                      <label
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.4rem',
-                          fontSize: '0.8rem',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={
-                            form.show_thinking ??
-                            false
-                          }
-                          onChange={(e) =>
-                            updateField(
-                              'show_thinking',
-                              e.target.checked
-                            )
-                          }
-                        />
-                        Show thinking output
-                      </label>
-                    </section>
-                    <section
-                      style={{ ...fieldStyle, flex: 1 }}
-                    >
-                      <label style={labelStyle}>
-                        <TooltipLabel
-                          label="Show Tool Calls"
-                          tooltip="Display tool call details in chat responses."
-                        />
-                      </label>
-                      <label
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.4rem',
-                          fontSize: '0.8rem',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={
-                            form.show_tool_calls ??
-                            false
-                          }
-                          onChange={(e) =>
-                            updateField(
-                              'show_tool_calls',
-                              e.target.checked
-                            )
-                          }
-                        />
-                        Show tool call details
-                      </label>
                     </section>
                   </div>
                   <section style={fieldStyle}>

@@ -362,8 +362,6 @@ export interface AgentConfig {
   checkpoint_threshold: number
   tools: AgentToolsConfig
   silent_read_initiative_chance: number
-  show_thinking?: boolean
-  show_tool_calls?: boolean
   max_tokens?: number
   include_documents?: string[]
   prompt_timeout: string
@@ -387,8 +385,6 @@ export interface CreateAgentRequest {
   checkpoint_threshold?: number
   max_tokens?: number
   context_window?: number
-  show_thinking?: boolean
-  show_tool_calls?: boolean
   silent_read_initiative_chance?: number
   tools?: {
     shell?: ShellConfigData | null
@@ -433,8 +429,6 @@ export interface AgentDetail {
   checkpoint_threshold: number
   max_tokens?: number
   context_window?: number
-  show_thinking?: boolean
-  show_tool_calls?: boolean
   silent_read_initiative_chance?: number
   shell: ShellConfigData | null
   brave_search: boolean

@@ -168,8 +168,6 @@ pub struct AgentDetail {
     pub tools_timeout: String,
     pub mcp_servers: std::collections::HashMap<String, McpClientConfig>,
     pub avatar_url: Option<String>,
-    pub show_thinking: Option<bool>,
-    pub show_tool_calls: Option<bool>,
     pub silent_read_initiative_chance: f32,
     pub tts: bool,
     pub tts_settings: Option<TtsToolSettings>,
@@ -242,8 +240,6 @@ async fn agent_detail(
                 tools_timeout: config.tools.timeout.to_string(),
                 mcp_servers: config.tools.mcp_servers,
                 avatar_url: config.avatar_url,
-                show_thinking: config.show_thinking,
-                show_tool_calls: config.show_tool_calls,
                 silent_read_initiative_chance: config.silent_read_initiative_chance,
                 tts: config.tools.tts.enabled,
                 tts_settings: if config.tools.tts.settings.provider
@@ -331,10 +327,6 @@ pub struct CreateAgentRequest {
     pub telegram_token: Option<String>,
     #[serde(default)]
     pub avatar_url: Option<String>,
-    #[serde(default)]
-    pub show_thinking: Option<bool>,
-    #[serde(default)]
-    pub show_tool_calls: Option<bool>,
     #[serde(default)]
     pub silent_read_initiative_chance: Option<f32>,
     #[serde(default)]
@@ -460,8 +452,6 @@ impl CreateAgentRequest {
                 },
             },
             silent_read_initiative_chance: self.silent_read_initiative_chance.unwrap_or(0.0),
-            show_thinking: self.show_thinking,
-            show_tool_calls: self.show_tool_calls,
             include_documents: None,
             prompt_timeout: duration_string::DurationString::from_string(
                 self.prompt_timeout.unwrap_or("60m".into()),

@@ -26,8 +26,6 @@ pub struct AgentConfig {
     pub checkpoint_threshold: f64,
     pub tools: AgentToolsConfig,
     pub silent_read_initiative_chance: f32,
-    pub show_thinking: Option<bool>,
-    pub show_tool_calls: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -92,11 +92,14 @@ impl TelegramChannelReader {
         let is_dm = msg.chat.is_private();
 
         let key = format!("{}__{}", self.agent_id, channel.to_slug());
-        let topic_id = if let Ok(Some(value)) = self.deps.storage.get_state(key).await {
-            let state = serde_json::from_value::<ChannelState>(value).unwrap();
-            state.active_topic
+        let (topic_id, show_thinking, show_tool_calls) = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await {
+            if let Ok(state) = serde_json::from_value::<ChannelState>(value) {
+                (state.active_topic, state.show_thinking, state.show_tool_calls)
+            } else {
+                (None, false, false)
+            }
         } else {
-            None
+            (None, false, false)
         };
 
         let text = msg.text().unwrap_or("").to_string();
@@ -181,6 +184,48 @@ impl TelegramChannelReader {
             return Ok(());
         }
 
+        if text.starts_with("/thinking") {
+            let mut state = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await {
+                serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
+                    active_topic: None,
+                    show_thinking: false,
+                    show_tool_calls: false,
+                })
+            } else {
+                ChannelState {
+                    active_topic: topic_id.clone(),
+                    show_thinking: false,
+                    show_tool_calls: false,
+                }
+            };
+            state.show_thinking = !state.show_thinking;
+            let _ = self.deps.storage.save_state(key.clone(), serde_json::to_value(&state).unwrap()).await;
+            let status = if state.show_thinking { "ON" } else { "OFF" };
+            let _ = self.bot.send_message(chat_id, format!("thinking output: {}", status)).await?;
+            return Ok(());
+        }
+
+        if text.starts_with("/tool_calls") {
+            let mut state = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await {
+                serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
+                    active_topic: None,
+                    show_thinking: false,
+                    show_tool_calls: false,
+                })
+            } else {
+                ChannelState {
+                    active_topic: topic_id.clone(),
+                    show_thinking: false,
+                    show_tool_calls: false,
+                }
+            };
+            state.show_tool_calls = !state.show_tool_calls;
+            let _ = self.deps.storage.save_state(key.clone(), serde_json::to_value(&state).unwrap()).await;
+            let status = if state.show_tool_calls { "ON" } else { "OFF" };
+            let _ = self.bot.send_message(chat_id, format!("tool call details: {}", status)).await?;
+            return Ok(());
+        }
+
         if text.starts_with("/new") {
             let topic_id = nanoid::nanoid!(10);
             let _ = self
@@ -190,6 +235,8 @@ impl TelegramChannelReader {
                     format!("{}__{}", self.agent_id, channel.to_slug()),
                     serde_json::to_value(ChannelState {
                         active_topic: Some(topic_id.clone()),
+                        show_thinking: false,
+                        show_tool_calls: false,
                     })
                     .unwrap(),
                 )
@@ -224,6 +271,19 @@ impl TelegramChannelReader {
                     )
                     .await
                 {
+                    let existing_state = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await {
+                        serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
+                            active_topic: None,
+                            show_thinking: false,
+                            show_tool_calls: false,
+                        })
+                    } else {
+                        ChannelState {
+                            active_topic: None,
+                            show_thinking: false,
+                            show_tool_calls: false,
+                        }
+                    };
                     let _ = self
                         .deps
                         .storage
@@ -231,6 +291,8 @@ impl TelegramChannelReader {
                             format!("{}__{}", self.agent_id, channel.to_slug()),
                             serde_json::to_value(ChannelState {
                                 active_topic: topic_id,
+                                show_thinking: existing_state.show_thinking,
+                                show_tool_calls: existing_state.show_tool_calls,
                             })
                             .unwrap(),
                         )
@@ -405,23 +467,27 @@ impl TelegramChannelReader {
                         content: VizierResponseContent::ToolChoice { name, args },
                         ..
                     } => {
-                        let _ = crate::utils::telegram::send_message(
-                            &bot,
-                            chat_id_copy,
-                            crate::utils::format_thinking(&name, &args),
-                        )
-                        .await;
+                        if show_tool_calls {
+                            let _ = crate::utils::telegram::send_message(
+                                &bot,
+                                chat_id_copy,
+                                crate::utils::format_thinking(&name, &args),
+                            )
+                            .await;
+                        }
                     }
                     VizierResponse {
                         content: VizierResponseContent::Thinking(thought),
                         ..
                     } => {
-                        let _ = crate::utils::telegram::send_message(
-                            &bot,
-                            chat_id_copy,
-                            format!("> {}", thought),
-                        )
-                        .await;
+                        if show_thinking {
+                            let _ = crate::utils::telegram::send_message(
+                                &bot,
+                                chat_id_copy,
+                                format!("> {}", thought),
+                            )
+                            .await;
+                        }
                     }
                     VizierResponse {
                         content: VizierResponseContent::Message { content, stats: _ },
@@ -551,4 +617,8 @@ impl TelegramChannelReader {
 #[derive(Debug, Deserialize, Serialize)]
 struct ChannelState {
     active_topic: Option<TopicId>,
+    #[serde(default)]
+    show_thinking: bool,
+    #[serde(default)]
+    show_tool_calls: bool,
 }

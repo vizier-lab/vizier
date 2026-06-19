@@ -79,6 +79,10 @@ struct Handler(String, VizierDependencies);
 #[derive(Debug, Deserialize, Serialize)]
 struct ChannelState {
     active_topic: Option<TopicId>,
+    #[serde(default)]
+    show_thinking: bool,
+    #[serde(default)]
+    show_tool_calls: bool,
 }
 
 #[async_trait]
@@ -110,6 +114,12 @@ impl EventHandler for Handler {
         let lobotomy = CreateCommand::new("lobotomy")
             .description("save checkpoint without handover (clean break)");
         let _ = Command::create_global_command(ctx.http.clone(), lobotomy).await;
+
+        let thinking = CreateCommand::new("thinking").description("toggle showing thinking output");
+        let _ = Command::create_global_command(ctx.http.clone(), thinking).await;
+
+        let tool_calls = CreateCommand::new("tool_calls").description("toggle showing tool call details");
+        let _ = Command::create_global_command(ctx.http.clone(), tool_calls).await;
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
@@ -138,6 +148,8 @@ impl EventHandler for Handler {
                         format!("{}__{}", agent_id, channel.to_slug()),
                         serde_json::to_value(ChannelState {
                             active_topic: Some(topic_id.clone()),
+                            show_thinking: false,
+                            show_tool_calls: false,
                         })
                         .unwrap(),
                     )
@@ -181,13 +193,29 @@ impl EventHandler for Handler {
                         )
                         .await
                     {
+                        let key = format!("{}__{}", agent_id, channel.to_slug());
+                        let existing_state = if let Ok(Some(value)) = self.1.storage.get_state(key.clone()).await {
+                            serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
+                                active_topic: None,
+                                show_thinking: false,
+                                show_tool_calls: false,
+                            })
+                        } else {
+                            ChannelState {
+                                active_topic: None,
+                                show_thinking: false,
+                                show_tool_calls: false,
+                            }
+                        };
                         let _ = self
                             .1
                             .storage
                             .save_state(
-                                format!("{}__{}", agent_id, channel.to_slug()),
+                                key,
                                 serde_json::to_value(ChannelState {
                                     active_topic: topic_id,
+                                    show_thinking: existing_state.show_thinking,
+                                    show_tool_calls: existing_state.show_tool_calls,
                                 })
                                 .unwrap(),
                             )
@@ -392,6 +420,66 @@ If I am halucinating, feel free to `/lobotomy` me
                     )
                     .await;
             }
+
+            if command.data.name == "thinking" {
+                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
+                let key = format!("{}__{}", agent_id, channel.to_slug());
+                let mut state = if let Ok(Some(value)) = self.1.storage.get_state(key.clone()).await {
+                    serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
+                        active_topic: None,
+                        show_thinking: false,
+                        show_tool_calls: false,
+                    })
+                } else {
+                    ChannelState {
+                        active_topic: None,
+                        show_thinking: false,
+                        show_tool_calls: false,
+                    }
+                };
+                state.show_thinking = !state.show_thinking;
+                let _ = self.1.storage.save_state(key, serde_json::to_value(&state).unwrap()).await;
+                let status = if state.show_thinking { "ON" } else { "OFF" };
+                let _ = command
+                    .create_response(
+                        ctx.http.clone(),
+                        serenity::all::CreateInteractionResponse::Message(
+                            CreateInteractionResponseMessage::new()
+                                .content(format!("thinking output: **{}**", status)),
+                        ),
+                    )
+                    .await;
+            }
+
+            if command.data.name == "tool_calls" {
+                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
+                let key = format!("{}__{}", agent_id, channel.to_slug());
+                let mut state = if let Ok(Some(value)) = self.1.storage.get_state(key.clone()).await {
+                    serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
+                        active_topic: None,
+                        show_thinking: false,
+                        show_tool_calls: false,
+                    })
+                } else {
+                    ChannelState {
+                        active_topic: None,
+                        show_thinking: false,
+                        show_tool_calls: false,
+                    }
+                };
+                state.show_tool_calls = !state.show_tool_calls;
+                let _ = self.1.storage.save_state(key, serde_json::to_value(&state).unwrap()).await;
+                let status = if state.show_tool_calls { "ON" } else { "OFF" };
+                let _ = command
+                    .create_response(
+                        ctx.http.clone(),
+                        serenity::all::CreateInteractionResponse::Message(
+                            CreateInteractionResponseMessage::new()
+                                .content(format!("tool call details: **{}**", status)),
+                        ),
+                    )
+                    .await;
+            }
         }
     }
 
@@ -400,12 +488,14 @@ If I am halucinating, feel free to `/lobotomy` me
         let channel = VizierChannelId::DiscordChanel(msg.channel_id.get());
 
         let key = format!("{}__{}", agent_id, channel.to_slug());
-        let topic_id = if let Ok(Some(value)) = self.1.storage.get_state(key).await {
-            let state = serde_json::from_value::<ChannelState>(value).unwrap();
-
-            state.active_topic
+        let (topic_id, show_thinking, show_tool_calls) = if let Ok(Some(value)) = self.1.storage.get_state(key).await {
+            if let Ok(state) = serde_json::from_value::<ChannelState>(value) {
+                (state.active_topic, state.show_thinking, state.show_tool_calls)
+            } else {
+                (None, false, false)
+            }
         } else {
-            None
+            (None, false, false)
         };
 
         let is_dm = msg.guild_id.is_none();
@@ -522,23 +612,27 @@ If I am halucinating, feel free to `/lobotomy` me
                             content: VizierResponseContent::ToolChoice { name, args },
                             ..
                         } => {
-                            let _ = crate::utils::discord::send_message(
-                                http.clone(),
-                                &discord_channel_id,
-                                crate::utils::format_thinking(&name, &args),
-                            )
-                            .await;
+                            if show_tool_calls {
+                                let _ = crate::utils::discord::send_message(
+                                    http.clone(),
+                                    &discord_channel_id,
+                                    crate::utils::format_thinking(&name, &args),
+                                )
+                                .await;
+                            }
                         }
                         VizierResponse {
                             content: VizierResponseContent::Thinking(thought),
                             ..
                         } => {
-                            let _ = crate::utils::discord::send_message(
-                                http.clone(),
-                                &discord_channel_id,
-                                format!("> {}", thought),
-                            )
-                            .await;
+                            if show_thinking {
+                                let _ = crate::utils::discord::send_message(
+                                    http.clone(),
+                                    &discord_channel_id,
+                                    format!("> {}", thought),
+                                )
+                                .await;
+                            }
                         }
                         VizierResponse {
                             content: VizierResponseContent::Message { content, stats: _ },

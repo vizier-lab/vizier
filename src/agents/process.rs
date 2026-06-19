@@ -724,16 +724,12 @@ pub async fn handle_request(
 ) -> Result<()> {
     let mut hooks = VizierSessionHooks::new().hook(DebugHook(session.clone()));
 
-    if let Some(true) = agent_config.show_thinking {
-        if let Some(ref tx) = response_tx {
-            hooks = hooks.hook(ThinkingHook::new(tx.clone(), session.clone()));
-        }
+    if let Some(ref tx) = response_tx {
+        hooks = hooks.hook(ThinkingHook::new(tx.clone(), session.clone()));
     }
 
-    if let Some(true) = agent_config.show_tool_calls {
-        if let Some(ref tx) = response_tx {
-            hooks = hooks.hook(ToolCallsHook::new(tx.clone(), session.clone()));
-        }
+    if let Some(ref tx) = response_tx {
+        hooks = hooks.hook(ToolCallsHook::new(tx.clone(), session.clone()));
     }
 
     // Register HandoverSenderHook if response_tx is available
