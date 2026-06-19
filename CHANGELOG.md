@@ -2,11 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.10.5] - 2026-06-17
+## [0.10.6] - 2026-06-19
 
 ### 🚀 Features
 
 - Attach as default run mode
+- Append to history when using send message tool
+- Add memory reranking
+
+### 🐛 Bug Fixes
+
+- Remove unstable providers
+- Duplicate discord handler
+- Remove duplicate title
 
 ### 💼 Other
 
@@ -14,6 +22,15 @@ All notable changes to this project will be documented in this file.
 - Fix docker build
 - Add dockerhub image
 - Integrate docker publish to main workflow
+- Bundle essential runtime for docker image
+
+### 🚜 Refactor
+
+- Change agent channel ownership
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.10.5
 ## [0.10.4] - 2026-06-16
 
 ### ⚙️ Miscellaneous Tasks
