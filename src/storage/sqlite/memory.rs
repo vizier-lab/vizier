@@ -121,26 +121,25 @@ impl MemoryStorage for SqliteStorage {
     ) -> Result<Vec<Memory>> {
         let _ = threshold;
 
+        let fetch_limit = limit * 5;
         let documents = indexer
-            .search_document_index("memory".into(), query, limit * 3, 0.0)
+            .search_document_index("memory".into(), query, fetch_limit, 0.0)
             .await?;
 
-        let mut res = vec![];
+        let mut candidates = vec![];
         for doc in documents {
             let slug_part = doc.path.rsplit('/').next().unwrap_or(&doc.path);
             if let Some(memory) = self
                 .get_memory_detail(agent_id.clone(), slug_part.to_string())
                 .await?
             {
-                res.push(memory);
-            }
-
-            if res.len() >= limit {
-                break;
+                candidates.push(memory);
             }
         }
 
-        Ok(res)
+        let all_memories = self.get_all_agent_memory(agent_id).await?;
+        let reranked = crate::storage::rerank::rerank_memories(candidates, &all_memories);
+        Ok(reranked.into_iter().take(limit).collect())
     }
 
     async fn get_all_agent_memory(&self, agent_id: String) -> Result<Vec<Memory>> {

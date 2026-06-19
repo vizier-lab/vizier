@@ -166,23 +166,22 @@ impl MemoryStorage for FileSystemStorage {
         threshold: f64,
         indexer: &VizierIndexer,
     ) -> Result<Vec<Memory>> {
+        let fetch_limit = limit * 5;
         let documents = indexer
-            .search_document_index("memory".into(), query, limit * 3, threshold)
+            .search_document_index("memory".into(), query, fetch_limit, threshold)
             .await?;
 
-        let mut res = vec![];
+        let mut candidates = vec![];
         for index in documents.iter() {
             let path = PathBuf::from(index.path.clone());
             if let Some((frontmatter, content)) = Self::load_memory_from_path(path, &agent_id)? {
-                res.push(Self::memory_from_frontmatter(frontmatter, content));
-            }
-
-            if res.len() >= limit {
-                break;
+                candidates.push(Self::memory_from_frontmatter(frontmatter, content));
             }
         }
 
-        Ok(res)
+        let all_memories = self.get_all_agent_memory(agent_id).await?;
+        let reranked = crate::storage::rerank::rerank_memories(candidates, &all_memories);
+        Ok(reranked.into_iter().take(limit).collect())
     }
 
     async fn get_all_agent_memory(&self, agent_id: String) -> Result<Vec<Memory>> {

@@ -20,6 +20,7 @@ pub mod global_config;
 pub mod history;
 pub mod memory;
 pub mod provider;
+pub mod rerank;
 pub mod session;
 pub mod session_file;
 pub mod state;
