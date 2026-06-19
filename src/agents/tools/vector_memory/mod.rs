@@ -234,12 +234,7 @@ impl VizierTool for MemoryWrite {
             .parse()
             .map_err(|e: String| VizierError(e))?;
 
-        let content = format!(
-            "# {}\n\n{}\n\n timestamp: {}",
-            args.title,
-            args.content,
-            Utc::now()
-        );
+        let content = format!("{}\n timestamp: {}", args.content, Utc::now());
 
         let mut attachments = Vec::new();
         if let Some(filenames) = &args.attachments {
