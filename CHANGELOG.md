@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.8] - 2026-06-20
+
+### 🚀 Features
+
+- Strict memory deletion
+- Implement poplarity-based memory score factor
 ## [0.10.7] - 2026-06-20
 
 ### 🚀 Features
@@ -12,6 +18,10 @@ All notable changes to this project will be documented in this file.
 ### 🐛 Bug Fixes
 
 - Kokoro model intermittent download issue
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.10.7
 ## [0.10.6] - 2026-06-19
 
 ### 🚀 Features
