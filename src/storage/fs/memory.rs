@@ -355,6 +355,11 @@ impl MemoryStorage for FileSystemStorage {
         Ok(MemoryGraph { nodes, edges })
     }
 
+    async fn has_incoming_links(&self, agent_id: String, slug: String) -> Result<bool> {
+        let all = self.get_all_agent_memory(agent_id).await?;
+        Ok(all.iter().any(|m| m.relations.contains(&slug)))
+    }
+
     async fn delete_memory(
         &self,
         agent_id: String,

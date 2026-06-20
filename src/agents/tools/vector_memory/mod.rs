@@ -617,6 +617,56 @@ impl VizierTool for MemoryDelete {
         _ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
         let slug = args.slug.clone();
+
+        let detail = self
+            .1
+            .get_memory_detail(self.0.clone(), slug.clone())
+            .await
+            .map_err(|e| VizierError(e.to_string()))?;
+
+        let outgoing = match &detail {
+            Some(m) if !m.relations.is_empty() => m.relations.clone(),
+            _ => vec![],
+        };
+
+        let has_incoming = self
+            .1
+            .has_incoming_links(self.0.clone(), slug.clone())
+            .await
+            .map_err(|e| VizierError(e.to_string()))?;
+
+        if !outgoing.is_empty() || has_incoming {
+            let mut msg = format!(
+                "Cannot delete memory '{}': it is linked in the knowledge graph.\n\n",
+                slug
+            );
+            if !outgoing.is_empty() {
+                msg += "Outgoing links (this memory references):\n";
+                for s in &outgoing {
+                    msg += &format!("- [[{}]]\n", s);
+                }
+                msg += "\n";
+            }
+            if has_incoming {
+                let related = self
+                    .1
+                    .get_related_memories(self.0.clone(), slug.clone())
+                    .await
+                    .map_err(|e| VizierError(e.to_string()))?;
+                let incoming: Vec<_> = related
+                    .iter()
+                    .filter(|m| m.relations.contains(&slug))
+                    .collect();
+                msg += "Incoming links (other memories reference this one):\n";
+                for m in &incoming {
+                    msg += &format!("- \"{}\" ({})\n", m.title, m.slug);
+                }
+                msg += "\n";
+            }
+            msg += "Remove the [[slug]] links from those memories first, or use memory_write to update them.";
+            return Err(VizierError(msg));
+        }
+
         self.1
             .delete_memory(self.0.clone(), slug.clone(), &self.2)
             .await

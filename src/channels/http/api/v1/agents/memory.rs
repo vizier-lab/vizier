@@ -606,6 +606,13 @@ pub async fn delete_memory(
             StatusCode::INTERNAL_SERVER_ERROR,
             "unexpected response".into(),
         ),
-        Err(e) => err_response(StatusCode::NOT_FOUND, e.to_string()),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("linked in the knowledge graph") {
+                err_response(StatusCode::CONFLICT, msg)
+            } else {
+                err_response(StatusCode::NOT_FOUND, msg)
+            }
+        }
     }
 }

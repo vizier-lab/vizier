@@ -50,6 +50,8 @@ pub trait MemoryStorage {
 
     async fn get_memory_graph(&self, agent_id: String) -> Result<MemoryGraph>;
 
+    async fn has_incoming_links(&self, agent_id: String, slug: String) -> Result<bool>;
+
     async fn delete_memory(
         &self,
         agent_id: String,
@@ -113,6 +115,10 @@ impl MemoryStorage for VizierStorage {
 
     async fn get_memory_graph(&self, agent_id: String) -> Result<MemoryGraph> {
         self.0.get_memory_graph(agent_id).await
+    }
+
+    async fn has_incoming_links(&self, agent_id: String, slug: String) -> Result<bool> {
+        self.0.has_incoming_links(agent_id, slug).await
     }
 
     async fn delete_memory(

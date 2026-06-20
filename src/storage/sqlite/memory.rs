@@ -316,6 +316,17 @@ impl MemoryStorage for SqliteStorage {
         Ok(MemoryGraph { nodes, edges })
     }
 
+    async fn has_incoming_links(&self, agent_id: String, slug: String) -> Result<bool> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT data FROM memory")?;
+        let found = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .filter_map(|data| serde_json::from_str::<Memory>(&data).ok())
+            .any(|m| m.relations.contains(&slug) && can_access_memory(&agent_id, &m));
+        Ok(found)
+    }
+
     async fn delete_memory(
         &self,
         agent_id: String,
