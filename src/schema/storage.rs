@@ -61,6 +61,8 @@ pub struct Memory {
     pub relations: Vec<String>,
     #[serde(default)]
     pub attachments: Vec<VizierAttachment>,
+    #[serde(default)]
+    pub read_count: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

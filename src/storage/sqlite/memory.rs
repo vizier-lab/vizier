@@ -83,6 +83,7 @@ impl MemoryStorage for SqliteStorage {
             keywords: vec![],
             relations,
             attachments,
+            read_count: 0,
         };
 
         let data = serde_json::to_string(&memory)?;
@@ -354,6 +355,21 @@ impl MemoryStorage for SqliteStorage {
             .delete_index("memory".into(), format!("memory/{}", key))
             .await;
 
+        Ok(())
+    }
+
+    async fn increment_read_count(&self, agent_id: String, slug: String) -> Result<()> {
+        let detail = self.get_memory_detail(agent_id, slug).await?;
+        if let Some(mut memory) = detail {
+            memory.read_count += 1;
+            let data = serde_json::to_string(&memory)?;
+            let key = format!("{}/{}", memory.agent_id, memory.slug);
+            let conn = self.conn.lock();
+            conn.execute(
+                "UPDATE memory SET data = ?1 WHERE id = ?2",
+                rusqlite::params![data, key],
+            )?;
+        }
         Ok(())
     }
 }

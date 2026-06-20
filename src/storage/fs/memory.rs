@@ -67,6 +67,7 @@ impl FileSystemStorage {
             keywords: frontmatter.keywords,
             relations: frontmatter.relations,
             attachments: frontmatter.attachments,
+            read_count: frontmatter.read_count,
         }
     }
 }
@@ -134,6 +135,7 @@ impl MemoryStorage for FileSystemStorage {
             keywords: vec![],
             relations: relations.clone(),
             attachments: attachments.clone(),
+            read_count: 0,
         };
 
         utils::markdown::write_markdown(&frontmatter, content.clone(), path.clone())?;
@@ -155,6 +157,7 @@ impl MemoryStorage for FileSystemStorage {
             keywords: vec![],
             relations,
             attachments,
+            read_count: 0,
         })
     }
 
@@ -387,6 +390,22 @@ impl MemoryStorage for FileSystemStorage {
             }
         }
 
+        Ok(())
+    }
+
+    async fn increment_read_count(&self, agent_id: String, slug: String) -> Result<()> {
+        if let Some(mut memory) = self.get_memory_detail(agent_id, slug).await? {
+            memory.read_count += 1;
+            let path = format!(
+                "{}/agents/{}/{}/{}.md",
+                self.workspace, memory.agent_id, MEMORY_PATH, memory.slug
+            );
+            let pb = PathBuf::from(&path);
+            if pb.exists() {
+                let frontmatter: MemoryFrontMatter = memory.clone().into();
+                utils::markdown::write_markdown(&frontmatter, memory.content.clone(), pb)?;
+            }
+        }
         Ok(())
     }
 }

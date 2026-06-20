@@ -6,6 +6,7 @@ const RRF_K: f64 = 60.0;
 const W_SIMILARITY: f64 = 2.0;
 const W_LINKS: f64 = 1.0;
 const W_RECENCY: f64 = 1.0;
+const W_READ_COUNT: f64 = 2.0;
 
 fn compute_link_counts(candidates: &[Memory], all_memories: &[Memory]) -> HashMap<String, usize> {
     let mut incoming: HashMap<String, usize> = HashMap::new();
@@ -69,6 +70,17 @@ pub fn rerank_memories(candidates: Vec<Memory>, all_memories: &[Memory]) -> Vec<
         rec_ranks[*idx] = rank + 1;
     }
 
+    let mut read_indexed: Vec<(usize, u64)> = unique
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (i, m.read_count))
+        .collect();
+    read_indexed.sort_by_key(|b| std::cmp::Reverse(b.1));
+    let mut read_ranks = vec![0; unique.len()];
+    for (rank, (idx, _)) in read_indexed.iter().enumerate() {
+        read_ranks[*idx] = rank + 1;
+    }
+
     let mut scored: Vec<(usize, f64)> = unique
         .iter()
         .enumerate()
@@ -76,7 +88,8 @@ pub fn rerank_memories(candidates: Vec<Memory>, all_memories: &[Memory]) -> Vec<
             let sim_score = W_SIMILARITY / (RRF_K + sim_ranks[i] as f64);
             let link_score = W_LINKS / (RRF_K + link_ranks[i] as f64);
             let rec_score = W_RECENCY / (RRF_K + rec_ranks[i] as f64);
-            (i, sim_score + link_score + rec_score)
+            let read_score = W_READ_COUNT / (RRF_K + read_ranks[i] as f64);
+            (i, sim_score + link_score + rec_score + read_score)
         })
         .collect();
 

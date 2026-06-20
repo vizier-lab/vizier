@@ -58,6 +58,8 @@ pub trait MemoryStorage {
         slug: String,
         indexer: &VizierIndexer,
     ) -> Result<()>;
+
+    async fn increment_read_count(&self, agent_id: String, slug: String) -> Result<()>;
 }
 
 #[async_trait::async_trait]
@@ -128,5 +130,9 @@ impl MemoryStorage for VizierStorage {
         indexer: &VizierIndexer,
     ) -> Result<()> {
         self.0.delete_memory(agent_id, slug, indexer).await
+    }
+
+    async fn increment_read_count(&self, agent_id: String, slug: String) -> Result<()> {
+        self.0.increment_read_count(agent_id, slug).await
     }
 }

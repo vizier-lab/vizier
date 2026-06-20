@@ -75,6 +75,7 @@ pub struct MemorySummary {
     pub tags: Vec<String>,
     pub relations: Vec<String>,
     pub attachment_count: usize,
+    pub read_count: u64,
 }
 
 pub type MemoryList = ListVectorMemory;
@@ -125,6 +126,7 @@ impl VizierTool for MemoryList {
                 tags: m.tags,
                 relations: m.relations,
                 attachment_count: m.attachments.len(),
+                read_count: m.read_count,
             })
             .collect())
     }
@@ -159,6 +161,13 @@ impl VizierTool for MemoryRead {
             .query_memory(self.0.clone(), args.query, 10, 0.1, &self.2)
             .await
             .map_err(|err| VizierError(err.to_string()))?;
+
+        for memory in &res {
+            let _ = self
+                .1
+                .increment_read_count(self.0.clone(), memory.slug.clone())
+                .await;
+        }
 
         Ok(res.iter().map(|memory| memory.content.clone()).collect())
     }
@@ -319,6 +328,7 @@ pub struct MemoryDetailOutput {
     pub tags: Vec<String>,
     pub relations: Vec<String>,
     pub attachments: Vec<String>,
+    pub read_count: u64,
 }
 
 #[async_trait::async_trait]
@@ -347,6 +357,11 @@ impl VizierTool for MemoryDetail {
 
         match memory {
             Some(m) => {
+                let _ = self
+                    .1
+                    .increment_read_count(self.0.clone(), m.slug.clone())
+                    .await;
+
                 let output = serde_json::to_string_pretty(&MemoryDetailOutput {
                     slug: m.slug,
                     title: m.title.clone(),
@@ -358,6 +373,7 @@ impl VizierTool for MemoryDetail {
                     tags: m.tags,
                     relations: m.relations,
                     attachments: m.attachments.iter().map(|a| a.filename.clone()).collect(),
+                    read_count: m.read_count,
                 })
                 .unwrap_or_default();
 
@@ -456,6 +472,11 @@ impl VizierTool for MemoryFollow {
 
                 for memory in related {
                     if !visited.contains(&memory.slug) {
+                        let _ = self
+                            .1
+                            .increment_read_count(self.0.clone(), memory.slug.clone())
+                            .await;
+
                         let attachment_names: Vec<String> = memory
                             .attachments
                             .iter()
@@ -472,6 +493,7 @@ impl VizierTool for MemoryFollow {
                             tags: memory.tags,
                             relations: memory.relations,
                             attachments: attachment_names,
+                            read_count: memory.read_count,
                         });
                         next_slugs.push(memory.slug);
                     }
