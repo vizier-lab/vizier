@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.7] - 2026-06-20
+
+### 🚀 Features
+
+- Reimplement kokoro tts
+- Implement whisper transcriber
+
+### 🐛 Bug Fixes
+
+- Kokoro model intermittent download issue
 ## [0.10.6] - 2026-06-19
 
 ### 🚀 Features
@@ -9,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - Attach as default run mode
 - Append to history when using send message tool
 - Add memory reranking
+- Granular thinking toggle
 
 ### 🐛 Bug Fixes
 
@@ -31,6 +42,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Bump version to 0.10.5
+- Bump version to 0.10.6
 ## [0.10.4] - 2026-06-16
 
 ### ⚙️ Miscellaneous Tasks
