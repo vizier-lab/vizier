@@ -12,8 +12,7 @@ use crate::tts::VizierTtsModel;
 use crate::utils::build_path;
 use crate::{Result, VizierError};
 
-const MODEL_BASE_URL: &str =
-    "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models";
+const MODEL_BASE_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models";
 
 fn en_v0_19_voices() -> HashMap<String, i32> {
     let mut m = HashMap::new();
@@ -257,7 +256,7 @@ impl KokoroTtsModel {
             .build()
             .map_err(|e| VizierError(format!("build download client: {e}")))?;
 
-        let max_retries = 3u32;
+        let max_retries = 100u32;
         let mut last_err: Option<VizierError> = None;
         let mut bytes: Vec<u8> = Vec::new();
 
@@ -353,13 +352,11 @@ impl KokoroTtsModel {
         let espeak_data = self.model_dir.join("espeak-ng-data");
 
         let lexicon = match self.model_name.as_str() {
-            "kokoro-multi-lang-v1_0" | "kokoro-multi-lang-v1_1" => Some(
-                format!(
-                    "{},{}",
-                    self.model_dir.join("lexicon-us-en.txt").display(),
-                    self.model_dir.join("lexicon-zh.txt").display()
-                ),
-            ),
+            "kokoro-multi-lang-v1_0" | "kokoro-multi-lang-v1_1" => Some(format!(
+                "{},{}",
+                self.model_dir.join("lexicon-us-en.txt").display(),
+                self.model_dir.join("lexicon-zh.txt").display()
+            )),
             _ => None,
         };
 
@@ -395,7 +392,9 @@ impl KokoroTtsModel {
 impl VizierTtsModel for KokoroTtsModel {
     async fn generate_speech(&self, text: &str, voice: &str, speed: f32) -> Result<Vec<u8>> {
         let lock = self.ensure_tts().await?;
-        let tts = lock.as_ref().ok_or_else(|| VizierError("Kokoro TTS not initialized".into()))?;
+        let tts = lock
+            .as_ref()
+            .ok_or_else(|| VizierError("Kokoro TTS not initialized".into()))?;
 
         let sid = resolve_voice_id(&self.model_name, voice);
         let num_speakers = tts.num_speakers();

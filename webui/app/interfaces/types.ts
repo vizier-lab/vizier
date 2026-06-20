@@ -279,6 +279,7 @@ export const STT_PROVIDER_MODELS: Record<SttProvider, string[]> = {
   mistral: [],
   huggingface: [],
   gemini: [],
+  whisper: ['tiny', 'tiny.en', 'base', 'base.en', 'small', 'medium', 'large-v3'],
 }
 
 export const IMAGE_GEN_PROVIDER_MODELS: Record<ImageGenProvider, string[]> = {
@@ -315,6 +316,7 @@ export type SttProvider =
   | 'mistral'
   | 'huggingface'
   | 'gemini'
+  | 'whisper'
 
 export interface SttToolSettings {
   provider?: SttProvider

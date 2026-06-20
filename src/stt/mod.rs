@@ -4,6 +4,7 @@ pub mod groq;
 pub mod huggingface;
 pub mod mistral;
 pub mod openai;
+pub mod whisper;
 
 use std::sync::Arc;
 
@@ -108,6 +109,13 @@ impl VizierStt {
                     .clone()
                     .unwrap_or_else(|| SttProvider::Gemini.default_model().into());
                 Arc::new(gemini::GeminiSttModel::new(resolved.api_key, model))
+            }
+            SttProvider::Whisper => {
+                let model = settings
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| SttProvider::Whisper.default_model().into());
+                Arc::new(whisper::WhisperSttModel::new(model, _workspace))
             }
         };
 

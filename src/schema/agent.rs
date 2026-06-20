@@ -212,6 +212,7 @@ pub enum SttProvider {
     Mistral,
     Huggingface,
     Gemini,
+    Whisper,
 }
 
 impl SttProvider {
@@ -223,6 +224,7 @@ impl SttProvider {
             Self::Mistral => "voxtral-mini-2507",
             Self::Huggingface => "openai/whisper-large-v3",
             Self::Gemini => "gemini-1.5-flash",
+            Self::Whisper => "large-v3",
         }
     }
 }

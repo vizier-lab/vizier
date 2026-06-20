@@ -1676,6 +1676,7 @@ export default function AgentForm({
                           <option value="elevenlabs">
                             ElevenLabs
                           </option>
+                          <option value="whisper">Local Whisper</option>
                         </select>
                       </div>
                       <div>
