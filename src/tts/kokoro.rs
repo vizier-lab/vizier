@@ -252,22 +252,70 @@ impl KokoroTtsModel {
             .progress_chars("#>-"),
         );
 
-        let response = reqwest::get(&url)
-            .await
-            .map_err(|e| VizierError(format!("download kokoro model: {e}")))?;
+        let client = reqwest::Client::builder()
+            .user_agent("vizier/0.10")
+            .build()
+            .map_err(|e| VizierError(format!("build download client: {e}")))?;
 
-        let total_size = response.content_length().unwrap_or(0);
-        pb.set_length(total_size);
+        let max_retries = 3u32;
+        let mut last_err: Option<VizierError> = None;
+        let mut bytes: Vec<u8> = Vec::new();
 
-        let mut bytes = Vec::new();
-        let mut stream = response.bytes_stream();
-        use futures::StreamExt;
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| VizierError(format!("download chunk: {e}")))?;
-            bytes.extend_from_slice(&chunk);
-            pb.inc(chunk.len() as u64);
+        for attempt in 1..=max_retries {
+            pb.set_position(0);
+            bytes.clear();
+
+            let response = match client.get(&url).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    let err = VizierError(format!("download kokoro model: {e}"));
+                    tracing::warn!("Download attempt {attempt}/{max_retries} failed: {e}");
+                    last_err = Some(err);
+                    if attempt < max_retries {
+                        tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64))
+                            .await;
+                    }
+                    continue;
+                }
+            };
+
+            let total_size = response.content_length().unwrap_or(0);
+            pb.set_length(total_size);
+
+            let mut stream = response.bytes_stream();
+            use futures::StreamExt;
+            let mut download_failed = false;
+            while let Some(chunk) = stream.next().await {
+                match chunk {
+                    Ok(c) => {
+                        bytes.extend_from_slice(&c);
+                        pb.inc(c.len() as u64);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Download attempt {attempt}/{max_retries} failed at chunk: {e}"
+                        );
+                        last_err = Some(VizierError(format!("download chunk: {e}")));
+                        download_failed = true;
+                        break;
+                    }
+                }
+            }
+
+            if download_failed {
+                if attempt < max_retries {
+                    tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
+                }
+                continue;
+            }
+
+            pb.finish_with_message("download complete");
+            break;
         }
-        pb.finish_with_message("download complete");
+
+        if last_err.is_some() && bytes.is_empty() {
+            return Err(last_err.unwrap());
+        }
 
         std::fs::write(&archive_path, &bytes)
             .map_err(|e| VizierError(format!("write archive: {e}")))?;
