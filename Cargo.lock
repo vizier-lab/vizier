@@ -639,6 +639,16 @@ checksum = "8ae3f5d315924270530207e2a68396c3cc547f6dca3fbdca317cfb1a51edb593"
 
 [[package]]
 name = "bzip2"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bdb116a6ef3f6c3698828873ad02c3014b3c85cadb88496095628e3ef1e347f8"
+dependencies = [
+ "bzip2-sys",
+ "libc",
+]
+
+[[package]]
+name = "bzip2"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49ecfb22d906f800d4fe833b6282cf4dc1c298f5057ca0b5445e5c209735ca47"
@@ -5109,6 +5119,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "sherpa-onnx"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98baa63be165cc1bccd418c210269c68bcdd0c279195ecce0140645bc6e520f4"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sherpa-onnx-sys",
+]
+
+[[package]]
+name = "sherpa-onnx-sys"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21ac2c3342f826069bbf0be3578f9601f3802a1bff50bbced8230a15ec9eed8f"
+dependencies = [
+ "bzip2 0.4.4",
+ "tar",
+ "ureq 2.12.1",
+]
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6746,7 +6778,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vizier"
-version = "0.10.5"
+version = "0.10.6"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -6756,7 +6788,7 @@ dependencies = [
  "axum-extra",
  "base64 0.22.1",
  "bollard",
- "bzip2",
+ "bzip2 0.5.2",
  "calamine",
  "chrono",
  "clap",
@@ -6796,6 +6828,7 @@ dependencies = [
  "serenity",
  "sha2",
  "shellexpand",
+ "sherpa-onnx",
  "slugify",
  "sqlite-vec",
  "strum",
@@ -6820,7 +6853,7 @@ dependencies = [
 
 [[package]]
 name = "vizier-derive"
-version = "0.10.5"
+version = "0.10.6"
 dependencies = [
  "proc-macro2",
  "quote",

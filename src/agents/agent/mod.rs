@@ -106,7 +106,7 @@ impl VizierAgent {
 
         // Create TTS instance if enabled (shared between audio reply and tts_generate tool)
         let tts = if agent_config.tools.tts.enabled {
-            match VizierTts::new(&agent_config.tools.tts.settings, &deps.storage, &workspace).await
+            match VizierTts::new(&agent_config.tools.tts.settings, &deps.storage, &deps.config.workspace).await
             {
                 Ok(instance) => Some(Arc::new(instance)),
                 Err(e) => {

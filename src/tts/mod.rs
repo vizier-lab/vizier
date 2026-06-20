@@ -1,5 +1,6 @@
 pub mod elevenlabs;
 pub mod hyperbolic;
+pub mod kokoro;
 pub mod openai;
 pub mod openrouter;
 pub mod xai;
@@ -86,6 +87,13 @@ impl VizierTts {
                     .clone()
                     .unwrap_or_else(|| "Melo-TTS".into());
                 Arc::new(hyperbolic::HyperbolicTtsModel::new(resolved.api_key, model))
+            }
+            TtsProvider::Kokoro => {
+                let model = settings
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "kokoro-en-v0_19".into());
+                Arc::new(kokoro::KokoroTtsModel::new(model, _workspace))
             }
         };
 

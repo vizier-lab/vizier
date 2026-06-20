@@ -176,6 +176,7 @@ pub enum TtsProvider {
     Elevenlabs,
     Xai,
     Hyperbolic,
+    Kokoro,
 }
 
 impl TtsProvider {
@@ -184,6 +185,7 @@ impl TtsProvider {
             Self::Openai | Self::Openrouter => "alloy",
             Self::Elevenlabs => "pqHfZKP75CvOlQylNhV4",
             Self::Xai | Self::Hyperbolic => "default",
+            Self::Kokoro => "af",
         }
     }
 }

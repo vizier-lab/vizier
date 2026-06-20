@@ -260,6 +260,7 @@ export const TTS_PROVIDER_MODELS: Record<TtsProvider, string[]> = {
   elevenlabs: ['eleven_multilingual_v2', 'eleven_turbo_v2_5', 'eleven_flash_v2_5', 'eleven_monolingual_v1'],
   xai: [],
   hyperbolic: [],
+  kokoro: ['kokoro-en-v0_19', 'kokoro-multi-lang-v1_0', 'kokoro-multi-lang-v1_1'],
 }
 
 export const TTS_PROVIDER_VOICES: Record<TtsProvider, string[]> = {
@@ -268,6 +269,7 @@ export const TTS_PROVIDER_VOICES: Record<TtsProvider, string[]> = {
   elevenlabs: [],
   xai: [],
   hyperbolic: [],
+  kokoro: ['af', 'af_bella', 'af_nicole', 'af_sarah', 'af_sky', 'am_adam', 'am_michael', 'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis'],
 }
 
 export const STT_PROVIDER_MODELS: Record<SttProvider, string[]> = {
@@ -297,6 +299,7 @@ export type TtsProvider =
   | 'elevenlabs'
   | 'xai'
   | 'hyperbolic'
+  | 'kokoro'
 
 export interface TtsToolSettings {
   provider?: TtsProvider

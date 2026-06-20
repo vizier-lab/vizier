@@ -1779,6 +1779,9 @@ export default function AgentSettings() {
                           <option value="elevenlabs">
                             ElevenLabs
                           </option>
+                          <option value="xai">xAI</option>
+                          <option value="hyperbolic">Hyperbolic</option>
+                          <option value="kokoro">Kokoro (Offline)</option>
                         </select>
                       </div>
                       <div>
