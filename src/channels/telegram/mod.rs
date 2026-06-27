@@ -350,6 +350,7 @@ impl TelegramChannelReader {
 
         if text.starts_with("/checkpoint") {
             let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
+            let (response_tx, response_rx) = flume::unbounded();
             let _ = transport
                 .send_request(
                     session,
@@ -362,18 +363,59 @@ impl TelegramChannelReader {
                         attachments: vec![],
                         expect_audio_reply: None,
                     },
-                    None,
+                    Some(response_tx),
                 )
                 .await;
             let _ = self
                 .bot
                 .send_message(chat_id, "creating checkpoint...")
                 .await?;
+            let bot = self.bot.clone();
+            tokio::spawn(async move {
+                while let Ok(response) = response_rx.recv_async().await {
+                    match response.content {
+                        VizierResponseContent::Checkpoint { handover: Some(_) } => {
+                            let _ = crate::utils::telegram::send_message(
+                                &bot,
+                                chat_id,
+                                "✅ checkpoint saved".to_string(),
+                            )
+                            .await;
+                            break;
+                        }
+                        VizierResponseContent::Checkpoint { handover: None } => {
+                            let _ = crate::utils::telegram::send_message(
+                                &bot,
+                                chat_id,
+                                "✅ lobotomy performed".to_string(),
+                            )
+                            .await;
+                            break;
+                        }
+                        VizierResponseContent::Error { kind, message } => {
+                            let kind_str = match kind {
+                                crate::schema::ErrorKind::Completion => "Completion Error",
+                                crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
+                                crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
+                            };
+                            let _ = crate::utils::telegram::send_message(
+                                &bot,
+                                chat_id,
+                                format!("**{}**: {}", kind_str, message),
+                            )
+                            .await;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            });
             return Ok(());
         }
 
         if text.starts_with("/lobotomy") {
             let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
+            let (response_tx, response_rx) = flume::unbounded();
             let _ = transport
                 .send_request(
                     session,
@@ -386,13 +428,53 @@ impl TelegramChannelReader {
                         attachments: vec![],
                         expect_audio_reply: None,
                     },
-                    None,
+                    Some(response_tx),
                 )
                 .await;
             let _ = self
                 .bot
                 .send_message(chat_id, "performing lobotomy...")
                 .await?;
+            let bot = self.bot.clone();
+            tokio::spawn(async move {
+                while let Ok(response) = response_rx.recv_async().await {
+                    match response.content {
+                        VizierResponseContent::Checkpoint { handover: Some(_) } => {
+                            let _ = crate::utils::telegram::send_message(
+                                &bot,
+                                chat_id,
+                                "✅ checkpoint saved".to_string(),
+                            )
+                            .await;
+                            break;
+                        }
+                        VizierResponseContent::Checkpoint { handover: None } => {
+                            let _ = crate::utils::telegram::send_message(
+                                &bot,
+                                chat_id,
+                                "✅ lobotomy performed".to_string(),
+                            )
+                            .await;
+                            break;
+                        }
+                        VizierResponseContent::Error { kind, message } => {
+                            let kind_str = match kind {
+                                crate::schema::ErrorKind::Completion => "Completion Error",
+                                crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
+                                crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
+                            };
+                            let _ = crate::utils::telegram::send_message(
+                                &bot,
+                                chat_id,
+                                format!("**{}**: {}", kind_str, message),
+                            )
+                            .await;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            });
             return Ok(());
         }
 

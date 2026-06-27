@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serenity::all::{
     ChannelId, Command, CreateAttachment, CreateCommand, CreateCommandOption,
-    CreateInteractionResponseMessage, CreateMessage, Http, Interaction, Ready, Typing,
+    CreateInteractionResponseFollowup, CreateInteractionResponseMessage, CreateMessage, Http,
+    Interaction, Ready, Typing,
 };
 use serenity::async_trait;
 use serenity::model::channel::Message;
@@ -351,6 +352,7 @@ If I am halucinating, feel free to `/lobotomy` me
                 };
 
                 let session = VizierSession(agent_id.clone(), channel, topic_id);
+                let (response_tx, response_rx) = flume::unbounded();
                 let _ = self
                     .1
                     .transport
@@ -365,7 +367,7 @@ If I am halucinating, feel free to `/lobotomy` me
                             attachments: vec![],
                             expect_audio_reply: None,
                         },
-                        None,
+                        Some(response_tx),
                     )
                     .await;
 
@@ -378,6 +380,53 @@ If I am halucinating, feel free to `/lobotomy` me
                         ),
                     )
                     .await;
+
+                let followup_command = command.clone();
+                let followup_http = ctx.http.clone();
+                tokio::spawn(async move {
+                    while let Ok(response) = response_rx.recv_async().await {
+                        match response.content {
+                            VizierResponseContent::Checkpoint { handover: Some(_) } => {
+                                let _ = followup_command
+                                    .create_followup(
+                                        followup_http.clone(),
+                                        CreateInteractionResponseFollowup::new()
+                                            .content("✅ checkpoint saved"),
+                                    )
+                                    .await;
+                                break;
+                            }
+                            VizierResponseContent::Checkpoint { handover: None } => {
+                                let _ = followup_command
+                                    .create_followup(
+                                        followup_http.clone(),
+                                        CreateInteractionResponseFollowup::new()
+                                            .content("✅ lobotomy performed"),
+                                    )
+                                    .await;
+                                break;
+                            }
+                            VizierResponseContent::Error { kind, message } => {
+                                let kind_str = match kind {
+                                    crate::schema::ErrorKind::Completion => "Completion Error",
+                                    crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
+                                    crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
+                                };
+                                let _ = followup_command
+                                    .create_followup(
+                                        followup_http.clone(),
+                                        CreateInteractionResponseFollowup::new().content(format!(
+                                            "**{}**: {}",
+                                            kind_str, message
+                                        )),
+                                    )
+                                    .await;
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                });
             }
 
             if command.data.name == "lobotomy" {
@@ -392,6 +441,7 @@ If I am halucinating, feel free to `/lobotomy` me
                 };
 
                 let session = VizierSession(agent_id.clone(), channel, topic_id);
+                let (response_tx, response_rx) = flume::unbounded();
                 let _ = self
                     .1
                     .transport
@@ -406,7 +456,7 @@ If I am halucinating, feel free to `/lobotomy` me
                             attachments: vec![],
                             expect_audio_reply: None,
                         },
-                        None,
+                        Some(response_tx),
                     )
                     .await;
 
@@ -419,6 +469,53 @@ If I am halucinating, feel free to `/lobotomy` me
                         ),
                     )
                     .await;
+
+                let followup_command = command.clone();
+                let followup_http = ctx.http.clone();
+                tokio::spawn(async move {
+                    while let Ok(response) = response_rx.recv_async().await {
+                        match response.content {
+                            VizierResponseContent::Checkpoint { handover: Some(_) } => {
+                                let _ = followup_command
+                                    .create_followup(
+                                        followup_http.clone(),
+                                        CreateInteractionResponseFollowup::new()
+                                            .content("✅ checkpoint saved"),
+                                    )
+                                    .await;
+                                break;
+                            }
+                            VizierResponseContent::Checkpoint { handover: None } => {
+                                let _ = followup_command
+                                    .create_followup(
+                                        followup_http.clone(),
+                                        CreateInteractionResponseFollowup::new()
+                                            .content("✅ lobotomy performed"),
+                                    )
+                                    .await;
+                                break;
+                            }
+                            VizierResponseContent::Error { kind, message } => {
+                                let kind_str = match kind {
+                                    crate::schema::ErrorKind::Completion => "Completion Error",
+                                    crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
+                                    crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
+                                };
+                                let _ = followup_command
+                                    .create_followup(
+                                        followup_http.clone(),
+                                        CreateInteractionResponseFollowup::new().content(format!(
+                                            "**{}**: {}",
+                                            kind_str, message
+                                        )),
+                                    )
+                                    .await;
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                });
             }
 
             if command.data.name == "thinking" {
