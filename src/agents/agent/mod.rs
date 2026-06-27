@@ -935,44 +935,7 @@ impl VizierAgent {
         history: &[Message],
         _ctx: &ToolContext,
     ) -> Result<Option<String>> {
-        let mut summary_history = history.to_vec();
-
-        summary_history.push(Message::user(
-            "Analyze this conversation and extract key context for continuation. Include:\n\
-             1. **Key Facts**: Important information, data, or discoveries\n\
-             2. **Decisions Made**: Any choices, directions, or conclusions reached\n\
-             3. **Current State**: What is being worked on right now\n\
-             4. **Pending Tasks**: Incomplete work or next steps\n\
-             5. **Constraints**: Any limitations, preferences, or requirements\n\n\
-             Format as a concise structured summary. Be factual and precise.",
-        ));
-
-        let (_message_id, choices, _usage) = self
-            .model
-            .completion(
-                Message::user("Extract conversation context for checkpoint."),
-                summary_history,
-                vec![],
-            )
-            .await?;
-
-        let output = choices
-            .iter()
-            .filter_map(|item| {
-                if let AssistantContent::Text(text) = item {
-                    Some(text.to_string())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        if output.trim().is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(output))
-        }
+        generate_handover_with_model(&self.model, history).await
     }
 
     pub async fn call_skill(&self, skill_name: String) -> String {
@@ -1313,4 +1276,47 @@ pub fn read_md_file(workspace: String, file: String) -> String {
     let path = build_path(&workspace, &[&file]);
 
     fs::read_to_string(path).unwrap()
+}
+
+pub async fn generate_handover_with_model(
+    model: &VizierModel,
+    history: &[Message],
+) -> Result<Option<String>> {
+    let mut summary_history = history.to_vec();
+
+    summary_history.push(Message::user(
+        "Analyze this conversation and extract key context for continuation. Include:\n\
+         1. **Key Facts**: Important information, data, or discoveries\n\
+         2. **Decisions Made**: Any choices, directions, or conclusions reached\n\
+         3. **Current State**: What is being worked on right now\n\
+         4. **Pending Tasks**: Incomplete work or next steps\n\
+         5. **Constraints**: Any limitations, preferences, or requirements\n\n\
+         Format as a concise structured summary. Be factual and precise.",
+    ));
+
+    let (_message_id, choices, _usage) = model
+        .completion(
+            Message::user("Extract conversation context for checkpoint."),
+            summary_history,
+            vec![],
+        )
+        .await?;
+
+    let output = choices
+        .iter()
+        .filter_map(|item| {
+            if let AssistantContent::Text(text) = item {
+                Some(text.to_string())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if output.trim().is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(output))
+    }
 }
