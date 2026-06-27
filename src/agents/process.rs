@@ -32,6 +32,77 @@ use crate::{
     transport::DreamCommand,
 };
 
+fn abort_session_silent(
+    session: &VizierSession,
+    main_handles: &mut HashMap<VizierSession, JoinHandle<()>>,
+    thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
+    session_queues: &mut HashMap<
+        VizierSession,
+        VecDeque<(VizierRequest, Option<flume::Sender<VizierResponse>>)>,
+    >,
+    storage: &VizierStorage,
+) -> bool {
+    let had_in_flight = main_handles
+        .get(session)
+        .map(|h| !h.is_finished())
+        .unwrap_or(false);
+
+    if let Some(handle) = main_handles.get(session) {
+        if !handle.is_finished() {
+            handle.abort();
+        }
+    }
+    if let Some(handle) = thinking_handles.remove(session) {
+        handle.abort();
+    }
+    let storage_clone = storage.clone();
+    let session_clone = session.clone();
+    tokio::spawn(async move {
+        let _ = storage_clone
+            .update_thinking_state(
+                session_clone.0,
+                session_clone.1,
+                session_clone.2,
+                false,
+            )
+            .await;
+    });
+    session_queues.remove(session);
+
+    had_in_flight
+}
+
+async fn abort_session_notify(
+    session: &VizierSession,
+    main_handles: &mut HashMap<VizierSession, JoinHandle<()>>,
+    thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
+    session_queues: &mut HashMap<
+        VizierSession,
+        VecDeque<(VizierRequest, Option<flume::Sender<VizierResponse>>)>,
+    >,
+    storage: &VizierStorage,
+    response_tx: &Option<flume::Sender<VizierResponse>>,
+) {
+    let had_in_flight = abort_session_silent(
+        session,
+        main_handles,
+        thinking_handles,
+        session_queues,
+        storage,
+    );
+    if had_in_flight {
+        if let Some(tx) = response_tx {
+            let _ = tx
+                .send_async(VizierResponse {
+                    timestamp: chrono::Utc::now(),
+                    content: crate::schema::VizierResponseContent::Abort,
+                    attachments: vec![],
+                })
+                .await;
+        }
+    }
+}
+
 pub async fn agent_process(
     agent_id: AgentId,
     deps: VizierDependencies,
@@ -197,42 +268,15 @@ pub async fn agent_process(
                             )
                             .await;
 
-                        // Abort active task for this session
-                        if let Some(handle) = main_handles.get(&session) {
-                            if !handle.is_finished() {
-                                handle.abort();
-                                if let Some(ref tx) = response_tx {
-                                    let _ = tx
-                                        .send_async(VizierResponse {
-                                            timestamp: chrono::Utc::now(),
-                                            content: crate::schema::VizierResponseContent::Abort,
-                                            attachments: vec![],
-                                        })
-                                        .await;
-                                }
-                            }
-                        }
-                        // Abort thinking indicator
-                        if let Some(handle) = thinking_handles.remove(&session) {
-                            handle.abort();
-                        }
-                        // Reset is_thinking in storage
-                        {
-                            let storage_clone = deps.storage.clone();
-                            let session_clone = session.clone();
-                            tokio::spawn(async move {
-                                let _ = storage_clone
-                                    .update_thinking_state(
-                                        session_clone.0,
-                                        session_clone.1,
-                                        session_clone.2,
-                                        false,
-                                    )
-                                    .await;
-                            });
-                        }
-                        // Clear queued messages
-                        session_queues.remove(&session);
+                        abort_session_notify(
+                            &session,
+                            &mut main_handles,
+                            &mut thinking_handles,
+                            &mut session_queues,
+                            &deps.storage,
+                            &response_tx,
+                        )
+                        .await;
                         continue;
                     }
                 }
@@ -275,6 +319,14 @@ pub async fn agent_process(
                                 SessionHistoryContent::Command(cmd.clone()),
                             )
                             .await;
+
+                        abort_session_silent(
+                            &session,
+                            &mut main_handles,
+                            &mut thinking_handles,
+                            &mut session_queues,
+                            &deps.storage,
+                        );
 
                         let session_clone = session.clone();
                         let agent_clone = agent.clone();
@@ -381,6 +433,14 @@ pub async fn agent_process(
                                 SessionHistoryContent::Command(cmd.clone()),
                             )
                             .await;
+
+                        abort_session_silent(
+                            &session,
+                            &mut main_handles,
+                            &mut thinking_handles,
+                            &mut session_queues,
+                            &deps.storage,
+                        );
 
                         let session_clone = session.clone();
                         let storage_clone = deps.storage.clone();
