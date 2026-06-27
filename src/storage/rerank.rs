@@ -6,7 +6,7 @@ const RRF_K: f64 = 60.0;
 const W_SIMILARITY: f64 = 2.0;
 const W_LINKS: f64 = 1.0;
 const W_RECENCY: f64 = 1.0;
-const W_READ_COUNT: f64 = 2.0;
+const W_READ_COUNT: f64 = 1.0;
 
 fn compute_link_counts(candidates: &[Memory], all_memories: &[Memory]) -> HashMap<String, usize> {
     let mut incoming: HashMap<String, usize> = HashMap::new();
@@ -95,8 +95,5 @@ pub fn rerank_memories(candidates: Vec<Memory>, all_memories: &[Memory]) -> Vec<
 
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-    scored
-        .into_iter()
-        .map(|(i, _)| unique[i].clone())
-        .collect()
+    scored.into_iter().map(|(i, _)| unique[i].clone()).collect()
 }
