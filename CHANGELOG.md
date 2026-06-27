@@ -2,12 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.9] - 2026-06-27
+
+### 🚀 Features
+
+- Add openai compatible custom provider
+- Implement abort on checkpoint
+- Auto-checkpoint on dreaming
+- Add checkpoint feedback
+
+### 💼 Other
+
+- Tweak read count weight
 ## [0.10.8] - 2026-06-20
 
 ### 🚀 Features
 
 - Strict memory deletion
 - Implement poplarity-based memory score factor
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.10.8
 ## [0.10.7] - 2026-06-20
 
 ### 🚀 Features
