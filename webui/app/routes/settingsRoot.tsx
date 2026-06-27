@@ -155,7 +155,8 @@ export default function Settings() {
                 variant === 'llama_cpp' ||
                 variant === 'moonshot' ||
                 variant === 'zai' ||
-                variant === 'minimax'
+                variant === 'minimax' ||
+                variant === 'custom'
             await upsertProvider(variant, {
                 api_key: providerForm.api_key || undefined,
                 base_url: showBaseUrl
@@ -869,6 +870,7 @@ export default function Settings() {
                                             'chatgpt',
                                             'copilot',
                                             'azure',
+                                            'custom',
                                         ]
                                         const configured = providers.map(
                                             (p) => p.variant
@@ -1261,7 +1263,9 @@ export default function Settings() {
                                                                     p.variant ===
                                                                         'zai' ||
                                                                     p.variant ===
-                                                                        'minimax') && (
+                                                                        'minimax' ||
+                                                                    p.variant ===
+                                                                        'custom') && (
                                                                     <div>
                                                                         <label
                                                                             style={{
@@ -1281,13 +1285,16 @@ export default function Settings() {
                                                                             style={
                                                                                 provInputStyle
                                                                             }
-                                                                            placeholder={
+placeholder={
                                                                                 p.variant ===
                                                                                 'ollama'
                                                                                     ? 'http://localhost:11434'
                                                                                     : p.variant ===
-                                                                                      'llama_cpp'
+                                                                                       'llama_cpp'
                                                                                     ? 'http://localhost:8080'
+                                                                                    : p.variant ===
+                                                                                       'custom'
+                                                                                    ? 'https://api.example.com/v1 (root, no /chat/completions)'
                                                                                     : 'https://api.example.com/v1 (optional)'
                                                                             }
                                                                             value={
@@ -1665,7 +1672,9 @@ export default function Settings() {
                                                                     variant ===
                                                                         'zai' ||
                                                                     variant ===
-                                                                        'minimax') && (
+                                                                        'minimax' ||
+                                                                    variant ===
+                                                                        'custom') && (
                                                                     <div>
                                                                         <label
                                                                             style={{
@@ -1685,13 +1694,16 @@ export default function Settings() {
                                                                             style={
                                                                                 provInputStyle
                                                                             }
-                                                                            placeholder={
+placeholder={
                                                                                 variant ===
                                                                                 'ollama'
                                                                                     ? 'http://localhost:11434'
                                                                                     : variant ===
-                                                                                      'llama_cpp'
+                                                                                       'llama_cpp'
                                                                                     ? 'http://localhost:8080'
+                                                                                    : variant ===
+                                                                                       'custom'
+                                                                                    ? 'https://api.example.com/v1 (root, no /chat/completions)'
                                                                                     : 'https://api.example.com/v1 (optional)'
                                                                             }
                                                                             value={

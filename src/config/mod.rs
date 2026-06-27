@@ -214,6 +214,7 @@ impl Default for VizierConfig {
                 chatgpt: None,
                 copilot: None,
                 azure: None,
+                custom: None,
             },
             channels: ChannelsConfig {
                 http: Some(default_http_channel()),

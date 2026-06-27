@@ -57,7 +57,42 @@ impl VizierModelBuilder<anthropic::Client> for VizierModelImpl<anthropic::Client
 #[async_trait::async_trait]
 impl VizierModelBuilder<openai::Client> for VizierModelImpl<openai::Client> {
     async fn init_client(resolved: &ResolvedProvider) -> Result<openai::Client> {
-        let client: openai::Client = openai::Client::new(&resolved.api_key)?;
+        // If a base_url is provided, route through the builder so the same
+        // rig-core client can serve both `ProviderVariant::openai` (fixed
+        // endpoint) and `ProviderVariant::custom` (arbitrary OpenAI-compatible
+        // endpoint).
+        //
+        // `openai::Client` is the Responses API client (POSTs `/responses`).
+        // For third-party OpenAI-compatible upstreams that only implement the
+        // legacy `/chat/completions` endpoint (LM Studio, vLLM, llama.cpp
+        // server, opencode.ai/zen, etc.), use `openai::CompletionsClient`
+        // instead — see the impl below.
+        let client = match resolved.base_url.as_deref().filter(|s| !s.is_empty()) {
+            Some(url) => {
+                let mut builder = openai::Client::builder().api_key(&resolved.api_key);
+                builder = builder.base_url(url);
+                builder.build()?
+            }
+            None => openai::Client::new(&resolved.api_key)?,
+        };
+        Ok(client)
+    }
+}
+
+#[async_trait::async_trait]
+impl VizierModelBuilder<openai::CompletionsClient> for VizierModelImpl<openai::CompletionsClient> {
+    async fn init_client(resolved: &ResolvedProvider) -> Result<openai::CompletionsClient> {
+        // Chat Completions API client (POSTs `/chat/completions`). Used by
+        // `ProviderVariant::custom` so the generic OpenAI-compatible provider
+        // works against upstreams that only implement the legacy endpoint.
+        let client = match resolved.base_url.as_deref().filter(|s| !s.is_empty()) {
+            Some(url) => {
+                let mut builder = openai::CompletionsClient::builder().api_key(&resolved.api_key);
+                builder = builder.base_url(url);
+                builder.build()?
+            }
+            None => openai::CompletionsClient::new(&resolved.api_key)?,
+        };
         Ok(client)
     }
 }

@@ -29,6 +29,7 @@ pub enum ProviderVariant {
     chatgpt,
     copilot,
     azure,
+    custom,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -85,6 +86,8 @@ pub struct ProviderConfig {
     pub copilot: Option<CopilotProviderConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub azure: Option<AzureProviderConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom: Option<CustomProviderConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -437,6 +440,21 @@ impl Default for AzureProviderConfig {
         Self {
             endpoint: "${AZURE_ENDPOINT}".into(),
             api_key: "${AZURE_API_KEY}".into(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CustomProviderConfig {
+    pub api_key: String,
+    pub base_url: String,
+}
+
+impl Default for CustomProviderConfig {
+    fn default() -> Self {
+        Self {
+            api_key: "${CUSTOM_API_KEY}".into(),
+            base_url: "${CUSTOM_BASE_URL}".into(),
         }
     }
 }

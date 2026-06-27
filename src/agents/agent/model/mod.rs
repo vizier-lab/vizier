@@ -16,8 +16,8 @@ use crate::{
     config::provider::ProviderVariant,
     dependencies::VizierDependencies,
     provider_keys::{
-        ResolvedProvider, resolve_chatgpt_provider, resolve_local_provider, resolve_provider_key,
-        resolve_provider_with_base_url, resolve_azure_provider,
+        ResolvedProvider, resolve_chatgpt_provider, resolve_custom_provider, resolve_local_provider,
+        resolve_provider_key, resolve_provider_with_base_url, resolve_azure_provider,
     },
     schema::{AgentConfig, AgentId},
 };
@@ -251,6 +251,9 @@ impl VizierModel {
             ProviderVariant::azure => Self::build(
                 VizierModelImpl::<azure::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
+            ProviderVariant::custom => Self::build(
+                VizierModelImpl::<openai::CompletionsClient>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
+            ),
             ProviderVariant::llama_cpp => Self::build(
                 VizierModelImpl::<llamafile::Client>::build_with_client_fn(&resolved, agent_config, config_context_window).await?,
             ),
@@ -352,6 +355,9 @@ impl VizierModel {
             ProviderVariant::azure => Self::build(
                 VizierModelImpl::<azure::Client>::build(&resolved, &override_config).await?,
             ),
+            ProviderVariant::custom => Self::build(
+                VizierModelImpl::<openai::CompletionsClient>::build(&resolved, &override_config).await?,
+            ),
             ProviderVariant::elevenlabs => {
                 anyhow::bail!("elevenlabs is not a completion model provider")
             }
@@ -439,6 +445,9 @@ async fn resolve_provider(
             .await
             .map_err(|e| anyhow::anyhow!(e.0)),
         ProviderVariant::azure => resolve_azure_provider(storage)
+            .await
+            .map_err(|e| anyhow::anyhow!(e.0)),
+        ProviderVariant::custom => resolve_custom_provider(storage)
             .await
             .map_err(|e| anyhow::anyhow!(e.0)),
         ProviderVariant::elevenlabs => {

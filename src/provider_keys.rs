@@ -169,6 +169,44 @@ pub async fn resolve_azure_provider(
     )))
 }
 
+/// Resolve Custom (OpenAI-compatible) provider credentials: base_url + api_key.
+///
+/// Looks up the WebUI-managed storage entry first, then falls back to
+/// `CUSTOM_BASE_URL` and `CUSTOM_API_KEY` environment variables. The
+/// `base_url` is **required**: callers must point at an OpenAI Chat
+/// Completions-compatible endpoint (LM Studio, vLLM, llama.cpp server, etc.).
+pub async fn resolve_custom_provider(
+    storage: &Arc<VizierStorage>,
+) -> Result<ResolvedProvider, VizierError> {
+    if let Ok(Some(entry)) = storage.get_provider(&ProviderVariant::custom).await {
+        if let ProviderEntryConfig::Custom { api_key, base_url } = entry.config
+            && !base_url.is_empty()
+        {
+            return Ok(ResolvedProvider {
+                api_key,
+                base_url: Some(base_url),
+            });
+        }
+    }
+
+    if let Ok(base_url) = std::env::var("CUSTOM_BASE_URL")
+        && !base_url.is_empty()
+    {
+        let api_key = std::env::var("CUSTOM_API_KEY").unwrap_or_default();
+        return Ok(ResolvedProvider {
+            api_key,
+            base_url: Some(base_url),
+        });
+    }
+
+    Err(VizierError(format!(
+        "no base_url found for provider {:?}. Configure it via the WebUI \
+         (PUT /api/v1/providers/custom) or set the CUSTOM_BASE_URL \
+         environment variable.",
+        ProviderVariant::custom
+    )))
+}
+
 /// Resolve ChatGPT backend credentials: access token + account id.
 ///
 /// Looks up the WebUI-managed storage entry first, then falls back to

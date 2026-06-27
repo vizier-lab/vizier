@@ -76,6 +76,9 @@ fn provider_to_response(entry: &ProviderEntry) -> ProviderResponse {
         ProviderEntryConfig::Azure { endpoint, api_key } => {
             (!api_key.is_empty(), Some(endpoint.clone()), None)
         }
+        ProviderEntryConfig::Custom { api_key, base_url } => {
+            (!api_key.is_empty(), Some(base_url.clone()), None)
+        }
     };
 
     ProviderResponse {
@@ -245,6 +248,23 @@ async fn upsert_provider(
                 .or(body.base_url.clone())
                 .unwrap_or_default(),
             api_key: body.api_key.unwrap_or_default(),
+        },
+        ProviderVariant::custom => match body
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            Some(base_url) => ProviderEntryConfig::Custom {
+                api_key: body.api_key.unwrap_or_default(),
+                base_url: base_url.to_string(),
+            },
+            None => {
+                return err_response(
+                    StatusCode::BAD_REQUEST,
+                    "base_url is required for custom provider".into(),
+                );
+            }
         },
     };
 

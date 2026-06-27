@@ -167,6 +167,13 @@ impl VizierDependencies {
                     api_key: c.api_key.clone(),
                 },
             }),
+            providers.custom.as_ref().map(|c| ProviderEntry {
+                variant: ProviderVariant::custom,
+                config: ProviderEntryConfig::Custom {
+                    api_key: c.api_key.clone(),
+                    base_url: c.base_url.clone(),
+                },
+            }),
         ]
         .into_iter()
         .flatten()

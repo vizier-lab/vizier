@@ -99,4 +99,8 @@ pub enum ProviderEntryConfig {
         endpoint: String,
         api_key: String,
     },
+    Custom {
+        api_key: String,
+        base_url: String,
+    },
 }

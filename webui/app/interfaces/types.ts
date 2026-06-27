@@ -172,6 +172,7 @@ export type ChatProvider =
   | 'chatgpt'
   | 'copilot'
   | 'azure'
+  | 'custom'
 
 export const CHAT_PROVIDERS: ChatProvider[] = [
   'ollama',
@@ -198,6 +199,7 @@ export const CHAT_PROVIDERS: ChatProvider[] = [
   'chatgpt',
   'copilot',
   'azure',
+  'custom',
 ]
 
 export const CHAT_PROVIDER_DEFAULT_MODELS: Record<ChatProvider, string> = {
@@ -225,6 +227,7 @@ export const CHAT_PROVIDER_DEFAULT_MODELS: Record<ChatProvider, string> = {
   chatgpt: 'gpt-4o',
   copilot: 'gpt-4o',
   azure: 'gpt-4o',
+  custom: '',
 }
 
 export const CHAT_PROVIDER_MODELS: Record<ChatProvider, string[]> = {
@@ -252,6 +255,7 @@ export const CHAT_PROVIDER_MODELS: Record<ChatProvider, string[]> = {
   chatgpt: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'o3', 'o4-mini'],
   copilot: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini'],
   azure: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'o3-mini'],
+  custom: [],
 }
 
 export const TTS_PROVIDER_MODELS: Record<TtsProvider, string[]> = {
