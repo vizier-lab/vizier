@@ -2,11 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.10.10] - 2026-07-02
+## [0.11.0-rc.1] - 2026-09-13
+
+### 🚀 Features
+
+- Simplify agent core documents
+- Show all memory by default
+- Add opencode provider
+- Open knowledge format base memory (#17)
+- Add discord guild, channel, and member info tools
+
+### 🚜 Refactor
+
+- Replace skill activation gating with uniform tool access + recommendation
+
+### 📚 Documentation
+
+- Add CLAUDE.md and symlink AGENTS.md to it, refresh README
+- Track Spec Kit tooling and ratify project constitution v1.0.0
+## [0.10.11] - 2026-07-02
 
 ### 🚀 Features
 
 - Optimize memory explorer
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.10.11
+## [0.10.10] - 2026-07-02
+
+### 🐛 Bug Fixes
+
+- Token eating dreaming checkpointing
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -19,10 +46,6 @@ All notable changes to this project will be documented in this file.
 - Implement abort on checkpoint
 - Auto-checkpoint on dreaming
 - Add checkpoint feedback
-
-### 🐛 Bug Fixes
-
-- Token eating dreaming checkpointing
 
 ### 💼 Other
 
@@ -45,6 +68,7 @@ All notable changes to this project will be documented in this file.
 
 ### 🚀 Features
 
+- Granular thinking toggle
 - Reimplement kokoro tts
 - Implement whisper transcriber
 
@@ -62,7 +86,6 @@ All notable changes to this project will be documented in this file.
 - Attach as default run mode
 - Append to history when using send message tool
 - Add memory reranking
-- Granular thinking toggle
 
 ### 🐛 Bug Fixes
 
@@ -88,6 +111,10 @@ All notable changes to this project will be documented in this file.
 - Bump version to 0.10.6
 ## [0.10.4] - 2026-06-16
 
+### 🐛 Bug Fixes
+
+- Running in docker failed
+
 ### ⚙️ Miscellaneous Tasks
 
 - Bump version to 0.10.4
@@ -95,11 +122,12 @@ All notable changes to this project will be documented in this file.
 
 ### 🚀 Features
 
+- Implement config-less run
 - Add sample docker-compose
 
-### 🐛 Bug Fixes
+### 💼 Other
 
-- Running in docker failed
+- Set default to sqlite
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -113,6 +141,7 @@ All notable changes to this project will be documented in this file.
 
 ### 🚀 Features
 
+- Adjust prompt and core document
 - Implement rest api chat
 - Implement vision model tool
 - Add image gen tools
@@ -126,7 +155,6 @@ All notable changes to this project will be documented in this file.
 - Implement kokoro tts
 - Add additional tool call formating
 - Replace surreal in favor of sqlite
-- Implement config-less run
 
 ### 🐛 Bug Fixes
 
@@ -144,7 +172,6 @@ All notable changes to this project will be documented in this file.
 
 - Adjust defaults
 - Add vizier-derive publish step
-- Set default to sqlite
 
 ### 🚜 Refactor
 
@@ -170,7 +197,6 @@ All notable changes to this project will be documented in this file.
 - Implement stt models
 - Implement audio message
 - Implement auto-tts mode
-- Adjust prompt and core document
 
 ### 🚜 Refactor
 
@@ -194,6 +220,7 @@ All notable changes to this project will be documented in this file.
 
 ### 🚀 Features
 
+- Implement mistralrs provider
 - Implement context file system
 - Integrate context file
 - Implement send_attachment tools
@@ -219,7 +246,6 @@ All notable changes to this project will be documented in this file.
 ### 🚀 Features
 
 - Uploaded file load too long in webui
-- Implement mistralrs provider
 
 ### 🐛 Bug Fixes
 
@@ -230,6 +256,15 @@ All notable changes to this project will be documented in this file.
 - Bump version to 0.9.2
 ## [0.9.1] - 2026-06-06
 
+### 🚀 Features
+
+- Add agent checkhealth features
+
+### 🐛 Bug Fixes
+
+- Missing thinking state on first message
+- Intermittent quick chat not sent
+
 ### ⚙️ Miscellaneous Tasks
 
 - Bump version to 0.9.1
@@ -237,6 +272,9 @@ All notable changes to this project will be documented in this file.
 
 ### 🚀 Features
 
+- Adjust memory graph visual
+- Implement slide over layout for content details
+- Minor webui bugs
 - Add title
 - Move mcp and shell config to per-agent basis
 - Implement reaction feedback in webui
@@ -245,15 +283,12 @@ All notable changes to this project will be documented in this file.
 - Add quickchat home
 - Change session_detail creation and titling
 - Overhaul dream behaviour (#15)
-- Add agent checkhealth features
 
 ### 🐛 Bug Fixes
 
 - Missing chat from quick chat
 - Missing thinking state on webui
 - Thinking too persisted when should not
-- Missing thinking state on first message
-- Intermittent quick chat not sent
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -262,12 +297,10 @@ All notable changes to this project will be documented in this file.
 
 ### 🚀 Features
 
+- Add missing migrations
 - Implement graph memory view
 - Add message when running server in background
 - Rewrite and improve agent transport layer
-- Adjust memory graph visual
-- Implement slide over layout for content details
-- Minor webui bugs
 
 ### 🐛 Bug Fixes
 
@@ -293,16 +326,17 @@ All notable changes to this project will be documented in this file.
 
 ### 🚀 Features
 
-- Add missing migrations
+- Add configurable thread worker
 
 ### ⚙️ Miscellaneous Tasks
 
 - Bump version to 0.8.2
 ## [0.8.1] - 2026-06-02
 
-### 🚀 Features
+### 🐛 Bug Fixes
 
-- Add configurable thread worker
+- Run error when using surreal
+- Https api not working
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -311,6 +345,7 @@ All notable changes to this project will be documented in this file.
 
 ### 🚀 Features
 
+- Implement skill system
 - Implement llama cpp support (#14)
 - Add skill-maker skill
 - Fix wrong skill category
@@ -319,11 +354,6 @@ All notable changes to this project will be documented in this file.
 - Add agent sharing functionality
 - Add user profile settings
 - Add agent memory visibility
-
-### 🐛 Bug Fixes
-
-- Run error when using surreal
-- Https api not working
 
 ### 📚 Documentation
 
@@ -357,7 +387,6 @@ All notable changes to this project will be documented in this file.
 - Presistant selected agent and topic
 - Auto reconcile channel update
 - Adjust tooltip description
-- Implement skill system
 
 ### 🐛 Bug Fixes
 
@@ -403,6 +432,7 @@ All notable changes to this project will be documented in this file.
 
 ### ⚙️ Miscellaneous Tasks
 
+- Missing amd64 docker version
 - Bump version to 0.5.4
 ## [0.5.3] - 2026-04-25
 
@@ -415,11 +445,11 @@ All notable changes to this project will be documented in this file.
 - Fix docker build
 - Fix docker build
 - Fix docker build
+- Fix docker build
 - Change docker image base to ubuntu
 
 ### ⚙️ Miscellaneous Tasks
 
-- Missing amd64 docker version
 - Bump version to 0.5.3
 ## [0.5.2] - 2026-04-24
 
@@ -434,7 +464,6 @@ All notable changes to this project will be documented in this file.
 ### 💼 Other
 
 - Fix docker publish
-- Fix docker build
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -459,6 +488,7 @@ All notable changes to this project will be documented in this file.
 
 ### 🚀 Features
 
+- Implement basic png attachment
 - Saved attachments to storage
 - Implement attachment for telegram channel
 - Implement upload/download api
@@ -485,7 +515,6 @@ All notable changes to this project will be documented in this file.
 - Implement additional tool for tasks and scheduling
 - Add http client tool
 - Add openapi documentation
-- Implement basic png attachment
 
 ### 🐛 Bug Fixes
 
@@ -497,6 +526,7 @@ All notable changes to this project will be documented in this file.
 
 ### ⚙️ Miscellaneous Tasks
 
+- Remove unused data from fs storage
 - Drop windows support (for now) :(
 - Bump version to 0.5.0-rc.3
 ## [0.5.0-rc.2] - 2026-04-16
@@ -515,7 +545,6 @@ All notable changes to this project will be documented in this file.
 
 - Install script to directo stable only
 - Add update install script
-- Remove unused data from fs storage
 - Bump version to 0.5.0-rc.2
 ## [0.5.0-rc.1] - 2026-04-15
 
@@ -540,6 +569,10 @@ All notable changes to this project will be documented in this file.
 
 - Optimize chat input
 
+### 📚 Documentation
+
+- Update book
+
 ### ⚙️ Miscellaneous Tasks
 
 - Adjust install script
@@ -556,6 +589,7 @@ All notable changes to this project will be documented in this file.
 
 ### 🐛 Bug Fixes
 
+- Agent generation cli command
 - Dropdown on analytics
 
 ### 🚜 Refactor
@@ -564,10 +598,6 @@ All notable changes to this project will be documented in this file.
 - Adjust analytics layout
 - Adjust prompt function
 
-### 📚 Documentation
-
-- Update book
-
 ### ⚙️ Miscellaneous Tasks
 
 - Bump version to 0.4.0
@@ -575,9 +605,9 @@ All notable changes to this project will be documented in this file.
 
 ### 🐛 Bug Fixes
 
+- Title too long
 - Reindex error on windows
 - Docker dist
-- Agent generation cli command
 
 ### 💼 Other
 
@@ -594,24 +624,15 @@ All notable changes to this project will be documented in this file.
 
 ### 🐛 Bug Fixes
 
-- Title too long
-
-### ⚙️ Miscellaneous Tasks
-
-- Update lock
-- Bump version to 0.3.1
-## [0.3.0] - 2026-04-10
-
-### 🐛 Bug Fixes
-
 - Remove unused docker files
 - Various release hotfixes
 
 ### ⚙️ Miscellaneous Tasks
 
 - Add docker release
-- Bump version to 0.3.0
-## [0.3.0-rc.7] - 2026-04-10
+- Update lock
+- Bump version to 0.3.1
+## [0.3.0] - 2026-04-10
 
 ### 🚀 Features
 
@@ -620,10 +641,9 @@ All notable changes to this project will be documented in this file.
 
 ### ⚙️ Miscellaneous Tasks
 
-- Update lock
 - Remove unused route
-- Bump version to 0.3.0-rc.7
-## [0.3.0-rc.6] - 2026-04-09
+- Bump version to 0.3.0
+## [0.3.0-rc.7] - 2026-04-10
 
 ### 🐛 Bug Fixes
 
@@ -635,28 +655,35 @@ All notable changes to this project will be documented in this file.
 
 - Add rust caching
 - Add rust caching
+- Update lock
+- Bump version to 0.3.0-rc.7
+## [0.3.0-rc.6] - 2026-04-09
+
+### ⚙️ Miscellaneous Tasks
+
+- Windows installer script
 - Bump version to 0.3.0-rc.6
 ## [0.3.0-rc.5] - 2026-04-09
 
 ### ⚙️ Miscellaneous Tasks
 
-- Windows installer script
+- Window installer build
 - Bump version to 0.3.0-rc.5
 ## [0.3.0-rc.4] - 2026-04-09
 
 ### ⚙️ Miscellaneous Tasks
 
-- Window installer build
+- Fix windows-installer build error
 - Bump version to 0.3.0-rc.4
 ## [0.3.0-rc.3] - 2026-04-09
 
 ### 🚀 Features
 
+- Implement various dm tools
 - Tool adjustment
 
 ### ⚙️ Miscellaneous Tasks
 
-- Fix windows-installer build error
 - Bump version to 0.3.0-rc.3
 ## [0.3.0-rc.2] - 2026-04-09
 
@@ -680,7 +707,6 @@ All notable changes to this project will be documented in this file.
 - Add logo
 - Implement date picker for task
 - Add telegram channel
-- Implement various dm tools
 
 ### 🐛 Bug Fixes
 
