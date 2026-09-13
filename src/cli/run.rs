@@ -15,17 +15,18 @@ use crate::{
     scheduler::VizierScheduler,
 };
 
+/// `filesystem` is intentionally not a valid value here (research.md §10, FR-025) — sqlite is
+/// the sole runtime backend now. An operator still passing `--storage filesystem` gets clap's
+/// own "invalid value" error rather than silently falling back or crashing deep in startup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[clap(rename_all = "lowercase")]
 enum StorageKind {
-    Filesystem,
     Sqlite,
 }
 
 impl From<StorageKind> for StorageConfig {
     fn from(kind: StorageKind) -> Self {
         match kind {
-            StorageKind::Filesystem => StorageConfig::Filesystem,
             StorageKind::Sqlite => StorageConfig::Sqlite,
         }
     }
@@ -71,7 +72,7 @@ pub struct RunArgs {
     #[arg(
         long,
         value_name = "STORAGE",
-        help = "storage backend: filesystem or sqlite"
+        help = "storage backend (sqlite is the only supported value; kept as a flag for forwards compatibility)"
     )]
     storage: Option<StorageKind>,
 

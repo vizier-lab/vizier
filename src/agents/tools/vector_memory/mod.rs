@@ -8,7 +8,7 @@ use slugify::slugify;
 use crate::agents::tools::{ToolContext, VizierTool};
 use crate::error::VizierError;
 use crate::indexer::VizierIndexer;
-use crate::schema::{AgentId, MemoryVisibility, VizierAttachment, VizierAttachmentContent};
+use crate::schema::{AgentId, VizierAttachment, VizierAttachmentContent};
 use crate::storage::VizierStorage;
 use crate::storage::memory::MemoryStorage;
 use crate::storage::session_file::SessionFileStorage;
@@ -26,6 +26,7 @@ pub fn init_vector_memory(
     MemoryFollow,
     MemoryGraphTool,
     MemoryDelete,
+    MemoryDeleteBundle,
 )> {
     Ok((
         MemoryRead::new(agent_id.clone(), storage.clone(), indexer.clone()),
@@ -34,9 +35,12 @@ pub fn init_vector_memory(
         MemoryDetail::new(agent_id.clone(), storage.clone()),
         MemoryFollow::new(agent_id.clone(), storage.clone()),
         MemoryGraphTool::new(agent_id.clone(), storage.clone()),
-        MemoryDelete::new(agent_id.clone(), storage.clone(), indexer),
+        MemoryDelete::new(agent_id.clone(), storage.clone(), indexer.clone()),
+        MemoryDeleteBundle::new(agent_id.clone(), storage.clone(), indexer),
     ))
 }
+
+const BUNDLE_FIELD_DESC: &str = "Bundle name. Bundles are named containers for related memories (e.g. one per project or person) — omit this to use your default bundle; naming a new bundle creates it automatically.";
 
 pub type MemoryRead = ReadVectorMemory;
 pub struct ReadVectorMemory(AgentId, Arc<VizierStorage>, VizierIndexer);
@@ -49,11 +53,19 @@ impl MemoryRead {
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct MemoryListArgs {
-    #[schemars(description = "Maximum number of memories to return")]
+    #[schemars(
+        description = "Bundle to focus on. Omit to see the top-level list of your bundles (name, concept count, last updated); name one to list its concepts instead (flattened across any nesting, paginated by limit/offset)."
+    )]
+    #[serde(default)]
+    pub bundle: Option<String>,
+
+    #[schemars(
+        description = "Maximum number of memories to return (only applies when bundle is set)"
+    )]
     #[serde(default = "default_limit")]
     pub limit: Option<usize>,
 
-    #[schemars(description = "Number of memories to skip")]
+    #[schemars(description = "Number of memories to skip (only applies when bundle is set)")]
     #[serde(default = "default_offset")]
     pub offset: Option<usize>,
 }
@@ -67,15 +79,31 @@ fn default_offset() -> Option<usize> {
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct BundleSummaryOutput {
+    pub name: String,
+    pub concept_count: usize,
+    pub updated_at: Option<chrono::DateTime<Utc>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct MemorySummary {
-    pub slug: String,
+    pub bundle: String,
+    pub path: String,
     pub title: String,
-    pub timestamp: chrono::DateTime<Utc>,
-    pub visibility: String,
+    pub updated_at: chrono::DateTime<Utc>,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
     pub attachment_count: usize,
     pub read_count: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum MemoryListOutput {
+    /// The top-level view (`bundle` omitted): one summary row per bundle.
+    Bundles(Vec<BundleSummaryOutput>),
+    /// A focused view (`bundle` named): that bundle's concepts.
+    Concepts(Vec<MemorySummary>),
 }
 
 pub type MemoryList = ListVectorMemory;
@@ -90,14 +118,19 @@ impl MemoryList {
 #[async_trait::async_trait]
 impl VizierTool for MemoryList {
     type Input = MemoryListArgs;
-    type Output = Vec<MemorySummary>;
+    type Output = MemoryListOutput;
 
     fn name() -> String {
         "memory_list".to_string()
     }
 
     fn description(&self) -> String {
-        "List your memories with pagination. Returns slug, title, tags, and visibility for each memory. Use memory_detail to read full content.".into()
+        "Browse your memory. Called with no bundle, returns the top-level list of your bundles \
+        (name, concept count, last updated) — the same zoom level as memory_graph() with no bundle. \
+        Called with a bundle name, lists that bundle's concepts (flattened across any nested \
+        subdirectories, paginated). Use memory_detail to read a concept's full content, or \
+        memory_read to search across everything at once instead of browsing."
+            .into()
     }
 
     async fn call(
@@ -105,30 +138,53 @@ impl VizierTool for MemoryList {
         args: Self::Input,
         _ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
-        let limit = args.limit.unwrap_or(50);
-        let offset = args.offset.unwrap_or(0);
+        match args.bundle {
+            None => {
+                let bundles = self
+                    .1
+                    .list_bundles(self.0.clone())
+                    .await
+                    .map_err(|err| VizierError(err.to_string()))?;
+                Ok(MemoryListOutput::Bundles(
+                    bundles
+                        .into_iter()
+                        .map(|b| BundleSummaryOutput {
+                            name: b.name,
+                            concept_count: b.concept_count,
+                            updated_at: b.updated_at,
+                        })
+                        .collect(),
+                ))
+            }
+            Some(bundle) => {
+                let limit = args.limit.unwrap_or(50);
+                let offset = args.offset.unwrap_or(0);
 
-        let all_memory = self
-            .1
-            .get_all_agent_memory(self.0.clone())
-            .await
-            .map_err(|err| VizierError(err.to_string()))?;
+                let all_memory = self
+                    .1
+                    .get_all_agent_memory(self.0.clone(), Some(bundle))
+                    .await
+                    .map_err(|err| VizierError(err.to_string()))?;
 
-        Ok(all_memory
-            .into_iter()
-            .skip(offset)
-            .take(limit)
-            .map(|m| MemorySummary {
-                slug: m.slug,
-                title: m.title,
-                timestamp: m.timestamp,
-                visibility: m.visibility.to_string(),
-                tags: m.tags,
-                relations: m.relations,
-                attachment_count: m.attachments.len(),
-                read_count: m.read_count,
-            })
-            .collect())
+                Ok(MemoryListOutput::Concepts(
+                    all_memory
+                        .into_iter()
+                        .skip(offset)
+                        .take(limit)
+                        .map(|m| MemorySummary {
+                            bundle: m.bundle,
+                            path: m.slug,
+                            title: m.title,
+                            updated_at: m.updated_at,
+                            tags: m.tags,
+                            relations: m.relations,
+                            attachment_count: m.attachment_count,
+                            read_count: m.read_count,
+                        })
+                        .collect(),
+                ))
+            }
+        }
     }
 }
 
@@ -136,6 +192,12 @@ impl VizierTool for MemoryList {
 pub struct MemoryReadArgs {
     #[schemars(description = "Terms, keywords, or prompt to search")]
     pub query: String,
+
+    #[schemars(
+        description = "Narrow the search to one bundle. Omit to search across all of your bundles at once, ranked by relevance regardless of which bundle a match lives in — the useful default, since a bundle is just an organizational container."
+    )]
+    #[serde(default)]
+    pub bundle: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -148,7 +210,10 @@ impl VizierTool for MemoryRead {
     }
 
     fn description(&self) -> String {
-        "Semantic search across your memories. Returns content that matches the query. Memory content may contain [[slug]] links to related memories — use memory_detail to explore them.".into()
+        "Semantic search across your memories (all bundles by default, or one named bundle). \
+        Returns content that matches the query. Memory content may contain [label](path/to/concept.md) \
+        same-bundle links or [[bundle/slug]] / [[bundle]] cross-bundle links — use memory_detail or \
+        memory_follow to explore them.".into()
     }
 
     async fn call(
@@ -158,14 +223,25 @@ impl VizierTool for MemoryRead {
     ) -> Result<Self::Output, VizierError> {
         let res = self
             .1
-            .query_memory(self.0.clone(), args.query, 10, 0.1, &self.2)
+            .query_memory(
+                self.0.clone(),
+                args.bundle.clone(),
+                args.query,
+                10,
+                0.1,
+                &self.2,
+            )
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
         for memory in &res {
             let _ = self
                 .1
-                .increment_read_count(self.0.clone(), memory.slug.clone())
+                .increment_read_count(
+                    self.0.clone(),
+                    Some(memory.bundle.clone()),
+                    memory.slug.clone(),
+                )
                 .await;
         }
 
@@ -188,9 +264,19 @@ pub struct MemoryWriteArgs {
     pub title: String,
 
     #[schemars(
-        description = "memory content in markdown. Use [[slug]] to link to other memories, e.g. 'related to [[project-setup]] and [[api-reference]]'. Links are automatically tracked for the knowledge graph."
+        description = "memory content in markdown. Link to another concept in the SAME bundle with an ordinary markdown link: [label](path/to/concept.md). Link to a concept in a DIFFERENT bundle with [[bundle/slug]], or reference that whole bundle with bare [[bundle]]. Links are automatically tracked for the knowledge graph."
     )]
     pub content: String,
+
+    #[schemars(description = BUNDLE_FIELD_DESC)]
+    #[serde(default)]
+    pub bundle: Option<String>,
+
+    #[schemars(
+        description = "Where to file this concept within the bundle, as a possibly multi-segment path with no extension (e.g. 'friends/bred' to nest it under a 'friends' subdirectory). Omit to derive it from the title. Writing to a path that already exists updates that memory in place."
+    )]
+    #[serde(default)]
+    pub path: Option<String>,
 
     #[schemars(
         description = "tags for categorization, e.g. ['rust', 'architecture', 'project-x']"
@@ -199,24 +285,10 @@ pub struct MemoryWriteArgs {
     pub tags: Vec<String>,
 
     #[schemars(
-        description = "visibility: 'private' (default, only you), 'global' (all agents), or 'shared' (specific agents)"
-    )]
-    #[serde(default = "default_visibility")]
-    pub visibility: String,
-
-    #[schemars(description = "list of agent IDs to share with (only when visibility is 'shared')")]
-    #[serde(default)]
-    pub shared_to: Vec<String>,
-
-    #[schemars(
         description = "filenames of session files to attach (use list_session_files to see available files)"
     )]
     #[serde(default)]
     pub attachments: Option<Vec<String>>,
-}
-
-fn default_visibility() -> String {
-    "private".to_string()
 }
 
 #[async_trait::async_trait]
@@ -229,7 +301,12 @@ impl VizierTool for MemoryWrite {
     }
 
     fn description(&self) -> String {
-        "Write or update a memory. Use [[slug]] syntax in content to link to other memories (e.g. 'see [[project-architecture]] for details'). Tags can be added for categorization.".into()
+        "Write or update a memory. A write with no bundle named goes to your default bundle; \
+        naming a new bundle creates it automatically. Use `path` to nest a concept under a \
+        subdirectory (e.g. 'friends/bred'). Same-bundle links are ordinary markdown links \
+        ([label](path/to/concept.md)); cross-bundle links use [[bundle/slug]] or bare [[bundle]]. \
+        Tags can be added for categorization."
+            .into()
     }
 
     async fn call(
@@ -237,13 +314,10 @@ impl VizierTool for MemoryWrite {
         args: Self::Input,
         ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
-        let slug = slugify!(&args.title).to_string();
-        let visibility: MemoryVisibility = args
-            .visibility
-            .parse()
-            .map_err(|e: String| VizierError(e))?;
+        let path = args.path.clone().unwrap_or_else(|| slugify!(&args.title));
+        let bundle = args.bundle.clone();
 
-        let content = format!("{}\n timestamp: {}", args.content, Utc::now());
+        let content = format!("{}", args.content);
 
         let mut attachments = Vec::new();
         if let Some(filenames) = &args.attachments {
@@ -276,11 +350,11 @@ impl VizierTool for MemoryWrite {
             .1
             .write_memory(
                 self.0.clone(),
-                Some(slug.clone()),
+                bundle,
+                Some(path),
+                false,
                 args.title,
                 content,
-                visibility.clone(),
-                args.shared_to.clone(),
                 args.tags.clone(),
                 attachments,
                 &self.2,
@@ -295,8 +369,8 @@ impl VizierTool for MemoryWrite {
         };
 
         Ok(format!(
-            "memory {} is written with {} visibility{}",
-            slug, visibility, relations_info
+            "memory '{}/{}' written{}",
+            memory.bundle, memory.slug, relations_info
         ))
     }
 }
@@ -312,19 +386,25 @@ impl MemoryDetail {
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct MemoryDetailArgs {
-    #[schemars(description = "Slug of the memory to retrieve")]
-    pub slug: String,
+    #[schemars(
+        description = "Path of the memory to retrieve (multi-segment for a nested concept, e.g. 'friends/bred')"
+    )]
+    pub path: String,
+
+    #[schemars(description = BUNDLE_FIELD_DESC)]
+    #[serde(default)]
+    pub bundle: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct MemoryDetailOutput {
-    pub slug: String,
+    pub bundle: String,
+    pub path: String,
     pub title: String,
     pub content: String,
-    pub timestamp: chrono::DateTime<Utc>,
+    pub created_at: chrono::DateTime<Utc>,
+    pub updated_at: chrono::DateTime<Utc>,
     pub agent_id: String,
-    pub visibility: String,
-    pub shared_to: Vec<String>,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
     pub attachments: Vec<String>,
@@ -341,7 +421,10 @@ impl VizierTool for MemoryDetail {
     }
 
     fn description(&self) -> String {
-        "Get full memory content by slug. Content may contain [[slug]] links to related memories — call this tool with those slugs to traverse the knowledge graph. Memory attachments are added to your session files.".into()
+        "Get full memory content by (bundle, path) — bundle defaults to your default bundle. \
+        Content may contain same-bundle markdown links or [[bundle/slug]]/[[bundle]] cross-bundle \
+        wikilinks — call memory_follow or memory_detail with those to traverse the knowledge graph. \
+        Memory attachments are added to your session files.".into()
     }
 
     async fn call(
@@ -351,7 +434,7 @@ impl VizierTool for MemoryDetail {
     ) -> Result<Self::Output, VizierError> {
         let memory = self
             .1
-            .get_memory_detail(self.0.clone(), args.slug)
+            .get_memory_detail(self.0.clone(), args.bundle.clone(), args.path)
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
@@ -359,17 +442,17 @@ impl VizierTool for MemoryDetail {
             Some(m) => {
                 let _ = self
                     .1
-                    .increment_read_count(self.0.clone(), m.slug.clone())
+                    .increment_read_count(self.0.clone(), Some(m.bundle.clone()), m.slug.clone())
                     .await;
 
                 let output = serde_json::to_string_pretty(&MemoryDetailOutput {
-                    slug: m.slug,
+                    bundle: m.bundle,
+                    path: m.slug,
                     title: m.title.clone(),
                     content: m.content,
-                    timestamp: m.timestamp,
+                    created_at: m.created_at,
+                    updated_at: m.updated_at,
                     agent_id: m.agent_id,
-                    visibility: m.visibility.to_string(),
-                    shared_to: m.shared_to,
                     tags: m.tags,
                     relations: m.relations,
                     attachments: m.attachments.iter().map(|a| a.filename.clone()).collect(),
@@ -417,8 +500,14 @@ impl MemoryFollow {
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct MemoryFollowArgs {
-    #[schemars(description = "slug of the memory to start from")]
-    pub slug: String,
+    #[schemars(
+        description = "Path of the memory to start from (multi-segment for a nested concept)"
+    )]
+    pub path: String,
+
+    #[schemars(description = BUNDLE_FIELD_DESC)]
+    #[serde(default)]
+    pub bundle: Option<String>,
 
     #[schemars(
         description = "traversal depth (1 = immediate links only, 2 = links of links, etc.). Default is 1."
@@ -441,7 +530,10 @@ impl VizierTool for MemoryFollow {
     }
 
     fn description(&self) -> String {
-        "Follow [[slug]] links from a memory to traverse the knowledge graph. Returns related memories at the specified depth. Use this to explore connections between memories.".into()
+        "Follow same-bundle and cross-bundle links from a memory to traverse the knowledge \
+        graph — a bare [[bundle]] reference resolves to every concept in that bundle. Returns \
+        related memories at the specified depth."
+            .into()
     }
 
     async fn call(
@@ -450,31 +542,41 @@ impl VizierTool for MemoryFollow {
         _ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
         let depth = args.depth.unwrap_or(1);
+        let default_bundle = args
+            .bundle
+            .clone()
+            .unwrap_or_else(crate::schema::default_bundle);
 
         let mut visited = std::collections::HashSet::new();
         let mut result = Vec::new();
-        let mut current_slugs = vec![args.slug.clone()];
+        let mut current: Vec<(String, String)> = vec![(default_bundle, args.path.clone())];
 
         for _ in 0..depth {
-            let mut next_slugs = Vec::new();
+            let mut next: Vec<(String, String)> = Vec::new();
 
-            for slug in &current_slugs {
-                if visited.contains(slug) {
+            for (bundle, path) in &current {
+                let key = (bundle.clone(), path.clone());
+                if visited.contains(&key) {
                     continue;
                 }
-                visited.insert(slug.clone());
+                visited.insert(key);
 
                 let related = self
                     .1
-                    .get_related_memories(self.0.clone(), slug.clone())
+                    .get_related_memories(self.0.clone(), Some(bundle.clone()), path.clone())
                     .await
                     .map_err(|err| VizierError(err.to_string()))?;
 
                 for memory in related {
-                    if !visited.contains(&memory.slug) {
+                    let memory_key = (memory.bundle.clone(), memory.slug.clone());
+                    if !visited.contains(&memory_key) {
                         let _ = self
                             .1
-                            .increment_read_count(self.0.clone(), memory.slug.clone())
+                            .increment_read_count(
+                                self.0.clone(),
+                                Some(memory.bundle.clone()),
+                                memory.slug.clone(),
+                            )
                             .await;
 
                         let attachment_names: Vec<String> = memory
@@ -483,24 +585,24 @@ impl VizierTool for MemoryFollow {
                             .map(|a| a.filename.clone())
                             .collect();
                         result.push(MemoryDetailOutput {
-                            slug: memory.slug.clone(),
+                            bundle: memory.bundle.clone(),
+                            path: memory.slug.clone(),
                             title: memory.title,
                             content: memory.content,
-                            timestamp: memory.timestamp,
+                            created_at: memory.created_at,
+                            updated_at: memory.updated_at,
                             agent_id: memory.agent_id,
-                            visibility: memory.visibility.to_string(),
-                            shared_to: memory.shared_to,
                             tags: memory.tags,
                             relations: memory.relations,
                             attachments: attachment_names,
                             read_count: memory.read_count,
                         });
-                        next_slugs.push(memory.slug);
+                        next.push(memory_key);
                     }
                 }
             }
 
-            current_slugs = next_slugs;
+            current = next;
         }
 
         Ok(result)
@@ -518,6 +620,10 @@ impl MemoryGraphTool {
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct MemoryGraphArgs {
+    #[schemars(description = BUNDLE_FIELD_DESC)]
+    #[serde(default)]
+    pub bundle: Option<String>,
+
     #[schemars(description = "filter by tags (optional)")]
     #[serde(default)]
     pub tags: Option<Vec<String>>,
@@ -532,9 +638,12 @@ pub struct MemoryGraphOutput {
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct MemoryGraphNodeOutput {
     pub slug: String,
+    pub bundle: String,
     pub title: String,
     pub tags: Vec<String>,
-    pub visibility: String,
+    /// `true` for a synthetic node standing in for a link that crosses out of the bundle being
+    /// viewed (only ever set at the concept level, when `bundle` was named).
+    pub boundary: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -554,7 +663,12 @@ impl VizierTool for MemoryGraphTool {
     }
 
     fn description(&self) -> String {
-        "Get the knowledge graph structure of your memories. Returns nodes (memories) and edges (links between them). Use this to understand how your memories are connected.".into()
+        "Get the knowledge graph structure of your memory. Called with no bundle, returns the \
+        top-level graph (bundles as nodes, cross-bundle links as edges) — the same zoom level as \
+        memory_list() with no bundle. Called with a bundle name, returns that bundle's concepts \
+        as nodes and their links as edges, plus one boundary node per other bundle it links out \
+        to."
+        .into()
     }
 
     async fn call(
@@ -564,7 +678,7 @@ impl VizierTool for MemoryGraphTool {
     ) -> Result<Self::Output, VizierError> {
         let graph = self
             .1
-            .get_memory_graph(self.0.clone(), None)
+            .get_memory_graph(self.0.clone(), args.bundle, None)
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
@@ -581,9 +695,10 @@ impl VizierTool for MemoryGraphTool {
             })
             .map(|n| MemoryGraphNodeOutput {
                 slug: n.slug,
+                bundle: n.bundle,
                 title: n.title,
                 tags: n.tags,
-                visibility: n.visibility.to_string(),
+                boundary: n.boundary,
             })
             .collect();
 
@@ -601,6 +716,8 @@ impl VizierTool for MemoryGraphTool {
             })
             .collect();
 
+        nodes.sort_by(|a, b| a.slug.cmp(&b.slug));
+
         Ok(MemoryGraphOutput { nodes, edges })
     }
 }
@@ -616,8 +733,12 @@ impl MemoryDelete {
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct MemoryDeleteArgs {
-    #[schemars(description = "Slug of the memory to delete")]
-    pub slug: String,
+    #[schemars(description = "Path of the memory to delete (multi-segment for a nested concept)")]
+    pub path: String,
+
+    #[schemars(description = BUNDLE_FIELD_DESC)]
+    #[serde(default)]
+    pub bundle: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -630,7 +751,9 @@ impl VizierTool for MemoryDelete {
     }
 
     fn description(&self) -> String {
-        "Delete a memory by slug. Permanently removes the memory and its embedding. Use memory_detail first to verify the slug if unsure.".into()
+        "Delete a memory by (bundle, path) — bundle defaults to your default bundle. Permanently \
+        removes the memory and its embedding. Use memory_detail first to verify the path if unsure."
+            .into()
     }
 
     async fn call(
@@ -638,11 +761,12 @@ impl VizierTool for MemoryDelete {
         args: Self::Input,
         _ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
-        let slug = args.slug.clone();
+        let path = args.path.clone();
+        let bundle = args.bundle.clone();
 
         let detail = self
             .1
-            .get_memory_detail(self.0.clone(), slug.clone())
+            .get_memory_detail(self.0.clone(), bundle.clone(), path.clone())
             .await
             .map_err(|e| VizierError(e.to_string()))?;
 
@@ -653,47 +777,95 @@ impl VizierTool for MemoryDelete {
 
         let has_incoming = self
             .1
-            .has_incoming_links(self.0.clone(), slug.clone())
+            .has_incoming_links(self.0.clone(), bundle.clone(), path.clone())
             .await
             .map_err(|e| VizierError(e.to_string()))?;
 
         if !outgoing.is_empty() || has_incoming {
             let mut msg = format!(
                 "Cannot delete memory '{}': it is linked in the knowledge graph.\n\n",
-                slug
+                path
             );
             if !outgoing.is_empty() {
                 msg += "Outgoing links (this memory references):\n";
                 for s in &outgoing {
-                    msg += &format!("- [[{}]]\n", s);
+                    msg += &format!("- {}\n", s);
                 }
                 msg += "\n";
             }
             if has_incoming {
                 let related = self
                     .1
-                    .get_related_memories(self.0.clone(), slug.clone())
+                    .get_related_memories(self.0.clone(), bundle.clone(), path.clone())
                     .await
                     .map_err(|e| VizierError(e.to_string()))?;
                 let incoming: Vec<_> = related
                     .iter()
-                    .filter(|m| m.relations.contains(&slug))
+                    .filter(|m| m.relations.iter().any(|r| r.contains(&path)))
                     .collect();
                 msg += "Incoming links (other memories reference this one):\n";
                 for m in &incoming {
-                    msg += &format!("- \"{}\" ({})\n", m.title, m.slug);
+                    msg += &format!("- \"{}\" ({}/{})\n", m.title, m.bundle, m.slug);
                 }
                 msg += "\n";
             }
-            msg += "Remove the [[slug]] links from those memories first, or use memory_write to update them.";
+            msg +=
+                "Remove those links from those memories first, or use memory_write to update them.";
             return Err(VizierError(msg));
         }
 
         self.1
-            .delete_memory(self.0.clone(), slug.clone(), &self.2)
+            .delete_memory(self.0.clone(), bundle, path.clone(), &self.2)
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
-        Ok(format!("Memory '{}' deleted", slug))
+        Ok(format!("Memory '{}' deleted", path))
+    }
+}
+
+pub type MemoryDeleteBundle = DeleteVectorMemoryBundle;
+pub struct DeleteVectorMemoryBundle(AgentId, Arc<VizierStorage>, VizierIndexer);
+
+impl MemoryDeleteBundle {
+    fn new(agent_id: AgentId, store: Arc<VizierStorage>, indexer: VizierIndexer) -> Self {
+        Self(agent_id, store, indexer)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemoryDeleteBundleArgs {
+    #[schemars(
+        description = "Name of the bundle to delete. Required — there is no default, so this can't be triggered by accident. The bundle must already be empty of concepts (use memory_delete on each one first, or memory_list(bundle) to see what's left)."
+    )]
+    pub bundle: String,
+}
+
+#[async_trait::async_trait]
+impl VizierTool for MemoryDeleteBundle {
+    type Input = MemoryDeleteBundleArgs;
+    type Output = String;
+
+    fn name() -> String {
+        "memory_delete_bundle".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Permanently delete an empty bundle (its index.md/log.md). Fails if the bundle still \
+        contains any concept documents — delete those first with memory_delete, or check with \
+        memory_list(bundle)."
+            .into()
+    }
+
+    async fn call(
+        &self,
+        args: Self::Input,
+        _ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
+        self.1
+            .delete_bundle(self.0.clone(), args.bundle.clone(), false, &self.2)
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
+
+        Ok(format!("Bundle '{}' deleted", args.bundle))
     }
 }

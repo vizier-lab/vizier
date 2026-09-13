@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
+pub mod noop;
 pub mod sqlite;
 
 use crate::schema::DocumentIndex;

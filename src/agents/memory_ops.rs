@@ -28,21 +28,21 @@ async fn dispatch_memory_op(
 ) -> Result<MemoryOpResponse> {
     match op {
         MemoryOpRequest::Write {
-            slug,
+            bundle,
+            path,
+            create_only,
             title,
             content,
-            visibility,
-            shared_to,
             tags,
             attachments,
         } => storage
             .write_memory(
                 agent_id.to_string(),
-                slug.clone(),
+                bundle.clone(),
+                path.clone(),
+                *create_only,
                 title.clone(),
                 content.clone(),
-                visibility.clone(),
-                shared_to.clone(),
                 tags.clone(),
                 attachments.clone(),
                 indexer,
@@ -50,12 +50,14 @@ async fn dispatch_memory_op(
             .await
             .map(MemoryOpResponse::Memory),
         MemoryOpRequest::Query {
+            bundle,
             query,
             limit,
             threshold,
         } => storage
             .query_memory(
                 agent_id.to_string(),
+                bundle.clone(),
                 query.clone(),
                 *limit,
                 *threshold,
@@ -63,25 +65,41 @@ async fn dispatch_memory_op(
             )
             .await
             .map(MemoryOpResponse::MemoryList),
-        MemoryOpRequest::GetById { slug } => storage
-            .get_memory_detail(agent_id.to_string(), slug.clone())
+        MemoryOpRequest::GetById { bundle, path } => storage
+            .get_memory_detail(agent_id.to_string(), bundle.clone(), path.clone())
             .await
             .map(MemoryOpResponse::MemoryOption),
         MemoryOpRequest::List { params } => storage
             .get_filtered_memories(params.clone())
             .await
             .map(MemoryOpResponse::Paginated),
-        MemoryOpRequest::GetRelated { slug } => storage
-            .get_related_memories(agent_id.to_string(), slug.clone())
+        MemoryOpRequest::GetRelated { bundle, path } => storage
+            .get_related_memories(agent_id.to_string(), bundle.clone(), path.clone())
             .await
             .map(MemoryOpResponse::MemoryList),
-        MemoryOpRequest::GetGraph { search } => storage
-            .get_memory_graph(agent_id.to_string(), search.clone())
+        MemoryOpRequest::GetGraph { bundle, search } => storage
+            .get_memory_graph(agent_id.to_string(), bundle.clone(), search.clone())
             .await
             .map(MemoryOpResponse::Graph),
-        MemoryOpRequest::Delete { slug } => storage
-            .delete_memory(agent_id.to_string(), slug.clone(), indexer)
+        MemoryOpRequest::Delete { bundle, path } => storage
+            .delete_memory(agent_id.to_string(), bundle.clone(), path.clone(), indexer)
             .await
             .map(|_| MemoryOpResponse::Unit),
+        MemoryOpRequest::ListBundles => storage
+            .list_bundles(agent_id.to_string())
+            .await
+            .map(MemoryOpResponse::Bundles),
+        MemoryOpRequest::DeleteBundle { bundle, force } => storage
+            .delete_bundle(agent_id.to_string(), bundle.clone(), *force, indexer)
+            .await
+            .map(|_| MemoryOpResponse::Unit),
+        MemoryOpRequest::ExportBundle { bundle } => storage
+            .export_bundle(agent_id.to_string(), bundle.clone())
+            .await
+            .map(MemoryOpResponse::Export),
+        MemoryOpRequest::ImportBundle { bundle, zip_bytes } => storage
+            .import_bundle(agent_id.to_string(), bundle.clone(), zip_bytes.clone(), indexer)
+            .await
+            .map(MemoryOpResponse::Import),
     }
 }

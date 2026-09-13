@@ -89,6 +89,24 @@ impl VizierModelBuilder<openai::CompletionsClient> for VizierModelImpl<openai::C
             Some(url) => {
                 let mut builder = openai::CompletionsClient::builder().api_key(&resolved.api_key);
                 builder = builder.base_url(url);
+                // OpenCode Go's router requires a stable `x-opencode-session`
+                // header per conversation to route/cache prompts efficiently;
+                // without it every request is rejected with `MissingSessionID`
+                // (see https://opencode.ai/docs/go/). The id only needs to
+                // stay stable across requests from this client, which lives
+                // for the agent process's lifetime, so a UUID minted once
+                // here is enough.
+                if url.contains("opencode.ai") && url.contains("/go") {
+                    let mut headers = rig_core::http_client::HeaderMap::new();
+                    headers.insert(
+                        "x-opencode-session",
+                        rig_core::http_client::HeaderValue::from_str(&format!(
+                            "vizier-{}",
+                            uuid::Uuid::new_v4()
+                        ))?,
+                    );
+                    builder = builder.http_headers(headers);
+                }
                 builder.build()?
             }
             None => openai::CompletionsClient::new(&resolved.api_key)?,
