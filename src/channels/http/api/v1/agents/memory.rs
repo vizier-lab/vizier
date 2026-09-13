@@ -35,6 +35,7 @@ pub fn memory() -> Router<HTTPState> {
         .route("/bundles", get(list_bundles))
         .route("/bundles/graph", get(get_bundle_level_graph))
         .route("/bundles/import", post(import_bundle_handler))
+        .route("/bundles/{bundle}", delete(delete_bundle_handler))
         .route("/bundles/{bundle}/export", get(export_bundle_handler))
         .route("/{bundle}/graph", get(get_bundle_graph))
         .route("/{slug}", get(get_memory_detail))
@@ -236,7 +237,7 @@ fn error_status_for(message: &str) -> StatusCode {
         StatusCode::BAD_REQUEST
     } else if lower.contains("does not exist") || lower.contains("not found") {
         StatusCode::NOT_FOUND
-    } else if lower.contains("linked in the knowledge graph") {
+    } else if lower.contains("linked in the knowledge graph") || lower.contains("still has") {
         StatusCode::CONFLICT
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
@@ -739,6 +740,37 @@ pub async fn list_bundles(
             "unexpected response".into(),
         ),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+pub async fn delete_bundle_handler(
+    Path((agent_id, bundle)): Path<(String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<String> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::DeleteBundle { bundle: bundle.clone() },
+        )
+        .await
+    {
+        Ok(crate::schema::MemoryOpResponse::Unit) => {
+            api_response(StatusCode::OK, format!("bundle '{bundle}' deleted"))
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            err_response(error_status_for(&msg), msg)
+        }
     }
 }
 

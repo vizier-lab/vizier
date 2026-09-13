@@ -129,6 +129,11 @@ pub trait MemoryStorage {
     // BundleSummary { name: String, concept_count: usize, updated_at: Option<DateTime<Utc>> }
     // (data-model.md's Bundle Summary entity) — updated_at is None for a freshly-created, still-
     // empty bundle.
+    // Deletes an already-empty bundle (its index.md/log.md); Err if it still holds any concept
+    // document — never a silent/cascading delete of content, mirroring delete_memory's own
+    // refuse-if-linked pattern. Exposed as both a memory_delete_bundle agent tool and a WebUI/
+    // HTTP DELETE /bundles/{bundle} action.
+    async fn delete_bundle(&self, agent_id: String, bundle: String) -> Result<()>;
     async fn export_bundle(&self, agent_id: String, bundle: String) -> Result<Vec<u8>>; // zip bytes
     async fn import_bundle(
         &self,

@@ -105,6 +105,11 @@ pub trait MemoryStorage {
 
     async fn list_bundles(&self, agent_id: String) -> Result<Vec<BundleSummary>>;
 
+    /// Deletes a bundle's `index.md`/`log.md` (and any other non-concept file left in it).
+    /// Rejected with `Err` if the bundle still contains any concept document — a bundle must be
+    /// emptied of concepts (via `delete_memory`) before it can be deleted itself.
+    async fn delete_bundle(&self, agent_id: String, bundle: String) -> Result<()>;
+
     async fn export_bundle(&self, agent_id: String, bundle: String) -> Result<Vec<u8>>;
 
     async fn import_bundle(
@@ -228,6 +233,10 @@ impl MemoryStorage for VizierStorage {
 
     async fn list_bundles(&self, agent_id: String) -> Result<Vec<BundleSummary>> {
         self.0.list_bundles(agent_id).await
+    }
+
+    async fn delete_bundle(&self, agent_id: String, bundle: String) -> Result<()> {
+        self.0.delete_bundle(agent_id, bundle).await
     }
 
     async fn export_bundle(&self, agent_id: String, bundle: String) -> Result<Vec<u8>> {

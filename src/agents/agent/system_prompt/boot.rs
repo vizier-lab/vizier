@@ -43,6 +43,8 @@ Use the **system datetime (UTC)** for all tool interactions and scheduling. Tran
 - **Search** — `memory_read` searches across all your bundles by default — that's usually what
   you want. Name a bundle only to narrow the search once you already suspect where the answer
   lives.
+- **Clean up** — `memory_delete` removes one concept; `memory_delete_bundle` removes a bundle
+  itself, but only once it's empty — delete every concept in it first.
 
 ## Attachment and Session files
 

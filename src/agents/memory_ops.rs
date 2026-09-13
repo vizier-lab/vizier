@@ -89,6 +89,10 @@ async fn dispatch_memory_op(
             .list_bundles(agent_id.to_string())
             .await
             .map(MemoryOpResponse::Bundles),
+        MemoryOpRequest::DeleteBundle { bundle } => storage
+            .delete_bundle(agent_id.to_string(), bundle.clone())
+            .await
+            .map(|_| MemoryOpResponse::Unit),
         MemoryOpRequest::ExportBundle { bundle } => storage
             .export_bundle(agent_id.to_string(), bundle.clone())
             .await

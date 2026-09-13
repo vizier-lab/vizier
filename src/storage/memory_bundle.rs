@@ -1111,6 +1111,49 @@ impl BundleMemoryStore {
         Ok(result)
     }
 
+    pub async fn delete_bundle(&self, agent_id: String, bundle: String) -> Result<()> {
+        self.reconcile_bundle(&agent_id, &bundle).await?;
+
+        let concept_count: i64 = {
+            let conn = self.conn.lock();
+            conn.query_row(
+                "SELECT COUNT(*) FROM memory_node WHERE agent_id = ?1 AND bundle = ?2",
+                params![agent_id, bundle],
+                |row| row.get(0),
+            )?
+        };
+        if concept_count > 0 {
+            return Err(anyhow!(
+                "bundle '{bundle}' still has {concept_count} concept(s); delete them first"
+            ));
+        }
+
+        let prefix = Self::bundle_prefix(&agent_id, &bundle);
+        let files = self.document_store.list(&prefix).await?;
+        for file in files {
+            self.document_store.delete(&format!("{prefix}/{file}")).await?;
+        }
+
+        // Nothing should remain in memory_node/memory_edge for an already-empty bundle, but
+        // clear defensively in case a concurrent write raced this call.
+        {
+            let conn = self.conn.lock();
+            conn.execute(
+                "DELETE FROM memory_node WHERE agent_id = ?1 AND bundle = ?2",
+                params![agent_id, bundle],
+            )?;
+            conn.execute(
+                "DELETE FROM memory_edge WHERE agent_id = ?1 AND source_bundle = ?2",
+                params![agent_id, bundle],
+            )?;
+        }
+        // Other bundles may have referenced this one via a whole-bundle [[bundle]] link or a
+        // now-gone [[bundle/slug]] concept — those edges should flip to broken, not vanish.
+        self.recompute_broken(&agent_id)?;
+
+        Ok(())
+    }
+
     pub async fn export_bundle(&self, agent_id: String, bundle: String) -> Result<Vec<u8>> {
         self.reconcile_bundle(&agent_id, &bundle).await?;
         self.regenerate_index(&agent_id, &bundle).await?;
@@ -1553,5 +1596,65 @@ mod tests {
             .unwrap();
         let log = std::fs::read_to_string(&log_path).unwrap();
         assert!(log.contains("updated"));
+    }
+
+    #[tokio::test]
+    async fn delete_bundle_rejected_when_not_empty() {
+        let (store, _dir, indexer) = setup();
+        store
+            .write_memory(
+                "a1".into(),
+                Some("andy".into()),
+                Some("note".into()),
+                false,
+                "Note".into(),
+                "hello".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+
+        let err = store.delete_bundle("a1".into(), "andy".into()).await;
+        assert!(err.is_err());
+
+        // Bundle must still be fully intact after a rejected delete.
+        let detail = store
+            .get_memory_detail("a1".into(), Some("andy".into()), "note".into())
+            .await
+            .unwrap();
+        assert!(detail.is_some());
+    }
+
+    #[tokio::test]
+    async fn delete_bundle_succeeds_when_empty() {
+        let (store, dir, indexer) = setup();
+        store
+            .write_memory(
+                "a1".into(),
+                Some("andy".into()),
+                Some("note".into()),
+                false,
+                "Note".into(),
+                "hello".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+        store
+            .delete_memory("a1".into(), Some("andy".into()), "note".into(), &indexer)
+            .await
+            .unwrap();
+
+        store.delete_bundle("a1".into(), "andy".into()).await.unwrap();
+
+        assert!(!dir.path().join("a1/memory/andy/index.md").exists());
+        assert!(!dir.path().join("a1/memory/andy/log.md").exists());
+
+        let bundles = store.list_bundles("a1".into()).await.unwrap();
+        assert!(!bundles.iter().any(|b| b.name == "andy"));
     }
 }

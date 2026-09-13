@@ -26,6 +26,7 @@ pub fn init_vector_memory(
     MemoryFollow,
     MemoryGraphTool,
     MemoryDelete,
+    MemoryDeleteBundle,
 )> {
     Ok((
         MemoryRead::new(agent_id.clone(), storage.clone(), indexer.clone()),
@@ -35,6 +36,7 @@ pub fn init_vector_memory(
         MemoryFollow::new(agent_id.clone(), storage.clone()),
         MemoryGraphTool::new(agent_id.clone(), storage.clone()),
         MemoryDelete::new(agent_id.clone(), storage.clone(), indexer),
+        MemoryDeleteBundle::new(agent_id.clone(), storage.clone()),
     ))
 }
 
@@ -794,5 +796,52 @@ impl VizierTool for MemoryDelete {
             .map_err(|err| VizierError(err.to_string()))?;
 
         Ok(format!("Memory '{}' deleted", path))
+    }
+}
+
+pub type MemoryDeleteBundle = DeleteVectorMemoryBundle;
+pub struct DeleteVectorMemoryBundle(AgentId, Arc<VizierStorage>);
+
+impl MemoryDeleteBundle {
+    fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
+        Self(agent_id, store)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemoryDeleteBundleArgs {
+    #[schemars(
+        description = "Name of the bundle to delete. Required — there is no default, so this can't be triggered by accident. The bundle must already be empty of concepts (use memory_delete on each one first, or memory_list(bundle) to see what's left)."
+    )]
+    pub bundle: String,
+}
+
+#[async_trait::async_trait]
+impl VizierTool for MemoryDeleteBundle {
+    type Input = MemoryDeleteBundleArgs;
+    type Output = String;
+
+    fn name() -> String {
+        "memory_delete_bundle".to_string()
+    }
+
+    fn description(&self) -> String {
+        "Permanently delete an empty bundle (its index.md/log.md). Fails if the bundle still \
+        contains any concept documents — delete those first with memory_delete, or check with \
+        memory_list(bundle)."
+            .into()
+    }
+
+    async fn call(
+        &self,
+        args: Self::Input,
+        _ctx: &ToolContext,
+    ) -> Result<Self::Output, VizierError> {
+        self.1
+            .delete_bundle(self.0.clone(), args.bundle.clone())
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
+
+        Ok(format!("Bundle '{}' deleted", args.bundle))
     }
 }

@@ -119,6 +119,10 @@ impl MemoryStorage for SqliteStorage {
         self.bundle_store().list_bundles(agent_id).await
     }
 
+    async fn delete_bundle(&self, agent_id: String, bundle: String) -> Result<()> {
+        self.bundle_store().delete_bundle(agent_id, bundle).await
+    }
+
     async fn export_bundle(&self, agent_id: String, bundle: String) -> Result<Vec<u8>> {
         self.bundle_store().export_bundle(agent_id, bundle).await
     }

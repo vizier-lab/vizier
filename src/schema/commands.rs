@@ -123,6 +123,9 @@ pub enum MemoryOpRequest {
         path: String,
     },
     ListBundles,
+    DeleteBundle {
+        bundle: String,
+    },
     ExportBundle {
         bundle: String,
     },

@@ -3,6 +3,14 @@
 Location: `src/agents/tools/vector_memory/mod.rs`. Existing tools: `memory_list`,
 `memory_read`, `memory_write`, `memory_detail`, `memory_follow`, `memory_graph`, `memory_delete`.
 
+**New tool: `memory_delete_bundle`** — deletes a bundle's `index.md`/`log.md` (the bundle itself),
+but only once it holds zero concept documents; `Err` otherwise, naming how many remain. Its one
+input field, `bundle: String`, is **required** with no default (unlike every other tool's
+`bundle: Option<String>`) — a whole-bundle deletion is deliberately never triggerable by an
+omitted/default argument. Included in `VizierTools::DREAM_TOOL_NAMES` alongside `memory_delete`,
+since the empty-only precondition already bounds its blast radius to "removing two already-inert
+housekeeping files," not content loss.
+
 ## Input schema changes
 
 Every tool's `Input` struct gains an optional field:

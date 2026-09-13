@@ -11,10 +11,11 @@ import {
   getMemoryGraph,
   exportBundle,
   importBundle,
+  deleteBundle,
   getAgentDetail,
 } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
-import { FaPlus, FaTrash, FaPenToSquare, FaMagnifyingGlass, FaArrowLeft, FaDownload, FaUpload } from 'react-icons/fa6'
+import { FaPlus, FaTrash, FaPenToSquare, FaMagnifyingGlass, FaArrowLeft, FaDownload, FaUpload, FaTrashCan } from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
 import { useFileAttachments } from '../hooks/useFileAttachments'
 import AttachmentChip from '../components/AttachmentChip'
@@ -78,6 +79,9 @@ export default function MemoryManagement() {
   const [submitting, setSubmitting] = useState(false)
 
   const [graph, setGraph] = useState<MemoryGraphType | null>(null)
+  // Concept nodes in the currently-open bundle, excluding synthetic boundary nodes that point
+  // to other bundles — used to gate the "Delete Bundle" action (must be empty of concepts).
+  const currentBundleConceptCount = graph?.nodes.filter((n) => !n.boundary).length ?? 0
   const [graphLoading, setGraphLoading] = useState(false)
   const [graphVersion, setGraphVersion] = useState(0)
   const [agentDetail, setAgentDetail] = useState<AgentDetail | null>(null)
@@ -318,6 +322,20 @@ export default function MemoryManagement() {
     }
   }
 
+  const handleDeleteBundle = async () => {
+    if (!agentId || !currentBundle) return
+    if (!confirm(`Delete bundle "${currentBundle}"? It must be empty of concepts — this cannot be undone.`)) return
+    try {
+      await deleteBundle(agentId, currentBundle)
+      addToast('success', `Bundle "${currentBundle}" deleted`)
+      setCurrentBundle(null)
+      setGraphVersion((v) => v + 1)
+    } catch (error) {
+      console.error('Failed to delete bundle:', error)
+      addToast('error', 'Failed to delete bundle', getErrorMessage(error))
+    }
+  }
+
   const openImportDialog = () => {
     setImportDestBundle(currentBundle ?? '')
     setImportFile(null)
@@ -395,10 +413,26 @@ export default function MemoryManagement() {
         </div>
 
         {currentBundle !== null && (
-          <button className="btn btn-secondary" onClick={handleExportBundle}>
-            <FaDownload size={14} />
-            <span>Export</span>
-          </button>
+          <>
+            <button className="btn btn-secondary" onClick={handleExportBundle}>
+              <FaDownload size={14} />
+              <span>Export</span>
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={handleDeleteBundle}
+              disabled={currentBundleConceptCount > 0}
+              title={
+                currentBundleConceptCount > 0
+                  ? `Delete every concept in this bundle first (${currentBundleConceptCount} remaining)`
+                  : 'Delete this empty bundle'
+              }
+              style={currentBundleConceptCount > 0 ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+            >
+              <FaTrashCan size={14} />
+              <span>Delete Bundle</span>
+            </button>
+          </>
         )}
         <button className="btn btn-secondary" onClick={openImportDialog}>
           <FaUpload size={14} />

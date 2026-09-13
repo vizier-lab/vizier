@@ -276,7 +276,7 @@ impl VizierTools {
     }
 
     const DREAM_TOOL_NAMES: &'static [&'static str] = &[
-        // Memory (7)
+        // Memory (8)
         "memory_read",
         "memory_write",
         "memory_list",
@@ -284,6 +284,7 @@ impl VizierTools {
         "memory_follow",
         "memory_graph",
         "memory_delete",
+        "memory_delete_bundle",
         // Workspace (2)
         "WRITE_CORE",
         "READ_CORE",
@@ -513,6 +514,7 @@ impl VizierTools {
                 follow_memory,
                 graph_memory,
                 delete_memory,
+                delete_memory_bundle,
             ) = init_vector_memory(agent_id.clone(), deps.storage.clone(), idx)?;
 
             default_toolset = default_toolset
@@ -522,7 +524,8 @@ impl VizierTools {
                 .tool(detail_memory)
                 .tool(follow_memory)
                 .tool(graph_memory)
-                .tool(delete_memory);
+                .tool(delete_memory)
+                .tool(delete_memory_bundle);
         }
 
         if let Some(tts) = tts {

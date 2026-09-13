@@ -35,6 +35,7 @@ bundle." The **top-level view** is its own dedicated resource, `GET /bundles`, r
 |---|---|
 | `GET /bundles` | The dedicated top-level view: `BundleSummary[]` (name, concept count, last-updated) for all of the agent's bundles (FR-006). This is what the WebUI's bundle picker calls, and what backs `memory_list`'s top-level view at the tool layer — not `GET /` with an omitted param. |
 | `GET /bundles/graph` | Bundle-level graph: nodes = bundles, edges = cross-bundle links between them (FR-019). Same `MemoryGraph` shape as `/{bundle}/graph`, at the `bundle: None` level — both are the same underlying `get_memory_graph` call, bundle filled in or not. |
+| `DELETE /bundles/{bundle}` | Deletes an already-empty bundle (its `index.md`/`log.md`). `409`-class error if it still holds any concept document — never a silent/cascading delete of content. Mirrors the `memory_delete_bundle` agent tool. |
 | `GET /bundles/{bundle}/export` | Streams a `.zip` containing that bundle's concept documents, index/log documents, and attachments (FR-020). `Content-Type: application/zip`. |
 | `POST /bundles/import` (multipart) | Body: a `.zip` file + a destination `bundle` name field. Validates the archive is a well-formed bundle structure before writing anything (Edge Cases: malformed zip rejected atomically). Concept-level collisions against an existing destination bundle are reported and skipped, not overwritten (FR-021) — response is an `ImportReport` listing imported vs. skipped paths. |
 
@@ -45,3 +46,5 @@ bundle." The **top-level view** is its own dedicated resource, `GET /bundles`, r
 - `(bundle, path)` collision on create/import → reported per FR-011/FR-021, not overwritten.
 - A bundle name that doesn't exist on a scoped route (`/{bundle}/graph`, `/{bundle}/export`) →
   `404`-class error, not an empty/broken graph silently returned as success.
+- `DELETE /bundles/{bundle}` on a bundle that still has concept documents → `409`-class error
+  naming how many remain, not a cascading delete.
