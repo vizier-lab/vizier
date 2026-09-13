@@ -455,11 +455,15 @@ impl VizierTools {
 
         if agent_config.tools.discord.enabled {
             if let Some(token) = &agent_config.discord_token {
-                let (send_message, react_message, get_message) = new_discord_tools(token.clone(), agent_id.clone(), deps.storage.clone());
+                let (send_message, react_message, get_message, guild_info, channel_info, member_info) =
+                    new_discord_tools(token.clone(), agent_id.clone(), deps.storage.clone());
                 default_toolset = default_toolset
                     .tool(send_message)
                     .tool(react_message)
-                    .tool(get_message);
+                    .tool(get_message)
+                    .tool(guild_info)
+                    .tool(channel_info)
+                    .tool(member_info);
             }
         }
 
