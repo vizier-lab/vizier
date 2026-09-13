@@ -2,203 +2,150 @@
 
 > 21st Century Digital Steward; Right-hand agent for you majesty
 
-Vizier is a Rust-based AI agent framework that provides a unified interface for AI assistants across multiple communication channels (Discord, Telegram, HTTP, WebUI) with memory, tool usage, and extensible architecture.
+Vizier is a Rust-based AI agent framework: a single binary that runs multiple concurrent AI agents — each with its own provider, tools, memory, and identity — exposed over Discord, Telegram, and HTTP (REST + WebSocket + a bundled React WebUI). Storage is embedded SQLite; no external services required.
+
+📖 **Docs:** `docs/` (mdBook) — start with `docs/src/introduction.md`.
 
 ## Features
 
-- **Multi-Channel Support**: Connect to Discord, Telegram, HTTP (REST API & WebSocket), and WebUI
-- **AI Model Integration**: Support for multiple AI providers (DeepSeek, OpenRouter, Ollama, Anthropic, OpenAI, Gemini, Xiaomi MiMo, Llama.cpp)
-- **Memory System**: Session-based short-term memory, configurable recall depth, and vector-based long-term memory
-- **Tool System**: Extensible tool framework including shell execution (local or Docker-sandboxed), web search (Brave Search), HTTP client, web fetch, scheduler (cron & one-time tasks), vector memory, workspace document management, sub-agent spawning, skill scripts (shell/Python), and inter-agent communication
-- **Scheduler**: Built-in task scheduler for automated agent execution
-- **WebUI**: Modern React-based web interface for interaction and management
-- **Configuration Driven**: YAML seed config with runtime management via WebUI
+- **Multi-channel** — Discord, Telegram, REST, WebSocket, WebUI. Each agent gets its own bot token per platform; slash commands for sessions, checkpoints, and aborts.
+- **29 providers** — Ollama, llama.cpp, OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Xiaomi MiMo, Groq, Mistral, xAI, Perplexity, Moonshot, Z.ai, MiniMax, Together, Cohere, Hugging Face, Hyperbolic, Voyage AI, Galadriel, Mira, ChatGPT (OAuth), GitHub Copilot, Azure OpenAI, OpenCode Zen/Go, and any OpenAI-compatible `custom` endpoint (via [rig](https://github.com/0xPlaygrounds/rig)).
+- **Open-format memory** — long-term memory is plain markdown on disk, organized into per-agent bundles with a link graph (`[label](concept.md)`, `[[bundle/slug]]`), semantic search via a per-agent embedding model (local fastembed or cloud), and `.zip` export/import.
+- **Tools** — shell (local or Docker sandbox), Brave web/news search, web fetch, HTTP client, cron & one-time scheduler, memory graph tools, skills, session files (PDF/DOCX/XLSX/images), TTS / STT / image generation, parallel sub-tasks, inter-agent consult/delegate, per-agent MCP servers.
+- **Skills** — reusable `SKILL.md` packages with resources and scripts; global or per-agent; installable from a registry, git, or a local path; recommended to the agent by embedding similarity.
+- **Dream cycle** — optional cron-scheduled reflection that extracts insights from recent sessions and consolidates them into memory and the agent's `CORE.md`.
+- **Checkpoints** — automatic context handover when a session nears the model's context window, plus `/checkpoint`, `/lobotomy`, `/abort`.
+- **Multi-user** — JWT + API keys, roles with granular permissions, agent ownership and sharing.
+- **Config-less** — runs with no config file; everything is managed in the WebUI/API.
 
-## Installation and Configuration
-
-### Prerequisites
-
-No prerequisites required for standard installation. The install script handles everything automatically.
-
-#### For Custom Installation (Building from Source)
-
-- [Rust and Cargo](https://rust-lang.org/) installed
-
-### Quick Start
-
-1. **Install Vizier** (Recommended):
-   ```sh
-   curl -fsSL https://get.vizier.rs | sh
-   ```
-   
-   Or install via cargo (requires Rust):
-   ```sh
-   cargo install vizier
-   # Or using cargo-binstall (faster)
-   cargo binstall vizier
-   ```
-
-2. **Generate configuration and workspace:**
-   ```sh
-   vizier onboard
-   ```
-   This will walk you through provider selection, embedding config, storage backend, and HTTP server setup.
-
-3. **Run the agent:**
-   ```sh
-   vizier run
-   ```
-
-4. **Open the WebUI** at `http://localhost:9999` to create and manage agents.
-
-### Development Setup
-
-For development, clone the repository and use the provided `just` commands:
+## Quick Start
 
 ```sh
-# Install dependencies (Rust crates and webui npm packages)
-just install
+# 1. Install
+curl -fsSL https://get.vizier.rs | sh          # or: cargo install vizier / cargo binstall vizier
 
-# Run in development mode with hot-reload
-just dev
+# 2. (optional) seed a .vizier.yaml
+vizier onboard
 
-# Build the webui
-just build
+# 3. Run
+vizier run                                     # config-less needs VIZIER_JWT_SECRET set
 ```
 
-See the [Justfile](Justfile) for all available commands.
-
-### WebUI
-
-The web interface is built with React and served automatically when the HTTP channel is enabled. After building (`just build`), it will be available at `http://localhost:9999` (or the port configured in your `.vizier.yaml`).
-
-## Update Installed Version
-
-### Using Install Script
-
-Simply re-run the install script to get the latest version:
-```sh
-curl -fFSL https://get.vizier.rs | sh
-```
-
-### Using Cargo (if installed via cargo)
-
-1. Install `cargo-update` if you haven't already:
-   ```sh
-   cargo install cargo-update
-   ```
-
-2. Update the binary:
-   ```sh
-   cargo install-update vizier
-   ```
-
-## Planned Features (V1.0.0)
-
-- [x] Web UI (React-based interface)
-- [x] Scheduler and task system (cron & one-time tasks)
-- [x] Vector memory for long-term retention
-- [x] Brave Search integration
-- [x] Local embedding model support
-- [x] Docker Sandbox
-- [x] Additional AI providers (Google Gemini, OpenAI, Anthropic, Xiaomi MiMo, etc.)
-- [x] Sub-agent spawning for parallel task execution
-- [x] Model Context Protocol (MCP) integration
-- [x] Skill system for reusable agent behaviors
-- [x] Built-in HTTP client tool
-- [ ] WASM-based plugin system
-
-## Development
-
-### Project Structure
-
-- `src/`: Rust source code
-  - `agents/`: Agent process loop, LLM interaction, tools, hooks, skills, per-agent MCP client + shell abstraction (local + Docker)
-  - `channels/`: Discord, Telegram, HTTP (REST + WebSocket + WebUI serving)
-  - `storage/`: Filesystem and SQLite storage backends
-  - `config/`: YAML seed config deserialization
-  - `schema/`: Shared types (responses, agent IDs, provider entries)
-  - `embedding/`: Local embedding models (fastembed)
-  - `scheduler/`: Cron, one-time task, and "dream cycle" scheduling
-  - `command/`: Unix-socket command server for CLI ↔ running-instance control
-  - `cli/`: `run`/`shutdown`/`onboard`/`skill`/`agent` subcommands
-  - `transport.rs`: In-process command bus (agent/channel/global commands) that ties the above together
-- `webui/`: React-based web interface (React Router v7 + Tailwind v4 + TypeScript)
-- `templates/`: Template files for agent configuration and identity
-- `.vizier/`: Workspace directory for runtime data (config, database, agent workspaces)
-
-### Available Commands
-
-See the [`Justfile`](Justfile) for available commands:
-
-| Command | Description |
-|---------|-------------|
-| `just install` | Install all dependencies (Rust crates + webui npm packages) |
-| `just dev` | Run in development mode with hot-reload |
-| `just run` | Run in attached mode |
-| `just release` | Build release binary |
-| `just docker` | Start Docker services (database, etc.) |
-| `just build` | Build the webui frontend |
-
-### CLI Commands
-
-The `vizier` binary provides these subcommands:
-
-- `vizier run [--config <path>]`: Start agents, server, and channels (runs in the foreground by default; use `-d` / `--detached` to run in the background). Works without a config file — see the [Docker](#docker) section for env-var configuration.
-- `vizier shutdown [--config <path>]`: Stop a running instance
-- `vizier onboard --path <path>`: Interactive wizard to generate seed config
-- `vizier agent ps`: List running agents and their status
-
-Agents are created and managed at runtime via the WebUI or HTTP API — there is no CLI subcommand for agent management beyond `ps`.
+Open `http://localhost:9999`, create the first user, add a provider key under **Settings → Providers**, and create an agent.
 
 ### Docker
 
-The image is published to both registries below. **Docker Hub is the recommended primary**; the GHCR image is identical and can be used interchangeably.
+```sh
+docker run -p 9999:9999 -v vizier-data:/data \
+  -e VIZIER_DATA_DIR=/data -e VIZIER_JWT_SECRET=$(openssl rand -hex 32) \
+  blinfoldking/vizier
+```
 
-- Docker Hub: `blinfoldking/vizier`
-- GHCR: `ghcr.io/vizier-lab/vizier`
-
-The image starts vizier with no config file. Configure via env vars (consumed by `docker-entrypoint.sh`):
+Images: `blinfoldking/vizier` (Docker Hub, recommended) and `ghcr.io/vizier-lab/vizier` (identical). A sample `docker-compose.yaml` is included.
 
 | Env var | Purpose | Default |
 |---|---|---|
-| `VIZIER_CONFIG` | Path to a `.vizier.yaml` to load. If set, file is loaded first, then env-var overrides apply on top. | unset |
-| `VIZIER_DATA_DIR` (or `VIZIER_WORKSPACE`) | Container data directory. | `$HOME/.vizier` (use a volume to persist) |
-| `VIZIER_PORT` | HTTP server port. | `9999` |
-| `VIZIER_STORAGE` | `sqlite` (the only supported value — `filesystem` is no longer accepted; an existing `filesystem`-backed deployment is migrated into sqlite automatically on first startup after upgrading). | `sqlite` |
-| `VIZIER_WORKERS` | Tokio worker thread count. | `4` |
-| `VIZIER_WS_IDLE_TIMEOUT` | WebSocket idle timeout (seconds). | `300` |
-| `VIZIER_JWT_SECRET` | JWT signing secret. **Set to a strong value in production.** | `vizier-default-secret-change-me` |
-| `VIZIER_EXTRA_ARGS` | Append arbitrary extra CLI args. | unset |
+| `VIZIER_CONFIG` | Path to a `.vizier.yaml` to load (env overrides still apply on top) | unset |
+| `VIZIER_DATA_DIR` / `VIZIER_WORKSPACE` | Data directory — mount a volume | `$HOME/.vizier` |
+| `VIZIER_PORT` | HTTP port | `9999` |
+| `VIZIER_STORAGE` | `sqlite` (only value; a legacy `filesystem` deployment is auto-migrated on first start) | `sqlite` |
+| `VIZIER_WORKERS` | Tokio worker threads | `4` |
+| `VIZIER_WS_IDLE_TIMEOUT` | WebSocket idle timeout (s) | `300` |
+| `VIZIER_JWT_SECRET` | JWT signing secret — **set a strong value** | `vizier-default-secret-change-me` |
+| `VIZIER_EXTRA_ARGS` | Extra CLI args appended to `vizier run` | unset |
 
-Examples (using Docker Hub; substitute `ghcr.io/vizier-lab/vizier` to use GHCR):
+Any first argument other than `run` (`shutdown`, `agent ps`, `skill …`) is passed straight through.
 
-```sh
-# Config-less, port 8080
-docker run -p 8080:8080 -e VIZIER_PORT=8080 blinfoldking/vizier
+## Configuration model
 
-# Config-less with persisted data (sqlite is the default storage)
-docker run -p 9999:9999 -v vizier-data:/data -e VIZIER_DATA_DIR=/data \
-  blinfoldking/vizier
+`.vizier.yaml` is optional and small — only `providers` (seed, migrated to storage on first run), `storage`, `channels.http`, and `worker_threads`. Everything else is runtime state managed via the WebUI / HTTP API: providers, users/roles, and all agent configuration (model, tools, shell, MCP servers, embedding, channel tokens, dream schedule). Agents are never defined in YAML.
 
-# Pass a config file plus overrides
-docker run -p 9999:9999 \
-  -v $PWD/dev.vizier.yaml:/cfg.yaml \
-  -e VIZIER_CONFIG=/cfg.yaml \
-  -e VIZIER_PORT=8080 \
-  blinfoldking/vizier
-
-# Subcommand passthrough (env vars skipped)
-docker run blinfoldking/vizier shutdown
+```yaml
+vizier:
+  providers:
+    ollama: { base_url: "http://localhost:11434" }
+    anthropic: { api_key: "${ANTHROPIC_API_KEY}" }
+  storage: { type: sqlite }
+  channels:
+    http: { port: 9999, jwt_secret: "${VIZIER_JWT_SECRET}" }
 ```
 
-### Adding New Features
+Resolution order: `-c <path>` → `$VIZIER_CONFIG` → `./.vizier.yaml` → built-in defaults (workspace `$VIZIER_DATA_DIR` or `~/.vizier`).
 
-1. **New Tools**: Add to `src/agents/tools/` and register in `src/agents/tools/mod.rs`
-2. **New Channels**: Add to `src/channels/` and implement the `VizierChannel` trait
-3. **New Models**: Extend the provider system in `src/agents/agent/model/`
-4. **New Schedules**: Add to `src/scheduler/` and integrate with task database
+## CLI
+
+| Command | Description |
+|---------|-------------|
+| `vizier run [-c <path>] [-d] [--port] [--data-dir] [--storage sqlite] [--workers] [--ws-idle-timeout]` | Start agents, scheduler, channels, and the API/WebUI (`-d` daemonizes) |
+| `vizier shutdown [-c <path>]` | Stop a running instance via its command socket |
+| `vizier onboard [-p <path>]` | Interactive wizard that writes a seed `.vizier.yaml` |
+| `vizier agent ps` | List running agents and their status |
+| `vizier skill install <slug\|owner/repo\|git-url\|./path> [-a <agent>]` | Install a skill (needs `git`) |
+| `vizier skill list \| uninstall <slug> \| update <slug>` | Manage installed skills |
+
+## API
+
+- REST under `/api/v1` — Swagger UI at `/swagger`.
+- `POST /api/v1/agents/{id}/chat` for synchronous chat; `ws://…/api/v1/agents/{id}/channel/{channel}/topic/{topic}/chat?token=<jwt>` for streaming (thinking, tool calls, checkpoints, final message).
+- Auth: `Authorization: Bearer <jwt>` or `Authorization: ApiKey vk_…`.
+
+See `docs/src/api-integration/`.
+
+## Development
+
+```sh
+just install     # cargo fetch + npm install in webui/ (+ cargo-watch)
+just dev         # cargo watch -s "just run" — hot reload with dev.vizier.yaml
+just run         # cargo run -- run --config dev.vizier.yaml
+just run-d       # same, detached
+just shutdown    # stop the dev instance
+just build       # build the WebUI (npm run build)
+just release     # cargo build --release
+just docker      # docker-compose down && up -d
+
+cargo test       # tests are sparse; most behavior is exercised by running the binary
+cargo clippy
+cd webui && npm run typecheck
+```
+
+> **Build gotcha:** `build.rs` runs `npm run build` in `webui/` on every `cargo build` if `webui/node_modules/` exists. If `node_modules/` is absent and `webui/build/client/` doesn't exist, the build panics — run `just install` first.
+
+### Project structure
+
+```
+src/
+  cli/              run / shutdown / onboard / skill / agent subcommands
+  config/           .vizier.yaml schema (providers, storage, http channel, shell & MCP types)
+  dependencies.rs   VizierDependencies: opens storage, runs one-time migrations
+  transport.rs      in-process message bus (flume) tying agents, channels, scheduler together
+  agents/           per-agent process loop, model/provider abstraction, tools, hooks, shell (local/docker), MCP, skills runtime
+  channels/         discord (serenity), telegram (teloxide), http (axum: REST, WS, JWT/API-key auth, WebUI static)
+  scheduler/        cron + one-time tasks, dream cycle
+  storage/          VizierStorage over SQLite; document store + BundleMemoryStore for markdown memory
+  indexer/          sqlite-vec vector index
+  embedding/ tts/ stt/ image_generation/   per-provider adapters
+  skill/            skill packages: manifest, install (registry/git/local)
+  schema/           shared types (agent config, requests/responses, sessions, history)
+  command/          Unix-socket command server (shutdown, health) for the CLI
+webui/              React Router v7 + React 19 + Tailwind v4; built output served by the HTTP channel
+templates/          CORE.md seed for new agents
+skills/             skill registry (installed with `vizier skill install <slug>`)
+vizier-derive/      #[derive(MarkdownDoc)] for frontmatter+body documents
+docs/               mdBook documentation
+specs/              design specs (Spec Kit)
+```
+
+### Extending
+
+Everything is trait-based — implement the trait and register it in the module constructor:
+
+- **Tool**: implement `VizierTool` in `src/agents/tools/<name>.rs`, add it to `default_toolset` or `user_toolset` in `VizierTools::new()`; add to `DREAM_TOOL_NAMES` if the dream cycle should have it.
+- **Channel**: implement `VizierChannel` in `src/channels/`, spawn it in `VizierChannels::run()`.
+- **Provider**: add a variant to `ProviderVariant` + config struct in `src/config/provider.rs`, resolve credentials in `provider_keys.rs`, build the client in `src/agents/agent/model/`.
+- **Storage backend**: implement every `*Storage` trait and `VizierStorageProvider`.
+
+Conventions: `tracing` for logs (never `println!`), `crate::Result` / `VizierError`, conventional commits (`feat:`, `fix:`, …; changelog by `git-cliff`).
 
 ## License
 
-MIT License
+MIT

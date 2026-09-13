@@ -1,81 +1,102 @@
 # 2.6 Storage & Shell
 
-## `storage`
-
-Configure data persistence backend:
+## Storage
 
 ```yaml
-storage:
-  type: filesystem
-  indexer: in_mem
+vizier:
+  storage:
+    type: sqlite
 ```
 
-> **Note:** Storage config is **not** migrated to storage — it remains file-based and is read once at startup. You cannot change the storage backend after first run without resetting the workspace.
+SQLite is the only runtime backend. The database lives at `<workspace>/.runtime/vizier.db` and holds agents, sessions, history, tasks, users/roles/API keys, providers, dream journals, session-file records, and the memory graph index (with `sqlite-vec` for vectors). No external service is needed.
 
-### Storage Types
+Memory **documents** are the one thing not stored in SQLite: they are markdown files under `<workspace>/agents/<agent_id>/memory/`. See [Memory](./memory.md).
 
-| Type | Description |
-|------|-------------|
-| `filesystem` | Store data in `.vizier/` directory (default) |
-| `sqlite` | Use SQLite for data storage |
+| `type` | Status |
+|--------|--------|
+| `sqlite` | Default and only supported backend |
+| `filesystem` | Legacy. Still parses so old configs load; on startup Vizier logs a warning and **migrates** everything from the old flat files into SQLite (one-time, idempotent). `--storage filesystem` / `VIZIER_STORAGE=filesystem` on the CLI is rejected outright. |
 
-### Indexer Types
+The `indexer` key that older docs mentioned at this level no longer exists — vector indexing is a per-agent setting (see [Tools & Embedding](./tools-embedding.md#indexer-indexer)).
 
-| Type | Description |
-|------|-------------|
-| `in_mem` | In-memory indexer (default, fast, non-persistent) |
-| `sqlite` | SQLite-based indexer (persistent, vector search) |
+### Startup migrations
 
-## `shell`
+`VizierDependencies::new` runs these once, guarded by markers in the `state` table:
 
-Configure the execution environment for shell commands:
+1. Flat memory files → bundles (pre-bundle layouts)
+2. `filesystem` backend → SQLite (if the config still says `filesystem`)
+3. Seed users → `superadmin` system role
+4. YAML `providers` → providers table
+5. Per-agent MCP / shell config backfill (from the old global config)
+6. Default `CORE.md` for agents missing one
 
-```yaml
-shell:
-  environment: local
-  path: "."
+## Shell
+
+Shell access is configured **per agent** under `tools.shell`. Each agent owns its own shell instance; there is no global shell. Setting `shell` to `null` (the default) removes the `shell_exec` tool from that agent entirely.
+
+The tool runs `sh -c "<commands>"` (local) or `docker exec` (docker) and returns stdout. Each call is bounded by the agent's `tools.timeout` (default `30m`).
+
+### Local
+
+```json
+{
+  "tools": {
+    "shell": {
+      "environment": "local",
+      "path": "/home/me/project",
+      "env": { "RUST_LOG": "debug" }
+    }
+  }
+}
 ```
 
-> **Note:** Shell config is auto-migrated to storage on first run. After migration, shell settings are managed via WebUI (Settings > Shell) or HTTP API (`PUT /api/v1/global-config/shell`). Changes hot-reload without restart.
+| Field | Required | Description |
+|-------|----------|-------------|
+| `path` | yes | Working directory for every command |
+| `env` | no | Extra environment variables |
 
-### Local Environment
+The command runs with the same OS user as the Vizier process — treat `local` as fully trusted.
 
-```yaml
-shell:
-  environment: local
-  path: "/path/to/working/dir"  # Working directory for shell commands
-  env:                           # Optional: environment variables
-    KEY: "value"
+### Docker
+
+```json
+{
+  "tools": {
+    "shell": {
+      "environment": "docker",
+      "image": { "source": "pull", "name": "ubuntu:latest" },
+      "container_name": "vizier-agent-1",
+      "env": { "TZ": "UTC" }
+    }
+  }
+}
 ```
 
-### Docker Environment
+Build from a Dockerfile instead of pulling:
 
-```yaml
-shell:
-  environment: docker
-  image:
-    source: pull              # Use "pull" or "dockerfile"
-    name: "ubuntu:latest"     # Image name (for pull) or "my-image"
-  container_name: "vizier"    # Container name
+```json
+{
+  "environment": "docker",
+  "image": { "source": "dockerfile", "path": "./sandbox/Dockerfile", "name": "vizier-sandbox" },
+  "container_name": "vizier-agent-1"
+}
 ```
 
-For `dockerfile` source:
+| Field | Default | Description |
+|-------|---------|-------------|
+| `image.source` | `pull` | `pull` (pull `name` from a registry) or `dockerfile` (build `path` and tag as `name`) |
+| `container_name` | `vizier` | Name of the long-lived container |
+| `env` | — | Environment for each `exec` |
 
-```yaml
-shell:
-  environment: docker
-  image:
-    source: dockerfile
-    path: "./Dockerfile"      # Path to Dockerfile
-    name: "my-custom-image"   # Image name to build
-  container_name: "vizier"
-```
+Behavior:
 
-## Managing Shell Config at Runtime
+- Connects to the local Docker daemon (`connect_with_local_defaults`, i.e. `/var/run/docker.sock` or `DOCKER_HOST`).
+- If a container named `container_name` **already exists** it is reused as-is (image settings are ignored). Otherwise the image is pulled/built and a new TTY container is created and started.
+- The container is kept running; every `shell_exec` is a `docker exec` inside it. Give each agent a distinct `container_name` if you want isolation between agents.
 
-After the initial seed config is migrated, shell settings are managed via:
+### Managing at runtime
 
-- **WebUI**: Settings > Shell
-- **API**: `PUT /api/v1/global-config/shell`
+- **WebUI**: agent Settings → Tools → Shell
+- **API**: `PUT /api/v1/agents/{id}` with `tools.shell` (owner, or `all_agents:edit`)
 
-Shell changes are hot-reloaded — the shell instance is atomically swapped without restarting the agent.
+Updating an agent restarts its process, which rebuilds the shell from the new config.

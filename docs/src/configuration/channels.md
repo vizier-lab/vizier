@@ -1,102 +1,127 @@
 # 2.4 Channels
 
-## `channels`
+Vizier exposes agents over three channels. The HTTP channel is process-wide and configured in `.vizier.yaml`; Discord and Telegram are **per agent** — each agent owns its own bot token.
 
-Configure communication channels in `.vizier.yaml`:
-
-```yaml
-channels:
-  discord:                              # Discord bot configuration
-    vizier:                             # Agent-specific Discord config
-      token: "${DISCORD_TOKEN}"
-    assistant:                          # Another agent's Discord config
-      token: "${DISCORD_TOKEN_2}"
-
-  telegram:                             # Telegram bot configuration
-    vizier:                             # Agent-specific Telegram config
-      token: "${TELEGRAM_BOT_TOKEN}"
-
-  http:                                 # HTTP/WebSocket server
-    port: 9999                          # Default port
-    jwt_secret: "${VIZIER_JWT_SECRET}"  # Secret for JWT signing
-    jwt_expiry_hours: 720               # Token expiry (default: 30 days)
-```
-
-> **Note:** Discord and Telegram tokens are auto-migrated to per-agent configs on first run. After migration, tokens are managed via the WebUI agent settings, not the YAML file.
-
-## Discord Channel
-
-Each agent can have its own Discord bot configuration:
+## HTTP (REST + WebSocket + WebUI)
 
 ```yaml
-channels:
-  discord:
-    <agent_name>:
-      token: "${DISCORD_TOKEN}"
+vizier:
+  channels:
+    http:
+      port: 9999
+      jwt_secret: "${VIZIER_JWT_SECRET}"
+      jwt_expiry_hours: 720           # default 30 days
+      ws_idle_timeout_secs: 300       # default 5 minutes
 ```
 
-### Discord Tools
+| Field | Default | Description |
+|-------|---------|-------------|
+| `port` | `9999` | Listens on `0.0.0.0:<port>` |
+| `jwt_secret` | `${VIZIER_JWT_SECRET}` | Signing secret for JWTs and hashing of API keys |
+| `jwt_expiry_hours` | `720` | Lifetime of login tokens |
+| `ws_idle_timeout_secs` | `300` | Idle WebSocket connections are closed after this many seconds (ping/pong keeps them alive) |
 
-When enabled, agents can use these tools to interact with Discord:
+CLI overrides: `--port`, `--ws-idle-timeout`. Docker: `VIZIER_PORT`, `VIZIER_WS_IDLE_TIMEOUT`.
 
-- `discord_send_message` - Send a message to a Discord channel
-- `discord_react_message` - React to a message with an emoji
-- `discord_get_message_by_id` - Retrieve a message by its ID
+What the HTTP channel serves:
 
-## Telegram Channel
+| Path | What |
+|------|------|
+| `/` and static assets | The bundled WebUI (`webui/build/client/`) |
+| `/api/v1/...` | REST API — see [REST API](../api-integration/rest-api.md) |
+| `/api/v1/agents/{id}/channel/{channel_id}/topic/{topic_id}/chat` | WebSocket chat |
+| `/swagger` and `/openapi.json` | Swagger UI / OpenAPI spec |
 
-Each agent can have its own Telegram bot configuration:
-
-```yaml
-channels:
-  telegram:
-    <agent_name>:
-      token: "${TELEGRAM_BOT_TOKEN}"
-```
-
-### Telegram Commands
-
-When the Telegram channel is enabled, the following commands are available:
-
-- `/ping` - Check if the bot is responsive
-- `/new` - Create a new session with a fresh topic
-- `/session [topic_id]` - Switch to a specific session or list all sessions if no topic_id provided
-
-### Telegram Tools
-
-When enabled, agents can use these tools to interact with Telegram:
-
-- `telegram_send_message` - Send a message to a Telegram chat
-- `telegram_react_message` - React to a message with an emoji
-- `telegram_get_message_by_id` - Retrieve a message by its ID
-
-## HTTP Channel
-
-Configure the HTTP/WebSocket server:
-
-```yaml
-channels:
-  http:
-    port: 9999                          # Server port
-    jwt_secret: "${VIZIER_JWT_SECRET}"  # Secret for JWT signing
-    jwt_expiry_hours: 720               # Token expiry (default: 30 days)
-```
+CORS is fully open (`Any` origin), so a separately hosted frontend can talk to the API directly.
 
 ### Authentication
 
-The HTTP channel uses JWT (JSON Web Token) authentication:
-- `jwt_secret`: Secret key used to sign tokens (use environment variable)
-- `jwt_expiry_hours`: How long tokens remain valid
+- **Login**: `POST /api/v1/auth/login` → JWT. Send as `Authorization: Bearer <jwt>`.
+- **API keys**: created in Settings → API Keys (or `POST /api/v1/auth/api-keys`). Keys look like `vk_…` and are sent as `Authorization: ApiKey <key>`.
+- **WebSocket**: pass the JWT as `?token=<jwt>` (browsers can't set headers on WS upgrades).
 
-### WebUI Access
+### First run
 
-When HTTP channel is enabled, the WebUI is served at `http://localhost:<port>`.
+On a fresh database `GET /api/v1/auth/setup-status` returns `{ "needs_setup": true }` and the WebUI redirects to `/onboarding`, which calls `POST /api/v1/auth/setup` to create the first user. That user is assigned the built-in `superadmin` system role.
 
-## Managing Channel Tokens at Runtime
+### WebUI-only agent tools
 
-After the initial seed config is migrated, channel tokens are managed per-agent:
+Every agent gets two tools for pushing messages into WebUI conversations:
 
-- **WebUI**: Agent settings > Channels
-- **API**: `PUT /api/v1/agents/{agent_id}` with `discord_token` or `telegram_token`
+- `webui_send_message` — send a message to a user's WebUI topic (used for proactive messages / task results)
+- `webui_list_topics` — list a user's WebUI topics
 
-When you update an agent's channel token via the API, the channel automatically reconciles — disconnecting the old bot connection and establishing a new one with the updated token.
+## Discord
+
+Set the agent's `discord_token` (WebUI agent settings, or `PUT /api/v1/agents/{id}` with `discord_token`). The channel connects when the agent starts and reconnects whenever the token changes.
+
+**When the bot responds**
+
+- Direct messages: always
+- Guild channels: only when **@mentioned**. Un-mentioned guild messages are still delivered to the agent as `silent_read` requests, so the agent can follow the conversation; it replies unprompted only with probability `silent_read_initiative_chance` (default `0`).
+- Message attachments are downloaded and attached to the request as session files.
+
+**Slash commands** (registered globally by the bot):
+
+| Command | Description |
+|---------|-------------|
+| `/ping` | Health check |
+| `/new` | Start a fresh session (new topic) in this channel |
+| `/session [topic_id]` | List sessions, or switch to `topic_id` (`DEFAULT` for the default topic) |
+| `/abort` | Abort the agent's current in-flight response |
+| `/checkpoint` | Save a checkpoint with a generated handover summary and start fresh context |
+| `/lobotomy` | Save a checkpoint **without** a handover — clean break |
+| `/thinking` | Toggle streaming the model's thinking output into the channel |
+| `/tool_calls` | Toggle showing tool-call details |
+
+**Discord tools** (enabled with `tools.discord = true`; require `discord_token`):
+
+| Tool | Description |
+|------|-------------|
+| `discord_send_message` | Send a message to a channel |
+| `discord_react_message` | React to a message with an emoji |
+| `discord_get_message_by_id` | Fetch a message |
+| `discord_get_guild_info` | Guild metadata |
+| `discord_get_channel_info` | Channel metadata |
+| `discord_get_member_info` | Member metadata |
+
+## Telegram
+
+Set the agent's `telegram_token`. Same lifecycle as Discord.
+
+**When the bot responds**
+
+- Private chats: always
+- Groups: when @mentioned or addressed as `/<bot_username>`; other messages are `silent_read`.
+
+**Commands** (plain-text `/command` messages):
+
+| Command | Description |
+|---------|-------------|
+| `/ping` | Health check |
+| `/new` | Start a fresh session |
+| `/session [topic_id]` | List sessions or switch (`DEFAULT` = default topic) |
+| `/abort` | Abort the current response |
+| `/checkpoint` | Checkpoint with handover summary |
+| `/lobotomy` | Checkpoint without handover |
+| `/thinking` | Toggle thinking output |
+| `/tool_calls` | Toggle tool-call details |
+
+**Telegram tools** (enabled with `tools.telegram = true`; require `telegram_token`):
+
+| Tool | Description |
+|------|-------------|
+| `telegram_send_message` | Send a message to a chat |
+| `telegram_react_message` | React with an emoji |
+| `telegram_get_message_by_id` | Fetch a message |
+
+## Sessions and topics
+
+A session is `(agent, channel, topic)`. Each Discord channel / Telegram chat / WebUI `channel_id` has a default topic plus any number of named topics created with `/new`. History is per session. See [Agents → Checkpoints](./agents.md#checkpoints) for how long sessions are compacted.
+
+## Managing tokens at runtime
+
+- **WebUI**: agent Settings → Channels
+- **API**: `PUT /api/v1/agents/{agent_id}` with `discord_token` / `telegram_token` (send `null` to disconnect)
+
+The agent process is restarted on update, so the old bot connection is dropped and the new one established automatically.

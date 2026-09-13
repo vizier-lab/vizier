@@ -1,164 +1,125 @@
-# 2.8 CLI Commands
+# 2.8 CLI
 
-## Subcommands
+```
+vizier <COMMAND>
 
-### `vizier onboard`
+Commands:
+  run       Run vizier agents, servers and channels
+  shutdown  Stop a running instance
+  onboard   Interactive wizard that writes a seed .vizier.yaml
+  skill     Manage skills (install, list, uninstall, update)
+  agent     Manage and inspect agents
+```
 
-Interactive wizard to generate the seed configuration file (`.vizier.yaml`).
+`vizier --version` / `vizier <cmd> --help` work as usual.
+
+## `vizier run`
+
+Start the whole system: storage + migrations, every persisted agent, the scheduler (tasks + dream cycles), the HTTP channel (REST/WS/WebUI), per-agent Discord/Telegram bots, and the command socket.
 
 ```sh
-vizier onboard --path /path/to/workspace
+vizier run                                  # ./.vizier.yaml, $VIZIER_CONFIG, or defaults
+vizier run -c /etc/vizier/.vizier.yaml
+vizier run -d                               # daemonize
+vizier run --port 8080 --data-dir /srv/vizier --workers 8
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-p, --path <PATH>` | Workspace path (where `.vizier.yaml` will be created) |
+| `-c, --config <PATH>` | Path to `.vizier.yaml`. Optional; see resolution order below |
+| `-d, --detached` | Daemonize. PID file `/tmp/vizier.pid`; stdout/stderr go to `<workspace>/.runtime/logs/<timestamp>.out|.err` |
+| `--port <PORT>` | HTTP port (overrides config) |
+| `--workspace <PATH>` | Workspace directory (overrides config and `VIZIER_DATA_DIR`) |
+| `--data-dir <PATH>` | Alias of `--workspace`; wins if both are given |
+| `--storage <STORAGE>` | `sqlite` is the only accepted value (`filesystem` is rejected by clap) |
+| `--workers <N>` | Tokio worker threads |
+| `--ws-idle-timeout <SECS>` | WebSocket idle timeout |
 
-The wizard walks you through:
-- Workspace path
-- Username and primary user details
-- HTTP port and JWT secret
-- Provider selection and API keys
-- Embedding model selection
-- Storage backend choice
+**Config resolution:** `-c` → `$VIZIER_CONFIG` → `./.vizier.yaml` → built-in defaults. With a file, the workspace is `<config dir>/.vizier/`; without one it's `$VIZIER_DATA_DIR` or `$HOME/.vizier`. See [Overview](./index.md#config-less-mode) — note `VIZIER_JWT_SECRET` must be set in config-less mode.
 
-> **Note:** After onboarding, agents are created and managed via the WebUI, not via this command.
+**Logging:** `tracing` with `RUST_LOG` (e.g. `RUST_LOG=vizier=debug`). Noisy dependencies (rig, serenity, hyper, reqwest, bollard, rmcp, sqlite…) are quieted by default unless you name them explicitly.
 
-### `vizier run`
-
-Start agents, server, and channels.
+## `vizier shutdown`
 
 ```sh
-vizier run --config /path/to/.vizier.yaml
+vizier shutdown [-c <PATH>]
+```
+
+Loads the same config to find the workspace, then sends `Exit` over the Unix socket `<workspace>/.runtime/.vizier.sock`. Errors if no instance is running there. Works for both foreground and detached instances.
+
+## `vizier onboard`
+
+```sh
+vizier onboard [-p <PATH>]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-c, --config <PATH>` | Path to `.vizier.yaml` config file |
-| `-d, --detached` | Run in the background (daemonize) |
+| `-p, --path <PATH>` | Workspace directory (prompted if omitted; `~` is expanded). `.vizier.yaml` is written there. |
 
-By default, `vizier run` runs in the foreground (useful for development; Ctrl-C stops it). Use `-d` / `--detached` to run in the background — in that case:
+Prompts for: HTTP port, JWT secret (random default), one primary provider (`ollama`, `deepseek`, `openrouter`, `anthropic`, `openai`, `gemini`, `mimo`, `llama_cpp`) and its key/URL, storage type (choose **SQLite**), worker threads, WebSocket idle timeout. Shows a preview and asks to confirm before writing.
 
-- PID is written to `/tmp/vizier.pid`
-- Logs go to `.vizier/.runtime/logs/`
+It does **not** create users or agents — do that in the WebUI after `vizier run`. Embedding is configured per agent, not here.
 
-### `vizier shutdown`
-
-Stop a running instance.
+## `vizier agent`
 
 ```sh
-vizier shutdown --config /path/to/.vizier.yaml
+vizier agent [-c <PATH>] ps
 ```
 
-| Flag | Description |
-|------|-------------|
-| `-c, --config <PATH>` | Path to `.vizier.yaml` config file |
+| Subcommand | Description |
+|------------|-------------|
+| `ps` | Lists every agent process with `online`/`offline` status, via the command socket of the running instance |
 
-### `vizier skill`
+There is no `agent create`/`delete` — agents are managed in the WebUI or via `/api/v1/agents`.
 
-Manage skills — install, list, uninstall, and update.
+## `vizier skill`
 
-#### `vizier skill install <source>`
-
-Install a skill from registry, git repository, or local path.
+Manages skill packages on disk. Uses the config resolution above to find the workspace (`<workspace>/skills/` or `<workspace>/agents/<id>/skills/`). Requires `git` for registry and git sources. See [Skills](./skills.md).
 
 ```sh
-# Install from registry (vizier-lab/vizier)
-vizier skill install code-review
-
-# Install from git repository
-vizier skill install https://github.com/user/custom-skills.git
-
-# Install from local path
-vizier skill install ./my-local-skill
-
-# Install for a specific agent
-vizier skill install code-review --agent my-agent
-```
-
-| Flag | Description |
-|------|-------------|
-| `-a, --agent <ID>` | Install for a specific agent (optional) |
-
-**Source detection:**
-- Plain slug (e.g., `calculator`) → fetches from vizier-lab/vizier registry
-- Git URL (e.g., `https://github.com/...`) → clones and installs
-- Local path (e.g., `./my-skill`) → copies files
-
-> **Note:** Requires `git` to be installed for registry and git sources.
-
-#### `vizier skill list`
-
-List installed skills.
-
-```sh
+vizier skill install <SOURCE> [-a <AGENT_ID>]
 vizier skill list
-vizier skill list --activation contextual
+vizier skill uninstall <SLUG> [-a <AGENT_ID>]
+vizier skill update <SLUG>
 ```
 
-| Flag | Description |
-|------|-------------|
-| `-a, --activation <MODE>` | Filter by activation mode (`always`, `on_demand`, `contextual`) |
+| Command | Description |
+|---------|-------------|
+| `install <SOURCE>` | `SOURCE` detection: `http(s)://…` or `*.git` → git clone; `owner/repo` → `https://github.com/owner/repo.git`; `./path` or `/path` → local copy; bare `slug` → sparse-checkout of `skills/<slug>` from the registry `https://github.com/vizier-lab/vizier.git`. `-a` installs into an agent's private skills dir instead of the global one. |
+| `list` | Global skills: name, description, version |
+| `uninstall <SLUG>` | Remove the skill directory (`-a` for an agent-scoped skill) |
+| `update <SLUG>` | Re-install from the registry. Only works for skills whose `.meta.json` says `source: registry` |
 
-#### `vizier skill uninstall <slug>`
+## Docker
 
-Remove a skill.
+The image (`blinfoldking/vizier`, also `ghcr.io/vizier-lab/vizier`) runs `vizier run` config-less by default. `docker-entrypoint.sh` translates env vars to flags and `exec`s the binary so signals propagate.
+
+| Env var | Maps to | Default |
+|---------|---------|---------|
+| `VIZIER_CONFIG` | `-c` | unset (config-less) |
+| `VIZIER_DATA_DIR` / `VIZIER_WORKSPACE` | `--data-dir` | `$HOME/.vizier` inside the container — mount a volume |
+| `VIZIER_PORT` | `--port` | `9999` |
+| `VIZIER_STORAGE` | `--storage` | `sqlite` (only valid value) |
+| `VIZIER_WORKERS` | `--workers` | `4` |
+| `VIZIER_WS_IDLE_TIMEOUT` | `--ws-idle-timeout` | `300` |
+| `VIZIER_JWT_SECRET` | env read by the default config | `vizier-default-secret-change-me` — **change it** |
+| `VIZIER_EXTRA_ARGS` | appended verbatim | unset |
+| `RUST_LOG` | logging filter | unset |
+
+Any extra arguments after `run` are appended last (they win). Any other first argument (`shutdown`, `agent ps`, `skill …`) is passed straight through with no env translation.
 
 ```sh
-vizier skill uninstall code-review
-vizier skill uninstall code-review --agent my-agent
+# config-less, persisted
+docker run -p 9999:9999 -v vizier-data:/data \
+  -e VIZIER_DATA_DIR=/data -e VIZIER_JWT_SECRET=$(openssl rand -hex 32) \
+  blinfoldking/vizier
+
+# with a config file
+docker run -p 9999:9999 -v $PWD/.vizier.yaml:/cfg.yaml -e VIZIER_CONFIG=/cfg.yaml blinfoldking/vizier
+
+# passthrough
+docker exec vizier vizier agent ps
 ```
 
-| Flag | Description |
-|------|-------------|
-| `-a, --agent <ID>` | Uninstall from a specific agent (optional) |
-
-#### `vizier skill update <slug>`
-
-Update a skill from its registry source.
-
-```sh
-vizier skill update code-review
-```
-
-> **Note:** Only skills installed from the registry can be updated. Skills created locally or from external git repos cannot be updated via CLI.
-
-## Configuration Loading
-
-Vizier automatically looks for `.vizier.yaml` in the current directory. You can specify a custom path:
-
-```sh
-vizier run --config /path/to/.vizier.yaml
-```
-
-### Loading Order
-
-1. Load `.vizier.yaml` from current directory (or specified path)
-2. Initialize storage backend
-3. Auto-migrate seed config to storage (providers, MCP servers, shell, channel tokens)
-4. Start HTTP server, agents, and channels
-
-## Environment Variable Expansion
-
-Vizier supports environment variable expansion in configuration files using the `${VAR}` syntax:
-
-```yaml
-providers:
-  openrouter:
-    api_key: "${OPENROUTER_API_KEY}"
-```
-
-This allows you to keep sensitive credentials in environment variables or `.env` files while keeping your configuration clean. The following fields support environment variable expansion:
-
-- All API keys in `providers.*.api_key`
-- Discord tokens in `channels.discord.*.token`
-- Brave Search API key in `tools.brave_search.api_key`
-- Any other string field in the configuration
-
-### Example `.env` file
-
-```bash
-OPENROUTER_API_KEY=sk-or-v1-...
-DISCORD_TOKEN=MTA0...
-BRAVE_API_KEY=BS...
-```
+A sample `docker-compose.yaml` ships in the repository.
