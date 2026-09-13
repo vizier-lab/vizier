@@ -59,7 +59,9 @@ pub struct MemoryListArgs {
     #[serde(default)]
     pub bundle: Option<String>,
 
-    #[schemars(description = "Maximum number of memories to return (only applies when bundle is set)")]
+    #[schemars(
+        description = "Maximum number of memories to return (only applies when bundle is set)"
+    )]
     #[serde(default = "default_limit")]
     pub limit: Option<usize>,
 
@@ -221,14 +223,25 @@ impl VizierTool for MemoryRead {
     ) -> Result<Self::Output, VizierError> {
         let res = self
             .1
-            .query_memory(self.0.clone(), args.bundle.clone(), args.query, 10, 0.1, &self.2)
+            .query_memory(
+                self.0.clone(),
+                args.bundle.clone(),
+                args.query,
+                10,
+                0.1,
+                &self.2,
+            )
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
         for memory in &res {
             let _ = self
                 .1
-                .increment_read_count(self.0.clone(), Some(memory.bundle.clone()), memory.slug.clone())
+                .increment_read_count(
+                    self.0.clone(),
+                    Some(memory.bundle.clone()),
+                    memory.slug.clone(),
+                )
                 .await;
         }
 
@@ -292,7 +305,8 @@ impl VizierTool for MemoryWrite {
         naming a new bundle creates it automatically. Use `path` to nest a concept under a \
         subdirectory (e.g. 'friends/bred'). Same-bundle links are ordinary markdown links \
         ([label](path/to/concept.md)); cross-bundle links use [[bundle/slug]] or bare [[bundle]]. \
-        Tags can be added for categorization.".into()
+        Tags can be added for categorization."
+            .into()
     }
 
     async fn call(
@@ -303,7 +317,7 @@ impl VizierTool for MemoryWrite {
         let path = args.path.clone().unwrap_or_else(|| slugify!(&args.title));
         let bundle = args.bundle.clone();
 
-        let content = format!("{}\n timestamp: {}", args.content, Utc::now());
+        let content = format!("{}", args.content);
 
         let mut attachments = Vec::new();
         if let Some(filenames) = &args.attachments {
@@ -372,7 +386,9 @@ impl MemoryDetail {
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct MemoryDetailArgs {
-    #[schemars(description = "Path of the memory to retrieve (multi-segment for a nested concept, e.g. 'friends/bred')")]
+    #[schemars(
+        description = "Path of the memory to retrieve (multi-segment for a nested concept, e.g. 'friends/bred')"
+    )]
     pub path: String,
 
     #[schemars(description = BUNDLE_FIELD_DESC)]
@@ -484,7 +500,9 @@ impl MemoryFollow {
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct MemoryFollowArgs {
-    #[schemars(description = "Path of the memory to start from (multi-segment for a nested concept)")]
+    #[schemars(
+        description = "Path of the memory to start from (multi-segment for a nested concept)"
+    )]
     pub path: String,
 
     #[schemars(description = BUNDLE_FIELD_DESC)]
@@ -514,7 +532,8 @@ impl VizierTool for MemoryFollow {
     fn description(&self) -> String {
         "Follow same-bundle and cross-bundle links from a memory to traverse the knowledge \
         graph — a bare [[bundle]] reference resolves to every concept in that bundle. Returns \
-        related memories at the specified depth.".into()
+        related memories at the specified depth."
+            .into()
     }
 
     async fn call(
@@ -523,7 +542,10 @@ impl VizierTool for MemoryFollow {
         _ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
         let depth = args.depth.unwrap_or(1);
-        let default_bundle = args.bundle.clone().unwrap_or_else(crate::schema::default_bundle);
+        let default_bundle = args
+            .bundle
+            .clone()
+            .unwrap_or_else(crate::schema::default_bundle);
 
         let mut visited = std::collections::HashSet::new();
         let mut result = Vec::new();
@@ -645,7 +667,8 @@ impl VizierTool for MemoryGraphTool {
         top-level graph (bundles as nodes, cross-bundle links as edges) — the same zoom level as \
         memory_list() with no bundle. Called with a bundle name, returns that bundle's concepts \
         as nodes and their links as edges, plus one boundary node per other bundle it links out \
-        to.".into()
+        to."
+        .into()
     }
 
     async fn call(
@@ -786,7 +809,8 @@ impl VizierTool for MemoryDelete {
                 }
                 msg += "\n";
             }
-            msg += "Remove those links from those memories first, or use memory_write to update them.";
+            msg +=
+                "Remove those links from those memories first, or use memory_write to update them.";
             return Err(VizierError(msg));
         }
 
