@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.11.0-rc.1] - 2026-09-13
+## [0.11.0] - 2026-09-13
 
 ### 🚀 Features
 
@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
 - Open knowledge format base memory (#17)
 - Add discord guild, channel, and member info tools
 
+### 🐛 Bug Fixes
+
+- *(ci)* Bump vizier-derive dependency requirement on release
+
 ### 🚜 Refactor
 
 - Replace skill activation gating with uniform tool access + recommendation
@@ -20,6 +24,11 @@ All notable changes to this project will be documented in this file.
 
 - Add CLAUDE.md and symlink AGENTS.md to it, refresh README
 - Track Spec Kit tooling and ratify project constitution v1.0.0
+- Rewrite documentation to match current code
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.11.0-rc.1
 ## [0.10.11] - 2026-07-02
 
 ### 🚀 Features
