@@ -220,7 +220,28 @@ export default function MemoryManagement() {
       const response = await getMemory(agentId, path, bundle)
       setSelectedMemory(response.data)
       setModalMode('view')
+      return
     } catch (error) {
+      // The link may have been written as if bundle names were just path segments in one
+      // shared tree (e.g. "books/great-gatsby" from inside a different bundle, meaning the
+      // "great-gatsby" concept in the "books" bundle) rather than the [[bundle/slug]] wikilink
+      // form. Retry once with the first segment reinterpreted as the bundle, mirroring the
+      // backend's own relation-resolution fallback (src/storage/memory_bundle.rs).
+      const status = (error as { response?: { status?: number } })?.response?.status
+      if (status === 404 && path.includes('/')) {
+        const [maybeBundle, ...rest] = path.split('/')
+        const fallbackPath = rest.join('/')
+        if (fallbackPath) {
+          try {
+            const response = await getMemory(agentId, fallbackPath, maybeBundle)
+            setSelectedMemory(response.data)
+            setModalMode('view')
+            return
+          } catch {
+            // fall through to the error below
+          }
+        }
+      }
       console.error('Failed to load memory:', error)
       addToast('error', 'Failed to load memory', 'Please try again')
     }
