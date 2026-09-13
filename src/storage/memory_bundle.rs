@@ -54,14 +54,39 @@ fn leaf_of(path: &str) -> String {
     path.rsplit('/').next().unwrap_or(path).to_string()
 }
 
-/// Same-bundle links: ordinary markdown relative links ending in `.md` (FR-004).
+/// Same-bundle links: ordinary markdown relative links (FR-004). `[label](path/to/concept.md)`
+/// and `[label](path/to/concept)` (agents frequently forget the extension) are treated
+/// identically — every concept document is always a `.md` file by construction, so there's no
+/// ambiguity in filling it in. A link to something else entirely (a URL, a `mailto:`, a bare
+/// `#anchor`, or a relative path with some *other* extension — an attachment, an image) is left
+/// alone rather than misclassified as a concept reference.
 fn parse_same_bundle_links(content: &str) -> Vec<String> {
     let re = Regex::new(r"\[[^\]]*\]\(([^)\s]+)\)").unwrap();
     re.captures_iter(content)
         .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
-        .filter(|href| href.ends_with(".md") && !href.contains("://"))
-        .map(|href| normalize_path(&href) + ".md")
+        .filter_map(|href| same_bundle_link_target(&href))
         .collect()
+}
+
+fn same_bundle_link_target(href: &str) -> Option<String> {
+    if href.is_empty() || href.starts_with('#') {
+        return None;
+    }
+    // A URI scheme (http:, https:, mailto:, ...) always appears before any '/' — a relative
+    // path segment never legitimately contains ':', so this is a safe, simple exclusion.
+    if href.split('/').next().unwrap_or("").contains(':') {
+        return None;
+    }
+    let path_only = href.split(['?', '#']).next().unwrap_or(href);
+    if let Some(stripped) = path_only.strip_suffix(".md") {
+        return Some(normalize_path(stripped) + ".md");
+    }
+    let leaf = path_only.rsplit('/').next().unwrap_or(path_only);
+    if leaf.contains('.') || path_only.is_empty() {
+        // Some other extension (an attachment, an image, ...) — not a concept link.
+        return None;
+    }
+    Some(normalize_path(path_only) + ".md")
 }
 
 /// Cross-bundle wikilinks: `[[bundle/slug]]` or bare `[[bundle]]` (FR-013).
@@ -740,6 +765,46 @@ impl BundleMemoryStore {
         })
     }
 
+    /// Reads a document fresh from `DocumentStore`, always re-deriving `relations` from its
+    /// actual content rather than trusting whatever was last stored in the cache or the on-disk
+    /// frontmatter — this is what makes a link-parsing fix (or any future one) self-healing for
+    /// documents written before it landed, the moment each is next touched, with no separate
+    /// migration needed. If the freshly parsed set differs from what's on disk, the frontmatter
+    /// is repaired in place (relations only — `created_at`/`updated_at` are untouched, this
+    /// isn't a real "edit"). Updates `memory_node`/`memory_edge` for this one document; does
+    /// *not* call `recompute_broken` (callers do that once, after they're done touching
+    /// whichever documents they needed to for the operation at hand).
+    async fn read_and_sync_document(
+        &self,
+        agent_id: &str,
+        bundle: &str,
+        path: &str,
+    ) -> Result<Option<Memory>> {
+        let key = Self::doc_key(agent_id, bundle, path);
+
+        match self.document_store.get(&key).await? {
+            None => {
+                self.delete_node(agent_id, bundle, path)?;
+                self.delete_edges_from(agent_id, bundle, path)?;
+                Ok(None)
+            }
+            Some(bytes) => {
+                let (mut fm, content) = parse_markdown_bytes::<MemoryFrontMatter>(&bytes)?;
+
+                let relations = parse_relations(&content);
+                if relations != fm.relations {
+                    fm.relations = relations.clone();
+                    let out = serialize_markdown(&fm, &content)?;
+                    self.document_store.put(&key, out).await?;
+                }
+
+                self.upsert_node_from_frontmatter(agent_id, bundle, path, &fm)?;
+                self.rewrite_edges(agent_id, bundle, path, &relations)?;
+                Ok(Some(memory_from_frontmatter(fm, content)))
+            }
+        }
+    }
+
     pub async fn get_memory_detail(
         &self,
         agent_id: String,
@@ -748,22 +813,9 @@ impl BundleMemoryStore {
     ) -> Result<Option<Memory>> {
         let bundle = bundle.unwrap_or_else(default_bundle);
         let path = normalize_path(&path);
-        let key = Self::doc_key(&agent_id, &bundle, &path);
-
-        match self.document_store.get(&key).await? {
-            None => {
-                self.delete_node(&agent_id, &bundle, &path)?;
-                self.delete_edges_from(&agent_id, &bundle, &path)?;
-                Ok(None)
-            }
-            Some(bytes) => {
-                let (fm, content) = parse_markdown_bytes::<MemoryFrontMatter>(&bytes)?;
-                self.upsert_node_from_frontmatter(&agent_id, &bundle, &path, &fm)?;
-                self.rewrite_edges(&agent_id, &bundle, &path, &fm.relations)?;
-                self.recompute_broken(&agent_id)?;
-                Ok(Some(memory_from_frontmatter(fm, content)))
-            }
-        }
+        let result = self.read_and_sync_document(&agent_id, &bundle, &path).await?;
+        self.recompute_broken(&agent_id)?;
+        Ok(result)
     }
 
     pub async fn get_related_memories(
@@ -775,6 +827,11 @@ impl BundleMemoryStore {
         let bundle = bundle.unwrap_or_else(default_bundle);
         let path = normalize_path(&path);
         self.reconcile_bundle(&agent_id, &bundle).await?;
+        // Refresh this document's own outgoing edges from its actual content before reading
+        // them — `reconcile_bundle` only catches documents added/removed since the cache was
+        // last built, not a relation-parsing drift on one that's already present in both.
+        self.read_and_sync_document(&agent_id, &bundle, &path).await?;
+        self.recompute_broken(&agent_id)?;
 
         let mut result = Vec::new();
         let mut seen: HashSet<(String, String)> = HashSet::new();
@@ -1508,6 +1565,148 @@ mod tests {
         let slugs: Vec<String> = related.iter().map(|m| format!("{}/{}", m.bundle, m.slug)).collect();
         assert!(slugs.contains(&"default/alpha".to_string()));
         assert!(slugs.contains(&"other/beta".to_string()));
+    }
+
+    #[tokio::test]
+    async fn same_bundle_link_without_md_extension_still_resolves() {
+        let (store, _dir, indexer) = setup();
+        store
+            .write_memory(
+                "a1".into(),
+                Some("default".into()),
+                Some("alpha".into()),
+                false,
+                "Alpha".into(),
+                "content".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+
+        // Agent forgot the `.md` extension — should be treated identically to `alpha.md`.
+        store
+            .write_memory(
+                "a1".into(),
+                Some("default".into()),
+                Some("gamma".into()),
+                false,
+                "Gamma".into(),
+                "see [Alpha](alpha) for details".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+
+        let related = store
+            .get_related_memories("a1".into(), Some("default".into()), "gamma".into())
+            .await
+            .unwrap();
+        assert!(related.iter().any(|m| m.slug == "alpha"));
+    }
+
+    #[tokio::test]
+    async fn extensionless_link_is_ignored_when_it_has_a_different_extension() {
+        let (store, _dir, indexer) = setup();
+        store
+            .write_memory(
+                "a1".into(),
+                Some("default".into()),
+                Some("gamma".into()),
+                false,
+                "Gamma".into(),
+                "see [screenshot](notes.png) and [site](https://example.com/page) and [mail](mailto:a@b.com)".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+
+        let memory = store
+            .get_memory_detail("a1".into(), Some("default".into()), "gamma".into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(memory.relations.is_empty());
+    }
+
+    #[tokio::test]
+    async fn stale_relations_self_heal_on_read() {
+        let (store, dir, indexer) = setup();
+        store
+            .write_memory(
+                "a1".into(),
+                Some("default".into()),
+                Some("alpha".into()),
+                false,
+                "Alpha".into(),
+                "content".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+
+        // Simulate a document written before the "no .md extension" fix landed: the content has
+        // a bare link but the stored frontmatter's `relations` was parsed under the old, stricter
+        // rule and missed it entirely.
+        let path = dir.path().join("a1/memory/default/gamma.md");
+        let stale = "---\nslug: gamma\ntitle: Gamma\ncreated_at: 2024-01-01T00:00:00Z\nupdated_at: 2024-01-01T00:00:00Z\nagent_id: a1\nbundle: default\ntags: []\nkeywords: []\nrelations: []\nattachments: []\nattachment_count: 0\nread_count: 0\n---\nsee [Alpha](alpha) for details";
+        std::fs::write(&path, stale).unwrap();
+
+        let memory = store
+            .get_memory_detail("a1".into(), Some("default".into()), "gamma".into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(memory.relations, vec!["alpha.md".to_string()]);
+
+        // The on-disk frontmatter itself is repaired too, not just the in-memory result.
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert!(on_disk.contains("alpha.md"));
+
+        let related = store
+            .get_related_memories("a1".into(), Some("default".into()), "gamma".into())
+            .await
+            .unwrap();
+        assert!(related.iter().any(|m| m.slug == "alpha"));
+    }
+
+    /// `get_related_memories` must self-heal a stale source document's own outgoing edges even
+    /// when called directly — i.e. without `get_memory_detail` having been called on it first.
+    #[tokio::test]
+    async fn get_related_memories_self_heals_without_a_prior_detail_call() {
+        let (store, dir, indexer) = setup();
+        store
+            .write_memory(
+                "a1".into(),
+                Some("default".into()),
+                Some("alpha".into()),
+                false,
+                "Alpha".into(),
+                "content".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+
+        let path = dir.path().join("a1/memory/default/gamma.md");
+        let stale = "---\nslug: gamma\ntitle: Gamma\ncreated_at: 2024-01-01T00:00:00Z\nupdated_at: 2024-01-01T00:00:00Z\nagent_id: a1\nbundle: default\ntags: []\nkeywords: []\nrelations: []\nattachments: []\nattachment_count: 0\nread_count: 0\n---\nsee [Alpha](alpha) for details";
+        std::fs::write(&path, stale).unwrap();
+
+        // Note: no get_memory_detail call on "gamma" before this.
+        let related = store
+            .get_related_memories("a1".into(), Some("default".into()), "gamma".into())
+            .await
+            .unwrap();
+        assert!(related.iter().any(|m| m.slug == "alpha"));
     }
 
     #[tokio::test]

@@ -111,6 +111,25 @@ a whole-bundle reference if `slug` matches a bundle name, a broken link otherwis
 existing link-extraction approach (one more regex alongside the one already there), rather than
 a general-purpose markdown AST parser.
 
+**Update (found in practice)**: agents frequently write a same-bundle link without the `.md`
+extension (`[label](path/to/concept)`). Since every concept document is always a `.md` file by
+construction, there's no real ambiguity — `path/to/concept` and `path/to/concept.md` are treated
+identically, normalized to the canonical `.md`-suffixed form for storage in `relations` and
+`memory_edge`. Only a URL, a `mailto:` link, a bare `#anchor`, or a relative path ending in some
+*other* extension (an attachment, an image) is excluded from this same-bundle-link matching.
+Tool descriptions still teach the `.md` form as canonical — this is tolerance for what agents
+actually write, not a second blessed syntax.
+
+Relatedly, `get_memory_detail` and `get_related_memories` always re-derive a document's
+`relations` from its actual current content on read, rather than trusting whatever was last
+cached or written to the on-disk frontmatter — repairing the frontmatter in place (relations
+only, not `created_at`/`updated_at`) when it disagrees. This makes a link-parsing fix like this
+one (or any future one) self-healing for documents written before it shipped, the next time each
+is individually opened or followed, without a dedicated migration. It does **not** retroactively
+fix a bundle's cached graph/listing view for documents nobody has touched yet — those stay
+governed by `memory_node`/`memory_edge` (research.md §9) until something reads that specific
+document.
+
 ## 7. Migration: row/flat-file memory into bundles, and `filesystem`-backend deployments onto sqlite
 
 **Decision**: Add one more one-time startup migration in `dependencies.rs`, alongside the
