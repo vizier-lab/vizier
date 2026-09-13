@@ -72,10 +72,16 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           sed -i 's/^version = ".*"/version = "'"$VERSION"'"/' Cargo.toml
           sed -i 's/^version = ".*"/version = "'"$VERSION"'"/' vizier-derive/Cargo.toml
+          # The root crate depends on vizier-derive by path *and* version; the
+          # requirement must track the workspace member's version or cargo
+          # refuses to resolve it (e.g. `^0.10.0` vs member `0.11.0`).
+          sed -i 's/^\(vizier-derive = { path = "vizier-derive", version = "\)[^"]*"/\1'"$VERSION"'"/' Cargo.toml
           echo "Root: $(grep -m1 '^version = ' Cargo.toml)"
           echo "Derive: $(grep -m1 '^version = ' vizier-derive/Cargo.toml)"
+          echo "Derive dep: $(grep -m1 '^vizier-derive = ' Cargo.toml)"
           grep -q "^version = \"$VERSION\"$" Cargo.toml || (echo "::error::root version not bumped"; exit 1)
           grep -q "^version = \"$VERSION\"$" vizier-derive/Cargo.toml || (echo "::error::vizier-derive version not bumped"; exit 1)
+          grep -q "^vizier-derive = { path = \"vizier-derive\", version = \"$VERSION\" }$" Cargo.toml || (echo "::error::vizier-derive dependency requirement not bumped"; exit 1)
 
       - name: Install git-cliff
         uses: taiki-e/install-action@git-cliff
