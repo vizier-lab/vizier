@@ -183,6 +183,21 @@ export default function MemoryManagement() {
     [currentBundle]
   )
 
+  const handleGraphNodeDelete = useCallback(
+    (node: { slug: string; bundle: string; boundary: boolean }) => {
+      if (node.boundary) return
+      if (currentBundle === null) {
+        // Top level: every node is a bundle. We don't know its concept count from here, so
+        // always force — the confirmation dialog already warns about permanent deletion.
+        void performDeleteBundle(node.slug, true)
+        return
+      }
+      void performDeleteMemory(node.slug, node.bundle)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [currentBundle]
+  )
+
   const handleViewMemory = async (path: string, bundle: string) => {
     if (!agentId) return
     try {
@@ -277,10 +292,9 @@ export default function MemoryManagement() {
     }
   }
 
-  const handleDeleteMemory = async (path: string, bundle: string, e: React.MouseEvent) => {
-    e.stopPropagation()
+  const performDeleteMemory = async (path: string, bundle: string) => {
     if (!agentId) return
-    if (!confirm('Are you sure you want to delete this memory?')) return
+    if (!confirm(`Delete memory "${bundle}/${path}"? This cannot be undone.`)) return
     try {
       await deleteMemory(agentId, path, bundle)
       addToast('success', 'Memory deleted successfully')
@@ -290,6 +304,11 @@ export default function MemoryManagement() {
       console.error('Failed to delete memory:', error)
       addToast('error', 'Failed to delete memory', getErrorMessage(error))
     }
+  }
+
+  const handleDeleteMemory = (path: string, bundle: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    void performDeleteMemory(path, bundle)
   }
 
   const closeModal = () => {
@@ -322,18 +341,26 @@ export default function MemoryManagement() {
     }
   }
 
-  const handleDeleteBundle = async () => {
-    if (!agentId || !currentBundle) return
-    if (!confirm(`Delete bundle "${currentBundle}"? It must be empty of concepts — this cannot be undone.`)) return
+  const performDeleteBundle = async (bundle: string, force: boolean) => {
+    if (!agentId) return
+    const message = force
+      ? `Delete bundle "${bundle}"? This will permanently delete everything in it. This cannot be undone.`
+      : `Delete bundle "${bundle}"? This cannot be undone.`
+    if (!confirm(message)) return
     try {
-      await deleteBundle(agentId, currentBundle)
-      addToast('success', `Bundle "${currentBundle}" deleted`)
-      setCurrentBundle(null)
+      await deleteBundle(agentId, bundle, force)
+      addToast('success', `Bundle "${bundle}" deleted`)
+      if (currentBundle === bundle) setCurrentBundle(null)
       setGraphVersion((v) => v + 1)
     } catch (error) {
       console.error('Failed to delete bundle:', error)
       addToast('error', 'Failed to delete bundle', getErrorMessage(error))
     }
+  }
+
+  const handleDeleteBundle = () => {
+    if (!currentBundle) return
+    void performDeleteBundle(currentBundle, currentBundleConceptCount > 0)
   }
 
   const openImportDialog = () => {
@@ -421,13 +448,12 @@ export default function MemoryManagement() {
             <button
               className="btn btn-secondary"
               onClick={handleDeleteBundle}
-              disabled={currentBundleConceptCount > 0}
               title={
                 currentBundleConceptCount > 0
-                  ? `Delete every concept in this bundle first (${currentBundleConceptCount} remaining)`
+                  ? `Delete this bundle and its ${currentBundleConceptCount} remaining concept(s)`
                   : 'Delete this empty bundle'
               }
-              style={currentBundleConceptCount > 0 ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+              style={{ color: '#ef4444' }}
             >
               <FaTrashCan size={14} />
               <span>Delete Bundle</span>
@@ -485,6 +511,7 @@ export default function MemoryManagement() {
               graph={graph}
               searchQuery={searchQuery}
               onNodeClick={handleGraphNodeClick}
+              onNodeDelete={handleGraphNodeDelete}
             />
           ) : (
             <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '3rem' }}>

@@ -106,9 +106,19 @@ pub trait MemoryStorage {
     async fn list_bundles(&self, agent_id: String) -> Result<Vec<BundleSummary>>;
 
     /// Deletes a bundle's `index.md`/`log.md` (and any other non-concept file left in it).
-    /// Rejected with `Err` if the bundle still contains any concept document — a bundle must be
-    /// emptied of concepts (via `delete_memory`) before it can be deleted itself.
-    async fn delete_bundle(&self, agent_id: String, bundle: String) -> Result<()>;
+    /// When `force` is `false`, rejected with `Err` if the bundle still contains any concept
+    /// document — a bundle must be emptied of concepts (via `delete_memory`) before it can be
+    /// deleted itself. When `force` is `true`, every remaining concept document is deleted too
+    /// (and its embedding removed via `indexer`) before the bundle itself goes — this is
+    /// reserved for the WebUI/HTTP operator path (an explicit, confirmed action); the
+    /// `memory_delete_bundle` agent tool never sets it.
+    async fn delete_bundle(
+        &self,
+        agent_id: String,
+        bundle: String,
+        force: bool,
+        indexer: &VizierIndexer,
+    ) -> Result<()>;
 
     async fn export_bundle(&self, agent_id: String, bundle: String) -> Result<Vec<u8>>;
 
@@ -235,8 +245,14 @@ impl MemoryStorage for VizierStorage {
         self.0.list_bundles(agent_id).await
     }
 
-    async fn delete_bundle(&self, agent_id: String, bundle: String) -> Result<()> {
-        self.0.delete_bundle(agent_id, bundle).await
+    async fn delete_bundle(
+        &self,
+        agent_id: String,
+        bundle: String,
+        force: bool,
+        indexer: &VizierIndexer,
+    ) -> Result<()> {
+        self.0.delete_bundle(agent_id, bundle, force, indexer).await
     }
 
     async fn export_bundle(&self, agent_id: String, bundle: String) -> Result<Vec<u8>> {

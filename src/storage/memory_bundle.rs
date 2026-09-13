@@ -1111,21 +1111,34 @@ impl BundleMemoryStore {
         Ok(result)
     }
 
-    pub async fn delete_bundle(&self, agent_id: String, bundle: String) -> Result<()> {
+    pub async fn delete_bundle(
+        &self,
+        agent_id: String,
+        bundle: String,
+        force: bool,
+        indexer: &VizierIndexer,
+    ) -> Result<()> {
         self.reconcile_bundle(&agent_id, &bundle).await?;
 
-        let concept_count: i64 = {
-            let conn = self.conn.lock();
-            conn.query_row(
-                "SELECT COUNT(*) FROM memory_node WHERE agent_id = ?1 AND bundle = ?2",
-                params![agent_id, bundle],
-                |row| row.get(0),
-            )?
-        };
-        if concept_count > 0 {
+        let concept_paths: Vec<String> = self
+            .list_nodes(&agent_id, Some(&bundle))?
+            .into_iter()
+            .map(|n| n.path)
+            .collect();
+
+        if !concept_paths.is_empty() && !force {
             return Err(anyhow!(
-                "bundle '{bundle}' still has {concept_count} concept(s); delete them first"
+                "bundle '{bundle}' still has {} concept(s); delete them first",
+                concept_paths.len()
             ));
+        }
+
+        for path in &concept_paths {
+            let key = Self::doc_key(&agent_id, &bundle, path);
+            self.document_store.delete(&key).await?;
+            let _ = indexer
+                .delete_index("memory".into(), Self::indexer_key(&agent_id, &bundle, path))
+                .await;
         }
 
         let prefix = Self::bundle_prefix(&agent_id, &bundle);
@@ -1616,7 +1629,7 @@ mod tests {
             .await
             .unwrap();
 
-        let err = store.delete_bundle("a1".into(), "andy".into()).await;
+        let err = store.delete_bundle("a1".into(), "andy".into(), false, &indexer).await;
         assert!(err.is_err());
 
         // Bundle must still be fully intact after a rejected delete.
@@ -1649,10 +1662,47 @@ mod tests {
             .await
             .unwrap();
 
-        store.delete_bundle("a1".into(), "andy".into()).await.unwrap();
+        store.delete_bundle("a1".into(), "andy".into(), false, &indexer).await.unwrap();
 
         assert!(!dir.path().join("a1/memory/andy/index.md").exists());
         assert!(!dir.path().join("a1/memory/andy/log.md").exists());
+
+        let bundles = store.list_bundles("a1".into()).await.unwrap();
+        assert!(!bundles.iter().any(|b| b.name == "andy"));
+    }
+
+    #[tokio::test]
+    async fn delete_bundle_with_force_removes_remaining_concepts_too() {
+        let (store, dir, indexer) = setup();
+        store
+            .write_memory(
+                "a1".into(),
+                Some("andy".into()),
+                Some("note".into()),
+                false,
+                "Note".into(),
+                "hello".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+
+        // Not forced: still rejected.
+        assert!(store.delete_bundle("a1".into(), "andy".into(), false, &indexer).await.is_err());
+
+        // Forced: the whole bundle, concept included, is gone.
+        store.delete_bundle("a1".into(), "andy".into(), true, &indexer).await.unwrap();
+
+        assert!(!dir.path().join("a1/memory/andy/note.md").exists());
+        assert!(!dir.path().join("a1/memory/andy/index.md").exists());
+        assert!(!dir.path().join("a1/memory/andy/log.md").exists());
+        let detail = store
+            .get_memory_detail("a1".into(), Some("andy".into()), "note".into())
+            .await
+            .unwrap();
+        assert!(detail.is_none());
 
         let bundles = store.list_bundles("a1".into()).await.unwrap();
         assert!(!bundles.iter().any(|b| b.name == "andy"));

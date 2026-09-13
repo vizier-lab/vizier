@@ -22,6 +22,8 @@ interface MemoryGraphProps {
   graph: MemoryGraphType
   searchQuery: string
   onNodeClick: (node: { slug: string; bundle: string; boundary: boolean }) => void
+  /** Omit to hide the Delete action entirely (e.g. a read-only embed). */
+  onNodeDelete?: (node: { slug: string; bundle: string; boundary: boolean }) => void
 }
 
 const COLOR_BOUNDARY = '#3b82f6'
@@ -34,7 +36,7 @@ function getNodeSize(degree: number): number {
   return Math.min(NODE_SIZE_CAP, 4 + Math.sqrt(degree) * 1.5)
 }
 
-export default function MemoryGraph({ graph, searchQuery, onNodeClick }: MemoryGraphProps) {
+export default function MemoryGraph({ graph, searchQuery, onNodeClick, onNodeDelete }: MemoryGraphProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const simulationRef = useRef<any>(null)
@@ -494,6 +496,12 @@ export default function MemoryGraph({ graph, searchQuery, onNodeClick }: MemoryG
     if (node) onNodeClick(node)
   }, [onNodeClick, graph.nodes])
 
+  const handleDelete = useCallback(() => {
+    const slug = selectedSlugRef.current
+    const node = slug ? graph.nodes.find((n) => n.slug === slug) : null
+    if (node) onNodeDelete?.(node)
+  }, [onNodeDelete, graph.nodes])
+
   const handleClose = useCallback(() => {
     setSelectedSlug(null)
     draw()
@@ -750,6 +758,15 @@ export default function MemoryGraph({ graph, searchQuery, onNodeClick }: MemoryG
           >
             Open
           </button>
+          {onNodeDelete && !selectedNode.boundary && (
+            <button
+              className="btn btn-ghost"
+              onClick={handleDelete}
+              style={{ justifyContent: 'center', color: '#ef4444' }}
+            >
+              Delete
+            </button>
+          )}
           <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', textAlign: 'right' }}>
             {visibleSlugs.size} visible · {graph.nodes.length} total
           </div>

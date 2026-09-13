@@ -743,10 +743,20 @@ pub async fn list_bundles(
     }
 }
 
+#[derive(Debug, Deserialize, Default, utoipa::ToSchema)]
+pub struct DeleteBundleParams {
+    /// Delete the bundle even if it still contains concept documents (permanently deleting
+    /// them too). Reserved for an operator's explicit, confirmed action — the
+    /// `memory_delete_bundle` agent tool never sets this.
+    #[serde(default)]
+    pub force: bool,
+}
+
 pub async fn delete_bundle_handler(
     Path((agent_id, bundle)): Path<(String, String)>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Query(params): Query<DeleteBundleParams>,
 ) -> models::response::Response<String> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
@@ -756,7 +766,10 @@ pub async fn delete_bundle_handler(
         .transport
         .send_memory_op(
             &agent_id,
-            crate::schema::MemoryOpRequest::DeleteBundle { bundle: bundle.clone() },
+            crate::schema::MemoryOpRequest::DeleteBundle {
+                bundle: bundle.clone(),
+                force: params.force,
+            },
         )
         .await
     {

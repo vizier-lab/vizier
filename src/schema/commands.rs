@@ -125,6 +125,7 @@ pub enum MemoryOpRequest {
     ListBundles,
     DeleteBundle {
         bundle: String,
+        force: bool,
     },
     ExportBundle {
         bundle: String,

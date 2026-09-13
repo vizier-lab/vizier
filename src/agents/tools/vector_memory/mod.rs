@@ -35,8 +35,8 @@ pub fn init_vector_memory(
         MemoryDetail::new(agent_id.clone(), storage.clone()),
         MemoryFollow::new(agent_id.clone(), storage.clone()),
         MemoryGraphTool::new(agent_id.clone(), storage.clone()),
-        MemoryDelete::new(agent_id.clone(), storage.clone(), indexer),
-        MemoryDeleteBundle::new(agent_id.clone(), storage.clone()),
+        MemoryDelete::new(agent_id.clone(), storage.clone(), indexer.clone()),
+        MemoryDeleteBundle::new(agent_id.clone(), storage.clone(), indexer),
     ))
 }
 
@@ -800,11 +800,11 @@ impl VizierTool for MemoryDelete {
 }
 
 pub type MemoryDeleteBundle = DeleteVectorMemoryBundle;
-pub struct DeleteVectorMemoryBundle(AgentId, Arc<VizierStorage>);
+pub struct DeleteVectorMemoryBundle(AgentId, Arc<VizierStorage>, VizierIndexer);
 
 impl MemoryDeleteBundle {
-    fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
-        Self(agent_id, store)
+    fn new(agent_id: AgentId, store: Arc<VizierStorage>, indexer: VizierIndexer) -> Self {
+        Self(agent_id, store, indexer)
     }
 }
 
@@ -838,7 +838,7 @@ impl VizierTool for MemoryDeleteBundle {
         _ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
         self.1
-            .delete_bundle(self.0.clone(), args.bundle.clone())
+            .delete_bundle(self.0.clone(), args.bundle.clone(), false, &self.2)
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 

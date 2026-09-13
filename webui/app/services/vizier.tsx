@@ -451,8 +451,9 @@ export const importBundle = async (agentId: string, bundle: string, file: File) 
   return res.data
 }
 
-export const deleteBundle = async (agentId: string, bundle: string) => {
-  const res = await apiClient.delete(`/agents/${agentId}/memory/bundles/${encodeURIComponent(bundle)}`)
+export const deleteBundle = async (agentId: string, bundle: string, force?: boolean) => {
+  const query = force ? '?force=true' : ''
+  const res = await apiClient.delete(`/agents/${agentId}/memory/bundles/${encodeURIComponent(bundle)}${query}`)
   return res.data
 }
 
