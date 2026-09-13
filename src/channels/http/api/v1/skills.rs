@@ -11,7 +11,7 @@ use crate::{
         models::response::{api_response, APIResponse, Response, err_response},
         state::HTTPState,
     },
-    schema::{Skill, SkillActivation},
+    schema::Skill,
     skill::SkillManager,
 };
 
@@ -22,12 +22,6 @@ pub struct CreateSkillRequest {
     pub content: String,
     #[serde(default)]
     pub keywords: Vec<String>,
-    #[serde(default = "default_activation")]
-    pub activation: SkillActivation,
-}
-
-fn default_activation() -> SkillActivation {
-    SkillActivation::OnDemand
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,7 +29,6 @@ pub struct UpdateSkillRequest {
     pub description: Option<String>,
     pub content: Option<String>,
     pub keywords: Option<Vec<String>>,
-    pub activation: Option<SkillActivation>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -43,7 +36,6 @@ pub struct SkillResponse {
     pub name: String,
     pub description: String,
     pub keywords: Vec<String>,
-    pub activation: String,
     pub version: u32,
     pub resources: Vec<String>,
     pub content: String,
@@ -56,7 +48,6 @@ impl From<Skill> for SkillResponse {
             name: skill.name,
             description: skill.description,
             keywords: skill.keywords,
-            activation: format!("{:?}", skill.activation),
             version: skill.version,
             resources: skill.resources,
             content: skill.content,
@@ -108,7 +99,6 @@ async fn create_skill(
         description: request.description,
         content: request.content,
         keywords: request.keywords,
-        activation: request.activation,
         version: 1,
         resources: Vec::new(),
     };
@@ -167,9 +157,6 @@ async fn update_skill(
         }
         if let Some(keywords) = request.keywords {
             skill.keywords = keywords;
-        }
-        if let Some(activation) = request.activation {
-            skill.activation = activation;
         }
         skill.version += 1;
 
@@ -268,7 +255,6 @@ async fn create_agent_skill(
         description: request.description,
         content: request.content,
         keywords: request.keywords,
-        activation: request.activation,
         version: 1,
         resources: Vec::new(),
     };
@@ -327,9 +313,6 @@ async fn update_agent_skill(
         }
         if let Some(keywords) = request.keywords {
             skill.keywords = keywords;
-        }
-        if let Some(activation) = request.activation {
-            skill.activation = activation;
         }
         skill.version += 1;
 

@@ -29,10 +29,10 @@ use crate::{
     image_generation::VizierImageGen,
     indexer::VizierIndexer,
     schema::{
-        AgentConfig, ErrorKind, Memory, SessionHistory, SessionHistoryContent, VizierAttachment,
-        VizierAttachmentContent, VizierRequest, VizierRequestContent, VizierResponse,
-        VizierResponseContent, VizierResponseStats, VizierSession, history_entries_to_messages,
-        messages_to_history_entries,
+        AgentConfig, ErrorKind, Memory, SessionHistory, SessionHistoryContent, Skill,
+        VizierAttachment, VizierAttachmentContent, VizierRequest, VizierRequestContent,
+        VizierResponse, VizierResponseContent, VizierResponseStats, VizierSession,
+        history_entries_to_messages, messages_to_history_entries,
     },
     storage::{
         VizierStorage,
@@ -148,7 +148,18 @@ impl VizierAgent {
             image_gen.clone(),
         )
         .await?;
-        let skills = VizierSkills::new(agent_id.clone(), deps.clone()).await?;
+        let skills = VizierSkills::new(agent_id.clone(), deps.clone(), indexer.clone()).await?;
+
+        // Best-effort re-embed of every skill so vector-based recommendation stays fresh
+        // across restarts; individual create/update/delete tool calls keep it fresh in between.
+        tokio::spawn({
+            let skills = skills.clone();
+            async move {
+                if let Err(e) = skills.reindex_all().await {
+                    tracing::warn!("skill reindex failed: {}", e);
+                }
+            }
+        });
 
         init_workspace(workspace.clone());
 
@@ -289,13 +300,6 @@ impl VizierAgent {
 
         res.push(Message::system(self.core.clone()));
 
-        // Inject Always skills into system prompt
-        if let Ok(always_skills) = self.skills.get_always_skills().await {
-            for skill_content in always_skills {
-                res.push(Message::system(skill_content));
-            }
-        }
-
         for document in &self.config.documents {
             res.push(Message::system(document.clone()));
         }
@@ -309,12 +313,10 @@ impl VizierAgent {
         session: VizierSession,
         session_history: Vec<SessionHistory>,
         memory: Vec<Memory>,
+        skills: Vec<Skill>,
         hooks: Option<Arc<VizierSessionHooks>>,
         checkpoint_handover: Option<String>,
     ) -> Result<VizierResponse> {
-        let mut tools = self.tools.tools().await?;
-        tools.extend(self.skills.get_ondemand_skills().await?);
-
         // Auto-transcribe AudioChat/AudioPrompt in-place
         let mut req = req;
         if let Some(ref stt) = self.stt {
@@ -351,23 +353,6 @@ impl VizierAgent {
             }
         }
 
-        // Match contextual skills against the task
-        let task_text = match &req.content {
-            VizierRequestContent::Chat(text) => text.clone(),
-            VizierRequestContent::Prompt(text) => text.clone(),
-            VizierRequestContent::Task(text) => text.clone(),
-            VizierRequestContent::Command(text) => text.clone(),
-            VizierRequestContent::AudioChat(_, Some(text)) => text.clone(),
-            VizierRequestContent::AudioPrompt(_, Some(text)) => text.clone(),
-            VizierRequestContent::AudioChat(_, None) => String::new(),
-            VizierRequestContent::AudioPrompt(_, None) => String::new(),
-            _ => String::new(),
-        };
-        if !task_text.is_empty() {
-            let contextual_skills = self.skills.get_contextual_skills(&task_text).await?;
-            tools.extend(contextual_skills);
-        }
-
         let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
         let initiative_factor = rng.random_range(0_f32..=1_f32);
 
@@ -400,6 +385,24 @@ impl VizierAgent {
             history.push(Message::system(format!(
                 "# Possible Related Memories\nprovided below are memory that could be (but not always) related to user message \n{}",
                 summarize_memories
+            )));
+        }
+
+        if !skills.is_empty() {
+            let summarize_skills = skills
+                .iter()
+                .map(|skill| {
+                    format!(
+                        "## {}\nslug: **{}**\n{}\n**call get_skill_details or use_skill with this slug for more detail**\n---",
+                        skill.name, skill.name, skill.description
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            history.push(Message::system(format!(
+                "# Possibly Related Skills\nprovided below are skills that could be (but not always) related to the user message\n{}",
+                summarize_skills
             )));
         }
 
@@ -563,17 +566,11 @@ impl VizierAgent {
         let mut full_history = history.clone();
         let mut turn_depth = turn_depth;
         let max_turn_depth = self.config.thinking_depth;
-        let mut tools = self
+        let tools = self
             .tools
             .tools()
             .await
             .map_err(|e| (e, full_history.clone()))?;
-        tools.extend(
-            self.skills
-                .get_ondemand_skills()
-                .await
-                .map_err(|e| (e, full_history.clone()))?,
-        );
 
         let output: String;
 
@@ -749,45 +746,33 @@ impl VizierAgent {
                         .map_err(|e| (e, full_history.clone()))?;
                 }
 
-                // handle custom skill
-                let mut tool_res = if function_name.clone().starts_with("SKILL__") {
-                    let output = self.call_skill(function_name.clone()).await;
-                    VizierResponse {
+                let tool_server = self.tools.clone();
+                let ctx_clone = ctx.clone();
+                let mut tool_res = match timeout(*self.config.tools.timeout, async {
+                    tool_server
+                        .call(function_name.clone(), args, &ctx_clone)
+                        .await
+                })
+                .await
+                {
+                    Err(_elapsed) => {
+                        // Tool timeout - return error with partial history
+                        return Err((
+                            anyhow::anyhow!(VizierError(format!(
+                                "Tool '{}' timed out after {:?}",
+                                function_name, *self.config.tools.timeout
+                            ))),
+                            history,
+                        ));
+                    }
+                    Ok(Err(err)) => VizierResponse {
                         timestamp: Utc::now(),
                         content: VizierResponseContent::ToolResponse {
-                            response: serde_json::Value::String(output),
+                            response: serde_json::Value::String(err.to_string()),
                         },
                         attachments: vec![],
-                    }
-                } else {
-                    let tool_server = self.tools.clone();
-                    let ctx_clone = ctx.clone();
-                    match timeout(*self.config.tools.timeout, async {
-                        tool_server
-                            .call(function_name.clone(), args, &ctx_clone)
-                            .await
-                    })
-                    .await
-                    {
-                        Err(_elapsed) => {
-                            // Tool timeout - return error with partial history
-                            return Err((
-                                anyhow::anyhow!(VizierError(format!(
-                                    "Tool '{}' timed out after {:?}",
-                                    function_name, *self.config.tools.timeout
-                                ))),
-                                history,
-                            ));
-                        }
-                        Ok(Err(err)) => VizierResponse {
-                            timestamp: Utc::now(),
-                            content: VizierResponseContent::ToolResponse {
-                                response: serde_json::Value::String(err.to_string()),
-                            },
-                            attachments: vec![],
-                        },
-                        Ok(Ok(s)) => s,
-                    }
+                    },
+                    Ok(Ok(s)) => s,
                 };
 
                 if let Some(hooks) = hooks.clone() {
@@ -944,12 +929,8 @@ impl VizierAgent {
         generate_handover_with_model(&self.model, history).await
     }
 
-    pub async fn call_skill(&self, skill_name: String) -> String {
-        let slug = skill_name.replace("SKILL__", "");
-        match self.skills.get_skill_content(slug).await {
-            Err(err) => err.to_string(),
-            Ok(content) => content.unwrap_or("".into()),
-        }
+    pub async fn recommend_skills(&self, query: &str) -> Result<Vec<Skill>> {
+        self.skills.recommend_skills(query, 10, 0.5).await
     }
 
     pub async fn dream_chat(
@@ -1123,41 +1104,29 @@ impl VizierAgent {
                         (function_name, args) = hooks.on_tool_call(function_name, args).await?;
                     }
 
-                    // handle custom skill
-                    let mut tool_res = if function_name.clone().starts_with("SKILL__") {
-                        let output = self.call_skill(function_name.clone()).await;
-                        VizierResponse {
+                    // Use dream_call for dream tool dispatch
+                    let ctx_clone = ctx.clone();
+                    let mut tool_res = match timeout(*self.config.tools.timeout, async {
+                        self.tools
+                            .dream_call(
+                                function_name.clone(),
+                                args,
+                                &self.config.name,
+                                &deps.storage,
+                                &ctx_clone,
+                            )
+                            .await
+                    })
+                    .await?
+                    {
+                        Err(err) => VizierResponse {
                             timestamp: Utc::now(),
                             content: VizierResponseContent::ToolResponse {
-                                response: serde_json::Value::String(output),
+                                response: serde_json::Value::String(err.to_string()),
                             },
                             attachments: vec![],
-                        }
-                    } else {
-                        // Use dream_call for dream tool dispatch
-                        let ctx_clone = ctx.clone();
-                        match timeout(*self.config.tools.timeout, async {
-                            self.tools
-                                .dream_call(
-                                    function_name.clone(),
-                                    args,
-                                    &self.config.name,
-                                    &deps.storage,
-                                    &ctx_clone,
-                                )
-                                .await
-                        })
-                        .await?
-                        {
-                            Err(err) => VizierResponse {
-                                timestamp: Utc::now(),
-                                content: VizierResponseContent::ToolResponse {
-                                    response: serde_json::Value::String(err.to_string()),
-                                },
-                                attachments: vec![],
-                            },
-                            Ok(s) => s,
-                        }
+                        },
+                        Ok(s) => s,
                     };
 
                     if let Some(hooks) = hooks.clone() {

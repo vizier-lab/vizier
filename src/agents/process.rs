@@ -778,17 +778,19 @@ pub async fn handle_request(
             let memory = match &indexer {
                 Some(idx) => {
                     storage
-                        .query_memory(session.0.clone(), prompt, 10, 0.5, idx)
+                        .query_memory(session.0.clone(), None, prompt.clone(), 10, 0.5, idx)
                         .await?
                 }
                 None => Vec::new(),
             };
+            let skills = agent.recommend_skills(&prompt).await.unwrap_or_default();
             let res = agent
                 .chat(
                     request,
                     session.clone(),
                     history,
                     memory,
+                    skills,
                     Some(hooks),
                     checkpoint_handover,
                 )
@@ -811,17 +813,19 @@ pub async fn handle_request(
             let memory = match &indexer {
                 Some(idx) => {
                     storage
-                        .query_memory(session.0.clone(), prompt, 10, 0.5, idx)
+                        .query_memory(session.0.clone(), None, prompt.clone(), 10, 0.5, idx)
                         .await?
                 }
                 None => Vec::new(),
             };
+            let skills = agent.recommend_skills(&prompt).await.unwrap_or_default();
             let res = agent
                 .chat(
                     request,
                     session.clone(),
                     history,
                     memory,
+                    skills,
                     Some(hooks),
                     checkpoint_handover,
                 )
@@ -941,7 +945,15 @@ pub async fn handle_request(
                 }
                 _ => {
                     agent
-                        .chat(request, session.clone(), vec![], vec![], Some(hooks), None)
+                        .chat(
+                            request,
+                            session.clone(),
+                            vec![],
+                            vec![],
+                            vec![],
+                            Some(hooks),
+                            None,
+                        )
                         .await?
                 }
             };

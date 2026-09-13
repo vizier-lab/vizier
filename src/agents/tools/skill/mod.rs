@@ -5,23 +5,29 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
+use crate::agents::skill::{index_skill, scope_for_agent};
 use crate::agents::tools::{ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
-use crate::schema::{AgentId, Skill, SkillActivation};
+use crate::indexer::VizierIndexer;
+use crate::schema::{AgentId, Skill};
 use crate::skill::SkillManager;
 
 pub mod delete_skill;
 pub mod execute_skill_resource;
+pub mod get_skill_details;
 pub mod list_skills;
 pub mod read_skill_resource;
 pub mod update_skill;
+pub mod use_skill;
 
 pub use delete_skill::DeleteSkill;
 pub use execute_skill_resource::ExecuteSkillResource;
+pub use get_skill_details::GetSkillDetails;
 pub use list_skills::ListSkills;
 pub use read_skill_resource::ReadSkillResource;
 pub use update_skill::UpdateSkill;
+pub use use_skill::UseSkill;
 
 fn validate_resource_path(path: &str) -> Result<(), VizierError> {
     if path.is_empty() {
@@ -55,14 +61,15 @@ fn write_resource_files(skill_dir: &Path, resources: &[SkillResource]) -> Result
     Ok(())
 }
 
-pub struct CreateSkill(AgentId, SkillManager);
+pub struct CreateSkill(AgentId, SkillManager, Option<VizierIndexer>);
 
 impl CreateSkill {
-    pub fn new(agent_id: AgentId, deps: VizierDependencies) -> Self {
+    pub fn new(agent_id: AgentId, deps: VizierDependencies, indexer: Option<VizierIndexer>) -> Self {
         let workspace = deps.config.workspace.clone();
         Self(
             agent_id.clone(),
             SkillManager::for_agent(&workspace, &agent_id),
+            indexer,
         )
     }
 }
@@ -93,17 +100,9 @@ pub struct CreateSkillArgs {
     #[serde(default)]
     pub keywords: Vec<String>,
 
-    #[schemars(description = "activation mode: always, on_demand, or contextual")]
-    #[serde(default = "default_activation")]
-    pub activation: SkillActivation,
-
     #[schemars(description = "additional resource files to create with this skill")]
     #[serde(default)]
     pub resources: Vec<SkillResource>,
-}
-
-fn default_activation() -> SkillActivation {
-    SkillActivation::OnDemand
 }
 
 #[async_trait::async_trait]
@@ -131,7 +130,6 @@ impl VizierTool for CreateSkill {
             name: slug.clone(),
             content: args.instruction,
             keywords: args.keywords,
-            activation: args.activation,
             version: 1,
             resources: resource_paths,
         };
@@ -142,6 +140,11 @@ impl VizierTool for CreateSkill {
 
         let skill_dir = self.1.skill_dir(&slug);
         write_resource_files(&skill_dir, &args.resources)?;
+
+        if let Some(indexer) = &self.2 {
+            let scope = scope_for_agent(&self.0);
+            let _ = index_skill(indexer, &scope, &skill).await;
+        }
 
         Ok(format!("Skill '{}' created successfully", slug))
     }

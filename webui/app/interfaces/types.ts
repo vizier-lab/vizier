@@ -620,32 +620,29 @@ export interface WebSocketResponse {
 // MEMORY
 // ============================================================================
 
-export type MemoryVisibility = 'private' | 'global' | 'shared'
-
 export interface Memory {
   agent_id: string
-  slug: string
+  bundle: string
+  path: string
   title: string
   content?: string
-  timestamp: string
-  visibility: MemoryVisibility
-  shared_to: string[]
+  created_at: string
+  updated_at: string
   tags: string[]
-  keywords: string[]
   relations: string[]
-  attachments: VizierAttachment[]
+  attachment_count: number
 }
 
-export interface MemoryDetail extends Memory {
+export interface MemoryDetail extends Omit<Memory, 'attachment_count'> {
   content: string
+  attachments: VizierAttachment[]
 }
 
 export interface CreateMemoryRequest {
   title: string
   content: string
-  slug?: string
-  visibility?: MemoryVisibility
-  shared_to?: string[]
+  bundle?: string
+  path?: string
   tags?: string[]
   attachments?: VizierAttachment[]
 }
@@ -653,8 +650,6 @@ export interface CreateMemoryRequest {
 export interface UpdateMemoryRequest {
   title: string
   content: string
-  visibility?: MemoryVisibility
-  shared_to?: string[]
   tags?: string[]
   attachments?: VizierAttachment[]
 }
@@ -674,16 +669,28 @@ export interface MemoryGraph {
 
 export interface MemoryGraphNode {
   slug: string
+  bundle: string
   title: string
   tags: string[]
-  visibility: MemoryVisibility
   agent_id: string
+  boundary: boolean
 }
 
 export interface MemoryGraphEdge {
   source: string
   target: string
   broken: boolean
+}
+
+export interface BundleSummary {
+  name: string
+  concept_count: number
+  updated_at: string | null
+}
+
+export interface ImportReport {
+  imported: string[]
+  skipped: string[]
 }
 
 // ============================================================================
@@ -798,13 +805,10 @@ export interface ShellConfigData {
 // SKILL
 // ============================================================================
 
-export type SkillActivation = 'Always' | 'OnDemand' | 'Contextual'
-
 export interface Skill {
   name: string
   description: string
   keywords: string[]
-  activation: SkillActivation
   version: number
   resources: string[]
   content?: string
@@ -816,14 +820,12 @@ export interface CreateSkillRequest {
   description: string
   content: string
   keywords?: string[]
-  activation?: SkillActivation
 }
 
 export interface UpdateSkillRequest {
   description?: string
   content?: string
   keywords?: string[]
-  activation?: SkillActivation
 }
 
 // ============================================================================

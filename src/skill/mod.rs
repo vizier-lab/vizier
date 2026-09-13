@@ -1,4 +1,3 @@
-pub mod context;
 pub mod install;
 
 use std::path::{Path, PathBuf};

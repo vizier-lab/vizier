@@ -4,18 +4,19 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{SkillResource, write_resource_files};
+use crate::agents::skill::{global_scope, index_skill};
 use crate::agents::tools::{ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
-use crate::schema::{Skill, SkillActivation};
+use crate::indexer::VizierIndexer;
 use crate::skill::SkillManager;
 
-pub struct UpdateSkill(SkillManager);
+pub struct UpdateSkill(SkillManager, Option<VizierIndexer>);
 
 impl UpdateSkill {
-    pub fn new(deps: VizierDependencies) -> Self {
+    pub fn new(deps: VizierDependencies, indexer: Option<VizierIndexer>) -> Self {
         let workspace = deps.config.workspace.clone();
-        Self(SkillManager::new(&workspace))
+        Self(SkillManager::new(&workspace), indexer)
     }
 }
 
@@ -33,9 +34,6 @@ pub struct UpdateSkillArgs {
     #[schemars(description = "new keywords for matching (optional)")]
     pub keywords: Option<Vec<String>>,
 
-    #[schemars(description = "new activation mode (optional)")]
-    pub activation: Option<SkillActivation>,
-
     #[schemars(description = "resource files to add or update (optional, replaces all resources)")]
     pub resources: Option<Vec<SkillResource>>,
 }
@@ -50,7 +48,7 @@ impl VizierTool for UpdateSkill {
     }
 
     fn description(&self) -> String {
-        "update an existing skill's content, description, keywords, activation mode, or resource files".into()
+        "update an existing skill's content, description, keywords, or resource files".into()
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
@@ -67,9 +65,6 @@ impl VizierTool for UpdateSkill {
         if let Some(keywords) = args.keywords {
             skill.keywords = keywords;
         }
-        if let Some(activation) = args.activation {
-            skill.activation = activation;
-        }
 
         if let Some(resources) = &args.resources {
             let skill_dir = self.0.skill_dir(&args.slug);
@@ -81,6 +76,10 @@ impl VizierTool for UpdateSkill {
 
         self.0.save_skill(&skill)
             .map_err(|e| VizierError(e.to_string()))?;
+
+        if let Some(indexer) = &self.1 {
+            let _ = index_skill(indexer, global_scope(), &skill).await;
+        }
 
         Ok(format!("Skill '{}' updated to version {}", skill.name, skill.version))
     }

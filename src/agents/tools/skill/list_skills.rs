@@ -1,19 +1,24 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::agents::tools::{ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
+use crate::schema::AgentId;
 use crate::skill::SkillManager;
 
-pub struct ListSkills(SkillManager);
+pub struct ListSkills {
+    global_manager: SkillManager,
+    agent_manager: SkillManager,
+}
 
 impl ListSkills {
-    pub fn new(deps: VizierDependencies) -> Self {
+    pub fn new(agent_id: AgentId, deps: VizierDependencies) -> Self {
         let workspace = deps.config.workspace.clone();
-        Self(SkillManager::new(&workspace))
+        Self {
+            global_manager: SkillManager::new(&workspace),
+            agent_manager: SkillManager::for_agent(&workspace, &agent_id),
+        }
     }
 }
 
@@ -27,9 +32,6 @@ pub struct ListSkillsArgs {
 pub struct SkillInfo {
     pub name: String,
     pub description: String,
-    pub keywords: Vec<String>,
-    pub activation: String,
-    pub version: u32,
 }
 
 #[async_trait::async_trait]
@@ -42,12 +44,26 @@ impl VizierTool for ListSkills {
     }
 
     fn description(&self) -> String {
-        "list available skills, optionally filtered by keyword".into()
+        "list available skills (name + short description), optionally filtered by keyword. \
+         Use get_skill_details for full metadata, or use_skill to load a skill's instructions."
+            .into()
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        let skills = self.0.list_skills()
+        let mut skills = self
+            .global_manager
+            .list_skills()
             .map_err(|e| VizierError(e.to_string()))?;
+
+        for agent_skill in self
+            .agent_manager
+            .list_skills()
+            .map_err(|e| VizierError(e.to_string()))?
+        {
+            if !skills.iter().any(|s| s.name == agent_skill.name) {
+                skills.push(agent_skill);
+            }
+        }
 
         let filtered: Vec<SkillInfo> = skills
             .iter()
@@ -64,9 +80,6 @@ impl VizierTool for ListSkills {
             .map(|skill| SkillInfo {
                 name: skill.name.clone(),
                 description: skill.description.clone(),
-                keywords: skill.keywords.clone(),
-                activation: format!("{:?}", skill.activation),
-                version: skill.version,
             })
             .collect();
 

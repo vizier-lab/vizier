@@ -1,31 +1,52 @@
-use std::sync::Arc;
-
 use anyhow::Result;
-use rig_core::completion::ToolDefinition;
-use schemars::schema_for;
-use serde::{Deserialize, Serialize};
-use serde_json;
 
 use crate::{
     dependencies::VizierDependencies,
-    schema::{AgentId, Skill, SkillActivation},
-    skill::{SkillManager, context},
+    indexer::VizierIndexer,
+    schema::{AgentId, Skill},
+    skill::SkillManager,
 };
+
+const GLOBAL_SCOPE: &str = "global";
+const INDEX_CONTEXT: &str = "skill";
 
 #[derive(Clone)]
 pub struct VizierSkills {
     agent_id: String,
     global_manager: SkillManager,
     agent_manager: SkillManager,
+    indexer: Option<VizierIndexer>,
+}
+
+fn agent_scope(agent_id: &str) -> String {
+    format!("agent/{agent_id}")
+}
+
+fn index_key(scope: &str, slug: &str) -> String {
+    format!("{scope}/{slug}")
+}
+
+fn embed_text(skill: &Skill) -> String {
+    format!(
+        "{}\n{}\nkeywords: {}",
+        skill.name,
+        skill.description,
+        skill.keywords.join(", ")
+    )
 }
 
 impl VizierSkills {
-    pub async fn new(agent_id: AgentId, deps: VizierDependencies) -> Result<Self> {
+    pub async fn new(
+        agent_id: AgentId,
+        deps: VizierDependencies,
+        indexer: Option<VizierIndexer>,
+    ) -> Result<Self> {
         let workspace = deps.config.workspace.clone();
         Ok(Self {
             agent_id: agent_id.clone(),
             global_manager: SkillManager::new(&workspace),
             agent_manager: SkillManager::for_agent(&workspace, &agent_id),
+            indexer,
         })
     }
 
@@ -41,50 +62,6 @@ impl VizierSkills {
         }
 
         Ok(skills)
-    }
-
-    pub async fn get_always_skills(&self) -> Result<Vec<String>> {
-        let skills = self.all_skills()?;
-        Ok(skills
-            .iter()
-            .filter(|s| s.activation == SkillActivation::Always)
-            .map(|s| format!("# Skill: {}\n\n{}", s.name, s.content))
-            .collect())
-    }
-
-    pub async fn get_ondemand_skills(&self) -> Result<Vec<ToolDefinition>> {
-        let skills = self.all_skills()?;
-        Ok(skills
-            .iter()
-            .filter(|s| s.activation == SkillActivation::OnDemand)
-            .map(|s| s.to_definition())
-            .collect())
-    }
-
-    pub async fn get_contextual_skills(&self, task: &str) -> Result<Vec<ToolDefinition>> {
-        let skills = self.all_skills()?;
-        let contextual_skills: Vec<Skill> = skills
-            .into_iter()
-            .filter(|s| s.activation == SkillActivation::Contextual)
-            .collect();
-
-        // Try keyword matching first
-        let matched = context::match_skills_by_keywords(&contextual_skills, task);
-
-        if !matched.is_empty() {
-            return Ok(matched.into_iter().map(|s| s.to_definition()).collect());
-        }
-
-        // Fall back to description matching
-        let matched = context::match_skills_by_description(&contextual_skills, task);
-        Ok(matched.into_iter().map(|s| s.to_definition()).collect())
-    }
-
-    pub async fn get_skills(&self) -> Result<Vec<ToolDefinition>> {
-        let mut tools = self.get_ondemand_skills().await?;
-        // Note: Always skills are injected into system prompt, not as tools
-        // Contextual skills are matched against task and added separately
-        Ok(tools)
     }
 
     pub async fn get_skill_content(&self, slug: String) -> Result<Option<String>> {
@@ -105,28 +82,108 @@ impl VizierSkills {
     pub fn get_agent_skill_manager(&self) -> &SkillManager {
         &self.agent_manager
     }
+
+    /// Best-effort re-embed of every skill (global + agent-private). Called once at agent
+    /// boot; individual create/update/delete tool calls keep the index fresh in between.
+    pub async fn reindex_all(&self) -> Result<()> {
+        let Some(indexer) = &self.indexer else {
+            return Ok(());
+        };
+
+        for skill in self.global_manager.list_skills()? {
+            let _ = indexer
+                .add_document_index(
+                    INDEX_CONTEXT.into(),
+                    index_key(GLOBAL_SCOPE, &skill.name),
+                    embed_text(&skill),
+                )
+                .await;
+        }
+
+        let scope = agent_scope(&self.agent_id);
+        for skill in self.agent_manager.list_skills()? {
+            let _ = indexer
+                .add_document_index(
+                    INDEX_CONTEXT.into(),
+                    index_key(&scope, &skill.name),
+                    embed_text(&skill),
+                )
+                .await;
+        }
+
+        Ok(())
+    }
+
+    pub async fn recommend_skills(
+        &self,
+        query: &str,
+        limit: usize,
+        threshold: f64,
+    ) -> Result<Vec<Skill>> {
+        let Some(indexer) = &self.indexer else {
+            return Ok(vec![]);
+        };
+
+        let docs = indexer
+            .search_document_index(INDEX_CONTEXT.into(), query.into(), limit * 5, threshold)
+            .await?;
+
+        let agent_scope_prefix = format!("{}/", agent_scope(&self.agent_id));
+        let global_scope_prefix = format!("{GLOBAL_SCOPE}/");
+
+        let mut seen = std::collections::HashSet::new();
+        let mut recommended = Vec::new();
+
+        for doc in docs {
+            let (manager, slug) = if let Some(slug) = doc.path.strip_prefix(&agent_scope_prefix) {
+                (&self.agent_manager, slug)
+            } else if let Some(slug) = doc.path.strip_prefix(&global_scope_prefix) {
+                (&self.global_manager, slug)
+            } else {
+                continue;
+            };
+
+            if !seen.insert(slug.to_string()) {
+                continue;
+            }
+
+            if let Ok(Some(skill)) = manager.get_skill(slug) {
+                recommended.push(skill);
+            }
+
+            if recommended.len() >= limit {
+                break;
+            }
+        }
+
+        Ok(recommended)
+    }
 }
 
-#[allow(unused)]
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-struct SkillArgs {}
+/// Indexing helpers used by the skill-authoring tools (create/update/delete) so the
+/// vector index stays in sync without waiting for the next agent-boot backfill.
+pub async fn index_skill(indexer: &VizierIndexer, scope: &str, skill: &Skill) -> Result<()> {
+    indexer
+        .add_document_index(
+            INDEX_CONTEXT.into(),
+            index_key(scope, &skill.name),
+            embed_text(skill),
+        )
+        .await?;
+    Ok(())
+}
 
-impl Skill {
-    pub fn to_definition(&self) -> ToolDefinition {
-        let parameters = serde_json::to_value(schema_for!(SkillArgs)).unwrap();
+pub async fn deindex_skill(indexer: &VizierIndexer, scope: &str, slug: &str) -> Result<()> {
+    indexer
+        .delete_index(INDEX_CONTEXT.into(), index_key(scope, slug))
+        .await?;
+    Ok(())
+}
 
-        let mut description = self.description.clone();
-        if !self.resources.is_empty() {
-            description.push_str(&format!(
-                "\n\nAvailable resources: {}",
-                self.resources.join(", ")
-            ));
-        }
+pub fn global_scope() -> &'static str {
+    GLOBAL_SCOPE
+}
 
-        ToolDefinition {
-            name: format!("SKILL__{}", self.name.clone()),
-            description,
-            parameters,
-        }
-    }
+pub fn scope_for_agent(agent_id: &str) -> String {
+    agent_scope(agent_id)
 }

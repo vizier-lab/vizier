@@ -3,17 +3,19 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+use crate::agents::skill::{deindex_skill, global_scope};
 use crate::agents::tools::{ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
+use crate::indexer::VizierIndexer;
 use crate::skill::SkillManager;
 
-pub struct DeleteSkill(SkillManager);
+pub struct DeleteSkill(SkillManager, Option<VizierIndexer>);
 
 impl DeleteSkill {
-    pub fn new(deps: VizierDependencies) -> Self {
+    pub fn new(deps: VizierDependencies, indexer: Option<VizierIndexer>) -> Self {
         let workspace = deps.config.workspace.clone();
-        Self(SkillManager::new(&workspace))
+        Self(SkillManager::new(&workspace), indexer)
     }
 }
 
@@ -41,6 +43,9 @@ impl VizierTool for DeleteSkill {
             .map_err(|e| VizierError(e.to_string()))?;
 
         if deleted {
+            if let Some(indexer) = &self.1 {
+                let _ = deindex_skill(indexer, global_scope(), &args.slug).await;
+            }
             Ok(format!("Skill '{}' deleted", args.slug))
         } else {
             Err(VizierError(format!("Skill '{}' not found", args.slug)))

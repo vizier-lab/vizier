@@ -21,11 +21,7 @@ pub enum SkillCommand {
         agent: Option<String>,
     },
     /// List installed skills
-    List {
-        /// Filter by activation mode (always, on_demand, contextual)
-        #[arg(short, long)]
-        activation: Option<String>,
-    },
+    List,
     /// Uninstall a skill
     Uninstall {
         /// Skill slug to uninstall
@@ -78,40 +74,25 @@ pub fn skill(args: SkillArgs) -> Result<()> {
                 }
             }
         }
-        SkillCommand::List { activation } => {
+        SkillCommand::List => {
             let manager = SkillManager::new(workspace);
             let skills = manager.list_skills()?;
 
-            let filtered: Vec<_> = if let Some(ref act) = activation {
-                skills
-                    .iter()
-                    .filter(|s| format!("{:?}", s.activation).to_lowercase() == act.to_lowercase())
-                    .collect()
-            } else {
-                skills.iter().collect()
-            };
-
-            if filtered.is_empty() {
+            if skills.is_empty() {
                 println!("No skills installed.");
                 return Ok(());
             }
 
-            println!("{:<20} {:<30} {:<15} {:<10}", "NAME", "DESCRIPTION", "ACTIVATION", "VERSION");
-            println!("{}", "-".repeat(75));
+            println!("{:<20} {:<30} {:<10}", "NAME", "DESCRIPTION", "VERSION");
+            println!("{}", "-".repeat(60));
 
-            for skill in filtered {
+            for skill in &skills {
                 let desc = if skill.description.len() > 28 {
                     format!("{}...", &skill.description[..25])
                 } else {
                     skill.description.clone()
                 };
-                println!(
-                    "{:<20} {:<30} {:<15} {:<10}",
-                    skill.name,
-                    desc,
-                    format!("{:?}", skill.activation),
-                    skill.version
-                );
+                println!("{:<20} {:<30} {:<10}", skill.name, desc, skill.version);
             }
         }
         SkillCommand::Uninstall { slug, agent } => {

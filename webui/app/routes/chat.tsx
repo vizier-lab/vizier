@@ -172,6 +172,10 @@ const formatToolChoice = (
       }
       return `📚 Listing all skills`
     }
+    case 'get_skill_details':
+      return `🔍 Getting skill details '${args.slug as string}'`
+    case 'use_skill':
+      return `🧩 Using skill '${args.slug as string}'`
     case 'read_skill_resource':
       return `📖 Reading skill resource '${args.slug as string}/${args.path as string}'`
     case 'execute_skill_resource':

@@ -85,10 +85,7 @@ impl VizierAgents {
             _ => return Ok(None),
         };
 
-        let conn = match &deps.sqlite_conn {
-            Some(conn) => conn.clone(),
-            None => return Ok(None),
-        };
+        let conn = deps.sqlite_conn.clone();
 
         let embedder = Arc::new(
             VizierEmbedder::from_agent_settings(

@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{AgentId, Memory, MemoryGraph, MemoryQueryParams, MemoryVisibility, VizierAttachment, agent::AgentConfig, file::FileRecord};
+use crate::schema::{
+    AgentId, BundleSummary, ImportReport, Memory, MemoryGraph, MemoryQueryParams, VizierAttachment,
+    agent::AgentConfig, file::FileRecord,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AgentHealthStatus {
@@ -86,33 +89,50 @@ pub enum FileCommand {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MemoryOpRequest {
     Write {
-        slug: Option<String>,
+        bundle: Option<String>,
+        path: Option<String>,
+        create_only: bool,
         title: String,
         content: String,
-        visibility: MemoryVisibility,
-        shared_to: Vec<String>,
         tags: Vec<String>,
         attachments: Vec<VizierAttachment>,
     },
     Query {
+        bundle: Option<String>,
         query: String,
         limit: usize,
         threshold: f64,
     },
     GetById {
-        slug: String,
+        bundle: Option<String>,
+        path: String,
     },
     List {
         params: MemoryQueryParams,
     },
     GetRelated {
-        slug: String,
+        bundle: Option<String>,
+        path: String,
     },
     GetGraph {
+        bundle: Option<String>,
         search: Option<String>,
     },
     Delete {
-        slug: String,
+        bundle: Option<String>,
+        path: String,
+    },
+    ListBundles,
+    DeleteBundle {
+        bundle: String,
+        force: bool,
+    },
+    ExportBundle {
+        bundle: String,
+    },
+    ImportBundle {
+        bundle: String,
+        zip_bytes: Vec<u8>,
     },
 }
 
@@ -123,6 +143,9 @@ pub enum MemoryOpResponse {
     MemoryOption(Option<Memory>),
     Paginated(crate::schema::PaginatedMemory),
     Graph(MemoryGraph),
+    Bundles(Vec<BundleSummary>),
+    Export(Vec<u8>),
+    Import(ImportReport),
     Unit,
 }
 

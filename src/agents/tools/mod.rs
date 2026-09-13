@@ -22,8 +22,8 @@ scheduler::{DeleteTask, GetTaskDetail, ListTask, ScheduleCronTask, ScheduleOneTi
         session_files::{ListSessionFiles, ReadDocumentFile, SendAttachment},
         shell::ShellExec,
         skill::{
-            CreateSkill, DeleteSkill, ExecuteSkillResource, ListSkills, ReadSkillResource,
-            UpdateSkill,
+            CreateSkill, DeleteSkill, ExecuteSkillResource, GetSkillDetails, ListSkills,
+            ReadSkillResource, UpdateSkill, UseSkill,
         },
         subtasks::SubtasksTool,
         telegram::new_telegram_tools,
@@ -276,7 +276,7 @@ impl VizierTools {
     }
 
     const DREAM_TOOL_NAMES: &'static [&'static str] = &[
-        // Memory (7)
+        // Memory (8)
         "memory_read",
         "memory_write",
         "memory_list",
@@ -284,6 +284,7 @@ impl VizierTools {
         "memory_follow",
         "memory_graph",
         "memory_delete",
+        "memory_delete_bundle",
         // Workspace (2)
         "WRITE_CORE",
         "READ_CORE",
@@ -292,10 +293,12 @@ impl VizierTools {
         "schedule_cron_task",
         "list_task",
         "delete_task",
-        // Skills (3)
+        // Skills (5)
         "create_skill",
         "update_skill",
         "list_skills",
+        "get_skill_details",
+        "use_skill",
     ];
 
     pub async fn dream_tools(
@@ -412,10 +415,12 @@ impl VizierTools {
                 deps.transport.clone(),
             ))
             .tool(SubtasksTool::new(agent_id.clone(), deps.clone()))
-            .tool(CreateSkill::new(agent_id.clone(), deps.clone()))
-            .tool(UpdateSkill::new(deps.clone()))
-            .tool(DeleteSkill::new(deps.clone()))
-            .tool(ListSkills::new(deps.clone()))
+            .tool(CreateSkill::new(agent_id.clone(), deps.clone(), indexer.clone()))
+            .tool(UpdateSkill::new(deps.clone(), indexer.clone()))
+            .tool(DeleteSkill::new(deps.clone(), indexer.clone()))
+            .tool(ListSkills::new(agent_id.clone(), deps.clone()))
+            .tool(GetSkillDetails::new(agent_id.clone(), deps.clone()))
+            .tool(UseSkill::new(agent_id.clone(), deps.clone()))
             .tool(ReadSkillResource::new(Some(agent_id.clone()), deps.clone()))
             .tool(ExecuteSkillResource::new(
                 Some(agent_id.clone()),
@@ -509,6 +514,7 @@ impl VizierTools {
                 follow_memory,
                 graph_memory,
                 delete_memory,
+                delete_memory_bundle,
             ) = init_vector_memory(agent_id.clone(), deps.storage.clone(), idx)?;
 
             default_toolset = default_toolset
@@ -518,7 +524,8 @@ impl VizierTools {
                 .tool(detail_memory)
                 .tool(follow_memory)
                 .tool(graph_memory)
-                .tool(delete_memory);
+                .tool(delete_memory)
+                .tool(delete_memory_bundle);
         }
 
         if let Some(tts) = tts {

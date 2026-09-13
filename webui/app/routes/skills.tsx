@@ -9,7 +9,7 @@ import MarkdownEditor from '../components/MarkdownEditor'
 import SlideOver from '../components/SlideOver'
 import { useToastStore } from '../hooks/toastStore'
 import { useSkillStore } from '../hooks/skillStore'
-import type { Skill, SkillActivation } from '../interfaces/types'
+import type { Skill } from '../interfaces/types'
 
 function getErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'response' in err) {
@@ -25,13 +25,11 @@ export default function SkillsManagement() {
   const { agentId } = useParams()
   const { skills, loading, loadSkills, selectSkill, selectedSkill, clearSelection, createSkill, updateSkill, deleteSkill } = useSkillStore()
   const [modalMode, setModalMode] = useState<ModalMode>(null)
-  const [filterActivation, setFilterActivation] = useState<SkillActivation | ''>('')
 
   const [formName, setFormName] = useState('')
   const [formDescription, setFormDescription] = useState('')
   const [formContent, setFormContent] = useState('')
   const [formKeywords, setFormKeywords] = useState('')
-  const [formActivation, setFormActivation] = useState<SkillActivation>('OnDemand')
   const [submitting, setSubmitting] = useState(false)
 
   const { addToast } = useToastStore()
@@ -40,10 +38,7 @@ export default function SkillsManagement() {
     loadSkills(agentId)
   }, [loadSkills, agentId])
 
-  const filteredSkills = skills.filter(skill => {
-    if (filterActivation && skill.activation !== filterActivation) return false
-    return true
-  })
+  const filteredSkills = skills
 
   const handleViewSkill = async (slug: string) => {
     // Check if this is a global skill (no agent_id)
@@ -74,7 +69,6 @@ export default function SkillsManagement() {
     setFormDescription(skill.description)
     setFormContent(skill.content || '')
     setFormKeywords(skill.keywords.join(', '))
-    setFormActivation(skill.activation)
     setModalMode('edit')
   }
 
@@ -83,7 +77,6 @@ export default function SkillsManagement() {
     setFormDescription('')
     setFormContent('')
     setFormKeywords('')
-    setFormActivation('OnDemand')
     setModalMode('create')
   }
 
@@ -98,7 +91,6 @@ export default function SkillsManagement() {
           description: formDescription,
           content: formContent,
           keywords,
-          activation: formActivation,
         }, agentId)
         addToast('success', 'Skill created successfully')
       } else if (modalMode === 'edit' && selectedSkill) {
@@ -106,7 +98,6 @@ export default function SkillsManagement() {
           description: formDescription,
           content: formContent,
           keywords,
-          activation: formActivation,
         }, agentId)
         addToast('success', 'Skill updated successfully')
       }
@@ -141,15 +132,6 @@ export default function SkillsManagement() {
     setFormDescription('')
     setFormContent('')
     setFormKeywords('')
-    setFormActivation('OnDemand')
-  }
-
-  const getActivationColor = (activation: SkillActivation) => {
-    switch (activation) {
-      case 'Always': return { bg: '#e8f5e9', color: '#2e7d32' }
-      case 'OnDemand': return { bg: '#e3f2fd', color: '#1565c0' }
-      case 'Contextual': return { bg: '#fff3e0', color: '#e65100' }
-    }
   }
 
   return (
@@ -159,16 +141,6 @@ export default function SkillsManagement() {
           <h3 style={{ margin: 0 }}>Skill Management</h3>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <select
-            value={filterActivation}
-            onChange={(e) => setFilterActivation(e.target.value as SkillActivation | '')}
-            style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--background)' }}
-          >
-            <option value="">All Activations</option>
-            <option value="Always">Always</option>
-            <option value="OnDemand">On Demand</option>
-            <option value="Contextual">Contextual</option>
-          </select>
           <button className="btn btn-primary" onClick={handleCreateSkill}>
             <FaPlus size={16} />
             <span>New Skill</span>
@@ -185,7 +157,6 @@ export default function SkillsManagement() {
                 <th>Description</th>
                 <th>Keywords</th>
                 <th>Source</th>
-                <th>Activation</th>
                 <th>Version</th>
                 <th style={{ width: '80px' }}>Actions</th>
               </tr>
@@ -196,7 +167,6 @@ export default function SkillsManagement() {
                   <td><Skeleton variant="text" width="60%" /></td>
                   <td><Skeleton variant="text" width="80%" /></td>
                   <td><Skeleton variant="text" width="40%" /></td>
-                  <td><Skeleton variant="text" width="50px" /></td>
                   <td><Skeleton variant="text" width="50px" /></td>
                   <td><Skeleton variant="text" width="30px" /></td>
                   <td><Skeleton variant="text" width="60px" /></td>
@@ -221,7 +191,6 @@ export default function SkillsManagement() {
                 <th>Description</th>
                 <th>Keywords</th>
                 <th>Source</th>
-                <th>Activation</th>
                 <th>Version</th>
                 <th style={{ width: '80px' }}>Actions</th>
               </tr>
@@ -261,17 +230,6 @@ export default function SkillsManagement() {
                       color: skill.agent_id ? '#2e7d32' : '#1565c0',
                     }}>
                       {skill.agent_id ? `Agent` : 'Global'}
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      ...getActivationColor(skill.activation),
-                    }}>
-                      {skill.activation}
                     </span>
                   </td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{skill.version}</td>
@@ -337,18 +295,6 @@ export default function SkillsManagement() {
               </div>
             </div>
             <div>
-              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Activation</div>
-              <span style={{
-                padding: '4px 12px',
-                borderRadius: '12px',
-                fontSize: '12px',
-                fontWeight: 600,
-                ...getActivationColor(selectedSkill.activation),
-              }}>
-                {selectedSkill.activation}
-              </span>
-            </div>
-            <div>
               <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Content</div>
               <div className="prose" style={{
                 padding: '12px',
@@ -410,19 +356,6 @@ export default function SkillsManagement() {
             <div className="input-group" style={{ marginBottom: 0 }}>
               <label htmlFor="keywords">Keywords (comma-separated)</label>
               <input id="keywords" type="text" value={formKeywords} onChange={(e) => setFormKeywords(e.target.value)} placeholder="review, quality, security" />
-            </div>
-            <div className="input-group" style={{ marginBottom: 0 }}>
-              <label htmlFor="activation">Activation Mode</label>
-              <select
-                id="activation"
-                value={formActivation}
-                onChange={(e) => setFormActivation(e.target.value as SkillActivation)}
-                style={{ padding: '8px 16px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--background)' }}
-              >
-                <option value="OnDemand">On Demand</option>
-                <option value="Always">Always</option>
-                <option value="Contextual">Contextual</option>
-              </select>
             </div>
             <div className="input-group" style={{ marginBottom: 0, height: '100%', overflow: 'hidden' }}>
               <label htmlFor="content">Content (Markdown)</label>

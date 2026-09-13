@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::{
     indexer::VizierIndexer,
     schema::{
-        Memory, MemoryGraph, MemoryGraphNode, MemoryQueryParams, MemoryVisibility,
+        BundleSummary, ImportReport, Memory, MemoryGraph, MemoryGraphNode, MemoryQueryParams,
         PaginatedMemory, VizierAttachment,
     },
     storage::VizierStorage,
@@ -11,59 +11,124 @@ use crate::{
 
 #[async_trait::async_trait]
 pub trait MemoryStorage {
+    /// Write (create or update) a concept document at `(bundle, path)`.
+    ///
+    /// `bundle: None` means the agent's default bundle. `path: None` derives a path from
+    /// `slugify(title)`. When `create_only` is `true` (used by the HTTP `POST` create route),
+    /// an existing `(bundle, path)` is rejected with `Err` rather than overwritten (FR-011,
+    /// no auto-rename). When `false` (the agent-facing `memory_write` tool, and the HTTP `PUT`
+    /// update route, which already knows the exact existing path it's revising), an existing
+    /// document at that path is overwritten in place.
+    #[allow(clippy::too_many_arguments)]
     async fn write_memory(
         &self,
         agent_id: String,
-        slug: Option<String>,
+        bundle: Option<String>,
+        path: Option<String>,
+        create_only: bool,
         title: String,
         content: String,
-        visibility: MemoryVisibility,
-        shared_to: Vec<String>,
         tags: Vec<String>,
         attachments: Vec<VizierAttachment>,
         indexer: &VizierIndexer,
     ) -> Result<Memory>;
 
+    /// Semantic search. `bundle: None` searches across all of the agent's bundles.
     async fn query_memory(
         &self,
         agent_id: String,
+        bundle: Option<String>,
         query: String,
         limit: usize,
         threshold: f64,
         indexer: &VizierIndexer,
     ) -> Result<Vec<Memory>>;
 
-    async fn get_all_agent_memory(&self, agent_id: String) -> Result<Vec<Memory>>;
-
-    async fn get_filtered_memories(
+    /// `bundle: None` means all bundles.
+    async fn get_all_agent_memory(
         &self,
-        params: MemoryQueryParams,
-    ) -> Result<PaginatedMemory>;
+        agent_id: String,
+        bundle: Option<String>,
+    ) -> Result<Vec<Memory>>;
 
-    async fn get_memory_detail(&self, agent_id: String, slug: String) -> Result<Option<Memory>>;
+    async fn get_filtered_memories(&self, params: MemoryQueryParams) -> Result<PaginatedMemory>;
 
+    /// `bundle: None` means the agent's default bundle.
+    async fn get_memory_detail(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+    ) -> Result<Option<Memory>>;
+
+    /// `bundle: None` means the agent's default bundle.
     async fn get_related_memories(
         &self,
         agent_id: String,
-        slug: String,
+        bundle: Option<String>,
+        path: String,
     ) -> Result<Vec<Memory>>;
 
+    /// `bundle: None` returns the bundle-level graph (bundles as nodes); `Some(name)` returns
+    /// that bundle's concept-level graph.
     async fn get_memory_graph(
         &self,
         agent_id: String,
+        bundle: Option<String>,
         search: Option<String>,
     ) -> Result<MemoryGraph>;
 
-    async fn has_incoming_links(&self, agent_id: String, slug: String) -> Result<bool>;
+    /// `bundle: None` means the agent's default bundle.
+    async fn has_incoming_links(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+    ) -> Result<bool>;
 
+    /// `bundle: None` means the agent's default bundle.
     async fn delete_memory(
         &self,
         agent_id: String,
-        slug: String,
+        bundle: Option<String>,
+        path: String,
         indexer: &VizierIndexer,
     ) -> Result<()>;
 
-    async fn increment_read_count(&self, agent_id: String, slug: String) -> Result<()>;
+    /// `bundle: None` means the agent's default bundle.
+    async fn increment_read_count(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+    ) -> Result<()>;
+
+    async fn list_bundles(&self, agent_id: String) -> Result<Vec<BundleSummary>>;
+
+    /// Deletes a bundle's `index.md`/`log.md` (and any other non-concept file left in it).
+    /// When `force` is `false`, rejected with `Err` if the bundle still contains any concept
+    /// document — a bundle must be emptied of concepts (via `delete_memory`) before it can be
+    /// deleted itself. When `force` is `true`, every remaining concept document is deleted too
+    /// (and its embedding removed via `indexer`) before the bundle itself goes — this is
+    /// reserved for the WebUI/HTTP operator path (an explicit, confirmed action); the
+    /// `memory_delete_bundle` agent tool never sets it.
+    async fn delete_bundle(
+        &self,
+        agent_id: String,
+        bundle: String,
+        force: bool,
+        indexer: &VizierIndexer,
+    ) -> Result<()>;
+
+    async fn export_bundle(&self, agent_id: String, bundle: String) -> Result<Vec<u8>>;
+
+    async fn import_bundle(
+        &self,
+        agent_id: String,
+        bundle: String,
+        zip_bytes: Vec<u8>,
+        indexer: &VizierIndexer,
+    ) -> Result<ImportReport>;
 }
 
 #[async_trait::async_trait]
@@ -71,77 +136,139 @@ impl MemoryStorage for VizierStorage {
     async fn write_memory(
         &self,
         agent_id: String,
-        slug: Option<String>,
+        bundle: Option<String>,
+        path: Option<String>,
+        create_only: bool,
         title: String,
         content: String,
-        visibility: MemoryVisibility,
-        shared_to: Vec<String>,
         tags: Vec<String>,
         attachments: Vec<VizierAttachment>,
         indexer: &VizierIndexer,
     ) -> Result<Memory> {
         self.0
-            .write_memory(agent_id, slug, title, content, visibility, shared_to, tags, attachments, indexer)
+            .write_memory(
+                agent_id,
+                bundle,
+                path,
+                create_only,
+                title,
+                content,
+                tags,
+                attachments,
+                indexer,
+            )
             .await
     }
 
     async fn query_memory(
         &self,
         agent_id: String,
+        bundle: Option<String>,
         query: String,
         limit: usize,
         threshold: f64,
         indexer: &VizierIndexer,
     ) -> Result<Vec<Memory>> {
-        self.0.query_memory(agent_id, query, limit, threshold, indexer).await
+        self.0
+            .query_memory(agent_id, bundle, query, limit, threshold, indexer)
+            .await
     }
 
-    async fn get_all_agent_memory(&self, agent_id: String) -> Result<Vec<Memory>> {
-        self.0.get_all_agent_memory(agent_id).await
-    }
-
-    async fn get_filtered_memories(
+    async fn get_all_agent_memory(
         &self,
-        params: MemoryQueryParams,
-    ) -> Result<PaginatedMemory> {
+        agent_id: String,
+        bundle: Option<String>,
+    ) -> Result<Vec<Memory>> {
+        self.0.get_all_agent_memory(agent_id, bundle).await
+    }
+
+    async fn get_filtered_memories(&self, params: MemoryQueryParams) -> Result<PaginatedMemory> {
         self.0.get_filtered_memories(params).await
     }
 
-    async fn get_memory_detail(&self, agent_id: String, slug: String) -> Result<Option<Memory>> {
-        self.0.get_memory_detail(agent_id, slug).await
+    async fn get_memory_detail(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+    ) -> Result<Option<Memory>> {
+        self.0.get_memory_detail(agent_id, bundle, path).await
     }
 
     async fn get_related_memories(
         &self,
         agent_id: String,
-        slug: String,
+        bundle: Option<String>,
+        path: String,
     ) -> Result<Vec<Memory>> {
-        self.0.get_related_memories(agent_id, slug).await
+        self.0.get_related_memories(agent_id, bundle, path).await
     }
 
     async fn get_memory_graph(
         &self,
         agent_id: String,
+        bundle: Option<String>,
         search: Option<String>,
     ) -> Result<MemoryGraph> {
-        self.0.get_memory_graph(agent_id, search).await
+        self.0.get_memory_graph(agent_id, bundle, search).await
     }
 
-    async fn has_incoming_links(&self, agent_id: String, slug: String) -> Result<bool> {
-        self.0.has_incoming_links(agent_id, slug).await
+    async fn has_incoming_links(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+    ) -> Result<bool> {
+        self.0.has_incoming_links(agent_id, bundle, path).await
     }
 
     async fn delete_memory(
         &self,
         agent_id: String,
-        slug: String,
+        bundle: Option<String>,
+        path: String,
         indexer: &VizierIndexer,
     ) -> Result<()> {
-        self.0.delete_memory(agent_id, slug, indexer).await
+        self.0.delete_memory(agent_id, bundle, path, indexer).await
     }
 
-    async fn increment_read_count(&self, agent_id: String, slug: String) -> Result<()> {
-        self.0.increment_read_count(agent_id, slug).await
+    async fn increment_read_count(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+    ) -> Result<()> {
+        self.0.increment_read_count(agent_id, bundle, path).await
+    }
+
+    async fn list_bundles(&self, agent_id: String) -> Result<Vec<BundleSummary>> {
+        self.0.list_bundles(agent_id).await
+    }
+
+    async fn delete_bundle(
+        &self,
+        agent_id: String,
+        bundle: String,
+        force: bool,
+        indexer: &VizierIndexer,
+    ) -> Result<()> {
+        self.0.delete_bundle(agent_id, bundle, force, indexer).await
+    }
+
+    async fn export_bundle(&self, agent_id: String, bundle: String) -> Result<Vec<u8>> {
+        self.0.export_bundle(agent_id, bundle).await
+    }
+
+    async fn import_bundle(
+        &self,
+        agent_id: String,
+        bundle: String,
+        zip_bytes: Vec<u8>,
+        indexer: &VizierIndexer,
+    ) -> Result<ImportReport> {
+        self.0
+            .import_bundle(agent_id, bundle, zip_bytes, indexer)
+            .await
     }
 }
 
@@ -166,15 +293,15 @@ pub fn compute_initial_slugs(nodes: &[MemoryGraphNode], search: Option<&str>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::MemoryVisibility;
 
     fn node(slug: &str, tags: &[&str]) -> MemoryGraphNode {
         MemoryGraphNode {
             slug: slug.to_string(),
+            bundle: "default".to_string(),
             title: slug.to_string(),
             tags: tags.iter().map(|s| s.to_string()).collect(),
-            visibility: MemoryVisibility::Private,
             agent_id: "a".to_string(),
+            boundary: false,
         }
     }
 

@@ -1,16 +1,20 @@
 <!--
 Sync Impact Report
 ==================
-Version change: (none) → 1.0.0 (initial ratification)
-Modified principles: n/a (first adoption)
-Added sections:
-  - Core Principles: I. Lean by Default, II. DRY via Trait-Based Extensibility,
-    III. Self-Contained, Zero-Dependency Runtime, IV. Portability by Default,
-    V. Unified Errors & Observability
-  - Distribution & Technology Constraints
-  - Development Workflow & Quality Gates
-  - Governance
-Removed sections: none (template placeholders only)
+Version change: 1.0.0 → 1.1.0
+Modified principles:
+  - III. Self-Contained, Zero-Dependency Runtime — narrowed "Storage MUST
+    remain embedded (bundled SQLite or the filesystem backend)" to
+    "Storage MUST remain embedded (bundled SQLite)"; the filesystem backend
+    is no longer a supported VizierStorageProvider (specs/004-memory-open-format).
+Added sections: none
+Removed sections: none
+Modified sections:
+  - Distribution & Technology Constraints — "No required external services"
+    bullet updated: embedded SQLite is now the sole supported storage
+    backend (was "SQLite ... and the filesystem backend"), with a note on
+    why (agent memory moved onto a pluggable DocumentStore abstraction,
+    removing the filesystem backend's last unique justification).
 Templates requiring updates:
   - .specify/templates/plan-template.md ✅ no change needed (Constitution Check
     section is derived dynamically from this file, no hardcoded principle names)
@@ -61,9 +65,8 @@ future bug fix or provider quirk must be remembered and applied.
 A built release binary MUST run without requiring the user to install,
 configure, or connect to any external service — no external database,
 message broker, cache, or reverse proxy. Storage MUST remain embedded
-(bundled SQLite or the filesystem backend); the WebUI's static assets MUST
-be embedded into the binary at build time, not fetched or served from a
-separate deployment. Configuration MUST have working built-in defaults
+(bundled SQLite); the WebUI's static assets MUST be embedded into the
+binary at build time, not fetched or served from a separate deployment. Configuration MUST have working built-in defaults
 ("config-less mode") so `vizier run` with zero setup is always a valid
 starting point. Any feature that inherently needs a network resource at
 runtime (a model provider API, an optional embedding-model download) MUST
@@ -108,12 +111,16 @@ instead of each module reinventing its own convention.
 
 ## Distribution & Technology Constraints
 
-- **No required external services**: the only supported storage backends
-  are embedded SQLite (`rusqlite` with the `bundled` feature — statically
-  linked, no system SQLite dependency) and the filesystem backend. Adding a
-  storage backend that requires a running external server (Postgres,
-  Redis, etc.) as the *only* option is out of scope for this project;
-  such a backend, if ever added, MUST remain strictly opt-in and additive.
+- **No required external services**: the only supported storage backend is
+  embedded SQLite (`rusqlite` with the `bundled` feature — statically
+  linked, no system SQLite dependency). A prior filesystem-based backend
+  was removed once agent memory itself moved onto a pluggable
+  `DocumentStore` abstraction writing human-readable documents to disk
+  (see `specs/004-memory-open-format/`), leaving no remaining entity that
+  needed a second, flat-file storage backend. Adding a storage backend
+  that requires a running external server (Postgres, Redis, etc.) as the
+  *only* option is out of scope for this project; such a backend, if ever
+  added, MUST remain strictly opt-in and additive.
 - **Single-binary output**: `cargo build --release` (with the WebUI
   pre-built or `webui/node_modules` present) MUST produce one self-contained
   executable capable of serving the WebUI, running channels, and persisting
@@ -183,4 +190,4 @@ service or non-embedded runtime dependency). Deviations MUST be justified
 in the PR description (equivalent to the plan template's Complexity
 Tracking table) or the change MUST be revised before merge.
 
-**Version**: 1.0.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-08-13
+**Version**: 1.1.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-09-13
