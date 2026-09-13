@@ -130,6 +130,24 @@ fix a bundle's cached graph/listing view for documents nobody has touched yet �
 governed by `memory_node`/`memory_edge` (research.md §9) until something reads that specific
 document.
 
+**Update 2 (found in practice)**: `classify_relation`'s syntactic split (same-bundle vs.
+cross-bundle) can't distinguish "a nested path within my own bundle" from "a different bundle
+name that happens to look like a path segment," because both are written with identical
+relative-link syntax. In practice, agents very commonly write a cross-bundle reference as if the
+whole memory tree were one shared filesystem — `[label](books/great-gatsby.md)` from *inside* a
+different bundle (e.g. `authors`), meaning "the `great-gatsby` concept in the `books` bundle,"
+not a nested path inside the source's own bundle. `rewrite_edges` now resolves each relation with
+existence checks against `memory_node` rather than trusting the syntactic classification alone:
+it tries the literal interpretation first (so a real nested same-bundle path keeps working
+exactly as before — never overridden once it actually resolves), and only reinterprets as
+cross-bundle when the literal target doesn't exist *and* the reinterpreted one does. The
+symmetric fallback also applies to a bare `[[slug]]` legacy wikilink that doesn't name an
+existing bundle, per this section's original "reinterpreted... a broken link otherwise" note —
+it now additionally tries a same-bundle concept match before giving up. Because this resolution
+happens fresh on every `rewrite_edges` call (every write, and via the self-healing read path
+above), an edge that was unresolvable when first written self-heals automatically once the
+bundle/concept it was actually pointing at comes to exist — no migration needed here either.
+
 ## 7. Migration: row/flat-file memory into bundles, and `filesystem`-backend deployments onto sqlite
 
 **Decision**: Add one more one-time startup migration in `dependencies.rs`, alongside the

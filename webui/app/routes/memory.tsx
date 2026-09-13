@@ -39,6 +39,22 @@ function getErrorMessage(err: unknown): string {
   return 'An error occurred'
 }
 
+// Mirrors the backend's same_bundle_link_target (src/storage/memory_bundle.rs): recognizes a
+// same-bundle concept link whether or not the agent included the `.md` extension, and returns
+// the bare concept path (no extension) to open — or null if this is a URL, mailto:, an anchor,
+// or a relative link to something with a *different* extension (an attachment, an image),
+// which should behave like an ordinary link instead of being treated as a memory reference.
+function sameBundleLinkTarget(href: string): string | null {
+  if (!href || href.startsWith('#')) return null
+  const firstSegment = href.split('/')[0] ?? ''
+  if (firstSegment.includes(':')) return null
+  const pathOnly = href.split(/[?#]/)[0] ?? href
+  if (pathOnly.endsWith('.md')) return pathOnly.slice(0, -3)
+  const leaf = pathOnly.split('/').pop() ?? pathOnly
+  if (!pathOnly || leaf.includes('.')) return null
+  return pathOnly
+}
+
 type ModalMode = 'create' | 'edit' | 'view' | null
 
 function BundleBadge({ bundle }: { bundle: string }) {
@@ -564,7 +580,34 @@ export default function MemoryManagement() {
                 border: '1px solid var(--border)',
               }}
             >
-              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeHighlight]}
+                components={{
+                  a: ({ href, children, ...props }) => {
+                    const target = href ? sameBundleLinkTarget(href) : null
+                    if (target === null) {
+                      return (
+                        <a href={href} target="_blank" rel="noreferrer" {...props}>
+                          {children}
+                        </a>
+                      )
+                    }
+                    return (
+                      <a
+                        href={href}
+                        {...props}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          handleViewMemory(target, selectedMemory.bundle)
+                        }}
+                      >
+                        {children}
+                      </a>
+                    )
+                  },
+                }}
+              >
                 {selectedMemory.content}
               </ReactMarkdown>
             </div>

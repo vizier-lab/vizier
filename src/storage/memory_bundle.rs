@@ -365,7 +365,7 @@ impl BundleMemoryStore {
             params![agent_id, source_bundle, source_path],
         )?;
         for relation in relations {
-            let classified = classify_relation(source_bundle, relation);
+            let classified = Self::resolve_relation(&conn, agent_id, source_bundle, relation)?;
             conn.execute(
                 "INSERT INTO memory_edge
                     (agent_id, source_bundle, source_path, target_bundle, target_path, target_kind, broken)
@@ -381,6 +381,93 @@ impl BundleMemoryStore {
             )?;
         }
         Ok(())
+    }
+
+    fn node_exists(conn: &Connection, agent_id: &str, bundle: &str, path: &str) -> Result<bool> {
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM memory_node WHERE agent_id = ?1 AND bundle = ?2 AND path = ?3",
+            params![agent_id, bundle, path],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    fn bundle_has_any_node(conn: &Connection, agent_id: &str, bundle: &str) -> Result<bool> {
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM memory_node WHERE agent_id = ?1 AND bundle = ?2",
+            params![agent_id, bundle],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    /// `classify_relation` is purely syntactic — it can't tell "a nested path within my own
+    /// bundle" from "a different bundle name that happens to look like a path segment," because
+    /// both are written with the exact same relative-link syntax. In practice, agents very
+    /// commonly write a cross-bundle reference as if the whole memory tree were one shared
+    /// filesystem — `[label](books/great-gatsby.md)` from *inside* a different bundle, meaning
+    /// "the `great-gatsby` concept in the `books` bundle," not "the nested path
+    /// `books/great-gatsby` inside my own bundle." Resolve with existence checks: try the
+    /// literal classification first (never overridden if it actually resolves, so a real nested
+    /// path keeps working exactly as before); only fall back to a smarter reinterpretation when
+    /// the literal target doesn't exist *and* the fallback's target does. Symmetric fallback for
+    /// a bare `[[slug]]` legacy wikilink that doesn't name an existing bundle, matching
+    /// research.md §6. Never returns an `Err` for an unresolvable link — an unresolved relation
+    /// simply keeps its literal (and therefore broken) classification, exactly as before this
+    /// existed.
+    fn resolve_relation(
+        conn: &Connection,
+        agent_id: &str,
+        source_bundle: &str,
+        relation: &str,
+    ) -> Result<ClassifiedLink> {
+        let literal = classify_relation(source_bundle, relation);
+
+        match literal.kind {
+            "same_bundle" => {
+                let path = literal.target_path.clone().unwrap_or_default();
+                if Self::node_exists(conn, agent_id, source_bundle, &path)? {
+                    return Ok(literal);
+                }
+                if let Some((maybe_bundle, rest)) = path.split_once('/') {
+                    if !rest.is_empty()
+                        && Self::bundle_has_any_node(conn, agent_id, maybe_bundle)?
+                        && Self::node_exists(conn, agent_id, maybe_bundle, rest)?
+                    {
+                        return Ok(ClassifiedLink {
+                            target_bundle: maybe_bundle.to_string(),
+                            target_path: Some(rest.to_string()),
+                            kind: "cross_bundle_concept",
+                        });
+                    }
+                } else if Self::bundle_has_any_node(conn, agent_id, &path)? {
+                    // No concept literally named `path` here, but a whole bundle by that name
+                    // exists (e.g. content wrote `[books](books/)`, which parses to the
+                    // same-bundle-shaped relation "books.md") — a whole-bundle reference.
+                    return Ok(ClassifiedLink {
+                        target_bundle: path,
+                        target_path: None,
+                        kind: "cross_bundle_bundle",
+                    });
+                }
+                Ok(literal)
+            }
+            "cross_bundle_bundle" => {
+                let bundle_name = literal.target_bundle.clone();
+                if Self::bundle_has_any_node(conn, agent_id, &bundle_name)? {
+                    return Ok(literal);
+                }
+                if Self::node_exists(conn, agent_id, source_bundle, &bundle_name)? {
+                    return Ok(ClassifiedLink {
+                        target_bundle: source_bundle.to_string(),
+                        target_path: Some(bundle_name),
+                        kind: "same_bundle",
+                    });
+                }
+                Ok(literal)
+            }
+            _ => Ok(literal),
+        }
     }
 
     fn delete_edges_from(&self, agent_id: &str, bundle: &str, path: &str) -> Result<()> {
@@ -1707,6 +1794,129 @@ mod tests {
             .await
             .unwrap();
         assert!(related.iter().any(|m| m.slug == "alpha"));
+    }
+
+    /// Real-world failure mode: an agent writes a cross-bundle reference using ordinary
+    /// same-bundle relative-link syntax, treating the whole memory tree as one shared
+    /// filesystem — `[label](books/great-gatsby.md)` from *inside* the `authors` bundle,
+    /// meaning "the `great-gatsby` concept in the `books` bundle." Since that literal nested
+    /// path doesn't exist within `authors`, but `books` is a real bundle containing a concept
+    /// at that path, it should resolve there instead of staying permanently broken.
+    #[tokio::test]
+    async fn cross_bundle_reference_written_as_a_same_bundle_style_path_still_resolves() {
+        let (store, _dir, indexer) = setup();
+        store
+            .write_memory(
+                "viz".into(),
+                Some("books".into()),
+                Some("great-gatsby".into()),
+                false,
+                "The Great Gatsby".into(),
+                "content".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+
+        store
+            .write_memory(
+                "viz".into(),
+                Some("authors".into()),
+                Some("f-scott-fitzgerald".into()),
+                false,
+                "F. Scott Fitzgerald".into(),
+                "wrote [The Great Gatsby](books/great-gatsby.md)".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+
+        let related = store
+            .get_related_memories("viz".into(), Some("authors".into()), "f-scott-fitzgerald".into())
+            .await
+            .unwrap();
+        assert!(related.iter().any(|m| m.bundle == "books" && m.slug == "great-gatsby"));
+
+        // A genuine same-bundle nested path must keep working exactly as before — the literal
+        // interpretation always wins when it actually resolves.
+        store
+            .write_memory(
+                "viz".into(),
+                Some("authors".into()),
+                Some("nested/real-nested-concept".into()),
+                false,
+                "Real Nested Concept".into(),
+                "content".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+        store
+            .write_memory(
+                "viz".into(),
+                Some("authors".into()),
+                Some("pointer".into()),
+                false,
+                "Pointer".into(),
+                "see [nested](nested/real-nested-concept.md)".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+        let related2 = store
+            .get_related_memories("viz".into(), Some("authors".into()), "pointer".into())
+            .await
+            .unwrap();
+        assert!(related2.iter().any(|m| m.bundle == "authors" && m.slug == "nested/real-nested-concept"));
+    }
+
+    /// A bare legacy `[[slug]]` wikilink that doesn't name an existing bundle should resolve as
+    /// a same-bundle concept reference instead of staying permanently broken, per research.md §6.
+    #[tokio::test]
+    async fn bare_wikilink_falls_back_to_same_bundle_concept_when_no_such_bundle_exists() {
+        let (store, _dir, indexer) = setup();
+        store
+            .write_memory(
+                "a1".into(),
+                Some("default".into()),
+                Some("alpha".into()),
+                false,
+                "Alpha".into(),
+                "content".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+        store
+            .write_memory(
+                "a1".into(),
+                Some("default".into()),
+                Some("gamma".into()),
+                false,
+                "Gamma".into(),
+                "see [[alpha]]".into(),
+                vec![],
+                vec![],
+                &indexer,
+            )
+            .await
+            .unwrap();
+
+        let related = store
+            .get_related_memories("a1".into(), Some("default".into()), "gamma".into())
+            .await
+            .unwrap();
+        assert!(related.iter().any(|m| m.bundle == "default" && m.slug == "alpha"));
     }
 
     #[tokio::test]
