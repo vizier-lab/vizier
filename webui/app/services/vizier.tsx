@@ -301,11 +301,15 @@ export const deleteTopic = async (agentId: string, topicId: string) => {
 // MEMORY ENDPOINTS
 // ============================================================================
 
+// `path` may be multi-segment (nested concept, e.g. "friends/bred") — encode each segment
+// individually so slashes stay as path separators rather than being escaped to %2F.
+const encodeMemoryPath = (path: string) => path.split('/').map(encodeURIComponent).join('/')
+
 export const listMemories = async (
   agentId: string,
   params?: {
+    bundle?: string
     tags?: string
-    visibility?: string
     offset?: number
     limit?: number
     sort_by?: string
@@ -313,8 +317,8 @@ export const listMemories = async (
   }
 ) => {
   const searchParams = new URLSearchParams()
+  if (params?.bundle) searchParams.append('bundle', params.bundle)
   if (params?.tags) searchParams.append('tags', params.tags)
-  if (params?.visibility) searchParams.append('visibility', params.visibility)
   if (params?.offset !== undefined) searchParams.append('offset', params.offset.toString())
   if (params?.limit !== undefined) searchParams.append('limit', params.limit.toString())
   if (params?.sort_by) searchParams.append('sort_by', params.sort_by)
@@ -326,8 +330,16 @@ export const listMemories = async (
   return res.data
 }
 
-export const getMemory = async (agentId: string, slug: string) => {
-  const res = await apiClient.get(`/agents/${agentId}/memory/${slug}`)
+export const listBundles = async (agentId: string) => {
+  const res = await apiClient.get(`/agents/${agentId}/memory/bundles`)
+  return res.data
+}
+
+export const getMemory = async (agentId: string, path: string, bundle?: string) => {
+  const url = bundle
+    ? `/agents/${agentId}/memory/doc/${encodeURIComponent(bundle)}/${encodeMemoryPath(path)}`
+    : `/agents/${agentId}/memory/${encodeURIComponent(path)}`
+  const res = await apiClient.get(url)
   return res.data
 }
 
@@ -335,18 +347,16 @@ export const createMemory = async (
   agentId: string,
   title: string,
   content: string,
-  slug?: string,
-  visibility?: string,
-  sharedTo?: string[],
+  bundle?: string,
+  path?: string,
   tags?: string[],
   attachments?: VizierAttachment[]
 ) => {
   const res = await apiClient.post(`/agents/${agentId}/memory`, {
     title,
     content,
-    slug,
-    visibility,
-    shared_to: sharedTo,
+    bundle,
+    path,
     tags,
     attachments,
   })
@@ -355,38 +365,43 @@ export const createMemory = async (
 
 export const updateMemory = async (
   agentId: string,
-  slug: string,
+  path: string,
   title: string,
   content: string,
-  visibility?: string,
-  sharedTo?: string[],
+  bundle?: string,
   tags?: string[],
   attachments?: VizierAttachment[]
 ) => {
-  const res = await apiClient.put(`/agents/${agentId}/memory/${slug}`, {
+  const url = bundle
+    ? `/agents/${agentId}/memory/doc/${encodeURIComponent(bundle)}/${encodeMemoryPath(path)}`
+    : `/agents/${agentId}/memory/${encodeURIComponent(path)}`
+  const res = await apiClient.put(url, {
     title,
     content,
-    visibility,
-    shared_to: sharedTo,
     tags,
     attachments,
   })
   return res.data
 }
 
-export const deleteMemory = async (agentId: string, slug: string) => {
-  const res = await apiClient.delete(`/agents/${agentId}/memory/${slug}`)
+export const deleteMemory = async (agentId: string, path: string, bundle?: string) => {
+  const url = bundle
+    ? `/agents/${agentId}/memory/doc/${encodeURIComponent(bundle)}/${encodeMemoryPath(path)}`
+    : `/agents/${agentId}/memory/${encodeURIComponent(path)}`
+  const res = await apiClient.delete(url)
   return res.data
 }
 
 export const queryMemories = async (
   agentId: string,
   query: string,
+  bundle?: string,
   limit?: number,
   threshold?: number
 ) => {
   const params = new URLSearchParams()
   params.append('query', query)
+  if (bundle) params.append('bundle', bundle)
   if (limit) params.append('limit', limit.toString())
   if (threshold) params.append('threshold', threshold.toString())
 
@@ -396,18 +411,43 @@ export const queryMemories = async (
 
 export const getMemoryGraph = async (
   agentId: string,
+  bundle?: string,
   opts?: { search?: string }
 ) => {
   const params = new URLSearchParams()
   if (opts?.search) params.append('search', opts.search)
   const queryString = params.toString()
-  const url = `/agents/${agentId}/memory/graph${queryString ? `?${queryString}` : ''}`
+  const base = bundle
+    ? `/agents/${agentId}/memory/${encodeURIComponent(bundle)}/graph`
+    : `/agents/${agentId}/memory/bundles/graph`
+  const url = `${base}${queryString ? `?${queryString}` : ''}`
   const res = await apiClient.get(url)
   return res.data
 }
 
-export const getRelatedMemories = async (agentId: string, slug: string) => {
-  const res = await apiClient.get(`/agents/${agentId}/memory/${slug}/related`)
+export const getRelatedMemories = async (agentId: string, path: string, bundle?: string) => {
+  const url = bundle
+    ? `/agents/${agentId}/memory/related/${encodeURIComponent(bundle)}/${encodeMemoryPath(path)}`
+    : `/agents/${agentId}/memory/${encodeURIComponent(path)}/related`
+  const res = await apiClient.get(url)
+  return res.data
+}
+
+export const exportBundle = async (agentId: string, bundle: string) => {
+  const res = await apiClient.get(
+    `/agents/${agentId}/memory/bundles/${encodeURIComponent(bundle)}/export`,
+    { responseType: 'blob' }
+  )
+  return res.data as Blob
+}
+
+export const importBundle = async (agentId: string, bundle: string, file: File) => {
+  const formData = new FormData()
+  formData.append('bundle', bundle)
+  formData.append('file', file)
+  const res = await apiClient.post(`/agents/${agentId}/memory/bundles/import`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
   return res.data
 }
 

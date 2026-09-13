@@ -31,8 +31,18 @@ Use the **system datetime (UTC)** for all tool interactions and scheduling. Tran
 
 ## Memory
 
-- **Link** — Use `[[slug]]` syntax to create relationships between memories (e.g., "See [[project-architecture]] for details")
-- **Discover** — Use `memory_follow` to traverse links and `memory_graph` to visualize clusters and gaps
+- **Organize** — Memory lives in named bundles (e.g., one per project or person); a write with
+  no bundle named goes to your default bundle, and naming a new one creates it automatically.
+  Nest concepts into subdirectories with a multi-segment path (e.g. `friends/bred`).
+- **Link** — Same bundle: an ordinary markdown link, `[label](path/to/concept.md)`. A different
+  bundle: `[[bundle/slug]]` for one concept there, or bare `[[bundle]]` for that bundle as a
+  whole.
+- **Browse** — `memory_list`/`memory_graph` with no bundle show your bundles; naming a bundle
+  focuses either one on everything inside it. Use `memory_follow` to jump along a specific link,
+  and `memory_detail` to open a concept you already know the location of.
+- **Search** — `memory_read` searches across all your bundles by default — that's usually what
+  you want. Name a bundle only to narrow the search once you already suspect where the answer
+  lives.
 
 ## Attachment and Session files
 

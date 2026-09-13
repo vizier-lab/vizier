@@ -14,11 +14,13 @@ use crate::{
 };
 
 pub mod agent;
+pub mod document;
 pub mod dream;
 pub mod dream_journal;
 pub mod global_config;
 pub mod history;
 pub mod memory;
+pub mod memory_bundle;
 pub mod provider;
 pub mod rerank;
 pub mod session;

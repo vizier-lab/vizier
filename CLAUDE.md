@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Vizier is a Rust-based AI agent framework: a single binary that runs multiple concurrent AI agents, each with its own tools, memory, and provider, exposed over Discord, Telegram, and HTTP (REST + WebSocket + a bundled React WebUI). Storage is embedded (SQLite or filesystem — no external DB service required).
+Vizier is a Rust-based AI agent framework: a single binary that runs multiple concurrent AI agents, each with its own tools, memory, and provider, exposed over Discord, Telegram, and HTTP (REST + WebSocket + a bundled React WebUI). Storage is embedded SQLite — no external DB service required. Agent memory itself lives as human-readable markdown documents on disk (organized into per-agent **bundles**, see below), read/written through a pluggable `DocumentStore` abstraction; every other entity lives in SQLite.
 
 ## Commands
 
@@ -32,7 +32,7 @@ WebUI typecheck: `cd webui && npm run typecheck` (runs `react-router typegen && 
 
 ## CLI subcommands
 
-- `vizier run [-c <path>] [-d] [--port] [--workspace/--data-dir] [--storage filesystem|sqlite] [--workers] [--ws-idle-timeout]` — start agents, scheduler, channels, and the command server. Works with **no config file** (config-less mode, see below).
+- `vizier run [-c <path>] [-d] [--port] [--workspace/--data-dir] [--storage sqlite] [--workers] [--ws-idle-timeout]` — start agents, scheduler, channels, and the command server. Works with **no config file** (config-less mode, see below). `sqlite` is the only supported `--storage` value; a deployment still configured with the legacy `filesystem` backend is migrated into sqlite automatically on first startup after upgrading (see `dependencies.rs`'s migrations below) — `--storage filesystem`/`VIZIER_STORAGE=filesystem` on a *new* invocation is rejected outright.
 - `vizier shutdown [-c <path>]`
 - `vizier onboard -p <path>` — interactive wizard that writes a seed `.vizier.yaml`.
 - `vizier skill install|list|uninstall|update`
@@ -69,7 +69,9 @@ Tools implement the `VizierTool` trait: associated `Input`/`Output` types (both 
 
 ### Storage (`src/storage/`)
 
-`VizierStorageProvider` is a supertrait composing every storage concern (`MemoryStorage`, `TaskStorage`, `HistoryStorage`, `SessionStorage`, `StateStorage`, `UserStorage`, `AgentStorage`, `ProviderStorage`, `GlobalConfigStorage`, `DreamJournalStorage`, `DreamStorage`, `SessionFileStorage`). `VizierStorage` type-erases a concrete backend (`storage/sqlite` or `storage/fs`) behind `Arc<Box<dyn VizierStorageProvider>>` and hand-forwards every trait method. **Adding a storage backend** means implementing every one of those traits for the new type, then `impl VizierStorageProvider for it`.
+`VizierStorageProvider` is a supertrait composing every storage concern (`MemoryStorage`, `TaskStorage`, `HistoryStorage`, `SessionStorage`, `StateStorage`, `UserStorage`, `AgentStorage`, `ProviderStorage`, `GlobalConfigStorage`, `DreamJournalStorage`, `DreamStorage`, `SessionFileStorage`). `VizierStorage` type-erases the concrete backend (`storage/sqlite` — the sole `VizierStorageProvider` implementation) behind `Arc<Box<dyn VizierStorageProvider>>` and hand-forwards every trait method. **Adding a storage backend** means implementing every one of those traits for the new type, then `impl VizierStorageProvider for it`. The old `storage/fs` (`FileSystemStorage`) backend has been removed as a runtime option; its non-memory trait impls survive only as a read source for the one-time `migrate_filesystem_backend_to_sqlite` startup migration in `dependencies.rs`, for deployments upgrading from a pre-existing `--storage filesystem` install.
+
+`MemoryStorage` is the one exception to "storage backend owns the bytes": memory concept documents are markdown files (YAML frontmatter + body) addressed by `(agent_id, bundle, path)`, read/written through the pluggable `storage::document::DocumentStore` trait (default: `LocalDocumentStore`, rooted at `{workspace}/agents/{agent_id}/memory/...`), with `storage::memory_bundle::BundleMemoryStore` as the single implementation of bundle/concept logic (link parsing, `index.md`/`log.md` maintenance, bundle export/import as `.zip`) and the sole `impl MemoryStorage for SqliteStorage`. SQLite still caches a derived, reconcilable **Memory Graph Index** (`memory_node`/`memory_edge` tables) so listing/graph/related-memory queries never need to read the documents themselves — only `memory_detail`, semantic search, and export ever call into `DocumentStore`. See `specs/004-memory-open-format/` for the full design.
 
 ### Channels (`src/channels/`)
 

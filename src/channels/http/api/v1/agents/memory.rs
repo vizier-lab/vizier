@@ -1,9 +1,11 @@
 use axum::{
-    Extension, Router,
+    Extension, Json, Router,
     extract::{Path, Query, State},
+    http::header,
+    response::IntoResponse,
     routing::{delete, get, post, put},
-    Json,
 };
+use axum_extra::extract::Multipart;
 use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -12,15 +14,15 @@ use crate::{
     channels::http::{
         models::{
             self,
-            response::{api_response, err_response, APIResponse},
+            response::{APIResponse, api_response, err_response},
         },
         state::HTTPState,
     },
     schema::{
-        Memory, MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams, MemoryVisibility,
-        PaginatedMemory, VizierAttachment,
+        BundleSummary, ImportReport, Memory, MemoryGraph, MemoryQueryParams, VizierAttachment,
+        default_bundle,
     },
-    storage::{agent::AgentStorage, memory::MemoryStorage},
+    storage::agent::AgentStorage,
 };
 
 use super::user_can_view_agent;
@@ -30,40 +32,39 @@ pub fn memory() -> Router<HTTPState> {
         .route("/", get(get_all_memories))
         .route("/", post(create_memory))
         .route("/query", get(query_memories))
-        .route("/graph", get(get_memory_graph))
+        .route("/bundles", get(list_bundles))
+        .route("/bundles/graph", get(get_bundle_level_graph))
+        .route("/bundles/import", post(import_bundle_handler))
+        .route("/bundles/{bundle}/export", get(export_bundle_handler))
+        .route("/{bundle}/graph", get(get_bundle_graph))
         .route("/{slug}", get(get_memory_detail))
         .route("/{slug}", put(update_memory))
         .route("/{slug}", delete(delete_memory))
         .route("/{slug}/related", get(get_related_memories))
+        .route("/doc/{bundle}/{*path}", get(get_memory_detail_scoped))
+        .route("/doc/{bundle}/{*path}", put(update_memory_scoped))
+        .route("/doc/{bundle}/{*path}", delete(delete_memory_scoped))
+        .route("/related/{bundle}/{*path}", get(get_related_memories_scoped))
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateMemoryRequest {
     title: String,
     content: String,
-    slug: Option<String>,
-    #[serde(default = "default_visibility")]
-    visibility: String,
     #[serde(default)]
-    shared_to: Vec<String>,
+    bundle: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
     #[serde(default)]
     attachments: Option<Vec<VizierAttachment>>,
 }
 
-fn default_visibility() -> String {
-    "private".to_string()
-}
-
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateMemoryRequest {
     title: String,
     content: String,
-    #[serde(default = "default_visibility")]
-    visibility: String,
-    #[serde(default)]
-    shared_to: Vec<String>,
     #[serde(default)]
     tags: Vec<String>,
     #[serde(default)]
@@ -73,6 +74,8 @@ pub struct UpdateMemoryRequest {
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct QueryMemoryRequest {
     query: String,
+    #[serde(default)]
+    bundle: Option<String>,
     #[serde(default = "default_limit")]
     limit: usize,
     #[serde(default = "default_threshold")]
@@ -90,9 +93,9 @@ fn default_threshold() -> f64 {
 #[derive(Debug, Deserialize)]
 pub struct ListMemoryParams {
     #[serde(default)]
-    pub tags: Option<String>,
+    pub bundle: Option<String>,
     #[serde(default)]
-    pub visibility: Option<String>,
+    pub tags: Option<String>,
     #[serde(default = "default_list_offset")]
     pub offset: usize,
     #[serde(default = "default_list_limit")]
@@ -120,11 +123,11 @@ fn default_list_limit() -> usize {
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct MemorySummary {
     pub agent_id: String,
-    pub slug: String,
+    pub bundle: String,
+    pub path: String,
     pub title: String,
-    pub timestamp: DateTime<Utc>,
-    pub visibility: String,
-    pub shared_to: Vec<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
     pub attachment_count: usize,
@@ -133,12 +136,12 @@ pub struct MemorySummary {
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct MemoryDetail {
     pub agent_id: String,
-    pub slug: String,
+    pub bundle: String,
+    pub path: String,
     pub title: String,
     pub content: String,
-    pub timestamp: DateTime<Utc>,
-    pub visibility: String,
-    pub shared_to: Vec<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
     pub attachments: Vec<VizierAttachment>,
@@ -147,8 +150,9 @@ pub struct MemoryDetail {
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct CreateMemoryResponse {
     pub agent_id: String,
+    pub bundle: String,
     pub title: String,
-    pub slug: String,
+    pub path: String,
     pub message: String,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
@@ -157,7 +161,8 @@ pub struct CreateMemoryResponse {
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct UpdateMemoryResponse {
     pub agent_id: String,
-    pub slug: String,
+    pub bundle: String,
+    pub path: String,
     pub message: String,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
@@ -174,26 +179,26 @@ pub struct PaginatedMemoryResponse {
 fn summarize_memory(memory: &Memory) -> MemorySummary {
     MemorySummary {
         agent_id: memory.agent_id.clone(),
-        slug: memory.slug.clone(),
+        bundle: memory.bundle.clone(),
+        path: memory.slug.clone(),
         title: memory.title.clone(),
-        timestamp: memory.timestamp,
-        visibility: memory.visibility.to_string(),
-        shared_to: memory.shared_to.clone(),
+        created_at: memory.created_at,
+        updated_at: memory.updated_at,
         tags: memory.tags.clone(),
         relations: memory.relations.clone(),
-        attachment_count: memory.attachments.len(),
+        attachment_count: memory.attachment_count,
     }
 }
 
 fn detail_from_memory(memory: &Memory) -> MemoryDetail {
     MemoryDetail {
         agent_id: memory.agent_id.clone(),
-        slug: memory.slug.clone(),
+        bundle: memory.bundle.clone(),
+        path: memory.slug.clone(),
         title: memory.title.clone(),
         content: memory.content.clone(),
-        timestamp: memory.timestamp,
-        visibility: memory.visibility.to_string(),
-        shared_to: memory.shared_to.clone(),
+        created_at: memory.created_at,
+        updated_at: memory.updated_at,
         tags: memory.tags.clone(),
         relations: memory.relations.clone(),
         attachments: memory.attachments.clone(),
@@ -223,14 +228,30 @@ async fn require_agent(
     Ok(config)
 }
 
+fn error_status_for(message: &str) -> StatusCode {
+    let lower = message.to_lowercase();
+    if lower.contains("already exists") {
+        StatusCode::CONFLICT
+    } else if lower.contains("malformed") || lower.contains("archive") {
+        StatusCode::BAD_REQUEST
+    } else if lower.contains("does not exist") || lower.contains("not found") {
+        StatusCode::NOT_FOUND
+    } else if lower.contains("linked in the knowledge graph") {
+        StatusCode::CONFLICT
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/agents/{agent_id}/memory",
     params(
-        ("agent_id" = String, Path, description = "Agent ID")
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("bundle" = Option<String>, Query, description = "Narrow to one bundle; omitted lists across all bundles")
     ),
     responses(
-        (status = 200, description = "List of memories", body = APIResponse<Vec<MemorySummary>>),
+        (status = 200, description = "List of memories", body = APIResponse<PaginatedMemoryResponse>),
         (status = 404, description = "Agent not found", body = APIResponse<String>)
     )
 )]
@@ -251,20 +272,22 @@ pub async fn get_all_memories(
             .collect::<Vec<_>>()
     });
 
-    let visibility = params.visibility.and_then(|v| v.parse().ok());
-
     let query_params = MemoryQueryParams {
         agent_id: agent_id.clone(),
+        bundle: params.bundle,
         tags,
-        visibility,
         offset: params.offset,
         limit: params.limit,
         sort_by: params.sort_by,
         sort_order: params.sort_order,
     };
 
-    match state.storage.get_filtered_memories(query_params).await {
-        Ok(result) => {
+    match state
+        .transport
+        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::List { params: query_params })
+        .await
+    {
+        Ok(crate::schema::MemoryOpResponse::Paginated(result)) => {
             let memories: Vec<MemorySummary> =
                 result.memories.iter().map(summarize_memory).collect();
 
@@ -278,6 +301,10 @@ pub async fn get_all_memories(
                 },
             )
         }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
@@ -292,6 +319,7 @@ pub async fn get_all_memories(
     responses(
         (status = 201, description = "Memory created", body = APIResponse<CreateMemoryResponse>),
         (status = 404, description = "Agent not found", body = APIResponse<String>),
+        (status = 409, description = "A memory already exists at that bundle/path", body = APIResponse<String>),
         (status = 500, description = "Internal server error", body = APIResponse<String>)
     )
 )]
@@ -305,21 +333,16 @@ pub async fn create_memory(
         return err_response(status, message);
     }
 
-    let visibility: MemoryVisibility = match body.visibility.parse() {
-        Ok(v) => v,
-        Err(e) => return err_response(StatusCode::BAD_REQUEST, e),
-    };
-
     match state
         .transport
         .send_memory_op(
             &agent_id,
             crate::schema::MemoryOpRequest::Write {
-                slug: body.slug,
+                bundle: body.bundle.clone(),
+                path: body.path,
+                create_only: true,
                 title: body.title.clone(),
                 content: body.content,
-                visibility,
-                shared_to: body.shared_to,
                 tags: body.tags.clone(),
                 attachments: body.attachments.unwrap_or_default(),
             },
@@ -330,8 +353,9 @@ pub async fn create_memory(
             StatusCode::CREATED,
             CreateMemoryResponse {
                 agent_id,
+                bundle: memory.bundle,
                 title: body.title,
-                slug: memory.slug,
+                path: memory.slug,
                 message: "memory created successfully".to_string(),
                 tags: memory.tags,
                 relations: memory.relations,
@@ -341,7 +365,55 @@ pub async fn create_memory(
             StatusCode::INTERNAL_SERVER_ERROR,
             "unexpected response".into(),
         ),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        Err(e) => {
+            let msg = e.to_string();
+            err_response(error_status_for(&msg), msg)
+        }
+    }
+}
+
+async fn do_update_memory(
+    state: &HTTPState,
+    agent_id: String,
+    bundle: Option<String>,
+    path: String,
+    body: UpdateMemoryRequest,
+) -> models::response::Response<UpdateMemoryResponse> {
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::Write {
+                bundle,
+                path: Some(path.clone()),
+                create_only: false,
+                title: body.title,
+                content: body.content,
+                tags: body.tags.clone(),
+                attachments: body.attachments.unwrap_or_default(),
+            },
+        )
+        .await
+    {
+        Ok(crate::schema::MemoryOpResponse::Memory(memory)) => api_response(
+            StatusCode::OK,
+            UpdateMemoryResponse {
+                agent_id,
+                bundle: memory.bundle,
+                path: memory.slug,
+                message: "memory updated successfully".to_string(),
+                tags: memory.tags,
+                relations: memory.relations,
+            },
+        ),
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            err_response(error_status_for(&msg), msg)
+        }
     }
 }
 
@@ -350,7 +422,7 @@ pub async fn create_memory(
     path = "/agents/{agent_id}/memory/{slug}",
     params(
         ("agent_id" = String, Path, description = "Agent ID"),
-        ("slug" = String, Path, description = "Memory slug")
+        ("slug" = String, Path, description = "Memory path within the default bundle")
     ),
     request_body = UpdateMemoryRequest,
     responses(
@@ -368,44 +440,19 @@ pub async fn update_memory(
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
+    do_update_memory(&state, agent_id, None, slug, body).await
+}
 
-    let visibility: MemoryVisibility = match body.visibility.parse() {
-        Ok(v) => v,
-        Err(e) => return err_response(StatusCode::BAD_REQUEST, e),
-    };
-
-    match state
-        .transport
-        .send_memory_op(
-            &agent_id,
-            crate::schema::MemoryOpRequest::Write {
-                slug: Some(slug.clone()),
-                title: body.title,
-                content: body.content,
-                visibility,
-                shared_to: body.shared_to,
-                tags: body.tags.clone(),
-                attachments: body.attachments.unwrap_or_default(),
-            },
-        )
-        .await
-    {
-        Ok(crate::schema::MemoryOpResponse::Memory(memory)) => api_response(
-            StatusCode::OK,
-            UpdateMemoryResponse {
-                agent_id,
-                slug,
-                message: "memory updated successfully".to_string(),
-                tags: memory.tags,
-                relations: memory.relations,
-            },
-        ),
-        Ok(_) => err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "unexpected response".into(),
-        ),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+pub async fn update_memory_scoped(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Json(body): Json<UpdateMemoryRequest>,
+) -> models::response::Response<UpdateMemoryResponse> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
     }
+    do_update_memory(&state, agent_id, Some(bundle), path, body).await
 }
 
 #[utoipa::path(
@@ -436,6 +483,7 @@ pub async fn query_memories(
         .send_memory_op(
             &agent_id,
             crate::schema::MemoryOpRequest::Query {
+                bundle: params.bundle,
                 query: params.query,
                 limit: params.limit,
                 threshold: params.threshold,
@@ -455,20 +503,30 @@ pub async fn query_memories(
     }
 }
 
-#[utoipa::path(
-    get,
-    path = "/agents/{agent_id}/memory/graph",
-    params(
-        ("agent_id" = String, Path, description = "Agent ID"),
-        ("search" = Option<String>, Query, description = "Substring filter for initial slugs (matches title, slug, tags)")
-    ),
-    responses(
-        (status = 200, description = "Memory graph", body = APIResponse<MemoryGraph>),
-        (status = 404, description = "Agent not found", body = APIResponse<String>),
-        (status = 500, description = "Internal server error", body = APIResponse<String>)
-    )
-)]
-pub async fn get_memory_graph(
+async fn do_get_graph(
+    state: &HTTPState,
+    agent_id: String,
+    bundle: Option<String>,
+    search: Option<String>,
+) -> models::response::Response<MemoryGraph> {
+    match state
+        .transport
+        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::GetGraph { bundle, search })
+        .await
+    {
+        Ok(crate::schema::MemoryOpResponse::Graph(graph)) => api_response(StatusCode::OK, graph),
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            err_response(error_status_for(&msg), msg)
+        }
+    }
+}
+
+pub async fn get_bundle_level_graph(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
@@ -477,58 +535,32 @@ pub async fn get_memory_graph(
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
-
-    let search = params
-        .search
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-
-    match state
-        .transport
-        .send_memory_op(
-            &agent_id,
-            crate::schema::MemoryOpRequest::GetGraph { search },
-        )
-        .await
-    {
-        Ok(crate::schema::MemoryOpResponse::Graph(graph)) => {
-            api_response(StatusCode::OK, graph)
-        }
-        Ok(_) => err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "unexpected response".into(),
-        ),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    }
+    let search = params.search.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    do_get_graph(&state, agent_id, None, search).await
 }
 
-#[utoipa::path(
-    get,
-    path = "/agents/{agent_id}/memory/{slug}",
-    params(
-        ("agent_id" = String, Path, description = "Agent ID"),
-        ("slug" = String, Path, description = "Memory slug")
-    ),
-    responses(
-        (status = 200, description = "Memory details", body = APIResponse<MemoryDetail>),
-        (status = 404, description = "Agent or memory not found", body = APIResponse<String>)
-    )
-)]
-pub async fn get_memory_detail(
-    Path((agent_id, slug)): Path<(String, String)>,
+pub async fn get_bundle_graph(
+    Path((agent_id, bundle)): Path<(String, String)>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
-) -> models::response::Response<MemoryDetail> {
+    Query(params): Query<GraphQueryParams>,
+) -> models::response::Response<MemoryGraph> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
+    let search = params.search.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    do_get_graph(&state, agent_id, Some(bundle), search).await
+}
 
+async fn do_get_memory_detail(
+    state: &HTTPState,
+    agent_id: String,
+    bundle: Option<String>,
+    path: String,
+) -> models::response::Response<MemoryDetail> {
     match state
         .transport
-        .send_memory_op(
-            &agent_id,
-            crate::schema::MemoryOpRequest::GetById { slug },
-        )
+        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::GetById { bundle, path })
         .await
     {
         Ok(crate::schema::MemoryOpResponse::MemoryOption(Some(memory))) => {
@@ -547,31 +579,47 @@ pub async fn get_memory_detail(
 
 #[utoipa::path(
     get,
-    path = "/agents/{agent_id}/memory/{slug}/related",
+    path = "/agents/{agent_id}/memory/{slug}",
     params(
         ("agent_id" = String, Path, description = "Agent ID"),
-        ("slug" = String, Path, description = "Memory slug")
+        ("slug" = String, Path, description = "Memory path within the default bundle")
     ),
     responses(
-        (status = 200, description = "Related memories", body = APIResponse<Vec<MemoryDetail>>),
+        (status = 200, description = "Memory details", body = APIResponse<MemoryDetail>),
         (status = 404, description = "Agent or memory not found", body = APIResponse<String>)
     )
 )]
-pub async fn get_related_memories(
+pub async fn get_memory_detail(
     Path((agent_id, slug)): Path<(String, String)>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
-) -> models::response::Response<Vec<MemoryDetail>> {
+) -> models::response::Response<MemoryDetail> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
+    do_get_memory_detail(&state, agent_id, None, slug).await
+}
 
+pub async fn get_memory_detail_scoped(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<MemoryDetail> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    do_get_memory_detail(&state, agent_id, Some(bundle), path).await
+}
+
+async fn do_get_related_memories(
+    state: &HTTPState,
+    agent_id: String,
+    bundle: Option<String>,
+    path: String,
+) -> models::response::Response<Vec<MemoryDetail>> {
     match state
         .transport
-        .send_memory_op(
-            &agent_id,
-            crate::schema::MemoryOpRequest::GetRelated { slug },
-        )
+        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::GetRelated { bundle, path })
         .await
     {
         Ok(crate::schema::MemoryOpResponse::MemoryList(memories)) => {
@@ -586,12 +634,63 @@ pub async fn get_related_memories(
     }
 }
 
+pub async fn get_related_memories(
+    Path((agent_id, slug)): Path<(String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<Vec<MemoryDetail>> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    do_get_related_memories(&state, agent_id, None, slug).await
+}
+
+pub async fn get_related_memories_scoped(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<Vec<MemoryDetail>> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    do_get_related_memories(&state, agent_id, Some(bundle), path).await
+}
+
+async fn do_delete_memory(
+    state: &HTTPState,
+    agent_id: String,
+    bundle: Option<String>,
+    path: String,
+) -> models::response::Response<String> {
+    match state
+        .transport
+        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::Delete { bundle, path: path.clone() })
+        .await
+    {
+        Ok(crate::schema::MemoryOpResponse::Unit) => {
+            api_response(StatusCode::OK, format!("{path} deleted"))
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("linked in the knowledge graph") {
+                err_response(StatusCode::CONFLICT, msg)
+            } else {
+                err_response(StatusCode::NOT_FOUND, msg)
+            }
+        }
+    }
+}
+
 #[utoipa::path(
     delete,
     path = "/agents/{agent_id}/memory/{slug}",
     params(
         ("agent_id" = String, Path, description = "Agent ID"),
-        ("slug" = String, Path, description = "Memory slug")
+        ("slug" = String, Path, description = "Memory path within the default bundle")
     ),
     responses(
         (status = 200, description = "Memory deleted", body = APIResponse<String>),
@@ -606,29 +705,128 @@ pub async fn delete_memory(
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
+    do_delete_memory(&state, agent_id, None, slug).await
+}
+
+pub async fn delete_memory_scoped(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<String> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    do_delete_memory(&state, agent_id, Some(bundle), path).await
+}
+
+pub async fn list_bundles(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<Vec<BundleSummary>> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
 
     match state
         .transport
-        .send_memory_op(
-            &agent_id,
-            crate::schema::MemoryOpRequest::Delete { slug: slug.clone() },
-        )
+        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::ListBundles)
         .await
     {
-        Ok(crate::schema::MemoryOpResponse::Unit) => {
-            api_response(StatusCode::OK, format!("{slug} deleted"))
+        Ok(crate::schema::MemoryOpResponse::Bundles(bundles)) => api_response(StatusCode::OK, bundles),
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+pub async fn export_bundle_handler(
+    Path((agent_id, bundle)): Path<(String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> impl IntoResponse {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return (status, message).into_response();
+    }
+
+    match state
+        .transport
+        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::ExportBundle { bundle: bundle.clone() })
+        .await
+    {
+        Ok(crate::schema::MemoryOpResponse::Export(bytes)) => (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, "application/zip".to_string()),
+                (
+                    header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{bundle}.zip\""),
+                ),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Ok(_) => (StatusCode::INTERNAL_SERVER_ERROR, "unexpected response").into_response(),
+        Err(e) => {
+            let msg = e.to_string();
+            (error_status_for(&msg), msg).into_response()
         }
+    }
+}
+
+pub async fn import_bundle_handler(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    mut multipart: Multipart,
+) -> models::response::Response<ImportReport> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+
+    let mut bundle_name: Option<String> = None;
+    let mut zip_bytes: Option<Vec<u8>> = None;
+
+    loop {
+        let field = match multipart.next_field().await {
+            Ok(Some(f)) => f,
+            Ok(None) => break,
+            Err(e) => return err_response(StatusCode::BAD_REQUEST, e.to_string()),
+        };
+        match field.name().map(|s| s.to_string()) {
+            Some(name) if name == "bundle" => {
+                bundle_name = field.text().await.ok();
+            }
+            Some(name) if name == "file" || name == "zip" => {
+                zip_bytes = field.bytes().await.ok().map(|b| b.to_vec());
+            }
+            _ => {}
+        }
+    }
+
+    let bundle = bundle_name.unwrap_or_else(default_bundle);
+    let Some(bytes) = zip_bytes else {
+        return err_response(
+            StatusCode::BAD_REQUEST,
+            "multipart body must include a 'file' field with the .zip archive".into(),
+        );
+    };
+
+    match state
+        .transport
+        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::ImportBundle { bundle, zip_bytes: bytes })
+        .await
+    {
+        Ok(crate::schema::MemoryOpResponse::Import(report)) => api_response(StatusCode::OK, report),
         Ok(_) => err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "unexpected response".into(),
         ),
         Err(e) => {
             let msg = e.to_string();
-            if msg.contains("linked in the knowledge graph") {
-                err_response(StatusCode::CONFLICT, msg)
-            } else {
-                err_response(StatusCode::NOT_FOUND, msg)
-            }
+            err_response(error_status_for(&msg), msg)
         }
     }
 }

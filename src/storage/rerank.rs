@@ -8,19 +8,37 @@ const W_LINKS: f64 = 1.0;
 const W_RECENCY: f64 = 1.0;
 const W_READ_COUNT: f64 = 1.0;
 
-fn compute_link_counts(candidates: &[Memory], all_memories: &[Memory]) -> HashMap<String, usize> {
-    let mut incoming: HashMap<String, usize> = HashMap::new();
+/// Resolves a relation string (as stored in canonical form: `path/to/concept.md` for
+/// same-bundle, `bundle/slug` or `bundle` for cross-bundle) to the `(bundle, path)` key it
+/// targets, relative to the linking memory's own bundle.
+fn resolve_relation_key(source_bundle: &str, relation: &str) -> (String, String) {
+    if let Some(path) = relation.strip_suffix(".md") {
+        return (source_bundle.to_string(), path.to_string());
+    }
+    if let Some((bundle, slug)) = relation.split_once('/') {
+        return (bundle.to_string(), slug.to_string());
+    }
+    (relation.to_string(), String::new())
+}
+
+fn compute_link_counts(
+    candidates: &[Memory],
+    all_memories: &[Memory],
+) -> HashMap<(String, String), usize> {
+    let mut incoming: HashMap<(String, String), usize> = HashMap::new();
     for mem in all_memories {
-        for target_slug in &mem.relations {
-            *incoming.entry(target_slug.clone()).or_insert(0) += 1;
+        for relation in &mem.relations {
+            let key = resolve_relation_key(&mem.bundle, relation);
+            *incoming.entry(key).or_insert(0) += 1;
         }
     }
 
     let mut counts = HashMap::new();
     for mem in candidates {
         let outgoing = mem.relations.len();
-        let incoming_count = incoming.get(&mem.slug).copied().unwrap_or(0);
-        counts.insert(mem.slug.clone(), outgoing + incoming_count);
+        let key = (mem.bundle.clone(), mem.slug.clone());
+        let incoming_count = incoming.get(&key).copied().unwrap_or(0);
+        counts.insert(key, outgoing + incoming_count);
     }
     counts
 }
@@ -40,7 +58,7 @@ pub fn rerank_memories(candidates: Vec<Memory>, all_memories: &[Memory]) -> Vec<
     let mut unique: Vec<Memory> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for mem in candidates {
-        if seen.insert(mem.slug.clone()) {
+        if seen.insert((mem.bundle.clone(), mem.slug.clone())) {
             unique.push(mem);
         }
     }
@@ -51,7 +69,15 @@ pub fn rerank_memories(candidates: Vec<Memory>, all_memories: &[Memory]) -> Vec<
     let mut link_indexed: Vec<(usize, usize)> = unique
         .iter()
         .enumerate()
-        .map(|(i, m)| (i, link_counts.get(&m.slug).copied().unwrap_or(0)))
+        .map(|(i, m)| {
+            (
+                i,
+                link_counts
+                    .get(&(m.bundle.clone(), m.slug.clone()))
+                    .copied()
+                    .unwrap_or(0),
+            )
+        })
         .collect();
     link_indexed.sort_by_key(|b| std::cmp::Reverse(b.1));
     let mut link_ranks = vec![0; unique.len()];
@@ -62,7 +88,7 @@ pub fn rerank_memories(candidates: Vec<Memory>, all_memories: &[Memory]) -> Vec<
     let mut rec_indexed: Vec<(usize, chrono::DateTime<chrono::Utc>)> = unique
         .iter()
         .enumerate()
-        .map(|(i, m)| (i, m.timestamp))
+        .map(|(i, m)| (i, m.updated_at))
         .collect();
     rec_indexed.sort_by_key(|b| std::cmp::Reverse(b.1));
     let mut rec_ranks = vec![0; unique.len()];

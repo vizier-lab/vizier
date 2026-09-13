@@ -1,14 +1,15 @@
 import { useRef, useState, useCallback, useMemo, useEffect } from 'react'
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, forceX, forceY, type SimulationNodeDatum } from 'd3-force'
-import type { MemoryGraph as MemoryGraphType, MemoryVisibility } from '../interfaces/types'
+import type { MemoryGraph as MemoryGraphType } from '../interfaces/types'
 import { FaPlus, FaMinus, FaCrosshairs, FaSliders, FaArrowRotateLeft, FaXmark } from 'react-icons/fa6'
 
 interface GraphNode extends SimulationNodeDatum {
   slug: string
+  bundle: string
   title: string
   tags: string[]
-  visibility: MemoryVisibility
   agent_id: string
+  boundary: boolean
 }
 
 interface TooltipData {
@@ -20,15 +21,10 @@ interface TooltipData {
 interface MemoryGraphProps {
   graph: MemoryGraphType
   searchQuery: string
-  onNodeClick: (slug: string) => void
+  onNodeClick: (node: { slug: string; bundle: string; boundary: boolean }) => void
 }
 
-const VISIBILITY_COLORS: Record<MemoryVisibility, string> = {
-  private: '#6b7280',
-  global: '#3b82f6',
-  shared: '#f59e0b',
-}
-
+const COLOR_BOUNDARY = '#3b82f6'
 const COLOR_CONNECTED = '#10b981'
 const COLOR_ORPHANED = '#6b7280'
 
@@ -325,18 +321,11 @@ export default function MemoryGraph({ graph, searchQuery, onNodeClick }: MemoryG
       ctx.strokeStyle = nodeColor
       ctx.lineWidth = 1.5 / t.k
 
-      if (node.visibility === 'global') {
+      if (node.boundary) {
         ctx.beginPath()
         ctx.arc(node.x, node.y, size, 0, 2 * Math.PI)
         ctx.fill()
         ctx.stroke()
-      } else if (node.visibility === 'shared') {
-        ctx.setLineDash([3 / t.k, 2 / t.k])
-        ctx.beginPath()
-        ctx.arc(node.x, node.y, size, 0, 2 * Math.PI)
-        ctx.fill()
-        ctx.stroke()
-        ctx.setLineDash([])
       } else {
         const half = size * 0.75
         const r = 3 / t.k
@@ -501,8 +490,9 @@ export default function MemoryGraph({ graph, searchQuery, onNodeClick }: MemoryG
 
   const handleOpen = useCallback(() => {
     const slug = selectedSlugRef.current
-    if (slug) onNodeClick(slug)
-  }, [onNodeClick])
+    const node = slug ? graph.nodes.find((n) => n.slug === slug) : null
+    if (node) onNodeClick(node)
+  }, [onNodeClick, graph.nodes])
 
   const handleClose = useCallback(() => {
     setSelectedSlug(null)
@@ -595,9 +585,11 @@ export default function MemoryGraph({ graph, searchQuery, onNodeClick }: MemoryG
             {tooltip.node.slug}
           </div>
           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '6px' }}>
-            <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: VISIBILITY_COLORS[tooltip.node.visibility] + '20', color: VISIBILITY_COLORS[tooltip.node.visibility], fontWeight: 500 }}>
-              {tooltip.node.visibility}
-            </span>
+            {tooltip.node.boundary && (
+              <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: COLOR_BOUNDARY + '20', color: COLOR_BOUNDARY, fontWeight: 500 }}>
+                other bundle: {tooltip.node.bundle}
+              </span>
+            )}
             {tooltip.node.tags.slice(0, 3).map((tag) => (
               <span key={tag} style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: 'var(--background)', color: 'var(--text-secondary)' }}>
                 {tag}
@@ -613,13 +605,10 @@ export default function MemoryGraph({ graph, searchQuery, onNodeClick }: MemoryG
       <div style={{ position: 'absolute', bottom: '12px', left: '12px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: 'var(--text-tertiary)', background: 'var(--surface)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
         <div style={{ fontWeight: 600, marginBottom: '2px' }}>Shapes</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ width: '10px', height: '10px', borderRadius: '2px', border: 'solid 2px #9ca3af', background: '#9ca3af33' }} /> Private
+          <span style={{ width: '10px', height: '10px', borderRadius: '2px', border: 'solid 2px #9ca3af', background: '#9ca3af33' }} /> Node
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ width: '12px', height: '12px', borderRadius: '50%', border: 'solid 2px #9ca3af', background: '#9ca3af33' }} /> Global
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ width: '12px', height: '12px', borderRadius: '50%', border: 'dashed 2px #9ca3af', background: '#9ca3af33' }} /> Shared
+          <span style={{ width: '12px', height: '12px', borderRadius: '50%', border: 'solid 2px #9ca3af', background: '#9ca3af33' }} /> Bundle / boundary
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <svg width="12" height="12" viewBox="0 0 12 12"><line x1="2" y1="2" x2="10" y2="10" stroke="#9ca3af" strokeWidth="2" /><line x1="10" y1="2" x2="2" y2="10" stroke="#9ca3af" strokeWidth="2" /></svg> Broken
@@ -716,18 +705,20 @@ export default function MemoryGraph({ graph, searchQuery, onNodeClick }: MemoryG
             {selectedNode.slug}
           </div>
           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-            <span
-              style={{
-                fontSize: '10px',
-                padding: '2px 6px',
-                borderRadius: '4px',
-                background: VISIBILITY_COLORS[selectedNode.visibility] + '20',
-                color: VISIBILITY_COLORS[selectedNode.visibility],
-                fontWeight: 500,
-              }}
-            >
-              {selectedNode.visibility}
-            </span>
+            {selectedNode.boundary && (
+              <span
+                style={{
+                  fontSize: '10px',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  background: COLOR_BOUNDARY + '20',
+                  color: COLOR_BOUNDARY,
+                  fontWeight: 500,
+                }}
+              >
+                other bundle: {selectedNode.bundle}
+              </span>
+            )}
             {selectedNode.tags.slice(0, 3).map((tag) => (
               <span
                 key={tag}

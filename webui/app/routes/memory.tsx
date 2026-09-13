@@ -9,10 +9,12 @@ import {
   updateMemory,
   deleteMemory,
   getMemoryGraph,
+  exportBundle,
+  importBundle,
   getAgentDetail,
 } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
-import { FaPlus, FaTrash, FaPenToSquare, FaMagnifyingGlass, FaPaperclip } from 'react-icons/fa6'
+import { FaPlus, FaTrash, FaPenToSquare, FaMagnifyingGlass, FaArrowLeft, FaDownload, FaUpload } from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
 import { useFileAttachments } from '../hooks/useFileAttachments'
 import AttachmentChip from '../components/AttachmentChip'
@@ -20,8 +22,8 @@ import AttachmentPreviewModal from '../components/AttachmentPreviewModal'
 import type {
   AgentDetail,
   MemoryDetail,
-  MemoryVisibility,
   MemoryGraph as MemoryGraphType,
+  ImportReport,
   VizierAttachment,
 } from '../interfaces/types'
 import MarkdownEditor from '../components/MarkdownEditor'
@@ -38,13 +40,7 @@ function getErrorMessage(err: unknown): string {
 
 type ModalMode = 'create' | 'edit' | 'view' | null
 
-function VisibilityBadge({ visibility }: { visibility: MemoryVisibility }) {
-  const styles: Record<MemoryVisibility, { bg: string; text: string; label: string }> = {
-    private: { bg: 'var(--surface)', text: 'var(--text-secondary)', label: 'Private' },
-    global: { bg: '#dbeafe', text: '#1d4ed8', label: 'Global' },
-    shared: { bg: '#fef3c7', text: '#b45309', label: 'Shared' },
-  }
-  const style = styles[visibility]
+function BundleBadge({ bundle }: { bundle: string }) {
   return (
     <span
       style={{
@@ -53,11 +49,12 @@ function VisibilityBadge({ visibility }: { visibility: MemoryVisibility }) {
         borderRadius: '12px',
         fontSize: '11px',
         fontWeight: 500,
-        background: style.bg,
-        color: style.text,
+        fontFamily: 'var(--font-mono)',
+        background: 'var(--surface)',
+        color: 'var(--text-secondary)',
       }}
     >
-      {style.label}
+      {bundle}
     </span>
   )
 }
@@ -70,11 +67,13 @@ export default function MemoryManagement() {
   const [selectedMemory, setSelectedMemory] = useState<MemoryDetail | null>(null)
   const [modalMode, setModalMode] = useState<ModalMode>(null)
 
+  // `null` = top-level view (bundles as nodes); a name = that bundle's concept-level view.
+  const [currentBundle, setCurrentBundle] = useState<string | null>(null)
+
   const [formTitle, setFormTitle] = useState('')
   const [formContent, setFormContent] = useState('')
-  const [formSlug, setFormSlug] = useState('')
-  const [formVisibility, setFormVisibility] = useState<MemoryVisibility>('private')
-  const [formSharedTo, setFormSharedTo] = useState('')
+  const [formBundle, setFormBundle] = useState('')
+  const [formPath, setFormPath] = useState('')
   const [formTags, setFormTags] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -85,6 +84,13 @@ export default function MemoryManagement() {
 
   const [existingAttachments, setExistingAttachments] = useState<VizierAttachment[]>([])
   const [previewAttachment, setPreviewAttachment] = useState<VizierAttachment | null>(null)
+
+  const [importOpen, setImportOpen] = useState(false)
+  const [importDestBundle, setImportDestBundle] = useState('')
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importSubmitting, setImportSubmitting] = useState(false)
+  const [importReport, setImportReport] = useState<ImportReport | null>(null)
+  const importInputRef = useRef<HTMLInputElement | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -134,10 +140,10 @@ export default function MemoryManagement() {
     const opts: { search?: string } = {}
     if (trimmed) opts.search = trimmed
 
-    getMemoryGraph(agentId, opts)
-      .then((res) => {
+    getMemoryGraph(agentId, currentBundle ?? undefined, opts)
+      .then((graphRes) => {
         if (controller.signal.aborted) return
-        setGraph(res.data)
+        setGraph(graphRes.data)
       })
       .catch((err) => {
         if (controller.signal.aborted) return
@@ -149,16 +155,34 @@ export default function MemoryManagement() {
       })
 
     return () => controller.abort()
-  }, [agentId, urlSearch, graphVersion, addToast])
+  }, [agentId, urlSearch, graphVersion, currentBundle, addToast])
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value)
   }, [])
 
-  const handleViewMemory = async (slug: string) => {
+  const handleGraphNodeClick = useCallback(
+    (node: { slug: string; bundle: string; boundary: boolean }) => {
+      if (currentBundle === null) {
+        // Top level: every node is a bundle — open it.
+        setCurrentBundle(node.slug)
+        return
+      }
+      if (node.boundary) {
+        // A pointer to a different bundle — follow it.
+        setCurrentBundle(node.bundle)
+        return
+      }
+      handleViewMemory(node.slug, currentBundle)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [currentBundle]
+  )
+
+  const handleViewMemory = async (path: string, bundle: string) => {
     if (!agentId) return
     try {
-      const response = await getMemory(agentId, slug)
+      const response = await getMemory(agentId, path, bundle)
       setSelectedMemory(response.data)
       setModalMode('view')
     } catch (error) {
@@ -171,7 +195,7 @@ export default function MemoryManagement() {
     let detail = memory
     if (!memory.content && agentId) {
       try {
-        const response = await getMemory(agentId, memory.slug)
+        const response = await getMemory(agentId, memory.path, memory.bundle)
         detail = response.data
       } catch (error) {
         console.error('Failed to load memory:', error)
@@ -182,9 +206,8 @@ export default function MemoryManagement() {
     setSelectedMemory(detail)
     setFormTitle(detail.title)
     setFormContent(detail.content)
-    setFormSlug(detail.slug)
-    setFormVisibility(detail.visibility)
-    setFormSharedTo(detail.shared_to?.join(', ') || '')
+    setFormBundle(detail.bundle)
+    setFormPath(detail.path)
     setFormTags(detail.tags?.join(', ') || '')
     setExistingAttachments(detail.attachments || [])
     clearAttachments()
@@ -194,9 +217,8 @@ export default function MemoryManagement() {
   const handleCreateMemory = () => {
     setFormTitle('')
     setFormContent('')
-    setFormSlug('')
-    setFormVisibility('private')
-    setFormSharedTo('')
+    setFormBundle(currentBundle ?? 'default')
+    setFormPath('')
     setFormTags('')
     setExistingAttachments([])
     clearAttachments()
@@ -207,11 +229,7 @@ export default function MemoryManagement() {
     if (!agentId || !formTitle.trim() || !formContent.trim()) return
     setSubmitting(true)
     try {
-      const finalSlug = formSlug ? autoCorrectSlugStrict(formSlug) : undefined
-      const sharedTo = formSharedTo
-        .split(',')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
+      const finalPath = formPath ? autoCorrectSlugStrict(formPath) : undefined
       const tags = formTags
         .split(',')
         .map((s) => s.trim())
@@ -223,10 +241,26 @@ export default function MemoryManagement() {
       const allAttachments = [...existingAttachments, ...newAttachments]
 
       if (modalMode === 'create') {
-        await createMemory(agentId, formTitle, sanitizedContent, finalSlug || undefined, formVisibility, sharedTo, tags, allAttachments.length > 0 ? allAttachments : undefined)
+        await createMemory(
+          agentId,
+          formTitle,
+          sanitizedContent,
+          formBundle || undefined,
+          finalPath,
+          tags,
+          allAttachments.length > 0 ? allAttachments : undefined
+        )
         addToast('success', 'Memory created successfully')
       } else if (modalMode === 'edit' && selectedMemory) {
-        await updateMemory(agentId, selectedMemory.slug, formTitle, sanitizedContent, formVisibility, sharedTo, tags, allAttachments.length > 0 ? allAttachments : undefined)
+        await updateMemory(
+          agentId,
+          selectedMemory.path,
+          formTitle,
+          sanitizedContent,
+          selectedMemory.bundle,
+          tags,
+          allAttachments.length > 0 ? allAttachments : undefined
+        )
         addToast('success', 'Memory updated successfully')
       }
       setGraphVersion((v) => v + 1)
@@ -239,12 +273,12 @@ export default function MemoryManagement() {
     }
   }
 
-  const handleDeleteMemory = async (slug: string, e: React.MouseEvent) => {
+  const handleDeleteMemory = async (path: string, bundle: string, e: React.MouseEvent) => {
     e.stopPropagation()
     if (!agentId) return
     if (!confirm('Are you sure you want to delete this memory?')) return
     try {
-      await deleteMemory(agentId, slug)
+      await deleteMemory(agentId, path, bundle)
       addToast('success', 'Memory deleted successfully')
       setGraphVersion((v) => v + 1)
       closeModal()
@@ -259,19 +293,77 @@ export default function MemoryManagement() {
     setSelectedMemory(null)
     setFormTitle('')
     setFormContent('')
-    setFormSlug('')
-    setFormVisibility('private')
-    setFormSharedTo('')
+    setFormBundle('')
+    setFormPath('')
     setFormTags('')
     setExistingAttachments([])
     clearAttachments()
   }
 
+  const handleExportBundle = async () => {
+    if (!agentId || !currentBundle) return
+    try {
+      const blob = await exportBundle(agentId, currentBundle)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${currentBundle}.zip`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Failed to export bundle:', error)
+      addToast('error', 'Failed to export bundle', getErrorMessage(error))
+    }
+  }
+
+  const openImportDialog = () => {
+    setImportDestBundle(currentBundle ?? '')
+    setImportFile(null)
+    setImportReport(null)
+    setImportOpen(true)
+  }
+
+  const handleImportSubmit = async () => {
+    if (!agentId || !importFile) return
+    setImportSubmitting(true)
+    try {
+      const res = await importBundle(agentId, importDestBundle || 'default', importFile)
+      setImportReport(res.data)
+      addToast('success', 'Bundle import finished')
+      setGraphVersion((v) => v + 1)
+    } catch (error) {
+      console.error('Failed to import bundle:', error)
+      addToast('error', 'Failed to import bundle', getErrorMessage(error))
+    } finally {
+      setImportSubmitting(false)
+    }
+  }
+
   return (
     <>
       <div className="main-header">
-        <div style={{ flex: 1 }}>
-          <h3 style={{ margin: 0 }}>Memory Management</h3>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {currentBundle !== null && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => setCurrentBundle(null)}
+              style={{ padding: '4px 8px' }}
+              title="Back to bundles"
+            >
+              <FaArrowLeft size={14} />
+            </button>
+          )}
+          <h3 style={{ margin: 0 }}>
+            Memory Management
+            {currentBundle !== null && (
+              <>
+                {' '}
+                <BundleBadge bundle={currentBundle} />
+              </>
+            )}
+          </h3>
         </div>
 
         <div style={{ position: 'relative' }}>
@@ -289,7 +381,7 @@ export default function MemoryManagement() {
             type="text"
             value={searchQuery}
             onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search memories..."
+            placeholder={currentBundle ? 'Search this bundle...' : 'Search bundles...'}
             style={{
               padding: '8px 12px 8px 32px',
               borderRadius: '6px',
@@ -301,6 +393,17 @@ export default function MemoryManagement() {
             }}
           />
         </div>
+
+        {currentBundle !== null && (
+          <button className="btn btn-secondary" onClick={handleExportBundle}>
+            <FaDownload size={14} />
+            <span>Export</span>
+          </button>
+        )}
+        <button className="btn btn-secondary" onClick={openImportDialog}>
+          <FaUpload size={14} />
+          <span>Import</span>
+        </button>
 
         <button className="btn btn-primary" onClick={handleCreateMemory}>
           <FaPlus size={16} />
@@ -347,7 +450,7 @@ export default function MemoryManagement() {
             <MemoryGraph
               graph={graph}
               searchQuery={searchQuery}
-              onNodeClick={handleViewMemory}
+              onNodeClick={handleGraphNodeClick}
             />
           ) : (
             <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '3rem' }}>
@@ -371,10 +474,10 @@ export default function MemoryManagement() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', flex: 1 }}>
             <div>
               <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-                {selectedMemory.slug} &bull; {new Date(selectedMemory.timestamp).toLocaleString()}
+                {selectedMemory.bundle}/{selectedMemory.path} &bull; {new Date(selectedMemory.updated_at).toLocaleString()}
               </p>
               <div style={{ marginTop: '0.5rem', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <VisibilityBadge visibility={selectedMemory.visibility} />
+                <BundleBadge bundle={selectedMemory.bundle} />
                 {selectedMemory.tags?.map((tag) => (
                   <span
                     key={tag}
@@ -389,11 +492,6 @@ export default function MemoryManagement() {
                     {tag}
                   </span>
                 ))}
-                {selectedMemory.visibility === 'shared' && selectedMemory.shared_to?.length > 0 && (
-                  <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                    Shared with: {selectedMemory.shared_to.join(', ')}
-                  </span>
-                )}
               </div>
             </div>
             <div
@@ -433,14 +531,27 @@ export default function MemoryManagement() {
                   Linked Memories
                 </h4>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {selectedMemory.relations.map((relSlug) => (
+                  {selectedMemory.relations.map((rel) => (
                     <button
-                      key={relSlug}
+                      key={rel}
                       className="btn btn-ghost"
                       style={{ padding: '4px 10px', fontSize: '12px', fontFamily: 'var(--font-mono)' }}
-                      onClick={() => handleViewMemory(relSlug)}
+                      onClick={() => {
+                        // Same-bundle link ("path.md"), cross-bundle concept ("bundle/slug"),
+                        // or whole-bundle reference ("bundle") — resolve to a (bundle, path)
+                        // best-effort for direct navigation from this chip.
+                        if (rel.endsWith('.md')) {
+                          handleViewMemory(rel.slice(0, -3), selectedMemory.bundle)
+                        } else if (rel.includes('/')) {
+                          const [b, ...rest] = rel.split('/')
+                          handleViewMemory(rest.join('/'), b)
+                        } else {
+                          setCurrentBundle(rel)
+                          setModalMode(null)
+                        }
+                      }}
                     >
-                      [[{relSlug}]]
+                      {rel}
                     </button>
                   ))}
                 </div>
@@ -454,7 +565,7 @@ export default function MemoryManagement() {
               </button>
               <button
                 className="btn btn-ghost"
-                onClick={(e) => handleDeleteMemory(selectedMemory.slug, e)}
+                onClick={(e) => handleDeleteMemory(selectedMemory.path, selectedMemory.bundle, e)}
                 style={{ color: '#ef4444', marginLeft: 'auto' }}
               >
                 <FaTrash size={16} />
@@ -490,27 +601,38 @@ export default function MemoryManagement() {
               </div>
             )}
             {modalMode === 'create' && (
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label htmlFor="slug">Slug (optional)</label>
-                <input
-                  id="slug"
-                  type="text"
-                  value={formSlug}
-                  onChange={(e) => setFormSlug(autoCorrectSlug(e.target.value))}
-                  placeholder="auto-generated if empty"
-                />
-                {formSlug && (
-                  <div
-                    style={{
-                      fontSize: '12px',
-                      color: 'var(--text-tertiary)',
-                      marginTop: '4px',
-                      fontFamily: 'var(--font-mono)',
-                    }}
-                  >
-                    Slug: {formSlug}
+              <>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label htmlFor="bundle">Bundle</label>
+                  <input
+                    id="bundle"
+                    type="text"
+                    value={formBundle}
+                    onChange={(e) => setFormBundle(e.target.value)}
+                    placeholder="default"
+                  />
+                  <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                    Naming a new bundle creates it automatically.
                   </div>
-                )}
+                </div>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label htmlFor="path">Path (optional)</label>
+                  <input
+                    id="path"
+                    type="text"
+                    value={formPath}
+                    onChange={(e) => setFormPath(autoCorrectSlug(e.target.value))}
+                    placeholder="auto-generated from title if empty; use e.g. friends/bred to nest"
+                  />
+                </div>
+              </>
+            )}
+            {modalMode === 'edit' && (
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label>Location</label>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  {formBundle}/{formPath}
+                </div>
               </div>
             )}
             <div className="input-group" style={{ marginBottom: 0 }}>
@@ -529,14 +651,14 @@ export default function MemoryManagement() {
               <label htmlFor="content">
                 Content
                 <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginLeft: '8px' }}>
-                  Use [[slug]] to link memories
+                  Same bundle: [label](path.md) &bull; other bundle: [[bundle/slug]] or [[bundle]]
                 </span>
               </label>
               <div style={{ overflow: 'hidden' }}>
                 <MarkdownEditor
                   value={formContent}
                   onChange={setFormContent}
-                  placeholder="Enter memory content... Use [[slug]] to link to other memories"
+                  placeholder="Enter memory content..."
                   className="modal-mdx-editor"
                 />
               </div>
@@ -592,40 +714,6 @@ export default function MemoryManagement() {
                 placeholder="e.g. rust, architecture, project-x"
               />
             </div>
-            <div className="input-group" style={{ marginBottom: 0 }}>
-              <label htmlFor="visibility">Visibility</label>
-              <select
-                id="visibility"
-                value={formVisibility}
-                onChange={(e) => setFormVisibility(e.target.value as MemoryVisibility)}
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  background: 'var(--background)',
-                  color: 'var(--text)',
-                }}
-              >
-                <option value="private">Private (only you)</option>
-                <option value="global">Global (all agents)</option>
-                <option value="shared">Shared (specific agents)</option>
-              </select>
-            </div>
-            {formVisibility === 'shared' && (
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label htmlFor="shared_to">Shared Agent IDs (comma-separated)</label>
-                <input
-                  id="shared_to"
-                  type="text"
-                  value={formSharedTo}
-                  onChange={(e) => setFormSharedTo(e.target.value)}
-                  placeholder="agent-id-1, agent-id-2"
-                />
-                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                  Enter agent IDs separated by commas
-                </div>
-              </div>
-            )}
             <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>
               <button
                 className="btn btn-primary"
@@ -641,6 +729,54 @@ export default function MemoryManagement() {
             </div>
           </div>
         )}
+      </SlideOver>
+
+      <SlideOver open={importOpen} onClose={() => setImportOpen(false)} title="Import Bundle">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}>
+          <div className="input-group" style={{ marginBottom: 0 }}>
+            <label htmlFor="import-bundle">Destination bundle</label>
+            <input
+              id="import-bundle"
+              type="text"
+              value={importDestBundle}
+              onChange={(e) => setImportDestBundle(e.target.value)}
+              placeholder="default"
+            />
+          </div>
+          <div className="input-group" style={{ marginBottom: 0 }}>
+            <label htmlFor="import-file">Zip file</label>
+            <input
+              id="import-file"
+              ref={importInputRef}
+              type="file"
+              accept=".zip"
+              onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+            />
+          </div>
+          {importReport && (
+            <div style={{ fontSize: '13px' }}>
+              <div>Imported: {importReport.imported.length}</div>
+              {importReport.skipped.length > 0 && (
+                <div style={{ color: '#b45309' }}>
+                  Skipped (already existed): {importReport.skipped.join(', ')}
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '8px', marginTop: '0.5rem' }}>
+            <button
+              className="btn btn-primary"
+              onClick={handleImportSubmit}
+              disabled={!importFile || importSubmitting}
+              style={{ flex: 1, justifyContent: 'center' }}
+            >
+              {importSubmitting ? 'Importing...' : 'Import'}
+            </button>
+            <button className="btn btn-secondary" onClick={() => setImportOpen(false)}>
+              Close
+            </button>
+          </div>
+        </div>
       </SlideOver>
 
       <AttachmentPreviewModal

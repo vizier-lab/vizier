@@ -20,7 +20,7 @@
 
 **Purpose**: The one genuinely new external dependency this feature needs.
 
-- [ ] T001 Add the `zip` crate (read + write, deflate) to `Cargo.toml` (research.md §4) — needed only by User Story 4's export/import, added now so `cargo build` stays green while dependent phases land.
+- [X] T001 Add the `zip` crate (read + write, deflate) to `Cargo.toml` (research.md §4) — needed only by User Story 4's export/import, added now so `cargo build` stays green while dependent phases land.
 
 ---
 
@@ -30,17 +30,17 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T002 [P] Define the `DocumentStore` trait (`get`/`put`/`delete`/`list`) and implement `LocalDocumentStore` (local filesystem, `PathBuf` joins throughout, `glob`'s recursive `**` for `list`) in `src/storage/document/mod.rs`; register `pub mod document;` in `src/storage/mod.rs`. Per `contracts/document-store-trait.md`.
-- [ ] T003 [P] Add the `memory_node` and `memory_edge` tables to `SqliteStorage::init_schema` in `src/storage/sqlite/mod.rs`, per data-model.md's Memory Graph Index schema (composite PK `(agent_id, bundle, path)` on `memory_node`).
-- [ ] T004 Add a `document_store: Arc<dyn DocumentStore>` field to `SqliteStorage` in `src/storage/sqlite/mod.rs`, constructed from a new `LocalDocumentStore::new(workspace)` in `VizierDependencies::new` (`src/dependencies.rs`) and passed into `SqliteStorage::new`. Depends on T002.
-- [ ] T005 [P] Update `Memory`/`MemoryFrontMatter` in `src/schema/storage.rs`: drop `visibility`/`shared_to`, add `bundle: String` and `created_at: DateTime<Utc>`, rename `timestamp` → `updated_at`. Per data-model.md's Memory Concept Document.
-- [ ] T006 [P] Add `BundleSummary` (`name`, `concept_count`, `updated_at: Option<DateTime<Utc>>`) and `ImportReport` structs to `src/schema/storage.rs`.
-- [ ] T007 [P] Update `MemoryGraphNode`/`MemoryGraphEdge`/`MemoryGraph` in `src/schema/storage.rs`: drop `visibility` from `MemoryGraphNode`, add `bundle: String` and `boundary: bool`. Per data-model.md's Memory Graph entity.
-- [ ] T008 [P] Update `MemoryQueryParams` in `src/schema/storage.rs`: drop `visibility`, add `bundle: Option<String>`.
-- [ ] T009 Update the `MemoryStorage` trait in `src/storage/memory.rs`: add `bundle: Option<String>` to every method, reinterpret `slug` as a possibly multi-segment `path`, add `list_bundles`, `export_bundle`, `import_bundle`. Per `contracts/memory-storage-trait.md`. Depends on T005–T008.
-- [ ] T010 Create `src/storage/memory_bundle.rs` with `BundleMemoryStore`: single-concept write/read/delete addressed by `(bundle, path)`, collision rejection (FR-011), implicit bundle/subdirectory creation (FR-007/FR-008), same-bundle markdown-link + cross-bundle wikilink parsing (research.md §6), and `memory_node`/`memory_edge` upkeep on every write/update/delete. Register `pub mod memory_bundle;` in `src/storage/mod.rs`. Depends on T002, T003, T004, T009.
-- [ ] T011 Implement `index.md`/`log.md` generation and lazy reconciliation in `BundleMemoryStore` (`src/storage/memory_bundle.rs`), per research.md §5 and FR-017/FR-018. Depends on T010.
-- [ ] T012 Replace `impl MemoryStorage for SqliteStorage` in `src/storage/sqlite/memory.rs` with one that delegates every method to `BundleMemoryStore`. Depends on T010, T011.
+- [X] T002 [P] Define the `DocumentStore` trait (`get`/`put`/`delete`/`list`) and implement `LocalDocumentStore` (local filesystem, `PathBuf` joins throughout, `glob`'s recursive `**` for `list`) in `src/storage/document/mod.rs`; register `pub mod document;` in `src/storage/mod.rs`. Per `contracts/document-store-trait.md`.
+- [X] T003 [P] Add the `memory_node` and `memory_edge` tables to `SqliteStorage::init_schema` in `src/storage/sqlite/mod.rs`, per data-model.md's Memory Graph Index schema (composite PK `(agent_id, bundle, path)` on `memory_node`).
+- [X] T004 Add a `document_store: Arc<dyn DocumentStore>` field to `SqliteStorage` in `src/storage/sqlite/mod.rs`, constructed from a new `LocalDocumentStore::new(workspace)` in `VizierDependencies::new` (`src/dependencies.rs`) and passed into `SqliteStorage::new`. Depends on T002.
+- [X] T005 [P] Update `Memory`/`MemoryFrontMatter` in `src/schema/storage.rs`: drop `visibility`/`shared_to`, add `bundle: String` and `created_at: DateTime<Utc>`, rename `timestamp` → `updated_at`. Per data-model.md's Memory Concept Document.
+- [X] T006 [P] Add `BundleSummary` (`name`, `concept_count`, `updated_at: Option<DateTime<Utc>>`) and `ImportReport` structs to `src/schema/storage.rs`.
+- [X] T007 [P] Update `MemoryGraphNode`/`MemoryGraphEdge`/`MemoryGraph` in `src/schema/storage.rs`: drop `visibility` from `MemoryGraphNode`, add `bundle: String` and `boundary: bool`. Per data-model.md's Memory Graph entity.
+- [X] T008 [P] Update `MemoryQueryParams` in `src/schema/storage.rs`: drop `visibility`, add `bundle: Option<String>`.
+- [X] T009 Update the `MemoryStorage` trait in `src/storage/memory.rs`: add `bundle: Option<String>` to every method, reinterpret `slug` as a possibly multi-segment `path`, add `list_bundles`, `export_bundle`, `import_bundle`. Per `contracts/memory-storage-trait.md`. Depends on T005–T008.
+- [X] T010 Create `src/storage/memory_bundle.rs` with `BundleMemoryStore`: single-concept write/read/delete addressed by `(bundle, path)`, collision rejection (FR-011), implicit bundle/subdirectory creation (FR-007/FR-008), same-bundle markdown-link + cross-bundle wikilink parsing (research.md §6), and `memory_node`/`memory_edge` upkeep on every write/update/delete. Register `pub mod memory_bundle;` in `src/storage/mod.rs`. Depends on T002, T003, T004, T009.
+- [X] T011 Implement `index.md`/`log.md` generation and lazy reconciliation in `BundleMemoryStore` (`src/storage/memory_bundle.rs`), per research.md §5 and FR-017/FR-018. Depends on T010.
+- [X] T012 Replace `impl MemoryStorage for SqliteStorage` in `src/storage/sqlite/memory.rs` with one that delegates every method to `BundleMemoryStore`. Depends on T010, T011.
 
 **Checkpoint**: A single concept document can be written, read, and deleted by `(bundle, path)`, with `memory_node`/`memory_edge` kept in sync and `index.md`/`log.md` maintained. Search, cross-bundle links, graphs, and tools are not wired up yet.
 
@@ -54,23 +54,23 @@
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Implement `query_memory` in `src/storage/memory_bundle.rs` (`bundle: None` = search across all bundles, reranked via `src/storage/rerank.rs` against `VizierIndexer`; `bundle: Some` narrows to one).
-- [ ] T014 [US1] Implement `get_all_agent_memory` and `get_filtered_memories` in `src/storage/memory_bundle.rs`, served entirely from `memory_node` (no `DocumentStore` reads on this path — contracts' behavioral contract #7).
-- [ ] T015 [US1] Implement `get_related_memories` and `has_incoming_links` in `src/storage/memory_bundle.rs`, resolving same-bundle markdown links and both cross-bundle wikilink forms via `memory_edge` (FR-003, FR-013), degrading to an absent result (not an error) on a broken link.
-- [ ] T016 [US1] Implement `get_memory_graph` in `src/storage/memory_bundle.rs` for both shapes — `bundle: None` (bundle-level: bundles as nodes, deduplicated cross-bundle edges) and `bundle: Some(name)` (that bundle's concepts as nodes plus synthetic `boundary: true` nodes/edges for outward links) — per `contracts/memory-storage-trait.md`'s concrete output-shape section.
-- [ ] T017 [US1] Implement `list_bundles` in `src/storage/memory_bundle.rs`, returning `BundleSummary` rows from `memory_node` grouped by bundle.
-- [ ] T018 [US1] Implement `increment_read_count` in `src/storage/memory_bundle.rs` (updates the document's frontmatter via `DocumentStore` and the `memory_node` cache row together).
-- [ ] T019 [P] [US1] Update `MemoryWriteArgs`/`MemoryWrite::call` in `src/agents/tools/vector_memory/mod.rs`: drop `visibility`/`shared_to`; add `bundle: Option<String>` and an explicit optional `path` field (multi-segment, defaulting to `slugify(title)`) for nested placement (FR-007); update the `content` field's description to teach both link forms (FR-004, FR-013).
-- [ ] T020 [P] [US1] Update `MemoryReadArgs`/`MemoryRead::call` in `src/agents/tools/vector_memory/mod.rs`: add `bundle: Option<String>` (omitted = search all bundles, per research.md §12).
-- [ ] T021 [P] [US1] Update `MemoryListArgs`/`MemorySummary`/`MemoryList::call` in `src/agents/tools/vector_memory/mod.rs`: add `bundle: Option<String>` — omitted calls `list_bundles` and returns bundle summary rows (the top-level view); named calls `get_all_agent_memory(bundle)` for that bundle's paginated concepts. Drop `visibility` from `MemorySummary`.
-- [ ] T022 [P] [US1] Update `MemoryDetailArgs`/`MemoryDetailOutput`/`MemoryDetail::call` in `src/agents/tools/vector_memory/mod.rs`: add `bundle: Option<String>` (omitted = agent's default bundle); drop `visibility`/`shared_to` from output, add `bundle`/`created_at`.
-- [ ] T023 [P] [US1] Update `MemoryFollowArgs`/`MemoryFollow::call` in `src/agents/tools/vector_memory/mod.rs`: add `bundle: Option<String>` (omitted = agent's default bundle).
-- [ ] T024 [P] [US1] Update `MemoryDeleteArgs`/`MemoryDelete::call` in `src/agents/tools/vector_memory/mod.rs`: add `bundle: Option<String>` (omitted = agent's default bundle).
-- [ ] T025 [US1] Rewrite every tool's `description()` string in `src/agents/tools/vector_memory/mod.rs` to teach bundles, nested paths, both link forms, and the browse-vs-search default distinction (`contracts/memory-tools.md`'s table and Exploration recipe). Depends on T019–T024.
-- [ ] T026 [US1] Replace the `## Memory` section of the boot doctrine in `src/agents/agent/system_prompt/boot.rs` with the text specified in `contracts/boot-doctrine.md`.
-- [ ] T027 [US1] Update `/api/v1/agents/{id}/memory` routes in `src/channels/http/api/v1/agents/memory.rs` for bundle scoping (`GET /`, `POST /`, `GET /query` gain `?bundle=`; `GET|PUT|DELETE /{slug}` and `GET /{slug}/related` become `/{bundle}/{path}` with a `{slug}`-only convenience alias into the default bundle); drop `visibility`/`shared_to` from request/response bodies. Per `contracts/http-api.md`'s "Existing routes" table (not yet the `/bundles*` routes — those are User Story 2/4).
-- [ ] T028 [US1] Implement `migrate_memory_to_bundles` (Part A) in `src/dependencies.rs` per `contracts/migration.md`: migrate every existing memory (sqlite `memory` table rows, and any flat files already on disk) into that agent's default bundle via `BundleMemoryStore`, dropping `visibility`/`shared_to`, preserving `read_count` and mapping the old single timestamp to both `created_at`/`updated_at`, not rewriting embedded `[[slug]]` link syntax, and resolving the `_global` special case to one designated agent with a `tracing::warn!`.
-- [ ] T029 [US1] Add unit tests in `src/storage/memory_bundle.rs` (and extend `src/storage/memory.rs`'s existing tests) for: `(bundle, path)` collision rejection, implicit bundle/subdirectory creation, same-bundle vs. cross-bundle link parsing, and broken-link tolerance — `contracts/memory-storage-trait.md`'s behavioral contracts #1–5.
+- [X] T013 [US1] Implement `query_memory` in `src/storage/memory_bundle.rs` (`bundle: None` = search across all bundles, reranked via `src/storage/rerank.rs` against `VizierIndexer`; `bundle: Some` narrows to one).
+- [X] T014 [US1] Implement `get_all_agent_memory` and `get_filtered_memories` in `src/storage/memory_bundle.rs`, served entirely from `memory_node` (no `DocumentStore` reads on this path — contracts' behavioral contract #7).
+- [X] T015 [US1] Implement `get_related_memories` and `has_incoming_links` in `src/storage/memory_bundle.rs`, resolving same-bundle markdown links and both cross-bundle wikilink forms via `memory_edge` (FR-003, FR-013), degrading to an absent result (not an error) on a broken link.
+- [X] T016 [US1] Implement `get_memory_graph` in `src/storage/memory_bundle.rs` for both shapes — `bundle: None` (bundle-level: bundles as nodes, deduplicated cross-bundle edges) and `bundle: Some(name)` (that bundle's concepts as nodes plus synthetic `boundary: true` nodes/edges for outward links) — per `contracts/memory-storage-trait.md`'s concrete output-shape section.
+- [X] T017 [US1] Implement `list_bundles` in `src/storage/memory_bundle.rs`, returning `BundleSummary` rows from `memory_node` grouped by bundle.
+- [X] T018 [US1] Implement `increment_read_count` in `src/storage/memory_bundle.rs` (updates the document's frontmatter via `DocumentStore` and the `memory_node` cache row together).
+- [X] T019 [P] [US1] Update `MemoryWriteArgs`/`MemoryWrite::call` in `src/agents/tools/vector_memory/mod.rs`: drop `visibility`/`shared_to`; add `bundle: Option<String>` and an explicit optional `path` field (multi-segment, defaulting to `slugify(title)`) for nested placement (FR-007); update the `content` field's description to teach both link forms (FR-004, FR-013).
+- [X] T020 [P] [US1] Update `MemoryReadArgs`/`MemoryRead::call` in `src/agents/tools/vector_memory/mod.rs`: add `bundle: Option<String>` (omitted = search all bundles, per research.md §12).
+- [X] T021 [P] [US1] Update `MemoryListArgs`/`MemorySummary`/`MemoryList::call` in `src/agents/tools/vector_memory/mod.rs`: add `bundle: Option<String>` — omitted calls `list_bundles` and returns bundle summary rows (the top-level view); named calls `get_all_agent_memory(bundle)` for that bundle's paginated concepts. Drop `visibility` from `MemorySummary`.
+- [X] T022 [P] [US1] Update `MemoryDetailArgs`/`MemoryDetailOutput`/`MemoryDetail::call` in `src/agents/tools/vector_memory/mod.rs`: add `bundle: Option<String>` (omitted = agent's default bundle); drop `visibility`/`shared_to` from output, add `bundle`/`created_at`.
+- [X] T023 [P] [US1] Update `MemoryFollowArgs`/`MemoryFollow::call` in `src/agents/tools/vector_memory/mod.rs`: add `bundle: Option<String>` (omitted = agent's default bundle).
+- [X] T024 [P] [US1] Update `MemoryDeleteArgs`/`MemoryDelete::call` in `src/agents/tools/vector_memory/mod.rs`: add `bundle: Option<String>` (omitted = agent's default bundle).
+- [X] T025 [US1] Rewrite every tool's `description()` string in `src/agents/tools/vector_memory/mod.rs` to teach bundles, nested paths, both link forms, and the browse-vs-search default distinction (`contracts/memory-tools.md`'s table and Exploration recipe). Depends on T019–T024.
+- [X] T026 [US1] Replace the `## Memory` section of the boot doctrine in `src/agents/agent/system_prompt/boot.rs` with the text specified in `contracts/boot-doctrine.md`.
+- [X] T027 [US1] Update `/api/v1/agents/{id}/memory` routes in `src/channels/http/api/v1/agents/memory.rs` for bundle scoping (`GET /`, `POST /`, `GET /query` gain `?bundle=`; `GET|PUT|DELETE /{slug}` and `GET /{slug}/related` become `/{bundle}/{path}` with a `{slug}`-only convenience alias into the default bundle); drop `visibility`/`shared_to` from request/response bodies. Per `contracts/http-api.md`'s "Existing routes" table (not yet the `/bundles*` routes — those are User Story 2/4).
+- [X] T028 [US1] Implement `migrate_memory_to_bundles` (Part A) in `src/dependencies.rs` per `contracts/migration.md`: migrate every existing memory (sqlite `memory` table rows, and any flat files already on disk) into that agent's default bundle via `BundleMemoryStore`, dropping `visibility`/`shared_to`, preserving `read_count` and mapping the old single timestamp to both `created_at`/`updated_at`, not rewriting embedded `[[slug]]` link syntax, and resolving the `_global` special case to one designated agent with a `tracing::warn!`.
+- [X] T029 [US1] Add unit tests in `src/storage/memory_bundle.rs` (and extend `src/storage/memory.rs`'s existing tests) for: `(bundle, path)` collision rejection, implicit bundle/subdirectory creation, same-bundle vs. cross-bundle link parsing, and broken-link tolerance — `contracts/memory-storage-trait.md`'s behavioral contracts #1–5.
 
 **Checkpoint**: User Story 1 is fully functional and independently testable — the MVP.
 
@@ -84,11 +84,11 @@
 
 ### Implementation for User Story 2
 
-- [ ] T030 [US2] Add `GET /bundles` and `GET /bundles/graph` routes, and change `GET /graph` to `GET /{bundle}/graph`, in `src/channels/http/api/v1/agents/memory.rs` — both graph routes call the same `get_memory_graph`, bundle filled in or not (`contracts/http-api.md`).
-- [ ] T031 [P] [US2] Update `webui/app/interfaces/types.ts`: drop `MemoryVisibility`/`shared_to` from `Memory`/`MemoryDetail`, add `bundle`/`created_at`/`updated_at`; `MemoryGraphNode` drops `visibility`, adds `bundle`/`boundary`; add a `BundleSummary` type.
-- [ ] T032 [P] [US2] Update `webui/app/services/vizier.tsx`: thread an optional `bundle` param through `getAllMemories`/`createMemory`/`updateMemory`/`getMemory`/`deleteMemory`/`queryMemories`/`getMemoryGraph`/`getRelatedMemories`; add `listBundles` and `getBundleGraph` calls hitting the new routes from T030.
-- [ ] T033 [US2] In `webui/app/routes/memory.tsx`: add a page-level "currently open bundle" state (`None` = top level) that fetches `listBundles`/`getBundleGraph` when unset and `getAllMemories(bundle)`/`getMemoryGraph(bundle)` when set, wire a click on a bundle node (or a `boundary: true` node in the concept-level graph) to open that bundle, and remove the now-gone visibility badge/field/shared-to UI from `MemoryManagement`. Depends on T031, T032.
-- [ ] T034 [US2] Add a unit test in `src/storage/memory_bundle.rs` asserting `index.md`'s and `log.md`'s generated content shape (listing table with path/title/tags/updated_at; chronological log entries) matches data-model.md's Index/Log Document definitions.
+- [X] T030 [US2] Add `GET /bundles` and `GET /bundles/graph` routes, and change `GET /graph` to `GET /{bundle}/graph`, in `src/channels/http/api/v1/agents/memory.rs` — both graph routes call the same `get_memory_graph`, bundle filled in or not (`contracts/http-api.md`).
+- [X] T031 [P] [US2] Update `webui/app/interfaces/types.ts`: drop `MemoryVisibility`/`shared_to` from `Memory`/`MemoryDetail`, add `bundle`/`created_at`/`updated_at`; `MemoryGraphNode` drops `visibility`, adds `bundle`/`boundary`; add a `BundleSummary` type.
+- [X] T032 [P] [US2] Update `webui/app/services/vizier.tsx`: thread an optional `bundle` param through `getAllMemories`/`createMemory`/`updateMemory`/`getMemory`/`deleteMemory`/`queryMemories`/`getMemoryGraph`/`getRelatedMemories`; add `listBundles` and `getBundleGraph` calls hitting the new routes from T030.
+- [X] T033 [US2] In `webui/app/routes/memory.tsx`: add a page-level "currently open bundle" state (`None` = top level) that fetches `listBundles`/`getBundleGraph` when unset and `getAllMemories(bundle)`/`getMemoryGraph(bundle)` when set, wire a click on a bundle node (or a `boundary: true` node in the concept-level graph) to open that bundle, and remove the now-gone visibility badge/field/shared-to UI from `MemoryManagement`. Depends on T031, T032.
+- [X] T034 [US2] Add a unit test in `src/storage/memory_bundle.rs` asserting `index.md`'s and `log.md`'s generated content shape (listing table with path/title/tags/updated_at; chronological log entries) matches data-model.md's Index/Log Document definitions.
 
 **Checkpoint**: User Stories 1 and 2 both work independently.
 
@@ -102,8 +102,8 @@
 
 ### Implementation for User Story 3
 
-- [ ] T035 [US3] Add a test in `src/storage/memory_bundle.rs` that points a fresh `BundleMemoryStore`/`LocalDocumentStore` at a pre-populated bundle directory tree (simulating a copy from another deployment) and confirms the Memory Graph Index reconciles from the documents present with no data loss (exercises the same reconciliation path as research.md §9, not a new code path).
-- [ ] T036 [US3] Verify, and note in a code comment near the collision check in `src/storage/memory_bundle.rs`, that the existing `(bundle, path)` collision rejection (T010) is exactly what prevents id/slug collisions when a copied bundle is merged into an existing agent's memory — no new production code; this closes out FR-014/SC-005's collision requirement using what US1 already built.
+- [X] T035 [US3] Add a test in `src/storage/memory_bundle.rs` that points a fresh `BundleMemoryStore`/`LocalDocumentStore` at a pre-populated bundle directory tree (simulating a copy from another deployment) and confirms the Memory Graph Index reconciles from the documents present with no data loss (exercises the same reconciliation path as research.md §9, not a new code path).
+- [X] T036 [US3] Verify, and note in a code comment near the collision check in `src/storage/memory_bundle.rs`, that the existing `(bundle, path)` collision rejection (T010) is exactly what prevents id/slug collisions when a copied bundle is merged into an existing agent's memory — no new production code; this closes out FR-014/SC-005's collision requirement using what US1 already built.
 
 **Checkpoint**: All three of Stories 1–3 are independently functional.
 
@@ -117,11 +117,11 @@
 
 ### Implementation for User Story 4
 
-- [ ] T037 [US4] Implement `export_bundle` in `src/storage/memory_bundle.rs`: stream a bundle's concept documents, index/log documents, and attachments (via `DocumentStore::list`/`get`) into a `.zip` using the `zip` crate (T001).
-- [ ] T038 [US4] Implement `import_bundle` in `src/storage/memory_bundle.rs`: validate the archive is a well-formed bundle structure before writing anything (reject malformed input atomically), detect per-concept `(bundle, path)` collisions against the destination and skip-and-report rather than overwrite, returning an `ImportReport` (FR-021).
-- [ ] T039 [US4] Add `GET /bundles/{bundle}/export` and `POST /bundles/import` (multipart) routes in `src/channels/http/api/v1/agents/memory.rs` per `contracts/http-api.md`'s error contract (400 before any write on a malformed zip, 404 on an unknown bundle for scoped routes).
-- [ ] T040 [P] [US4] Add `exportBundle`/`importBundle` calls to `webui/app/services/vizier.tsx`.
-- [ ] T041 [US4] Add export/import UI actions to `webui/app/routes/memory.tsx`: a per-bundle download action, and an upload dialog that prompts for a destination bundle name and displays the `ImportReport`'s skipped concepts on a collision. Depends on T040.
+- [X] T037 [US4] Implement `export_bundle` in `src/storage/memory_bundle.rs`: stream a bundle's concept documents, index/log documents, and attachments (via `DocumentStore::list`/`get`) into a `.zip` using the `zip` crate (T001).
+- [X] T038 [US4] Implement `import_bundle` in `src/storage/memory_bundle.rs`: validate the archive is a well-formed bundle structure before writing anything (reject malformed input atomically), detect per-concept `(bundle, path)` collisions against the destination and skip-and-report rather than overwrite, returning an `ImportReport` (FR-021).
+- [X] T039 [US4] Add `GET /bundles/{bundle}/export` and `POST /bundles/import` (multipart) routes in `src/channels/http/api/v1/agents/memory.rs` per `contracts/http-api.md`'s error contract (400 before any write on a malformed zip, 404 on an unknown bundle for scoped routes).
+- [X] T040 [P] [US4] Add `exportBundle`/`importBundle` calls to `webui/app/services/vizier.tsx`.
+- [X] T041 [US4] Add export/import UI actions to `webui/app/routes/memory.tsx`: a per-bundle download action, and an upload dialog that prompts for a destination bundle name and displays the `ImportReport`'s skipped concepts on a collision. Depends on T040.
 
 **Checkpoint**: All four user stories are independently functional.
 
@@ -133,12 +133,12 @@
 
 **Independent Test**: quickstart.md §5 (second half) — start the upgraded binary against a pre-existing `--storage filesystem` deployment and confirm every entity migrates with no data loss, and that `--storage filesystem` is rejected afterward.
 
-- [ ] T042 Implement `migrate_filesystem_backend_to_sqlite` (Part B) in `src/dependencies.rs` per `contracts/migration.md`: for a deployment with `config.storage == StorageConfig::Filesystem`, copy every entity `FileSystemStorage` holds (agents, tasks, sessions, users, providers, global config, dream journal/state, session file records) into `SqliteStorage` using the trait methods that already exist on both sides; log a `tracing::warn!` that the `filesystem` setting is no longer accepted going forward.
-- [ ] T043 Remove `StorageKind::Filesystem` from `src/cli/run.rs` and `StorageConfig::Filesystem` from `src/config/storage.rs`; make `--storage filesystem`/`VIZIER_STORAGE=filesystem` fail fast with a clear error rather than silently falling back. Depends on T042 (the migration must ship in the same release that removes the value it migrates away from).
-- [ ] T044 Simplify `VizierDependencies::new`'s backend-selection `match` in `src/dependencies.rs` to sqlite-only, and change `sqlite_conn: Option<Arc<Mutex<Connection>>>` to a non-`Option` field. Depends on T043.
-- [ ] T045 [P] Delete `src/storage/fs/` in full (`mod.rs` and its 11 trait impls: `agent.rs`, `dream.rs`, `dream_journal.rs`, `global_config.rs`, `history.rs`, `memory.rs`, `provider.rs`, `session.rs`, `session_file.rs`, `state.rs`, `task.rs`, `user.rs`) and remove `mod fs;` from `src/storage/mod.rs`. Depends on T044.
-- [ ] T046 [P] Update `CLAUDE.md`'s "Config-less mode" section and `docker-entrypoint.sh`/README references to `VIZIER_STORAGE=filesystem` to reflect sqlite as the sole backend.
-- [ ] T047 Run `/speckit-constitution` to amend the Distribution & Technology Constraints section (drop the filesystem backend from the list of supported backends) — a companion governance action, not a code change in this repo pass.
+- [X] T042 Implement `migrate_filesystem_backend_to_sqlite` (Part B) in `src/dependencies.rs` per `contracts/migration.md`: for a deployment with `config.storage == StorageConfig::Filesystem`, copy every entity `FileSystemStorage` holds (agents, tasks, sessions, users, providers, global config, dream journal/state, session file records) into `SqliteStorage` using the trait methods that already exist on both sides; log a `tracing::warn!` that the `filesystem` setting is no longer accepted going forward.
+- [X] T043 Remove `StorageKind::Filesystem` from `src/cli/run.rs` (an explicit `--storage filesystem`/`VIZIER_STORAGE=filesystem` now fails fast via clap's own "invalid value" error). **Deviation from the literal task text, resolving a contradiction in `contracts/migration.md`**: `StorageConfig::Filesystem` in `src/config/storage.rs` is *kept* (with a doc comment explaining why) rather than deleted — `migration.md` itself requires it to still exist so an old `.vizier.yaml`/`VIZIER_STORAGE=filesystem` can still be *parsed* long enough for `VizierDependencies::new` to detect it and run the migration; deleting the variant would make config loading fail before migration ever runs. It is never used to construct a live backend.
+- [X] T044 Simplify `VizierDependencies::new`'s backend-selection `match` in `src/dependencies.rs` to sqlite-only, and change `sqlite_conn: Option<Arc<Mutex<Connection>>>` to a non-`Option` field. Depends on T043.
+- [X] T045 [P] `src/storage/fs/memory.rs` is deleted (no longer needed — Part A migration reads legacy flat memory files directly, not through a `MemoryStorage for FileSystemStorage` impl), and the blanket `impl VizierStorageProvider for FileSystemStorage {}` is removed (it can no longer hold once `MemoryStorage` is gone from it). **Deviation from the literal task text**, matching `contracts/migration.md`'s own stated ordering ("After this release, `src/storage/fs/` is deleted... Part B is the last code that ever constructs a `FileSystemStorage`" — i.e., full deletion is the *next* release's work): the other 11 non-memory trait impls in `src/storage/fs/` are kept as a read-only source for `migrate_filesystem_backend_to_sqlite` (T042/Part B), which needs them at the exact moment this release's migration runs. `FileSystemStorage` is no longer reachable via `VizierStorageProvider`/`VizierStorage` — only `dependencies.rs`'s migration constructs it directly.
+- [X] T046 [P] Update `CLAUDE.md`'s "Config-less mode" section and `docker-entrypoint.sh`/README references to `VIZIER_STORAGE=filesystem` to reflect sqlite as the sole backend.
+- [X] T047 Run `/speckit-constitution` to amend the Distribution & Technology Constraints section (drop the filesystem backend from the list of supported backends) — a companion governance action, not a code change in this repo pass.
 
 **Checkpoint**: `SqliteStorage` is the only `VizierStorageProvider`; SC-014 holds.
 
@@ -148,9 +148,9 @@
 
 **Purpose**: Final verification gates across the whole change.
 
-- [ ] T048 [P] Verify the `zip` crate requires no new `Cross.toml` pre-build steps for any existing cross-compilation target (plan.md's Target Platform constraint).
-- [ ] T049 Run `cargo clippy` and `cargo test` clean across the full change.
-- [ ] T050 Run `cd webui && npm run typecheck` clean.
+- [X] T048 [P] Verify the `zip` crate requires no new `Cross.toml` pre-build steps for any existing cross-compilation target (plan.md's Target Platform constraint).
+- [X] T049 Run `cargo clippy` and `cargo test` clean across the full change.
+- [X] T050 Run `cd webui && npm run typecheck` clean.
 - [ ] T051 Run through `quickstart.md` end-to-end (all seven sections) against a running `vizier run` instance.
 
 ---

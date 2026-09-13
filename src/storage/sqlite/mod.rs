@@ -5,6 +5,7 @@ use parking_lot::Mutex;
 use rusqlite::Connection;
 
 use crate::storage::VizierStorageProvider;
+use crate::storage::document::DocumentStore;
 use crate::utils::build_path;
 
 mod agent;
@@ -22,6 +23,44 @@ mod user;
 #[derive(Clone)]
 pub struct SqliteStorage {
     pub conn: Arc<Mutex<Connection>>,
+    pub document_store: Arc<dyn DocumentStore>,
+}
+
+/// The Memory Graph Index tables (`memory_node`/`memory_edge`, data-model.md), split out from
+/// `init_schema` so unit tests (`src/storage/memory_bundle.rs`) can stand up just these tables
+/// against an in-memory connection without the rest of the application schema.
+pub fn init_memory_graph_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS memory_node (
+            agent_id TEXT NOT NULL,
+            bundle TEXT NOT NULL,
+            path TEXT NOT NULL,
+            slug TEXT NOT NULL,
+            title TEXT NOT NULL,
+            tags_json TEXT NOT NULL,
+            attachment_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            read_count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (agent_id, bundle, path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_node_agent_bundle ON memory_node(agent_id, bundle);
+
+        CREATE TABLE IF NOT EXISTS memory_edge (
+            agent_id TEXT NOT NULL,
+            source_bundle TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            target_bundle TEXT NOT NULL,
+            target_path TEXT,
+            target_kind TEXT NOT NULL,
+            broken INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_edge_source ON memory_edge(agent_id, source_bundle, source_path);
+        CREATE INDEX IF NOT EXISTS idx_memory_edge_target ON memory_edge(agent_id, target_bundle, target_path);
+        ",
+    )?;
+    Ok(())
 }
 
 impl SqliteStorage {
@@ -54,8 +93,18 @@ impl SqliteStorage {
         Ok(conn)
     }
 
-    pub fn new(conn: Arc<Mutex<Connection>>) -> Self {
-        Self { conn }
+    pub fn new(conn: Arc<Mutex<Connection>>, document_store: Arc<dyn DocumentStore>) -> Self {
+        Self {
+            conn,
+            document_store,
+        }
+    }
+
+    pub fn bundle_store(&self) -> crate::storage::memory_bundle::BundleMemoryStore {
+        crate::storage::memory_bundle::BundleMemoryStore::new(
+            self.document_store.clone(),
+            self.conn.clone(),
+        )
     }
 
     fn init_schema(conn: &Connection) -> Result<()> {
@@ -217,6 +266,8 @@ impl SqliteStorage {
             END;
             ",
         )?;
+
+        init_memory_graph_schema(conn)?;
 
         Ok(())
     }

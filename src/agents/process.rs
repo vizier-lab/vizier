@@ -778,7 +778,7 @@ pub async fn handle_request(
             let memory = match &indexer {
                 Some(idx) => {
                     storage
-                        .query_memory(session.0.clone(), prompt.clone(), 10, 0.5, idx)
+                        .query_memory(session.0.clone(), None, prompt.clone(), 10, 0.5, idx)
                         .await?
                 }
                 None => Vec::new(),
@@ -813,7 +813,7 @@ pub async fn handle_request(
             let memory = match &indexer {
                 Some(idx) => {
                     storage
-                        .query_memory(session.0.clone(), prompt.clone(), 10, 0.5, idx)
+                        .query_memory(session.0.clone(), None, prompt.clone(), 10, 0.5, idx)
                         .await?
                 }
                 None => Vec::new(),
