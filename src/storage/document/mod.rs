@@ -25,6 +25,21 @@ pub trait DocumentStore: Send + Sync {
     async fn list(&self, prefix: &str) -> Result<Vec<String>>;
 }
 
+fn strip_curdir_components(path: PathBuf) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        if matches!(component, std::path::Component::CurDir) {
+            continue;
+        }
+        normalized.push(component);
+    }
+    if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
+    }
+}
+
 /// Default `DocumentStore`: local filesystem, rooted at `{root}/...` where callers
 /// (`BundleMemoryStore`) compose `agent_id/memory/...` themselves on top of `root`.
 pub struct LocalDocumentStore {
@@ -32,8 +47,16 @@ pub struct LocalDocumentStore {
 }
 
 impl LocalDocumentStore {
+    /// `root` is normalized to strip `.` (current-dir) components before storing: a workspace
+    /// path like `./.vizier` (e.g. from `--config dev.vizier.yaml`, a bare relative filename)
+    /// would otherwise carry an explicit `CurDir` path component that `PathBuf::join` preserves
+    /// but the `glob` crate silently drops from the paths it returns — causing `list`'s
+    /// `strip_prefix` below to fail and fall back to the *un-stripped* path, which then leaked
+    /// a bogus top-level "bundle" named after the workspace directory itself (e.g. `.vizier`).
     pub fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self {
+            root: strip_curdir_components(root),
+        }
     }
 
     /// Resolves `path` under `root`, rejecting `..`/`.` segments outright rather than letting
@@ -166,5 +189,31 @@ mod tests {
         let mut listed = store.list("bundle").await.unwrap();
         listed.sort();
         assert_eq!(listed, vec!["a.md".to_string(), "nested/b.md".to_string()]);
+    }
+
+    /// Regression test for a real bug: a workspace root containing a `.` component (e.g. the
+    /// `./.vizier` produced by resolving a config path given as a bare relative filename, as
+    /// `--config dev.vizier.yaml` does) made `list`'s `strip_prefix` fail silently and leak the
+    /// workspace directory's own name (e.g. `.vizier`) as a bogus top-level "bundle".
+    #[tokio::test]
+    async fn list_strips_prefix_even_when_root_has_a_curdir_component() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("nested")).unwrap();
+        // Same shape as "./.vizier/agents": a literal `.` path component embedded in root.
+        let root_with_curdir = PathBuf::from(format!("{}/./nested", dir.path().display()));
+        let store = LocalDocumentStore::new(root_with_curdir);
+
+        store.put("viz/memory/default/a.md", b"1".to_vec()).await.unwrap();
+        store.put("viz/memory/gaming/b.md", b"2".to_vec()).await.unwrap();
+
+        let files = store.list("viz/memory").await.unwrap();
+        let top_level: std::collections::HashSet<String> = files
+            .iter()
+            .filter_map(|f| f.split('/').next().map(|s| s.to_string()))
+            .collect();
+        assert_eq!(
+            top_level,
+            std::collections::HashSet::from(["default".to_string(), "gaming".to_string()])
+        );
     }
 }
