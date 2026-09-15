@@ -4,7 +4,10 @@ use anyhow::Result;
 
 use crate::{
     config::provider::ProviderVariant,
-    schema::{AgentConfig, GlobalConfigEntry, ProviderEntry, SessionFileRecord, VizierSession},
+    schema::{
+        AgentConfig, CoreRevision, GlobalConfigEntry, PaginatedCoreRevisions, ProviderEntry,
+        RevisionDiff, RevisionOrigin, RollbackResponse, SessionFileRecord, VizierSession,
+    },
     storage::{
         agent::AgentStorage, dream::DreamStorage, dream_journal::DreamJournalStorage,
         global_config::GlobalConfigStorage, history::HistoryStorage, memory::MemoryStorage,
@@ -14,6 +17,7 @@ use crate::{
 };
 
 pub mod agent;
+pub mod diff;
 pub mod document;
 pub mod dream;
 pub mod dream_journal;
@@ -200,6 +204,50 @@ impl AgentStorage for VizierStorage {
 
     async fn delete_agent(&self, agent_id: &str) -> Result<()> {
         self.0.delete_agent(agent_id).await
+    }
+
+    async fn get_agent_core(&self, agent_id: &str) -> Result<Option<String>> {
+        self.0.get_agent_core(agent_id).await
+    }
+
+    async fn set_agent_core(
+        &self,
+        agent_id: &str,
+        core: &str,
+        origin: &RevisionOrigin,
+    ) -> Result<()> {
+        self.0.set_agent_core(agent_id, core, origin).await
+    }
+
+    async fn list_core_revisions(
+        &self,
+        agent_id: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<PaginatedCoreRevisions> {
+        self.0.list_core_revisions(agent_id, offset, limit).await
+    }
+
+    async fn get_core_revision(&self, agent_id: &str, seq: i64) -> Result<Option<CoreRevision>> {
+        self.0.get_core_revision(agent_id, seq).await
+    }
+
+    async fn diff_core_revisions(
+        &self,
+        agent_id: &str,
+        from: Option<i64>,
+        to: i64,
+    ) -> Result<RevisionDiff> {
+        self.0.diff_core_revisions(agent_id, from, to).await
+    }
+
+    async fn rollback_core(
+        &self,
+        agent_id: &str,
+        seq: i64,
+        origin: &RevisionOrigin,
+    ) -> Result<RollbackResponse> {
+        self.0.rollback_core(agent_id, seq, origin).await
     }
 }
 

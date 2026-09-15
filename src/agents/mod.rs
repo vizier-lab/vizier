@@ -15,7 +15,7 @@ use crate::indexer::VizierIndexer;
 use crate::indexer::sqlite::SqliteIndexer;
 use crate::schema::{
     AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentId, AgentSummary,
-    ProviderEntryConfig,
+    ProviderEntryConfig, RevisionOrigin, RevisionTrigger,
 };
 use crate::storage::agent::AgentStorage;
 use crate::storage::provider::ProviderStorage;
@@ -214,7 +214,11 @@ impl VizierAgents {
         if let Err(e) = self
             .deps
             .storage
-            .set_agent_core(agent_id, CORE_MD)
+            .set_agent_core(
+                agent_id,
+                CORE_MD,
+                &RevisionOrigin::system(RevisionTrigger::Baseline),
+            )
             .await
         {
             tracing::warn!(

@@ -175,6 +175,10 @@
   --transition-fast: 120ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Version-history diff viewer */
+  --diff-insert-bg: rgba(16, 185, 129, 0.18);
+  --diff-delete-bg: rgba(239, 68, 68, 0.16);
 }
 
 /* Dark Mode Colors */
@@ -210,6 +214,9 @@
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
+
+  --diff-insert-bg: rgba(16, 185, 129, 0.22);
+  --diff-delete-bg: rgba(239, 68, 68, 0.22);
 }
 
 @theme {
@@ -2616,4 +2623,112 @@ select:focus {
   flex-shrink: 0;
   min-width: 36px;
   text-align: right;
+}
+
+/* ---- Version history diff viewer (components/VersionHistory.tsx) ---- */
+.diff-view {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow-x: auto;
+}
+
+.diff-hunk-header {
+  padding: 4px 12px;
+  color: var(--text-tertiary);
+  background: var(--hover);
+  border-top: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.diff-hunk-header:first-child {
+  border-top: none;
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 3.5em 3.5em 1.2em 1fr;
+  white-space: pre;
+  min-width: max-content;
+}
+
+.diff-line.insert {
+  background: var(--diff-insert-bg);
+}
+
+.diff-line.delete {
+  background: var(--diff-delete-bg);
+}
+
+.diff-gutter {
+  text-align: right;
+  padding: 0 8px;
+  color: var(--text-tertiary);
+  user-select: none;
+  border-right: 1px solid var(--border);
+}
+
+.diff-sign {
+  text-align: center;
+  color: var(--text-tertiary);
+  user-select: none;
+}
+
+.diff-text {
+  padding-right: 12px;
+}
+
+.history-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.history-row.current {
+  border-color: var(--accent-primary);
+}
+
+.history-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.history-badge.current {
+  border-color: var(--accent-primary);
+  color: var(--accent-dark);
+  background: var(--accent-light);
+}
+
+.dark .history-badge.current {
+  color: var(--accent-medium);
+  background: rgba(16, 185, 129, 0.15);
+}
+
+.history-badge.deleted {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.history-content {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow-x: auto;
 }

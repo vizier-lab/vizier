@@ -3,7 +3,8 @@ use anyhow::Result;
 use crate::{
     indexer::VizierIndexer,
     schema::{
-        BundleSummary, ImportReport, Memory, MemoryGraph, MemoryQueryParams, PaginatedMemory,
+        BundleSummary, ImportReport, Memory, MemoryGraph, MemoryQueryParams, MemoryRevision,
+        PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin, RollbackResponse,
         VizierAttachment,
     },
     storage::{memory::MemoryStorage, sqlite::SqliteStorage},
@@ -21,11 +22,13 @@ impl MemoryStorage for SqliteStorage {
         content: String,
         tags: Vec<String>,
         attachments: Vec<VizierAttachment>,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<Memory> {
         self.bundle_store()
             .write_memory(
-                agent_id, bundle, path, create_only, title, content, tags, attachments, indexer,
+                agent_id, bundle, path, create_only, title, content, tags, attachments, origin,
+                indexer,
             )
             .await
     }
@@ -97,10 +100,11 @@ impl MemoryStorage for SqliteStorage {
         agent_id: String,
         bundle: Option<String>,
         path: String,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<()> {
         self.bundle_store()
-            .delete_memory(agent_id, bundle, path, indexer)
+            .delete_memory(agent_id, bundle, path, origin, indexer)
             .await
     }
 
@@ -124,10 +128,11 @@ impl MemoryStorage for SqliteStorage {
         agent_id: String,
         bundle: String,
         force: bool,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<()> {
         self.bundle_store()
-            .delete_bundle(agent_id, bundle, force, indexer)
+            .delete_bundle(agent_id, bundle, force, origin, indexer)
             .await
     }
 
@@ -140,10 +145,63 @@ impl MemoryStorage for SqliteStorage {
         agent_id: String,
         bundle: String,
         zip_bytes: Vec<u8>,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<ImportReport> {
         self.bundle_store()
-            .import_bundle(agent_id, bundle, zip_bytes, indexer)
+            .import_bundle(agent_id, bundle, zip_bytes, origin, indexer)
+            .await
+    }
+
+    async fn list_memory_revisions(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        offset: usize,
+        limit: usize,
+    ) -> Result<PaginatedMemoryRevisions> {
+        self.bundle_store()
+            .list_memory_revisions(agent_id, bundle, path, offset, limit)
+            .await
+    }
+
+    async fn get_memory_revision(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        seq: i64,
+    ) -> Result<Option<MemoryRevision>> {
+        self.bundle_store()
+            .get_memory_revision(agent_id, bundle, path, seq)
+            .await
+    }
+
+    async fn diff_memory_revisions(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        from: Option<i64>,
+        to: i64,
+    ) -> Result<RevisionDiff> {
+        self.bundle_store()
+            .diff_memory_revisions(agent_id, bundle, path, from, to)
+            .await
+    }
+
+    async fn rollback_memory(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        seq: i64,
+        origin: &RevisionOrigin,
+        indexer: &VizierIndexer,
+    ) -> Result<RollbackResponse> {
+        self.bundle_store()
+            .rollback_memory(agent_id, bundle, path, seq, origin, indexer)
             .await
     }
 }

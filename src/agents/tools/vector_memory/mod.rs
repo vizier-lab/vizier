@@ -8,7 +8,7 @@ use slugify::slugify;
 use crate::agents::tools::{ToolContext, VizierTool};
 use crate::error::VizierError;
 use crate::indexer::VizierIndexer;
-use crate::schema::{AgentId, VizierAttachment, VizierAttachmentContent};
+use crate::schema::{AgentId, RevisionOrigin, VizierAttachment, VizierAttachmentContent};
 use crate::storage::VizierStorage;
 use crate::storage::memory::MemoryStorage;
 use crate::storage::session_file::SessionFileStorage;
@@ -357,6 +357,7 @@ impl VizierTool for MemoryWrite {
                 content,
                 args.tags.clone(),
                 attachments,
+                &RevisionOrigin::from_session(&ctx.session),
                 &self.2,
             )
             .await
@@ -759,7 +760,7 @@ impl VizierTool for MemoryDelete {
     async fn call(
         &self,
         args: Self::Input,
-        _ctx: &ToolContext,
+        ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
         let path = args.path.clone();
         let bundle = args.bundle.clone();
@@ -815,7 +816,13 @@ impl VizierTool for MemoryDelete {
         }
 
         self.1
-            .delete_memory(self.0.clone(), bundle, path.clone(), &self.2)
+            .delete_memory(
+                self.0.clone(),
+                bundle,
+                path.clone(),
+                &RevisionOrigin::from_session(&ctx.session),
+                &self.2,
+            )
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
@@ -859,10 +866,16 @@ impl VizierTool for MemoryDeleteBundle {
     async fn call(
         &self,
         args: Self::Input,
-        _ctx: &ToolContext,
+        ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
         self.1
-            .delete_bundle(self.0.clone(), args.bundle.clone(), false, &self.2)
+            .delete_bundle(
+                self.0.clone(),
+                args.bundle.clone(),
+                false,
+                &RevisionOrigin::from_session(&ctx.session),
+                &self.2,
+            )
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 

@@ -14,9 +14,18 @@ use crate::{
     indexer::VizierIndexer,
     schema::{
         BundleSummary, ImportReport, Memory, MemoryFrontMatter, MemoryGraph, MemoryGraphEdge,
-        MemoryGraphNode, MemoryQueryParams, PaginatedMemory, VizierAttachment, default_bundle,
+        MemoryGraphNode, MemoryQueryParams, MemoryRevision, MemoryRevisionSummary,
+        PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin, RevisionTrigger,
+        RollbackResponse, VizierAttachment, default_bundle,
     },
-    storage::{document::DocumentStore, memory::compute_initial_slugs},
+    storage::{
+        diff::diff_lines,
+        document::DocumentStore,
+        memory::compute_initial_slugs,
+        sqlite::memory_revision::{
+            self, MemoryRevisionRow, memory_canonical, parse_memory_canonical,
+        },
+    },
 };
 
 /// The shared implementation behind `impl MemoryStorage for SqliteStorage`: bundle/concept
@@ -126,12 +135,12 @@ fn classify_relation(source_bundle: &str, relation: &str) -> ClassifiedLink {
     }
 }
 
-fn serialize_markdown<T: Serialize>(frontmatter: &T, content: &str) -> Result<Vec<u8>> {
+pub(crate) fn serialize_markdown<T: Serialize>(frontmatter: &T, content: &str) -> Result<Vec<u8>> {
     let yaml = serde_yaml::to_string(frontmatter)?;
     Ok(format!("---\n{}---\n{}", yaml, content).into_bytes())
 }
 
-fn parse_markdown_bytes<T: DeserializeOwned>(bytes: &[u8]) -> Result<(T, String)> {
+pub(crate) fn parse_markdown_bytes<T: DeserializeOwned>(bytes: &[u8]) -> Result<(T, String)> {
     let raw = String::from_utf8_lossy(bytes).to_string();
     let mut lines: Vec<&str> = raw.split(['\n', '\r']).collect();
     if lines.is_empty() || lines.remove(0) != "---" {
@@ -151,6 +160,13 @@ fn parse_markdown_bytes<T: DeserializeOwned>(bytes: &[u8]) -> Result<(T, String)
     let frontmatter: T = serde_yaml::from_str(&frontmatter_raw.join("\n"))?;
     let body = lines.join("\n");
     Ok((frontmatter, body))
+}
+
+/// The canonical snapshot text of an on-disk concept document (`None` when it is missing or
+/// unparseable) — what its history compares against and what a baseline is seeded from.
+fn canonical_of_bytes(bytes: &[u8]) -> Option<String> {
+    let (fm, body) = parse_markdown_bytes::<MemoryFrontMatter>(bytes).ok()?;
+    memory_canonical(&fm.title, &fm.tags, &fm.attachments, &body).ok()
 }
 
 fn memory_from_frontmatter(fm: MemoryFrontMatter, content: String) -> Memory {
@@ -271,6 +287,29 @@ impl BundleMemoryStore {
             fm.created_at,
             fm.updated_at,
             fm.read_count,
+        )
+    }
+
+    // ---- Version history (sqlite `memory_revision`) ----
+
+    fn record_revision(
+        &self,
+        agent_id: &str,
+        bundle: &str,
+        path: &str,
+        content: Option<&str>,
+        origin: &RevisionOrigin,
+        current_before_save: Option<&str>,
+    ) -> Result<Option<i64>> {
+        let conn = self.conn.lock();
+        memory_revision::record(
+            &conn,
+            agent_id,
+            bundle,
+            path,
+            content,
+            origin,
+            current_before_save,
         )
     }
 
@@ -677,6 +716,7 @@ impl BundleMemoryStore {
         content: String,
         tags: Vec<String>,
         attachments: Vec<VizierAttachment>,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<Memory> {
         let bundle = bundle.unwrap_or_else(default_bundle);
@@ -723,10 +763,24 @@ impl BundleMemoryStore {
             read_count,
         };
 
+        let canonical_before = existing.as_deref().and_then(canonical_of_bytes);
+        let canonical_new = memory_canonical(&title, &tags, &attachments, &content)?;
+
         let bytes = serialize_markdown(&frontmatter, &content)?;
         self.document_store.put(&key, bytes).await?;
 
         self.upsert_node_from_frontmatter(&agent_id, &bundle, &path, &frontmatter)?;
+        // The revision is written right after the graph node, in the same failure domain: the
+        // document is already on disk, so a failed insert here surfaces as the save's error and
+        // the next successful save (or a lazy baseline) records it (research Decision 8).
+        self.record_revision(
+            &agent_id,
+            &bundle,
+            &path,
+            Some(&canonical_new),
+            origin,
+            canonical_before.as_deref(),
+        )?;
         self.rewrite_edges(&agent_id, &bundle, &path, &relations)?;
         self.recompute_broken(&agent_id)?;
 
@@ -1183,18 +1237,32 @@ impl BundleMemoryStore {
         agent_id: String,
         bundle: Option<String>,
         path: String,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<()> {
         let bundle = bundle.unwrap_or_else(default_bundle);
         let path = normalize_path(&path);
         let key = Self::doc_key(&agent_id, &bundle, &path);
 
-        let title = match self.document_store.get(&key).await? {
-            Some(bytes) => parse_markdown_bytes::<MemoryFrontMatter>(&bytes)
+        let existing = self.document_store.get(&key).await?;
+        let title = match &existing {
+            Some(bytes) => parse_markdown_bytes::<MemoryFrontMatter>(bytes)
                 .map(|(fm, _)| fm.title)
                 .unwrap_or_else(|_| path.clone()),
             None => path.clone(),
         };
+        let canonical_before = existing.as_deref().and_then(canonical_of_bytes);
+
+        // Recorded before the file goes so a deletion entry always follows the content it
+        // removed (and a baseline is seeded first if the document pre-dates history).
+        self.record_revision(
+            &agent_id,
+            &bundle,
+            &path,
+            None,
+            origin,
+            canonical_before.as_deref(),
+        )?;
 
         self.document_store.delete(&key).await?;
         self.delete_node(&agent_id, &bundle, &path)?;
@@ -1260,6 +1328,7 @@ impl BundleMemoryStore {
         agent_id: String,
         bundle: String,
         force: bool,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<()> {
         self.reconcile_bundle(&agent_id, &bundle).await?;
@@ -1277,8 +1346,24 @@ impl BundleMemoryStore {
             ));
         }
 
+        // Only reached with `force`: every remaining concept gets its own deletion entry, the
+        // same as `delete_memory` would record. `index.md`/`log.md` are not versioned documents.
         for path in &concept_paths {
             let key = Self::doc_key(&agent_id, &bundle, path);
+            let canonical_before = self
+                .document_store
+                .get(&key)
+                .await?
+                .as_deref()
+                .and_then(canonical_of_bytes);
+            self.record_revision(
+                &agent_id,
+                &bundle,
+                path,
+                None,
+                origin,
+                canonical_before.as_deref(),
+            )?;
             self.document_store.delete(&key).await?;
             let _ = indexer
                 .delete_index("memory".into(), Self::indexer_key(&agent_id, &bundle, path))
@@ -1344,6 +1429,7 @@ impl BundleMemoryStore {
         agent_id: String,
         bundle: String,
         zip_bytes: Vec<u8>,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<ImportReport> {
         let cursor = std::io::Cursor::new(zip_bytes);
@@ -1396,6 +1482,9 @@ impl BundleMemoryStore {
                     let out = serialize_markdown(&fm, &content)?;
                     self.document_store.put(&key, out).await?;
                     self.upsert_node_from_frontmatter(&agent_id, &bundle, &path, &fm)?;
+                    // Import skips existing paths, so there is never a "before" to baseline.
+                    let canonical = memory_canonical(&fm.title, &fm.tags, &fm.attachments, &content)?;
+                    self.record_revision(&agent_id, &bundle, &path, Some(&canonical), origin, None)?;
                     self.rewrite_edges(&agent_id, &bundle, &path, &fm.relations)?;
                     let _ = indexer
                         .add_document_index(
@@ -1422,6 +1511,185 @@ impl BundleMemoryStore {
         .await?;
 
         Ok(report)
+    }
+
+    // ---- version history (specs/006-memory-version-history) ----
+
+    fn revision_summary(row: &MemoryRevisionRow, latest_seq: i64) -> MemoryRevisionSummary {
+        MemoryRevisionSummary {
+            seq: row.seq,
+            deleted: row.deleted,
+            actor: row.actor.clone(),
+            trigger: row.trigger.clone(),
+            created_at: DateTime::<Utc>::from_timestamp_millis(row.created_at)
+                .unwrap_or_else(Utc::now),
+            is_current: row.seq == latest_seq,
+            size_bytes: row.content.as_ref().map(|c| c.len()).unwrap_or(0),
+        }
+    }
+
+    pub async fn list_memory_revisions(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        offset: usize,
+        limit: usize,
+    ) -> Result<PaginatedMemoryRevisions> {
+        let bundle = bundle.unwrap_or_else(default_bundle);
+        let path = normalize_path(&path);
+        // A document that pre-dates history gets its baseline on first listing (FR-018).
+        let current = self
+            .document_store
+            .get(&Self::doc_key(&agent_id, &bundle, &path))
+            .await?
+            .as_deref()
+            .and_then(canonical_of_bytes);
+
+        let conn = self.conn.lock();
+        memory_revision::ensure_baseline(&conn, &agent_id, &bundle, &path, current.as_deref())?;
+        let latest_seq = memory_revision::latest(&conn, &agent_id, &bundle, &path)?
+            .map(|r| r.seq)
+            .unwrap_or(0);
+        let (rows, total) =
+            memory_revision::list(&conn, &agent_id, &bundle, &path, offset, limit)?;
+        Ok(PaginatedMemoryRevisions {
+            revisions: rows
+                .iter()
+                .map(|r| Self::revision_summary(r, latest_seq))
+                .collect(),
+            total,
+            offset,
+            limit: limit.clamp(1, memory_revision::MAX_LIMIT),
+        })
+    }
+
+    pub async fn get_memory_revision(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        seq: i64,
+    ) -> Result<Option<MemoryRevision>> {
+        let bundle = bundle.unwrap_or_else(default_bundle);
+        let path = normalize_path(&path);
+        let conn = self.conn.lock();
+        let Some(row) = memory_revision::get(&conn, &agent_id, &bundle, &path, seq)? else {
+            return Ok(None);
+        };
+        let latest_seq = memory_revision::latest(&conn, &agent_id, &bundle, &path)?
+            .map(|r| r.seq)
+            .unwrap_or(0);
+        let s = Self::revision_summary(&row, latest_seq);
+        let (title, tags) = match row.content.as_deref().map(parse_memory_canonical) {
+            Some(Ok((fm, _))) => (Some(fm.title), fm.tags),
+            _ => (None, vec![]),
+        };
+        Ok(Some(MemoryRevision {
+            seq: s.seq,
+            deleted: s.deleted,
+            actor: s.actor,
+            trigger: s.trigger,
+            created_at: s.created_at,
+            is_current: s.is_current,
+            size_bytes: s.size_bytes,
+            content: row.content,
+            title,
+            tags,
+        }))
+    }
+
+    pub async fn diff_memory_revisions(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        from: Option<i64>,
+        to: i64,
+    ) -> Result<RevisionDiff> {
+        let bundle = bundle.unwrap_or_else(default_bundle);
+        let path = normalize_path(&path);
+        let conn = self.conn.lock();
+        let to_row = memory_revision::get(&conn, &agent_id, &bundle, &path, to)?
+            .ok_or_else(|| anyhow!("unknown version {to}"))?;
+        let from_seq = from.unwrap_or(to - 1);
+        // Diffing seq 1 "against its previous" means against nothing; a deletion entry on
+        // either side likewise diffs as empty content.
+        let from_content = if from_seq < 1 {
+            None
+        } else {
+            memory_revision::get(&conn, &agent_id, &bundle, &path, from_seq)?
+                .ok_or_else(|| anyhow!("unknown version {from_seq}"))?
+                .content
+        };
+        let (hunks, additions, deletions) = diff_lines(
+            from_content.as_deref().unwrap_or(""),
+            to_row.content.as_deref().unwrap_or(""),
+        );
+        Ok(RevisionDiff {
+            from_seq: from_seq.max(0),
+            to_seq: to,
+            additions,
+            deletions,
+            hunks,
+        })
+    }
+
+    pub async fn rollback_memory(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        seq: i64,
+        origin: &RevisionOrigin,
+        indexer: &VizierIndexer,
+    ) -> Result<RollbackResponse> {
+        let bundle = bundle.unwrap_or_else(default_bundle);
+        let path = normalize_path(&path);
+        let (row, before) = {
+            let conn = self.conn.lock();
+            let row = memory_revision::get(&conn, &agent_id, &bundle, &path, seq)?
+                .ok_or_else(|| anyhow!("unknown version {seq}"))?;
+            let before = memory_revision::latest(&conn, &agent_id, &bundle, &path)?.map(|r| r.seq);
+            (row, before)
+        };
+        let Some(content) = row.content.filter(|_| !row.deleted) else {
+            return Err(anyhow!(
+                "version {seq} is a deletion entry and cannot be restored; pick a content version"
+            ));
+        };
+        let (fm, body) = parse_memory_canonical(&content)?;
+
+        // A rollback is a normal save with rollback provenance: the document is rewritten
+        // (recreated if it was deleted), the graph index, links, embedding, index.md and
+        // log.md all refresh through the one write path — and history only ever grows.
+        let origin = origin
+            .clone()
+            .with_trigger(RevisionTrigger::Rollback { restored_from: seq });
+        self.write_memory(
+            agent_id.clone(),
+            Some(bundle.clone()),
+            Some(path.clone()),
+            false,
+            fm.title,
+            body,
+            fm.tags,
+            fm.attachments,
+            &origin,
+            indexer,
+        )
+        .await?;
+
+        let after = {
+            let conn = self.conn.lock();
+            memory_revision::latest(&conn, &agent_id, &bundle, &path)?.map(|r| r.seq)
+        };
+        let no_change = after == before;
+        Ok(RollbackResponse {
+            no_change,
+            new_seq: if no_change { None } else { after },
+            restored_from: seq,
+        })
     }
 
     /// Used only by the one-time startup migration (`VizierDependencies::migrate_memory_to_bundles`)
@@ -1465,6 +1733,20 @@ impl BundleMemoryStore {
         let bytes = serialize_markdown(&frontmatter, &content)?;
         self.document_store.put(&key, bytes).await?;
         self.upsert_node_from_frontmatter(&agent_id, &bundle, &path, &frontmatter)?;
+        let canonical = memory_canonical(
+            &frontmatter.title,
+            &frontmatter.tags,
+            &frontmatter.attachments,
+            &content,
+        )?;
+        self.record_revision(
+            &agent_id,
+            &bundle,
+            &path,
+            Some(&canonical),
+            &RevisionOrigin::system(RevisionTrigger::Baseline),
+            None,
+        )?;
         self.rewrite_edges(&agent_id, &bundle, &path, &relations)?;
         let _ = indexer
             .add_document_index("memory".into(), Self::indexer_key(&agent_id, &bundle, &path), content)
@@ -1489,12 +1771,17 @@ mod tests {
     use crate::indexer::noop::NoopIndexer;
     use crate::storage::document::LocalDocumentStore;
 
+    fn origin() -> RevisionOrigin {
+        RevisionOrigin::system(RevisionTrigger::Baseline)
+    }
+
     fn setup() -> (BundleMemoryStore, tempfile::TempDir, VizierIndexer) {
         let dir = tempfile::tempdir().unwrap();
         let doc_store: Arc<dyn DocumentStore> =
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf()));
         let conn = Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_memory_graph_schema(&conn).unwrap();
+        crate::storage::sqlite::init_revision_schema(&conn).unwrap();
         let conn = Arc::new(Mutex::new(conn));
         let store = BundleMemoryStore::new(doc_store, conn);
         let indexer = VizierIndexer::build(NoopIndexer);
@@ -1514,6 +1801,7 @@ mod tests {
                 "hello".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1529,6 +1817,7 @@ mod tests {
                 "hello again".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await;
@@ -1548,6 +1837,7 @@ mod tests {
                 "v1".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1563,6 +1853,7 @@ mod tests {
                 "v2".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1583,6 +1874,7 @@ mod tests {
                 "hi".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1610,6 +1902,7 @@ mod tests {
                 "alpha content".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1625,6 +1918,7 @@ mod tests {
                 "beta content".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1640,6 +1934,7 @@ mod tests {
                 "same bundle [Alpha](alpha.md), cross bundle [[other/beta]]".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1667,6 +1962,7 @@ mod tests {
                 "content".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1683,6 +1979,7 @@ mod tests {
                 "see [Alpha](alpha) for details".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1708,6 +2005,7 @@ mod tests {
                 "see [screenshot](notes.png) and [site](https://example.com/page) and [mail](mailto:a@b.com)".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1734,6 +2032,7 @@ mod tests {
                 "content".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1779,6 +2078,7 @@ mod tests {
                 "content".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1815,6 +2115,7 @@ mod tests {
                 "content".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1830,6 +2131,7 @@ mod tests {
                 "wrote [The Great Gatsby](books/great-gatsby.md)".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1853,6 +2155,7 @@ mod tests {
                 "content".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1867,6 +2170,7 @@ mod tests {
                 "see [nested](nested/real-nested-concept.md)".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1893,6 +2197,7 @@ mod tests {
                 "content".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1907,6 +2212,7 @@ mod tests {
                 "see [[alpha]]".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1932,6 +2238,7 @@ mod tests {
                 "points to [missing](missing.md) and [[nowhere/nothing]]".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -1986,6 +2293,7 @@ mod tests {
                 "content".into(),
                 vec!["x".into()],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -2012,6 +2320,7 @@ mod tests {
                 "updated content".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
@@ -2033,12 +2342,13 @@ mod tests {
                 "hello".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
             .unwrap();
 
-        let err = store.delete_bundle("a1".into(), "andy".into(), false, &indexer).await;
+        let err = store.delete_bundle("a1".into(), "andy".into(), false, &origin(), &indexer).await;
         assert!(err.is_err());
 
         // Bundle must still be fully intact after a rejected delete.
@@ -2062,16 +2372,17 @@ mod tests {
                 "hello".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
             .unwrap();
         store
-            .delete_memory("a1".into(), Some("andy".into()), "note".into(), &indexer)
+            .delete_memory("a1".into(), Some("andy".into()), "note".into(), &origin(), &indexer)
             .await
             .unwrap();
 
-        store.delete_bundle("a1".into(), "andy".into(), false, &indexer).await.unwrap();
+        store.delete_bundle("a1".into(), "andy".into(), false, &origin(), &indexer).await.unwrap();
 
         assert!(!dir.path().join("a1/memory/andy/index.md").exists());
         assert!(!dir.path().join("a1/memory/andy/log.md").exists());
@@ -2093,16 +2404,17 @@ mod tests {
                 "hello".into(),
                 vec![],
                 vec![],
+                &origin(),
                 &indexer,
             )
             .await
             .unwrap();
 
         // Not forced: still rejected.
-        assert!(store.delete_bundle("a1".into(), "andy".into(), false, &indexer).await.is_err());
+        assert!(store.delete_bundle("a1".into(), "andy".into(), false, &origin(), &indexer).await.is_err());
 
         // Forced: the whole bundle, concept included, is gone.
-        store.delete_bundle("a1".into(), "andy".into(), true, &indexer).await.unwrap();
+        store.delete_bundle("a1".into(), "andy".into(), true, &origin(), &indexer).await.unwrap();
 
         assert!(!dir.path().join("a1/memory/andy/note.md").exists());
         assert!(!dir.path().join("a1/memory/andy/index.md").exists());
@@ -2115,5 +2427,129 @@ mod tests {
 
         let bundles = store.list_bundles("a1".into()).await.unwrap();
         assert!(!bundles.iter().any(|b| b.name == "andy"));
+    }
+
+    // ---- version history (specs/006-memory-version-history) ----
+
+    async fn write_note(
+        store: &BundleMemoryStore,
+        indexer: &VizierIndexer,
+        title: &str,
+        body: &str,
+        tags: Vec<String>,
+        origin: &RevisionOrigin,
+    ) -> Memory {
+        store
+            .write_memory(
+                "a1".into(),
+                Some("default".into()),
+                Some("note".into()),
+                false,
+                title.into(),
+                body.into(),
+                tags,
+                vec![],
+                origin,
+                indexer,
+            )
+            .await
+            .unwrap()
+    }
+
+    fn history(store: &BundleMemoryStore) -> Vec<memory_revision::MemoryRevisionRow> {
+        let conn = store.conn.lock();
+        memory_revision::list(&conn, "a1", "default", "note", 0, 50)
+            .unwrap()
+            .0
+    }
+
+    #[tokio::test]
+    async fn every_save_records_a_revision_with_its_origin_and_no_op_saves_are_skipped() {
+        let (store, _dir, indexer) = setup();
+        let agent = RevisionOrigin {
+            actor: crate::schema::RevisionActor::Agent,
+            trigger: RevisionTrigger::Conversation,
+        };
+        let user = RevisionOrigin {
+            actor: crate::schema::RevisionActor::User {
+                user_id: "u1".into(),
+                username: "alice".into(),
+            },
+            trigger: RevisionTrigger::WebUi,
+        };
+
+        write_note(&store, &indexer, "Note", "v1", vec![], &agent).await;
+        write_note(&store, &indexer, "Note", "v2", vec![], &user).await;
+        // identical content, title and tags: no new revision (FR-003)
+        write_note(&store, &indexer, "Note", "v2", vec![], &user).await;
+        // a tag-only change is a real change
+        write_note(&store, &indexer, "Note", "v2", vec!["t".into()], &agent).await;
+
+        let rows = history(&store);
+        assert_eq!(rows.iter().map(|r| r.seq).collect::<Vec<_>>(), vec![3, 2, 1]);
+        assert_eq!(rows[2].actor, crate::schema::RevisionActor::Agent);
+        assert_eq!(rows[2].trigger, RevisionTrigger::Conversation);
+        assert_eq!(rows[1].actor, user.actor);
+        assert_eq!(rows[1].trigger, RevisionTrigger::WebUi);
+        assert!(rows[0].content.as_deref().unwrap().contains("tags:\n- t\n"));
+        // snapshots are canonical: no bookkeeping fields leak into history
+        assert!(!rows[0].content.as_deref().unwrap().contains("updated_at"));
+    }
+
+    #[tokio::test]
+    async fn delete_records_a_deletion_entry_and_a_pre_history_document_gets_a_baseline() {
+        let (store, dir, indexer) = setup();
+        let agent = RevisionOrigin {
+            actor: crate::schema::RevisionActor::Agent,
+            trigger: RevisionTrigger::Conversation,
+        };
+
+        // A document that pre-dates history: written directly on disk, then reconciled.
+        std::fs::create_dir_all(dir.path().join("a1/memory/default")).unwrap();
+        let fm = MemoryFrontMatter {
+            slug: "note".into(),
+            title: "Old".into(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            agent_id: "a1".into(),
+            bundle: "default".into(),
+            tags: vec![],
+            keywords: vec![],
+            relations: vec![],
+            attachment_count: 0,
+            attachments: vec![],
+            read_count: 0,
+        };
+        std::fs::write(
+            dir.path().join("a1/memory/default/note.md"),
+            serialize_markdown(&fm, "pre-history body").unwrap(),
+        )
+        .unwrap();
+        assert!(history(&store).is_empty());
+
+        // First tracked edit seeds seq 1 (baseline) from the on-disk content, then seq 2.
+        write_note(&store, &indexer, "Old", "edited", vec![], &agent).await;
+        let rows = history(&store);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1].trigger, RevisionTrigger::Baseline);
+        assert_eq!(rows[1].actor, crate::schema::RevisionActor::System);
+        assert!(rows[1].content.as_deref().unwrap().contains("pre-history body"));
+
+        store
+            .delete_memory("a1".into(), None, "note".into(), &agent, &indexer)
+            .await
+            .unwrap();
+        let rows = history(&store);
+        assert_eq!(rows.len(), 3);
+        assert!(rows[0].deleted);
+        assert!(rows[0].content.is_none());
+        assert!(!dir.path().join("a1/memory/default/note.md").exists());
+
+        // Deleting the agent wipes its history.
+        {
+            let conn = store.conn.lock();
+            memory_revision::delete_agent(&conn, "a1").unwrap();
+        }
+        assert!(history(&store).is_empty());
     }
 }

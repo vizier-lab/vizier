@@ -13,9 +13,13 @@ import {
   importBundle,
   deleteBundle,
   getAgentDetail,
+  getMemoryHistory,
+  getMemoryRevision,
+  diffMemoryRevisions,
+  rollbackMemory,
 } from '../services/vizier'
 import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
-import { FaPlus, FaTrash, FaPenToSquare, FaMagnifyingGlass, FaArrowLeft, FaDownload, FaUpload, FaTrashCan } from 'react-icons/fa6'
+import { FaPlus, FaTrash, FaPenToSquare, FaMagnifyingGlass, FaArrowLeft, FaDownload, FaUpload, FaTrashCan, FaClockRotateLeft } from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
 import { useFileAttachments } from '../hooks/useFileAttachments'
 import AttachmentChip from '../components/AttachmentChip'
@@ -30,6 +34,7 @@ import type {
 import MarkdownEditor from '../components/MarkdownEditor'
 import MemoryGraph from '../components/MemoryGraph'
 import SlideOver from '../components/SlideOver'
+import VersionHistory, { type VersionHistorySource } from '../components/VersionHistory'
 
 function getErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'response' in err) {
@@ -83,6 +88,8 @@ export default function MemoryManagement() {
   const [searchQuery, setSearchQuery] = useState(urlSearch)
   const [selectedMemory, setSelectedMemory] = useState<MemoryDetail | null>(null)
   const [modalMode, setModalMode] = useState<ModalMode>(null)
+  // Swaps the view slide-over's body to the memory's version history.
+  const [showHistory, setShowHistory] = useState(false)
 
   // `null` = top-level view (bundles as nodes); a name = that bundle's concept-level view.
   const [currentBundle, setCurrentBundle] = useState<string | null>(null)
@@ -247,6 +254,40 @@ export default function MemoryManagement() {
     }
   }
 
+  const refreshSelectedMemory = async (path: string, bundle: string) => {
+    if (!agentId) return
+    try {
+      const response = await getMemory(agentId, path, bundle)
+      setSelectedMemory(response.data)
+    } catch (error) {
+      console.error('Failed to reload memory:', error)
+      addToast('error', 'Failed to reload memory', 'Please try again')
+    }
+  }
+
+  // Memory rows carry their own `deleted` flag and title/tags straight through.
+  const historySource: VersionHistorySource | null =
+    agentId && selectedMemory
+      ? {
+          list: (offset, limit) =>
+            getMemoryHistory(agentId, selectedMemory.bundle, selectedMemory.path, offset, limit).then(
+              (res) => ({ rows: res.data.revisions, total: res.data.total })
+            ),
+          get: (seq) =>
+            getMemoryRevision(agentId, selectedMemory.bundle, selectedMemory.path, seq).then(
+              (res) => res.data
+            ),
+          diff: (to, from) =>
+            diffMemoryRevisions(agentId, selectedMemory.bundle, selectedMemory.path, to, from).then(
+              (res) => res.data
+            ),
+          rollback: (seq) =>
+            rollbackMemory(agentId, selectedMemory.bundle, selectedMemory.path, seq).then(
+              (res) => res.data
+            ),
+        }
+      : null
+
   const handleEditMemory = async (memory: MemoryDetail) => {
     let detail = memory
     if (!memory.content && agentId) {
@@ -350,6 +391,7 @@ export default function MemoryManagement() {
 
   const closeModal = () => {
     setModalMode(null)
+    setShowHistory(false)
     setSelectedMemory(null)
     setFormTitle('')
     setFormContent('')
@@ -568,7 +610,28 @@ export default function MemoryManagement() {
               'Edit Memory'
         }
       >
-        {modalMode === 'view' && selectedMemory && (
+        {modalMode === 'view' && selectedMemory && showHistory && historySource && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, minHeight: 0 }}>
+            <div>
+              <button className="btn btn-ghost" onClick={() => setShowHistory(false)}>
+                <FaArrowLeft size={12} />
+                Back to memory
+              </button>
+            </div>
+            <VersionHistory
+              label={selectedMemory.title}
+              source={historySource}
+              onRolledBack={() => {
+                // A restore is a normal save (possibly recreating a deleted memory): refresh
+                // the detail and the graph so both reflect the restored version.
+                void refreshSelectedMemory(selectedMemory.path, selectedMemory.bundle)
+                setGraphVersion((v) => v + 1)
+              }}
+            />
+          </div>
+        )}
+
+        {modalMode === 'view' && selectedMemory && !showHistory && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', flex: 1 }}>
             <div>
               <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
@@ -687,6 +750,14 @@ export default function MemoryManagement() {
               <button className="btn btn-secondary" onClick={() => handleEditMemory(selectedMemory)}>
                 <FaPenToSquare size={16} />
                 Edit
+              </button>
+              <button
+                className="btn btn-ghost"
+                onClick={() => setShowHistory(true)}
+                title="Browse, compare and restore earlier versions of this memory"
+              >
+                <FaClockRotateLeft size={14} />
+                History
               </button>
               <button
                 className="btn btn-ghost"

@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::{
-    schema::AgentConfig,
+    schema::{AgentConfig, RevisionOrigin},
     storage::{agent::AgentStorage, fs::FileSystemStorage},
     utils::build_path,
 };
@@ -96,7 +96,12 @@ impl AgentStorage for FileSystemStorage {
         Ok(Some(std::fs::read_to_string(&path)?))
     }
 
-    async fn set_agent_core(&self, agent_id: &str, core: &str) -> Result<()> {
+    async fn set_agent_core(
+        &self,
+        agent_id: &str,
+        core: &str,
+        _origin: &RevisionOrigin,
+    ) -> Result<()> {
         let dir = build_path(&self.workspace, &[AGENTS_PATH, agent_id]);
         std::fs::create_dir_all(&dir)?;
         std::fs::write(dir.join("CORE.md"), core)?;

@@ -19,8 +19,9 @@ use crate::{
         state::HTTPState,
     },
     schema::{
-        BundleSummary, ImportReport, Memory, MemoryGraph, MemoryQueryParams, VizierAttachment,
-        default_bundle,
+        BundleSummary, ImportReport, Memory, MemoryGraph, MemoryQueryParams, MemoryRevision,
+        PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin, RevisionTrigger, RollbackResponse,
+        VizierAttachment, default_bundle,
     },
     storage::agent::AgentStorage,
 };
@@ -37,6 +38,10 @@ pub fn memory() -> Router<HTTPState> {
         .route("/bundles/import", post(import_bundle_handler))
         .route("/bundles/{bundle}", delete(delete_bundle_handler))
         .route("/bundles/{bundle}/export", get(export_bundle_handler))
+        .route(
+            "/history/{bundle}/{*path}",
+            get(get_memory_history).post(rollback_memory),
+        )
         .route("/{bundle}/graph", get(get_bundle_graph))
         .route("/{slug}", get(get_memory_detail))
         .route("/{slug}", put(update_memory))
@@ -239,6 +244,10 @@ fn error_status_for(message: &str) -> StatusCode {
         StatusCode::NOT_FOUND
     } else if lower.contains("linked in the knowledge graph") || lower.contains("still has") {
         StatusCode::CONFLICT
+    } else if lower.contains("unknown version") {
+        StatusCode::NOT_FOUND
+    } else if lower.contains("deletion entry") {
+        StatusCode::BAD_REQUEST
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
     }
@@ -346,6 +355,7 @@ pub async fn create_memory(
                 content: body.content,
                 tags: body.tags.clone(),
                 attachments: body.attachments.unwrap_or_default(),
+                origin: RevisionOrigin::from_user(&user),
             },
         )
         .await
@@ -379,6 +389,7 @@ async fn do_update_memory(
     bundle: Option<String>,
     path: String,
     body: UpdateMemoryRequest,
+    user: &crate::channels::http::auth::AuthenticatedUser,
 ) -> models::response::Response<UpdateMemoryResponse> {
     match state
         .transport
@@ -392,6 +403,7 @@ async fn do_update_memory(
                 content: body.content,
                 tags: body.tags.clone(),
                 attachments: body.attachments.unwrap_or_default(),
+                origin: RevisionOrigin::from_user(user),
             },
         )
         .await
@@ -441,7 +453,7 @@ pub async fn update_memory(
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
-    do_update_memory(&state, agent_id, None, slug, body).await
+    do_update_memory(&state, agent_id, None, slug, body, &user).await
 }
 
 pub async fn update_memory_scoped(
@@ -453,7 +465,7 @@ pub async fn update_memory_scoped(
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
-    do_update_memory(&state, agent_id, Some(bundle), path, body).await
+    do_update_memory(&state, agent_id, Some(bundle), path, body, &user).await
 }
 
 #[utoipa::path(
@@ -662,10 +674,18 @@ async fn do_delete_memory(
     agent_id: String,
     bundle: Option<String>,
     path: String,
+    user: &crate::channels::http::auth::AuthenticatedUser,
 ) -> models::response::Response<String> {
     match state
         .transport
-        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::Delete { bundle, path: path.clone() })
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::Delete {
+                bundle,
+                path: path.clone(),
+                origin: RevisionOrigin::from_user(user),
+            },
+        )
         .await
     {
         Ok(crate::schema::MemoryOpResponse::Unit) => {
@@ -706,7 +726,7 @@ pub async fn delete_memory(
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
-    do_delete_memory(&state, agent_id, None, slug).await
+    do_delete_memory(&state, agent_id, None, slug, &user).await
 }
 
 pub async fn delete_memory_scoped(
@@ -717,7 +737,7 @@ pub async fn delete_memory_scoped(
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
-    do_delete_memory(&state, agent_id, Some(bundle), path).await
+    do_delete_memory(&state, agent_id, Some(bundle), path, &user).await
 }
 
 pub async fn list_bundles(
@@ -769,6 +789,7 @@ pub async fn delete_bundle_handler(
             crate::schema::MemoryOpRequest::DeleteBundle {
                 bundle: bundle.clone(),
                 force: params.force,
+                origin: RevisionOrigin::from_user(&user),
             },
         )
         .await
@@ -861,10 +882,170 @@ pub async fn import_bundle_handler(
 
     match state
         .transport
-        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::ImportBundle { bundle, zip_bytes: bytes })
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::ImportBundle {
+                bundle,
+                zip_bytes: bytes,
+                origin: RevisionOrigin::from_user(&user).with_trigger(RevisionTrigger::Import),
+            },
+        )
         .await
     {
         Ok(crate::schema::MemoryOpResponse::Import(report)) => api_response(StatusCode::OK, report),
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            err_response(error_status_for(&msg), msg)
+        }
+    }
+}
+
+// ---- version history (specs/006-memory-version-history) ----
+
+/// One `GET /history/{bundle}/{*path}` handler dispatches on which query params are present:
+/// `seq` ⇒ one version; `to` (± `from`) ⇒ diff; otherwise a paginated list. The sub-operation
+/// lives in the query rather than the path because `*path` is greedy.
+#[derive(Debug, Deserialize, Default, utoipa::IntoParams)]
+pub struct MemoryHistoryQuery {
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+    pub seq: Option<i64>,
+    pub from: Option<i64>,
+    pub to: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct MemoryRollbackRequest {
+    pub seq: i64,
+}
+
+/// The three shapes `GET /history/...` can answer with, depending on the query.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(untagged)]
+pub enum MemoryHistoryResponse {
+    List(PaginatedMemoryRevisions),
+    Revision(MemoryRevision),
+    Diff(RevisionDiff),
+}
+
+fn history_path(raw: &str) -> String {
+    raw.trim_end_matches(".md").to_string()
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/memory/history/{bundle}/{path}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("bundle" = String, Path, description = "Bundle name"),
+        ("path" = String, Path, description = "Concept path within the bundle (may contain `/`)"),
+        MemoryHistoryQuery
+    ),
+    responses(
+        (status = 200, description = "Paginated list (no `seq`/`to`), one version (`seq`), or a line diff (`to`, optional `from`; `from` defaults to `to - 1`)", body = APIResponse<MemoryHistoryResponse>),
+        (status = 404, description = "Agent, memory, or version not found", body = APIResponse<String>)
+    )
+)]
+pub async fn get_memory_history(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Query(q): Query<MemoryHistoryQuery>,
+) -> models::response::Response<MemoryHistoryResponse> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+    let path = history_path(&path);
+    let bundle = Some(bundle);
+
+    let op = if let Some(seq) = q.seq {
+        crate::schema::MemoryOpRequest::GetRevision { bundle, path, seq }
+    } else if let Some(to) = q.to {
+        crate::schema::MemoryOpRequest::DiffRevisions {
+            bundle,
+            path,
+            from: q.from,
+            to,
+        }
+    } else {
+        crate::schema::MemoryOpRequest::ListRevisions {
+            bundle,
+            path,
+            offset: q.offset.unwrap_or(0),
+            limit: q.limit.unwrap_or(50),
+        }
+    };
+
+    match state.transport.send_memory_op(&agent_id, op).await {
+        Ok(crate::schema::MemoryOpResponse::Revisions(page)) if page.total == 0 => {
+            err_response(StatusCode::NOT_FOUND, "memory has no history".into())
+        }
+        Ok(crate::schema::MemoryOpResponse::Revisions(page)) => {
+            api_response(StatusCode::OK, MemoryHistoryResponse::List(page))
+        }
+        Ok(crate::schema::MemoryOpResponse::Revision(Some(rev))) => {
+            api_response(StatusCode::OK, MemoryHistoryResponse::Revision(rev))
+        }
+        Ok(crate::schema::MemoryOpResponse::Revision(None)) => {
+            err_response(StatusCode::NOT_FOUND, "unknown version".into())
+        }
+        Ok(crate::schema::MemoryOpResponse::Diff(diff)) => {
+            api_response(StatusCode::OK, MemoryHistoryResponse::Diff(diff))
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            err_response(error_status_for(&msg), msg)
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/agents/{agent_id}/memory/history/{bundle}/{path}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("bundle" = String, Path, description = "Bundle name"),
+        ("path" = String, Path, description = "Concept path within the bundle (may contain `/`)")
+    ),
+    request_body = MemoryRollbackRequest,
+    responses(
+        (status = 200, description = "Version restored as a new revision (or `no_change` when already identical); restoring a content version of a deleted memory recreates it", body = APIResponse<RollbackResponse>),
+        (status = 400, description = "The target version is a deletion entry", body = APIResponse<String>),
+        (status = 404, description = "Agent, memory, or version not found", body = APIResponse<String>)
+    )
+)]
+pub async fn rollback_memory(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Json(body): Json<MemoryRollbackRequest>,
+) -> models::response::Response<RollbackResponse> {
+    if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
+        return err_response(status, message);
+    }
+
+    match state
+        .transport
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::Rollback {
+                bundle: Some(bundle),
+                path: history_path(&path),
+                seq: body.seq,
+                origin: RevisionOrigin::from_user(&user),
+            },
+        )
+        .await
+    {
+        Ok(crate::schema::MemoryOpResponse::Rollback(res)) => api_response(StatusCode::OK, res),
         Ok(_) => err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "unexpected response".into(),

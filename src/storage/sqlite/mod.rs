@@ -9,10 +9,12 @@ use crate::storage::document::DocumentStore;
 use crate::utils::build_path;
 
 mod agent;
+pub(crate) mod core_revision;
 mod dream_journal;
 mod global_config;
 mod history;
 mod memory;
+pub(crate) mod memory_revision;
 mod provider;
 mod session;
 mod session_file;
@@ -58,6 +60,51 @@ pub fn init_memory_graph_schema(conn: &Connection) -> Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_memory_edge_source ON memory_edge(agent_id, source_bundle, source_path);
         CREATE INDEX IF NOT EXISTS idx_memory_edge_target ON memory_edge(agent_id, target_bundle, target_path);
+        ",
+    )?;
+    Ok(())
+}
+
+/// The append-only version-history tables (`core_revision`/`memory_revision`,
+/// specs/006-memory-version-history/data-model.md). Split out like `init_memory_graph_schema`
+/// so the `core_revision`/`memory_revision`/`memory_bundle` unit tests can stand them up on an
+/// in-memory connection.
+pub fn init_revision_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS core_revision (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id TEXT NOT NULL,
+            seq INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            actor_kind TEXT NOT NULL,
+            actor_id TEXT,
+            actor_name TEXT,
+            trigger TEXT NOT NULL,
+            restored_from INTEGER,
+            created_at INTEGER NOT NULL,
+            UNIQUE(agent_id, seq)
+        );
+        CREATE INDEX IF NOT EXISTS idx_core_rev_doc ON core_revision(agent_id, seq DESC);
+
+        CREATE TABLE IF NOT EXISTS memory_revision (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id TEXT NOT NULL,
+            bundle TEXT NOT NULL,
+            path TEXT NOT NULL,
+            seq INTEGER NOT NULL,
+            content TEXT,
+            deleted INTEGER NOT NULL DEFAULT 0,
+            actor_kind TEXT NOT NULL,
+            actor_id TEXT,
+            actor_name TEXT,
+            trigger TEXT NOT NULL,
+            restored_from INTEGER,
+            created_at INTEGER NOT NULL,
+            UNIQUE(agent_id, bundle, path, seq)
+        );
+        CREATE INDEX IF NOT EXISTS idx_mem_rev_doc ON memory_revision(agent_id, bundle, path, seq DESC);
+        CREATE INDEX IF NOT EXISTS idx_mem_rev_agent ON memory_revision(agent_id);
         ",
     )?;
     Ok(())
@@ -268,6 +315,7 @@ impl SqliteStorage {
         )?;
 
         init_memory_graph_schema(conn)?;
+        init_revision_schema(conn)?;
 
         Ok(())
     }

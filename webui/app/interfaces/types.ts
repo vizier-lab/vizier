@@ -868,3 +868,105 @@ export interface DreamStatusResponse {
   dream_provider: string | null
   dream_model: string | null
 }
+
+// ============================================================================
+// VERSION HISTORY (CORE.md + memories) — specs/006-memory-version-history
+// ============================================================================
+
+export type RevisionActor =
+  | { type: 'agent' }
+  | { type: 'user'; user_id: string; username: string }
+  | { type: 'system' }
+
+export type RevisionTrigger =
+  | { type: 'conversation' }
+  | { type: 'dream' }
+  | { type: 'webui' }
+  | { type: 'api' }
+  | { type: 'import' }
+  | { type: 'rollback'; restored_from: number }
+  | { type: 'baseline' }
+
+export interface CoreRevisionSummary {
+  seq: number
+  is_current: boolean
+  size_bytes: number
+  actor: RevisionActor
+  trigger: RevisionTrigger
+  created_at: string
+}
+
+export interface CoreRevision extends CoreRevisionSummary {
+  content: string
+}
+
+export interface PaginatedCoreRevisions {
+  revisions: CoreRevisionSummary[]
+  total: number
+  offset: number
+  limit: number
+}
+
+export interface MemoryRevisionSummary extends CoreRevisionSummary {
+  deleted: boolean
+}
+
+export interface MemoryRevision extends MemoryRevisionSummary {
+  content: string | null
+  title: string | null
+  tags: string[]
+}
+
+export interface PaginatedMemoryRevisions {
+  revisions: MemoryRevisionSummary[]
+  total: number
+  offset: number
+  limit: number
+}
+
+export interface DiffLine {
+  op: 'equal' | 'insert' | 'delete'
+  old_line: number | null
+  new_line: number | null
+  text: string
+}
+
+export interface DiffHunk {
+  old_start: number
+  old_lines: number
+  new_start: number
+  new_lines: number
+  lines: DiffLine[]
+}
+
+export interface RevisionDiff {
+  from_seq: number
+  to_seq: number
+  additions: number
+  deletions: number
+  hunks: DiffHunk[]
+}
+
+export interface RollbackResponse {
+  no_change: boolean
+  new_seq: number | null
+  restored_from: number
+}
+
+// Normalized row shape the shared `VersionHistory` panel renders; each route maps its own API
+// type into it (CORE rows get `deleted: false`, no title/tags).
+export interface HistoryRow {
+  seq: number
+  is_current: boolean
+  deleted: boolean
+  size_bytes: number
+  actor: RevisionActor
+  trigger: RevisionTrigger
+  created_at: string
+}
+
+export interface HistoryVersion extends HistoryRow {
+  content: string | null
+  title?: string | null
+  tags?: string[]
+}
