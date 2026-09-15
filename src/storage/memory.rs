@@ -4,7 +4,8 @@ use crate::{
     indexer::VizierIndexer,
     schema::{
         BundleSummary, ImportReport, Memory, MemoryGraph, MemoryGraphNode, MemoryQueryParams,
-        PaginatedMemory, VizierAttachment,
+        MemoryRevision, PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin,
+        RollbackResponse, VizierAttachment,
     },
     storage::VizierStorage,
 };
@@ -19,6 +20,9 @@ pub trait MemoryStorage {
     /// no auto-rename). When `false` (the agent-facing `memory_write` tool, and the HTTP `PUT`
     /// update route, which already knows the exact existing path it's revising), an existing
     /// document at that path is overwritten in place.
+    ///
+    /// `origin` describes who/what is saving; every successful write appends a
+    /// `memory_revision` entry (specs/006-memory-version-history).
     #[allow(clippy::too_many_arguments)]
     async fn write_memory(
         &self,
@@ -30,6 +34,7 @@ pub trait MemoryStorage {
         content: String,
         tags: Vec<String>,
         attachments: Vec<VizierAttachment>,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<Memory>;
 
@@ -86,12 +91,13 @@ pub trait MemoryStorage {
         path: String,
     ) -> Result<bool>;
 
-    /// `bundle: None` means the agent's default bundle.
+    /// `bundle: None` means the agent's default bundle. Records a deletion revision.
     async fn delete_memory(
         &self,
         agent_id: String,
         bundle: Option<String>,
         path: String,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<()>;
 
@@ -117,6 +123,7 @@ pub trait MemoryStorage {
         agent_id: String,
         bundle: String,
         force: bool,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<()>;
 
@@ -127,8 +134,54 @@ pub trait MemoryStorage {
         agent_id: String,
         bundle: String,
         zip_bytes: Vec<u8>,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<ImportReport>;
+
+    // ---- version history (specs/006-memory-version-history) ----
+
+    /// Newest-first. Lazily seeds the baseline revision when the document exists on disk but
+    /// has no history yet. `bundle: None` means the agent's default bundle.
+    async fn list_memory_revisions(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        offset: usize,
+        limit: usize,
+    ) -> Result<PaginatedMemoryRevisions>;
+
+    async fn get_memory_revision(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        seq: i64,
+    ) -> Result<Option<MemoryRevision>>;
+
+    /// Changes introduced by `to` relative to `from` (`None` ⇒ `to - 1`). A deletion entry
+    /// diffs as empty content. Errors on an unknown seq.
+    async fn diff_memory_revisions(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        from: Option<i64>,
+        to: i64,
+    ) -> Result<RevisionDiff>;
+
+    /// Re-saves revision `seq` through `write_memory` with `trigger = rollback` — identical to a
+    /// manual save (index, links, graph all refreshed). Errors if `seq` is unknown or a deletion
+    /// entry.
+    async fn rollback_memory(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        seq: i64,
+        origin: &RevisionOrigin,
+        indexer: &VizierIndexer,
+    ) -> Result<RollbackResponse>;
 }
 
 #[async_trait::async_trait]
@@ -143,6 +196,7 @@ impl MemoryStorage for VizierStorage {
         content: String,
         tags: Vec<String>,
         attachments: Vec<VizierAttachment>,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<Memory> {
         self.0
@@ -155,6 +209,7 @@ impl MemoryStorage for VizierStorage {
                 content,
                 tags,
                 attachments,
+                origin,
                 indexer,
             )
             .await
@@ -227,9 +282,12 @@ impl MemoryStorage for VizierStorage {
         agent_id: String,
         bundle: Option<String>,
         path: String,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<()> {
-        self.0.delete_memory(agent_id, bundle, path, indexer).await
+        self.0
+            .delete_memory(agent_id, bundle, path, origin, indexer)
+            .await
     }
 
     async fn increment_read_count(
@@ -250,9 +308,12 @@ impl MemoryStorage for VizierStorage {
         agent_id: String,
         bundle: String,
         force: bool,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<()> {
-        self.0.delete_bundle(agent_id, bundle, force, indexer).await
+        self.0
+            .delete_bundle(agent_id, bundle, force, origin, indexer)
+            .await
     }
 
     async fn export_bundle(&self, agent_id: String, bundle: String) -> Result<Vec<u8>> {
@@ -264,10 +325,61 @@ impl MemoryStorage for VizierStorage {
         agent_id: String,
         bundle: String,
         zip_bytes: Vec<u8>,
+        origin: &RevisionOrigin,
         indexer: &VizierIndexer,
     ) -> Result<ImportReport> {
         self.0
-            .import_bundle(agent_id, bundle, zip_bytes, indexer)
+            .import_bundle(agent_id, bundle, zip_bytes, origin, indexer)
+            .await
+    }
+
+    async fn list_memory_revisions(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        offset: usize,
+        limit: usize,
+    ) -> Result<PaginatedMemoryRevisions> {
+        self.0
+            .list_memory_revisions(agent_id, bundle, path, offset, limit)
+            .await
+    }
+
+    async fn get_memory_revision(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        seq: i64,
+    ) -> Result<Option<MemoryRevision>> {
+        self.0.get_memory_revision(agent_id, bundle, path, seq).await
+    }
+
+    async fn diff_memory_revisions(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        from: Option<i64>,
+        to: i64,
+    ) -> Result<RevisionDiff> {
+        self.0
+            .diff_memory_revisions(agent_id, bundle, path, from, to)
+            .await
+    }
+
+    async fn rollback_memory(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        seq: i64,
+        origin: &RevisionOrigin,
+        indexer: &VizierIndexer,
+    ) -> Result<RollbackResponse> {
+        self.0
+            .rollback_memory(agent_id, bundle, path, seq, origin, indexer)
             .await
     }
 }

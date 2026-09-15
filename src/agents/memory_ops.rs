@@ -35,6 +35,7 @@ async fn dispatch_memory_op(
             content,
             tags,
             attachments,
+            origin,
         } => storage
             .write_memory(
                 agent_id.to_string(),
@@ -45,6 +46,7 @@ async fn dispatch_memory_op(
                 content.clone(),
                 tags.clone(),
                 attachments.clone(),
+                origin,
                 indexer,
             )
             .await
@@ -81,25 +83,93 @@ async fn dispatch_memory_op(
             .get_memory_graph(agent_id.to_string(), bundle.clone(), search.clone())
             .await
             .map(MemoryOpResponse::Graph),
-        MemoryOpRequest::Delete { bundle, path } => storage
-            .delete_memory(agent_id.to_string(), bundle.clone(), path.clone(), indexer)
+        MemoryOpRequest::Delete {
+            bundle,
+            path,
+            origin,
+        } => storage
+            .delete_memory(
+                agent_id.to_string(),
+                bundle.clone(),
+                path.clone(),
+                origin,
+                indexer,
+            )
             .await
             .map(|_| MemoryOpResponse::Unit),
         MemoryOpRequest::ListBundles => storage
             .list_bundles(agent_id.to_string())
             .await
             .map(MemoryOpResponse::Bundles),
-        MemoryOpRequest::DeleteBundle { bundle, force } => storage
-            .delete_bundle(agent_id.to_string(), bundle.clone(), *force, indexer)
+        MemoryOpRequest::DeleteBundle {
+            bundle,
+            force,
+            origin,
+        } => storage
+            .delete_bundle(agent_id.to_string(), bundle.clone(), *force, origin, indexer)
             .await
             .map(|_| MemoryOpResponse::Unit),
         MemoryOpRequest::ExportBundle { bundle } => storage
             .export_bundle(agent_id.to_string(), bundle.clone())
             .await
             .map(MemoryOpResponse::Export),
-        MemoryOpRequest::ImportBundle { bundle, zip_bytes } => storage
-            .import_bundle(agent_id.to_string(), bundle.clone(), zip_bytes.clone(), indexer)
+        MemoryOpRequest::ImportBundle {
+            bundle,
+            zip_bytes,
+            origin,
+        } => storage
+            .import_bundle(
+                agent_id.to_string(),
+                bundle.clone(),
+                zip_bytes.clone(),
+                origin,
+                indexer,
+            )
             .await
             .map(MemoryOpResponse::Import),
+        MemoryOpRequest::ListRevisions {
+            bundle,
+            path,
+            offset,
+            limit,
+        } => storage
+            .list_memory_revisions(
+                agent_id.to_string(),
+                bundle.clone(),
+                path.clone(),
+                *offset,
+                *limit,
+            )
+            .await
+            .map(MemoryOpResponse::Revisions),
+        MemoryOpRequest::GetRevision { bundle, path, seq } => storage
+            .get_memory_revision(agent_id.to_string(), bundle.clone(), path.clone(), *seq)
+            .await
+            .map(MemoryOpResponse::Revision),
+        MemoryOpRequest::DiffRevisions {
+            bundle,
+            path,
+            from,
+            to,
+        } => storage
+            .diff_memory_revisions(agent_id.to_string(), bundle.clone(), path.clone(), *from, *to)
+            .await
+            .map(MemoryOpResponse::Diff),
+        MemoryOpRequest::Rollback {
+            bundle,
+            path,
+            seq,
+            origin,
+        } => storage
+            .rollback_memory(
+                agent_id.to_string(),
+                bundle.clone(),
+                path.clone(),
+                *seq,
+                origin,
+                indexer,
+            )
+            .await
+            .map(MemoryOpResponse::Rollback),
     }
 }

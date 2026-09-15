@@ -8,6 +8,7 @@ mod metrics;
 pub mod provider;
 mod request;
 mod response;
+pub mod revision;
 mod session;
 pub mod session_file;
 mod storage;
@@ -37,6 +38,11 @@ pub use request::{
     VizierAttachmentContent, VizierRequest, VizierRequestContent,
 };
 pub use response::{ErrorKind, VizierResponse, VizierResponseContent, VizierResponseStats};
+pub use revision::{
+    CoreRevision, CoreRevisionSummary, DiffHunk, DiffLine, MemoryRevision, MemoryRevisionSummary,
+    PaginatedCoreRevisions, PaginatedMemoryRevisions, RevisionActor, RevisionDiff, RevisionOrigin,
+    RevisionTrigger, RollbackResponse,
+};
 pub use session::{
     AgentId, DreamStage, DreamStatus, TopicId, VizierChannelId, VizierSession, VizierSessionDetail,
 };

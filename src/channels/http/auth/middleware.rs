@@ -6,7 +6,7 @@ use axum::{
 };
 
 use crate::channels::http::{
-    auth::{AuthService, AuthenticatedUser},
+    auth::{AuthMethod, AuthService, AuthenticatedUser},
     state::HTTPState,
 };
 use crate::storage::user::{Role, UserStorage};
@@ -124,6 +124,7 @@ pub async fn require_auth(
                 username: claims.username,
                 role,
                 permissions,
+                auth_method: AuthMethod::Jwt,
             }
         }
         "apikey" => {
@@ -150,6 +151,7 @@ pub async fn require_auth(
                 username: String::new(),
                 role,
                 permissions,
+                auth_method: AuthMethod::ApiKey,
             }
         }
         _ => return Err(AuthError::MissingCredentials),

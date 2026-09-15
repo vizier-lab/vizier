@@ -1,9 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'react-router'
-import { FaBrain } from 'react-icons/fa6'
-import { getAgentCore, updateAgentCore } from '../services/vizier'
+import { FaClockRotateLeft } from 'react-icons/fa6'
+import {
+  diffCoreRevisions,
+  getAgentCore,
+  getCoreHistory,
+  getCoreRevision,
+  rollbackCore,
+  updateAgentCore,
+} from '../services/vizier'
 import { useToastStore } from '../hooks/toastStore'
 import MarkdownEditor from '../components/MarkdownEditor'
+import SlideOver from '../components/SlideOver'
+import VersionHistory, { type VersionHistorySource } from '../components/VersionHistory'
 
 function getErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'response' in err) {
@@ -21,27 +30,43 @@ export default function AgentCore() {
   const [original, setOriginal] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+
+  const load = useCallback(async () => {
+    if (!agentId) return
+    setLoading(true)
+    try {
+      const res = await getAgentCore(agentId)
+      const data = res.data?.content || ''
+      setContent(data)
+      setOriginal(data)
+    } catch (err: unknown) {
+      console.error('Failed to load CORE:', err)
+      addToast('error', 'Failed to load CORE', getErrorMessage(err))
+      setContent('')
+      setOriginal('')
+    } finally {
+      setLoading(false)
+    }
+  }, [agentId, addToast])
 
   useEffect(() => {
-    if (!agentId) return
-    const load = async () => {
-      setLoading(true)
-      try {
-        const res = await getAgentCore(agentId)
-        const data = res.data?.content || ''
-        setContent(data)
-        setOriginal(data)
-      } catch (err: unknown) {
-        console.error('Failed to load CORE:', err)
-        addToast('error', 'Failed to load CORE', getErrorMessage(err))
-        setContent('')
-        setOriginal('')
-      } finally {
-        setLoading(false)
+    void load()
+  }, [load])
+
+  // CORE rows have no deletion state; map the CORE API types into the shared panel's shape.
+  const historySource: VersionHistorySource | null = agentId
+    ? {
+        list: (offset, limit) =>
+          getCoreHistory(agentId, offset, limit).then((res) => ({
+            rows: res.data.revisions.map((r) => ({ ...r, deleted: false })),
+            total: res.data.total,
+          })),
+        get: (seq) => getCoreRevision(agentId, seq).then((res) => ({ ...res.data, deleted: false })),
+        diff: (to, from) => diffCoreRevisions(agentId, to, from).then((res) => res.data),
+        rollback: (seq) => rollbackCore(agentId, seq).then((res) => res.data),
       }
-    }
-    load()
-  }, [agentId])
+    : null
 
   const handleSave = async () => {
     if (!agentId) return
@@ -67,28 +92,52 @@ export default function AgentCore() {
     <>
       <div className="main-header">
         <h3 style={{ margin: 0 }}>Core</h3>
-        {hasChanges && (
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-              Unsaved changes
-            </span>
-            <button
-              className="btn btn-ghost"
-              onClick={handleReset}
-              disabled={saving}
-            >
-              Reset
-            </button>
-            <button
-              className="btn btn-primary"
-              onClick={handleSave}
-              disabled={saving}
-            >
-              {saving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {hasChanges && (
+            <>
+              <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                Unsaved changes
+              </span>
+              <button
+                className="btn btn-ghost"
+                onClick={handleReset}
+                disabled={saving}
+              >
+                Reset
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleSave}
+                disabled={saving}
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </>
+          )}
+          <button
+            className="btn btn-ghost"
+            onClick={() => setHistoryOpen(true)}
+            disabled={loading || !agentId}
+            title="Browse, compare and restore earlier versions of CORE"
+          >
+            <FaClockRotateLeft size={14} />
+            History
+          </button>
+        </div>
       </div>
+
+      <SlideOver open={historyOpen} onClose={() => setHistoryOpen(false)} title="History: CORE">
+        {historySource && (
+          <VersionHistory
+            label="CORE"
+            source={historySource}
+            extraWarning={hasChanges ? 'Your unsaved editor changes will be discarded.' : undefined}
+            onRolledBack={() => {
+              void load()
+            }}
+          />
+        )}
+      </SlideOver>
 
       <div className="main-body" style={{ padding: '1.5rem' }}>
         <p

@@ -9,7 +9,10 @@ use crate::{
     constant::CORE_MD,
     file_manager::FileManager,
     indexer::{VizierIndexer, noop::NoopIndexer},
-    schema::{AgentToolsConfig, ProviderEntry, ProviderEntryConfig, VizierAttachment},
+    schema::{
+        AgentToolsConfig, ProviderEntry, ProviderEntryConfig, RevisionOrigin, RevisionTrigger,
+        VizierAttachment,
+    },
     storage::{
         VizierStorage,
         agent::AgentStorage,
@@ -423,7 +426,13 @@ impl VizierDependencies {
                 tracing::error!("failed to migrate agent '{}': {}", agent_id, e);
             }
             if let Ok(Some(core)) = fs.get_agent_core(agent_id).await {
-                let _ = sql.set_agent_core(agent_id, &core).await;
+                let _ = sql
+                    .set_agent_core(
+                        agent_id,
+                        &core,
+                        &RevisionOrigin::system(RevisionTrigger::Baseline),
+                    )
+                    .await;
             }
         }
 
@@ -721,14 +730,43 @@ impl VizierDependencies {
         Ok(())
     }
 
+    /// Two one-time fixups per agent: (1) a CORE that still lives in the legacy
+    /// `agent_config.core` JSON field is moved into the `agent_core` table (recorded as the
+    /// document's `baseline` revision) so history has a single home to hook into; (2) an agent
+    /// with no CORE anywhere gets the default template.
     async fn migrate_agent_cores(storage: &VizierStorage) -> Result<()> {
         let agents = storage.list_agents().await?;
         if agents.is_empty() {
             return Ok(());
         }
 
+        let baseline = RevisionOrigin::system(RevisionTrigger::Baseline);
         let mut seeded = 0;
-        for (agent_id, _) in agents {
+        let mut moved = 0;
+        for (agent_id, mut config) in agents {
+            if let Some(legacy_core) = config.core.take() {
+                // `set_agent_core` writes the table; clearing the config field afterwards
+                // makes `agent_core` the only source of truth.
+                match storage.set_agent_core(&agent_id, &legacy_core, &baseline).await {
+                    Ok(()) => {
+                        if let Err(e) = storage.update_agent(&agent_id, &config).await {
+                            tracing::warn!(
+                                "moved CORE for agent '{}' but failed to clear legacy field: {}",
+                                agent_id,
+                                e
+                            );
+                        }
+                        moved += 1;
+                    }
+                    Err(e) => tracing::warn!(
+                        "failed to move legacy CORE for agent '{}': {}",
+                        agent_id,
+                        e
+                    ),
+                }
+                continue;
+            }
+
             match storage.get_agent_core(&agent_id).await {
                 Ok(Some(_)) => continue,
                 Ok(None) => {}
@@ -742,7 +780,14 @@ impl VizierDependencies {
                 }
             }
 
-            if let Err(e) = storage.set_agent_core(&agent_id, CORE_MD).await {
+            if let Err(e) = storage
+                .set_agent_core(
+                    &agent_id,
+                    CORE_MD,
+                    &RevisionOrigin::system(RevisionTrigger::Baseline),
+                )
+                .await
+            {
                 tracing::warn!(
                     "failed to backfill default CORE for agent '{}': {}",
                     agent_id,
@@ -753,6 +798,9 @@ impl VizierDependencies {
             }
         }
 
+        if moved > 0 {
+            tracing::info!("moved legacy CORE into agent_core for {} agent(s)", moved);
+        }
         if seeded > 0 {
             tracing::info!("backfilled default CORE for {} agent(s)", seeded);
         }

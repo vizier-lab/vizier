@@ -1,5 +1,14 @@
 import axios, { AxiosError } from 'axios'
-import type { VizierAttachment } from '../interfaces/types'
+import type {
+  ApiResponse,
+  CoreRevision,
+  MemoryRevision,
+  PaginatedCoreRevisions,
+  PaginatedMemoryRevisions,
+  RevisionDiff,
+  RollbackResponse,
+  VizierAttachment,
+} from '../interfaces/types'
 
 export const base_url = import.meta.env.DEV
   ? 'localhost:9999'
@@ -519,6 +528,103 @@ export const getAgentCore = async (agentId: string) => {
 
 export const updateAgentCore = async (agentId: string, content: string) => {
   const res = await apiClient.put(`/agents/${agentId}/core`, { content })
+  return res.data
+}
+
+// ============================================================================
+// VERSION HISTORY — specs/006-memory-version-history
+// One GET endpoint per document kind; the query selects list / one version / diff.
+// ============================================================================
+
+const historyQuery = (params: Record<string, number | undefined>) => {
+  const q = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined) q.append(k, v.toString())
+  }
+  const s = q.toString()
+  return s ? `?${s}` : ''
+}
+
+export const getCoreHistory = async (agentId: string, offset?: number, limit?: number) => {
+  const res = await apiClient.get<ApiResponse<PaginatedCoreRevisions>>(
+    `/agents/${agentId}/core/history${historyQuery({ offset, limit })}`
+  )
+  return res.data
+}
+
+export const getCoreRevision = async (agentId: string, seq: number) => {
+  const res = await apiClient.get<ApiResponse<CoreRevision>>(
+    `/agents/${agentId}/core/history${historyQuery({ seq })}`
+  )
+  return res.data
+}
+
+export const diffCoreRevisions = async (agentId: string, to: number, from?: number) => {
+  const res = await apiClient.get<ApiResponse<RevisionDiff>>(
+    `/agents/${agentId}/core/history${historyQuery({ to, from })}`
+  )
+  return res.data
+}
+
+export const rollbackCore = async (agentId: string, seq: number) => {
+  const res = await apiClient.post<ApiResponse<RollbackResponse>>(
+    `/agents/${agentId}/core/history`,
+    { seq }
+  )
+  return res.data
+}
+
+const memoryHistoryUrl = (agentId: string, bundle: string, path: string) =>
+  `/agents/${agentId}/memory/history/${encodeURIComponent(bundle)}/${encodeMemoryPath(path)}`
+
+export const getMemoryHistory = async (
+  agentId: string,
+  bundle: string,
+  path: string,
+  offset?: number,
+  limit?: number
+) => {
+  const res = await apiClient.get<ApiResponse<PaginatedMemoryRevisions>>(
+    `${memoryHistoryUrl(agentId, bundle, path)}${historyQuery({ offset, limit })}`
+  )
+  return res.data
+}
+
+export const getMemoryRevision = async (
+  agentId: string,
+  bundle: string,
+  path: string,
+  seq: number
+) => {
+  const res = await apiClient.get<ApiResponse<MemoryRevision>>(
+    `${memoryHistoryUrl(agentId, bundle, path)}${historyQuery({ seq })}`
+  )
+  return res.data
+}
+
+export const diffMemoryRevisions = async (
+  agentId: string,
+  bundle: string,
+  path: string,
+  to: number,
+  from?: number
+) => {
+  const res = await apiClient.get<ApiResponse<RevisionDiff>>(
+    `${memoryHistoryUrl(agentId, bundle, path)}${historyQuery({ to, from })}`
+  )
+  return res.data
+}
+
+export const rollbackMemory = async (
+  agentId: string,
+  bundle: string,
+  path: string,
+  seq: number
+) => {
+  const res = await apiClient.post<ApiResponse<RollbackResponse>>(
+    memoryHistoryUrl(agentId, bundle, path),
+    { seq }
+  )
   return res.data
 }
 

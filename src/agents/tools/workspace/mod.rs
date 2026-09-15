@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     agents::tools::{ToolContext, VizierTool},
     error::VizierError,
+    schema::RevisionOrigin,
     storage::{VizierStorage, agent::AgentStorage},
 };
 
@@ -43,10 +44,14 @@ impl VizierTool for WriteCore {
     async fn call(
         &self,
         args: Self::Input,
-        _ctx: &ToolContext,
+        ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
         self.storage
-            .set_agent_core(&self.agent_id, &args.content)
+            .set_agent_core(
+                &self.agent_id,
+                &args.content,
+                &RevisionOrigin::from_session(&ctx.session),
+            )
             .await
             .map_err(|err| VizierError(err.to_string()))?;
         Ok("CORE updated successfully".to_string())

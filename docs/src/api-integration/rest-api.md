@@ -75,6 +75,7 @@ All agent routes require auth. Visibility: owner, users in `shared_to`, or `all_
 | `GET` | `/agents/{id}/usage?start_date&end_date` | Token usage |
 | `GET` / `PATCH` | `/agents/{id}/sharing` | `{ "add": [user_id], "remove": [user_id] }` |
 | `GET` / `PUT` | `/agents/{id}/core` | `CORE.md` |
+| `GET` / `POST` | `/agents/{id}/core/history` | **Version history** of `CORE.md` (see below) |
 | `POST` | `/agents/{id}/chat` | **Synchronous chat** (see below) |
 
 ### Synchronous chat
@@ -91,6 +92,28 @@ POST /api/v1/agents/{id}/chat
 ```
 
 Blocks until the agent's final message. The session is `(agent, HTTP(username, channel_id), topic_id)` — the same sessions the WebSocket uses, so history is shared. Attachment `content` is one of `{ "url": "…" }`, `{ "base64": "…" }`, `{ "bytes": [..] }`, or `{ "local": "/api/v1/files/<id>" }` (from an upload).
+
+### Version history (CORE and memories)
+
+Every save of `CORE.md` or a memory concept — by the agent (`WRITE_CORE`, `memory_write`, …, in conversation or a dream cycle), the WebUI, the API, an import, or a rollback — appends a full-content revision tagged with who saved it and why. History is append-only; a rollback is just a new save.
+
+Same routes for both kinds; CORE lives at `/agents/{id}/core/history`, a memory at `/agents/{id}/memory/history/{bundle}/{path}` (nested paths allowed, `.md` optional). Access rules are the ones for reading the document.
+
+| Method | Path | Query / body | Returns |
+|--------|------|--------------|---------|
+| `GET` | `…/history` | `?offset=0&limit=50` (max 200) | Paginated list, newest first: `{ revisions: [ { seq, is_current, size_bytes, actor, trigger, created_at, deleted? } ], total, offset, limit }` — no content, so listing 1,000 versions is cheap |
+| `GET` | `…/history` | `?seq=N` | One version with `content` (memory versions also carry parsed `title` / `tags`; a deletion entry has `content: null`, `deleted: true`) |
+| `GET` | `…/history` | `?to=B` or `?from=A&to=B` | Line diff — the changes `to` introduced relative to `from` (`from` defaults to `to - 1`): `{ from_seq, to_seq, additions, deletions, hunks: [ { old_start, old_lines, new_start, new_lines, lines: [ { op: "equal"\|"insert"\|"delete", old_line, new_line, text } ] } ] }` |
+| `POST` | `…/history` | `{ "seq": N }` | Restore version `N` as a **new** revision → `{ no_change, new_seq, restored_from }`. `no_change: true` when `N` is already identical to the current content. Restoring a content version of a deleted memory recreates it |
+
+`actor` is `{ "type": "agent" }`, `{ "type": "user", "user_id", "username" }` or `{ "type": "system" }`; `trigger` is `{ "type": "conversation" | "dream" | "webui" | "api" | "import" | "baseline" }` or `{ "type": "rollback", "restored_from": N }`. A document that pre-dates the feature gets a `system` / `baseline` `seq: 1` the first time it is saved or listed. Unchanged saves add no revision. Restoring a deletion entry is `400`; an unknown `seq` is `404`. History is removed with the agent and is **not** part of bundle export/import; edits made directly to the markdown files on disk are not versioned.
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" "$BASE/agents/$AGENT/core/history?to=3"          # what v3 changed
+curl -H "Authorization: Bearer $TOKEN" "$BASE/agents/$AGENT/memory/history/default/tea?seq=2"
+curl -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+     -d '{"seq": 2}' "$BASE/agents/$AGENT/core/history"                                  # restore v2 as a new version
+```
 
 ### Channel / topics (sessions)
 

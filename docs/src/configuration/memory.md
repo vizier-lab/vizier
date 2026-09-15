@@ -100,16 +100,17 @@ All under `/api/v1/agents/{agent_id}/memory`:
 | `DELETE` | `/bundles/{bundle}` | Delete a bundle |
 | `GET|PUT|DELETE` | `/doc/{bundle}/{path}` | Read / update (`{ "title", "content", "tags"?, "attachments"? }`) / delete one concept |
 | `GET` | `/related/{bundle}/{path}` | Linked concepts |
+| `GET|POST` | `/history/{bundle}/{path}` | Version history of one concept: list (`?offset&limit`), one version (`?seq`), diff (`?to[&from]`); `POST { "seq" }` restores a version as a new one. See [REST API → Version history](../api-integration/rest-api.md#version-history-core-and-memories) |
 | `GET|PUT|DELETE` | `/{slug}` | Legacy: same as `/doc/default/{slug}` |
 | `GET` | `/{slug}/related` | Legacy related lookup in `default` |
 
 ## WebUI
 
-Agent → **Memory**: browse bundles, view the graph, read/edit concepts with a markdown editor, export/import `.zip` bundles.
+Agent → **Memory**: browse bundles, view the graph, read/edit concepts with a markdown editor, export/import `.zip` bundles. Every concept's view has a **History** button: browse earlier versions (who saved, when, why), see a line diff against the previous version or between any two, and **Restore** an earlier version (or a deleted memory) as a new version. The same panel is available for `CORE.md` on the agent's **Core** page.
 
 ## Export / import
 
-A bundle export is a zip of its directory (`*.md` concept files; `index.md`/`log.md` are rebuilt on import). Import writes every `.md` in the archive into the target bundle (`bundle` form field, default `default`), overwriting concepts at the same path, and embeds them with the agent's current embedding model. Archives with no `.md` files or with unsafe paths are rejected.
+A bundle export is a zip of its directory (`*.md` concept files; `index.md`/`log.md` are rebuilt on import). Version history is not included in an export; each imported concept starts a fresh history with an `import` revision. Import writes every `.md` in the archive into the target bundle (`bundle` form field, default `default`), overwriting concepts at the same path, and embeds them with the agent's current embedding model. Archives with no `.md` files or with unsafe paths are rejected.
 
 ## Design notes
 

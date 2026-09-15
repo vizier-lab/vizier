@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::schema::{
-    AgentId, BundleSummary, ImportReport, Memory, MemoryGraph, MemoryQueryParams, VizierAttachment,
+    AgentId, BundleSummary, ImportReport, Memory, MemoryGraph, MemoryQueryParams, MemoryRevision,
+    PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin, RollbackResponse, VizierAttachment,
     agent::AgentConfig, file::FileRecord,
 };
 
@@ -96,6 +97,7 @@ pub enum MemoryOpRequest {
         content: String,
         tags: Vec<String>,
         attachments: Vec<VizierAttachment>,
+        origin: RevisionOrigin,
     },
     Query {
         bundle: Option<String>,
@@ -121,11 +123,13 @@ pub enum MemoryOpRequest {
     Delete {
         bundle: Option<String>,
         path: String,
+        origin: RevisionOrigin,
     },
     ListBundles,
     DeleteBundle {
         bundle: String,
         force: bool,
+        origin: RevisionOrigin,
     },
     ExportBundle {
         bundle: String,
@@ -133,6 +137,32 @@ pub enum MemoryOpRequest {
     ImportBundle {
         bundle: String,
         zip_bytes: Vec<u8>,
+        origin: RevisionOrigin,
+    },
+    // Version history (specs/006-memory-version-history). Reads go through the channel too,
+    // so `memory.rs` keeps one access pattern (research Decision 6).
+    ListRevisions {
+        bundle: Option<String>,
+        path: String,
+        offset: usize,
+        limit: usize,
+    },
+    GetRevision {
+        bundle: Option<String>,
+        path: String,
+        seq: i64,
+    },
+    DiffRevisions {
+        bundle: Option<String>,
+        path: String,
+        from: Option<i64>,
+        to: i64,
+    },
+    Rollback {
+        bundle: Option<String>,
+        path: String,
+        seq: i64,
+        origin: RevisionOrigin,
     },
 }
 
@@ -146,6 +176,10 @@ pub enum MemoryOpResponse {
     Bundles(Vec<BundleSummary>),
     Export(Vec<u8>),
     Import(ImportReport),
+    Revisions(PaginatedMemoryRevisions),
+    Revision(Option<MemoryRevision>),
+    Diff(RevisionDiff),
+    Rollback(RollbackResponse),
     Unit,
 }
 
