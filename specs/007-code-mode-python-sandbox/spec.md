@@ -14,7 +14,7 @@ Today an agent accomplishes a multi-step task by issuing one tool call per model
 
 This feature adds two per-agent capabilities, each behind its own switch, where the second builds on the first:
 
-1. **Python sandbox** — the agent gets a tool that runs a Python script inside a sandbox it cannot escape: no filesystem, no network, no environment, bounded time and memory. It is pure computation: the agent uses it to calculate, transform, parse, and reason with exact logic. The agent's regular tools are untouched and still called directly. This is the low-risk on-ramp: an operator who only wants "the agent can run some Python" turns on just this switch.
+1. **Python sandbox** — the agent gets a tool that runs a Python script inside a sandbox it cannot escape: no filesystem, no network, no environment, bounded time and recursion depth. It is pure computation: the agent uses it to calculate, transform, parse, and reason with exact logic. The agent's regular tools are untouched and still called directly. This is the low-risk on-ramp: an operator who only wants "the agent can run some Python" turns on just this switch.
 
 2. **Code mode (programmatic tool calling)** — requires the sandbox. The agent's regular tools become callable *from inside* a script as ordinary functions, so the agent can loop and branch over tool results locally and return only the final answer. Code mode is **exclusive**: while it is on, the model's tool list shrinks to the code-execution tool plus a small set of **documentation tools** for discovering which functions exist and what arguments they take; every other capability is reached by writing a script. Tool calls from scripts go through exactly the same permission and dispatch path as direct calls — code mode grants no new capabilities, it only changes *how* the agent orchestrates the ones it already has.
 
@@ -33,7 +33,7 @@ An operator turns on the Python sandbox for an agent. From then on, when the age
 1. **Given** an agent with the sandbox switch on and code mode off, **When** the model inspects its tool list, **Then** it contains the code-execution tool *in addition to* all of the agent's regular tools.
 2. **Given** an agent with the sandbox on, **When** it submits a script using in-script logic only (arithmetic, strings, lists/dicts, loops, conditionals, functions, common standard helpers such as math/date/JSON handling), **Then** the script runs and its return value (or printed output when there is no return value) is delivered to the agent.
 3. **Given** a script with a syntax error or an unsupported language feature, **When** it is submitted, **Then** the agent receives a clear error identifying the problem (line/description) so it can correct and resubmit.
-4. **Given** a script that loops forever, recurses without bound, or allocates without bound, **When** it hits the configured limit, **Then** it is terminated, the agent receives an error naming the limit that was hit, and the agent and hosting process keep serving requests.
+4. **Given** a script that loops forever or recurses without bound, **When** it hits the configured limit, **Then** it is terminated, the agent receives an error naming the limit that was hit, and the agent and hosting process keep serving requests.
 5. **Given** a script that tries to read a file, open a network connection, read an environment variable, or import something outside the supported set, **When** it runs, **Then** the attempt fails inside the script with an error and has no effect on the host.
 6. **Given** an agent with the sandbox on and code mode off, **When** a script tries to call one of the agent's tools as a function, **Then** the call fails inside the script with an error explaining that tool access from scripts is not enabled for this agent.
 
@@ -55,7 +55,6 @@ An agent with code mode on is asked to do something that requires several depend
 4. **Given** a script that calls a tool the agent does not have enabled, **When** the call is attempted, **Then** the call is refused with an error stating the tool is unavailable, and no side effect occurs.
 5. **Given** a tool that normally returns an attachment (e.g. generated image, TTS audio, document read), **When** it is called from inside a script, **Then** the attachment is still delivered to the user through the same channel mechanism as a direct call would use.
 6. **Given** an agent whose tools include external (MCP) server tools, **When** a script calls one of those tools, **Then** it is dispatched to the external server exactly as a direct call would be.
-7. **Given** a script that reaches the per-script tool-invocation limit, **When** it attempts one more tool call, **Then** that call raises an error inside the script, which the script may catch and still return a partial result.
 
 ---
 
@@ -78,13 +77,13 @@ Because an agent in code mode no longer sees its regular tools in its tool list,
 
 ---
 
-### User Story 4 - Operator Configures the Two Switches and Their Limits (Priority: P4)
+### User Story 4 - Operator Configures the Two Switches (Priority: P4)
 
-An operator managing agents through the WebUI (or HTTP API) decides, per agent, whether to turn on the Python sandbox and, separately, whether to turn on code mode on top of it. They can also bound what a script may consume: wall-clock timeout, memory ceiling, and — for code mode — maximum number of tool invocations per script. Both switches are off by default; turning on code mode requires the sandbox to be on.
+An operator managing agents through the WebUI (or HTTP API) decides, per agent, whether to turn on the Python sandbox and, separately, whether to turn on code mode on top of it. There are no further settings: a script is bounded by the agent's existing per-tool timeout, exactly like any other tool call. Both switches are off by default; turning on code mode requires the sandbox to be on.
 
 **Why this priority**: The two capabilities carry different risk profiles, so operators need to opt in to each deliberately and bound them. The feature is still demonstrable with built-in defaults before this control surface exists.
 
-**Independent Test**: Via the WebUI/API, turn on only the sandbox for agent A, sandbox + code mode for agent B, and nothing for agent C; verify each agent's tool list matches (A: regular tools + code execution; B: code execution + documentation only; C: regular tools only). Lower the timeout on A and verify a long-running script is cut off at the new limit.
+**Independent Test**: Via the WebUI/API, turn on only the sandbox for agent A, sandbox + code mode for agent B, and nothing for agent C; verify each agent's tool list matches (A: regular tools + code execution; B: code execution + documentation only; C: regular tools only). Lower the agent's tool timeout on A and verify a long-running script is cut off at the new limit.
 
 **Acceptance Scenarios**:
 
@@ -93,7 +92,7 @@ An operator managing agents through the WebUI (or HTTP API) decides, per agent, 
 3. **Given** an agent with the sandbox on, **When** the operator turns on code mode and saves, **Then** on the agent's next request the model's tool list consists of the code-execution and documentation tools only, and the agent's regular tools are reachable solely from scripts.
 4. **Given** an agent with the sandbox off, **When** the operator attempts to turn on code mode alone, **Then** the change is rejected (API) or prevented (WebUI) with a message explaining that code mode requires the sandbox.
 5. **Given** an agent with both switches on, **When** the operator turns off the sandbox, **Then** code mode is turned off with it and the agent returns to direct tool calls on its next request.
-6. **Given** an agent with the sandbox on, **When** the operator sets a timeout of N seconds and a memory limit, **Then** scripts exceeding either bound are terminated with an error that names which limit was hit; **and** with code mode on, a maximum tool-invocation count is additionally enforced the same way.
+6. **Given** an agent with the sandbox on and a tool timeout of N seconds, **When** a script runs longer than N seconds, **Then** it is terminated and the agent receives the same timeout error it would for any other tool.
 7. **Given** the operator's WebUI agent settings, **When** code mode is turned on, **Then** the operator is told that the agent's other tools will be reached only through scripts, so the change is not a surprise.
 8. **Given** existing agents persisted from a prior version, **When** the system starts after upgrading, **Then** those agents load with both switches off and behave exactly as before.
 
@@ -111,17 +110,18 @@ A user or operator reviewing a conversation wants to understand what happened du
 
 1. **Given** a completed code-execution call, **When** the user expands it in the WebUI session view, **Then** they see the script source, an ordered list of every tool invocation made by the script (tool name, arguments, success/failure — empty when only the sandbox is on), captured printed output, the return value, and the execution duration.
 2. **Given** a code-execution call that failed, **When** the user views it, **Then** the failure reason (limit exceeded, script error, tool error) and the tool invocations that completed before failure are visible.
-3. **Given** a script whose printed output or return value is very large, **When** it is displayed or returned to the agent, **Then** it is truncated with a clear indicator rather than overwhelming the model context or the UI.
 
 ---
 
 ### Edge Cases
 
-- **Runaway script** (infinite loop, deep recursion, unbounded memory growth): the sandbox terminates it at the configured limit; the agent receives an error naming the limit; the process hosting the agent is unaffected and continues serving other requests.
+- **Runaway script** (infinite loop, deep recursion): the sandbox terminates it at the configured limit; the agent receives an error naming the limit; the process hosting the agent is unaffected and continues serving other requests.
+- **Memory growth**: there is no per-script memory ceiling in this version (user decision, see Assumptions). Everything a script allocates is released when the run ends, so memory never accumulates across runs; a single run's peak is bounded only by the timeout.
 - **Attempted escape**: any attempt to read/write files, open sockets, read environment variables, import modules outside the supported set, or otherwise reach the host fails with an error inside the script — the sandbox provides none of these capabilities, in either mode.
 - **Tool access with code mode off**: a script that calls a tool function when only the sandbox is on gets an error explaining tool access is not enabled; no tool runs.
-- **Slow tool inside a script** (code mode): a script that calls a tool which takes a long time (e.g. fetching a slow page, delegating to another agent) counts that time against the script's wall-clock timeout; the existing per-tool timeout still applies to each individual invocation.
-- **Tool invocation limit hit mid-script** (code mode): further tool calls raise an error inside the script; the script may catch it and still return a partial result.
+- **Slow tool inside a script** (code mode): the agent's per-tool timeout bounds the *whole* script (it is one tool call) and, separately, each nested tool call inside it. A script that makes several slow calls can therefore be cut off by the outer bound even though each nested call individually stayed within it — the operator raises the agent's tool timeout if that is a problem.
+- **Many tool calls in one script** (code mode): there is no per-script cap on the number of tool calls in this version; the timeout is the bound. A `while True: search(...)` loop runs until the timeout.
+- **Very large output**: there is no output truncation in this version; whatever the script prints or returns is delivered to the model (the engine's own 10 MB print buffer is the only hard cap). Keeping results small is the agent's responsibility and is stated in the tool description.
 - **Nested code execution**: a script attempting to call the code-execution tool itself is refused.
 - **Tool name collisions** (code mode): two tools whose names would map to the same script function name (e.g. an MCP tool named like a built-in) are disambiguated deterministically and the catalogue shows the exact name to use.
 - **Large catalogues** (code mode): an agent with many MCP servers may have hundreds of functions; the catalogue stays usable (short descriptions only, full docs on request) so it does not flood the model's context.
@@ -141,13 +141,13 @@ A user or operator reviewing a conversation wants to understand what happened du
 - **FR-002**: Code mode MUST require the sandbox: the API MUST reject a configuration with code mode on and sandbox off, the WebUI MUST prevent it, and turning the sandbox off MUST turn code mode off with it.
 - **FR-003**: When the sandbox is on and code mode is off, the model's tool list MUST include a code-execution tool that accepts a Python script and returns its result, *in addition to* every regular tool the agent has — the agent's direct tool calling is unchanged.
 - **FR-004**: When code mode is on, the model's tool list MUST consist only of the code-execution tool and the documentation tools (FR-012); the agent's regular tools MUST NOT be offered to the model directly.
-- **FR-005**: The operator MUST be able to configure, per agent, a wall-clock timeout and a memory ceiling for scripts, and — for code mode — a maximum number of tool invocations per script; each MUST have a sensible built-in default so turning a switch on with no further configuration works.
+- **FR-005**: The feature MUST add no settings beyond the two switches; a script execution MUST be bounded by the agent's existing per-tool timeout, applied exactly as it is to any other tool call.
 - **FR-006**: Existing persisted agents MUST load with both switches off after upgrade, with no change to their behaviour.
 - **FR-007**: Both capabilities are available in the agent's normal request/response loop. Neither is available during the unattended dream cycle in this version.
 
 **Script execution (both modes)**
 
-- **FR-008**: The code-execution tool's description presented to the agent MUST explain what data types may be passed and returned, which language features are supported and unsupported, the active resource limits, and — when code mode is on — how to call tools from a script and how to look up available functions, so the agent can write valid scripts without trial and error.
+- **FR-008**: The code-execution tool's description presented to the agent MUST explain what data types may be passed and returned, which language features are supported and unsupported, the active resource limits, and — when code mode is on — how to call tools from a script and how to look up available functions, so the agent can write valid scripts without trial and error. In addition, whenever the sandbox is on, the agent's system prompt MUST include a short mode-specific briefing (sandbox-only vs. code mode) stating that its tools are reached through scripts when code mode is on, how to discover them, and the time bound — so the model is told *why* its tool list changed rather than having to infer it from a tool description.
 - **FR-009**: Each script execution MUST be stateless: no variables, definitions, or data persist from one execution to the next.
 - **FR-010**: The result delivered to the agent MUST include the script's return value (or captured printed output when there is no return value) and, on failure, a description of the failure and its category (script error / tool error / limit exceeded).
 - **FR-011**: A script MUST NOT be able to invoke the code-execution tool itself (no nesting).
@@ -155,7 +155,7 @@ A user or operator reviewing a conversation wants to understand what happened du
 **Tool access from scripts (code mode only)**
 
 - **FR-012**: When code mode is on, the agent MUST be offered documentation tools that (a) list every function callable from a script — built-in, conditionally enabled, and external MCP tools — with name and short description, and (b) return a single function's full documentation: parameters (name, type, required/optional, description), return shape, and a usage example as script code. The catalogue MUST reflect the agent's current tool configuration on every call and MUST NOT include tools the agent cannot call. These tools MUST NOT be offered when code mode is off.
-- **FR-013**: The same documentation MUST be obtainable from inside a running script, and such lookups MUST NOT count toward the script's tool-invocation limit.
+- **FR-013**: The same documentation MUST be obtainable from inside a running script.
 - **FR-014**: Asking for documentation of a function that does not exist or is not enabled MUST return a clear "not available" response rather than an error that terminates the turn.
 - **FR-015**: A script MUST be able to invoke any tool the agent currently has available (built-in default tools, conditionally enabled tools, and tools from the agent's external MCP servers) as a function call, passing arguments as plain data and receiving the tool's result as plain data.
 - **FR-016**: Tool invocations from within a script MUST go through the same dispatch, permission, and timeout path as a direct tool call; a script MUST NOT be able to reach any tool the agent could not call directly.
@@ -166,7 +166,8 @@ A user or operator reviewing a conversation wants to understand what happened du
 **Sandbox guarantees (both modes)**
 
 - **FR-020**: The sandbox MUST provide no access to the host filesystem, network, environment variables, or process — the only bridge to the outside world is the set of tool functions exposed under code mode.
-- **FR-021**: The sandbox MUST enforce the configured wall-clock timeout, memory ceiling, recursion depth, and (in code mode) tool-invocation count, terminating the script and reporting which limit was exceeded.
+- **FR-021**: The sandbox MUST enforce the agent's per-tool timeout and a fixed recursion depth, terminating the script and reporting which limit was exceeded. A script that is still spinning after the agent has given up on it MUST stop on its own within the same timeout again, so no runaway thread outlives the turn by more than that.
+- **FR-021a**: All memory a script allocates MUST be released when its execution ends, whatever the outcome, so that repeated executions do not accumulate memory in the hosting process.
 - **FR-022**: A script that exhausts its limits or crashes MUST NOT affect the availability of the agent, other agents, or the hosting process.
 - **FR-023**: Concurrent script executions (across sessions or agents) MUST be isolated from one another.
 - **FR-024**: The sandbox MUST NOT require any external service, runtime, or interpreter to be installed on the host; it MUST ship inside the single binary and work in config-less mode and on every supported build target.
@@ -174,12 +175,11 @@ A user or operator reviewing a conversation wants to understand what happened du
 **Observability (both modes)**
 
 - **FR-025**: The system MUST record, for each execution, the script source, every tool invocation made (name, arguments, outcome, order — empty when code mode is off), captured printed output, the return value or error, and the duration, and MUST expose this in the session history and WebUI where other tool calls are shown.
-- **FR-026**: Return values and printed output exceeding a configurable size MUST be truncated with an explicit truncation marker both in what the agent receives and in what is stored.
 - **FR-027**: Each execution and each tool invocation inside it MUST be logged through the existing logging facility with the agent and session identifiers, so operators can trace activity without the WebUI.
 
 ### Key Entities
 
-- **Sandbox Settings**: per-agent configuration — sandbox switch, code-mode switch (valid only when sandbox is on), wall-clock timeout, memory ceiling, maximum tool invocations per script (code mode), output size limit. Lives alongside the agent's other tool settings.
+- **Sandbox Settings**: per-agent configuration — sandbox switch and code-mode switch (valid only when sandbox is on). Nothing else. Lives alongside the agent's other tool settings; the time bound comes from the agent's existing tool timeout.
 - **Code Execution Request**: a single submission by an agent — the script source, the agent and session it belongs to, and the moment it was submitted.
 - **Code Execution Result**: the outcome of one request — return value or captured output, error (if any) with its category (script error / tool error / limit exceeded), duration, and the ordered list of Tool Invocation Records (always empty when code mode is off).
 - **Tool Invocation Record**: one tool call made from inside a script — tool name, arguments, success or failure, and its position in the script's execution order. Conceptually the same thing as a direct tool call, but nested under its parent execution.
@@ -194,7 +194,8 @@ A user or operator reviewing a conversation wants to understand what happened du
 - **SC-003**: For such a task, the amount of intermediate tool output that enters the model's context is reduced by at least 80% compared to the direct-call approach (only the script's final return value enters context).
 - **SC-004**: Sandbox start-up plus execution of a trivial script adds no more than 50 milliseconds of overhead beyond the time spent in any tools it calls.
 - **SC-005**: 100% of attempts from within a script to access the filesystem, network, environment, or host process fail without effect, in either mode.
-- **SC-006**: 100% of runaway scripts (infinite loop, unbounded allocation, deep recursion) are terminated within the configured limit, with the agent and hosting process continuing to serve requests afterwards.
+- **SC-006**: 100% of runaway scripts (infinite loop, deep recursion) are terminated within the configured limit, with the agent and hosting process continuing to serve requests afterwards.
+- **SC-013**: After any number of consecutive script executions, the hosting process's reusable memory returns to its pre-execution level — no accumulation across runs.
 - **SC-007**: With only the sandbox on, the agent's regular tool list is identical to before except for the addition of the code-execution tool — 0 regressions in direct tool calling.
 - **SC-008**: With code mode on, the model's tool list contains a fixed small number of entries (code execution plus documentation) regardless of how many regular or MCP tools the agent has enabled.
 - **SC-009**: Every tool invocation made from within a script is visible in the session history with the same fidelity (name, arguments, outcome) as a direct tool call.
@@ -209,7 +210,8 @@ A user or operator reviewing a conversation wants to understand what happened du
 - **Two switches, one dependency (user decision)**: the sandbox switch is the base capability and is additive to the agent's tool list; the code-mode switch layers programmatic tool calling on top and is exclusive (regular tools hidden from the model). Code mode without the sandbox is not a valid state.
 - **Opt-in by default**: both switches are off for all agents unless explicitly enabled, consistent with how other conditional tools are handled.
 - **Same tool, two behaviours**: the code-execution tool is one tool whose behaviour differs only in whether tool functions are bridged into the script; it does not become a second, separately named tool when code mode is turned on.
-- **Defaults**: initial default limits are on the order of 30 seconds wall-clock, a memory ceiling in the tens of megabytes, 50 tool invocations per script (code mode), and 64 KB of result output before truncation. These are starting points to be tuned during implementation, not requirements.
+- **No memory ceiling in v1 (user decision)**: a per-script memory limit is deliberately out of scope. Rationale: enforcing cumulative allocation in-process requires installing a process-wide counting allocator; the user chose not to take that on now. Verified mitigating fact: all memory a script allocates is owned by its interpreter instance and released when the run ends (measured: three consecutive 200 MB runs did not grow the process beyond the first). Residual risk accepted: a single run's peak before the timeout fires is unbounded. A fixed, non-configurable guard rejects any *single* allocation above 1 GiB so an obvious `"a" * 10**10` fails cleanly instead of attempting it.
+- **No new limit settings (user decision)**: a per-script tool-call cap and output truncation were considered and deferred; the agent's existing per-tool timeout is the single bound. Both can be added later without changing the script-side contract.
 - **Stateless executions**: no persistent sandbox session across calls in v1. If agents frequently need to carry state between scripts, a resumable-session variant can be a follow-up.
 - **Dream cycle excluded**: unattended reflection keeps its current restricted tool subset; either switch can be extended there in a later revision once behaviour in attended sessions is understood.
 - **Documentation is derived, not authored**: the documentation tools generate their output from each tool's existing name, description, and input/output definitions (including those reported by external MCP servers), so new tools are discoverable with no extra work.
