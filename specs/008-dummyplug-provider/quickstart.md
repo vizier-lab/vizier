@@ -26,14 +26,14 @@ Or use the HTTP API, with the same body as any other agent and `"provider": "dum
 |------|--------|
 | `hello` | Lorem ipsum paragraph(s). Sending it again gives different text. |
 | `tools` (also try ` Tools `) | Bulleted list of every tool, including any `mcp_*` tools if MCP servers are configured |
-| `read_core` | Description, then a fenced JSON with `"tool": "read_core"` |
-| *(paste that JSON back unchanged)* | A tool-call entry in the UI, then `**Tool result** (read_core): …` containing the agent's CORE.md |
+| `READ_CORE` | Description, then a fenced JSON with `"tool": "READ_CORE"` |
+| *(paste that JSON back unchanged)* | A tool-call entry in the UI, then `**Tool result** (READ_CORE): …` containing the agent's CORE.md |
 | `{"tool": "nope"}` | `Unknown tool` message; nothing runs |
 | `{"tool": ` | `Could not parse tool request` message; nothing runs |
 
 ## 4. Check a state-changing tool (US4-2)
 
-1. Send `write_memory` to get the sample.
+1. Send `memory_write` to get the sample.
 2. Edit the values and send it back.
 3. Confirm the memory appears in the WebUI Memory view, and that its version history shows a revision.
 

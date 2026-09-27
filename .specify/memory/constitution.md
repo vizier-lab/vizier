@@ -1,26 +1,26 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.0.0 → 1.1.0
-Modified principles:
-  - III. Self-Contained, Zero-Dependency Runtime — narrowed "Storage MUST
-    remain embedded (bundled SQLite or the filesystem backend)" to
-    "Storage MUST remain embedded (bundled SQLite)"; the filesystem backend
-    is no longer a supported VizierStorageProvider (specs/004-memory-open-format).
+Version change: 1.1.0 → 1.2.0
+Modified principles: none
 Added sections: none
-Removed sections: none
 Modified sections:
-  - Distribution & Technology Constraints — "No required external services"
-    bullet updated: embedded SQLite is now the sole supported storage
-    backend (was "SQLite ... and the filesystem backend"), with a note on
-    why (agent memory moved onto a pluggable DocumentStore abstraction,
-    removing the filesystem backend's last unique justification).
+  - Development Workflow & Quality Gates — added the "End-to-end
+    verification through a dummyplug agent" gate: features that change
+    agent-observable behavior MUST be exercised against a running binary
+    with an agent on the offline `dummyplug` provider
+    (specs/008-dummyplug-provider), with each feature's quickstart.md
+    scripted as dummyplug steps; the dummyplug chat protocol is now a test
+    harness contract.
 Templates requiring updates:
-  - .specify/templates/plan-template.md ✅ no change needed (Constitution Check
-    section is derived dynamically from this file, no hardcoded principle names)
-  - .specify/templates/spec-template.md ✅ no constitution references present
-  - .specify/templates/tasks-template.md ✅ no constitution references present
+  - .specify/templates/plan-template.md ✅ updated (Testing field names the
+    dummyplug e2e harness)
+  - .specify/templates/tasks-template.md ✅ updated (Polish phase gets a
+    dummyplug e2e task next to quickstart validation)
+  - .specify/templates/spec-template.md ✅ no change needed (Independent Test
+    wording already fits; the harness is a plan/tasks concern)
   - .specify/templates/checklist-template.md ✅ no constitution references present
+  - CLAUDE.md ✅ updated (Commands section points at dummyplug for e2e checks)
 Follow-up TODOs: none
 -->
 
@@ -161,6 +161,25 @@ instead of each module reinventing its own convention.
   MUST be exercised by actually running the binary (`just run` / `cross
   build`), not assumed correct from a passing `cargo build`.
 
+- **End-to-end verification through a `dummyplug` agent**: a change to
+  agent-observable behavior — the agent loop, hooks, tools (built-in or
+  MCP), sessions/history, memory/CORE, the scheduler or dream cycle,
+  channels, or the HTTP/WebUI surface — MUST be exercised end to end
+  against a running binary with an agent on the offline `dummyplug`
+  provider before it is considered done. Dummyplug is the default e2e
+  harness: no credentials, no network, and deterministic tool invocation
+  (`tools` → tool name → JSON request → echoed result). Each feature's
+  `quickstart.md` MUST script its checks as dummyplug steps: the message
+  to send and the expected reply, stored state, or history entry. A live
+  provider is used in addition only where behavior depends on real model
+  output (prompting, provider-specific parsing, token accounting), and
+  those steps MUST be marked as such. The dummyplug chat protocol
+  (`specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`) is a
+  test-harness contract: changing it MUST keep existing quickstart scripts
+  working or update them in the same change. *Rationale*: the unit suite
+  is sparse and live models are nondeterministic, paid, and need keys;
+  dummyplug makes the real pipeline reproducible offline (Principle III).
+
 ## Governance
 
 This constitution supersedes ad hoc practice and prior informal convention
@@ -190,4 +209,4 @@ service or non-embedded runtime dependency). Deviations MUST be justified
 in the PR description (equivalent to the plan template's Complexity
 Tracking table) or the change MUST be revised before merge.
 
-**Version**: 1.1.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-09-13
+**Version**: 1.2.0 | **Ratified**: 2026-08-13 | **Last Amended**: 2026-09-27

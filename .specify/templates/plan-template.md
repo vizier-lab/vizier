@@ -24,7 +24,7 @@
 
 **Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]
+**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]; end-to-end: [dummyplug agent steps in quickstart.md, per the constitution's e2e gate, or N/A if no agent-observable change]
 
 **Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
 

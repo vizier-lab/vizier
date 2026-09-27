@@ -22,7 +22,7 @@ cargo test        # run tests (very few exist today — see below)
 cargo clippy       # lint
 ```
 
-There is no `just test` or `just lint` target — use `cargo test` / `cargo clippy` directly. Tests are sparse (`src/agents/agent/model/registry.rs`, `src/storage/memory.rs`, `src/skill/context.rs`); most correctness is exercised by running the binary, not by a test suite.
+There is no `just test` or `just lint` target — use `cargo test` / `cargo clippy` directly. Tests are sparse (`src/agents/agent/model/registry.rs`, `src/storage/memory.rs`, `src/skill/context.rs`); most correctness is exercised by running the binary, not by a test suite. For end-to-end checks, run the binary with an agent on the offline `dummyplug` provider (no keys needed): send `tools`, then a tool name for a sample request, then the JSON request to run the tool through the real loop — see `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`. The constitution requires this for any agent-observable change.
 
 WebUI typecheck: `cd webui && npm run typecheck` (runs `react-router typegen && tsc`).
 
