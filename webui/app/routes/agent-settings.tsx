@@ -35,6 +35,7 @@ import type {
 } from '../interfaces/types'
 import {
   CHAT_PROVIDERS,
+  chatProviderLabel,
   CHAT_PROVIDER_MODELS,
   TTS_PROVIDER_MODELS,
   TTS_PROVIDER_VOICES,
@@ -726,7 +727,7 @@ export default function AgentSettings() {
                       >
                         {CHAT_PROVIDERS.map((p) => (
                           <option key={p} value={p}>
-                            {p}
+                            {chatProviderLabel(p)}
                           </option>
                         ))}
                       </select>
@@ -1070,7 +1071,7 @@ export default function AgentSettings() {
                             >
                               <option value="" disabled>Select provider</option>
                               {CHAT_PROVIDERS.map((p) => (
-                                <option key={p} value={p}>{p}</option>
+                                <option key={p} value={p}>{chatProviderLabel(p)}</option>
                               ))}
                             </select>
                           </section>
@@ -1917,7 +1918,7 @@ export default function AgentSettings() {
                         >
                           <option value="">Select provider</option>
                           {CHAT_PROVIDERS.map((p) => (
-                            <option key={p} value={p}>{p}</option>
+                            <option key={p} value={p}>{chatProviderLabel(p)}</option>
                           ))}
                         </select>
                       </section>

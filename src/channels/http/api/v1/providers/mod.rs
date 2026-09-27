@@ -280,6 +280,12 @@ async fn upsert_provider(
             api_key: body.api_key.unwrap_or_default(),
             base_url: body.base_url.filter(|s| !s.is_empty()),
         },
+        ProviderVariant::dummyplug => {
+            return err_response(
+                StatusCode::BAD_REQUEST,
+                "dummyplug requires no configuration".into(),
+            );
+        }
     };
 
     let entry = ProviderEntry { variant, config };

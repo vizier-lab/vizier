@@ -175,6 +175,7 @@ export type ChatProvider =
   | 'custom'
   | 'opencode_zen'
   | 'opencode_go'
+  | 'dummyplug'
 
 export const CHAT_PROVIDERS: ChatProvider[] = [
   'ollama',
@@ -204,7 +205,12 @@ export const CHAT_PROVIDERS: ChatProvider[] = [
   'custom',
   'opencode_zen',
   'opencode_go',
+  'dummyplug',
 ]
+
+/** Display label for a chat provider; marks the offline test provider as such. */
+export const chatProviderLabel = (p: string): string =>
+  p === 'dummyplug' ? 'dummyplug (testing)' : p
 
 export const CHAT_PROVIDER_DEFAULT_MODELS: Record<ChatProvider, string> = {
   ollama: 'qwen3.5:4b',
@@ -234,6 +240,7 @@ export const CHAT_PROVIDER_DEFAULT_MODELS: Record<ChatProvider, string> = {
   custom: '',
   opencode_zen: 'opencode/gpt-5.5',
   opencode_go: 'opencode-go/kimi-k3',
+  dummyplug: 'dummyplug',
 }
 
 export const CHAT_PROVIDER_MODELS: Record<ChatProvider, string[]> = {
@@ -264,6 +271,7 @@ export const CHAT_PROVIDER_MODELS: Record<ChatProvider, string[]> = {
   custom: [],
   opencode_zen: ['opencode/gpt-5.5'],
   opencode_go: ['opencode-go/kimi-k3', 'opencode-go/deepseek-v4-flash'],
+  dummyplug: ['dummyplug'],
 }
 
 export const TTS_PROVIDER_MODELS: Record<TtsProvider, string[]> = {
