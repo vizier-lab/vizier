@@ -18,7 +18,13 @@ use crate::{
     agents::{
         agent::{
             model::{VizierModel, VizierModelTrait},
-            system_prompt::{boot::boot_md, init_workspace, sandbox::sandbox_md, user::owner_md},
+            system_prompt::{
+                boot::boot_md,
+                context::{context_md, with_context},
+                init_workspace,
+                sandbox::sandbox_md,
+                user::owner_md,
+            },
         },
         hook::{VizierSessionHook, VizierSessionHooks},
         skill::VizierSkills,
@@ -375,44 +381,6 @@ impl VizierAgent {
             )));
         }
 
-        if memory.len() > 0 {
-            let summarize_memories = memory
-                .iter()
-                .map(|memory| {
-                    let mut truncated_content = memory.content.clone();
-
-                    format!(
-                        "## {}\nslug: **{}**\n**use the slug for more detail of this memory**\n \n---",
-                        memory.title, memory.slug
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            history.push(Message::system(format!(
-                "# Possible Related Memories\nprovided below are memory that could be (but not always) related to user message \n{}",
-                summarize_memories
-            )));
-        }
-
-        if !skills.is_empty() {
-            let summarize_skills = skills
-                .iter()
-                .map(|skill| {
-                    format!(
-                        "## {}\nslug: **{}**\n{}\n**call get_skill_details or use_skill with this slug for more detail**\n---",
-                        skill.name, skill.name, skill.description
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            history.push(Message::system(format!(
-                "# Possibly Related Skills\nprovided below are skills that could be (but not always) related to the user message\n{}",
-                summarize_skills
-            )));
-        }
-
         history.extend(history_entries_to_messages(&session_history));
 
         if let Some(hooks) = hooks.clone() {
@@ -465,7 +433,10 @@ impl VizierAgent {
 
         let prompt_result = self
             .prompt(
-                req.to_message(&self.global_workspace)?,
+                with_context(
+                    req.to_message(&self.global_workspace)?,
+                    context_md(&memory, &skills),
+                ),
                 history,
                 0,
                 hooks.clone(),
@@ -978,7 +949,7 @@ impl VizierAgent {
         let (output, stats) = self
             .dream_prompt(
                 &dream_model,
-                req.to_message(&self.global_workspace)?,
+                with_context(req.to_message(&self.global_workspace)?, context_md(&[], &[])),
                 history,
                 tools,
                 hooks.clone(),

@@ -345,6 +345,9 @@ impl VizierTools {
             _ => self.router.definitions().await?,
         };
         defs.extend(self.sandbox_toolset.tools.values().map(|tool| tool.tool_def()));
+        // Toolsets are HashMaps, whose iteration order changes across process restarts and agent
+        // respawns; a stable order keeps the tool list a cacheable prompt prefix.
+        defs.sort_by(|a, b| a.name.cmp(&b.name));
 
         Ok(defs)
     }

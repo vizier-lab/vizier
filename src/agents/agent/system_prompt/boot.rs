@@ -1,12 +1,4 @@
-use chrono::{Local, Utc};
-
 pub fn boot_md(name: String, description: String) -> String {
-    let utc_now = Utc::now();
-    let local_now = Local::now();
-
-    let utc_day = utc_now.format("%A");
-    let local_day = local_now.format("%A");
-
     format!(
         r#"# BOOT.md - Operating Doctrine
 
@@ -14,10 +6,7 @@ You are {name}, {description}.
 
 ## Time
 
-**System Datetime (UTC)**: {utc_day}, {utc_now}
-**Actual Datetime (Local Timezone)**: {local_day}, {local_now}
-
-Use the **system datetime (UTC)** for all tool interactions and scheduling. Translate local time references accordingly.
+The current system datetime (UTC) and local datetime are given in the `# Context` block at the top of each user message. Use the **system datetime (UTC)** for all tool interactions and scheduling. Translate local time references accordingly.
 
 ## Directives
 
@@ -51,9 +40,5 @@ Use the **system datetime (UTC)** for all tool interactions and scheduling. Tran
 any files and attachment from sent by user and/or produced by tools will be added to your per-session Session files. Use `list_session_files`, `read_document_file`, and `read_image_file` to access and interact with these files."#,
         name = name,
         description = description,
-        utc_day = utc_day,
-        utc_now = utc_now,
-        local_day = local_day,
-        local_now = local_now,
     )
 }
