@@ -249,11 +249,11 @@ description: "Task list for the dummyplug test provider"
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T032 [P] Add a `dummyplug` row to the provider table in `docs/src/configuration/providers.md`: fields `—`, env var `—`, note "Offline test provider — no configuration; see below". Add a short "Dummyplug (testing)" subsection that summarizes contract §1–§5 (`tools`, tool name → sample, JSON → run, everything else → lorem ipsum) with one example exchange.
-- [ ] T033 [P] Add `dummyplug` (offline test provider) to the provider list in the "Providers / models" section of `CLAUDE.md`.
-- [ ] T034 Run `cargo clippy` and `cargo test` over the whole crate. Everything must be clean, and the T001 baseline must still pass.
-- [ ] T035 Run `cd webui && npm run typecheck`.
-- [ ] T036 Run the full quickstart.md, including:
+- [X] T032 [P] Add a `dummyplug` row to the provider table in `docs/src/configuration/providers.md`: fields `—`, env var `—`, note "Offline test provider — no configuration; see below". Add a short "Dummyplug (testing)" subsection that summarizes contract §1–§5 (`tools`, tool name → sample, JSON → run, everything else → lorem ipsum) with one example exchange.
+- [X] T033 [P] Add `dummyplug` (offline test provider) to the provider list in the "Providers / models" section of `CLAUDE.md`.
+- [X] T034 Run `cargo clippy` and `cargo test` over the whole crate. Everything must be clean, and the T001 baseline must still pass.
+- [X] T035 Run `cd webui && npm run typecheck`.
+- [X] T036 Run the full quickstart.md, including:
   - config-less mode: `VIZIER_DATA_DIR=$(mktemp -d) cargo run -- run`, then create a dummyplug agent
   - §5 non-interactive paths: a one-time scheduled task completes with lorem ipsum, and a dream cycle for a dummyplug agent completes without errors (FR-010)
   - an agent on a real provider (if keys are available) still behaves as before (FR-012)

@@ -67,10 +67,44 @@ So you don't strictly need a config file or a WebUI entry — exporting `OPENAI_
 | `opencode_zen` | `api_key`, `base_url?` | `OPENCODE_ZEN_API_KEY` | [OpenCode Zen](https://opencode.ai/docs/zen/) gateway, default `https://opencode.ai/zen/v1`. Chat-Completions-compatible models only. |
 | `opencode_go` | `api_key`, `base_url?` | `OPENCODE_GO_API_KEY` | [OpenCode Go](https://opencode.ai/docs/go/) gateway, default `https://opencode.ai/zen/go/v1`. Same scope as `opencode_zen`. |
 | `elevenlabs` | `api_key` | `ELEVENLABS_API_KEY` | TTS/STT only — not a chat provider |
+| `dummyplug` | — | — | Offline test provider — no configuration; see [below](#dummyplug-testing) |
 
 `base_url?` means optional; omit it to use the provider's public endpoint.
 
 In YAML you can put any literal or any `${VAR}` in these fields; the placeholder names above are just what the built-in defaults reference.
+
+## Dummyplug (testing)
+
+`dummyplug` is an offline chat provider for exercising agents, channels, sessions and tools without a live model. It needs no keys, no network and no provider entry: set an agent's provider to `dummyplug` (shown as **dummyplug (testing)** in the WebUI) and any model name. `PUT /api/v1/providers/dummyplug` is rejected with `400`, since there is nothing to configure.
+
+It reads the latest user message and replies by these rules, first match wins:
+
+| Send | Reply |
+|------|-------|
+| `tools` (any case) | A list of every tool available to the agent, including `mcp_<server>__<tool>` tools |
+| An exact tool name, e.g. `memory_write` | The tool's description, its required/optional arguments, and a sample request in a `json` code block |
+| `{"tool": "<name>", "arguments": { ... }}` (optionally fenced) | Runs the tool through the normal tool path (hooks, history, UI), then replies with a **Tool result** (`<name>`) block holding its output. Malformed JSON or an unknown tool gets an error reply and runs nothing. |
+| Anything else | 1–3 paragraphs of random lorem ipsum |
+
+Example:
+
+````text
+> READ_CORE
+**`READ_CORE`** — read your CORE document
+
+```json
+{
+  "tool": "READ_CORE",
+  "arguments": {}
+}
+```
+
+> {"tool": "READ_CORE", "arguments": {}}
+**Tool result** (`READ_CORE`):
+"# CORE\n\n## Operating Framework ..."
+````
+
+Scheduled tasks, dream cycles and other non-interactive prompts fall into the last rule, so they complete normally. Token usage is always reported as zero.
 
 ## Context window detection
 

@@ -81,7 +81,7 @@ Tools implement the `VizierTool` trait: associated `Input`/`Output` types (both 
 
 ### Providers / models (`src/agents/agent/model/`)
 
-Provider abstraction (`VizierModel`) over the many backends declared in `config/provider.rs` (ollama, openai, anthropic, deepseek, openrouter, gemini, mimo, llama_cpp, elevenlabs, and a growing long tail — groq, mistral, xai, perplexity, moonshot, zai, minimax, together, cohere, huggingface, hyperbolic, voyageai, galadriel, mira, chatgpt, copilot, azure, opencode, custom). Runs on `rig-core`.
+Provider abstraction (`VizierModel`) over the many backends declared in `config/provider.rs` (ollama, openai, anthropic, deepseek, openrouter, gemini, mimo, llama_cpp, elevenlabs, and a growing long tail — groq, mistral, xai, perplexity, moonshot, zai, minimax, together, cohere, huggingface, hyperbolic, voyageai, galadriel, mira, chatgpt, copilot, azure, opencode, custom), plus `dummyplug` — an offline test provider (`model/dummyplug.rs`) that needs no keys and lets you list/sample/run tools by hand. Runs on `rig-core`.
 
 ### Scheduler (`src/scheduler/`)
 
