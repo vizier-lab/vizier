@@ -5,6 +5,7 @@ import MarkdownEditor from './MarkdownEditor'
 import Avatar from './avatar'
 import AvatarCropModal from './AvatarCropModal'
 import EmbeddingIndexerSection from './EmbeddingIndexerSection'
+import PythonSandboxSection from './PythonSandboxSection'
 import { uploadFile } from '../services/vizier'
 import type {
   CreateAgentRequest,
@@ -16,6 +17,7 @@ import type {
   ShellConfigData,
 } from '../interfaces/types'
 import {
+  DEFAULT_PYTHON_SANDBOX,
   CHAT_PROVIDERS,
   chatProviderLabel,
   CHAT_PROVIDER_DEFAULT_MODELS,
@@ -100,6 +102,7 @@ const DEFAULT_FORM: CreateAgentRequest = {
     read_image_settings: {},
     image_gen: false,
     image_gen_settings: {},
+    python: DEFAULT_PYTHON_SANDBOX,
   },
   prompt_timeout: '60m',
   dream_enabled: false,
@@ -176,6 +179,7 @@ export default function AgentForm({
           read_image_settings: d.read_image_settings || {},
           image_gen: d.image_gen,
           image_gen_settings: d.image_gen_settings || {},
+          python: d.python ?? DEFAULT_PYTHON_SANDBOX,
         },
         prompt_timeout: d.prompt_timeout,
         dream_enabled: d.dream_enabled,
@@ -1197,6 +1201,11 @@ export default function AgentForm({
                   ))}
                 </div>
               </div>
+
+              <PythonSandboxSection
+                value={form.tools?.python}
+                onChange={(python) => setForm((prev) => ({ ...prev, tools: { ...prev.tools, python } }))}
+              />
 
               {/* Tool Settings */}
               <div>
@@ -3209,6 +3218,11 @@ export default function AgentForm({
                       HTTP Client
                     </span>
                   )}
+                  {form.tools?.python?.enabled && (
+                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
+                      {form.tools.python.code_mode ? 'Python (code mode)' : 'Python'}
+                    </span>
+                  )}
                   {form.tools?.tts && (
                     <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
                       TTS
@@ -3237,7 +3251,8 @@ export default function AgentForm({
                   {!form.tools?.brave_search && !form.tools?.discord &&
                     !form.tools?.telegram && !form.tools?.fetch && !form.tools?.http_client &&
                     !form.tools?.tts && !form.tools?.stt &&
-                    !form.tools?.read_image && !form.tools?.image_gen && (
+                    !form.tools?.read_image && !form.tools?.image_gen &&
+                    !form.tools?.python?.enabled && (
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
                       No tools enabled
                     </span>

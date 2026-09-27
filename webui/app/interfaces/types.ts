@@ -375,7 +375,15 @@ export interface AgentToolsConfig {
   read_image_settings?: ReadImageToolSettings
   image_gen: AgentToolConfig
   image_gen_settings?: ImageGenToolSettings
+  python: PythonSandboxConfig
 }
+
+export interface PythonSandboxConfig {
+  enabled: boolean
+  code_mode: boolean
+}
+
+export const DEFAULT_PYTHON_SANDBOX: PythonSandboxConfig = { enabled: false, code_mode: false }
 
 export interface AgentConfig {
   name: string
@@ -428,6 +436,7 @@ export interface CreateAgentRequest {
     read_image_settings?: ReadImageToolSettings
     image_gen?: boolean
     image_gen_settings?: ImageGenToolSettings
+    python?: Partial<PythonSandboxConfig>
   }
   prompt_timeout?: string
   dream_enabled?: boolean
@@ -460,6 +469,7 @@ export interface AgentDetail {
   telegram: boolean
   fetch: boolean
   http_client: boolean
+  python: PythonSandboxConfig
   prompt_timeout: string
   dream_enabled: boolean
   dream_schedule: string | null
@@ -545,11 +555,38 @@ export interface ReactionEntry {
   emoji: string
 }
 
+// Python sandbox execution report (payload of a `tool_response` event for execute_python)
+export interface ToolInvocationRecord {
+  seq: number
+  name: string
+  arguments: Record<string, unknown>
+  ok: boolean
+  error?: string | null
+  duration_ms: number
+}
+
+export interface ExecutionError {
+  kind: 'script' | 'tool' | 'limit'
+  message: string
+  traceback: string
+  limit?: string | null
+}
+
+export interface ExecutionReport {
+  ok: boolean
+  result: unknown
+  stdout: string
+  error?: ExecutionError | null
+  tool_calls: ToolInvocationRecord[]
+  duration_ms: number
+}
+
 // VizierResponseContent - matches backend VizierResponseContent enum with serde rename_all = "snake_case"
 export type VizierResponseContent =
   | 'thinking_start'
   | { thinking: string }
   | { tool_choice: { name: string; args: Record<string, unknown> } }
+  | { tool_response: { response: unknown } }
   | { message: { content: string; stats?: VizierResponseStats } }
   | { audio_reply: [VizierAttachment, string | null, VizierResponseStats | null] }
   | { error: { kind: 'completion' | 'tool_timeout' | 'prompt_timeout'; message: string } }

@@ -37,7 +37,7 @@ What the engine is handed per run; it never sees `PythonSandboxConfig` or `Agent
 
 | Field | From |
 |---|---|
-| `timeout: Duration` | the agent's `tools.timeout` — becomes Monty `max_duration` (CPU clock); the agent loop's own `tools.timeout` wrapper is the wall-clock bound |
+| `timeout: Duration` | the agent's `tools.timeout` — becomes Monty `max_duration` (CPU clock, + 500 ms grace so the outer timeout reports first); the agent loop's own `tools.timeout` wrapper is the wall-clock bound |
 | `tools_enabled: bool` | `code_mode` |
 
 Fixed engine constants (`src/sandbox/mod.rs`, not settings): `SINGLE_ALLOCATION_GUARD = 1 GiB` (Monty `max_memory` per-operation pre-check only, research Decision 6), `MAX_SCRIPT_BYTES = 64 KiB`, Monty defaults for recursion depth (1000) and print buffer (10 MiB). Monty's `max_suspensions` is set to `usize::MAX` and never enforced by the host — there is no cap on host round-trips (tool calls, docs lookups); the timeout is the only bound (spec edge case *Many tool calls in one script*).

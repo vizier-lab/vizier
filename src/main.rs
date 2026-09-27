@@ -20,6 +20,7 @@ mod embedding;
 mod error;
 mod file_manager;
 mod indexer;
+mod sandbox;
 mod scheduler;
 mod schema;
 

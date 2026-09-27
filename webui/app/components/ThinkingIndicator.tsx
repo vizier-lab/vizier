@@ -3,6 +3,8 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { FaStop } from 'react-icons/fa6'
+import ExecutionReportView from './ExecutionReportView'
+import type { ExecutionReport } from '../interfaces/types'
 
 const THINKING_WORDS = [
   'thinking',
@@ -63,8 +65,9 @@ const THINKING_WORDS = [
 
 interface InlineEvent {
   id: string
-  type: 'tool_choice' | 'thinking'
+  type: 'tool_choice' | 'thinking' | 'execution'
   content?: string
+  report?: ExecutionReport
   timestamp: number
 }
 
@@ -132,6 +135,9 @@ function ThinkingIndicatorComponent({ isVisible, inlineEvents, agentName, onAbor
                   {evt.content}
                 </ReactMarkdown>
               </div>
+            )}
+            {evt.type === 'execution' && evt.report && (
+              <ExecutionReportView report={evt.report} />
             )}
             {evt.type === 'thinking' && evt.content && (
               <div className="prose">

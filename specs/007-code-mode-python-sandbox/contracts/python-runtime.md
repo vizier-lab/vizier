@@ -17,8 +17,12 @@ pub trait SandboxBridge: Send + Sync {
     async fn catalogue(&self) -> Vec<ToolFunctionDoc>;
     async fn describe(&self, function: &str) -> Option<ToolFunctionDoc>;
     /// Invoke a tool. `arguments` is the JSON object built from the call (see Argument mapping).
-    async fn call(&self, function: &str, arguments: serde_json::Value) -> Result<serde_json::Value, String>;
+    async fn call(&self, function: &str, arguments: serde_json::Value) -> Result<serde_json::Value, BridgeError>;
 }
+
+/// `UnknownFunction` → `NotFound` → `NameError` in the script;
+/// `Tool(msg)` → catchable `RuntimeError("<tool>: <msg>")`.
+pub enum BridgeError { UnknownFunction, Tool(String) }
 
 pub async fn execute(code: &str, limits: SandboxLimits, bridge: Arc<dyn SandboxBridge>) -> ExecutionReport;
 ```
@@ -89,7 +93,7 @@ Exception type for tool failures is `RuntimeError` so that `except RuntimeError`
 | Limit | Enforced by | Script sees | Report |
 |---|---|---|---|
 | Wall-clock (`tools.timeout`) | the agent loop's existing per-tool `tokio::time::timeout` — nothing new | the turn gets `Tool 'execute_python' timed out`; the dropped future sets the deadline flag so the next host call is `abort`ed | (turn error, as for any tool) |
-| CPU time (`tools.timeout`) | Monty `max_duration` set to the same value (paused during host calls) — ends an orphaned spinning thread | `TimeoutError` — **uncatchable** in practice (raised at VM checkpoint, run ends) | `Limit/timeout` |
+| CPU time (`tools.timeout`) | Monty `max_duration` set to `tools.timeout` + 500 ms grace (Monty's clock never runs ahead of wall time, so the agent loop's timeout always fires first and the turn gets the ordinary `Tool 'execute_python' timed out` error — US4-S6); paused during host calls — ends an orphaned spinning thread | `TimeoutError` — **uncatchable** in practice (raised at VM checkpoint, run ends) | `Limit/timeout` |
 | Single allocation > 1 GiB | Monty's per-operation size pre-check (fixed constant, no allocator) | `MemoryError` | `Limit/memory` |
 | Cumulative memory | **not enforced in v1** (user decision) — peak is bounded by `timeout`; everything is released when the run ends | — | — |
 | Recursion (1000) | Monty | `RecursionError` | `Limit/recursion` |

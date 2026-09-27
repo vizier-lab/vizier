@@ -24,7 +24,7 @@ Give each agent an opt-in `execute_python` tool backed by the `monty` sandboxed 
 
 **Performance Goals**: sandbox start + trivial script ≤ 50 ms overhead (SC-004; probe measured sub-millisecond for interpreter setup); no runtime-worker starvation — interpreter runs on the blocking pool.
 
-**Constraints**: FR-020/022/024 — no host access, a crashing/limit-hitting script must never affect the process, nothing to install. No memory ceiling in v1; memory is released per run (research Decision 6). No new limit settings: the agent loop's existing `tools.timeout` bounds the whole `execute_python` call like any other tool, and Monty's CPU clock is set to the same value so an orphaned spinning thread stops on its own (Decision 3).
+**Constraints**: FR-020/022/024 — no host access, a crashing/limit-hitting script must never affect the process, nothing to install. No memory ceiling in v1; memory is released per run (research Decision 6). No new limit settings: the agent loop's existing `tools.timeout` bounds the whole `execute_python` call like any other tool, and Monty's CPU clock is set to that value plus a 500 ms grace so an orphaned spinning thread stops on its own while the outer timeout always reports first (Decision 3).
 
 **Scale/Scope**: one execution at a time per session, concurrent across sessions/agents; catalogues of up to a few hundred tool functions (MCP-heavy agents); scripts of a few KB; no output truncation (engine's own 10 MiB print buffer is the only cap).
 
@@ -120,7 +120,7 @@ pub struct VizierTools { router: ToolRouter, sandbox_toolset: VizierToolSet, exp
 ```text
 execute(script, limits, bridge) -> ExecutionReport
   ├─ MontyRun::new(script, "main.py", [], CompileOptions::default())   // SyntaxError → report.error{kind: script}
-  ├─ tracker = ResourceTracker::new(ResourceLimits{ max_duration: limits.timeout /* = tools.timeout */,
+  ├─ tracker = ResourceTracker::new(ResourceLimits{ max_duration: limits.timeout + 500ms /* = tools.timeout + grace */,
   │            max_memory: Some(SINGLE_ALLOCATION_GUARD /* 1 GiB, per-op pre-check only */),
   │            max_suspensions: usize::MAX /* host-enforced; not counted — no round-trip cap */,
   │            ..default /* recursion 1000 */ })
@@ -141,7 +141,7 @@ execute(script, limits, bridge) -> ExecutionReport
   └─ drop MontyRun + every MontyObject on this thread before returning the plain-data report (FR-021a)
 ```
 
-Outer: nothing new — the agent loop already wraps every tool call in `tokio::time::timeout(tools.timeout, …)` and returns `Tool 'execute_python' timed out` to the turn. `ExecutePython::call` sets `deadline` on drop (the timeout drops the future) so the orphaned blocking thread `abort`s at its next host call; if it is spinning without host calls, Monty's `max_duration` (same value) ends it within one more `tools.timeout`. Worst-case orphan lifetime ≤ `2 × tools.timeout`.
+Outer: nothing new — the agent loop already wraps every tool call in `tokio::time::timeout(tools.timeout, …)` and returns `Tool 'execute_python' timed out` to the turn. `ExecutePython::call` sets `deadline` on drop (the timeout drops the future) so the orphaned blocking thread `abort`s at its next host call; if it is spinning without host calls, Monty's `max_duration` (same value + 500 ms grace) ends it within one more `tools.timeout`. Worst-case orphan lifetime ≤ `2 × tools.timeout`.
 
 ### Bridge (`agents/tools/python/bridge.rs`)
 

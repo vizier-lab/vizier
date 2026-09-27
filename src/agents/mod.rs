@@ -203,6 +203,10 @@ impl VizierAgents {
     }
 
     async fn handle_create(&mut self, agent_id: &str, config: AgentConfig) -> AgentCommandResult {
+        if let Err(msg) = validate_config(&config) {
+            return AgentCommandResult::Error(msg);
+        }
+
         if self.processes.contains_key(agent_id) {
             return AgentCommandResult::Error(format!("agent '{}' already exists", agent_id));
         }
@@ -258,6 +262,10 @@ impl VizierAgents {
     }
 
     async fn handle_update(&mut self, agent_id: &str, config: AgentConfig) -> AgentCommandResult {
+        if let Err(msg) = validate_config(&config) {
+            return AgentCommandResult::Error(msg);
+        }
+
         if !self.processes.contains_key(agent_id)
             && self
                 .deps
@@ -368,4 +376,12 @@ impl VizierAgents {
             shared_to: Vec::new(),
         })
     }
+}
+
+/// Invariants an agent config must satisfy before it is persisted.
+fn validate_config(config: &AgentConfig) -> Result<(), String> {
+    if config.tools.python.code_mode && !config.tools.python.enabled {
+        return Err("tools.python.code_mode requires tools.python.enabled".into());
+    }
+    Ok(())
 }

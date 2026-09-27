@@ -30,14 +30,14 @@ export const DEFAULT_PYTHON_SANDBOX: PythonSandboxConfig =
   { enabled: false, code_mode: false }
 ```
 
-## `components/AgentForm.tsx` — new "Python" section (inside the existing Tools card)
+## `components/PythonSandboxSection.tsx` — new "Python" section, used by both `components/AgentForm.tsx` (create) and `routes/agent-settings.tsx` (edit), inside the Tools card
 
 | Control | Type | Behaviour |
 |---|---|---|
 | **Python sandbox** | toggle | `python.enabled`. Help text: "Lets the agent run Python scripts in an isolated sandbox for exact computation. No filesystem, network or tool access." |
 | **Code mode (programmatic tool calling)** | toggle | `python.code_mode`. **Disabled** (with tooltip "Turn on the Python sandbox first") while `!enabled`. When `enabled` is switched **off**, `code_mode` is set to `false` in the same state update (US4-S5). |
 | Warning (shown when `code_mode`) | callout | "While code mode is on, this agent's other tools are hidden from the model and reachable only from scripts. The model sees just `execute_python`, `think`, and two documentation tools." (US4-S7) |
-| Help text under the sandbox toggle | text | "Scripts are bounded by this agent's tool timeout (above). There is no separate memory or output limit." |
+| Help text under the sandbox toggle | text | "Scripts are bounded by this agent's tool timeout. There is no separate memory or output limit." ("(above)" dropped — the timeout field sits below the section in both forms) |
 
 Form state: `form.tools.python` initialised from `agent.python ?? DEFAULT_PYTHON_SANDBOX` (edit) or `DEFAULT_PYTHON_SANDBOX` (create). Submit sends the whole object under `tools.python`. The "no tools enabled" empty-state condition (currently `!telegram && !fetch && !http_client && …`) also checks `!python.enabled`.
 
@@ -60,7 +60,7 @@ Nested tool calls made by a script arrive as ordinary `tool_choice` events and r
 
 - `InlineEvent['type']` gains `'execution'`.
 - WebSocket handler: `if ('tool_response' in content)` → attempt to parse `content.tool_response.response` as `ExecutionReport` (duck-typed: has `ok`, `stdout`, `tool_calls`, `duration_ms`); on success `addInlineEvent('execution', …)` carrying the parsed report; otherwise ignore (other tools never send this today).
-- Rendering (new small component `ExecutionReportView`, in `components/`): a collapsible block headed `✅ Python finished in 1.2s` / `❌ Python failed (timeout) in 30.0s`, containing — in order — **Tool calls** (`seq. name(args) ✓/✗ 120ms`, list hidden when empty), **Output** (`stdout` in a `pre`, scroll-boxed), **Result** (pretty JSON, scroll-boxed), **Error** (`message` + `traceback` in a `pre`, only when present). Collapsed by default when `ok`, expanded when `!ok`.
+- Rendering (new small component `ExecutionReportView`, in `components/`): a collapsible block headed `✅ Python finished in 1.2s` / `❌ Python failed (timeout) in 30.0s`, containing — in order — **Tool calls** (`seq. name(args) ✓/✗ 120ms`, list hidden when empty), **Output** (`stdout` in a `pre`, scroll-boxed), **Result** (pretty JSON, scroll-boxed), **Error** (`message` + `traceback` in a `pre`, only when present). Collapsed by default when `ok`, expanded when `!ok`. Inline events are drawn by `components/ThinkingIndicator.tsx`, so that is where `execution` events render; the duck-typing helper `parseExecutionReport` lives next to the component.
 - Inline events are transient today (cleared when the final message arrives) — this event follows the same lifecycle. Stored history rendering of past tool calls is **out of scope** here, consistent with how every other tool is (not) shown from history today (US5 is P5; the persisted report exists in `ToolResult.content` for API consumers, FR-025).
 
 ## Typecheck

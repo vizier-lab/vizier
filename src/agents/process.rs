@@ -190,7 +190,7 @@ pub async fn agent_process(
                                     session_detail_request.to_prompt().unwrap()
                                 );
                                 let res = session_detail_agent
-                                    .prompt(Message::user(prompt), vec![], 0, None, false, &ToolContext { session: session_detail_session_for_ctx, pending_attachments: Arc::new(Mutex::new(vec![])) })
+                                    .prompt(Message::user(prompt), vec![], 0, None, false, &ToolContext { session: session_detail_session_for_ctx, pending_attachments: Arc::new(Mutex::new(vec![])), hooks: None })
                                     .await;
 
                                 if let Ok((title, _, _, _)) = res {
@@ -325,6 +325,7 @@ pub async fn agent_process(
                             let ctx = ToolContext {
                                 session: session_clone.clone(),
                                 pending_attachments: Arc::new(Mutex::new(vec![])),
+                                hooks: None,
                             };
 
                             // Generate handover

@@ -3,6 +3,7 @@ use serde_json::Value;
 
 use crate::{
     agents::hook::VizierSessionHook,
+    sandbox::ExecutionReport,
     schema::{VizierResponse, VizierResponseContent, VizierSession},
 };
 
@@ -43,6 +44,15 @@ impl VizierSessionHook for ToolCallsHook {
     }
 
     async fn on_tool_response(&self, res: VizierResponse) -> Result<VizierResponse> {
+        // Only execute_python's report is forwarded live. Identified by shape: nested
+        // calls from a script pass through this hook too, so "last tool name seen"
+        // would point at the last nested tool, not at execute_python.
+        if let VizierResponseContent::ToolResponse { response } = &res.content
+            && ExecutionReport::looks_like(response)
+        {
+            let _ = self.response_tx.send_async(res.clone()).await;
+        }
+
         Ok(res)
     }
 }
