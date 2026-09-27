@@ -65,6 +65,8 @@ Constructed once at startup: opens storage (sqlite connection or filesystem root
 
 Tools implement the `VizierTool` trait: associated `Input`/`Output` types (both `JsonSchema + Serialize + Deserialize`), `name()`, `description()`, `call()`. A blanket impl turns any `VizierTool` into the dynamic `VizierToolDyn` used for dispatch. Two toolsets exist per agent — `default_toolset` (always-on: memory, workspace CORE read/write, scheduler, skills, subtasks, session files, consult/delegate other agents) and `user_toolset` (conditionally added per agent config: brave search, fetch, http client, TTS/STT/image-gen, webui messaging). MCP tools are dispatched separately, keyed by `mcp_<server>__<tool>`.
 
+**Python sandbox / code mode** (`specs/007-code-mode-python-sandbox/`): dispatch over the three regular sets lives in `ToolRouter` (`VizierTools.router`), and `VizierTools` adds a `sandbox_toolset` plus a `ToolExposure` (`Direct` / `SandboxAdditive` / `CodeModeExclusive`, from `tools.python`) consulted only in `tools()`/`call()`. The tools are in `src/agents/tools/python/` (`execute_python`, `list_tool_functions`, `describe_tool_function`, plus `RouterBridge`, which runs script-made tool calls through `ToolRouter` + `ToolContext.hooks` + the per-tool timeout). The engine is `src/sandbox/`, which is agent-agnostic: a monty resume loop on `spawn_blocking`, the `SandboxBridge` trait, JSON⇄`MontyObject` conversion, and `ToolFunctionDoc` built from `ToolDefinition`. Script failures come back as an `ExecutionReport` (data), never `Err`. The sandbox tools are never in `DREAM_TOOL_NAMES`; `dream_tools`/`dream_call` bypass the exposure gating.
+
 **Adding a new tool**: create `src/agents/tools/<name>.rs` implementing `VizierTool`, add `mod <name>;`, then `.tool(YourTool)` it onto `default_toolset` or `user_toolset` inside `VizierTools::new()`. If it should be available to the dream cycle, add its name to `VizierTools::DREAM_TOOL_NAMES`.
 
 ### Storage (`src/storage/`)
@@ -91,6 +93,7 @@ Cron (`croner`) and one-time task execution, plus `scheduler/dream/` — a separ
 
 - `.vizier.yaml` (top-level key `vizier:`) is **seed config**, loaded once via `VizierConfig::load`. Supports `${ENV_VAR}` expansion (`shellexpand`). `dev.vizier.yaml` is the local dev config (already has working keys — don't treat it as a template to copy secrets from).
 - On first run, seed `providers` are migrated into provider storage (`dependencies.rs::migrate_providers`) and become runtime-editable via `/api/v1/providers`. Agents are **never** defined in YAML — they're created/updated only through the WebUI/HTTP API and persisted to storage.
+- Per-agent tool config includes `tools.python.{enabled, code_mode}` (both default `false`; `code_mode` requires `enabled`, validated in `VizierAgents` on create/update → 400).
 - CLI flags (`--port`, `--workspace`/`--data-dir`, `--storage`, `--workers`, `--ws-idle-timeout`) override whatever the config file loaded, applied via `VizierConfig::apply_overrides`.
 - Docker env vars (`VIZIER_CONFIG`, `VIZIER_DATA_DIR`/`VIZIER_WORKSPACE`, `VIZIER_PORT`, `VIZIER_STORAGE`, `VIZIER_WORKERS`, `VIZIER_WS_IDLE_TIMEOUT`, `VIZIER_JWT_SECRET`, `VIZIER_EXTRA_ARGS`) are translated to CLI flags by `docker-entrypoint.sh`, which then `exec`s the binary so signals propagate.
 

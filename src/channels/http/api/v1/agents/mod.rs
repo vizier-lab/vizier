@@ -19,7 +19,7 @@ use crate::{
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
         AgentToolsConfig, AgentUsageStats, BraveSearchToolSettings, EmbeddingConfig,
-        ImageGenToolSettings, IndexerConfig, ReadImageToolSettings, ToolConfig,
+        ImageGenToolSettings, IndexerConfig, PythonSandboxConfig, ReadImageToolSettings, ToolConfig,
         TtsToolSettings,
         agent::{EmbeddingProvider, IndexerKind, SttToolSettings},
         VizierAttachment, VizierChannelId, VizierRequest, VizierRequestContent,
@@ -157,6 +157,7 @@ pub struct AgentDetail {
     pub telegram: bool,
     pub fetch: bool,
     pub http_client: bool,
+    pub python: PythonSandboxConfig,
     pub prompt_timeout: String,
     pub dream_enabled: bool,
     pub dream_schedule: Option<String>,
@@ -228,6 +229,7 @@ async fn agent_detail(
                 telegram: config.tools.telegram.enabled,
                 fetch: config.tools.fetch.enabled,
                 http_client: config.tools.http_client.enabled,
+                python: config.tools.python.clone(),
                 prompt_timeout: config.prompt_timeout.to_string(),
                 dream_enabled: config.dream_enabled,
                 dream_schedule: config.dream_schedule,
@@ -367,6 +369,8 @@ pub struct CreateAgentTools {
     pub image_gen: Option<bool>,
     #[serde(default)]
     pub image_gen_settings: Option<ImageGenToolSettings>,
+    #[serde(default)]
+    pub python: Option<PythonSandboxConfig>,
 }
 
 impl CreateAgentRequest {
@@ -389,6 +393,7 @@ impl CreateAgentRequest {
             read_image_settings: None,
             image_gen: None,
             image_gen_settings: None,
+            python: None,
         });
 
         AgentConfig {
@@ -446,6 +451,7 @@ impl CreateAgentRequest {
                     enabled: tools.image_gen.unwrap_or(false),
                     settings: tools.image_gen_settings.unwrap_or_default(),
                 },
+                python: tools.python.unwrap_or_default(),
             },
             silent_read_initiative_chance: self.silent_read_initiative_chance.unwrap_or(0.0),
             include_documents: None,

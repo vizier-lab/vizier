@@ -18,7 +18,7 @@ use crate::{
     agents::{
         agent::{
             model::{VizierModel, VizierModelTrait},
-            system_prompt::{boot::boot_md, init_workspace, user::owner_md},
+            system_prompt::{boot::boot_md, init_workspace, sandbox::sandbox_md, user::owner_md},
         },
         hook::{VizierSessionHook, VizierSessionHooks},
         skill::VizierSkills,
@@ -293,6 +293,13 @@ impl VizierAgent {
             ),
         ];
 
+        if let Some(md) = sandbox_md(
+            &self.tools.exposure,
+            &self.config.tools.timeout.to_string(),
+        ) {
+            res.insert(1, Message::system(md));
+        }
+
         // Add owner info if available
         if let Some(ref owner) = self.owner_profile {
             res.push(Message::system(owner_md(owner)));
@@ -466,6 +473,7 @@ impl VizierAgent {
                 &ToolContext {
                     session: session.clone(),
                     pending_attachments: Arc::new(Mutex::new(vec![])),
+                    hooks: hooks.clone(),
                 },
             )
             .await;
@@ -817,13 +825,7 @@ impl VizierAgent {
                         if let VizierResponseContent::ToolResponse { response } =
                             &mut tool_res.content
                         {
-                            let files = stored_files.join(", ");
-                            let notification = format!("\n\n[+{} to session files]", files);
-                            *response = serde_json::Value::String(format!(
-                                "{}{}",
-                                response.as_str().unwrap_or(""),
-                                notification
-                            ));
+                            note_stored_files(response, &stored_files);
                         }
                     }
                 }
@@ -984,6 +986,7 @@ impl VizierAgent {
                 &ToolContext {
                     session,
                     pending_attachments: Arc::new(Mutex::new(vec![])),
+                    hooks: hooks.clone(),
                 },
             )
             .await?;
@@ -1168,13 +1171,7 @@ impl VizierAgent {
                             if let VizierResponseContent::ToolResponse { response } =
                                 &mut tool_res.content
                             {
-                                let files = stored_files.join(", ");
-                                let notification = format!("\n\n[+{} to session files]", files);
-                                *response = serde_json::Value::String(format!(
-                                    "{}{}",
-                                    response.as_str().unwrap_or(""),
-                                    notification
-                                ));
+                                note_stored_files(response, &stored_files);
                             }
                         }
                     }
@@ -1293,5 +1290,24 @@ pub async fn generate_handover_with_model(
         Ok(None)
     } else {
         Ok(Some(output))
+    }
+}
+
+/// Tell the model which tool attachments were saved to session files. Text
+/// responses get a trailing note; structured ones (e.g. a Python execution
+/// report) keep their content and gain a `session_files_added` field.
+fn note_stored_files(response: &mut serde_json::Value, stored_files: &[String]) {
+    match response {
+        serde_json::Value::Object(map) => {
+            map.insert("session_files_added".into(), serde_json::json!(stored_files));
+        }
+        other => {
+            let notification = format!("\n\n[+{} to session files]", stored_files.join(", "));
+            *other = serde_json::Value::String(format!(
+                "{}{}",
+                other.as_str().unwrap_or(""),
+                notification
+            ));
+        }
     }
 }

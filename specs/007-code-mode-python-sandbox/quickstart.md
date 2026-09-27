@@ -93,8 +93,8 @@ On `dp-code`:
 |---|---|
 | `memory_write(title="qs-1", content="alpha")\nmemory_write(title="qs-2", content="beta")\nmemory_list()` | `ok: true`; `tool_calls` has 3 records in order (`seq` 1–3, `ok: true`, `duration_ms`); the result lists both memories; the WebUI shows `🐍 Running Python`, then the three nested `tool_choice` events, then the execution report; both memories appear in the Memory view |
 | `READ_CORE()` | `ok: true`; the result is the CORE text (upper-case tool names are called as is) |
-| `try:\n    memory_detail(path="does-not-exist")\nexcept RuntimeError as e:\n    str(e)` | `ok: true`; the result starts with `memory_detail:`; `tool_calls[0].ok == false` (caught tool error, FR-017) |
-| `memory_detail(path="does-not-exist")` | `ok: false`, `error.kind: "tool"`, message names `memory_detail` |
+| `try:\n    memory_read(limit=3)\nexcept RuntimeError as e:\n    str(e)` | `ok: true`; the result starts with `memory_read:` (missing required `query`); `tool_calls[0].ok == false` (caught tool error, FR-017). *(`memory_detail` on a missing path is not an error — it returns `"Memory not found"`.)* |
+| `memory_read(limit=3)` | `ok: false`, `error.kind: "tool"`, message names `memory_read` |
 | `memory_read("x", "y", "z", "w")` | `TypeError … takes keyword arguments only; see describe_tool('memory_read')` |
 | `n = 0\nwhile True:\n    memory_list()\n    n += 1` | runs past 1000 calls (no round-trip cap) and the turn ends at the 5 s timeout like any tool; the next message is answered normally |
 | `execute_python(code="1")` | refused: nested execution error |
@@ -122,7 +122,7 @@ With an MCP server configured on `dp-code`: its tools appear in the catalogue, a
 
 | Action | Expect |
 |---|---|
-| `PUT` `dp-sandbox` with `"python": {"enabled": false, "code_mode": true}` | `400 {"error": "tools.python.code_mode requires tools.python.enabled"}`; the agent is unchanged |
+| `PUT` `dp-sandbox` with `"python": {"enabled": false, "code_mode": true}` | `400 {"status": 400, "message": "tools.python.code_mode requires tools.python.enabled"}`; the agent is unchanged |
 | `PUT` `dp-code` with `"python": {"enabled": false}` | 200; `tools` on `dp-code` now lists the regular tools and no sandbox tools |
 | WebUI: open `dp-code`, turn **Python sandbox** off | **Code mode** switches off in the same change and is disabled; the warning callout appears only while code mode is on |
 | an agent record saved before this feature (restart on an existing data dir) | `GET` shows `"python": {"enabled": false, "code_mode": false}`; `tools` unchanged |
@@ -165,7 +165,7 @@ Not available (all raise): `open()`, `os.environ`, `import socket/subprocess/tim
 
 | Setting | Enforced as | Notes |
 |---|---|---|
-| agent `tools.timeout` | the agent loop's existing per-tool wall-clock **and** Monty's CPU clock set to the same value | One setting, already there. The whole script — including every nested tool call — must finish within it; raise the agent's tool timeout for heavy code-mode scripts. The CPU clock only exists so an orphaned `while True: pass` stops on its own. |
+| agent `tools.timeout` | the agent loop's existing per-tool wall-clock **and** Monty's CPU clock set to the same value + 500 ms grace | One setting, already there. The whole script — including every nested tool call — must finish within it; raise the agent's tool timeout for heavy code-mode scripts. The CPU clock only exists so an orphaned `while True: pass` stops on its own. |
 | memory | **no ceiling in v1** | Everything a script allocates is released when the run ends (verified — repeated 200 MB runs don't grow the process), so nothing accumulates. A run's *peak* is bounded only by the timeout. A single allocation over 1 GiB is rejected up front by a fixed guard. |
 | tool calls per script | **no cap in v1** | Bounded by the timeout. |
 | output | **no truncation in v1** | Whatever the script prints/returns reaches the model; the engine's 10 MiB print buffer is the only hard cap. |

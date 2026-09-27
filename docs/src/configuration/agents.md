@@ -69,6 +69,7 @@ Persisted but currently unused: `heartbeat_interval` (always `30m`), `include_do
 Each request is prefixed with these system messages, in order:
 
 1. **Boot** — built-in operating doctrine (`BOOT.md`), parameterized with `name` and `description`
+   - **Sandbox** — `SANDBOX.md`, only when `tools.python.enabled`: how to use `execute_python` (sandbox-only or code-mode variant)
 2. **`system_prompt`** — yours, or a one-line default
 3. **Owner profile** — the owner user's profile (display name, Discord/Telegram ids, aliases) if set
 4. **`CORE.md`** — the agent's self-maintained document

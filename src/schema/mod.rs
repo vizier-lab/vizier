@@ -17,7 +17,7 @@ mod task;
 pub use agent::{
     AgentConfig, AgentToolsConfig, BraveSearchToolSettings, EmbeddingProvider,
     EmbeddingConfig, ImageGenProvider, ImageGenToolSettings, IndexerConfig, IndexerKind,
-    ReadImageToolSettings, SttToolSettings, ToolConfig, TtsToolSettings,
+    PythonSandboxConfig, ReadImageToolSettings, SttToolSettings, ToolConfig, TtsToolSettings,
 };
 pub use commands::{
     AgentCommand, AgentCommandResult, AgentHealthStatus, AgentSummary,

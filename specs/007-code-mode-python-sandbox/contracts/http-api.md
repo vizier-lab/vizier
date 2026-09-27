@@ -30,9 +30,9 @@ Performed in `VizierAgents` when handling `AgentCommand::Create` / `Update` (sin
 
 The API does **not** cascade `code_mode` off when `enabled` is false — it rejects, so a client can never silently lose a setting. The WebUI performs the cascade client-side before sending.
 
-## `GET /agents`, `GET /agents/{id}` — response (`AgentSummary`)
+## `GET /agents/{id}` — response (`AgentDetail`)
 
-`AgentSummary` gains `python: PythonSandboxConfig` (always present, defaults filled), placed alongside the other tool flags (`fetch`, `http_client`, …). Existing agents show `{"enabled": false, "code_mode": false}`.
+`AgentDetail` (the per-agent detail response that carries the tool flags; the `GET /agents` listing's `AgentSummary` has no tool fields and is unchanged) gains `python: PythonSandboxConfig` (always present, defaults filled), placed alongside the other tool flags (`fetch`, `http_client`, …). Existing agents show `{"enabled": false, "code_mode": false}`.
 
 ## OpenAPI
 

@@ -44,7 +44,8 @@ The `tools` object in the agent API:
     "read_image": false,
     "read_image_settings": { "provider": "openai", "model": "gpt-4o-mini" },
     "image_gen": false,
-    "image_gen_settings": { "provider": "openai", "model": "dall-e-3", "size": "1024x1024" }
+    "image_gen_settings": { "provider": "openai", "model": "dall-e-3", "size": "1024x1024" },
+    "python": { "enabled": true, "code_mode": false }
   }
 }
 ```
@@ -63,6 +64,7 @@ The `tools` object in the agent API:
 | `stt` + `stt_settings` | bool + settings | `false` | `stt_transcribe` | Audio file → text; also used to auto-transcribe `audio_chat` requests |
 | `read_image` + `read_image_settings` | bool + settings | `false` | (changes `read_image_file`) | When enabled with a vision `provider` + `model`, `read_image_file` returns a text description instead of injecting the raw image |
 | `image_gen` + `image_gen_settings` | bool + settings | `false` | `image_generate` | Prompt → image file in session files |
+| `python` | `{enabled, code_mode}` | both `false` | `execute_python` (+ `list_tool_functions`, `describe_tool_function` in code mode) | See [Python sandbox & code mode](#python-sandbox--code-mode). `code_mode: true` without `enabled: true` is rejected with 400 |
 
 In the WebUI the boolean and its `_settings` are one form section; in the API they're separate fields (`brave_search: true` + `brave_search_settings: {...}`).
 
@@ -171,6 +173,19 @@ Cloud providers resolve credentials from the providers table → env var (see [P
 | `kind` | Description |
 |--------|-------------|
 | `sqlite` (default, only option) | Vector index in the workspace SQLite database via `sqlite-vec` |
+
+## Python sandbox & code mode
+
+Two per-agent switches under `tools.python`, both off by default:
+
+- **`enabled`: the sandbox.** Adds `execute_python`, which runs a Python script in an in-process [monty](https://github.com/pydantic/monty) interpreter. There is no filesystem, network, environment or OS access, and nothing to install. Each run is stateless. The value of the script's last expression comes back as `result`, and `print()` output comes back as `stdout`. The agent's other tools are still called directly as usual.
+- **`code_mode`: programmatic tool calling** (requires `enabled`). The agent's tools become plain functions inside scripts (`hits = memory_read(query="…")`) and are hidden from the model's direct tool list. The model then sees only `think`, `execute_python`, `list_tool_functions` and `describe_tool_function`. Nested calls go through the same dispatch, hooks and per-tool timeout as direct calls, so code mode adds no capability. Only the script's final `result`/`stdout` enters the model's context.
+
+Every run returns an execution report: `{ ok, result, stdout, error: {kind, message, traceback, limit}, tool_calls: [...], duration_ms }`. The report is stored as the `execute_python` tool result in session history and streamed live to the WebUI.
+
+**Limits.** The agent's `tools.timeout` is the only bound. It covers the whole script, including every tool call it makes. Other fixed limits: recursion depth 1000, script size 64 KiB, any single allocation over 1 GiB rejected, and `print()` output up to 10 MiB. Deliberately **not** in this version: a cumulative memory ceiling (memory is released when each run ends, and a run's peak is bounded only by the timeout), a cap on tool calls per script, and output truncation.
+
+The sandbox tools are never part of the dream cycle's toolset.
 
 ## Dream-cycle tool subset
 

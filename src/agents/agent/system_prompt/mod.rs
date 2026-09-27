@@ -1,4 +1,5 @@
 pub mod boot;
+pub mod sandbox;
 pub mod user;
 
 pub fn init_workspace(path: String) {

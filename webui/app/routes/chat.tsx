@@ -24,6 +24,7 @@ import type {
   VizierResponseStats,
   ReactionEntry,
   ReactionAction,
+  ExecutionReport,
 } from '../interfaces/types'
 import { getCurrentUsername } from '../utils/auth'
 import { Skeleton, SkeletonMessage } from '../components/Skeleton'
@@ -44,6 +45,7 @@ import { useUserStore } from '../hooks/userStore'
 import { useQuickChatStore } from '../hooks/quickChatStore'
 import { MessageItem } from '../components/MessageItem'
 import { ThinkingIndicator } from '../components/ThinkingIndicator'
+import { parseExecutionReport } from '../components/ExecutionReportView'
 import { CheckpointDivider } from '../components/CheckpointDivider'
 import MarkdownEditor from '../components/MarkdownEditor'
 import AttachmentPreviewModal from '../components/AttachmentPreviewModal'
@@ -51,8 +53,9 @@ import { useMeasure } from '@uidotdev/usehooks'
 
 interface InlineEvent {
   id: string
-  type: 'tool_choice' | 'thinking'
+  type: 'tool_choice' | 'thinking' | 'execution'
   content?: string
+  report?: ExecutionReport
   timestamp: number
 }
 
@@ -104,6 +107,12 @@ const formatToolChoice = (
   switch (name) {
     case 'think':
       return `💭 ${args.thought as string}`
+    case 'execute_python':
+      return `🐍 Running Python\n\`\`\`python\n${args.code as string}\n\`\`\``
+    case 'list_tool_functions':
+      return `📖 Listing tool functions`
+    case 'describe_tool_function':
+      return `📖 Describing \`${args.name as string}\``
     case 'memory_read':
       return `🔍 Searching memory for '${args.query as string}'`
     case 'memory_write':
@@ -542,7 +551,11 @@ export default function Chat() {
     }
   }
 
-  const addInlineEvent = (type: InlineEvent['type'], content?: string) => {
+  const addInlineEvent = (
+    type: InlineEvent['type'],
+    content?: string,
+    report?: ExecutionReport
+  ) => {
     setInlineEvents((prev) => [
       ...prev,
       {
@@ -551,6 +564,7 @@ export default function Chat() {
           Math.random().toString(36).substr(2, 9),
         type,
         content,
+        report,
         timestamp: Date.now(),
       },
     ])
@@ -634,6 +648,14 @@ export default function Chat() {
           agentNames
         )
         addInlineEvent('tool_choice', toolContent)
+        return
+      }
+
+      if ('tool_response' in content) {
+        const report = parseExecutionReport(content.tool_response.response)
+        if (report) {
+          addInlineEvent('execution', undefined, report)
+        }
         return
       }
 

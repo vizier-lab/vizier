@@ -17,6 +17,7 @@ use crate::{
         dream_journal::ReadDreamJournal,
         fetch::FetchWebpage,
         http_client::HttpClient,
+        python::{DescribeToolFunction, ExecutePython, ListToolFunctions},
 scheduler::{DeleteTask, GetTaskDetail, ListTask, ScheduleCronTask, ScheduleOneTimeTask},
         read_image::ReadImageFile,
         session_files::{ListSessionFiles, ReadDocumentFile, SendAttachment},
@@ -50,6 +51,7 @@ mod discord;
 mod dream_journal;
 mod fetch;
 mod http_client;
+mod python;
 mod read_image;
 mod scheduler;
 mod session_files;
@@ -71,6 +73,9 @@ type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
 pub struct ToolContext {
     pub session: VizierSession,
     pub pending_attachments: Arc<Mutex<Vec<VizierAttachment>>>,
+    /// The session's hooks, so tools that dispatch other tools (the Python
+    /// sandbox bridge) run them through the same hook pipeline as direct calls.
+    pub hooks: Option<Arc<crate::agents::hook::VizierSessionHooks>>,
 }
 
 #[derive(Clone)]
@@ -120,11 +125,48 @@ impl VizierToolSet {
     }
 }
 
+/// How an agent's tools are offered to the model, derived from `tools.python`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ToolExposure {
+    /// Sandbox off: regular tools only.
+    Direct,
+    /// Sandbox on, code mode off: regular tools plus `execute_python`.
+    SandboxAdditive,
+    /// Code mode on: only `think`, `execute_python` and the docs tools are direct;
+    /// every other tool is reachable from scripts only.
+    CodeModeExclusive,
+}
+
+impl ToolExposure {
+    fn from_config(agent_id: &AgentId, python: &crate::schema::PythonSandboxConfig) -> Self {
+        match (python.enabled, python.code_mode) {
+            (false, false) => Self::Direct,
+            (false, true) => {
+                tracing::warn!(
+                    "agent {agent_id} has tools.python.code_mode without tools.python.enabled; treating code mode as off"
+                );
+                Self::SandboxAdditive
+            }
+            (true, false) => Self::SandboxAdditive,
+            (true, true) => Self::CodeModeExclusive,
+        }
+    }
+}
+
+/// Name-based dispatch over the agent's regular tools. Shared by direct calls
+/// (`VizierTools::call`) and calls made from Python scripts.
 #[derive(Clone)]
-pub struct VizierTools {
+pub struct ToolRouter {
     pub default_toolset: VizierToolSet,
     pub user_toolset: VizierToolSet,
     pub mcp: HashMap<String, Arc<VizierMcp>>,
+}
+
+#[derive(Clone)]
+pub struct VizierTools {
+    pub router: ToolRouter,
+    pub sandbox_toolset: VizierToolSet,
+    pub exposure: ToolExposure,
 }
 
 #[async_trait::async_trait]
@@ -197,8 +239,40 @@ pub trait VizierTool {
     -> Result<Self::Output, VizierError>;
 }
 
-impl VizierTools {
-    pub async fn tools(&self) -> Result<Vec<ToolDefinition>> {
+/// A tool's serialised output as a `VizierResponse`: tools that already answer
+/// with one pass through, everything else is wrapped as a `ToolResponse`.
+fn tool_output_to_response(output: &str) -> Result<VizierResponse> {
+    let res = serde_json::from_str::<serde_json::Value>(output)?;
+
+    if let Ok(vizier_response) = serde_json::from_value(res.clone()) {
+        return Ok(vizier_response);
+    }
+
+    Ok(VizierResponse {
+        timestamp: Utc::now(),
+        content: crate::schema::VizierResponseContent::ToolResponse { response: res },
+        attachments: vec![],
+    })
+}
+
+/// Tools the model may call directly while code mode is on.
+const CODE_MODE_DIRECT_TOOLS: &[&str] = &[
+    "think",
+    "execute_python",
+    "list_tool_functions",
+    "describe_tool_function",
+];
+
+/// Whether `name` is offered to (and callable by) the model under `exposure`.
+fn exposed_directly(exposure: ToolExposure, name: &str) -> bool {
+    match exposure {
+        ToolExposure::Direct | ToolExposure::SandboxAdditive => true,
+        ToolExposure::CodeModeExclusive => CODE_MODE_DIRECT_TOOLS.contains(&name),
+    }
+}
+
+impl ToolRouter {
+    pub async fn definitions(&self) -> Result<Vec<ToolDefinition>> {
         let mut res = vec![];
 
         for (_, tool) in self.default_toolset.tools.iter() {
@@ -244,35 +318,56 @@ impl VizierTools {
 
         if let Ok(tool) = self.default_toolset.get_tool(function_name.clone()) {
             let output = tool.tool_call(params.clone(), ctx).await?;
-            let res = serde_json::from_str::<serde_json::Value>(&output)?;
-
-            if let Ok(vizier_response) = serde_json::from_value(res.clone()) {
-                return Ok(vizier_response);
-            }
-
-            return Ok(VizierResponse {
-                timestamp: Utc::now(),
-                content: crate::schema::VizierResponseContent::ToolResponse { response: res },
-                attachments: vec![],
-            });
+            return tool_output_to_response(&output);
         }
 
         if let Ok(tool) = self.user_toolset.get_tool(function_name.clone()) {
             let output = tool.tool_call(params.clone(), ctx).await?;
-            let res = serde_json::from_str::<serde_json::Value>(&output)?;
-
-            if let Ok(vizier_response) = serde_json::from_value(res.clone()) {
-                return Ok(vizier_response);
-            }
-
-            return Ok(VizierResponse {
-                timestamp: Utc::now(),
-                content: crate::schema::VizierResponseContent::ToolResponse { response: res },
-                attachments: vec![],
-            });
+            return tool_output_to_response(&output);
         }
 
         Err(VizierError(format!("{} not found", function_name)).into())
+    }
+}
+
+impl VizierTools {
+    pub async fn tools(&self) -> Result<Vec<ToolDefinition>> {
+        let mut defs = match self.exposure {
+            ToolExposure::CodeModeExclusive => self
+                .router
+                .default_toolset
+                .tools
+                .values()
+                .chain(self.router.user_toolset.tools.values())
+                .filter(|tool| exposed_directly(self.exposure, &tool.tool_name()))
+                .map(|tool| tool.tool_def())
+                .collect(),
+            _ => self.router.definitions().await?,
+        };
+        defs.extend(self.sandbox_toolset.tools.values().map(|tool| tool.tool_def()));
+
+        Ok(defs)
+    }
+
+    pub async fn call(
+        &self,
+        function_name: String,
+        params: String,
+        ctx: &ToolContext,
+    ) -> Result<VizierResponse> {
+        if let Ok(tool) = self.sandbox_toolset.get_tool(function_name.clone()) {
+            let output = tool.tool_call(params, ctx).await?;
+            return tool_output_to_response(&output);
+        }
+
+        if !exposed_directly(self.exposure, &function_name) {
+            return Err(VizierError(format!(
+                "{function_name} is not exposed directly while code mode is on; call it from a script via execute_python (see list_tool_functions)"
+            ))
+            .into());
+        }
+
+        self.router.call(function_name, params, ctx).await
     }
 
     const DREAM_TOOL_NAMES: &'static [&'static str] = &[
@@ -310,7 +405,7 @@ impl VizierTools {
 
         // Filter default_toolset for dream-relevant tools
         for name in Self::DREAM_TOOL_NAMES {
-            if let Ok(tool) = self.default_toolset.get_tool(name.to_string()) {
+            if let Ok(tool) = self.router.default_toolset.get_tool(name.to_string()) {
                 tools.push(tool.tool_def());
             }
         }
@@ -350,7 +445,7 @@ impl VizierTools {
         }
 
         // Delegate to default_toolset for memory, workspace, scheduler, skill tools
-        self.call(function_name, params, ctx).await
+        self.router.call(function_name, params, ctx).await
     }
 }
 
@@ -595,12 +690,37 @@ impl VizierTools {
             }
         }
 
-        let tools = Self {
-            default_toolset: default_toolset.clone(),
-            user_toolset: user_toolset.clone(),
-            mcp: mcp.clone(),
+        let router = ToolRouter {
+            default_toolset,
+            user_toolset,
+            mcp,
         };
-        Ok(tools)
+        let exposure = ToolExposure::from_config(&agent_id, &agent_config.tools.python);
+
+        let mut sandbox_toolset = VizierToolSet::new();
+        if exposure != ToolExposure::Direct {
+            let code_mode = exposure == ToolExposure::CodeModeExclusive;
+            let limits = crate::sandbox::SandboxLimits {
+                timeout: *agent_config.tools.timeout,
+                tools_enabled: code_mode,
+            };
+            sandbox_toolset = sandbox_toolset.tool(ExecutePython::new(
+                router.clone(),
+                limits,
+                &agent_config.tools.timeout.to_string(),
+            ));
+            if code_mode {
+                sandbox_toolset = sandbox_toolset
+                    .tool(ListToolFunctions::new(router.clone()))
+                    .tool(DescribeToolFunction::new(router.clone()));
+            }
+        }
+
+        Ok(Self {
+            router,
+            sandbox_toolset,
+            exposure,
+        })
     }
 }
 
@@ -644,6 +764,25 @@ async fn build_read_image_vision(
                 e
             );
             None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn code_mode_exposes_only_the_sandbox_tools_directly() {
+        for exposure in [ToolExposure::Direct, ToolExposure::SandboxAdditive] {
+            assert!(exposed_directly(exposure, "memory_read"));
+            assert!(exposed_directly(exposure, "mcp_gh__create_issue"));
+        }
+        for name in ["think", "execute_python", "list_tool_functions", "describe_tool_function"] {
+            assert!(exposed_directly(ToolExposure::CodeModeExclusive, name));
+        }
+        for name in ["memory_read", "READ_CORE", "mcp_gh__create_issue"] {
+            assert!(!exposed_directly(ToolExposure::CodeModeExclusive, name));
         }
     }
 }

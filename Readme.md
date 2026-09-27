@@ -12,6 +12,7 @@ Vizier is a Rust-based AI agent framework: a single binary that runs multiple co
 - **29 providers** — Ollama, llama.cpp, OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Xiaomi MiMo, Groq, Mistral, xAI, Perplexity, Moonshot, Z.ai, MiniMax, Together, Cohere, Hugging Face, Hyperbolic, Voyage AI, Galadriel, Mira, ChatGPT (OAuth), GitHub Copilot, Azure OpenAI, OpenCode Zen/Go, and any OpenAI-compatible `custom` endpoint (via [rig](https://github.com/0xPlaygrounds/rig)).
 - **Open-format memory** — long-term memory is plain markdown on disk, organized into per-agent bundles with a link graph (`[label](concept.md)`, `[[bundle/slug]]`), semantic search via a per-agent embedding model (local fastembed or cloud), and `.zip` export/import.
 - **Tools** — shell (local or Docker sandbox), Brave web/news search, web fetch, HTTP client, cron & one-time scheduler, memory graph tools, skills, session files (PDF/DOCX/XLSX/images), TTS / STT / image generation, parallel sub-tasks, inter-agent consult/delegate, per-agent MCP servers.
+- **Python sandbox & code mode** — opt-in `execute_python` running an in-process, isolated Python interpreter (no files, network or OS; bounded by the agent's tool timeout). With **code mode** on, the agent's tools become functions inside scripts and are hidden from the model, so one script can loop over many tool calls and only its final result enters the context. Deferred: memory ceiling, tool-call cap, output truncation.
 - **Skills** — reusable `SKILL.md` packages with resources and scripts; global or per-agent; installable from a registry, git, or a local path; recommended to the agent by embedding similarity.
 - **Dream cycle** — optional cron-scheduled reflection that extracts insights from recent sessions and consolidates them into memory and the agent's `CORE.md`.
 - **Checkpoints** — automatic context handover when a session nears the model's context window, plus `/checkpoint`, `/lobotomy`, `/abort`.
@@ -121,6 +122,7 @@ src/
   agents/           per-agent process loop, model/provider abstraction, tools, hooks, shell (local/docker), MCP, skills runtime
   channels/         discord (twilight), telegram (teloxide), http (axum: REST, WS, JWT/API-key auth, WebUI static)
   scheduler/        cron + one-time tasks, dream cycle
+  sandbox/          sandboxed Python engine (monty): run loop, JSON⇄Python values, tool docs
   storage/          VizierStorage over SQLite; document store + BundleMemoryStore for markdown memory
   indexer/          sqlite-vec vector index
   embedding/ tts/ stt/ image_generation/   per-provider adapters
