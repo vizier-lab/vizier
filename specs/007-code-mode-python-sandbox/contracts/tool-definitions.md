@@ -43,8 +43,9 @@ random, unicodedata.
 Not supported: generators/yield, match, del, inheritance, @property/@classmethod, user-defined
 exception classes, eval/exec, third-party packages, time, hashlib, io, socket, subprocess.
 
-Limits: {tools_timeout} wall-clock (the same tool timeout as every other tool), recursion depth 1000.
-Exceeding a limit ends the run with an error naming the limit.
+Limits: {tools_timeout} wall-clock (the same tool timeout as every other tool), recursion depth 1000,
+script size 64 KiB, any single allocation over 1 GiB (e.g. "a" * 10**10) raises MemoryError, and
+print() output up to 10 MiB. Exceeding a limit ends the run with an error naming the limit.
 Return plain data (str, int, float, bool, None, list, dict); other objects cannot be returned.
 Keep results small: everything you return or print is delivered to you verbatim.
 On error you get the exception and a traceback with line numbers — fix the script and re-run.
@@ -55,7 +56,7 @@ On error you get the exception and a traceback with line numbers — fix the scr
 ```text
 The sandbox has NO filesystem, network, environment or OS access. This agent's tools ARE callable
 from the script as plain functions with keyword arguments, e.g.
-    hits = memory_read(query="rust releases", limit=5)
+    hits = memory_read(query="rust releases")
     page = fetch_webpage(url=hits[0]["url"])
 Call `list_tool_functions` to see every available function and `describe_tool_function` for a
 function's parameters, return shape and example — or call `list_tools()` / `describe_tool("name")`
@@ -94,9 +95,9 @@ Sorted by `function`. Reflects the agent's *current* tool configuration on every
 { "function": "memory_read", "tool": "memory_read",
   "summary": "Search this agent's memory…", "description": "…full…",
   "parameters": [ { "name": "query", "type": "string", "required": true, "description": "…" },
-                  { "name": "limit", "type": "integer", "required": false, "description": "…" } ],
+                  { "name": "bundle", "type": "string", "required": false, "description": "…" } ],
   "returns": "{ results: [{ slug, title, snippet, score }] }",
-  "example": "result = memory_read(query=\"…\", limit=5)" }
+  "example": "result = memory_read(query=\"…\")" }
 ```
 
 **Output (not found)** — not an error (FR-014):
@@ -113,7 +114,11 @@ Sorted by `function`. Reflects the agent's *current* tool configuration on every
 
 ## `think` (unchanged)
 
-Kept in `CodeModeExclusive` as the single reasoning-only housekeeping tool.
+Kept in `CodeModeExclusive` as the single reasoning-only housekeeping tool. It is also left in the script-callable catalogue (`list_tool_functions`, `list_tools()`) like every other router tool — harmless, and no special-case filter is needed.
+
+## Verifying this contract with dummyplug
+
+A dummyplug agent's `tools` reply lists exactly the `ToolDefinition`s above, so each exposure row is checked by sending `tools` and comparing the list. Note that under `CodeModeExclusive` dummyplug refuses a hidden tool itself (``Unknown tool `memory_read` ``) before `call()` is reached, so the `call()` refusal message above is covered by a unit test, not by dummyplug.
 
 ## System prompt briefing — `SANDBOX.md` (`system_prompt/sandbox.rs`)
 
