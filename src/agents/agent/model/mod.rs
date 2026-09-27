@@ -117,12 +117,15 @@ impl VizierModel {
                 let context_window = config_context_window.or(
                     fetch_context_window_from_api(&client, model_name).await,
                 );
-                Self::build(VizierModelImpl::build_with_client(
-                    &client,
-                    model_name,
-                    max_tokens,
-                    context_window,
-                ))
+                Self::build(
+                    VizierModelImpl::build_with_client(
+                        &client,
+                        model_name,
+                        max_tokens,
+                        context_window,
+                    )
+                    .with_automatic_caching(),
+                )
             }
             ProviderVariant::gemini => {
                 let client = gemini::Client::new(resolved.api_key.clone())?;
@@ -295,7 +298,9 @@ impl VizierModel {
                 VizierModelImpl::<openai::Client>::build(&resolved, &override_config).await?,
             ),
             ProviderVariant::anthropic => Self::build(
-                VizierModelImpl::<anthropic::Client>::build(&resolved, &override_config).await?,
+                VizierModelImpl::<anthropic::Client>::build(&resolved, &override_config)
+                    .await?
+                    .with_automatic_caching(),
             ),
             ProviderVariant::openrouter => Self::build(
                 VizierModelImpl::<openrouter::Client>::build(&resolved, &override_config).await?,

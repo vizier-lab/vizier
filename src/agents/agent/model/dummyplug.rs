@@ -23,6 +23,7 @@ use serde_json::{Value, json};
 
 use super::VizierModelTrait;
 use crate::{
+    agents::agent::system_prompt::context::CONTEXT_HEADER,
     schema::AgentConfig,
     utils::{json_schema, markdown::parse_markdown_str},
 };
@@ -94,7 +95,7 @@ fn command_text(message: &Message) -> String {
     let text = content
         .iter()
         .filter_map(|c| match c {
-            UserContent::Text(t) => Some(t.text()),
+            UserContent::Text(t) if !t.text().starts_with(CONTEXT_HEADER) => Some(t.text()),
             _ => None,
         })
         .collect::<Vec<_>>()
@@ -557,6 +558,14 @@ mod tests {
         .unwrap()
             + "\n\n# Attached Files\n- a.png (image/png)\nthe following files added to your session files.";
         assert_eq!(command_text(&Message::user(message)), "tools");
+    }
+
+    #[test]
+    fn command_text_ignores_the_injected_context_block() {
+        use crate::agents::agent::system_prompt::context::{context_md, with_context};
+
+        let message = with_context(user_message("tools"), context_md(&[], &[]));
+        assert_eq!(command_text(&message), "tools");
     }
 
     // --- US4: tool requests -------------------------------------------------------------------

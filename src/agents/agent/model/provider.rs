@@ -54,6 +54,16 @@ impl VizierModelBuilder<anthropic::Client> for VizierModelImpl<anthropic::Client
     }
 }
 
+impl VizierModelImpl<anthropic::Client> {
+    /// Anthropic only caches prompts when asked to (unlike OpenAI/DeepSeek, which cache
+    /// automatically). Automatic caching moves the breakpoint to the latest message each request,
+    /// so tools, system prompts, and prior turns are served from cache on subsequent calls.
+    pub fn with_automatic_caching(mut self) -> Self {
+        self.model = self.model.with_automatic_caching();
+        self
+    }
+}
+
 #[async_trait::async_trait]
 impl VizierModelBuilder<openai::Client> for VizierModelImpl<openai::Client> {
     async fn init_client(resolved: &ResolvedProvider) -> Result<openai::Client> {

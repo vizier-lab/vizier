@@ -20,7 +20,7 @@ This is the user-facing contract of a dummyplug agent. It applies to every chann
 Send a tool name to get a sample request.
 ```
 
-- There is one line per `ToolDefinition`, in the order the agent provides them. That order is the default toolset, then the user toolset, then MCP.
+- There is one line per `ToolDefinition`, in the order the agent provides them. That order is sorted by tool name (byte order, so upper-case names such as `READ_CORE` come first).
 - Only the first line of each description is shown, truncated to 120 characters.
 - With zero tools, the reply is `This agent has no tools available.`
 
