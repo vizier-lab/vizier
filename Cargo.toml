@@ -43,7 +43,10 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serde_urlencoded = "0.7.1"
 serde_yaml = "0.9.34"
-serenity = "0.12.5"
+twilight-gateway = { version = "0.17.1", default-features = false, features = ["native-tls", "twilight-http", "zstd"] }
+twilight-http = { version = "0.17.1", default-features = false, features = ["native-tls", "decompression"] }
+twilight-model = "0.17.1"
+twilight-util = { version = "0.17.0", features = ["builder", "snowflake"] }
 teloxide = "0.14"
 slugify = "0.1.0"
 strum = "0.27.2"

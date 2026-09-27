@@ -2,10 +2,15 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use serenity::all::{Channel, ChannelId, GuildId, Http, MessageId, Role, UserId};
+use twilight_http::Client;
+use twilight_http::request::channel::reaction::RequestReactionType;
+use twilight_model::channel::ChannelType;
+use twilight_model::guild::Role;
+use twilight_util::snowflake::Snowflake;
 
 use crate::agents::tools::{ToolContext, VizierTool};
 use crate::error::{VizierError, throw_vizier_error};
+use crate::utils::discord::parse_id;
 use crate::schema::{AgentId, TopicId, VizierChannelId, VizierResponse, VizierResponseContent, VizierSession};
 use crate::storage::{VizierStorage, history::HistoryStorage, state::StateStorage};
 
@@ -38,7 +43,7 @@ pub fn new_discord_tools(
     GetDiscordChannelInfo,
     GetDiscordMemberInfo,
 ) {
-    let http = Arc::new(Http::new(&discord_token));
+    let http = Arc::new(Client::new(discord_token));
 
     (
         SendDiscordMessage { http: http.clone(), agent_id: agent_id.clone(), storage: storage.clone() },
@@ -51,7 +56,7 @@ pub fn new_discord_tools(
 }
 
 pub struct SendDiscordMessage {
-    http: Arc<Http>,
+    http: Arc<Client>,
     agent_id: AgentId,
     storage: Arc<VizierStorage>,
 }
@@ -84,7 +89,7 @@ impl VizierTool for SendDiscordMessage {
 
         crate::utils::discord::send_message(
             self.http.clone(),
-            &ChannelId::new(channel_id),
+            parse_id(channel_id, "channel")?,
             args.content,
         )
         .await
@@ -115,7 +120,7 @@ impl VizierTool for SendDiscordMessage {
 }
 
 pub struct ReactDiscordMessage {
-    http: Arc<Http>,
+    http: Arc<Client>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -144,25 +149,24 @@ impl VizierTool for ReactDiscordMessage {
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> anyhow::Result<Self::Output, VizierError> {
-        let channel = ChannelId::new(args.channel_id);
-        let message_id = MessageId::new(args.message_id);
+        let channel_id = parse_id(args.channel_id, "channel")?;
+        let message_id = parse_id(args.message_id, "message")?;
 
-        let message = channel
-            .message(self.http.clone(), message_id)
-            .await
-            .map_err(|err| VizierError(err.to_string()))?;
+        let mut buf = [0u8; 4];
+        let emoji = RequestReactionType::Unicode {
+            name: args.emoji.encode_utf8(&mut buf),
+        };
 
-        message
-            .react(self.http.clone(), args.emoji)
-            .await
-            .map_err(|err| VizierError(err.to_string()))?;
+        if let Err(err) = self.http.create_reaction(channel_id, message_id, &emoji).await {
+            return throw_vizier_error("discord_react_message", err);
+        }
 
         Ok(format!("Reacted with {} to message {}", args.emoji, args.message_id))
     }
 }
 
 pub struct GetDiscordMessage {
-    http: Arc<Http>,
+    http: Arc<Client>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -188,24 +192,24 @@ impl VizierTool for GetDiscordMessage {
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> anyhow::Result<Self::Output, VizierError> {
-        let channel = ChannelId::new(args.channel_id);
-        let message_id = MessageId::new(args.message_id);
+        let channel_id = parse_id(args.channel_id, "channel")?;
+        let message_id = parse_id(args.message_id, "message")?;
 
-        let response = channel.message(self.http.clone(), message_id).await;
+        let message = match self.http.message(channel_id, message_id).await {
+            Ok(response) => match response.model().await {
+                Ok(message) => message,
+                Err(err) => return throw_vizier_error("discord_get_message_by_id", err),
+            },
+            Err(err) => return throw_vizier_error("discord_get_message_by_id", err),
+        };
 
-        match response {
-            Ok(message) => Ok(format!(
-                "{}: {}",
-                message.author.display_name(),
-                message.content
-            )),
-            Err(err) => throw_vizier_error("discord_react_message ", err),
-        }
+        let author = message.author.global_name.as_deref().unwrap_or(&message.author.name);
+        Ok(format!("{}: {}", author, message.content))
     }
 }
 
 pub struct GetDiscordGuildInfo {
-    http: Arc<Http>,
+    http: Arc<Client>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -228,16 +232,23 @@ impl VizierTool for GetDiscordGuildInfo {
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> anyhow::Result<Self::Output, VizierError> {
-        let guild_id = GuildId::new(args.guild_id);
+        let guild_id = parse_id(args.guild_id, "guild")?;
+        let prefix = format!("discord_get_guild_info guild {}", args.guild_id);
 
-        let guild = match self.http.get_guild_with_counts(guild_id).await {
-            Ok(guild) => guild,
-            Err(err) => return throw_vizier_error(&format!("discord_get_guild_info guild {}", args.guild_id), err),
+        let guild = match self.http.guild(guild_id).with_counts(true).await {
+            Ok(response) => match response.model().await {
+                Ok(guild) => guild,
+                Err(err) => return throw_vizier_error(&prefix, err),
+            },
+            Err(err) => return throw_vizier_error(&prefix, err),
         };
 
-        let channels = match self.http.get_channels(guild_id).await {
-            Ok(channels) => channels,
-            Err(err) => return throw_vizier_error(&format!("discord_get_guild_info guild {}", args.guild_id), err),
+        let channels = match self.http.guild_channels(guild_id).await {
+            Ok(response) => match response.models().await {
+                Ok(channels) => channels,
+                Err(err) => return throw_vizier_error(&prefix, err),
+            },
+            Err(err) => return throw_vizier_error(&prefix, err),
         };
 
         let member_count = guild
@@ -245,17 +256,19 @@ impl VizierTool for GetDiscordGuildInfo {
             .map(|count| count.to_string())
             .unwrap_or_else(|| "unknown".to_string());
 
-        let roles: Vec<&Role> = guild.roles.values().collect();
+        let roles: Vec<&Role> = guild.roles.iter().collect();
 
         Ok(format!(
             "Guild \"{}\" (id {})\nOwner: user {}\nCreated: {}\nApproximate members: {}\nChannels ({}): {}\nRoles ({}): {}",
             guild.name,
             guild.id,
             guild.owner_id,
-            guild.id.created_at(),
+            chrono::DateTime::from_timestamp_millis(guild.id.timestamp())
+                .map(|ts| ts.to_rfc3339())
+                .unwrap_or_else(|| "unknown".to_string()),
             member_count,
             channels.len(),
-            format_truncated_list(&channels, LIST_TRUNCATE_LIMIT, |c| format!("#{}", c.name)),
+            format_truncated_list(&channels, LIST_TRUNCATE_LIMIT, |c| format!("#{}", c.name.as_deref().unwrap_or("unknown"))),
             roles.len(),
             format_truncated_list(&roles, LIST_TRUNCATE_LIMIT, |r| r.name.clone()),
         ))
@@ -263,7 +276,7 @@ impl VizierTool for GetDiscordGuildInfo {
 }
 
 pub struct GetDiscordChannelInfo {
-    http: Arc<Http>,
+    http: Arc<Client>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -286,43 +299,47 @@ impl VizierTool for GetDiscordChannelInfo {
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> anyhow::Result<Self::Output, VizierError> {
-        let channel = match self.http.get_channel(ChannelId::new(args.channel_id)).await {
-            Ok(channel) => channel,
-            Err(err) => return throw_vizier_error(&format!("discord_get_channel_info channel {}", args.channel_id), err),
+        let prefix = format!("discord_get_channel_info channel {}", args.channel_id);
+        let channel = match self.http.channel(parse_id(args.channel_id, "channel")?).await {
+            Ok(response) => match response.model().await {
+                Ok(channel) => channel,
+                Err(err) => return throw_vizier_error(&prefix, err),
+            },
+            Err(err) => return throw_vizier_error(&prefix, err),
         };
 
-        match channel {
-            Channel::Guild(guild_channel) => {
-                let topic = guild_channel.topic.unwrap_or_else(|| "none".to_string());
-                let parent = guild_channel
-                    .parent_id
-                    .map(|id| id.to_string())
-                    .unwrap_or_else(|| "none".to_string());
+        if channel.kind == ChannelType::Private {
+            let Some(recipient) = channel.recipients.as_ref().and_then(|r| r.first()) else {
+                return Err(VizierError(format!("{}: direct message has no recipient", prefix)));
+            };
+            let display_name = recipient.global_name.as_deref().unwrap_or(&recipient.name);
 
-                Ok(format!(
-                    "Channel \"#{}\" (id {})\nType: {:?}\nGuild: {}\nParent category: {}\nTopic: {}",
-                    guild_channel.name, guild_channel.id, guild_channel.kind, guild_channel.guild_id, parent, topic
-                ))
-            }
-            Channel::Private(private_channel) => {
-                let recipient = &private_channel.recipient;
-                let display_name = recipient.global_name.as_deref().unwrap_or(&recipient.name);
-
-                Ok(format!(
-                    "Direct Message (id {})\nParticipant: {} ({})",
-                    private_channel.id, recipient.name, display_name
-                ))
-            }
-            _ => Err(VizierError(format!(
-                "discord_get_channel_info channel {}: unsupported channel type",
-                args.channel_id
-            ))),
+            return Ok(format!(
+                "Direct Message (id {})\nParticipant: {} ({})",
+                channel.id, recipient.name, display_name
+            ));
         }
+
+        let Some(guild_id) = channel.guild_id else {
+            return Err(VizierError(format!("{}: unsupported channel type", prefix)));
+        };
+
+        let name = channel.name.as_deref().unwrap_or("unknown");
+        let topic = channel.topic.as_deref().unwrap_or("none");
+        let parent = channel
+            .parent_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "none".to_string());
+
+        Ok(format!(
+            "Channel \"#{}\" (id {})\nType: {:?}\nGuild: {}\nParent category: {}\nTopic: {}",
+            name, channel.id, channel.kind, guild_id, parent, topic
+        ))
     }
 }
 
 pub struct GetDiscordMemberInfo {
-    http: Arc<Http>,
+    http: Arc<Client>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -348,30 +365,34 @@ impl VizierTool for GetDiscordMemberInfo {
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> anyhow::Result<Self::Output, VizierError> {
-        let member = match self
-            .http
-            .get_member(GuildId::new(args.guild_id), UserId::new(args.user_id))
-            .await
-        {
-            Ok(member) => member,
-            Err(err) => {
-                return throw_vizier_error(
-                    &format!("discord_get_member_info user {} in guild {}", args.user_id, args.guild_id),
-                    err,
-                );
-            }
+        let prefix = format!("discord_get_member_info user {} in guild {}", args.user_id, args.guild_id);
+        let guild_id = parse_id(args.guild_id, "guild")?;
+        let user_id = parse_id(args.user_id, "user")?;
+
+        let member = match self.http.guild_member(guild_id, user_id).await {
+            Ok(response) => match response.model().await {
+                Ok(member) => member,
+                Err(err) => return throw_vizier_error(&prefix, err),
+            },
+            Err(err) => return throw_vizier_error(&prefix, err),
         };
+
+        let display_name = member
+            .nick
+            .as_deref()
+            .or(member.user.global_name.as_deref())
+            .unwrap_or(&member.user.name);
 
         let joined = member
             .joined_at
-            .map(|ts| ts.to_string())
+            .map(|ts| ts.iso_8601().to_string())
             .unwrap_or_else(|| "unknown".to_string());
 
         let roles = format_truncated_list(&member.roles, LIST_TRUNCATE_LIMIT, |role_id| role_id.to_string());
 
         Ok(format!(
             "Member {} (nick: {:?}) in guild {}\nUsername: {}\nJoined: {}\nRoles: {}",
-            member.display_name(),
+            display_name,
             member.nick,
             args.guild_id,
             member.user.name,

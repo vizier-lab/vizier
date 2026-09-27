@@ -119,7 +119,7 @@ src/
   dependencies.rs   VizierDependencies: opens storage, runs one-time migrations
   transport.rs      in-process message bus (flume) tying agents, channels, scheduler together
   agents/           per-agent process loop, model/provider abstraction, tools, hooks, shell (local/docker), MCP, skills runtime
-  channels/         discord (serenity), telegram (teloxide), http (axum: REST, WS, JWT/API-key auth, WebUI static)
+  channels/         discord (twilight), telegram (teloxide), http (axum: REST, WS, JWT/API-key auth, WebUI static)
   scheduler/        cron + one-time tasks, dream cycle
   storage/          VizierStorage over SQLite; document store + BundleMemoryStore for markdown memory
   indexer/          sqlite-vec vector index

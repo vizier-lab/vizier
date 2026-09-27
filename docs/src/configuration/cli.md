@@ -37,7 +37,7 @@ vizier run --port 8080 --data-dir /srv/vizier --workers 8
 
 **Config resolution:** `-c` → `$VIZIER_CONFIG` → `./.vizier.yaml` → built-in defaults. With a file, the workspace is `<config dir>/.vizier/`; without one it's `$VIZIER_DATA_DIR` or `$HOME/.vizier`. See [Overview](./index.md#config-less-mode) — note `VIZIER_JWT_SECRET` must be set in config-less mode.
 
-**Logging:** `tracing` with `RUST_LOG` (e.g. `RUST_LOG=vizier=debug`). Noisy dependencies (rig, serenity, hyper, reqwest, bollard, rmcp, sqlite…) are quieted by default unless you name them explicitly.
+**Logging:** `tracing` with `RUST_LOG` (e.g. `RUST_LOG=vizier=debug`). Noisy dependencies (rig, twilight, hyper, reqwest, bollard, rmcp, sqlite…) are quieted by default unless you name them explicitly.
 
 ## `vizier shutdown`
 

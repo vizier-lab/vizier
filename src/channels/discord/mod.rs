@@ -1,30 +1,31 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use serenity::all::{
-    ChannelId, Command, CreateAttachment, CreateCommand, CreateCommandOption,
-    CreateInteractionResponseFollowup, CreateInteractionResponseMessage, CreateMessage, Http,
-    Interaction, Ready, Typing,
-};
-use serenity::async_trait;
-use serenity::model::channel::Message;
-use serenity::prelude::*;
-use tokio::sync::watch;
+use twilight_gateway::{CloseFrame, Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
+use twilight_http::Client;
+use twilight_model::application::command::{Command, CommandType};
+use twilight_model::application::interaction::application_command::CommandOptionValue;
+use twilight_model::application::interaction::{Interaction, InteractionData};
+use twilight_model::channel::Message;
+use twilight_model::gateway::payload::incoming::Ready;
+use twilight_model::http::interaction::{InteractionResponse, InteractionResponseType};
+use twilight_model::id::Id;
+use twilight_model::id::marker::{ApplicationMarker, ChannelMarker, UserMarker};
+use twilight_util::builder::InteractionResponseDataBuilder;
+use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 
 use crate::channels::VizierChannel;
 use crate::dependencies::VizierDependencies;
-use crate::error::VizierError;
 use crate::schema::{
     PlatformMessageId, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
     VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
 };
 use crate::storage::session::SessionStorage;
 use crate::storage::state::StateStorage;
-use crate::transport::VizierTransport;
+use crate::utils::discord::Typing;
 use crate::utils::remove_think_tags;
 
 pub struct DiscordChannelReader {
@@ -48,36 +49,82 @@ impl DiscordChannelReader {
 #[async_trait::async_trait]
 impl VizierChannel for DiscordChannelReader {
     async fn run(&self) -> Result<()> {
-        let intents = GatewayIntents::all();
-        let mut client = Client::builder(self.token.clone(), intents)
-            .event_handler(Handler(self.agent_id.clone(), self.deps.clone()))
-            .await?;
-        let shard_manager = client.shard_manager.clone();
-
-        let handle = tokio::spawn(async move {
-            let result = client.start();
-            result.await
+        let http = Arc::new(Client::new(self.token.clone()));
+        let mut shard = Shard::new(ShardId::ONE, self.token.clone(), Intents::all());
+        let handler = Arc::new(Handler {
+            agent_id: self.agent_id.clone(),
+            deps: self.deps.clone(),
+            http,
+            bot: OnceLock::new(),
         });
 
-        let shutdown = self.shutdown.clone();
-        tokio::spawn(async move {
-            if shutdown.1.recv_async().await.is_ok() {
-                shard_manager.shutdown_all().await;
+        let events = EventTypeFlags::READY
+            | EventTypeFlags::MESSAGE_CREATE
+            | EventTypeFlags::INTERACTION_CREATE;
+        let shutdown = self.shutdown.1.clone();
+        let mut closing = false;
+
+        loop {
+            tokio::select! {
+                Ok(_) = shutdown.recv_async(), if !closing => {
+                    closing = true;
+                    shard.close(CloseFrame::NORMAL);
+                }
+                item = shard.next_event(events) => {
+                    let Some(item) = item else {
+                        if closing {
+                            return Ok(());
+                        }
+                        return Err(anyhow!("discord gateway closed fatally for agent {}", self.agent_id));
+                    };
+
+                    let event = match item {
+                        Ok(event) => event,
+                        Err(err) => {
+                            tracing::warn!("discord gateway error: {:?}", err);
+                            continue;
+                        }
+                    };
+
+                    let handler = handler.clone();
+                    match event {
+                        Event::GatewayClose(_) if closing => return Ok(()),
+                        Event::Ready(ready) => {
+                            tokio::spawn(async move { handler.ready(ready).await });
+                        }
+                        Event::InteractionCreate(interaction) => {
+                            tokio::spawn(async move { handler.interaction(interaction.0).await });
+                        }
+                        Event::MessageCreate(msg) => {
+                            tokio::spawn(async move { handler.message(msg.0).await });
+                        }
+                        _ => {}
+                    }
+                }
             }
-        });
-
-        Ok(handle.await??)
+        }
     }
 
     async fn shutdown(&self) -> Result<()> {
-        let res = self.shutdown.0.send_async(true).await;
+        let _ = self.shutdown.0.send_async(true).await;
         Ok(())
     }
 }
 
-struct Handler(String, VizierDependencies);
+/// Identity of the bot account, learned from the gateway `READY` event.
+struct BotIdentity {
+    user_id: Id<UserMarker>,
+    name: String,
+}
 
-#[derive(Debug, Deserialize, Serialize)]
+struct Handler {
+    agent_id: String,
+    deps: VizierDependencies,
+    http: Arc<Client>,
+    bot: OnceLock<BotIdentity>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
 struct ChannelState {
     active_topic: Option<TopicId>,
     #[serde(default)]
@@ -86,106 +133,134 @@ struct ChannelState {
     show_tool_calls: bool,
 }
 
-#[async_trait]
-impl EventHandler for Handler {
-    async fn ready(&self, ctx: Context, _ready: Ready) {
-        let ping = CreateCommand::new("ping").description("a simple ping");
+fn slash_commands() -> Vec<Command> {
+    let command = |name: &str, description: &str| {
+        CommandBuilder::new(name, description, CommandType::ChatInput)
+    };
 
-        let new = CreateCommand::new("new").description("create fresh new session");
-        let session = CreateCommand::new("session")
-            .description("list or select session")
-            .add_option(CreateCommandOption::new(
-                serenity::all::CommandOptionType::String,
-                "topic_id",
-                "switch to the topic if not empty",
-            ));
+    vec![
+        command("ping", "a simple ping").build(),
+        command("new", "create fresh new session").build(),
+        command("session", "list or select session")
+            .option(StringBuilder::new("topic_id", "switch to the topic if not empty"))
+            .build(),
+        command("abort", "abort current thinking").build(),
+        command("checkpoint", "save checkpoint with handover summary").build(),
+        command("lobotomy", "save checkpoint without handover (clean break)").build(),
+        command("thinking", "toggle showing thinking output").build(),
+        command("tool_calls", "toggle showing tool call details").build(),
+    ]
+}
 
-        let _ = Command::create_global_command(ctx.http.clone(), ping).await;
+fn error_kind_label(kind: &crate::schema::ErrorKind) -> &'static str {
+    match kind {
+        crate::schema::ErrorKind::Completion => "Completion Error",
+        crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
+        crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
+    }
+}
 
-        let _ = Command::create_global_command(ctx.http.clone(), new).await;
-        let _ = Command::create_global_command(ctx.http.clone(), session).await;
-
-        let abort = CreateCommand::new("abort").description("abort current thinking");
-        let _ = Command::create_global_command(ctx.http.clone(), abort).await;
-
-        let checkpoint =
-            CreateCommand::new("checkpoint").description("save checkpoint with handover summary");
-        let _ = Command::create_global_command(ctx.http.clone(), checkpoint).await;
-
-        let lobotomy = CreateCommand::new("lobotomy")
-            .description("save checkpoint without handover (clean break)");
-        let _ = Command::create_global_command(ctx.http.clone(), lobotomy).await;
-
-        let thinking = CreateCommand::new("thinking").description("toggle showing thinking output");
-        let _ = Command::create_global_command(ctx.http.clone(), thinking).await;
-
-        let tool_calls = CreateCommand::new("tool_calls").description("toggle showing tool call details");
-        let _ = Command::create_global_command(ctx.http.clone(), tool_calls).await;
+impl Handler {
+    fn state_key(&self, channel: &VizierChannelId) -> String {
+        format!("{}__{}", self.agent_id, channel.to_slug())
     }
 
-    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        if let Interaction::Command(command) = interaction {
-            let agent_id = self.0.clone();
+    async fn load_state(&self, channel: &VizierChannelId) -> ChannelState {
+        match self.deps.storage.get_state(self.state_key(channel)).await {
+            Ok(Some(value)) => serde_json::from_value(value).unwrap_or_default(),
+            _ => ChannelState::default(),
+        }
+    }
 
-            if command.data.name == "ping" {
-                let _ = command
-                    .create_response(
-                        ctx.http.clone(),
-                        serenity::all::CreateInteractionResponse::Message(
-                            CreateInteractionResponseMessage::new().content("Pong!"),
-                        ),
-                    )
-                    .await;
+    async fn save_state(&self, channel: &VizierChannelId, state: &ChannelState) {
+        match serde_json::to_value(state) {
+            Ok(value) => {
+                if let Err(err) = self.deps.storage.save_state(self.state_key(channel), value).await {
+                    tracing::error!("failed to save discord channel state: {}", err);
+                }
             }
+            Err(err) => tracing::error!("failed to serialize discord channel state: {}", err),
+        }
+    }
 
-            if command.data.name == "new" {
-                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
+    async fn ready(&self, ready: Ready) {
+        let _ = self.bot.set(BotIdentity {
+            user_id: ready.user.id,
+            name: ready.user.name.clone(),
+        });
+
+        let commands = slash_commands();
+        if let Err(err) = self
+            .http
+            .interaction(ready.application.id)
+            .set_global_commands(&commands)
+            .await
+        {
+            tracing::error!("failed to register discord slash commands: {:?}", err);
+        }
+    }
+
+    async fn respond(&self, interaction: &Interaction, content: impl Into<String>) {
+        let response = InteractionResponse {
+            kind: InteractionResponseType::ChannelMessageWithSource,
+            data: Some(InteractionResponseDataBuilder::new().content(content).build()),
+        };
+
+        if let Err(err) = self
+            .http
+            .interaction(interaction.application_id)
+            .create_response(interaction.id, &interaction.token, &response)
+            .await
+        {
+            tracing::error!("failed to respond to discord interaction: {:?}", err);
+        }
+    }
+
+    async fn interaction(&self, interaction: Interaction) {
+        let Some(InteractionData::ApplicationCommand(data)) = &interaction.data else {
+            return;
+        };
+        let Some(channel_id) = interaction.channel.as_ref().map(|channel| channel.id) else {
+            return;
+        };
+        let channel = VizierChannelId::DiscordChanel(channel_id.get());
+        let agent_id = self.agent_id.clone();
+
+        match data.name.as_str() {
+            "ping" => self.respond(&interaction, "Pong!").await,
+
+            "new" => {
                 let topic_id = nanoid::nanoid!(10);
+                self.save_state(
+                    &channel,
+                    &ChannelState {
+                        active_topic: Some(topic_id.clone()),
+                        ..Default::default()
+                    },
+                )
+                .await;
 
-                let _ = self
-                    .1
-                    .storage
-                    .save_state(
-                        format!("{}__{}", agent_id, channel.to_slug()),
-                        serde_json::to_value(ChannelState {
-                            active_topic: Some(topic_id.clone()),
-                            show_thinking: false,
-                            show_tool_calls: false,
-                        })
-                        .unwrap(),
-                    )
-                    .await;
-
-                let _ = command
-                    .create_response(
-                        ctx.http.clone(),
-                        serenity::all::CreateInteractionResponse::Message(
-                            CreateInteractionResponseMessage::new()
-                                .content(format!("switch to new session: **{}**", topic_id)),
-                        ),
-                    )
+                self.respond(&interaction, format!("switch to new session: **{}**", topic_id))
                     .await;
             }
 
-            if command.data.name == "session" {
-                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
-                let opt = command.data.options.clone();
-
-                if let Some(raw_topic_id) = opt.iter().find_map(|opt| {
-                    if opt.name == "topic_id".to_string() {
-                        Some(opt.value.as_str().unwrap().to_string())
-                    } else {
-                        None
+            "session" => {
+                let raw_topic_id = data.options.iter().find_map(|opt| match &opt.value {
+                    CommandOptionValue::String(value) if opt.name == "topic_id" => {
+                        Some(value.clone())
                     }
-                }) {
-                    let topic_id: Option<TopicId> = if raw_topic_id == "DEFAULT".to_string() {
+                    _ => None,
+                });
+
+                if let Some(raw_topic_id) = raw_topic_id {
+                    let topic_id: Option<TopicId> = if raw_topic_id == "DEFAULT" {
                         None
                     } else {
                         Some(raw_topic_id.clone())
                     };
 
                     if let Ok(Some(_)) = self
-                        .1
+                        .deps
                         .storage
                         .get_session_detail_by_topic(
                             agent_id.clone(),
@@ -194,92 +269,44 @@ impl EventHandler for Handler {
                         )
                         .await
                     {
-                        let key = format!("{}__{}", agent_id, channel.to_slug());
-                        let existing_state = if let Ok(Some(value)) = self.1.storage.get_state(key.clone()).await {
-                            serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
-                                active_topic: None,
-                                show_thinking: false,
-                                show_tool_calls: false,
-                            })
-                        } else {
-                            ChannelState {
-                                active_topic: None,
-                                show_thinking: false,
-                                show_tool_calls: false,
-                            }
-                        };
-                        let _ = self
-                            .1
-                            .storage
-                            .save_state(
-                                key,
-                                serde_json::to_value(ChannelState {
-                                    active_topic: topic_id,
-                                    show_thinking: existing_state.show_thinking,
-                                    show_tool_calls: existing_state.show_tool_calls,
-                                })
-                                .unwrap(),
-                            )
-                            .await;
+                        let mut state = self.load_state(&channel).await;
+                        state.active_topic = topic_id;
+                        self.save_state(&channel, &state).await;
 
-                        let _ = command
-                            .create_response(
-                                ctx.http.clone(),
-                                serenity::all::CreateInteractionResponse::Message(
-                                    CreateInteractionResponseMessage::new().content(format!(
-                                        "switch to session: **{}**",
-                                        raw_topic_id
-                                    )),
-                                ),
-                            )
-                            .await;
+                        self.respond(
+                            &interaction,
+                            format!("switch to session: **{}**", raw_topic_id),
+                        )
+                        .await;
                     } else {
-                        let _ = command
-                            .create_response(
-                                ctx.http.clone(),
-                                serenity::all::CreateInteractionResponse::Message(
-                                    CreateInteractionResponseMessage::new()
-                                        .content("topic not found"),
-                                ),
-                            )
-                            .await;
+                        self.respond(&interaction, "topic not found").await;
                     }
-                } else {
-                    if let Ok(sessions) = self
-                        .1
-                        .storage
-                        .get_session_list(agent_id.clone(), Some(channel))
-                        .await
-                    {
-                        let mut res = vec![];
-                        for session in &sessions {
-                            res.push(format!(
+                } else if let Ok(sessions) = self
+                    .deps
+                    .storage
+                    .get_session_list(agent_id.clone(), Some(channel))
+                    .await
+                {
+                    let output = sessions
+                        .iter()
+                        .map(|session| {
+                            format!(
                                 "topic_id: {}\ntitle: {}",
                                 session.topic.clone().unwrap_or("DEFAULT".into()),
-                                session.title.clone()
-                            ));
-                        }
-
-                        let output = res.join("\n\n");
-                        let _ = command
-                            .create_response(
-                                ctx.http.clone(),
-                                serenity::all::CreateInteractionResponse::Message(
-                                    CreateInteractionResponseMessage::new().content(output),
-                                ),
+                                session.title
                             )
-                            .await;
-                    }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+
+                    self.respond(&interaction, output).await;
                 }
             }
 
-            if command.data.name == "help" {
-                if let Err(err) = command
-                    .create_response(
-                        ctx.http.clone(),
-                        serenity::all::CreateInteractionResponse::Message(
-                            CreateInteractionResponseMessage::new().content(
-                                r#"
+            "help" => {
+                self.respond(
+                    &interaction,
+                    r#"
 Just mention me when you need to summon me.
 I will only read the chat otherwise.
 If I am halucinating, feel free to `/lobotomy` me
@@ -291,29 +318,15 @@ If I am halucinating, feel free to `/lobotomy` me
 • `/new` — Create new session
 • `/session` — List or switch sessions
                             "#,
-                            ),
-                        ),
-                    )
-                    .await
-                {
-                    tracing::error!("{}", err)
-                }
+                )
+                .await;
             }
 
-            if command.data.name == "abort" {
-                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
-                let key = format!("{}__{}", agent_id, channel.to_slug());
-                let topic_id = if let Ok(Some(value)) = self.1.storage.get_state(key).await {
-                    serde_json::from_value::<ChannelState>(value)
-                        .ok()
-                        .and_then(|s| s.active_topic)
-                } else {
-                    None
-                };
-
+            "abort" => {
+                let topic_id = self.load_state(&channel).await.active_topic;
                 let session = VizierSession(agent_id.clone(), channel, topic_id);
                 let _ = self
-                    .1
+                    .deps
                     .transport
                     .send_request(
                         session,
@@ -330,535 +343,361 @@ If I am halucinating, feel free to `/lobotomy` me
                     )
                     .await;
 
-                let _ = command
-                    .create_response(
-                        ctx.http.clone(),
-                        serenity::all::CreateInteractionResponse::Message(
-                            CreateInteractionResponseMessage::new().content("aborting..."),
-                        ),
-                    )
+                self.respond(&interaction, "aborting...").await;
+            }
+
+            "checkpoint" => {
+                self.checkpoint(&interaction, channel, "checkpoint", "creating checkpoint...")
                     .await;
             }
 
-            if command.data.name == "checkpoint" {
-                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
-                let key = format!("{}__{}", agent_id, channel.to_slug());
-                let topic_id = if let Ok(Some(value)) = self.1.storage.get_state(key).await {
-                    serde_json::from_value::<ChannelState>(value)
-                        .ok()
-                        .and_then(|s| s.active_topic)
-                } else {
-                    None
-                };
-
-                let session = VizierSession(agent_id.clone(), channel, topic_id);
-                let (response_tx, response_rx) = flume::unbounded();
-                let _ = self
-                    .1
-                    .transport
-                    .send_request(
-                        session,
-                        VizierRequest {
-                            timestamp: Utc::now(),
-                            user: agent_id.clone(),
-                            content: VizierRequestContent::Command("checkpoint".to_string()),
-                            platform_message_id: None,
-                            metadata: serde_json::json!({}),
-                            attachments: vec![],
-                            expect_audio_reply: None,
-                        },
-                        Some(response_tx),
-                    )
+            "lobotomy" => {
+                self.checkpoint(&interaction, channel, "lobotomy", "performing lobotomy...")
                     .await;
-
-                let _ = command
-                    .create_response(
-                        ctx.http.clone(),
-                        serenity::all::CreateInteractionResponse::Message(
-                            CreateInteractionResponseMessage::new()
-                                .content("creating checkpoint..."),
-                        ),
-                    )
-                    .await;
-
-                let followup_command = command.clone();
-                let followup_http = ctx.http.clone();
-                tokio::spawn(async move {
-                    while let Ok(response) = response_rx.recv_async().await {
-                        match response.content {
-                            VizierResponseContent::Checkpoint { handover: Some(_) } => {
-                                let _ = followup_command
-                                    .create_followup(
-                                        followup_http.clone(),
-                                        CreateInteractionResponseFollowup::new()
-                                            .content("✅ checkpoint saved"),
-                                    )
-                                    .await;
-                                break;
-                            }
-                            VizierResponseContent::Checkpoint { handover: None } => {
-                                let _ = followup_command
-                                    .create_followup(
-                                        followup_http.clone(),
-                                        CreateInteractionResponseFollowup::new()
-                                            .content("✅ lobotomy performed"),
-                                    )
-                                    .await;
-                                break;
-                            }
-                            VizierResponseContent::Error { kind, message } => {
-                                let kind_str = match kind {
-                                    crate::schema::ErrorKind::Completion => "Completion Error",
-                                    crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
-                                    crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
-                                };
-                                let _ = followup_command
-                                    .create_followup(
-                                        followup_http.clone(),
-                                        CreateInteractionResponseFollowup::new().content(format!(
-                                            "**{}**: {}",
-                                            kind_str, message
-                                        )),
-                                    )
-                                    .await;
-                                break;
-                            }
-                            _ => {}
-                        }
-                    }
-                });
             }
 
-            if command.data.name == "lobotomy" {
-                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
-                let key = format!("{}__{}", agent_id, channel.to_slug());
-                let topic_id = if let Ok(Some(value)) = self.1.storage.get_state(key).await {
-                    serde_json::from_value::<ChannelState>(value)
-                        .ok()
-                        .and_then(|s| s.active_topic)
-                } else {
-                    None
-                };
-
-                let session = VizierSession(agent_id.clone(), channel, topic_id);
-                let (response_tx, response_rx) = flume::unbounded();
-                let _ = self
-                    .1
-                    .transport
-                    .send_request(
-                        session,
-                        VizierRequest {
-                            timestamp: Utc::now(),
-                            user: agent_id.clone(),
-                            content: VizierRequestContent::Command("lobotomy".to_string()),
-                            platform_message_id: None,
-                            metadata: serde_json::json!({}),
-                            attachments: vec![],
-                            expect_audio_reply: None,
-                        },
-                        Some(response_tx),
-                    )
-                    .await;
-
-                let _ = command
-                    .create_response(
-                        ctx.http.clone(),
-                        serenity::all::CreateInteractionResponse::Message(
-                            CreateInteractionResponseMessage::new()
-                                .content("performing lobotomy..."),
-                        ),
-                    )
-                    .await;
-
-                let followup_command = command.clone();
-                let followup_http = ctx.http.clone();
-                tokio::spawn(async move {
-                    while let Ok(response) = response_rx.recv_async().await {
-                        match response.content {
-                            VizierResponseContent::Checkpoint { handover: Some(_) } => {
-                                let _ = followup_command
-                                    .create_followup(
-                                        followup_http.clone(),
-                                        CreateInteractionResponseFollowup::new()
-                                            .content("✅ checkpoint saved"),
-                                    )
-                                    .await;
-                                break;
-                            }
-                            VizierResponseContent::Checkpoint { handover: None } => {
-                                let _ = followup_command
-                                    .create_followup(
-                                        followup_http.clone(),
-                                        CreateInteractionResponseFollowup::new()
-                                            .content("✅ lobotomy performed"),
-                                    )
-                                    .await;
-                                break;
-                            }
-                            VizierResponseContent::Error { kind, message } => {
-                                let kind_str = match kind {
-                                    crate::schema::ErrorKind::Completion => "Completion Error",
-                                    crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
-                                    crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
-                                };
-                                let _ = followup_command
-                                    .create_followup(
-                                        followup_http.clone(),
-                                        CreateInteractionResponseFollowup::new().content(format!(
-                                            "**{}**: {}",
-                                            kind_str, message
-                                        )),
-                                    )
-                                    .await;
-                                break;
-                            }
-                            _ => {}
-                        }
-                    }
-                });
-            }
-
-            if command.data.name == "thinking" {
-                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
-                let key = format!("{}__{}", agent_id, channel.to_slug());
-                let mut state = if let Ok(Some(value)) = self.1.storage.get_state(key.clone()).await {
-                    serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
-                        active_topic: None,
-                        show_thinking: false,
-                        show_tool_calls: false,
-                    })
-                } else {
-                    ChannelState {
-                        active_topic: None,
-                        show_thinking: false,
-                        show_tool_calls: false,
-                    }
-                };
+            "thinking" => {
+                let mut state = self.load_state(&channel).await;
                 state.show_thinking = !state.show_thinking;
-                let _ = self.1.storage.save_state(key, serde_json::to_value(&state).unwrap()).await;
+                self.save_state(&channel, &state).await;
+
                 let status = if state.show_thinking { "ON" } else { "OFF" };
-                let _ = command
-                    .create_response(
-                        ctx.http.clone(),
-                        serenity::all::CreateInteractionResponse::Message(
-                            CreateInteractionResponseMessage::new()
-                                .content(format!("thinking output: **{}**", status)),
-                        ),
-                    )
+                self.respond(&interaction, format!("thinking output: **{}**", status))
                     .await;
             }
 
-            if command.data.name == "tool_calls" {
-                let channel = VizierChannelId::DiscordChanel(command.channel_id.get());
-                let key = format!("{}__{}", agent_id, channel.to_slug());
-                let mut state = if let Ok(Some(value)) = self.1.storage.get_state(key.clone()).await {
-                    serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
-                        active_topic: None,
-                        show_thinking: false,
-                        show_tool_calls: false,
-                    })
-                } else {
-                    ChannelState {
-                        active_topic: None,
-                        show_thinking: false,
-                        show_tool_calls: false,
-                    }
-                };
+            "tool_calls" => {
+                let mut state = self.load_state(&channel).await;
                 state.show_tool_calls = !state.show_tool_calls;
-                let _ = self.1.storage.save_state(key, serde_json::to_value(&state).unwrap()).await;
+                self.save_state(&channel, &state).await;
+
                 let status = if state.show_tool_calls { "ON" } else { "OFF" };
-                let _ = command
-                    .create_response(
-                        ctx.http.clone(),
-                        serenity::all::CreateInteractionResponse::Message(
-                            CreateInteractionResponseMessage::new()
-                                .content(format!("tool call details: **{}**", status)),
-                        ),
-                    )
+                self.respond(&interaction, format!("tool call details: **{}**", status))
                     .await;
             }
+
+            _ => {}
         }
     }
 
-    async fn message(&self, ctx: Context, msg: Message) {
-        let agent_id = self.0.clone();
-        let channel = VizierChannelId::DiscordChanel(msg.channel_id.get());
+    /// Shared flow for `/checkpoint` and `/lobotomy`: send the command to the agent,
+    /// acknowledge immediately, then post a followup once the agent reports back.
+    async fn checkpoint(
+        &self,
+        interaction: &Interaction,
+        channel: VizierChannelId,
+        command: &str,
+        pending_message: &str,
+    ) {
+        let agent_id = self.agent_id.clone();
+        let topic_id = self.load_state(&channel).await.active_topic;
+        let session = VizierSession(agent_id.clone(), channel, topic_id);
+        let (response_tx, response_rx) = flume::unbounded();
+        let _ = self
+            .deps
+            .transport
+            .send_request(
+                session,
+                VizierRequest {
+                    timestamp: Utc::now(),
+                    user: agent_id,
+                    content: VizierRequestContent::Command(command.to_string()),
+                    platform_message_id: None,
+                    metadata: serde_json::json!({}),
+                    attachments: vec![],
+                    expect_audio_reply: None,
+                },
+                Some(response_tx),
+            )
+            .await;
 
-        let key = format!("{}__{}", agent_id, channel.to_slug());
-        let (topic_id, show_thinking, show_tool_calls) = if let Ok(Some(value)) = self.1.storage.get_state(key).await {
-            if let Ok(state) = serde_json::from_value::<ChannelState>(value) {
-                (state.active_topic, state.show_thinking, state.show_tool_calls)
-            } else {
-                (None, false, false)
-            }
-        } else {
-            (None, false, false)
-        };
+        self.respond(interaction, pending_message).await;
 
-        let is_dm = msg.guild_id.is_none();
-
-        if let Ok(is_mention) = msg.mentions_me(&ctx.http).await {
-            let mut attachments = vec![];
-            for attachment in &msg.attachments {
-                let bytes_result = async {
-                    let resp = reqwest::get(&attachment.url).await?;
-                    resp.bytes().await
-                }
-                .await;
-                if let Ok(bytes) = bytes_result {
-                    if let Ok(file_record) = self
-                        .1
-                        .transport
-                        .send_file_upload(attachment.filename.clone(), bytes.to_vec())
-                        .await
-                    {
-                        attachments.push(VizierAttachment {
-                            filename: attachment.filename.clone(),
-                            content: VizierAttachmentContent::Local(file_record.url),
-                        });
+        let http = self.http.clone();
+        let application_id: Id<ApplicationMarker> = interaction.application_id;
+        let token = interaction.token.clone();
+        tokio::spawn(async move {
+            while let Ok(response) = response_rx.recv_async().await {
+                let content = match response.content {
+                    VizierResponseContent::Checkpoint { handover: Some(_) } => {
+                        "✅ checkpoint saved".to_string()
                     }
-                }
-            }
-
-            let agent_id = self.0.clone();
-            let transport = self.1.transport.clone();
-            let file_manager = self.1.file_manager.clone();
-            let http = ctx.http.clone();
-            let current_user = ctx.cache.current_user().discriminator;
-            if msg.author.discriminator == current_user {
-                return;
-            }
-            let bot_name = ctx.cache.current_user().name.clone();
-
-            let replied_to = match msg.referenced_message {
-                None => None,
-                Some(message) => Some(message.id.to_string()),
-            };
-
-            let metadata = json!({
-                "sent_at": Utc::now().to_string(),
-                "is_reply_message": replied_to.is_some(),
-                "replied_message_id": replied_to,
-                "message_id": msg.id.to_string(),
-                "discord_channel_id": msg.channel_id.to_string(),
-                "is_dm": is_dm,
-            });
-
-            let session = VizierSession(
-                agent_id.clone(),
-                VizierChannelId::DiscordChanel(msg.channel_id.get()),
-                topic_id,
-            );
-
-            let (content, request_content) = if !is_mention && !is_dm {
-                (
-                    msg.content.clone(),
-                    VizierRequestContent::SilentRead(msg.content),
-                )
-            } else {
-                let cleaned = if is_mention {
-                    msg.content
-                        .replace(&format!("@{}", bot_name), "")
-                        .trim()
-                        .to_string()
-                } else {
-                    msg.content.clone()
+                    VizierResponseContent::Checkpoint { handover: None } => {
+                        "✅ lobotomy performed".to_string()
+                    }
+                    VizierResponseContent::Error { kind, message } => {
+                        format!("**{}**: {}", error_kind_label(&kind), message)
+                    }
+                    _ => continue,
                 };
-                (cleaned.clone(), VizierRequestContent::Chat(cleaned))
-            };
 
-            let request = VizierRequest {
-                timestamp: chrono::Utc::now(),
-                user: format!(
-                    "@{} (DiscordId: {})",
-                    msg.author.display_name(),
-                    msg.author.id.to_string()
-                ),
-                content: request_content,
-                platform_message_id: Some(PlatformMessageId::Discord(msg.id.get())),
-                metadata,
-                attachments,
-                ..Default::default()
-            };
-
-            let discord_channel_id = ChannelId::new(msg.channel_id.get());
-            let is_chat = matches!(request.content, VizierRequestContent::Chat(_));
-
-            tokio::spawn(async move {
-                let (response_tx, response_rx) = flume::unbounded();
-
-                if let Err(err) = transport
-                    .send_request(session.clone(), request, Some(response_tx))
+                if let Err(err) = http
+                    .interaction(application_id)
+                    .create_followup(&token)
+                    .content(&content)
                     .await
                 {
-                    tracing::error!("{}", err);
-                    return;
+                    tracing::error!("failed to send discord followup: {:?}", err);
                 }
+                break;
+            }
+        });
+    }
 
-                let mut typing_state: Option<Typing> = None;
+    async fn message(&self, msg: Message) {
+        let Some(bot) = self.bot.get() else {
+            return;
+        };
+        if msg.author.id == bot.user_id {
+            return;
+        }
 
-                while let Ok(response) = response_rx.recv_async().await {
-                    match response {
-                        VizierResponse {
-                            content: VizierResponseContent::ThinkingStart,
-                            ..
-                        } => {
-                            typing_state = Some(Typing::start(http.clone(), discord_channel_id));
-                        }
-                        VizierResponse {
-                            content: VizierResponseContent::ToolChoice { name, args },
-                            ..
-                        } => {
-                            if show_tool_calls {
-                                let _ = crate::utils::discord::send_message(
-                                    http.clone(),
-                                    &discord_channel_id,
-                                    crate::utils::format_thinking(&name, &args),
-                                )
-                                .await;
-                            }
-                        }
-                        VizierResponse {
-                            content: VizierResponseContent::Thinking(thought),
-                            ..
-                        } => {
-                            if show_thinking {
-                                let _ = crate::utils::discord::send_message(
-                                    http.clone(),
-                                    &discord_channel_id,
-                                    format!("> {}", thought),
-                                )
-                                .await;
-                            }
-                        }
-                        VizierResponse {
-                            content: VizierResponseContent::Message { content, stats: _ },
-                            attachments,
-                            ..
-                        } => {
-                            if let Some(typing) = typing_state.take() {
-                                typing.stop();
-                            }
-                            let content = remove_think_tags(&content);
+        let channel = VizierChannelId::DiscordChanel(msg.channel_id.get());
+        let ChannelState {
+            active_topic: topic_id,
+            show_thinking,
+            show_tool_calls,
+        } = self.load_state(&channel).await;
+
+        let is_dm = msg.guild_id.is_none();
+        let is_mention = msg.mentions.iter().any(|mention| mention.id == bot.user_id);
+
+        let mut attachments = vec![];
+        for attachment in &msg.attachments {
+            let bytes_result = async {
+                let resp = reqwest::get(&attachment.url).await?;
+                resp.bytes().await
+            }
+            .await;
+            if let Ok(bytes) = bytes_result {
+                if let Ok(file_record) = self
+                    .deps
+                    .transport
+                    .send_file_upload(attachment.filename.clone(), bytes.to_vec())
+                    .await
+                {
+                    attachments.push(VizierAttachment {
+                        filename: attachment.filename.clone(),
+                        content: VizierAttachmentContent::Local(file_record.url),
+                    });
+                }
+            }
+        }
+
+        let transport = self.deps.transport.clone();
+        let file_manager = self.deps.file_manager.clone();
+        let http = self.http.clone();
+
+        let replied_to = msg
+            .referenced_message
+            .as_ref()
+            .map(|message| message.id.to_string());
+
+        let metadata = json!({
+            "sent_at": Utc::now().to_string(),
+            "is_reply_message": replied_to.is_some(),
+            "replied_message_id": replied_to,
+            "message_id": msg.id.to_string(),
+            "discord_channel_id": msg.channel_id.to_string(),
+            "is_dm": is_dm,
+        });
+
+        let session = VizierSession(self.agent_id.clone(), channel, topic_id);
+
+        let request_content = if !is_mention && !is_dm {
+            VizierRequestContent::SilentRead(msg.content.clone())
+        } else {
+            let cleaned = if is_mention {
+                strip_mention(&msg.content, bot)
+            } else {
+                msg.content.clone()
+            };
+            VizierRequestContent::Chat(cleaned)
+        };
+
+        let author_name = msg
+            .author
+            .global_name
+            .as_deref()
+            .unwrap_or(&msg.author.name);
+
+        let request = VizierRequest {
+            timestamp: chrono::Utc::now(),
+            user: format!("@{} (DiscordId: {})", author_name, msg.author.id),
+            content: request_content,
+            platform_message_id: Some(PlatformMessageId::Discord(msg.id.get())),
+            metadata,
+            attachments,
+            ..Default::default()
+        };
+
+        let discord_channel_id: Id<ChannelMarker> = msg.channel_id;
+
+        tokio::spawn(async move {
+            let (response_tx, response_rx) = flume::unbounded();
+
+            if let Err(err) = transport
+                .send_request(session.clone(), request, Some(response_tx))
+                .await
+            {
+                tracing::error!("{}", err);
+                return;
+            }
+
+            // Dropping the handle stops the typing indicator.
+            let mut typing: Option<Typing> = None;
+
+            while let Ok(response) = response_rx.recv_async().await {
+                match response {
+                    VizierResponse {
+                        content: VizierResponseContent::ThinkingStart,
+                        ..
+                    } => {
+                        typing = Some(Typing::start(http.clone(), discord_channel_id));
+                    }
+                    VizierResponse {
+                        content: VizierResponseContent::ToolChoice { name, args },
+                        ..
+                    } => {
+                        if show_tool_calls {
                             let _ = crate::utils::discord::send_message(
                                 http.clone(),
-                                &discord_channel_id,
-                                content,
+                                discord_channel_id,
+                                crate::utils::format_thinking(&name, &args),
                             )
                             .await;
-
-                            for attachment in &attachments {
-                                match file_manager.resolve(attachment).await {
-                                    Ok((filename, bytes)) => {
-                                        let files = vec![CreateAttachment::bytes(bytes, &filename)];
-                                        let builder = CreateMessage::new();
-                                        if let Err(err) = discord_channel_id
-                                            .send_files(&http, files, builder)
-                                            .await
-                                        {
-                                            tracing::error!(
-                                                "Failed to send attachment {}: {:?}",
-                                                filename,
-                                                err
-                                            );
-                                        }
-                                    }
-                                    Err(err) => {
-                                        tracing::error!(
-                                            "Failed to resolve attachment {:?}: {:?}",
-                                            attachment.filename,
-                                            err
-                                        );
-                                    }
-                                }
-                            }
-
-                            break;
                         }
-                        VizierResponse {
-                            content: VizierResponseContent::AudioReply(audio_att, text, _),
-                            ..
-                        } => {
-                            if let Some(typing) = typing_state.take() {
-                                typing.stop();
-                            }
-                            if let Some(content) = text {
-                                let content = remove_think_tags(&content);
-                                let _ = crate::utils::discord::send_message(
-                                    http.clone(),
-                                    &discord_channel_id,
-                                    content,
-                                )
-                                .await;
-                            }
-                            match file_manager.resolve(&audio_att).await {
+                    }
+                    VizierResponse {
+                        content: VizierResponseContent::Thinking(thought),
+                        ..
+                    } => {
+                        if show_thinking {
+                            let _ = crate::utils::discord::send_message(
+                                http.clone(),
+                                discord_channel_id,
+                                format!("> {}", thought),
+                            )
+                            .await;
+                        }
+                    }
+                    VizierResponse {
+                        content: VizierResponseContent::Message { content, stats: _ },
+                        attachments,
+                        ..
+                    } => {
+                        typing = None;
+                        let content = remove_think_tags(&content);
+                        let _ = crate::utils::discord::send_message(
+                            http.clone(),
+                            discord_channel_id,
+                            content,
+                        )
+                        .await;
+
+                        for attachment in &attachments {
+                            match file_manager.resolve(attachment).await {
                                 Ok((filename, bytes)) => {
-                                    let files = vec![CreateAttachment::bytes(bytes, &filename)];
-                                    let builder = CreateMessage::new();
-                                    if let Err(err) =
-                                        discord_channel_id.send_files(&http, files, builder).await
-                                    {
-                                        tracing::error!("Failed to send audio reply: {:?}", err);
-                                    }
+                                    let _ = crate::utils::discord::send_file(
+                                        &http,
+                                        discord_channel_id,
+                                        filename,
+                                        bytes,
+                                    )
+                                    .await;
                                 }
                                 Err(err) => {
                                     tracing::error!(
-                                        "Failed to resolve audio reply {:?}: {:?}",
-                                        audio_att.filename,
+                                        "Failed to resolve attachment {:?}: {:?}",
+                                        attachment.filename,
                                         err
                                     );
                                 }
                             }
-
-                            break;
                         }
-                        VizierResponse {
-                            content: VizierResponseContent::Abort,
-                            ..
-                        } => {
-                            if let Some(typing) = typing_state.take() {
-                                typing.stop();
-                            }
+
+                        break;
+                    }
+                    VizierResponse {
+                        content: VizierResponseContent::AudioReply(audio_att, text, _),
+                        ..
+                    } => {
+                        typing = None;
+                        if let Some(content) = text {
+                            let content = remove_think_tags(&content);
                             let _ = crate::utils::discord::send_message(
                                 http.clone(),
-                                &discord_channel_id,
-                                "thinking aborted".into(),
+                                discord_channel_id,
+                                content,
                             )
                             .await;
-
-                            break;
                         }
-                        VizierResponse {
-                            content: VizierResponseContent::Error { kind, message },
-                            ..
-                        } => {
-                            if let Some(typing) = typing_state.take() {
-                                typing.stop();
+                        match file_manager.resolve(&audio_att).await {
+                            Ok((filename, bytes)) => {
+                                let _ = crate::utils::discord::send_file(
+                                    &http,
+                                    discord_channel_id,
+                                    filename,
+                                    bytes,
+                                )
+                                .await;
                             }
-                            let kind_str = match kind {
-                                crate::schema::ErrorKind::Completion => "Completion Error",
-                                crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
-                                crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
-                            };
-                            let _ = crate::utils::discord::send_message(
-                                http.clone(),
-                                &discord_channel_id,
-                                format!("**{}**: {}", kind_str, message),
-                            )
-                            .await;
+                            Err(err) => {
+                                tracing::error!(
+                                    "Failed to resolve audio reply {:?}: {:?}",
+                                    audio_att.filename,
+                                    err
+                                );
+                            }
+                        }
 
-                            break;
-                        }
-                        _ => {
-                            break;
-                        }
+                        break;
+                    }
+                    VizierResponse {
+                        content: VizierResponseContent::Abort,
+                        ..
+                    } => {
+                        typing = None;
+                        let _ = crate::utils::discord::send_message(
+                            http.clone(),
+                            discord_channel_id,
+                            "thinking aborted".into(),
+                        )
+                        .await;
+
+                        break;
+                    }
+                    VizierResponse {
+                        content: VizierResponseContent::Error { kind, message },
+                        ..
+                    } => {
+                        typing = None;
+                        let _ = crate::utils::discord::send_message(
+                            http.clone(),
+                            discord_channel_id,
+                            format!("**{}**: {}", error_kind_label(&kind), message),
+                        )
+                        .await;
+
+                        break;
+                    }
+                    _ => {
+                        break;
                     }
                 }
+            }
 
-                if let Some(typing) = typing_state.take() {
-                    typing.stop();
-                }
-            });
-        }
+            drop(typing);
+        });
     }
+}
+
+/// Remove the bot's own mention (`<@id>`, legacy `<@!id>`, or plain `@name`) from message content.
+fn strip_mention(content: &str, bot: &BotIdentity) -> String {
+    content
+        .replace(&format!("<@{}>", bot.user_id), "")
+        .replace(&format!("<@!{}>", bot.user_id), "")
+        .replace(&format!("@{}", bot.name), "")
+        .trim()
+        .to_string()
 }
