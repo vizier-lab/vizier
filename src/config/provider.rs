@@ -32,6 +32,7 @@ pub enum ProviderVariant {
     custom,
     opencode_zen,
     opencode_go,
+    dummyplug,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

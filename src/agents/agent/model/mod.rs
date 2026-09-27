@@ -22,6 +22,7 @@ use crate::{
     schema::{AgentConfig, AgentId},
 };
 
+mod dummyplug;
 mod provider;
 mod registry;
 
@@ -266,6 +267,7 @@ impl VizierModel {
             ProviderVariant::elevenlabs => {
                 anyhow::bail!("elevenlabs is a TTS-only provider")
             }
+            ProviderVariant::dummyplug => Self::build(dummyplug::DummyplugModel::new(agent_config)),
         })
     }
 
@@ -372,6 +374,9 @@ impl VizierModel {
             ),
             ProviderVariant::elevenlabs => {
                 anyhow::bail!("elevenlabs is not a completion model provider")
+            }
+            ProviderVariant::dummyplug => {
+                Self::build(dummyplug::DummyplugModel::new(&override_config))
             }
         })
     }
@@ -481,6 +486,10 @@ async fn resolve_provider(
         ProviderVariant::elevenlabs => {
             anyhow::bail!("elevenlabs is not a completion model provider")
         }
+        ProviderVariant::dummyplug => Ok(ResolvedProvider {
+            api_key: String::new(),
+            base_url: None,
+        }),
     }
 }
 

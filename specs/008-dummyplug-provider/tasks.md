@@ -71,8 +71,8 @@ description: "Task list for the dummyplug test provider"
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] Add the `dummyplug` variant as the last entry of `pub enum ProviderVariant` in `src/config/provider.rs`. Add nothing to `ProviderConfig`: there is no YAML config (research R2).
-- [ ] T008 [US1] Create `src/agents/agent/model/dummyplug.rs` with:
+- [X] T007 [US1] Add the `dummyplug` variant as the last entry of `pub enum ProviderVariant` in `src/config/provider.rs`. Add nothing to `ProviderConfig`: there is no YAML config (research R2).
+- [X] T008 [US1] Create `src/agents/agent/model/dummyplug.rs` with:
   - `pub struct DummyplugModel { context_window: Option<u64> }`
   - `impl DummyplugModel { pub fn new(agent_config: &AgentConfig) -> Self }`, which takes `agent_config.context_window` as-is (research R10)
   - `const WORDS: &[&str]`, the classic ~60-word lorem ipsum vocabulary
@@ -81,27 +81,27 @@ description: "Task list for the dummyplug test provider"
     - `completion` returns `Ok((None, OneOrMany::one(AssistantContent::text(lorem_ipsum())), Usage::new()))`. Use whatever `AssistantContent` text constructor rig 0.38 provides, such as `AssistantContent::text(..)` or `AssistantContent::Text(Text { text })`.
     - `context_window` returns the field.
   - A module doc comment: offline test provider, see `specs/008-dummyplug-provider/`.
-- [ ] T009 [US1] Register the provider in `src/agents/agent/model/mod.rs`:
+- [X] T009 [US1] Register the provider in `src/agents/agent/model/mod.rs`:
   - add `mod dummyplug;`
   - in `resolve_provider`, add `ProviderVariant::dummyplug => Ok(ResolvedProvider { api_key: String::new(), base_url: None })`
   - in `VizierModel::new`, add `ProviderVariant::dummyplug => Self::build(dummyplug::DummyplugModel::new(agent_config))`
   - in `VizierModel::new_with_override`, add the same arm using `&override_config`
   Both `build` calls need `VizierModelTrait + Sync + Send + 'static`.
-- [ ] T010 [P] [US1] In `upsert_provider` in `src/channels/http/api/v1/providers/mod.rs`, add a `ProviderVariant::dummyplug` arm that returns early with `err_response(StatusCode::BAD_REQUEST, "dummyplug requires no configuration".into())` (research R3, contract "Provider API"). Follow the early return used by the `custom` arm when `base_url` is missing. `provider_to_response` needs no change.
-- [ ] T011 [P] [US1] In `webui/app/interfaces/types.ts`:
+- [X] T010 [P] [US1] In `upsert_provider` in `src/channels/http/api/v1/providers/mod.rs`, add a `ProviderVariant::dummyplug` arm that returns early with `err_response(StatusCode::BAD_REQUEST, "dummyplug requires no configuration".into())` (research R3, contract "Provider API"). Follow the early return used by the `custom` arm when `base_url` is missing. `provider_to_response` needs no change.
+- [X] T011 [P] [US1] In `webui/app/interfaces/types.ts`:
   - add `'dummyplug'` to the `ChatProvider` union and as the last entry of `CHAT_PROVIDERS`
   - add `dummyplug: 'dummyplug'` to `CHAT_PROVIDER_DEFAULT_MODELS` and `dummyplug: ['dummyplug']` to `CHAT_PROVIDER_MODELS`
   - add and export `export const chatProviderLabel = (p: string): string => p === 'dummyplug' ? 'dummyplug (testing)' : p` (research R12)
   Don't add it to the Settings → Providers `ALL_VARIANTS` list in `webui/app/routes/settingsRoot.tsx`.
-- [ ] T012 [P] [US1] In `webui/app/components/AgentForm.tsx`, change the 3 `CHAT_PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)` sites (main provider, dream provider, read-image provider; around lines 617, 964, and 1810) to render `{chatProviderLabel(p)}`, and import `chatProviderLabel`. Depends on T011.
-- [ ] T013 [P] [US1] Make the same change in `webui/app/routes/agent-settings.tsx` at its 3 `CHAT_PROVIDERS.map` `<option>` sites (around lines 727, 1072, and 1919). Depends on T011.
-- [ ] T014 [US1] Add `#[cfg(test)] mod tests` to `src/agents/agent/model/dummyplug.rs` (plan test 5, plus FR-009):
+- [X] T012 [P] [US1] In `webui/app/components/AgentForm.tsx`, change the 3 `CHAT_PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)` sites (main provider, dream provider, read-image provider; around lines 617, 964, and 1810) to render `{chatProviderLabel(p)}`, and import `chatProviderLabel`. Depends on T011.
+- [X] T013 [P] [US1] Make the same change in `webui/app/routes/agent-settings.tsx` at its 3 `CHAT_PROVIDERS.map` `<option>` sites (around lines 727, 1072, and 1919). Depends on T011.
+- [X] T014 [US1] Add `#[cfg(test)] mod tests` to `src/agents/agent/model/dummyplug.rs` (plan test 5, plus FR-009):
   - `lorem_ipsum()` is non-empty and ends with `.`
   - 5 calls are not all identical
   - `completion(prose_message, vec![], vec![])` returns exactly one `AssistantContent::Text` and `Usage::new()`
   - `context_window()` returns `Some(1234)` when the config has `context_window: Some(1234)`, and `None` otherwise. Build `AgentConfig` with `Default`, or the smallest constructor available.
   Use `#[tokio::test]` for the async cases.
-- [ ] T015 [US1] Verify:
+- [X] T015 [US1] Verify:
   - `cargo build` and `cargo test dummyplug` pass
   - `cd webui && npm run typecheck` passes
   - Run quickstart.md §1–§2: `env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY just run`, then create an agent with provider `dummyplug (testing)`
