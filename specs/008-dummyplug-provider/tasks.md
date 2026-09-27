@@ -38,7 +38,7 @@ description: "Task list for the dummyplug test provider"
 
 **Purpose**: Record a known-good baseline before the shared refactor touches the memory storage path.
 
-- [ ] T001 On branch `008-dummyplug-provider`, run `cargo test` and `cargo clippy`, and write down which tests pass (in particular the memory tests in `src/storage/memory.rs`). Any failure after Phase 2 that isn't on this list is a regression.
+- [X] T001 On branch `008-dummyplug-provider`, run `cargo test` and `cargo clippy`, and write down which tests pass (in particular the memory tests in `src/storage/memory.rs`). Any failure after Phase 2 that isn't on this list is a regression.
 
 ---
 
@@ -48,16 +48,16 @@ description: "Task list for the dummyplug test provider"
 
 **⚠️ CRITICAL**: US4, US2, and US3 depend on `parse_markdown_str`. US1 does not.
 
-- [ ] T002 Write the tests first: add a `#[cfg(test)] mod tests` to `src/utils/markdown.rs` for a not-yet-existing `parse_markdown_str::<serde_yaml::Value>(raw: &str)`. Each case asserts the `(frontmatter, body)` the current loop produces, with the loop's semantics applied: split on `['\n','\r']`, the first line must equal `---`, YAML runs until the next exact `---` line, and the body is the rest joined by `\n`. Cases:
+- [X] T002 Write the tests first: add a `#[cfg(test)] mod tests` to `src/utils/markdown.rs` for a not-yet-existing `parse_markdown_str::<serde_yaml::Value>(raw: &str)`. Each case asserts the `(frontmatter, body)` the current loop produces, with the loop's semantics applied: split on `['\n','\r']`, the first line must equal `---`, YAML runs until the next exact `---` line, and the body is the rest joined by `\n`. Cases:
   - (a) `"---\ntitle: a\n---\nhello\nworld"` → `({title: a}, "hello\nworld")`
   - (b) `"---\n---\nbody"`: the YAML is empty. Assert whatever `serde_yaml` does for an empty `Value` (`Null`) with body `"body"`.
   - (c) `"---\r\ntitle: a\r\n---\r\nhello"` produces the same frontmatter; the body has the empty segments CRLF splitting creates (`"\nhello"`).
   - (d) `"no header"` → `Err`
   - (e) `"---\ntitle: a\nhello"` (unclosed) → `Err`, not a panic
-- [ ] T003 Implement `pub fn parse_markdown_str<T: DeserializeOwned>(raw: &str) -> Result<(T, String), VizierError>` in `src/utils/markdown.rs`, with the exact semantics above. Return `Err` when the first line isn't `---`, the block is unterminated (don't `remove(0)` on an empty `Vec`), or the YAML fails to parse. Add a doc comment. Make T002 pass.
-- [ ] T004 Rewrite `read_markdown` in `src/utils/markdown.rs` as `std::fs::read_to_string(&path)` → `parse_markdown_str::<T>(&raw)`. When the header is missing, keep its existing error text, `failed to find frontmatter for <path>`. Keep the signature `read_markdown<T: DeserializeOwned + Clone>(path: PathBuf) -> Result<(T, String), VizierError>` unchanged. Remove the old loop.
-- [ ] T005 Rewrite `pub(crate) fn parse_markdown_bytes<T: DeserializeOwned>(bytes: &[u8]) -> Result<(T, String)>` in `src/storage/memory_bundle.rs` as `String::from_utf8_lossy(bytes)` → `crate::utils::markdown::parse_markdown_str::<T>(..)`, mapping `VizierError` to `anyhow!(e.0)`. Keep the signature unchanged and remove the old loop. Don't edit any caller.
-- [ ] T006 Run `cargo test` and `cargo clippy`. The T002 tests and every test from the T001 baseline must pass, including the `src/storage/memory.rs` memory tests.
+- [X] T003 Implement `pub fn parse_markdown_str<T: DeserializeOwned>(raw: &str) -> Result<(T, String), VizierError>` in `src/utils/markdown.rs`, with the exact semantics above. Return `Err` when the first line isn't `---`, the block is unterminated (don't `remove(0)` on an empty `Vec`), or the YAML fails to parse. Add a doc comment. Make T002 pass.
+- [X] T004 Rewrite `read_markdown` in `src/utils/markdown.rs` as `std::fs::read_to_string(&path)` → `parse_markdown_str::<T>(&raw)`. When the header is missing, keep its existing error text, `failed to find frontmatter for <path>`. Keep the signature `read_markdown<T: DeserializeOwned + Clone>(path: PathBuf) -> Result<(T, String), VizierError>` unchanged. Remove the old loop.
+- [X] T005 Rewrite `pub(crate) fn parse_markdown_bytes<T: DeserializeOwned>(bytes: &[u8]) -> Result<(T, String)>` in `src/storage/memory_bundle.rs` as `String::from_utf8_lossy(bytes)` → `crate::utils::markdown::parse_markdown_str::<T>(..)`, mapping `VizierError` to `anyhow!(e.0)`. Keep the signature unchanged and remove the old loop. Don't edit any caller.
+- [X] T006 Run `cargo test` and `cargo clippy`. The T002 tests and every test from the T001 baseline must pass, including the `src/storage/memory.rs` memory tests.
 
 **Checkpoint**: One frontmatter parser, no behavior change except unclosed header → `Err` instead of panic. Commit it separately, e.g. `refactor: share one frontmatter parser across utils and memory storage`.
 

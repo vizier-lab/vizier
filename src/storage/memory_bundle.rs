@@ -141,25 +141,8 @@ pub(crate) fn serialize_markdown<T: Serialize>(frontmatter: &T, content: &str) -
 }
 
 pub(crate) fn parse_markdown_bytes<T: DeserializeOwned>(bytes: &[u8]) -> Result<(T, String)> {
-    let raw = String::from_utf8_lossy(bytes).to_string();
-    let mut lines: Vec<&str> = raw.split(['\n', '\r']).collect();
-    if lines.is_empty() || lines.remove(0) != "---" {
-        return Err(anyhow!("missing frontmatter"));
-    }
-    let mut frontmatter_raw = Vec::new();
-    loop {
-        if lines.is_empty() {
-            return Err(anyhow!("unterminated frontmatter"));
-        }
-        let line = lines.remove(0);
-        if line == "---" {
-            break;
-        }
-        frontmatter_raw.push(line);
-    }
-    let frontmatter: T = serde_yaml::from_str(&frontmatter_raw.join("\n"))?;
-    let body = lines.join("\n");
-    Ok((frontmatter, body))
+    crate::utils::markdown::parse_markdown_str::<T>(&String::from_utf8_lossy(bytes))
+        .map_err(|e| anyhow!(e.0))
 }
 
 /// The canonical snapshot text of an on-disk concept document (`None` when it is missing or
