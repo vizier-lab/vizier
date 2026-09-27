@@ -16,7 +16,7 @@ Give each agent an opt-in `execute_python` tool backed by the `monty` sandboxed 
 
 **Storage**: none new. `PythonSandboxConfig` is a `#[serde(default)]` field on the existing `AgentToolsConfig` JSON persisted in SQLite `agent` storage; execution reports live in the existing session history (`ToolCall`/`ToolResult` entries).
 
-**Testing**: `cargo test` unit tests for `convert.rs` (JSON⇄Monty round-trips), `docs.rs` (identifier sanitisation, example generation from schemas), `runtime.rs` (pure script, limits, `NotFound`, catchable tool error, `OsCall` refusal, deadline abort — all runnable without an LLM since the bridge is a trait); `cargo clippy`; `cd webui && npm run typecheck`; manual `just run` verification of the three exposure modes against a live agent (constitution's manual-verification gate for runtime-affecting changes).
+**Testing**: `cargo test` unit tests for `convert.rs` (JSON⇄Monty round-trips), `docs.rs` (identifier sanitisation, example generation from schemas), `runtime.rs` (pure script, limits, `NotFound`, catchable tool error, `OsCall` refusal, deadline abort, uncapped host round-trips — all runnable without an LLM since the bridge is a trait); `cargo clippy`; `cd webui && npm run typecheck`; **end-to-end through a `dummyplug` agent** (constitution v1.2.0 gate): `quickstart.md` scripts every check as dummyplug steps — `tools` shows the exact model-facing list per exposure mode, and an `execute_python` JSON request runs any script (safety rows, limits, nested tool calls, docs lookups) deterministically through the real agent loop, hooks, history and WebSocket. Live-provider steps are kept only for behaviour that depends on the model writing its own scripts (SC-001/002/003/010/011) and are marked as such.
 
 **Target Platform**: Linux (gnu + musl, x86_64 + aarch64), macOS (x86_64 + aarch64) — every target in `Cross.toml` / `release.yml`; monty's tree is pure Rust so no `pre-build` changes.
 
@@ -37,6 +37,7 @@ Give each agent an opt-in `execute_python` tool backed by the `monty` sandboxed 
 - **III. Self-Contained, Zero-Dependency Runtime**: PASS. In-process interpreter; no worker binary, no system Python, no network. Both switches default off; config-less mode is untouched. `monty-pool`/`monty-alloc` rejected precisely on this principle (Decision 1).
 - **IV. Portability by Default**: PASS. Pure-Rust dependency tree — `cross build` for every `Cross.toml` target needs no new system packages. `web_time` inside `monty-types` is only active on wasm.
 - **V. Unified Errors & Observability**: PASS. Tool `call()` returns `Result<_, VizierError>`; Monty errors are mapped with `throw_vizier_error`/`VizierError(format!(…))` at the boundary and never leak `MontyException` beyond `runtime.rs`. Script-level failures are *data* (the report's `error` field), not `Err` — the agent must see them to self-correct (SC-010). `tracing` spans/events only; no `println!`.
+- **Quality gate — dummyplug e2e (v1.2.0)**: PASS by design. Every agent-observable change here (tool list per exposure mode, `execute_python` results, nested tool calls in history/WebSocket, docs tools, the 400 validation) is reachable from a dummyplug agent without a model: `quickstart.md` is written as dummyplug scripts, and tasks.md runs them per story plus a full pass in Polish. Direct-call refusal under code mode (`call()` rejecting a hidden tool) cannot be reached through dummyplug, which already rejects names missing from its tool list — that path is covered by the unit test instead.
 
 **Post-design re-check (after Phase 1)**: unchanged. The data model adds no tables; contracts add one config block, three tool definitions, one WebUI inline event. The `ToolContext.hooks` addition is an `Option<…>` field defaulting to `None` — the dream cycle and existing tests are unaffected.
 
@@ -77,7 +78,7 @@ src/
 │   │   ├── mod.rs                   # ToolRouter (extracted from VizierTools::call); ToolExposure;
 │   │   │                            #   sandbox_toolset; tools()/call() gating; ToolContext.hooks
 │   │   └── python/                  # NEW — the three VizierTool impls
-│   │       ├── mod.rs               # ExecutePython { router, limits, code_mode }
+│   │       ├── mod.rs               # ExecutePython { router, limits, description }
 │   │       ├── bridge.rs            # impl SandboxBridge for the router + hooks + attachment collection
 │   │       └── docs_tools.rs        # ListToolFunctions, DescribeToolFunction
 │   ├── agent/mod.rs                 # ToolContext { hooks: Some(hooks.clone()) }; prepare_system_prompts pushes sandbox_md
@@ -112,7 +113,7 @@ impl ToolRouter {
 pub struct VizierTools { router: ToolRouter, sandbox_toolset: VizierToolSet, exposure: ToolExposure, … }
 ```
 
-`VizierTools::new` builds the router first, then (if `python.enabled`) `sandbox_toolset = ExecutePython::new(router.clone(), limits, code_mode)` and (if `python.code_mode`) the two docs tools. `tools()`/`call()` branch on `exposure` exactly once each (table in research Decision 8). Public fields `default_toolset`/`user_toolset`/`mcp` remain available through the router for the few external readers (`dream_tools`, skills) — grep at implementation time and forward accessors rather than duplicating.
+`VizierTools::new` builds the router first, then (if `python.enabled`) `sandbox_toolset = ExecutePython::new(router.clone(), limits /* tools_enabled = code_mode */, description)` and (if `python.code_mode`) the two docs tools. `tools()`/`call()` branch on `exposure` exactly once each (table in research Decision 8). Public fields `default_toolset`/`user_toolset`/`mcp` remain available through the router for the few external readers (`dream_tools`, skills) — grep at implementation time and forward accessors rather than duplicating.
 
 ### Runtime loop (`sandbox/runtime.rs`)
 
@@ -121,7 +122,8 @@ execute(script, limits, bridge) -> ExecutionReport
   ├─ MontyRun::new(script, "main.py", [], CompileOptions::default())   // SyntaxError → report.error{kind: script}
   ├─ tracker = ResourceTracker::new(ResourceLimits{ max_duration: limits.timeout /* = tools.timeout */,
   │            max_memory: Some(SINGLE_ALLOCATION_GUARD /* 1 GiB, per-op pre-check only */),
-  │            ..default /* recursion 1000, suspensions 1000 */ })
+  │            max_suspensions: usize::MAX /* host-enforced; not counted — no round-trip cap */,
+  │            ..default /* recursion 1000 */ })
   ├─ loop on RunProgress:
   │    Complete(v)        → report.result = monty_to_json(v)?  (ConversionError → error{kind: script})
   │    FunctionCall(c)    → if deadline.hit  → c.abort(TimeoutError)

@@ -40,7 +40,7 @@ What the engine is handed per run; it never sees `PythonSandboxConfig` or `Agent
 | `timeout: Duration` | the agent's `tools.timeout` — becomes Monty `max_duration` (CPU clock); the agent loop's own `tools.timeout` wrapper is the wall-clock bound |
 | `tools_enabled: bool` | `code_mode` |
 
-Fixed engine constants (`src/sandbox/mod.rs`, not settings): `SINGLE_ALLOCATION_GUARD = 1 GiB` (Monty `max_memory` per-operation pre-check only, research Decision 6), `MAX_SCRIPT_BYTES = 64 KiB`, Monty defaults for recursion depth (1000), suspensions (1000) and print buffer (10 MiB).
+Fixed engine constants (`src/sandbox/mod.rs`, not settings): `SINGLE_ALLOCATION_GUARD = 1 GiB` (Monty `max_memory` per-operation pre-check only, research Decision 6), `MAX_SCRIPT_BYTES = 64 KiB`, Monty defaults for recursion depth (1000) and print buffer (10 MiB). Monty's `max_suspensions` is set to `usize::MAX` and never enforced by the host — there is no cap on host round-trips (tool calls, docs lookups); the timeout is the only bound (spec edge case *Many tool calls in one script*).
 
 ### Code Execution Request (transient — the tool's `Input`)
 
@@ -48,7 +48,7 @@ Fixed engine constants (`src/sandbox/mod.rs`, not settings): `SINGLE_ALLOCATION_
 pub struct ExecutePythonInput { pub code: String }
 ```
 
-Persisted only as the `arguments` of the `SessionHistoryContent::ToolCall { name: "execute_python", … }` entry the agent loop already writes. `code` is capped at 64 KiB (a script larger than that is refused with a script-kind error before the interpreter starts).
+Persisted only as the `arguments` of the `SessionHistoryContent::ToolCall { name: "execute_python", … }` entry the agent loop already writes. `code` is capped at 64 KiB (a script larger than that is refused with a `Limit/script_size` error before the interpreter starts).
 
 ### ExecutionReport (value type — the tool's output, the `ToolResult.content`, and the live event payload)
 
@@ -71,7 +71,7 @@ pub struct ExecutionError {
     pub message: String,
     /// CPython-style traceback text with line numbers (empty for Limit kinds raised by the host).
     pub traceback: String,
-    /// For Limit: which one — "timeout" | "memory" | "recursion" | "suspensions" | "script_size"
+    /// For Limit: which one — "timeout" | "memory" | "recursion" | "script_size"
     pub limit: Option<String>,
 }
 
@@ -87,7 +87,6 @@ pub enum ExecutionErrorKind { Script, Tool, Limit }
 | Monty `TimeoutError` (`max_duration`) or outer wall-clock | `Limit` | `timeout` |
 | Monty `MemoryError` (single allocation over the 1 GiB guard) | `Limit` | `memory` |
 | Monty `RecursionError` | `Limit` | `recursion` |
-| Monty `max_suspensions` (1000 host round-trips) hit | `Limit` | `suspensions` |
 | Script >64 KiB | `Limit` | `script_size` |
 
 `ok == error.is_none()`. A caught tool error (script used `try/except`) does not set `error`; it is visible in `tool_calls[i].ok == false`.

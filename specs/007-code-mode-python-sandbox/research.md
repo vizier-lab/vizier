@@ -104,7 +104,7 @@ Native tool names in this repo (`memory_read`, `WRITE_CORE`, `mcp_<server>__<too
 
 **Decision**:
 - **History (FR-025)**: the Execution Report *is* the `ToolResult.content` of the `execute_python` call — script (in the `ToolCall.arguments`), nested invocations, stdout, result, error, duration. No new storage.
-- **Live nested calls**: `ToolContext` gains `hooks: Option<VizierSessionHooks>`; the sandbox bridge runs each nested call through `hooks.on_tool_call` / `on_tool_response`, so nested tools produce the same `tool_choice` events (and the same debug logging) as direct calls, for free.
+- **Live nested calls**: `ToolContext` gains `hooks: Option<Arc<VizierSessionHooks>>`; the sandbox bridge runs each nested call through `hooks.on_tool_call` / `on_tool_response`, so nested tools produce the same `tool_choice` events (and the same debug logging) as direct calls, for free.
 - **Live report (US5-S1)**: `ToolCallsHook::on_tool_response` forwards the `ToolResponse` for `execute_python` only; `chat.tsx` renders it as a collapsible "execution" inline event (script + invocation list + stdout + result/error + duration). Other tools' responses stay un-forwarded (unchanged behaviour).
 - **Logging (FR-027)**: `tracing::info_span!("python_exec", agent, session)` around the run; one `info!` per nested tool call; `warn!` on limit hits.
 
@@ -115,7 +115,7 @@ Native tool names in this repo (`memory_read`, `WRITE_CORE`, `mcp_<server>__<too
 | (time) | agent's existing `tools.timeout` | No new setting (user decision); same bound as every other tool call |
 | Monty `max_recursion_depth` | `1000` (crate default) | CPython's default; verified error is a clean `RecursionError` |
 | Monty `max_memory` | `1 GiB` fixed constant | Single-allocation guard only (Decision 6); not user-configurable |
-| Monty `max_suspensions` | `1000` (crate default) | Backstop on host round-trips per run; a script making >1000 tool/docs calls ends with an error |
+| Monty `max_suspensions` | not enforced (set to `usize::MAX`) | Host-enforced in Monty ("the interpreter only stores this limit; hosts must enforce it" — `monty-types-0.0.23/src/resource.rs`), so the runtime loop simply does not count suspensions. Spec: no per-script cap on tool calls, the timeout is the only bound. A loop of fast host calls is still bounded: the outer `tools.timeout` drops the future, the deadline flag flips, and the next host call is aborted (Decision 3) |
 | print buffer | `10 MiB` (crate default, `DEFAULT_MAX_PRINT_COLLECT_BYTES`) | No output truncation setting (user decision); this is the only hard cap on `stdout` |
 
 ## Decision 12: How the agent learns the feature — four layers, one new system message

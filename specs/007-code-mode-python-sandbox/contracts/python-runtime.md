@@ -7,7 +7,8 @@ The behavioural contract between a script and the host, implemented in `src/sand
 ```rust
 pub struct SandboxLimits { timeout: Duration /* = agent tools.timeout */, tools_enabled: bool }
 // module constants: SINGLE_ALLOCATION_GUARD = 1 << 30 (Monty max_memory), MAX_SCRIPT_BYTES = 64 KiB;
-// Monty defaults kept for recursion depth (1000), max_suspensions (1000), print buffer (10 MiB)
+// Monty defaults kept for recursion depth (1000) and print buffer (10 MiB);
+// max_suspensions set to usize::MAX and not enforced by the host (no round-trip cap — timeout is the only bound)
 
 /// Implemented by the agent layer; the engine never sees VizierTools.
 #[async_trait]
@@ -92,7 +93,7 @@ Exception type for tool failures is `RuntimeError` so that `except RuntimeError`
 | Single allocation > 1 GiB | Monty's per-operation size pre-check (fixed constant, no allocator) | `MemoryError` | `Limit/memory` |
 | Cumulative memory | **not enforced in v1** (user decision) — peak is bounded by `timeout`; everything is released when the run ends | — | — |
 | Recursion (1000) | Monty | `RecursionError` | `Limit/recursion` |
-| Host round-trips (1000) | Monty `max_suspensions` (crate default) | run ends | `Limit/suspensions` |
+| Host round-trips (tool calls, docs lookups) | **not capped** (spec edge case) — `max_suspensions` is host-enforced and the host does not count; a host-call loop ends when the outer timeout flips the deadline flag and the next call is aborted | `TimeoutError` at the next host call | `Limit/timeout` |
 | Script size (64 KiB) | host, before compile | — | `Limit/script_size` |
 | Per-tool time (`tools.timeout`) | bridge (`tokio::time::timeout` around `router.call`) | `RuntimeError("<tool>: timed out after …")` (catchable) | record `ok=false` |
 
