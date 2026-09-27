@@ -122,28 +122,28 @@ description: "Task list for the dummyplug test provider"
 
 ### Implementation for User Story 4
 
-- [ ] T016 [US4] Implement `fn command_text(message: &Message) -> String` in `src/agents/agent/model/dummyplug.rs`, following research R4:
+- [X] T016 [US4] Implement `fn command_text(message: &Message) -> String` in `src/agents/agent/model/dummyplug.rs`, following research R4:
   1. Join the `UserContent::Text` items of a `Message::User` with `\n`, ignoring other content. For non-user messages, return an empty string.
   2. `crate::utils::markdown::parse_markdown_str::<serde_yaml::Value>(&text)`: on `Ok`, take the body; on `Err`, keep the whole text.
   3. Cut at the first `"\n\n# Attached Files\n"`.
   4. `trim()`. Then, if the text starts with ```` ``` ```` and ends with ```` ``` ````, drop the opening fence line (including any language tag such as `json`) and the closing fence.
   5. `trim()` again.
-- [ ] T017 [US4] Implement `fn tool_results(message: &Message) -> Vec<&ToolResult>`, which collects the `UserContent::ToolResult` items of a `Message::User`. Also implement `fn reply_tool_results(results: &[&ToolResult], history: &[Message]) -> String` (research R8, contract §4):
+- [X] T017 [US4] Implement `fn tool_results(message: &Message) -> Vec<&ToolResult>`, which collects the `UserContent::ToolResult` items of a `Message::User`. Also implement `fn reply_tool_results(results: &[&ToolResult], history: &[Message]) -> String` (research R8, contract §4):
   - For each result, find the tool name by matching `result.id` against the `ToolCall.id`s in the **last** `Message::Assistant` in `history`, falling back to the id.
   - Render ``**Tool result** (`<name>`):\n<text>``, where the text joins the `ToolResultContent::Text` items and each `Image` becomes `[image]`.
   - Separate multiple results with `\n\n`.
-- [ ] T018 [US4] Implement `fn parse_tool_request(text: &str, tools: &[ToolDefinition]) -> Result<ToolCall, String>` (research R6, data-model "Tool request" validation table, contract §3). `Err` holds the user-facing reply text:
+- [X] T018 [US4] Implement `fn parse_tool_request(text: &str, tools: &[ToolDefinition]) -> Result<ToolCall, String>` (research R6, data-model "Tool request" validation table, contract §3). `Err` holds the user-facing reply text:
   - `serde_json::from_str::<Value>` fails → `Could not parse tool request: <err>`, followed by the expected-shape hint `{"tool": "<tool name>", "arguments": { ... }}`
   - not an object, `tool` missing or not a string, or `arguments` present but not an object → `Invalid tool request: <reason>` plus the same hint
   - `tool` not among `tools[*].name` → ``Unknown tool `<name>`. Send `tools` to list available tools.``
   - valid → a `ToolCall` with `id: format!("dummyplug-{}", uuid::Uuid::new_v4())`, `call_id: None`, `function: ToolFunction { name, arguments }` (`arguments` defaults to `json!({})`), `signature: None`, and any other fields at their defaults (research R10)
   Ignore extra top-level keys.
-- [ ] T019 [US4] Replace the body of `completion` in `src/agents/agent/model/dummyplug.rs` with the ordered dispatch from research R5, rules 1, 4 and 5 (rules 2 and 3 come in US2/US3; leave a comment marking where they go):
+- [X] T019 [US4] Replace the body of `completion` in `src/agents/agent/model/dummyplug.rs` with the ordered dispatch from research R5, rules 1, 4 and 5 (rules 2 and 3 come in US2/US3; leave a comment marking where they go):
   - (1) if `tool_results(&message)` is non-empty → `Text(reply_tool_results(..))`
   - (4) else if `command_text(&message).starts_with('{')` → `ToolCall`, or `Text(err)`
   - (5) else → `Text(lorem_ipsum())`
   Log the chosen branch with `tracing::debug!`. Always return one `AssistantContent`, `None` as the message id, and `Usage::new()`.
-- [ ] T020 [US4] Add tests to `src/agents/agent/model/dummyplug.rs` (plan tests 1, 2 (JSON part), and 4):
+- [X] T020 [US4] Add tests to `src/agents/agent/model/dummyplug.rs` (plan tests 1, 2 (JSON part), and 4):
   - **`command_text`**:
     - build a real message via `VizierRequest { content: VizierRequestContent::Chat("tools".into()), user: "tester".into(), metadata: json!({}), ..Default::default() }.to_message("")`, and assert `command_text == "tools"`
     - same for a ```` ```json\n{"tool":"x"}\n``` ```` fenced body → `{"tool":"x"}`
@@ -154,7 +154,7 @@ description: "Task list for the dummyplug test provider"
     - a request with `arguments` omitted gets `{}`
     - an unknown tool, malformed JSON, and `[1,2]` each give `Text` and no `ToolCall`
   - **Tool result**: a `Message::User` containing a `ToolResult` (with a matching `ToolCall` in a history `Assistant` message) gives `Text` containing `**Tool result** (`echo`)` and never a `ToolCall`
-- [ ] T021 [US4] Verify manually (quickstart.md §3 and §4):
+- [X] T021 [US4] Verify manually (quickstart.md §3 and §4):
   - `{"tool": "read_core", "arguments": {}}` shows a tool-call entry in the WebUI, then the echoed CORE.md
   - `{"tool": "nope"}` and `{"tool": ` return errors and no tool runs
   - a `write_memory` request (arguments written by hand from the tool's schema) creates a memory with a revision in its version history (US4-2)
@@ -174,13 +174,13 @@ description: "Task list for the dummyplug test provider"
 
 ### Implementation for User Story 2
 
-- [ ] T022 [US2] Implement `fn reply_tool_list(tools: &[ToolDefinition]) -> String` in `src/agents/agent/model/dummyplug.rs`, following contract §1:
+- [X] T022 [US2] Implement `fn reply_tool_list(tools: &[ToolDefinition]) -> String` in `src/agents/agent/model/dummyplug.rs`, following contract §1:
   - the header `**Available tools** (N):`
   - one line per tool, in input order: `` - `<name>` — <first line of description, truncated to 120 chars with `…`> ``
   - the footer `Send a tool name to get a sample request.`
   - with zero tools, exactly `This agent has no tools available.`
-- [ ] T023 [US2] In `completion`, add dispatch rule 2 after rule 1 and before rule 4: `if command_text.eq_ignore_ascii_case("tools")` → `Text(reply_tool_list(&tools))`.
-- [ ] T024 [US2] Add tests to `src/agents/agent/model/dummyplug.rs`:
+- [X] T023 [US2] In `completion`, add dispatch rule 2 after rule 1 and before rule 4: `if command_text.eq_ignore_ascii_case("tools")` → `Text(reply_tool_list(&tools))`.
+- [X] T024 [US2] Add tests to `src/agents/agent/model/dummyplug.rs`:
   - `tools`, ` Tools `, and `TOOLS` (sent through `VizierRequest::to_message`) all return the listing with every fixture tool name in input order
   - an empty `tools` gives the no-tools message
   - a multi-line description shows only its first line
@@ -200,16 +200,16 @@ description: "Task list for the dummyplug test provider"
 
 ### Implementation for User Story 3
 
-- [ ] T025 [P] [US3] Create `src/utils/json_schema.rs` and add `pub mod json_schema;` to `src/utils/mod.rs`. Implement:
+- [X] T025 [P] [US3] Create `src/utils/json_schema.rs` and add `pub mod json_schema;` to `src/utils/mod.rs`. Implement:
   - `pub struct SchemaProperty { pub name: String, pub description: Option<String>, pub required: bool, pub schema: serde_json::Value }`
   - `pub fn resolve<'a>(node: &'a Value, root: &'a Value) -> &'a Value`: when `node` has a string `$ref` starting with `#/$defs/` or `#/definitions/`, return the target in `root` (or `node` when it's missing); otherwise return `node`
   Add a module doc: generic JSON Schema helpers, not tied to tools (research R7).
-- [ ] T026 [US3] Implement `pub fn properties(schema: &Value) -> Vec<SchemaProperty>` in `src/utils/json_schema.rs`:
+- [X] T026 [US3] Implement `pub fn properties(schema: &Value) -> Vec<SchemaProperty>` in `src/utils/json_schema.rs`:
   - resolve the root through `$ref`
   - if it has `allOf`, merge the `properties` and `required` of each (resolved) branch
   - ordering: the crate doesn't enable `serde_json`'s `preserve_order` (verified with `cargo tree -e features -i serde_json`), so `Map` is a `BTreeMap` and declared order is already lost. Return required properties first, in the order of the `required` array, which schemars emits in field order, then the optional ones alphabetically. Explain this in a comment. Don't enable `preserve_order`: it changes key order crate-wide.
   - for each property: `required` = the name is in `required`; `description` = its own `description`, else the resolved `$ref` target's `description`, folded to one line (split on whitespace, joined by single spaces); `schema` = the resolved sub-schema cloned
-- [ ] T027 [US3] Implement `pub fn sample_value(schema: &Value) -> Value` in `src/utils/json_schema.rs`, as a thin wrapper over a private `fn sample(node: &Value, root: &Value, name_hint: Option<&str>, depth: u8) -> Value` that follows research R7 in this order:
+- [X] T027 [US3] Implement `pub fn sample_value(schema: &Value) -> Value` in `src/utils/json_schema.rs`, as a thin wrapper over a private `fn sample(node: &Value, root: &Value, name_hint: Option<&str>, depth: u8) -> Value` that follows research R7 in this order:
   1. `default`, then `examples[0]`, then `example`
   2. `const`, then `enum[0]`
   3. `$ref` → `resolve`, then recurse
@@ -224,20 +224,20 @@ description: "Task list for the dummyplug test provider"
      - anything else or missing → `null`
   6. `depth > 8` → `null`
   The root is the top-level schema.
-- [ ] T028 [US3] Add `#[cfg(test)] mod tests` to `src/utils/json_schema.rs`, using `schemars::schema_for!(T)` → `serde_json::to_value`. Define test-local types deriving `JsonSchema, Deserialize`: `NoArgs {}`, `WithOption { a: String, b: Option<u32> }`, `Nested { inner: Inner }` with `Inner { x: bool }`, `WithVec { items: Vec<String> }`, a unit enum `Mode { Fast, Slow }` field, `WithDefault` (`#[serde(default)]` or `#[schemars(default)]`), and a recursive `Node { children: Vec<Node> }`. Assert:
+- [X] T028 [US3] Add `#[cfg(test)] mod tests` to `src/utils/json_schema.rs`, using `schemars::schema_for!(T)` → `serde_json::to_value`. Define test-local types deriving `JsonSchema, Deserialize`: `NoArgs {}`, `WithOption { a: String, b: Option<u32> }`, `Nested { inner: Inner }` with `Inner { x: bool }`, `WithVec { items: Vec<String> }`, a unit enum `Mode { Fast, Slow }` field, `WithDefault` (`#[serde(default)]` or `#[schemars(default)]`), and a recursive `Node { children: Vec<Node> }`. Assert:
   - `sample_value` of each deserializes back into its type (`serde_json::from_value::<T>`), except that recursion only has to terminate without overflowing the stack
   - `NoArgs` → `{}`
   - `properties(WithOption)` gives `a` required and `b` optional, and a struct with required `z, a` and optional `y, b` comes back as `z, a, b, y`
   - a `///` doc comment on a field shows up as `description`, and a multi-line doc is folded
   - a field whose type has a doc comment but the field itself has none takes its description from the `$ref` target
   - a hand-written MCP-style schema (no `$defs`, `type: ["string","null"]`) samples as a string
-- [ ] T029 [US3] Implement `fn reply_tool_sample(tool: &ToolDefinition) -> String` in `src/agents/agent/model/dummyplug.rs`, following contract §2:
+- [X] T029 [US3] Implement `fn reply_tool_sample(tool: &ToolDefinition) -> String` in `src/agents/agent/model/dummyplug.rs`, following contract §2:
   - ``**`<name>`** — <full description>``
   - then `Required:` and `Optional:` blocks from `json_schema::properties(&tool.parameters)`, with lines `` - `name`: description `` (or `` - `name` `` when there's no description); omit a block when it's empty
   - then a ```` ```json ```` fence around `serde_json::to_string_pretty(&json!({"tool": name, "arguments": json_schema::sample_value(&tool.parameters)}))`. If the sample isn't an object, use `{}`.
   - then `Send the JSON back (edit the values first) to run the tool.`
-- [ ] T030 [US3] In `completion`, add dispatch rule 3 after rule 2 and before rule 4: `if let Some(tool) = tools.iter().find(|t| t.name == command_text)` → `Text(reply_tool_sample(tool))`.
-- [ ] T031 [US3] Add tests to `src/agents/agent/model/dummyplug.rs` (plan tests 3 and 6):
+- [X] T030 [US3] In `completion`, add dispatch rule 3 after rule 2 and before rule 4: `if let Some(tool) = tools.iter().find(|t| t.name == command_text)` → `Text(reply_tool_sample(tool))`.
+- [X] T031 [US3] Add tests to `src/agents/agent/model/dummyplug.rs` (plan tests 3 and 6):
   - **Round-trip (SC-003)**: for tool fixtures built from `schemars::schema_for!` of the T028 types, send the name → reply; extract the text between the ```` ```json ```` fence markers; feed that fenced block, fences included, back as a new user message through `VizierRequest::to_message` → exactly one `ToolCall` with the same name
   - a tool with no parameters → `"arguments": {}` and no Required/Optional blocks
   - description lines: `` `name`: description `` for a described argument, a bare `` `name` `` otherwise, grouped under the right heading
