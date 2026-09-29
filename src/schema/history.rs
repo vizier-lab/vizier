@@ -7,6 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 
+use crate::sandbox::ExecutionReport;
 use crate::schema::{ReactionEntry, VizierRequest, VizierResponse, VizierResponseContent, VizierSession};
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
@@ -234,4 +235,175 @@ fn tool_result_content_to_text(content: &OneOrMany<ToolResultContent>) -> String
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+/// A message as the provider should receive it, leaving the record kept in storage
+/// (and shown in the WebUI) untouched.
+///
+/// Today this only narrows `execute_python` reports to
+/// [`ExecutionReport::model_view`]. It is applied per request rather than where the
+/// tool result is built, because that same value is what gets persisted: the agent
+/// loop hands `full_history` to storage and the output of this function to the model.
+pub fn message_for_model(message: &Message) -> Message {
+    let Message::User { content } = message else {
+        return message.clone();
+    };
+    if !content.iter().any(is_narrowable) {
+        return message.clone();
+    }
+
+    let narrowed: Vec<UserContent> = content.iter().map(narrow_tool_result).collect();
+    match OneOrMany::many(narrowed) {
+        Ok(content) => Message::User { content },
+        Err(_) => message.clone(),
+    }
+}
+
+/// [`message_for_model`] over a whole history.
+pub fn messages_for_model(messages: &[Message]) -> Vec<Message> {
+    messages.iter().map(message_for_model).collect()
+}
+
+/// A cheap pre-check, so an ordinary tool result is never parsed as JSON.
+fn is_narrowable(content: &UserContent) -> bool {
+    let UserContent::ToolResult(result) = content else {
+        return false;
+    };
+    result.content.iter().any(|part| match part {
+        ToolResultContent::Text(text) => text.text.contains("\"tool_calls\""),
+        _ => false,
+    })
+}
+
+fn narrow_tool_result(content: &UserContent) -> UserContent {
+    let UserContent::ToolResult(result) = content else {
+        return content.clone();
+    };
+
+    let narrowed: Vec<ToolResultContent> = result
+        .content
+        .iter()
+        .map(|part| match part {
+            ToolResultContent::Text(text) => serde_json::from_str(&text.text)
+                .ok()
+                .as_ref()
+                .and_then(ExecutionReport::model_view)
+                .and_then(|view| serde_json::to_string(&view).ok())
+                .map_or_else(|| part.clone(), ToolResultContent::text),
+            _ => part.clone(),
+        })
+        .collect();
+
+    match OneOrMany::many(narrowed) {
+        Ok(content) => UserContent::ToolResult(rig_core::message::ToolResult {
+            id: result.id.clone(),
+            call_id: result.call_id.clone(),
+            content,
+        }),
+        Err(_) => content.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rig_core::message::ToolResultContent;
+    use serde_json::json;
+
+    use super::*;
+
+    fn tool_result(id: &str, text: &str) -> Message {
+        Message::User {
+            content: OneOrMany::one(UserContent::tool_result(
+                id.to_string(),
+                OneOrMany::one(ToolResultContent::text(text)),
+            )),
+        }
+    }
+
+    fn report_json() -> String {
+        json!({
+            "ok": true,
+            "result": { "hits": 2 },
+            "stdout": "",
+            "tool_calls": [{
+                "seq": 1,
+                "name": "memory_read",
+                "arguments": { "query": "rust releases" },
+                "ok": true,
+                "duration_ms": 12,
+            }],
+            "duration_ms": 34,
+        })
+        .to_string()
+    }
+
+    fn first_tool_result_text(message: &Message) -> String {
+        let Message::User { content } = message else {
+            panic!("expected a user message");
+        };
+        let UserContent::ToolResult(result) = content.first() else {
+            panic!("expected a tool result");
+        };
+        tool_result_content_to_text(&result.content)
+    }
+
+    #[test]
+    fn a_report_reaches_the_model_without_nested_arguments() {
+        let message = tool_result("call-1", &report_json());
+        let narrowed = message_for_model(&message);
+
+        let value: serde_json::Value =
+            serde_json::from_str(&first_tool_result_text(&narrowed)).unwrap();
+        assert!(!value["tool_calls"][0].as_object().unwrap().contains_key("arguments"));
+        assert_eq!(value["result"]["hits"], 2);
+
+        // The message the agent loop keeps for storage is not modified.
+        let original: serde_json::Value =
+            serde_json::from_str(&first_tool_result_text(&message)).unwrap();
+        assert_eq!(original["tool_calls"][0]["arguments"]["query"], "rust releases");
+    }
+
+    #[test]
+    fn an_ordinary_tool_result_passes_through_untouched() {
+        for text in [r#"{"slug":"a-memory"}"#, "plain text", ""] {
+            let message = tool_result("call-1", text);
+            assert_eq!(first_tool_result_text(&message_for_model(&message)), text);
+        }
+    }
+
+    #[test]
+    fn a_tool_result_that_only_mentions_tool_calls_is_left_alone() {
+        // Passes the cheap pre-check, then fails `looks_like`.
+        let text = r#"{"note":"see \"tool_calls\" in the spec"}"#;
+        let message = tool_result("call-1", text);
+        assert_eq!(first_tool_result_text(&message_for_model(&message)), text);
+    }
+
+    #[test]
+    fn non_user_messages_and_ids_are_preserved() {
+        let assistant = Message::assistant("hello");
+        assert!(matches!(message_for_model(&assistant), Message::Assistant { .. }));
+
+        let narrowed = message_for_model(&tool_result("call-7", &report_json()));
+        let Message::User { content } = &narrowed else {
+            panic!("expected a user message");
+        };
+        let UserContent::ToolResult(result) = content.first() else {
+            panic!("expected a tool result");
+        };
+        assert_eq!(result.id, "call-7");
+    }
+
+    #[test]
+    fn messages_for_model_maps_a_whole_history() {
+        let history = vec![
+            Message::user("what changed?"),
+            tool_result("call-1", &report_json()),
+        ];
+        let narrowed = messages_for_model(&history);
+
+        assert_eq!(narrowed.len(), 2);
+        let value: serde_json::Value =
+            serde_json::from_str(&first_tool_result_text(&narrowed[1])).unwrap();
+        assert!(!value["tool_calls"][0].as_object().unwrap().contains_key("arguments"));
+    }
 }

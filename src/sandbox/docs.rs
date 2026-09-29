@@ -34,7 +34,8 @@ pub struct ParamDoc {
 /// Names a script cannot use for a tool function: the in-script helpers,
 /// Python keywords, and the builtins a script is most likely to need.
 const RESERVED: &[&str] = &[
-    "list_tools", "describe_tool", "execute_python",
+    "list_tools", "describe_tool", "list_tool_functions", "describe_tool_function",
+    "execute_python",
     // keywords
     "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class",
     "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global",
@@ -346,6 +347,8 @@ mod tests {
         assert_eq!(python_identifier("3d"), "_3d");
         assert_eq!(python_identifier("print"), "print_tool");
         assert_eq!(python_identifier("list_tools"), "list_tools_tool");
+        assert_eq!(python_identifier("list_tool_functions"), "list_tool_functions_tool");
+        assert_eq!(python_identifier("describe_tool_function"), "describe_tool_function_tool");
         assert_eq!(python_identifier("mcp_gh__create_issue"), "mcp_gh__create_issue");
     }
 

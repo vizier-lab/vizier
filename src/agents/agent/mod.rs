@@ -38,7 +38,8 @@ use crate::{
         AgentConfig, ErrorKind, Memory, SessionHistory, SessionHistoryContent, Skill,
         VizierAttachment, VizierAttachmentContent, VizierRequest, VizierRequestContent,
         VizierResponse, VizierResponseContent, VizierResponseStats, VizierSession,
-        history_entries_to_messages, messages_to_history_entries,
+        history_entries_to_messages, message_for_model, messages_for_model,
+        messages_to_history_entries,
     },
     storage::{
         VizierStorage,
@@ -591,9 +592,15 @@ impl VizierAgent {
                 ));
             }
 
+            // The model gets the narrowed view; `full_history` keeps the full record,
+            // which is what storage and the WebUI are served from.
             let (message_id, choices, usage) = self
                 .model
-                .completion(message.clone(), history.clone(), tools.clone())
+                .completion(
+                    message_for_model(&message),
+                    messages_for_model(&history),
+                    tools.clone(),
+                )
                 .await
                 .map_err(|e| (e, full_history.clone()))?;
 
@@ -1018,7 +1025,11 @@ impl VizierAgent {
                 }
 
                 let (message_id, choices, usage) = model
-                    .completion(message.clone(), history.clone(), tools.clone())
+                    .completion(
+                        message_for_model(&message),
+                        messages_for_model(&history),
+                        tools.clone(),
+                    )
                     .await?;
 
                 history.push(message);
@@ -1225,7 +1236,7 @@ pub async fn generate_handover_with_model(
     model: &VizierModel,
     history: &[Message],
 ) -> Result<Option<String>> {
-    let mut summary_history = history.to_vec();
+    let mut summary_history = messages_for_model(history);
 
     summary_history.push(Message::user(
         "Analyze this conversation and extract key context for continuation. Include:\n\

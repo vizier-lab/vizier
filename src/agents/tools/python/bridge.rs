@@ -146,6 +146,9 @@ impl SandboxBridge for RouterBridge {
             tool = %tool,
             ok = result.is_ok(),
             duration_ms,
+            // The model's copy of the report drops `arguments` (they restate the script);
+            // they stay on the record here and in the invocation below.
+            arguments = %arguments,
             "python script called a tool"
         );
 

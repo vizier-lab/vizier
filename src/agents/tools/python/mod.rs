@@ -125,9 +125,9 @@ from the script as plain functions with keyword arguments, e.g.
     hits = memory_read(query=\"rust releases\")
     page = fetch_webpage(url=hits[0][\"url\"])
 Call `list_tool_functions` to see every available function and `describe_tool_function` for a
-function's parameters, return shape and example — or call `list_tools()` / `describe_tool(\"name\")`
-from inside the script. A tool error is raised as an exception you may catch; an uncaught one ends
-the run. The whole script, including every tool call it makes, must finish within {tools_timeout}.
+function's parameters, return shape and example — either as a tool, or from inside the script
+(`list_tools()` / `describe_tool(\"name\")` are the same two functions under shorter names).
+A tool error is raised as an exception you may catch; an uncaught one ends the run. The whole script, including every tool call it makes, must finish within {tools_timeout}.
 Each run is stateless; loop and aggregate inside one script and return only what you need."
         )
     } else {
@@ -148,13 +148,15 @@ comprehensions, try/except/finally, with, f-strings, and these modules:
 json, math, datetime, re, collections, itertools, functools, dataclasses, typing, base64, copy,
 random, unicodedata.
 Not supported: generators/yield, match, del, inheritance, @property/@classmethod, user-defined
-exception classes, eval/exec, third-party packages, time, hashlib, io, socket, subprocess.
+exception classes, eval/exec, %-formatting (\"x = %s\" % y — use an f-string), third-party packages,
+and any module not listed above, including urllib, os, sys, time, hashlib, io, socket, subprocess.
 
 Limits: {tools_timeout} wall-clock (the same tool timeout as every other tool), recursion depth 1000,
 script size 64 KiB, any single allocation over 1 GiB (e.g. \"a\" * 10**10) raises MemoryError, and
 print() output up to 10 MiB. Exceeding a limit ends the run with an error naming the limit.
 Return plain data (str, int, float, bool, None, list, dict); other objects cannot be returned.
-Keep results small: everything you return or print is delivered to you verbatim.
+Keep results small: everything you return or print is delivered to you verbatim, so print what you
+need to read rather than whole documents — slice, filter and summarise inside the script.
 On error you get the exception and a traceback with line numbers — fix the script and re-run."
     )
 }

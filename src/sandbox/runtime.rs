@@ -218,8 +218,10 @@ impl Interpreter {
     ) -> ExtFunctionResult {
         match name {
             "execute_python" => runtime_error("nested execute_python is not allowed").into(),
-            "list_tools" => self.list_tools(args, kwargs),
-            "describe_tool" => self.describe_tool(args, kwargs),
+            // `list_tool_functions`/`describe_tool_function` are the model-side tool
+            // names; models reach for them inside scripts too, so both spellings work.
+            "list_tools" | "list_tool_functions" => self.list_tools(args, kwargs),
+            "describe_tool" | "describe_tool_function" => self.describe_tool(args, kwargs),
             _ if !self.limits.tools_enabled => ExtFunctionResult::NotFound(name.to_string()),
             _ => self.tool_call(name, args, kwargs),
         }
@@ -681,5 +683,25 @@ mod tests {
         assert_eq!(report.result["did_you_mean"][0], serde_json::json!("search"));
         let report = run_with("describe_tool()", FakeBridge::new(), true).await;
         assert!(error_of(&report).message.contains("TypeError"));
+    }
+
+    #[tokio::test]
+    async fn the_model_side_tool_names_work_inside_a_script_too() {
+        let report = run_with(
+            "[d['function'] for d in list_tool_functions()]",
+            FakeBridge::new(),
+            true,
+        )
+        .await;
+        assert!(report.ok, "{report:?}");
+        assert_eq!(report.result, serde_json::json!(["broken", "echo", "search"]));
+
+        let report = run_with(
+            "describe_tool_function(name='search')['function']",
+            FakeBridge::new(),
+            true,
+        )
+        .await;
+        assert_eq!(report.result, serde_json::json!("search"));
     }
 }

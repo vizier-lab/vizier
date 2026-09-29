@@ -27,7 +27,10 @@ pub use commands::{
 pub use dream_journal::{DreamJournalEntry, DreamJournalEntryFrontMatter};
 pub use file::FileRecord;
 pub use global_config::{GlobalConfigEntry, GlobalConfigValue};
-pub use history::{SessionHistory, SessionHistoryContent, history_entries_to_messages, messages_to_history_entries};
+pub use history::{
+    SessionHistory, SessionHistoryContent, history_entries_to_messages, message_for_model,
+    messages_for_model, messages_to_history_entries,
+};
 pub use metrics::{
     AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage, DailyChannelTypeUsage,
     DailyUsage, UsageSummary,

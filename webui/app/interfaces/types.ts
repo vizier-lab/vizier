@@ -559,7 +559,8 @@ export interface ReactionEntry {
 export interface ToolInvocationRecord {
   seq: number
   name: string
-  arguments: Record<string, unknown>
+  // Present in the session record; dropped from the copy sent to the model.
+  arguments?: Record<string, unknown>
   ok: boolean
   error?: string | null
   duration_ms: number
@@ -568,7 +569,8 @@ export interface ToolInvocationRecord {
 export interface ExecutionError {
   kind: 'script' | 'tool' | 'limit'
   message: string
-  traceback: string
+  // Omitted by the server for host-raised limits, which have no traceback.
+  traceback?: string
   limit?: string | null
 }
 

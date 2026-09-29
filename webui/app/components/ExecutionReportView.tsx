@@ -29,8 +29,10 @@ const sectionTitle: React.CSSProperties = {
   margin: '0.5rem 0 0.25rem',
 }
 
-const formatArgs = (args: Record<string, unknown>) =>
-  Object.entries(args)
+// `arguments` is absent from a report that came back from the model rather than
+// from the session record, where it is always kept.
+const formatArgs = (args: Record<string, unknown> | undefined) =>
+  Object.entries(args ?? {})
     .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
     .join(', ')
 
