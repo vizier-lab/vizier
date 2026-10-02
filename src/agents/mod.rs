@@ -160,11 +160,9 @@ impl VizierAgents {
                     .await
                 {
                     // FR-042: counts processed, counts failed, and the reason for each failure —
-                    // the reasons are logged per document by the reconcile itself.
-                    Ok((0, 0)) => tracing::debug!(
-                        agent_id = agent_id_owned,
-                        "memory passages already up to date; nothing to convert"
-                    ),
+                    // the reasons are logged per document by the reconcile itself. Silent when
+                    // there was nothing to do, which is every start after the first.
+                    Ok((0, 0)) => {}
                     Ok((converted, failed)) => tracing::info!(
                         agent_id = agent_id_owned,
                         converted,

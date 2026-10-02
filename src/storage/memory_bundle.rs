@@ -425,15 +425,7 @@ impl BundleMemoryStore {
             )
             .await
         {
-            Ok(count) => {
-                tracing::debug!(
-                    agent_id,
-                    bundle,
-                    path,
-                    passages = count,
-                    "indexed memory passages"
-                );
-            }
+            Ok(_) => {}
             Err(e) => {
                 tracing::warn!(
                     agent_id,
@@ -922,7 +914,7 @@ impl BundleMemoryStore {
                 // Absence of rows is the only resume marker: already converted, no drift, skip.
                 Some(h) if *h == live_hash => continue,
                 Some(_) => tracing::debug!(agent_id, bundle, path, "passages drifted, rebuilding"),
-                None => tracing::debug!(agent_id, bundle, path, "no passages yet, converting"),
+                None => {}
             }
 
             match self
