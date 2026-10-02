@@ -165,8 +165,10 @@ Requires a Discord or Telegram channel configured, since `SilentRead` only origi
 > **Not covered on this walk** — it needs real Discord or Telegram credentials, since `SilentRead`
 > only originates in those readers. What *is* verified without them: the default is
 > `silent_read_passages: 0`, and `retrieve_auto_context` returns an empty vector on a zero budget
-> before issuing any relevance query, logging `automatic context disabled for this path` at trace
-> level. So the cost of this path under default config is zero queries, not zero results.
+> before issuing any relevance query. So the cost of this path under default config is zero queries,
+> not zero results — and it logs nothing per message, deliberately, because this is the path whose
+> frequency is channel traffic. The *absence* of any automatic-context line against a `SilentRead`
+> request is what confirms the budget held.
 
 ---
 

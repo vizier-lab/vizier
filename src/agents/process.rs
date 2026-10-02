@@ -797,15 +797,16 @@ async fn retrieve_auto_context(
     let Some(idx) = indexer else {
         return Vec::new();
     };
+    // A zero budget is the default on the SilentRead path, which fires for every observed channel
+    // message — so this returns quietly rather than logging per message.
     if budget == 0 {
-        tracing::trace!(agent_id, kind, "automatic context disabled for this path");
         return Vec::new();
     }
     if !is_usable_query(prompt) {
         tracing::debug!(
             agent_id,
             kind,
-            "message is not a usable retrieval query; skipping automatic context (FR-029)"
+            "message is not a usable retrieval query; skipping automatic context"
         );
         return Vec::new();
     }
