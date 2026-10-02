@@ -15,8 +15,14 @@ needed, and leaving `embedding` out of the create request is the realistic defau
 1. `just run` (or `just run-d`).
 2. Create an agent via the WebUI or `POST /api/v1/agents` with `provider: "dummyplug"` (no
    credentials) and no `embedding` — the local default is what most agents will actually run.
-3. Run with `RUST_LOG=vizier=debug` — Steps 6, 7, 8 and 10 read tracing output, because the
+3. Run with **`RUST_LOG` unset** — Steps 6, 7, 8 and 10 read tracing output, because the
    automatic-context block is deliberately not visible in dummyplug's reply (see Step 6).
+
+   > Counter-intuitively, do **not** set `RUST_LOG=vizier=debug`. `main.rs:39-60` only installs the
+   > `EnvFilter` when `RUST_LOG` is *absent*, and that default filter is already `vizier=debug`;
+   > setting the variable takes the `else` branch, which calls `fmt().compact().init()` with no
+   > filter at all and so logs at INFO. Setting it to get debug output silently turns debug output
+   > off. Verified during this walk.
 
 > **Offline caveat**: `fastembed` downloads its model once on first use. After that the loop is
 > fully offline. This is the only embedder that needs no API key, so it is the one honest choice
@@ -63,10 +69,23 @@ sqlite3 "$VIZIER_DATA_DIR/vizier.db" \
 - Matching row count in the index:
   `SELECT count(*) FROM document_index WHERE path LIKE '%ops/deploys#%';`
 - `content_hash` identical on every row of the document (data-model §3).
-- The oversized two-topic section split **between** its topics, not at `max_size`: check that the
-  boundary line in `memory_passage` falls at the topic change rather than at a round byte count
-  (FR-001, research D1b). Compare against the same document chunked with embeddings disabled —
-  size-packing cuts at the budget, so a differing boundary is the evidence the seam logic ran.
+- ~~The oversized two-topic section split **between** its topics~~ — **void**. The embedding-chosen
+  seam path was measured out of the design rather than built (research Decision 1b, task T005), so
+  there is no seam logic to evidence and the two-topic section splits on the size budget. The
+  section is still worth keeping in the fixture: it is the case that exercises a mid-section split
+  at all.
+
+**Measured on this walk** (fixture written through the real tool path, defaults 1200/400/2400):
+14 passages over an 17,343-byte body, contiguous with no gaps, first starting at byte 0, ordinals
+5/6/7 carrying `continues = 1` from the 5 KB fenced script, and one `content_hash`
+(`674e19096395db24`) across all 14 rows.
+
+> Counting `document_index` rows from the `sqlite3` CLI needs the `sqlite-vec` extension loaded,
+> which the bundled binary links statically and does not expose as a loadable `.so`. Orphan-freeness
+> is therefore checked behaviourally in Step 9 (the removed text stops being retrievable), and
+> exactly in the `a_document_shrinking_from_twelve_passages_to_four_leaves_no_orphaned_index_rows`
+> unit test, which uses a recording indexer and asserts on the index keys directly. That is the
+> stronger of the two checks.
 
 ---
 
@@ -143,6 +162,12 @@ Requires a Discord or Telegram channel configured, since `SilentRead` only origi
 **Expect in the log**: a `SilentRead` request with zero memory text injected under default config
 (FR-030, SC-011). Channel traffic must not multiply into memory cost.
 
+> **Not covered on this walk** — it needs real Discord or Telegram credentials, since `SilentRead`
+> only originates in those readers. What *is* verified without them: the default is
+> `silent_read_passages: 0`, and `retrieve_auto_context` returns an empty vector on a zero budget
+> before issuing any relevance query, logging `automatic context disabled for this path` at trace
+> level. So the cost of this path under default config is zero queries, not zero results.
+
 ---
 
 ## Step 9 — Edits leave no stale passages
@@ -166,12 +191,22 @@ different content.
 
 ## Step 10 — Embedder failure still saves the memory
 
-**Do**: point the agent's embedding config at an unreachable `base_url`, then send `memory_write`
-with the same oversized-section document.
+**Not reachable through configuration** — covered by unit test instead.
 
-**Expect**: the write succeeds, `memory_passage` rows exist from pure size-packing, and a warning is
-logged (FR-036, research D1b fallback). A save must never fail because seam selection could not
-reach an embedder.
+Pointing an agent's embedding config at an unreachable `base_url` does not produce a running agent
+with a broken embedder: `SqliteIndexer::new` embeds a probe string to negotiate the vector dimension,
+and for ollama `spawn_agent` pulls the model first, so the agent fails to start and never reaches a
+write path at all. (Observed on this walk: `PUT /agents/viz2` with an unreachable base_url returned
+`400 failed to restart agent: error sending request for url (…/api/pull)`. Worth noting separately
+that this left the agent unregistered, because `handle_update` shuts the old process down before
+spawning the replacement — pre-existing, unrelated to this feature.)
+
+The scenario FR-036 actually guards is a *transient* indexing failure on an agent that started
+fine, and that is what `an_indexing_failure_does_not_fail_the_save`
+(`src/storage/memory_bundle.rs`) asserts, with an indexer that errors on every call: the write
+returns `Ok`, the document is still readable in full, and the failure is logged via `tracing`. A unit
+test is the better instrument here, because it can make the indexer fail on demand at exactly the
+moment the write path calls it.
 
 ---
 
@@ -199,8 +234,15 @@ reach an embedder.
 
 **Expect**: the cacheable prefix byte-identical across both, with only the user message differing
 (SC-013). The property holds because `with_context` prepends to the user message
-(`src/agents/agent/mod.rs:436`); this step exists so a later refactor cannot quietly move it into a
+(`src/agents/agent/mod.rs:439`); this step exists so a later refactor cannot quietly move it into a
 system message.
+
+**Now also asserted structurally**, which is stronger than observing two requests:
+`context_is_prepended_to_the_user_message_and_never_to_a_system_message`
+(`src/agents/agent/system_prompt/context.rs`) checks that `with_context` prepends to a
+`Message::User` and returns a system message untouched with no context leaked into it. `context_md`
+has exactly two production call sites, both wrapped in `with_context`, so the block cannot reach a
+system message by any path.
 
 ---
 
@@ -214,10 +256,22 @@ system message.
 
 Run these against one cheap live provider and mark the results as provider-dependent.
 
-## Threshold derivation (not a runtime check)
+## Threshold derivation
 
-SC-010 needs the automatic-context threshold derived, not guessed (research Decision 10). Replay
-stored session history through the passage index and pick the lowest value that yields an empty
-block on at least 70% of real messages. `HistoryStorage` already persists the history, so this is a
-one-off harness over data on disk — no new capture, and it can be done before the 0.6 provisional
-default is committed to.
+**Partly done, on measured data** (research Decision 10's measurement section, tasks T051/T052).
+Both thresholds were calibrated against a live index on this walk rather than guessed, and both
+moved:
+
+| Setting | Was | Now | Why |
+|---|---|---|---|
+| `memory_search` threshold | 0.1 | **0.20** | 0.1 filtered nothing; relevance and noise separate at a gap between 0.08 and 0.20 |
+| automatic-context threshold | 0.6 (provisional) | **0.45** | nothing in a real corpus reached 0.6, so the block would have been empty on *every* turn |
+
+Observed with fastembed `all-MiniLM-L6-v2`: direct topical matches 0.30–0.49, a well-matched short
+memory 0.60, weaker matches 0.20–0.32, unrelated queries 0.04–0.08.
+
+**Still owed**: SC-010's 70%-empty target needs the per-deployment replay over *real* stored session
+history, which a fresh install has none of. `HistoryStorage` already persists it and the HTTP query
+endpoint already accepts a `threshold` parameter, so the harness is a loop over stored messages
+against that endpoint — no new capture. The shipped defaults are now derived from observed score
+distributions on one model and one corpus, which is better than nothing and not the same as tuned.

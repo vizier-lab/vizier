@@ -52,7 +52,8 @@ pub use session::{
 pub use session_file::SessionFileRecord;
 pub use storage::{
     BundleSummary, DEFAULT_BUNDLE, DocumentIndex, ImportReport, Memory, MemoryFrontMatter,
-    MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryQueryParams, PaginatedMemory, Skill,
+    MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryPassageResult, MemoryQueryParams,
+    PaginatedMemory, Skill,
     SkillFrontMatter, default_bundle,
 };
 pub use task::{Task, TaskFrontMatter, TaskSchedule};

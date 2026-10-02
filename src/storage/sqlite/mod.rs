@@ -28,9 +28,15 @@ pub struct SqliteStorage {
     pub document_store: Arc<dyn DocumentStore>,
 }
 
-/// The Memory Graph Index tables (`memory_node`/`memory_edge`, data-model.md), split out from
-/// `init_schema` so unit tests (`src/storage/memory_bundle.rs`) can stand up just these tables
-/// against an in-memory connection without the rest of the application schema.
+/// The Memory Graph Index tables (`memory_node`/`memory_edge`, data-model.md) plus the derived
+/// passage coordinate table (`memory_passage`,
+/// `specs/009-memory-semantic-chunking/data-model.md` §3), split out from `init_schema` so unit
+/// tests (`src/storage/memory_bundle.rs`) can stand up just these tables against an in-memory
+/// connection without the rest of the application schema.
+///
+/// Everything here is derived and rebuildable from the concept documents on disk. For
+/// `memory_passage` specifically, the *absence* of rows for a document is the only marker that it
+/// has not been chunked yet — there is no separate progress table (research Decision 8).
 pub fn init_memory_graph_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "
@@ -60,6 +66,21 @@ pub fn init_memory_graph_schema(conn: &Connection) -> Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_memory_edge_source ON memory_edge(agent_id, source_bundle, source_path);
         CREATE INDEX IF NOT EXISTS idx_memory_edge_target ON memory_edge(agent_id, target_bundle, target_path);
+
+        CREATE TABLE IF NOT EXISTS memory_passage (
+            agent_id TEXT NOT NULL,
+            bundle TEXT NOT NULL,
+            path TEXT NOT NULL,
+            ordinal INTEGER NOT NULL,
+            line_start INTEGER NOT NULL,
+            line_end INTEGER NOT NULL,
+            char_start INTEGER NOT NULL,
+            char_end INTEGER NOT NULL,
+            continues INTEGER NOT NULL DEFAULT 0,
+            content_hash TEXT NOT NULL,
+            PRIMARY KEY (agent_id, bundle, path, ordinal)
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_passage_doc ON memory_passage(agent_id, bundle, path);
         ",
     )?;
     Ok(())

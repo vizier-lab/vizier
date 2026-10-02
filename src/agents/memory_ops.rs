@@ -1,20 +1,33 @@
 use anyhow::Result;
 
 use crate::{
+    config::ChunkLimits,
     indexer::VizierIndexer,
     schema::{MemoryOpEnvelope, MemoryOpRequest, MemoryOpResponse},
     storage::{VizierStorage, memory::MemoryStorage},
 };
+
+/// The per-agent chunking and recall settings this handler applies to every memory op it
+/// services. Carried here rather than looked up per request because they come from the agent
+/// config the owning `agent_process` was spawned with.
+#[derive(Clone)]
+pub struct MemoryOpSettings {
+    pub chunking: ChunkLimits,
+    /// Cap on how many passages one document may contribute to a single search (FR-012).
+    pub per_document: usize,
+}
 
 pub async fn handle_memory_ops(
     rx: flume::Receiver<MemoryOpEnvelope>,
     indexer: VizierIndexer,
     agent_id: String,
     storage: VizierStorage,
+    settings: MemoryOpSettings,
 ) -> Result<()> {
     let mut rx = rx;
     while let Ok(envelope) = rx.recv_async().await {
-        let result = dispatch_memory_op(&envelope.op, &agent_id, &storage, &indexer).await;
+        let result =
+            dispatch_memory_op(&envelope.op, &agent_id, &storage, &indexer, &settings).await;
         let _ = envelope.response.send(result);
     }
     Ok(())
@@ -25,6 +38,7 @@ async fn dispatch_memory_op(
     agent_id: &str,
     storage: &VizierStorage,
     indexer: &VizierIndexer,
+    settings: &MemoryOpSettings,
 ) -> Result<MemoryOpResponse> {
     match op {
         MemoryOpRequest::Write {
@@ -48,6 +62,7 @@ async fn dispatch_memory_op(
                 attachments.clone(),
                 origin,
                 indexer,
+                &settings.chunking,
             )
             .await
             .map(MemoryOpResponse::Memory),
@@ -63,10 +78,12 @@ async fn dispatch_memory_op(
                 query.clone(),
                 *limit,
                 *threshold,
+                settings.per_document,
                 indexer,
+                &settings.chunking,
             )
             .await
-            .map(MemoryOpResponse::MemoryList),
+            .map(MemoryOpResponse::PassageList),
         MemoryOpRequest::GetById { bundle, path } => storage
             .get_memory_detail(agent_id.to_string(), bundle.clone(), path.clone())
             .await
@@ -124,6 +141,7 @@ async fn dispatch_memory_op(
                 zip_bytes.clone(),
                 origin,
                 indexer,
+                &settings.chunking,
             )
             .await
             .map(MemoryOpResponse::Import),
@@ -168,6 +186,7 @@ async fn dispatch_memory_op(
                 *seq,
                 origin,
                 indexer,
+                &settings.chunking,
             )
             .await
             .map(MemoryOpResponse::Rollback),

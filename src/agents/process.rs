@@ -734,6 +734,209 @@ async fn spawn_agent_channels(
     channels
 }
 
+/// Whether a message is usable as a retrieval query on its own (FR-029).
+///
+/// An embedding of "ok" or "do that one" does not encode what the agent is being asked about — it
+/// encodes acknowledgement, or a pointer to something only the previous turns name. Retrieving
+/// against it returns whatever happens to sit nearest in the vector space, and substantive
+/// passages presented as relevant are worse than no passages at all. So this declines *before* a
+/// relevance query is issued, which also means it is not paid for.
+///
+/// Widening the query to a window of recent conversation would likely beat any threshold tuning,
+/// because "do that one" only becomes answerable with the previous turns included. That changes
+/// what the query *is*, and is deliberately left to its own feature.
+fn is_usable_query(message: &str) -> bool {
+    let trimmed = message.trim();
+    if trimmed.chars().count() < 12 {
+        return false;
+    }
+
+    let words: Vec<String> = trimmed
+        .split_whitespace()
+        .map(|w| {
+            w.trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase()
+        })
+        .filter(|w| !w.is_empty())
+        .collect();
+    if words.len() < 3 {
+        return false;
+    }
+
+    // Purely referential: every word is either an acknowledgement, a filler, or a pointer with no
+    // content of its own. One substantive word is enough to make the message worth a query.
+    const EMPTY: &[&str] = &[
+        "ok", "okay", "k", "kk", "sure", "yes", "yeah", "yep", "no", "nope", "thanks", "thank",
+        "you", "ty", "thx", "cheers", "please", "pls", "do", "did", "does", "done", "that", "this",
+        "those", "these", "it", "them", "one", "ones", "the", "a", "an", "and", "or", "but", "so",
+        "then", "now", "again", "too", "also", "just", "go", "ahead", "sounds", "good", "great",
+        "nice", "cool", "fine", "right", "sorry", "hi", "hey", "hello", "lol", "haha", "hmm", "oh",
+        "ah", "yo", "wait", "stop", "continue", "next", "more", "same", "first", "second", "last",
+        "my", "your", "i", "me", "we", "us", "let", "lets", "can", "could", "would", "will",
+        "should", "is", "are", "was", "were", "be", "been", "to", "for", "of", "on", "in", "at",
+        "with", "up", "out", "all", "any", "some", "what", "how", "why",
+    ];
+    words.iter().any(|w| !EMPTY.contains(&w.as_str()))
+}
+
+/// Retrieve the related-memory passages for one turn, within that request kind's budget.
+///
+/// Returns an empty vector for every reason it should: no indexer, a zero budget, an unusable
+/// query, nothing clearing the threshold, or a failed lookup. The turn proceeds without the block
+/// in all of those cases and never fails because of them (FR-027).
+#[allow(clippy::too_many_arguments)]
+async fn retrieve_auto_context(
+    storage: &VizierStorage,
+    indexer: Option<&VizierIndexer>,
+    agent_config: &AgentConfig,
+    agent_id: &str,
+    prompt: &str,
+    budget: usize,
+    kind: &str,
+) -> Vec<crate::schema::MemoryPassageResult> {
+    let Some(idx) = indexer else {
+        return Vec::new();
+    };
+    if budget == 0 {
+        tracing::trace!(agent_id, kind, "automatic context disabled for this path");
+        return Vec::new();
+    }
+    if !is_usable_query(prompt) {
+        tracing::debug!(
+            agent_id,
+            kind,
+            "message is not a usable retrieval query; skipping automatic context (FR-029)"
+        );
+        return Vec::new();
+    }
+
+    let cfg = &agent_config.auto_context;
+    let passages = match storage
+        .query_memory(
+            agent_id.to_string(),
+            None,
+            prompt.to_string(),
+            budget,
+            cfg.threshold,
+            cfg.per_document,
+            idx,
+            &agent_config.chunking,
+        )
+        .await
+    {
+        Ok(passages) => passages,
+        Err(e) => {
+            // FR-027: a failed assembly costs the block, never the turn.
+            tracing::warn!(
+                agent_id,
+                kind,
+                "automatic context lookup failed; proceeding without it: {e}"
+            );
+            return Vec::new();
+        }
+    };
+
+    if passages.is_empty() {
+        // FR-026: the section is omitted entirely rather than filled with weak matches. How often
+        // this branch is taken is what decides whether the feature saves tokens or spends them.
+        tracing::debug!(
+            agent_id,
+            kind,
+            threshold = cfg.threshold,
+            "no passage cleared the automatic-context threshold; no block injected"
+        );
+        return Vec::new();
+    }
+
+    let fitted = fit_to_size_cap(passages, cfg.size_cap);
+    tracing::debug!(
+        agent_id,
+        kind,
+        passages = fitted.len(),
+        bytes = fitted.iter().map(|p| p.text.len()).sum::<usize>(),
+        threshold = cfg.threshold,
+        "injected automatic memory context"
+    );
+    fitted
+}
+
+/// Record whether the agent searched memory anyway after automatic context was injected (FR-032).
+///
+/// This is the hit/miss signal the threshold and budget are tuned against. A *miss* — the block was
+/// injected and the agent still had to search — means the passages did not answer the question, so
+/// the turn paid for them twice. A *hit* means the follow-up round trip was displaced, which is the
+/// only way this feature nets out, since five passages cost roughly 15x the ten titles they
+/// replaced. Logged rather than stored: the replay harness that derives the threshold (task T051)
+/// reads these, and a table would be a second source of truth for a number nothing serves at
+/// runtime.
+async fn record_context_followup(
+    storage: &VizierStorage,
+    session: &VizierSession,
+    agent_id: &str,
+    since: chrono::DateTime<Utc>,
+    injected: usize,
+) {
+    let Ok(history) = storage
+        .list_session_by_time_window(session.clone(), Some(since), None)
+        .await
+    else {
+        return;
+    };
+
+    let searched = history.iter().any(|entry| {
+        matches!(
+            &entry.content,
+            SessionHistoryContent::ToolCall { name, .. }
+                if name == "memory_search" || name == "memory_read" || name == "memory_follow"
+        )
+    });
+
+    tracing::info!(
+        agent_id,
+        injected_passages = injected,
+        searched_anyway = searched,
+        outcome = if searched { "miss" } else { "hit" },
+        "automatic memory context follow-up"
+    );
+}
+
+/// Spend the total size budget in rank order, stopping at the first passage that does not fit
+/// (FR-022, FR-028).
+///
+/// No partial passage at the tail: a half-sentence costs tokens and tells the agent nothing. The
+/// one exception is a single passage larger than the whole budget — dropping it silently would
+/// hide the best match, so it is truncated and says so, with its address intact.
+fn fit_to_size_cap(
+    passages: Vec<crate::schema::MemoryPassageResult>,
+    size_cap: usize,
+) -> Vec<crate::schema::MemoryPassageResult> {
+    let mut out = Vec::new();
+    let mut spent = 0usize;
+
+    for mut passage in passages {
+        let len = passage.text.len();
+        if spent + len <= size_cap {
+            spent += len;
+            out.push(passage);
+            continue;
+        }
+        if out.is_empty() && size_cap > 0 {
+            // The top-ranked passage alone overruns the budget. Truncate on a character boundary
+            // and mark it, so the agent knows to read the document if it needs the rest.
+            let mut end = size_cap.min(passage.text.len());
+            while end > 0 && !passage.text.is_char_boundary(end) {
+                end -= 1;
+            }
+            passage.text.truncate(end);
+            passage.truncated = true;
+            out.push(passage);
+        }
+        break;
+    }
+
+    out
+}
+
 pub async fn handle_request(
     agent: Arc<VizierAgent>,
     agent_config: AgentConfig,
@@ -776,14 +979,18 @@ pub async fn handle_request(
                 )
                 .await?;
 
-            let memory = match &indexer {
-                Some(idx) => {
-                    storage
-                        .query_memory(session.0.clone(), None, prompt.clone(), 10, 0.5, idx)
-                        .await?
-                }
-                None => Vec::new(),
-            };
+            let memory = retrieve_auto_context(
+                &storage,
+                indexer.as_ref(),
+                &agent_config,
+                &session.0,
+                &prompt,
+                agent_config.auto_context.chat_passages,
+                "chat",
+            )
+            .await;
+            let injected_context = (!memory.is_empty()).then_some(memory.len());
+            let turn_start = Utc::now();
             let skills = agent.recommend_skills(&prompt).await.unwrap_or_default();
             let res = agent
                 .chat(
@@ -796,6 +1003,12 @@ pub async fn handle_request(
                     checkpoint_handover,
                 )
                 .await?;
+            // FR-032: the hit/miss signal the threshold is tuned against. Whether the agent went
+            // on to search memory anyway is what says if the injected block was any use.
+            if let Some(injected) = injected_context {
+                let agent = session.0.clone();
+                record_context_followup(&storage, &session, &agent, turn_start, injected).await;
+            }
             if let Some(ref tx) = response_tx {
                 let _ = tx.send_async(res).await;
             }
@@ -811,14 +1024,21 @@ pub async fn handle_request(
                     Some(request.timestamp.clone()),
                 )
                 .await?;
-            let memory = match &indexer {
-                Some(idx) => {
-                    storage
-                        .query_memory(session.0.clone(), None, prompt.clone(), 10, 0.5, idx)
-                        .await?
-                }
-                None => Vec::new(),
-            };
+            // This path fires for every non-mention message in a Discord guild channel and every
+            // Telegram group message, so its cost scales with channel traffic rather than with
+            // conversation volume. It gets its own budget, defaulting to zero (FR-030).
+            let memory = retrieve_auto_context(
+                &storage,
+                indexer.as_ref(),
+                &agent_config,
+                &session.0,
+                &prompt,
+                agent_config.auto_context.silent_read_passages,
+                "silent_read",
+            )
+            .await;
+            let injected_context = (!memory.is_empty()).then_some(memory.len());
+            let turn_start = Utc::now();
             let skills = agent.recommend_skills(&prompt).await.unwrap_or_default();
             let res = agent
                 .chat(
@@ -831,6 +1051,10 @@ pub async fn handle_request(
                     checkpoint_handover,
                 )
                 .await?;
+            if let Some(injected) = injected_context {
+                let agent = session.0.clone();
+                record_context_followup(&storage, &session, &agent, turn_start, injected).await;
+            }
             if let Some(ref tx) = response_tx {
                 let _ = tx.send_async(res).await;
             }
@@ -1023,5 +1247,169 @@ async fn save_dream_entry(
             agent_id,
             e
         );
+    }
+}
+
+#[cfg(test)]
+mod auto_context_tests {
+    use super::*;
+    use crate::schema::MemoryPassageResult;
+
+    fn passage(text: &str) -> MemoryPassageResult {
+        MemoryPassageResult {
+            bundle: "work".into(),
+            path: "ops/deploys".into(),
+            title: "Deployment practice".into(),
+            ordinal: 3,
+            ordinal_end: 3,
+            line_start: 48,
+            line_end: 71,
+            text: text.into(),
+            score: 0.8,
+            truncated: false,
+        }
+    }
+
+    // ---- FR-029: the query-usability gate ----
+
+    #[test]
+    fn purely_referential_messages_do_not_trigger_retrieval() {
+        for message in [
+            "ok",
+            "okay",
+            "thanks",
+            "thank you",
+            "do that one",
+            "yes please do that",
+            "sounds good to me",
+            "ok cool thanks",
+            "",
+            "   ",
+            "k",
+        ] {
+            assert!(
+                !is_usable_query(message),
+                "{message:?} is not a usable retrieval query"
+            );
+        }
+    }
+
+    #[test]
+    fn substantive_messages_do_trigger_retrieval() {
+        for message in [
+            "when are our deployment windows",
+            "what did we decide about the rollback procedure",
+            "remind me who owns the billing service",
+            "do that one for the staging cluster instead",
+        ] {
+            assert!(is_usable_query(message), "{message:?} is a usable query");
+        }
+    }
+
+    /// The gate is about content, not politeness: one substantive word is enough. "do that one for
+    /// the staging cluster" is referential *and* usable, because "staging cluster" is something to
+    /// retrieve against.
+    #[test]
+    fn one_substantive_word_is_enough_to_clear_the_gate() {
+        assert!(!is_usable_query("ok do that one"));
+        assert!(is_usable_query("ok do the migration"));
+    }
+
+    // ---- FR-022, FR-028: the total size cap ----
+
+    #[test]
+    fn passages_are_taken_in_rank_order_until_the_budget_runs_out() {
+        let passages = vec![passage(&"a".repeat(100)), passage(&"b".repeat(100))];
+        let out = fit_to_size_cap(passages, 250);
+        assert_eq!(out.len(), 2, "both fit inside the cap");
+        assert!(out.iter().all(|p| !p.truncated));
+    }
+
+    #[test]
+    fn the_remainder_is_omitted_rather_than_cut_in_half() {
+        let passages = vec![
+            passage(&"a".repeat(100)),
+            passage(&"b".repeat(100)),
+            passage(&"c".repeat(100)),
+        ];
+        let out = fit_to_size_cap(passages, 250);
+        assert_eq!(out.len(), 2, "the third is dropped whole, not trimmed");
+        assert!(
+            out.iter().all(|p| p.text.len() == 100 && !p.truncated),
+            "no partial passage at the tail"
+        );
+    }
+
+    /// FR-028: dropping the top-ranked passage silently would hide the best match, so it is
+    /// truncated and says so, with its address intact.
+    #[test]
+    fn a_single_oversized_passage_is_truncated_and_marked_rather_than_dropped() {
+        let out = fit_to_size_cap(vec![passage(&"x".repeat(5000))], 1000);
+        assert_eq!(out.len(), 1, "it is included, not dropped");
+        assert!(out[0].truncated, "and it says it was truncated");
+        assert_eq!(out[0].text.len(), 1000);
+        assert_eq!(out[0].bundle, "work", "its address survives truncation");
+        assert_eq!(out[0].path, "ops/deploys");
+        assert_eq!(out[0].ordinal, 3);
+    }
+
+    #[test]
+    fn truncation_lands_on_a_character_boundary() {
+        // Every char is 3 bytes, so a byte-indexed truncate would split one.
+        let out = fit_to_size_cap(vec![passage(&"日".repeat(500))], 1000);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].truncated);
+        assert_eq!(out[0].text.len() % 3, 0, "did not split a multi-byte char");
+        assert!(out[0].text.chars().all(|c| c == '日'));
+    }
+
+    #[test]
+    fn a_zero_cap_yields_nothing_rather_than_an_empty_truncated_passage() {
+        assert!(fit_to_size_cap(vec![passage("anything")], 0).is_empty());
+    }
+
+    // ---- FR-021, FR-026, FR-031: rendering ----
+
+    #[test]
+    fn the_memory_section_is_omitted_entirely_when_nothing_qualified() {
+        let rendered = crate::agents::agent::system_prompt::context::context_md(&[], &[]);
+        assert!(
+            !rendered.contains("Related Memories"),
+            "FR-026: no empty heading, no weakly-related filler: {rendered}"
+        );
+    }
+
+    #[test]
+    fn a_rendered_passage_carries_its_address_and_is_labelled_as_data() {
+        let rendered =
+            crate::agents::agent::system_prompt::context::context_md(&[passage("Deploys go out Tuesday.")], &[]);
+        assert!(rendered.contains(r#"<memory bundle="work" path="ops/deploys" passage="3">"#));
+        assert!(rendered.contains("Deploys go out Tuesday."));
+        assert!(rendered.contains("</memory>"));
+        assert!(
+            rendered.contains("not instruction"),
+            "FR-031: stated to be reference material, not instruction"
+        );
+        assert!(
+            rendered.contains("memory_read"),
+            "FR-021: says how to reach the whole document"
+        );
+    }
+
+    #[test]
+    fn a_merged_passage_renders_its_ordinal_range() {
+        let mut p = passage("merged text");
+        p.ordinal_end = 5;
+        let rendered = crate::agents::agent::system_prompt::context::context_md(&[p], &[]);
+        assert!(rendered.contains(r#"passage="3-5""#), "{rendered}");
+    }
+
+    #[test]
+    fn a_truncated_passage_says_so_in_the_rendered_block() {
+        let mut p = passage("cut short");
+        p.truncated = true;
+        let rendered = crate::agents::agent::system_prompt::context::context_md(&[p], &[]);
+        assert!(rendered.contains(r#"truncated="true""#), "{rendered}");
+        assert!(rendered.contains("truncated to fit"), "{rendered}");
     }
 }

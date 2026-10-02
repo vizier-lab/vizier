@@ -84,6 +84,52 @@ artefact search quality is judged on (SC-001, SC-002).
 (FR-036). That is a `match` on a `Result`, not branching over a type tag — Principle II concerns
 kind-varying behaviour, and an error path is not a kind.
 
+### Measurement (task T005) — the gate closed this decision as *not built*
+
+Measured against the only real corpus available, `.vizier/agents/viz/memory` (57 concept documents,
+one agent, `index.md`/`log.md` excluded), splitting each body on heading lines with fence state
+tracked first — the same segmentation pass 1 performs:
+
+| Metric | Value |
+|---|---|
+| Documents | 57 |
+| Document body bytes | min 494 · p50 1,303 · p90 1,497 · max 2,811 · mean 1,290 |
+| Documents containing at least one heading | **57 / 57 (100%)** |
+| Heading-delimited runs | 310 |
+| Run bytes | min 35 · p50 229 · p75 276 · p90 340 · p99 500 · **max 697** |
+| Runs over `max_size` (2,400) | **0 (0.0%)** |
+| Runs over `2 × min_size` (800) | **0 (0.0%)** |
+
+The corpus is uniformly heading-dense, and the largest run in it is 697 bytes — below the lower of
+the two triggers by a factor of 1.15, and below `max_size` by 3.4x. Neither embedding trigger fires
+on a single document. The gate's condition is met exactly as stated, so **T010/T011 are dropped
+rather than built**, and with them the embedder parameter they existed to consume.
+
+Consequences, all narrowing:
+
+- `pack_blocks(blocks, limits)` loses its `block_embeddings: Option<&[Vec<f64>]>` parameter. Keeping
+  a parameter whose only possible argument is `None` would be the speculative generality Principle I
+  rejects, and clippy would flag it.
+- `chunk_markdown(content, limits) -> Vec<PassageSpan>` is synchronous, pure, infallible, and takes
+  no embedder. The async orchestrator existed only to batch seam embeddings.
+- FR-036 (a chunking failure must not fail the save) is satisfied structurally rather than by a
+  fallback branch: chunking can no longer fail. The requirement still binds the *indexing* half of
+  the write path, which remains fallible and is handled there.
+- Decision 6 (`add_document_indexes`) is **unaffected**. It batches the embedding of finished
+  passage *texts* for the index, which happens on every save regardless of how seams were chosen,
+  and is where the N-round-trip cost actually lands.
+- Decision 12 (drift via `content_hash`) is **kept**. Its stronger rationale — that remote embedding
+  models are not version-stable — no longer applies now that spans are deterministic from content
+  alone, but comparing one hash is still cheaper and simpler than re-chunking and diffing spans, and
+  it needs no embedder. The reason narrows; the conclusion does not change.
+
+Spans are now deterministic for fixed input across the board, which the chunker contract's
+invariants already required of both passes and now holds of the orchestrator too.
+
+**If this is revisited**, the trigger to watch for is a corpus with long unsectioned runs — imported
+third-party documents, or dream-journal entries written as continuous prose. The measurement script
+is twenty lines over `DocumentStore` paths and can be re-run against a corpus that has them.
+
 ---
 
 ## Decision 2 — Passage identity is encoded in the existing indexer key
@@ -277,6 +323,52 @@ one-off harness over data already on disk.
 - Blocking the feature on the measurement — the provisional default is safe because FR-026 omits
   the block entirely when nothing clears the bar; a too-high threshold degrades to today's
   behaviour minus the titles, not to a regression.
+
+### Measurement (quickstart Step 3, tasks T051/T052) — both thresholds revised
+
+Measured against a live index: the T004 fixture (14 passages) written through the real write path and
+queried through the real search path, embedded with the default local fastembed
+`all-MiniLM-L6-v2`. Scores read off the HTTP query endpoint with `threshold=0.0`, which is what that
+parameter is for.
+
+| Query | Best score | Judgement |
+|---|---|---|
+| `when do we deploy` | **0.49** | direct match |
+| `rollback procedure` | 0.40 | direct heading match |
+| `deployment windows are Tuesday` | 0.38 | direct match |
+| `deployment windows` | 0.37 | direct match |
+| `incident review` | 0.32 | direct heading match |
+| `monitoring and alerts` | 0.30 | direct heading match |
+| `vendor contracts` | 0.21 | weaker heading match |
+| `my cat is orange` | 0.08 | unrelated |
+| `banana bread recipe` | 0.06 | unrelated |
+| `what is the capital of France` | 0.04 | unrelated |
+
+Two conclusions, both of which changed a number:
+
+**The search threshold is 0.20, not 0.35 and certainly not 0.1.** Relevance and noise separate
+cleanly, with a gap between roughly 0.08 and 0.20 and nothing landing inside it. 0.20 sits at the
+bottom of that gap: every genuine topical match above clears it, and every unrelated query is
+rejected with 2.5x of margin. An earlier pass set 0.35 on the reasoning that 0.1 was obviously too
+loose — and 0.35 turned out to reject `incident review` (0.32) against a document that *has* an
+`## Incident review` section. That is the worse failure of the two, because an agent cannot tell
+"nothing matched" from "the filter was too tight", and FR-014 makes an empty result meaningful.
+
+**The automatic-context threshold is 0.45, not 0.6.** Nothing in this corpus reached 0.6 at all, so
+the provisional default would have left the per-turn block empty on *every* turn. That is safe —
+FR-026 omits the section rather than filling it, so it degrades to today's behaviour minus the titles
+exactly as the rejected alternative above predicted — but it would have meant US2 never fired in
+practice while appearing configured, which is worse than a wrong number because it looks like a
+working feature. 0.45 fires only on the strong end of the observed range, keeps the block correctly
+empty most of the time (SC-010), and stays stricter than search as FR-023 requires.
+
+**What this does not settle.** One embedding model, one corpus, and a fixture whose filler prose is
+deliberately low-information — real prose should score higher, which would make both thresholds
+*more* permissive than intended rather than less. The history-replay harness this decision asked for
+is still the right way to derive these per deployment, and it is still cheap: `HistoryStorage` already
+persists the messages, and the HTTP query endpoint already takes a `threshold` parameter, so the
+harness is a loop over stored messages against that endpoint. What has changed is that the shipped
+defaults are now derived from observed score distributions rather than from nothing.
 
 ---
 

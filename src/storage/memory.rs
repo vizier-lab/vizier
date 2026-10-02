@@ -1,16 +1,18 @@
 use anyhow::Result;
 
 use crate::{
+    config::ChunkLimits,
     indexer::VizierIndexer,
     schema::{
-        BundleSummary, ImportReport, Memory, MemoryGraph, MemoryGraphNode, MemoryQueryParams,
-        MemoryRevision, PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin,
-        RollbackResponse, VizierAttachment,
+        BundleSummary, ImportReport, Memory, MemoryGraph, MemoryGraphNode, MemoryPassageResult,
+        MemoryQueryParams, MemoryRevision, PaginatedMemory, PaginatedMemoryRevisions,
+        RevisionDiff, RevisionOrigin, RollbackResponse, VizierAttachment,
     },
     storage::VizierStorage,
 };
 
 #[async_trait::async_trait]
+#[allow(clippy::too_many_arguments)]
 pub trait MemoryStorage {
     /// Write (create or update) a concept document at `(bundle, path)`.
     ///
@@ -36,9 +38,17 @@ pub trait MemoryStorage {
         attachments: Vec<VizierAttachment>,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
+        limits: &ChunkLimits,
     ) -> Result<Memory>;
 
-    /// Semantic search. `bundle: None` searches across all of the agent's bundles.
+    /// Semantic search over **passages**, not whole documents (FR-008). Returns short addressed
+    /// slices of matching memories, ranked by each passage's own relevance independently of which
+    /// document it belongs to (FR-010); the whole document is reached afterwards by its address
+    /// through `get_memory_detail`. `bundle: None` searches across all of the agent's bundles.
+    ///
+    /// `limits` is needed because a document with no stored passages is chunked on the fly rather
+    /// than missed, which is what keeps an unconverted corpus searchable while conversion runs.
+    #[allow(clippy::too_many_arguments)]
     async fn query_memory(
         &self,
         agent_id: String,
@@ -46,8 +56,23 @@ pub trait MemoryStorage {
         query: String,
         limit: usize,
         threshold: f64,
+        per_document: usize,
         indexer: &VizierIndexer,
-    ) -> Result<Vec<Memory>>;
+        limits: &ChunkLimits,
+    ) -> Result<Vec<MemoryPassageResult>>;
+
+    /// Rebuild passages for every document of one agent that needs it: never-converted documents
+    /// (no `memory_passage` rows) and drifted ones (stored `content_hash` differs from the body).
+    /// Returns `(converted, failed)`.
+    ///
+    /// Resumable by construction — absence of rows is the only progress marker, so an interrupted
+    /// run simply has fewer documents left to do and no state to reconcile (FR-040).
+    async fn reconcile_agent_passages(
+        &self,
+        agent_id: &str,
+        limits: &ChunkLimits,
+        indexer: &VizierIndexer,
+    ) -> Result<(usize, usize)>;
 
     /// `bundle: None` means all bundles.
     async fn get_all_agent_memory(
@@ -136,6 +161,7 @@ pub trait MemoryStorage {
         zip_bytes: Vec<u8>,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
+        limits: &ChunkLimits,
     ) -> Result<ImportReport>;
 
     // ---- version history (specs/006-memory-version-history) ----
@@ -173,6 +199,7 @@ pub trait MemoryStorage {
     /// Re-saves revision `seq` through `write_memory` with `trigger = rollback` — identical to a
     /// manual save (index, links, graph all refreshed). Errors if `seq` is unknown or a deletion
     /// entry.
+    #[allow(clippy::too_many_arguments)]
     async fn rollback_memory(
         &self,
         agent_id: String,
@@ -181,6 +208,7 @@ pub trait MemoryStorage {
         seq: i64,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
+        limits: &ChunkLimits,
     ) -> Result<RollbackResponse>;
 }
 
@@ -198,6 +226,7 @@ impl MemoryStorage for VizierStorage {
         attachments: Vec<VizierAttachment>,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
+        limits: &ChunkLimits,
     ) -> Result<Memory> {
         self.0
             .write_memory(
@@ -211,10 +240,12 @@ impl MemoryStorage for VizierStorage {
                 attachments,
                 origin,
                 indexer,
+                limits,
             )
             .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn query_memory(
         &self,
         agent_id: String,
@@ -222,10 +253,32 @@ impl MemoryStorage for VizierStorage {
         query: String,
         limit: usize,
         threshold: f64,
+        per_document: usize,
         indexer: &VizierIndexer,
-    ) -> Result<Vec<Memory>> {
+        limits: &ChunkLimits,
+    ) -> Result<Vec<MemoryPassageResult>> {
         self.0
-            .query_memory(agent_id, bundle, query, limit, threshold, indexer)
+            .query_memory(
+                agent_id,
+                bundle,
+                query,
+                limit,
+                threshold,
+                per_document,
+                indexer,
+                limits,
+            )
+            .await
+    }
+
+    async fn reconcile_agent_passages(
+        &self,
+        agent_id: &str,
+        limits: &ChunkLimits,
+        indexer: &VizierIndexer,
+    ) -> Result<(usize, usize)> {
+        self.0
+            .reconcile_agent_passages(agent_id, limits, indexer)
             .await
     }
 
@@ -327,9 +380,10 @@ impl MemoryStorage for VizierStorage {
         zip_bytes: Vec<u8>,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
+        limits: &ChunkLimits,
     ) -> Result<ImportReport> {
         self.0
-            .import_bundle(agent_id, bundle, zip_bytes, origin, indexer)
+            .import_bundle(agent_id, bundle, zip_bytes, origin, indexer, limits)
             .await
     }
 
@@ -369,6 +423,7 @@ impl MemoryStorage for VizierStorage {
             .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn rollback_memory(
         &self,
         agent_id: String,
@@ -377,9 +432,10 @@ impl MemoryStorage for VizierStorage {
         seq: i64,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
+        limits: &ChunkLimits,
     ) -> Result<RollbackResponse> {
         self.0
-            .rollback_memory(agent_id, bundle, path, seq, origin, indexer)
+            .rollback_memory(agent_id, bundle, path, seq, origin, indexer, limits)
             .await
     }
 }

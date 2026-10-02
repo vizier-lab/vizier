@@ -35,7 +35,7 @@ use crate::{
     image_generation::VizierImageGen,
     indexer::VizierIndexer,
     schema::{
-        AgentConfig, ErrorKind, Memory, SessionHistory, SessionHistoryContent, Skill,
+        AgentConfig, ErrorKind, MemoryPassageResult, SessionHistory, SessionHistoryContent, Skill,
         VizierAttachment, VizierAttachmentContent, VizierRequest, VizierRequestContent,
         VizierResponse, VizierResponseContent, VizierResponseStats, VizierSession,
         history_entries_to_messages, message_for_model, messages_for_model,
@@ -326,7 +326,7 @@ impl VizierAgent {
         req: VizierRequest,
         session: VizierSession,
         session_history: Vec<SessionHistory>,
-        memory: Vec<Memory>,
+        memory: Vec<MemoryPassageResult>,
         skills: Vec<Skill>,
         hooks: Option<Arc<VizierSessionHooks>>,
         checkpoint_handover: Option<String>,

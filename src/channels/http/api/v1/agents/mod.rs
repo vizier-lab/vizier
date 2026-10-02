@@ -479,6 +479,8 @@ impl CreateAgentRequest {
                 self.indexer
                     .unwrap_or(IndexerConfig { kind: IndexerKind::Sqlite }),
             ),
+            chunking: Default::default(),
+            auto_context: Default::default(),
         }
     }
 }

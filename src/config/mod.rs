@@ -40,6 +40,43 @@ fn default_ws_idle_timeout_secs() -> u64 {
     300 // 5 minutes
 }
 
+/// Passage sizing bounds for the memory chunker (`src/storage/chunk.rs`). Byte-denominated
+/// rather than token-denominated so the chunker stays synchronous and provider-agnostic — no
+/// tokenizer dependency. `target_size` is what the packer aims for, `min_size` is a constraint
+/// that overrides boundary preference, and `max_size` is a hard ceiling except where an
+/// indivisible block is permitted to overflow it (FR-002, FR-003, FR-004, FR-041).
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct ChunkLimits {
+    #[serde(default = "default_chunk_target_size")]
+    pub target_size: usize,
+    #[serde(default = "default_chunk_min_size")]
+    pub min_size: usize,
+    #[serde(default = "default_chunk_max_size")]
+    pub max_size: usize,
+}
+
+fn default_chunk_target_size() -> usize {
+    1200
+}
+
+fn default_chunk_min_size() -> usize {
+    400
+}
+
+fn default_chunk_max_size() -> usize {
+    2400
+}
+
+impl Default for ChunkLimits {
+    fn default() -> Self {
+        Self {
+            target_size: default_chunk_target_size(),
+            min_size: default_chunk_min_size(),
+            max_size: default_chunk_max_size(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VizierConfig {
     #[serde(skip)]

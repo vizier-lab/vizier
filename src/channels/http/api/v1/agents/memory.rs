@@ -19,9 +19,9 @@ use crate::{
         state::HTTPState,
     },
     schema::{
-        BundleSummary, ImportReport, Memory, MemoryGraph, MemoryQueryParams, MemoryRevision,
-        PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin, RevisionTrigger, RollbackResponse,
-        VizierAttachment, default_bundle,
+        BundleSummary, ImportReport, Memory, MemoryGraph, MemoryPassageResult, MemoryQueryParams,
+        MemoryRevision, PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin, RevisionTrigger,
+        RollbackResponse, VizierAttachment, default_bundle,
     },
     storage::agent::AgentStorage,
 };
@@ -476,7 +476,7 @@ pub async fn update_memory_scoped(
     ),
     request_body = QueryMemoryRequest,
     responses(
-        (status = 200, description = "Query results", body = APIResponse<Vec<MemoryDetail>>),
+        (status = 200, description = "Matching passages", body = APIResponse<Vec<MemoryPassageResult>>),
         (status = 404, description = "Agent not found", body = APIResponse<String>),
         (status = 500, description = "Internal server error", body = APIResponse<String>)
     )
@@ -486,7 +486,7 @@ pub async fn query_memories(
     Query(params): Query<QueryMemoryRequest>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
-) -> models::response::Response<Vec<MemoryDetail>> {
+) -> models::response::Response<Vec<MemoryPassageResult>> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
@@ -504,9 +504,11 @@ pub async fn query_memories(
         )
         .await
     {
-        Ok(crate::schema::MemoryOpResponse::MemoryList(memories)) => {
-            let response: Vec<MemoryDetail> = memories.iter().map(detail_from_memory).collect();
-            api_response(StatusCode::OK, response)
+        // Passage results, carrying the same addresses as the agent-facing `memory_search`
+        // (FR-017). One type serves both surfaces rather than two near-identical ones, so
+        // whoever builds a memory-search screen later gets the passage the agent actually saw.
+        Ok(crate::schema::MemoryOpResponse::PassageList(passages)) => {
+            api_response(StatusCode::OK, passages)
         }
         Ok(_) => err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
