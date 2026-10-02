@@ -1,17 +1,19 @@
 use anyhow::Result;
 
 use crate::{
+    config::ChunkLimits,
     indexer::VizierIndexer,
     schema::{
-        BundleSummary, ImportReport, Memory, MemoryGraph, MemoryQueryParams, MemoryRevision,
-        PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin, RollbackResponse,
-        VizierAttachment,
+        BundleSummary, ImportReport, Memory, MemoryGraph, MemoryPassageResult, MemoryQueryParams,
+        MemoryRevision, PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin,
+        RollbackResponse, VizierAttachment,
     },
     storage::{memory::MemoryStorage, sqlite::SqliteStorage},
 };
 
 #[async_trait::async_trait]
 impl MemoryStorage for SqliteStorage {
+    #[allow(clippy::too_many_arguments)]
     async fn write_memory(
         &self,
         agent_id: String,
@@ -24,15 +26,17 @@ impl MemoryStorage for SqliteStorage {
         attachments: Vec<VizierAttachment>,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
+        limits: &ChunkLimits,
     ) -> Result<Memory> {
         self.bundle_store()
             .write_memory(
                 agent_id, bundle, path, create_only, title, content, tags, attachments, origin,
-                indexer,
+                indexer, limits,
             )
             .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn query_memory(
         &self,
         agent_id: String,
@@ -40,10 +44,32 @@ impl MemoryStorage for SqliteStorage {
         query: String,
         limit: usize,
         threshold: f64,
+        per_document: usize,
         indexer: &VizierIndexer,
-    ) -> Result<Vec<Memory>> {
+        limits: &ChunkLimits,
+    ) -> Result<Vec<MemoryPassageResult>> {
         self.bundle_store()
-            .query_memory(agent_id, bundle, query, limit, threshold, indexer)
+            .query_memory(
+                agent_id,
+                bundle,
+                query,
+                limit,
+                threshold,
+                per_document,
+                indexer,
+                limits,
+            )
+            .await
+    }
+
+    async fn reconcile_agent_passages(
+        &self,
+        agent_id: &str,
+        limits: &ChunkLimits,
+        indexer: &VizierIndexer,
+    ) -> Result<(usize, usize)> {
+        self.bundle_store()
+            .reconcile_all_passages(agent_id, limits, indexer)
             .await
     }
 
@@ -147,9 +173,10 @@ impl MemoryStorage for SqliteStorage {
         zip_bytes: Vec<u8>,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
+        limits: &ChunkLimits,
     ) -> Result<ImportReport> {
         self.bundle_store()
-            .import_bundle(agent_id, bundle, zip_bytes, origin, indexer)
+            .import_bundle(agent_id, bundle, zip_bytes, origin, indexer, limits)
             .await
     }
 
@@ -191,6 +218,7 @@ impl MemoryStorage for SqliteStorage {
             .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn rollback_memory(
         &self,
         agent_id: String,
@@ -199,9 +227,10 @@ impl MemoryStorage for SqliteStorage {
         seq: i64,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
+        limits: &ChunkLimits,
     ) -> Result<RollbackResponse> {
         self.bundle_store()
-            .rollback_memory(agent_id, bundle, path, seq, origin, indexer)
+            .rollback_memory(agent_id, bundle, path, seq, origin, indexer, limits)
             .await
     }
 }

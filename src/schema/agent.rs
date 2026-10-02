@@ -4,6 +4,7 @@ use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::config::ChunkLimits;
 use crate::config::provider::ProviderVariant;
 use crate::config::shell::ShellConfig;
 use crate::config::tools::mcp::McpClientConfig;
@@ -56,10 +57,84 @@ pub struct AgentConfig {
     pub embedding: Option<EmbeddingConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub indexer: Option<IndexerConfig>,
+    /// Passage sizing bounds used when this agent's memories are chunked (FR-041).
+    #[serde(default)]
+    pub chunking: ChunkLimits,
+    /// Budget for the related-memory block injected into each turn (FR-022, FR-023, FR-030).
+    #[serde(default)]
+    pub auto_context: AutoContextConfig,
 }
 
 fn default_checkpoint_threshold() -> f64 {
     0.8
+}
+
+/// What the per-turn related-memory lookup is allowed to spend, budgeted separately per request
+/// kind. `SilentRead` fires for every non-mention message in a Discord guild channel and every
+/// Telegram group message, so its cost scales with channel traffic rather than with conversation
+/// volume — it defaults to zero and `Chat` does not (FR-030, research Decision 9).
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema, JsonSchema)]
+pub struct AutoContextConfig {
+    /// Passages injected on the `Chat` / `AudioChat` path.
+    #[serde(default = "default_auto_context_chat_passages")]
+    pub chat_passages: usize,
+    /// Passages injected on the `SilentRead` path. Zero disables retrieval there entirely.
+    #[serde(default)]
+    pub silent_read_passages: usize,
+    /// Relevance floor for automatic context, independent of and stricter than the search
+    /// threshold (FR-023).
+    #[serde(default = "default_auto_context_threshold")]
+    pub threshold: f64,
+    /// Total byte budget for the assembled block, spent in rank order (FR-022, FR-028).
+    #[serde(default = "default_auto_context_size_cap")]
+    pub size_cap: usize,
+    /// How many passages one document may contribute to a single turn (FR-024).
+    #[serde(default = "default_auto_context_per_document")]
+    pub per_document: usize,
+}
+
+fn default_auto_context_chat_passages() -> usize {
+    5
+}
+
+/// **0.45**, revised down from a provisional 0.6 after measuring a real index (quickstart Step 3).
+///
+/// Against fastembed `all-MiniLM-L6-v2`, genuine topical matches scored 0.30–0.49 and unrelated
+/// queries 0.04–0.08. **Nothing in that corpus reached 0.6 at all**, so 0.6 would have left this
+/// block empty on every turn — safe, because FR-026 omits the section entirely rather than filling
+/// it, but it would have meant the per-turn half of this feature never fired in practice while
+/// looking configured.
+///
+/// 0.45 fires only on the strong end of the observed match range, which is the intent: five
+/// passages cost roughly 15x the ten titles they replaced, so the saving comes entirely from how
+/// often the block is *correctly empty* (SC-010 wants that on at least 70% of real messages). It
+/// stays stricter than `SEARCH_THRESHOLD` (0.20) as FR-023 requires.
+///
+/// This is calibrated to one embedding model on one corpus. Deriving it per deployment by replaying
+/// stored session history (research Decision 10, task T051) is still the right way to settle it, and
+/// `HistoryStorage` already persists what that needs.
+fn default_auto_context_threshold() -> f64 {
+    0.45
+}
+
+fn default_auto_context_size_cap() -> usize {
+    6000
+}
+
+fn default_auto_context_per_document() -> usize {
+    2
+}
+
+impl Default for AutoContextConfig {
+    fn default() -> Self {
+        Self {
+            chat_passages: default_auto_context_chat_passages(),
+            silent_read_passages: 0,
+            threshold: default_auto_context_threshold(),
+            size_cap: default_auto_context_size_cap(),
+            per_document: default_auto_context_per_document(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

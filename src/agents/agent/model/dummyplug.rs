@@ -424,6 +424,8 @@ mod tests {
             avatar_url: None,
             embedding: None,
             indexer: None,
+            chunking: Default::default(),
+            auto_context: Default::default(),
         }
     }
 

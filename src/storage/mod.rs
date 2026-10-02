@@ -17,6 +17,7 @@ use crate::{
 };
 
 pub mod agent;
+pub mod chunk;
 pub mod diff;
 pub mod document;
 pub mod dream;

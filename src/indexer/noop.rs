@@ -20,7 +20,24 @@ impl DocumentIndexer for NoopIndexer {
             path,
             embedding: vec![],
             context,
+            score: 0.0,
         })
+    }
+
+    async fn add_document_indexes(
+        &self,
+        context: String,
+        entries: Vec<(String, String)>,
+    ) -> Result<Vec<DocumentIndex>> {
+        Ok(entries
+            .into_iter()
+            .map(|(path, _)| DocumentIndex {
+                path,
+                embedding: vec![],
+                context: context.clone(),
+                score: 0.0,
+            })
+            .collect())
     }
 
     async fn search_document_index(

@@ -15,6 +15,18 @@ pub trait DocumentIndexer {
         path: String,
         content: String,
     ) -> Result<DocumentIndex>;
+
+    /// Index several documents in one call, embedding their contents in a single batch.
+    ///
+    /// Chunking turned one embedding per memory save into one per passage, and for a remote
+    /// embedding provider the single-text path means N sequential HTTP round-trips on the default
+    /// write path (research Decision 6). `VizierEmbeddingModel::embed_texts` already exists on
+    /// every provider; this is what makes it reachable from the indexer.
+    async fn add_document_indexes(
+        &self,
+        context: String,
+        entries: Vec<(String, String)>,
+    ) -> Result<Vec<DocumentIndex>>;
     async fn search_document_index(
         &self,
         context: String,
@@ -47,6 +59,14 @@ impl VizierIndexer {
         content: String,
     ) -> Result<DocumentIndex> {
         self.0.add_document_index(context, path, content).await
+    }
+
+    pub async fn add_document_indexes(
+        &self,
+        context: String,
+        entries: Vec<(String, String)>,
+    ) -> Result<Vec<DocumentIndex>> {
+        self.0.add_document_indexes(context, entries).await
     }
 
     pub async fn search_document_index(

@@ -6,22 +6,25 @@ use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use regex::Regex;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Serialize, de::DeserializeOwned};
 use slugify::slugify;
 
 use crate::{
+    config::ChunkLimits,
     indexer::VizierIndexer,
     schema::{
         BundleSummary, ImportReport, Memory, MemoryFrontMatter, MemoryGraph, MemoryGraphEdge,
-        MemoryGraphNode, MemoryQueryParams, MemoryRevision, MemoryRevisionSummary,
-        PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin, RevisionTrigger,
-        RollbackResponse, VizierAttachment, default_bundle,
+        MemoryGraphNode, MemoryPassageResult, MemoryQueryParams, MemoryRevision,
+        MemoryRevisionSummary, PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff,
+        RevisionOrigin, RevisionTrigger, RollbackResponse, VizierAttachment, default_bundle,
     },
     storage::{
+        chunk::{chunk_markdown, embedded_text, heading_breadcrumb},
         diff::diff_lines,
         document::DocumentStore,
         memory::compute_initial_slugs,
+        rerank::SourceSignals,
         sqlite::memory_revision::{
             self, MemoryRevisionRow, memory_canonical, parse_memory_canonical,
         },
@@ -45,6 +48,13 @@ struct NodeRow {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     read_count: u64,
+}
+
+/// One index hit against a document, before merging. `ordinal` is `None` for a legacy
+/// whole-document entry written before this feature.
+struct PassageHit {
+    ordinal: Option<usize>,
+    score: f64,
 }
 
 struct ClassifiedLink {
@@ -147,6 +157,25 @@ pub(crate) fn parse_markdown_bytes<T: DeserializeOwned>(bytes: &[u8]) -> Result<
 
 /// The canonical snapshot text of an on-disk concept document (`None` when it is missing or
 /// unparseable) — what its history compares against and what a baseline is seeded from.
+/// Slice `[start, end)` out of a document body, clamped into range and nudged onto UTF-8
+/// character boundaries.
+///
+/// Stored spans are coordinates against the body they were derived from, and a document can be
+/// hand-edited on disk without going through Vizier (those edits are not versioned and not
+/// chunked). So a stored span can outrun its document, and slicing it naively would panic —
+/// including mid-character on emoji or CJK content, which agent memories do contain.
+fn slice_passage(content: &str, start: usize, end: usize) -> String {
+    let mut start = start.min(content.len());
+    let mut end = end.clamp(start, content.len());
+    while start > 0 && !content.is_char_boundary(start) {
+        start -= 1;
+    }
+    while end < content.len() && !content.is_char_boundary(end) {
+        end += 1;
+    }
+    content[start..end].to_string()
+}
+
 fn canonical_of_bytes(bytes: &[u8]) -> Option<String> {
     let (fm, body) = parse_markdown_bytes::<MemoryFrontMatter>(bytes).ok()?;
     memory_canonical(&fm.title, &fm.tags, &fm.attachments, &body).ok()
@@ -198,12 +227,223 @@ impl BundleMemoryStore {
         format!("{agent_id}/{bundle}/{path}")
     }
 
-    fn parse_indexer_key(key: &str) -> Option<(String, String, String)> {
+    /// The key a single passage is indexed under: the document key plus `#{ordinal}`
+    /// (research Decision 2). Unambiguous because document paths carry no extension and no `#`.
+    fn passage_indexer_key(agent_id: &str, bundle: &str, path: &str, ordinal: usize) -> String {
+        format!("{agent_id}/{bundle}/{path}#{ordinal}")
+    }
+
+    /// Splits an indexer key back into `(agent_id, bundle, path, ordinal)`. The `splitn(3, '/')`
+    /// is what lets `path` keep its own slashes for a nested concept ("friends/bred"); the
+    /// trailing `#{ordinal}` is stripped off the end. A key with no `#` suffix yields `None` for
+    /// the ordinal, which is how a pre-chunking document-level row is recognised.
+    fn parse_indexer_key(key: &str) -> Option<(String, String, String, Option<usize>)> {
         let mut parts = key.splitn(3, '/');
         let agent_id = parts.next()?.to_string();
         let bundle = parts.next()?.to_string();
-        let path = parts.next()?.to_string();
-        Some((agent_id, bundle, path))
+        let rest = parts.next()?;
+
+        match rest.rsplit_once('#') {
+            Some((path, ordinal)) => match ordinal.parse::<usize>() {
+                Ok(ordinal) => Some((agent_id, bundle, path.to_string(), Some(ordinal))),
+                // A `#` that isn't an ordinal belongs to the path, odd as that is.
+                Err(_) => Some((agent_id, bundle, rest.to_string(), None)),
+            },
+            None => Some((agent_id, bundle, rest.to_string(), None)),
+        }
+    }
+
+    // ---- passages (specs/009-memory-semantic-chunking) ----
+
+    /// Hash of the document body the stored passages were derived from, repeated on every row of
+    /// that document. Comparing this against the live body is how drift is detected, rather than
+    /// re-chunking and diffing spans (research Decision 12).
+    fn content_hash(content: &str) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        content.hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    }
+
+    /// Ordinals currently stored for a document, ascending. Deletion is driven by these rather
+    /// than by re-deriving spans: a document shrinking from twelve passages to four must clear
+    /// all twelve index rows, and only the stored ordinals know there were twelve.
+    fn stored_ordinals(&self, agent_id: &str, bundle: &str, path: &str) -> Result<Vec<usize>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT ordinal FROM memory_passage WHERE agent_id = ?1 AND bundle = ?2 AND path = ?3 ORDER BY ordinal",
+        )?;
+        let rows = stmt
+            .query_map(params![agent_id, bundle, path], |row| {
+                row.get::<_, i64>(0).map(|o| o as usize)
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    /// The stored `content_hash` for a document, or `None` when it has no passages at all — which
+    /// is the marker that it has not been converted yet (FR-040, research Decision 8).
+    fn stored_content_hash(
+        &self,
+        agent_id: &str,
+        bundle: &str,
+        path: &str,
+    ) -> Result<Option<String>> {
+        let conn = self.conn.lock();
+        let hash: Option<String> = conn
+            .query_row(
+                "SELECT content_hash FROM memory_passage WHERE agent_id = ?1 AND bundle = ?2 AND path = ?3 LIMIT 1",
+                params![agent_id, bundle, path],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(hash)
+    }
+
+    /// Drop a document's passage rows and every matching `document_index` entry.
+    ///
+    /// The index entries are removed by *stored* ordinal, one `delete_index` call each (research
+    /// Decision 5 — not a new trait method for one call site). Getting this wrong is the worst
+    /// failure this feature can produce: a shrunk document would leave stale vectors pointing at
+    /// spans that no longer exist, and searches would return text the document no longer has.
+    async fn clear_passages(
+        &self,
+        agent_id: &str,
+        bundle: &str,
+        path: &str,
+        indexer: &VizierIndexer,
+    ) -> Result<()> {
+        for ordinal in self.stored_ordinals(agent_id, bundle, path)? {
+            let _ = indexer
+                .delete_index(
+                    "memory".into(),
+                    Self::passage_indexer_key(agent_id, bundle, path, ordinal),
+                )
+                .await;
+        }
+        // A document written before this feature has one row under the unsuffixed key; clearing
+        // it keeps whole-document relevance data from surviving alongside passages (FR-039).
+        let _ = indexer
+            .delete_index("memory".into(), Self::indexer_key(agent_id, bundle, path))
+            .await;
+        {
+            let conn = self.conn.lock();
+            conn.execute(
+                "DELETE FROM memory_passage WHERE agent_id = ?1 AND bundle = ?2 AND path = ?3",
+                params![agent_id, bundle, path],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Chunk a document, store its passage coordinates, and index every passage in one batch.
+    ///
+    /// Replaces whatever was there before (FR-033). Returns the number of passages written.
+    /// Errors are the caller's to swallow — FR-036 requires that a failure here never fails the
+    /// save, and every caller logs rather than propagates.
+    async fn write_passages(
+        &self,
+        agent_id: &str,
+        bundle: &str,
+        path: &str,
+        title: &str,
+        tags: &[String],
+        content: &str,
+        limits: &ChunkLimits,
+        indexer: &VizierIndexer,
+    ) -> Result<usize> {
+        self.clear_passages(agent_id, bundle, path, indexer).await?;
+
+        let spans = chunk_markdown(content, limits);
+        if spans.is_empty() {
+            return Ok(0);
+        }
+        let hash = Self::content_hash(content);
+
+        {
+            let mut conn = self.conn.lock();
+            let tx = conn.transaction()?;
+            for span in &spans {
+                tx.execute(
+                    "INSERT OR REPLACE INTO memory_passage
+                        (agent_id, bundle, path, ordinal, line_start, line_end, char_start, char_end, continues, content_hash)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    params![
+                        agent_id,
+                        bundle,
+                        path,
+                        span.ordinal as i64,
+                        span.line_start as i64,
+                        span.line_end as i64,
+                        span.char_start as i64,
+                        span.char_end as i64,
+                        span.continues_previous as i64,
+                        hash,
+                    ],
+                )?;
+            }
+            tx.commit()?;
+        }
+
+        // Each passage is embedded with its document's title, tags and heading breadcrumb ahead
+        // of its body, so a query matching only metadata still surfaces the document now that no
+        // whole-document embedding exists to carry it (FR-006, data-model.md §7).
+        let entries: Vec<(String, String)> = spans
+            .iter()
+            .map(|span| {
+                let body = &content[span.char_start..span.char_end];
+                let breadcrumb = heading_breadcrumb(content, span.char_start);
+                (
+                    Self::passage_indexer_key(agent_id, bundle, path, span.ordinal),
+                    embedded_text(title, tags, &breadcrumb, body),
+                )
+            })
+            .collect();
+
+        indexer.add_document_indexes("memory".into(), entries).await?;
+        Ok(spans.len())
+    }
+
+    /// FR-036: a chunking or indexing failure must leave the document readable and the save
+    /// successful. Logged, never propagated — the document becomes retrievable at passage level
+    /// the next time it is written or the next time reconcile notices it has no rows.
+    async fn write_passages_lenient(
+        &self,
+        agent_id: &str,
+        bundle: &str,
+        path: &str,
+        title: &str,
+        tags: &[String],
+        content: &str,
+        limits: &ChunkLimits,
+        indexer: &VizierIndexer,
+    ) {
+        match self
+            .write_passages(
+                agent_id, bundle, path, title, tags, content, limits, indexer,
+            )
+            .await
+        {
+            Ok(count) => {
+                tracing::debug!(
+                    agent_id,
+                    bundle,
+                    path,
+                    passages = count,
+                    "indexed memory passages"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    agent_id,
+                    bundle,
+                    path,
+                    "failed to build or index passages, memory saved without passage-level \
+                     retrieval: {e}"
+                );
+            }
+        }
     }
 
     // ---- Memory Graph Index (sqlite) ----
@@ -613,7 +853,125 @@ impl BundleMemoryStore {
             self.recompute_broken(agent_id)?;
         }
 
+        // Passage rows of a removed document go with it; a document still present keeps its rows
+        // and is checked for drift separately, by `reconcile_passages`, which needs an indexer
+        // this method does not have.
+        for stale in cached_paths.difference(&doc_paths) {
+            let conn = self.conn.lock();
+            conn.execute(
+                "DELETE FROM memory_passage WHERE agent_id = ?1 AND bundle = ?2 AND path = ?3",
+                params![agent_id, bundle, stale],
+            )?;
+        }
+
         Ok(())
+    }
+
+    /// Bring a bundle's passages back in step with its documents, rebuilding only what actually
+    /// needs it (FR-037, FR-038).
+    ///
+    /// Two conditions call for a rebuild, and both are answered without an embedder and without
+    /// re-chunking: a document with **no** passage rows has never been converted, and a document
+    /// whose stored `content_hash` differs from its body has drifted — hand-edited on disk, or
+    /// written by a release that predates passages. Comparing one hash answers the real question
+    /// in one step; re-deriving spans to diff them would be strictly more expensive and would
+    /// rebuild nothing extra (research Decision 12).
+    ///
+    /// Returns `(converted, failed)`. Never returns `Err` for a single document's failure — one
+    /// bad document must not stop the scan.
+    pub async fn reconcile_passages(
+        &self,
+        agent_id: &str,
+        bundle: &str,
+        limits: &ChunkLimits,
+        indexer: &VizierIndexer,
+    ) -> Result<(usize, usize)> {
+        self.reconcile_bundle(agent_id, bundle).await?;
+        let paths: Vec<String> = self
+            .list_nodes(agent_id, Some(bundle))?
+            .into_iter()
+            .map(|n| n.path)
+            .collect();
+
+        let mut converted = 0usize;
+        let mut failed = 0usize;
+
+        for path in paths {
+            let key = Self::doc_key(agent_id, bundle, &path);
+            let bytes = match self.document_store.get(&key).await {
+                Ok(Some(bytes)) => bytes,
+                Ok(None) => continue,
+                Err(e) => {
+                    tracing::warn!(agent_id, bundle, path, "could not read document: {e}");
+                    failed += 1;
+                    continue;
+                }
+            };
+            let (fm, content) = match parse_markdown_bytes::<MemoryFrontMatter>(&bytes) {
+                Ok(parsed) => parsed,
+                Err(e) => {
+                    tracing::warn!(agent_id, bundle, path, "could not parse document: {e}");
+                    failed += 1;
+                    continue;
+                }
+            };
+
+            let stored_hash = self.stored_content_hash(agent_id, bundle, &path).ok().flatten();
+            let live_hash = Self::content_hash(&content);
+            match &stored_hash {
+                // Absence of rows is the only resume marker: already converted, no drift, skip.
+                Some(h) if *h == live_hash => continue,
+                Some(_) => tracing::debug!(agent_id, bundle, path, "passages drifted, rebuilding"),
+                None => tracing::debug!(agent_id, bundle, path, "no passages yet, converting"),
+            }
+
+            match self
+                .write_passages(
+                    agent_id, bundle, &path, &fm.title, &fm.tags, &content, limits, indexer,
+                )
+                .await
+            {
+                Ok(_) => converted += 1,
+                Err(e) => {
+                    tracing::warn!(agent_id, bundle, path, "failed to build passages: {e}");
+                    failed += 1;
+                }
+            }
+        }
+
+        Ok((converted, failed))
+    }
+
+    /// `reconcile_passages` across every bundle the agent has. This is what the per-agent
+    /// conversion task at spawn calls (FR-038).
+    pub async fn reconcile_all_passages(
+        &self,
+        agent_id: &str,
+        limits: &ChunkLimits,
+        indexer: &VizierIndexer,
+    ) -> Result<(usize, usize)> {
+        let bundles = self.discover_bundles(agent_id).await?;
+        let mut converted = 0usize;
+        let mut failed = 0usize;
+        for bundle in bundles {
+            match self
+                .reconcile_passages(agent_id, &bundle, limits, indexer)
+                .await
+            {
+                Ok((c, f)) => {
+                    converted += c;
+                    failed += f;
+                }
+                Err(e) => {
+                    tracing::warn!(agent_id, bundle, "passage reconcile failed for bundle: {e}");
+                    failed += 1;
+                }
+            }
+            // Yield between bundles so a large corpus cannot monopolise the runtime while the
+            // agent is serving requests (FR-040).
+            tokio::task::yield_now().await;
+        }
+        Ok((converted, failed))
     }
 
     async fn reconcile_all(&self, agent_id: &str) -> Result<()> {
@@ -701,6 +1059,7 @@ impl BundleMemoryStore {
         attachments: Vec<VizierAttachment>,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
+        limits: &ChunkLimits,
     ) -> Result<Memory> {
         let bundle = bundle.unwrap_or_else(default_bundle);
         let path = normalize_path(&path.unwrap_or_else(|| slugify!(&title)));
@@ -767,13 +1126,14 @@ impl BundleMemoryStore {
         self.rewrite_edges(&agent_id, &bundle, &path, &relations)?;
         self.recompute_broken(&agent_id)?;
 
-        indexer
-            .add_document_index(
-                "memory".into(),
-                Self::indexer_key(&agent_id, &bundle, &path),
-                content.clone(),
-            )
-            .await?;
+        // Passages replace the whole-document index entry entirely (FR-033, FR-039): the old
+        // rows and their vectors go, the new ones are inserted, and the batch is indexed in one
+        // embedding call. A failure here is logged and swallowed — the document is already on
+        // disk and must stay readable (FR-036).
+        self.write_passages_lenient(
+            &agent_id, &bundle, &path, &title, &tags, &content, limits, indexer,
+        )
+        .await;
 
         self.regenerate_index(&agent_id, &bundle).await?;
         self.append_log(
@@ -788,6 +1148,14 @@ impl BundleMemoryStore {
         Ok(memory_from_frontmatter(frontmatter, content))
     }
 
+    /// Semantic search over passages (FR-008–FR-016).
+    ///
+    /// Over-fetch `limit * 5`, cap per document, merge adjacent ordinals, then take `limit` — in
+    /// that order. The over-fetch is forced by two existing behaviours: the vec0 query applies its
+    /// `LIMIT` *before* the threshold filter runs in Rust, and one long document can now occupy
+    /// many of the fetched rows. Capping before merging would count passages that are about to
+    /// become one result, which is why the merge comes second (research Decision 7).
+    #[allow(clippy::too_many_arguments)]
     pub async fn query_memory(
         &self,
         agent_id: String,
@@ -795,39 +1163,222 @@ impl BundleMemoryStore {
         query: String,
         limit: usize,
         threshold: f64,
+        per_document: usize,
         indexer: &VizierIndexer,
-    ) -> Result<Vec<Memory>> {
-        let fetch_limit = limit * 5;
-        let documents = indexer
+        limits: &ChunkLimits,
+    ) -> Result<Vec<MemoryPassageResult>> {
+        let fetch_limit = (limit * 5).max(limit);
+        let hits = indexer
             .search_document_index("memory".into(), query, fetch_limit, threshold)
             .await?;
 
-        let mut candidates = Vec::new();
-        for doc in documents {
-            let Some((doc_agent, doc_bundle, doc_path)) = Self::parse_indexer_key(&doc.path)
+        // Group the surviving hits by source document, so each document is read exactly once no
+        // matter how many of its passages matched.
+        let mut by_document: Vec<(String, Vec<PassageHit>)> = Vec::new();
+        for hit in hits {
+            let Some((hit_agent, hit_bundle, hit_path, ordinal)) =
+                Self::parse_indexer_key(&hit.path)
             else {
                 continue;
             };
-            if doc_agent != agent_id {
+            if hit_agent != agent_id {
                 continue;
             }
             if let Some(want) = &bundle {
-                if &doc_bundle != want {
+                if &hit_bundle != want {
                     continue;
                 }
             }
-            // A stale/invalid indexer entry degrades to "no candidate", not a hard error.
-            if let Ok(Some(memory)) = self
-                .get_memory_detail(agent_id.clone(), Some(doc_bundle), doc_path)
+            let doc_key = format!("{hit_bundle}\u{0}{hit_path}");
+            match by_document.iter_mut().find(|(k, _)| *k == doc_key) {
+                Some((_, ords)) => ords.push(PassageHit {
+                    ordinal,
+                    score: hit.score,
+                }),
+                None => by_document.push((
+                    doc_key,
+                    vec![PassageHit {
+                        ordinal,
+                        score: hit.score,
+                    }],
+                )),
+            }
+        }
+
+        let mut candidates: Vec<(MemoryPassageResult, SourceSignals)> = Vec::new();
+        for (doc_key, mut ordinals) in by_document {
+            let (doc_bundle, doc_path) = doc_key
+                .split_once('\u{0}')
+                .map(|(b, p)| (b.to_string(), p.to_string()))
+                .expect("doc_key was built with the separator");
+
+            // A stale or invalid indexer entry degrades to "no candidate", not a hard error.
+            let Ok(Some(memory)) = self
+                .get_memory_detail(agent_id.clone(), Some(doc_bundle.clone()), doc_path.clone())
                 .await
-            {
-                candidates.push(memory);
+            else {
+                continue;
+            };
+
+            // Best score first, then cap how much of the result set this one document may take
+            // (FR-012). Ordinals are deduplicated on the way, since the same passage can arrive
+            // twice when both a passage key and a legacy document key matched.
+            ordinals.sort_by(|a, b| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            let mut seen = HashSet::new();
+            ordinals.retain(|hit| seen.insert(hit.ordinal));
+            ordinals.truncate(per_document.max(1));
+
+            let spans = self
+                .passage_spans_for(
+                    &agent_id,
+                    &doc_bundle,
+                    &doc_path,
+                    &memory.content,
+                    limits,
+                    indexer,
+                    &memory,
+                )
+                .await;
+
+            // Merge consecutive ordinals of this document into one result (FR-011), applied after
+            // the cap. A merged result spans the first passage's start to the last one's end and
+            // keeps the best score of the group.
+            let mut kept: Vec<(usize, f64)> = ordinals
+                .into_iter()
+                .filter_map(|hit| hit.ordinal.map(|o| (o, hit.score)))
+                .collect();
+            // A hit on a legacy whole-document key carries no ordinal; represent it by the
+            // document's first passage so it still returns a passage rather than a whole body.
+            if kept.is_empty() {
+                continue;
+            }
+            kept.sort_by_key(|(o, _)| *o);
+
+            let mut groups: Vec<(usize, usize, f64)> = Vec::new();
+            for (ordinal, score) in kept {
+                match groups.last_mut() {
+                    Some((_, end, best)) if *end + 1 == ordinal => {
+                        *end = ordinal;
+                        if score > *best {
+                            *best = score;
+                        }
+                    }
+                    _ => groups.push((ordinal, ordinal, score)),
+                }
+            }
+
+            for (start, end, score) in groups {
+                let Some(first) = spans.iter().find(|s| s.ordinal == start) else {
+                    continue;
+                };
+                let last = spans.iter().find(|s| s.ordinal == end).unwrap_or(first);
+                // Slice out of the document body already read above — no passage text is stored
+                // (research Decision 3). The bounds are clamped and nudged onto character
+                // boundaries because the document may have been hand-edited since the spans were
+                // recorded, and slicing mid-character would panic.
+                let text = slice_passage(&memory.content, first.char_start, last.char_end);
+                candidates.push((
+                    MemoryPassageResult {
+                        bundle: doc_bundle.clone(),
+                        path: doc_path.clone(),
+                        title: memory.title.clone(),
+                        ordinal: start,
+                        ordinal_end: end,
+                        line_start: first.line_start,
+                        line_end: last.line_end,
+                        text,
+                        score,
+                        truncated: false,
+                    },
+                    SourceSignals {
+                        updated_at: memory.updated_at,
+                        read_count: memory.read_count,
+                    },
+                ));
             }
         }
 
         let all_memories = self.get_all_agent_memory(agent_id, bundle).await?;
-        let reranked = crate::storage::rerank::rerank_memories(candidates, &all_memories);
-        Ok(reranked.into_iter().take(limit).collect())
+        let ranked = crate::storage::rerank::rerank_passages(candidates, &all_memories);
+        Ok(ranked.into_iter().take(limit).collect())
+    }
+
+    /// The stored spans for a document, or freshly derived ones when it has none yet.
+    ///
+    /// A document with no `memory_passage` rows is unconverted. Rather than miss it, its spans are
+    /// derived on the spot so it stays searchable while the background conversion works through
+    /// the corpus; the rows are then written so the next query reads them instead. A drifted
+    /// document — one whose stored `content_hash` no longer matches its body — is rebuilt the same
+    /// way (FR-037).
+    #[allow(clippy::too_many_arguments)]
+    async fn passage_spans_for(
+        &self,
+        agent_id: &str,
+        bundle: &str,
+        path: &str,
+        content: &str,
+        limits: &ChunkLimits,
+        indexer: &VizierIndexer,
+        memory: &Memory,
+    ) -> Vec<crate::storage::chunk::PassageSpan> {
+        let stored = self.load_passage_spans(agent_id, bundle, path).unwrap_or_default();
+        let hash = Self::content_hash(content);
+        let fresh = self
+            .stored_content_hash(agent_id, bundle, path)
+            .ok()
+            .flatten()
+            .is_some_and(|h| h == hash);
+
+        if !stored.is_empty() && fresh {
+            return stored;
+        }
+
+        self.write_passages_lenient(
+            agent_id,
+            bundle,
+            path,
+            &memory.title,
+            &memory.tags,
+            content,
+            limits,
+            indexer,
+        )
+        .await;
+        self.load_passage_spans(agent_id, bundle, path)
+            .unwrap_or_else(|_| chunk_markdown(content, limits))
+    }
+
+    fn load_passage_spans(
+        &self,
+        agent_id: &str,
+        bundle: &str,
+        path: &str,
+    ) -> Result<Vec<crate::storage::chunk::PassageSpan>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT ordinal, line_start, line_end, char_start, char_end, continues
+             FROM memory_passage
+             WHERE agent_id = ?1 AND bundle = ?2 AND path = ?3
+             ORDER BY ordinal",
+        )?;
+        let spans = stmt
+            .query_map(params![agent_id, bundle, path], |row| {
+                Ok(crate::storage::chunk::PassageSpan {
+                    ordinal: row.get::<_, i64>(0)? as usize,
+                    line_start: row.get::<_, i64>(1)? as usize,
+                    line_end: row.get::<_, i64>(2)? as usize,
+                    char_start: row.get::<_, i64>(3)? as usize,
+                    char_end: row.get::<_, i64>(4)? as usize,
+                    continues_previous: row.get::<_, i64>(5)? != 0,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(spans)
     }
 
     pub async fn get_all_agent_memory(
@@ -1252,9 +1803,15 @@ impl BundleMemoryStore {
         self.delete_edges_from(&agent_id, &bundle, &path)?;
         self.recompute_broken(&agent_id)?;
 
-        let _ = indexer
-            .delete_index("memory".into(), Self::indexer_key(&agent_id, &bundle, &path))
-            .await;
+        // Clears the passage rows and every one of their index entries, by stored ordinal
+        // (FR-034). `clear_passages` also removes the legacy unsuffixed document key, so this is
+        // the whole of the index cleanup for a deleted memory.
+        if let Err(e) = self.clear_passages(&agent_id, &bundle, &path, indexer).await {
+            tracing::warn!(
+                agent_id, bundle, path,
+                "failed to clear passages for a deleted memory: {e}"
+            );
+        }
 
         self.regenerate_index(&agent_id, &bundle).await?;
         self.append_log(&agent_id, &bundle, "deleted", &path, &title).await?;
@@ -1348,9 +1905,12 @@ impl BundleMemoryStore {
                 canonical_before.as_deref(),
             )?;
             self.document_store.delete(&key).await?;
-            let _ = indexer
-                .delete_index("memory".into(), Self::indexer_key(&agent_id, &bundle, path))
-                .await;
+            if let Err(e) = self.clear_passages(&agent_id, &bundle, path, indexer).await {
+                tracing::warn!(
+                    agent_id, bundle, path,
+                    "failed to clear passages while deleting a bundle: {e}"
+                );
+            }
         }
 
         let prefix = Self::bundle_prefix(&agent_id, &bundle);
@@ -1359,8 +1919,8 @@ impl BundleMemoryStore {
             self.document_store.delete(&format!("{prefix}/{file}")).await?;
         }
 
-        // Nothing should remain in memory_node/memory_edge for an already-empty bundle, but
-        // clear defensively in case a concurrent write raced this call.
+        // Nothing should remain in memory_node/memory_edge/memory_passage for an already-empty
+        // bundle, but clear defensively in case a concurrent write raced this call.
         {
             let conn = self.conn.lock();
             conn.execute(
@@ -1369,6 +1929,10 @@ impl BundleMemoryStore {
             )?;
             conn.execute(
                 "DELETE FROM memory_edge WHERE agent_id = ?1 AND source_bundle = ?2",
+                params![agent_id, bundle],
+            )?;
+            conn.execute(
+                "DELETE FROM memory_passage WHERE agent_id = ?1 AND bundle = ?2",
                 params![agent_id, bundle],
             )?;
         }
@@ -1414,6 +1978,7 @@ impl BundleMemoryStore {
         zip_bytes: Vec<u8>,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
+        limits: &ChunkLimits,
     ) -> Result<ImportReport> {
         let cursor = std::io::Cursor::new(zip_bytes);
         let mut archive =
@@ -1469,13 +2034,11 @@ impl BundleMemoryStore {
                     let canonical = memory_canonical(&fm.title, &fm.tags, &fm.attachments, &content)?;
                     self.record_revision(&agent_id, &bundle, &path, Some(&canonical), origin, None)?;
                     self.rewrite_edges(&agent_id, &bundle, &path, &fm.relations)?;
-                    let _ = indexer
-                        .add_document_index(
-                            "memory".into(),
-                            Self::indexer_key(&agent_id, &bundle, &path),
-                            content,
-                        )
-                        .await;
+                    // Every imported document gets passages with no extra manual step (FR-035).
+                    self.write_passages_lenient(
+                        &agent_id, &bundle, &path, &fm.title, &fm.tags, &content, limits, indexer,
+                    )
+                    .await;
                     report.imported.push(path);
                 }
                 Err(_) => report.skipped.push(path),
@@ -1618,6 +2181,7 @@ impl BundleMemoryStore {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn rollback_memory(
         &self,
         agent_id: String,
@@ -1626,6 +2190,7 @@ impl BundleMemoryStore {
         seq: i64,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
+        limits: &ChunkLimits,
     ) -> Result<RollbackResponse> {
         let bundle = bundle.unwrap_or_else(default_bundle);
         let path = normalize_path(&path);
@@ -1660,6 +2225,7 @@ impl BundleMemoryStore {
             fm.attachments,
             &origin,
             indexer,
+            limits,
         )
         .await?;
 
@@ -1731,9 +2297,13 @@ impl BundleMemoryStore {
             None,
         )?;
         self.rewrite_edges(&agent_id, &bundle, &path, &relations)?;
-        let _ = indexer
-            .add_document_index("memory".into(), Self::indexer_key(&agent_id, &bundle, &path), content)
-            .await;
+        // Deliberately **not** indexed here. This runs from `dependencies.rs`, where every other
+        // migration lives but no embedder does — its callers pass `NoopIndexer`, so an index call
+        // would silently no-op (research Decision 8). Leaving the document with zero
+        // `memory_passage` rows is exactly the marker the per-agent conversion task at spawn looks
+        // for, so the document is picked up there, by that agent's own real indexer.
+        let _ = indexer;
+        let _ = content;
 
         Ok(())
     }
@@ -1753,6 +2323,11 @@ mod tests {
     use super::*;
     use crate::indexer::noop::NoopIndexer;
     use crate::storage::document::LocalDocumentStore;
+
+    /// Default chunk limits for the tests. A real agent carries its own on `AgentConfig`.
+    fn limits() -> ChunkLimits {
+        ChunkLimits::default()
+    }
 
     fn origin() -> RevisionOrigin {
         RevisionOrigin::system(RevisionTrigger::Baseline)
@@ -1786,6 +2361,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -1802,6 +2378,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await;
         assert!(err.is_err());
@@ -1822,6 +2399,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -1838,6 +2416,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -1859,6 +2438,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -1887,6 +2467,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -1903,6 +2484,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -1919,6 +2501,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -1947,6 +2530,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -1964,6 +2548,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -1990,6 +2575,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2017,6 +2603,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2063,6 +2650,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2100,6 +2688,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2116,6 +2705,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2140,6 +2730,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2155,6 +2746,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2182,6 +2774,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2197,6 +2790,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2223,6 +2817,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2278,6 +2873,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2305,6 +2901,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2327,6 +2924,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2357,6 +2955,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2389,6 +2988,7 @@ mod tests {
                 vec![],
                 &origin(),
                 &indexer,
+                &limits(),
             )
             .await
             .unwrap();
@@ -2434,6 +3034,7 @@ mod tests {
                 vec![],
                 origin,
                 indexer,
+                &limits(),
             )
             .await
             .unwrap()
@@ -2534,5 +3135,429 @@ mod tests {
             memory_revision::delete_agent(&conn, "a1").unwrap();
         }
         assert!(history(&store).is_empty());
+    }
+    // ---- passage lifecycle (specs/009-memory-semantic-chunking, task T024) ----
+
+    /// A `DocumentIndexer` that remembers which keys it holds, so a test can assert on the index
+    /// itself rather than on the passage table alone. `NoopIndexer` cannot answer the question
+    /// these tests exist to ask — whether a *vector* was orphaned.
+    #[derive(Default)]
+    struct RecordingIndexer {
+        keys: std::sync::Mutex<std::collections::BTreeSet<String>>,
+    }
+
+    impl RecordingIndexer {
+        fn snapshot(&self) -> Vec<String> {
+            self.keys.lock().unwrap().iter().cloned().collect()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::indexer::DocumentIndexer for Arc<RecordingIndexer> {
+        async fn add_document_index(
+            &self,
+            context: String,
+            path: String,
+            _content: String,
+        ) -> anyhow::Result<crate::schema::DocumentIndex> {
+            self.keys.lock().unwrap().insert(path.clone());
+            Ok(crate::schema::DocumentIndex {
+                path,
+                embedding: vec![],
+                context,
+                score: 0.0,
+            })
+        }
+
+        async fn add_document_indexes(
+            &self,
+            context: String,
+            entries: Vec<(String, String)>,
+        ) -> anyhow::Result<Vec<crate::schema::DocumentIndex>> {
+            let mut out = Vec::new();
+            for (path, _) in entries {
+                self.keys.lock().unwrap().insert(path.clone());
+                out.push(crate::schema::DocumentIndex {
+                    path,
+                    embedding: vec![],
+                    context: context.clone(),
+                    score: 0.0,
+                });
+            }
+            Ok(out)
+        }
+
+        async fn search_document_index(
+            &self,
+            _context: String,
+            _query: String,
+            _limit: usize,
+            _threshold: f64,
+        ) -> anyhow::Result<Vec<crate::schema::DocumentIndex>> {
+            Ok(vec![])
+        }
+
+        async fn delete_index(&self, _context: String, path: String) -> anyhow::Result<()> {
+            self.keys.lock().unwrap().remove(&path);
+            Ok(())
+        }
+    }
+
+    fn setup_recording() -> (
+        BundleMemoryStore,
+        tempfile::TempDir,
+        VizierIndexer,
+        Arc<RecordingIndexer>,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let doc_store: Arc<dyn DocumentStore> =
+            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf()));
+        let conn = Connection::open_in_memory().unwrap();
+        crate::storage::sqlite::init_memory_graph_schema(&conn).unwrap();
+        crate::storage::sqlite::init_revision_schema(&conn).unwrap();
+        let store = BundleMemoryStore::new(doc_store, Arc::new(Mutex::new(conn)));
+        let recorder = Arc::new(RecordingIndexer::default());
+        let indexer = VizierIndexer::build(recorder.clone());
+        (store, dir, indexer, recorder)
+    }
+
+    fn passage_rows(store: &BundleMemoryStore, path: &str) -> Vec<(usize, usize, usize, bool)> {
+        let conn = store.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT ordinal, char_start, char_end, continues FROM memory_passage
+                 WHERE agent_id = 'a1' AND bundle = 'default' AND path = ?1 ORDER BY ordinal",
+            )
+            .unwrap();
+        stmt.query_map(params![path], |row| {
+            Ok((
+                row.get::<_, i64>(0)? as usize,
+                row.get::<_, i64>(1)? as usize,
+                row.get::<_, i64>(2)? as usize,
+                row.get::<_, i64>(3)? != 0,
+            ))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    async fn write_at(
+        store: &BundleMemoryStore,
+        indexer: &VizierIndexer,
+        path: &str,
+        body: &str,
+    ) -> Memory {
+        store
+            .write_memory(
+                "a1".into(),
+                Some("default".into()),
+                Some(path.into()),
+                false,
+                format!("Doc {path}"),
+                body.into(),
+                vec!["ops".into()],
+                vec![],
+                &origin(),
+                indexer,
+                &limits(),
+            )
+            .await
+            .unwrap()
+    }
+
+    /// A long body: `sections` headed sections, each comfortably over `min_size`, so the chunker
+    /// produces roughly one passage per section.
+    fn long_body(sections: usize) -> String {
+        (1..=sections)
+            .map(|i| format!("## Section {i}\n\n{}", "word ".repeat(120)))
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
+
+    #[tokio::test]
+    async fn a_write_produces_passage_rows_and_one_index_entry_per_passage() {
+        let (store, _dir, indexer, recorder) = setup_recording();
+        write_at(&store, &indexer, "note", &long_body(4)).await;
+
+        let rows = passage_rows(&store, "note");
+        assert!(rows.len() >= 2, "a four-section document chunks: {rows:?}");
+        assert_eq!(rows[0].0, 0, "ordinals start at zero");
+        assert_eq!(rows[0].1, 0, "the first passage starts at byte zero");
+
+        let keys = recorder.snapshot();
+        assert_eq!(
+            keys.len(),
+            rows.len(),
+            "one index entry per passage, no more and no fewer: {keys:?}"
+        );
+        for (ordinal, _, _, _) in &rows {
+            assert!(
+                keys.contains(&format!("a1/default/note#{ordinal}")),
+                "passage {ordinal} is indexed under its own key: {keys:?}"
+            );
+        }
+        assert!(
+            !keys.contains(&"a1/default/note".to_string()),
+            "no whole-document relevance entry survives alongside passages (FR-039)"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_second_write_replaces_passages_rather_than_appending() {
+        let (store, _dir, indexer, recorder) = setup_recording();
+        write_at(&store, &indexer, "note", &long_body(4)).await;
+        let first = passage_rows(&store, "note");
+
+        write_at(&store, &indexer, "note", &long_body(4)).await;
+        let second = passage_rows(&store, "note");
+
+        assert_eq!(first, second, "rewriting the same content is idempotent");
+        assert_eq!(
+            recorder.snapshot().len(),
+            second.len(),
+            "the index did not accumulate a second copy"
+        );
+    }
+
+    /// The regression that matters most. A document shrinking from many passages to few must not
+    /// leave the surplus vectors behind: a stale passage returning text the document no longer has
+    /// is the worst failure this feature can produce, and it is invisible to the passage table —
+    /// only the index shows it.
+    #[tokio::test]
+    async fn a_document_shrinking_from_twelve_passages_to_four_leaves_no_orphaned_index_rows() {
+        let (store, _dir, indexer, recorder) = setup_recording();
+
+        write_at(&store, &indexer, "note", &long_body(12)).await;
+        let big = passage_rows(&store, "note");
+        let big_keys = recorder.snapshot();
+        assert!(
+            big.len() >= 8,
+            "the twelve-section document needs many passages to make this test mean anything: {}",
+            big.len()
+        );
+        assert_eq!(big_keys.len(), big.len());
+
+        write_at(&store, &indexer, "note", &long_body(2)).await;
+        let small = passage_rows(&store, "note");
+        let small_keys = recorder.snapshot();
+
+        assert!(
+            small.len() < big.len(),
+            "the document really did shrink: {} -> {}",
+            big.len(),
+            small.len()
+        );
+        assert_eq!(
+            small_keys.len(),
+            small.len(),
+            "every surplus vector is gone, not just the passage rows: {small_keys:?}"
+        );
+        for ordinal in small.len()..big.len() {
+            assert!(
+                !small_keys.contains(&format!("a1/default/note#{ordinal}")),
+                "ordinal {ordinal} was orphaned in the index"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn deleting_a_memory_clears_both_the_passage_rows_and_the_index() {
+        let (store, _dir, indexer, recorder) = setup_recording();
+        write_at(&store, &indexer, "note", &long_body(5)).await;
+        assert!(!passage_rows(&store, "note").is_empty());
+        assert!(!recorder.snapshot().is_empty());
+
+        store
+            .delete_memory("a1".into(), Some("default".into()), "note".into(), &origin(), &indexer)
+            .await
+            .unwrap();
+
+        assert!(passage_rows(&store, "note").is_empty(), "passage rows cleared");
+        assert!(
+            recorder.snapshot().is_empty(),
+            "index entries cleared: {:?}",
+            recorder.snapshot()
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_a_bundle_clears_passages_for_every_concept_in_it() {
+        let (store, _dir, indexer, recorder) = setup_recording();
+        write_at(&store, &indexer, "one", &long_body(3)).await;
+        write_at(&store, &indexer, "two", &long_body(3)).await;
+        assert!(!recorder.snapshot().is_empty());
+
+        store
+            .delete_bundle("a1".into(), "default".into(), true, &origin(), &indexer)
+            .await
+            .unwrap();
+
+        assert!(passage_rows(&store, "one").is_empty());
+        assert!(passage_rows(&store, "two").is_empty());
+        assert!(
+            recorder.snapshot().is_empty(),
+            "no bundle concept left a vector behind: {:?}",
+            recorder.snapshot()
+        );
+    }
+
+    #[tokio::test]
+    async fn importing_a_bundle_produces_passages_for_every_document() {
+        let (store, _dir, indexer, recorder) = setup_recording();
+        write_at(&store, &indexer, "one", &long_body(3)).await;
+        write_at(&store, &indexer, "two", &long_body(3)).await;
+        let zip = store.export_bundle("a1".into(), "default".into()).await.unwrap();
+
+        let (dest, _dir2, dest_indexer, dest_recorder) = setup_recording();
+        let report = dest
+            .import_bundle("a1".into(), "imported".into(), zip, &origin(), &dest_indexer, &limits())
+            .await
+            .unwrap();
+        assert_eq!(report.imported.len(), 2, "both concepts imported: {report:?}");
+
+        let keys = dest_recorder.snapshot();
+        assert!(!keys.is_empty(), "import indexed passages with no extra step (FR-035)");
+        for path in &report.imported {
+            let conn = dest.conn.lock();
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM memory_passage WHERE agent_id = 'a1' AND bundle = 'imported' AND path = ?1",
+                    params![path],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(count > 0, "imported '{path}' has passages");
+        }
+        assert!(keys.iter().all(|k| k.starts_with("a1/imported/")));
+    }
+
+    /// FR-036: the document must survive a chunking or indexing failure, readable and
+    /// re-convertible. The save must not even report an error.
+    #[tokio::test]
+    async fn an_indexing_failure_does_not_fail_the_save() {
+        struct FailingIndexer;
+
+        #[async_trait::async_trait]
+        impl crate::indexer::DocumentIndexer for FailingIndexer {
+            async fn add_document_index(
+                &self,
+                _context: String,
+                _path: String,
+                _content: String,
+            ) -> anyhow::Result<crate::schema::DocumentIndex> {
+                Err(anyhow!("embedder unavailable"))
+            }
+            async fn add_document_indexes(
+                &self,
+                _context: String,
+                _entries: Vec<(String, String)>,
+            ) -> anyhow::Result<Vec<crate::schema::DocumentIndex>> {
+                Err(anyhow!("embedder unavailable"))
+            }
+            async fn search_document_index(
+                &self,
+                _context: String,
+                _query: String,
+                _limit: usize,
+                _threshold: f64,
+            ) -> anyhow::Result<Vec<crate::schema::DocumentIndex>> {
+                Ok(vec![])
+            }
+            async fn delete_index(&self, _context: String, _path: String) -> anyhow::Result<()> {
+                Ok(())
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let doc_store: Arc<dyn DocumentStore> =
+            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf()));
+        let conn = Connection::open_in_memory().unwrap();
+        crate::storage::sqlite::init_memory_graph_schema(&conn).unwrap();
+        crate::storage::sqlite::init_revision_schema(&conn).unwrap();
+        let store = BundleMemoryStore::new(doc_store, Arc::new(Mutex::new(conn)));
+        let indexer = VizierIndexer::build(FailingIndexer);
+
+        let saved = write_at(&store, &indexer, "note", &long_body(4)).await;
+        assert_eq!(saved.slug, "note", "the save succeeded despite the indexer");
+
+        let read = store
+            .get_memory_detail("a1".into(), Some("default".into()), "note".into())
+            .await
+            .unwrap()
+            .expect("the document is still readable");
+        assert!(read.content.contains("Section 1"));
+    }
+
+    /// Conversion is resumable because absence of rows is the only progress marker: a document that
+    /// already has passages is skipped, and one that has none is converted (FR-040).
+    #[tokio::test]
+    async fn reconcile_converts_only_what_needs_it_and_rebuilds_on_drift() {
+        let (store, _dir, indexer, _recorder) = setup_recording();
+        write_at(&store, &indexer, "note", &long_body(4)).await;
+
+        // Nothing to do on a second pass — this is what makes an interrupted run resumable
+        // rather than a restart.
+        let (converted, failed) = store
+            .reconcile_all_passages("a1", &limits(), &indexer)
+            .await
+            .unwrap();
+        assert_eq!((converted, failed), (0, 0), "already converted, so skipped");
+
+        // An unconverted document: rows removed behind the store's back, as a corpus written by
+        // the previous release looks.
+        {
+            let conn = store.conn.lock();
+            conn.execute("DELETE FROM memory_passage", []).unwrap();
+        }
+        let (converted, failed) = store
+            .reconcile_all_passages("a1", &limits(), &indexer)
+            .await
+            .unwrap();
+        assert_eq!((converted, failed), (1, 0), "unconverted document picked up");
+        assert!(!passage_rows(&store, "note").is_empty());
+
+        // Drift: the stored hash no longer matches the body, which is what a hand-edit on disk
+        // looks like. Detected by hash comparison, not by re-deriving spans (research Decision 12).
+        {
+            let conn = store.conn.lock();
+            conn.execute("UPDATE memory_passage SET content_hash = 'stale'", [])
+                .unwrap();
+        }
+        let (converted, failed) = store
+            .reconcile_all_passages("a1", &limits(), &indexer)
+            .await
+            .unwrap();
+        assert_eq!((converted, failed), (1, 0), "drifted document rebuilt");
+        let rows = passage_rows(&store, "note");
+        assert!(!rows.is_empty());
+        let conn = store.conn.lock();
+        let hash: String = conn
+            .query_row("SELECT content_hash FROM memory_passage LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        assert_ne!(hash, "stale", "the rebuilt rows carry the real hash");
+    }
+
+    #[test]
+    fn an_indexer_key_round_trips_with_and_without_an_ordinal() {
+        assert_eq!(
+            BundleMemoryStore::parse_indexer_key("a1/work/ops/deploys#3"),
+            Some(("a1".into(), "work".into(), "ops/deploys".into(), Some(3))),
+            "a nested path keeps its slashes and gives up its ordinal"
+        );
+        assert_eq!(
+            BundleMemoryStore::parse_indexer_key("a1/work/ops/deploys"),
+            Some(("a1".into(), "work".into(), "ops/deploys".into(), None)),
+            "a legacy document key parses with no ordinal"
+        );
+        assert_eq!(
+            BundleMemoryStore::parse_indexer_key("a1/work/odd#name"),
+            Some(("a1".into(), "work".into(), "odd#name".into(), None)),
+            "a `#` that is not an ordinal stays part of the path"
+        );
+        assert_eq!(
+            BundleMemoryStore::passage_indexer_key("a1", "work", "ops/deploys", 3),
+            "a1/work/ops/deploys#3"
+        );
     }
 }

@@ -110,6 +110,39 @@ pub struct DocumentIndex {
     pub path: String,
     pub embedding: Vec<f64>,
     pub context: String,
+    /// Cosine similarity of this hit against the query, `1.0 - distance`. Required by FR-010 so
+    /// results can be ranked on how well they actually matched; the value was already being
+    /// computed for the threshold filter and discarded (research Decision 4). `NoopIndexer`
+    /// returns `0.0`, which is never read because it returns no results at all.
+    #[serde(default)]
+    pub score: f64,
+}
+
+/// One search hit: a passage of a memory document, carrying everything needed to act on it
+/// without searching again (FR-009). Shared by the agent-facing `memory_search` tool, the
+/// automatic-context assembly, and the HTTP query endpoint, so one shape serves all three
+/// surfaces rather than three near-identical ones (Principle II).
+///
+/// `text` is sliced out of the document at query time and never stored (research Decision 3).
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema, schemars::JsonSchema)]
+pub struct MemoryPassageResult {
+    pub bundle: String,
+    pub path: String,
+    pub title: String,
+    /// 0-based ordinal of this passage within its document; the first ordinal when merged.
+    pub ordinal: usize,
+    /// Last ordinal when adjacent passages were merged (FR-011); equals `ordinal` otherwise.
+    pub ordinal_end: usize,
+    /// 1-based line span within the document (FR-007).
+    pub line_start: usize,
+    pub line_end: usize,
+    pub text: String,
+    /// Relevance of the passage itself, independent of its document (FR-010).
+    pub score: f64,
+    /// Set when the text was cut to fit the automatic-context size budget (FR-028). Always
+    /// `false` for search results, which are not size-capped.
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, MarkdownDoc)]

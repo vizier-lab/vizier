@@ -32,7 +32,7 @@ scheduler::{DeleteTask, GetTaskDetail, ListTask, ScheduleCronTask, ScheduleOneTi
         tts::TtsGenerate,
         stt::SttTranscribe,
         image_gen::ImageGenerate,
-        vector_memory::init_vector_memory,
+        vector_memory::{RecallSettings, SEARCH_THRESHOLD, init_vector_memory},
         webui::{ListWebuiTopics, SendWebuiMessage},
         workspace::{ReadCore, WriteCore},
     },
@@ -609,21 +609,31 @@ impl VizierTools {
 
         if let Some(idx) = indexer.clone() {
             let (
-                read_memory,
+                search_memory,
                 write_memory,
                 list_memory,
-                detail_memory,
+                read_memory,
                 follow_memory,
                 graph_memory,
                 delete_memory,
                 delete_memory_bundle,
-            ) = init_vector_memory(agent_id.clone(), deps.storage.clone(), idx)?;
+            ) = init_vector_memory(
+                agent_id.clone(),
+                deps.storage.clone(),
+                idx,
+                RecallSettings {
+                    chunking: agent_config.chunking.clone(),
+                    search_limit: 10,
+                    search_threshold: SEARCH_THRESHOLD,
+                    per_document: agent_config.auto_context.per_document,
+                },
+            )?;
 
             default_toolset = default_toolset
-                .tool(read_memory)
+                .tool(search_memory)
                 .tool(write_memory)
                 .tool(list_memory)
-                .tool(detail_memory)
+                .tool(read_memory)
                 .tool(follow_memory)
                 .tool(graph_memory)
                 .tool(delete_memory)

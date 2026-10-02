@@ -17,6 +17,7 @@ use crate::schema::{
     AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentId, AgentSummary,
     ProviderEntryConfig, RevisionOrigin, RevisionTrigger,
 };
+use crate::storage::memory::MemoryStorage;
 use crate::storage::agent::AgentStorage;
 use crate::storage::provider::ProviderStorage;
 use crate::storage::user::UserStorage;
@@ -120,9 +121,13 @@ impl VizierAgents {
                 .await;
             let storage = (*deps.storage).clone();
             let agent_id_owned = agent_id.to_string();
+            let settings = memory_ops::MemoryOpSettings {
+                chunking: config.chunking.clone(),
+                per_document: config.auto_context.per_document,
+            };
             Some(tokio::spawn(async move {
                 if let Err(e) =
-                    memory_ops::handle_memory_ops(rx, idx, agent_id_owned, storage).await
+                    memory_ops::handle_memory_ops(rx, idx, agent_id_owned, storage, settings).await
                 {
                     tracing::error!("memory_ops handler exited with error: {}", e);
                 }
@@ -130,6 +135,51 @@ impl VizierAgents {
         } else {
             None
         };
+
+        // One-time passage conversion for this agent's existing corpus (FR-038).
+        //
+        // It lives here, and not in `dependencies.rs` where every other migration lives, because
+        // **the indexer does not exist there**: it is built per agent from that agent's own
+        // embedding config, which is why the two memory migrations in `dependencies.rs` pass
+        // `NoopIndexer` and leave semantic search to catch up (research Decision 8). It must also
+        // use *this* agent's indexer rather than any shared one, since two agents configured with
+        // different embedding models write into one fixed-dimension vector table.
+        //
+        // Spawned detached rather than awaited, so the agent serves requests throughout (FR-040).
+        // It holds neither the agent's request channel nor the sqlite write lock for the duration:
+        // `reconcile_all_passages` takes the connection lock per statement and yields between
+        // bundles.
+        if let Some(idx) = indexer.clone() {
+            let storage = deps.storage.clone();
+            let agent_id_owned = agent_id.to_string();
+            let limits = config.chunking.clone();
+            tokio::spawn(async move {
+                let started = std::time::Instant::now();
+                match storage
+                    .reconcile_agent_passages(&agent_id_owned, &limits, &idx)
+                    .await
+                {
+                    // FR-042: counts processed, counts failed, and the reason for each failure —
+                    // the reasons are logged per document by the reconcile itself.
+                    Ok((0, 0)) => tracing::debug!(
+                        agent_id = agent_id_owned,
+                        "memory passages already up to date; nothing to convert"
+                    ),
+                    Ok((converted, failed)) => tracing::info!(
+                        agent_id = agent_id_owned,
+                        converted,
+                        failed,
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        "memory passage conversion finished"
+                    ),
+                    Err(e) => tracing::warn!(
+                        agent_id = agent_id_owned,
+                        "memory passage conversion failed; memories stay readable and are retried \
+                         on the next start: {e}"
+                    ),
+                }
+            });
+        }
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let deps_clone = deps.clone();

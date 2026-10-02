@@ -170,6 +170,9 @@ pub enum MemoryOpRequest {
 pub enum MemoryOpResponse {
     Memory(Memory),
     MemoryList(Vec<Memory>),
+    /// What a search returns: addressed passages, not whole document bodies (FR-008). Separate
+    /// from `MemoryList` because link traversal and listing still answer in documents.
+    PassageList(Vec<crate::schema::MemoryPassageResult>),
     MemoryOption(Option<Memory>),
     Paginated(crate::schema::PaginatedMemory),
     Graph(MemoryGraph),

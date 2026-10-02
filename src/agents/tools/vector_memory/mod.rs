@@ -14,25 +14,29 @@ use crate::storage::memory::MemoryStorage;
 use crate::storage::session_file::SessionFileStorage;
 use crate::utils::get_mime_type;
 
-pub fn init_vector_memory(
-    agent_id: String,
-    storage: Arc<VizierStorage>,
-    indexer: VizierIndexer,
-) -> Result<(
-    MemoryRead,
+/// The eight memory tools, in the order `VizierTools::new` registers them.
+pub type MemoryToolset = (
+    MemorySearch,
     MemoryWrite,
     MemoryList,
-    MemoryDetail,
+    MemoryRead,
     MemoryFollow,
     MemoryGraphTool,
     MemoryDelete,
     MemoryDeleteBundle,
-)> {
+);
+
+pub fn init_vector_memory(
+    agent_id: String,
+    storage: Arc<VizierStorage>,
+    indexer: VizierIndexer,
+    recall: RecallSettings,
+) -> Result<MemoryToolset> {
     Ok((
-        MemoryRead::new(agent_id.clone(), storage.clone(), indexer.clone()),
-        MemoryWrite::new(agent_id.clone(), storage.clone(), indexer.clone()),
+        MemorySearch::new(agent_id.clone(), storage.clone(), indexer.clone(), recall.clone()),
+        MemoryWrite::new(agent_id.clone(), storage.clone(), indexer.clone(), recall),
         MemoryList::new(agent_id.clone(), storage.clone()),
-        MemoryDetail::new(agent_id.clone(), storage.clone()),
+        MemoryRead::new(agent_id.clone(), storage.clone()),
         MemoryFollow::new(agent_id.clone(), storage.clone()),
         MemoryGraphTool::new(agent_id.clone(), storage.clone()),
         MemoryDelete::new(agent_id.clone(), storage.clone(), indexer.clone()),
@@ -42,12 +46,61 @@ pub fn init_vector_memory(
 
 const BUNDLE_FIELD_DESC: &str = "Bundle name. Bundles are named containers for related memories (e.g. one per project or person) — omit this to use your default bundle; naming a new bundle creates it automatically.";
 
-pub type MemoryRead = ReadVectorMemory;
-pub struct ReadVectorMemory(AgentId, Arc<VizierStorage>, VizierIndexer);
+/// Relevance floor for the agent-facing `memory_search` tool.
+///
+/// Was **0.1**, against the automatic-context path's 0.5 — a 5x disagreement between two callers
+/// of one index, which is itself evidence neither was set deliberately (research Decision 10). At
+/// 0.1 the filter is a no-op: nearly any passage clears a cosine similarity of 0.1 against nearly
+/// any query, so the only thing bounding a search was its result limit, and the "empty result when
+/// nothing qualifies" contract (FR-014) could essentially never fire.
+///
+/// **0.20, measured** against a real index rather than guessed (quickstart Step 3 / task T052).
+/// Searching a 14-passage document with fastembed `all-MiniLM-L6-v2`, scores separated cleanly:
+///
+/// | Query kind | Observed score |
+/// |---|---|
+/// | Direct heading + topic match ("when do we deploy") | 0.30 – 0.49 |
+/// | Weaker topical match ("vendor contracts") | 0.20 – 0.32 |
+/// | Entirely unrelated ("banana bread recipe") | 0.04 – 0.08 |
+///
+/// So relevance and noise are separated by a gap between roughly 0.08 and 0.20, and 0.20 sits at
+/// the bottom of it: every genuine topical match observed clears it, and every unrelated query is
+/// rejected with 2.5x of margin. An earlier pass at this set 0.35, which *looked* conservative and
+/// turned out to reject a direct heading match ("incident review", 0.32) — a false negative is the
+/// worse failure here, because the agent has no way to tell "nothing matched" from "the filter was
+/// too tight".
+///
+/// Still looser than the automatic-context default, which FR-023 requires to be the stricter of the
+/// two: a search the agent *chose* to run should surface weaker matches than an injection it did
+/// not ask for. Both numbers are keyed to one embedding model on one corpus, so the history-replay
+/// harness (task T051) remains the thing that settles them for a given deployment.
+pub const SEARCH_THRESHOLD: f64 = 0.20;
 
-impl MemoryRead {
-    fn new(agent_id: AgentId, store: Arc<VizierStorage>, indexer: VizierIndexer) -> Self {
-        Self(agent_id, store, indexer)
+/// The agent's chunking and search settings, as the memory tools need them.
+#[derive(Clone)]
+pub struct RecallSettings {
+    pub chunking: crate::config::ChunkLimits,
+    /// Results returned by one `memory_search` call (FR-013).
+    pub search_limit: usize,
+    /// Relevance floor for `memory_search` (FR-013). Deliberately looser than the
+    /// automatic-context threshold: a deliberate search should surface weaker matches than an
+    /// unasked-for injection does.
+    pub search_threshold: f64,
+    /// How many passages one document may contribute to one search (FR-012).
+    pub per_document: usize,
+}
+
+pub type MemorySearch = ReadVectorMemory;
+pub struct ReadVectorMemory(AgentId, Arc<VizierStorage>, VizierIndexer, RecallSettings);
+
+impl MemorySearch {
+    fn new(
+        agent_id: AgentId,
+        store: Arc<VizierStorage>,
+        indexer: VizierIndexer,
+        recall: RecallSettings,
+    ) -> Self {
+        Self(agent_id, store, indexer, recall)
     }
 }
 
@@ -128,8 +181,8 @@ impl VizierTool for MemoryList {
         "Browse your memory. Called with no bundle, returns the top-level list of your bundles \
         (name, concept count, last updated) — the same zoom level as memory_graph() with no bundle. \
         Called with a bundle name, lists that bundle's concepts (flattened across any nested \
-        subdirectories, paginated). Use memory_detail to read a concept's full content, or \
-        memory_read to search across everything at once instead of browsing."
+        subdirectories, paginated). Use memory_read to read a concept's full content, or \
+        memory_search to search across everything at once instead of browsing."
             .into()
     }
 
@@ -189,7 +242,7 @@ impl VizierTool for MemoryList {
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct MemoryReadArgs {
+pub struct MemorySearchArgs {
     #[schemars(description = "Terms, keywords, or prompt to search")]
     pub query: String,
 
@@ -200,20 +253,40 @@ pub struct MemoryReadArgs {
     pub bundle: Option<String>,
 }
 
+/// One search hit as the agent sees it. Mirrors `MemoryPassageResult` (the shape the HTTP
+/// endpoint returns too) minus `truncated`, which only automatic context ever sets.
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct MemorySearchHit {
+    pub bundle: String,
+    pub path: String,
+    pub title: String,
+    pub ordinal: usize,
+    pub ordinal_end: usize,
+    pub line_start: usize,
+    pub line_end: usize,
+    pub score: f64,
+    pub text: String,
+}
+
 #[async_trait::async_trait]
-impl VizierTool for MemoryRead {
-    type Input = MemoryReadArgs;
-    type Output = Vec<String>;
+impl VizierTool for MemorySearch {
+    type Input = MemorySearchArgs;
+    type Output = Vec<MemorySearchHit>;
 
     fn name() -> String {
-        "memory_read".to_string()
+        "memory_search".to_string()
     }
 
     fn description(&self) -> String {
         "Semantic search across your memories (all bundles by default, or one named bundle). \
-        Returns content that matches the query. Memory content may contain [label](path/to/concept.md) \
-        same-bundle links or [[bundle/slug]] / [[bundle]] cross-bundle links — use memory_detail or \
-        memory_follow to explore them.".into()
+        Returns short **passages** — the matching excerpts of your memories, not whole documents \
+        — each with the bundle, path, title, passage ordinal and line span it came from. When a \
+        passage is not enough, call memory_read with that bundle and path to get the whole \
+        document. Memory content may contain [label](path/to/concept.md) same-bundle links or \
+        [[bundle/slug]] / [[bundle]] cross-bundle links — use memory_read or memory_follow to \
+        explore them. An empty result means nothing matched well enough; it does not mean your \
+        memory is empty, so try different terms or memory_list to browse."
+            .into()
     }
 
     async fn call(
@@ -221,40 +294,67 @@ impl VizierTool for MemoryRead {
         args: Self::Input,
         _ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
+        let recall = &self.3;
         let res = self
             .1
             .query_memory(
                 self.0.clone(),
                 args.bundle.clone(),
                 args.query,
-                10,
-                0.1,
+                recall.search_limit,
+                recall.search_threshold,
+                recall.per_document,
                 &self.2,
+                &recall.chunking,
             )
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
-        for memory in &res {
-            let _ = self
-                .1
-                .increment_read_count(
-                    self.0.clone(),
-                    Some(memory.bundle.clone()),
-                    memory.slug.clone(),
-                )
-                .await;
+        // A read is recorded once per source document, not once per passage — the count measures
+        // how often a memory gets used, and one search returning three of its passages is one use
+        // (FR-016).
+        let mut counted = std::collections::HashSet::new();
+        for hit in &res {
+            if counted.insert((hit.bundle.clone(), hit.path.clone())) {
+                let _ = self
+                    .1
+                    .increment_read_count(
+                        self.0.clone(),
+                        Some(hit.bundle.clone()),
+                        hit.path.clone(),
+                    )
+                    .await;
+            }
         }
 
-        Ok(res.iter().map(|memory| memory.content.clone()).collect())
+        Ok(res
+            .into_iter()
+            .map(|p| MemorySearchHit {
+                bundle: p.bundle,
+                path: p.path,
+                title: p.title,
+                ordinal: p.ordinal,
+                ordinal_end: p.ordinal_end,
+                line_start: p.line_start,
+                line_end: p.line_end,
+                score: p.score,
+                text: p.text,
+            })
+            .collect())
     }
 }
 
 pub type MemoryWrite = WriteVectorMemory;
-pub struct WriteVectorMemory(AgentId, Arc<VizierStorage>, VizierIndexer);
+pub struct WriteVectorMemory(AgentId, Arc<VizierStorage>, VizierIndexer, RecallSettings);
 
 impl MemoryWrite {
-    fn new(agent_id: AgentId, store: Arc<VizierStorage>, indexer: VizierIndexer) -> Self {
-        Self(agent_id, store, indexer)
+    fn new(
+        agent_id: AgentId,
+        store: Arc<VizierStorage>,
+        indexer: VizierIndexer,
+        recall: RecallSettings,
+    ) -> Self {
+        Self(agent_id, store, indexer, recall)
     }
 }
 
@@ -317,7 +417,7 @@ impl VizierTool for MemoryWrite {
         let path = args.path.clone().unwrap_or_else(|| slugify!(&args.title));
         let bundle = args.bundle.clone();
 
-        let content = format!("{}", args.content);
+        let content = args.content.clone();
 
         let mut attachments = Vec::new();
         if let Some(filenames) = &args.attachments {
@@ -359,6 +459,7 @@ impl VizierTool for MemoryWrite {
                 attachments,
                 &RevisionOrigin::from_session(&ctx.session),
                 &self.2,
+                &self.3.chunking,
             )
             .await
             .map_err(|err| VizierError(err.to_string()))?;
@@ -376,10 +477,10 @@ impl VizierTool for MemoryWrite {
     }
 }
 
-pub type MemoryDetail = GetVectorMemory;
+pub type MemoryRead = GetVectorMemory;
 pub struct GetVectorMemory(AgentId, Arc<VizierStorage>);
 
-impl MemoryDetail {
+impl MemoryRead {
     fn new(agent_id: AgentId, store: Arc<VizierStorage>) -> Self {
         Self(agent_id, store)
     }
@@ -413,19 +514,21 @@ pub struct MemoryDetailOutput {
 }
 
 #[async_trait::async_trait]
-impl VizierTool for MemoryDetail {
+impl VizierTool for MemoryRead {
     type Input = MemoryDetailArgs;
     type Output = String;
 
     fn name() -> String {
-        "memory_detail".to_string()
+        "memory_read".to_string()
     }
 
     fn description(&self) -> String {
-        "Get full memory content by (bundle, path) — bundle defaults to your default bundle. \
-        Content may contain same-bundle markdown links or [[bundle/slug]]/[[bundle]] cross-bundle \
-        wikilinks — call memory_follow or memory_detail with those to traverse the knowledge graph. \
-        Memory attachments are added to your session files.".into()
+        "Read one memory in full by (bundle, path) — bundle defaults to your default bundle. This \
+        is what you call after memory_search returns a passage that is not enough on its own: the \
+        search result's bundle and path are exactly this tool's arguments, so no second search is \
+        needed. Content may contain same-bundle markdown links or [[bundle/slug]]/[[bundle]] \
+        cross-bundle wikilinks — call memory_follow or memory_read with those to traverse the \
+        knowledge graph. Memory attachments are added to your session files.".into()
     }
 
     async fn call(
@@ -433,6 +536,7 @@ impl VizierTool for MemoryDetail {
         args: Self::Input,
         ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
+        let path_for_error = args.path.clone();
         let memory = self
             .1
             .get_memory_detail(self.0.clone(), args.bundle.clone(), args.path)
@@ -485,7 +589,15 @@ impl VizierTool for MemoryDetail {
                     Ok(format!("{}\n\n[+{} to session files]", output, files))
                 }
             }
-            None => Ok("Memory not found".to_string()),
+            // FR-019: say plainly that it is gone, and say what to do instead. An empty result or
+            // an opaque error both read to an agent as "the tool failed", and it retries.
+            None => Err(VizierError(format!(
+                "no memory exists at bundle '{}' path '{}' — it no longer exists, or it was never \
+                 there. It was not moved: this address is how memories are named. Use memory_list \
+                 to see what the bundle holds, or memory_search to find it by content.",
+                args.bundle.as_deref().unwrap_or("default"),
+                path_for_error,
+            ))),
         }
     }
 }
@@ -753,7 +865,7 @@ impl VizierTool for MemoryDelete {
 
     fn description(&self) -> String {
         "Delete a memory by (bundle, path) — bundle defaults to your default bundle. Permanently \
-        removes the memory and its embedding. Use memory_detail first to verify the path if unsure."
+        removes the memory and its passages. Use memory_read first to verify the path if unsure."
             .into()
     }
 
