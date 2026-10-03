@@ -43,6 +43,17 @@ impl VizierSessionHook for ToolCallsHook {
         Ok((function_name, args))
     }
 
+    /// A script's own tool calls are not streamed. The report the script's run returns is
+    /// what the agent reads; the individual calls are the script's business, and one
+    /// `ToolChoice` frame per iteration of a loop is noise in the transcript.
+    async fn on_nested_tool_call(
+        &self,
+        function_name: String,
+        args: String,
+    ) -> Result<(String, String)> {
+        Ok((function_name, args))
+    }
+
     async fn on_tool_response(&self, res: VizierResponse) -> Result<VizierResponse> {
         // Only execute_python's report is forwarded live. Identified by shape: nested
         // calls from a script pass through this hook too, so "last tool name seen"

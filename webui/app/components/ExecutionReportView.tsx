@@ -1,77 +1,85 @@
+// A python run, read as an intent.
+//
+// What the agent said it was doing is the always-visible line; the script, its output and
+// its result are one disclosure deeper. The tool calls the script made are not shown at
+// all — the agent's own view of them is unchanged, but a twelve-iteration loop is noise in
+// a transcript, so neither the report's list nor the live stream carries them any more.
+
 import ReactMarkdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
+
 import type { ExecutionReport } from '../interfaces/types'
+import '../styles/activity-trail.css'
 
-// Same key set as the server's `ExecutionReport::looks_like`.
-const REPORT_KEYS = ['ok', 'stdout', 'tool_calls', 'duration_ms'] as const
+export { parseExecutionReport } from '../lib/trail'
 
-export function parseExecutionReport(value: unknown): ExecutionReport | null {
-  if (!value || typeof value !== 'object') return null
-  return REPORT_KEYS.every((key) => key in value) ? (value as ExecutionReport) : null
+interface ExecutionReportViewProps {
+  // Null while the run is still in flight, and for a stored run whose result could not be
+  // read back.
+  report: ExecutionReport | null
+  // Null for a run recorded before `intent` was required.
+  intent?: string | null
+  code?: string | null
 }
 
-const scrollBox: React.CSSProperties = {
-  maxHeight: '16rem',
-  overflow: 'auto',
-  margin: 0,
-  padding: '0.5rem',
-  borderRadius: '0.25rem',
-  background: 'var(--background)',
-  fontSize: '0.75rem',
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
-}
+export default function ExecutionReportView({
+  report,
+  intent = null,
+  code = null,
+}: ExecutionReportViewProps) {
+  const seconds = report ? (report.duration_ms / 1000).toFixed(1) : null
+  const failure = report?.error?.limit ?? report?.error?.kind
+  const failed = report !== null && !report.ok
 
-const sectionTitle: React.CSSProperties = {
-  fontSize: '0.75rem',
-  fontWeight: 600,
-  color: 'var(--text-secondary)',
-  margin: '0.5rem 0 0.25rem',
-}
-
-// `arguments` is absent from a report that came back from the model rather than
-// from the session record, where it is always kept.
-const formatArgs = (args: Record<string, unknown> | undefined) =>
-  Object.entries(args ?? {})
-    .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
-    .join(', ')
-
-export default function ExecutionReportView({ report }: { report: ExecutionReport }) {
-  const seconds = (report.duration_ms / 1000).toFixed(1)
-  const failure = report.error?.limit ?? report.error?.kind
-  const heading = report.ok
-    ? `✅ Python finished in ${seconds}s`
-    : `❌ Python failed (${failure}) in ${seconds}s`
+  const outcome = report === null ? 'running…' : failed ? `${failure} ${seconds}s` : `${seconds}s`
 
   return (
-    <details open={!report.ok} style={{ width: '100%', fontSize: '0.8rem' }}>
-      <summary style={{ cursor: 'pointer' }}>{heading}</summary>
+    <details open={failed} className="execution-report">
+      <summary className="execution-report-summary">
+        <span className="execution-report-caret" aria-hidden="true">
+          ▸
+        </span>
+        <span className="execution-report-icon">{report === null ? '🐍' : failed ? '❌' : '✅'}</span>
+        <span
+          className={`execution-report-intent${intent ? '' : ' execution-report-intent--absent'}`}
+          title={intent ?? undefined}
+        >
+          {intent ?? 'Python run'}
+        </span>
+        <span
+          className={`execution-report-outcome${failed ? ' execution-report-outcome--failed' : ''}`}
+        >
+          {outcome}
+        </span>
+      </summary>
 
-      {report.tool_calls.length > 0 && (
+      {/* The collapsed line truncates a long intent, so the full text lives here. */}
+      {intent && (
+        <p className="execution-report-full-intent">{intent}</p>
+      )}
+
+      {code && (
         <>
-          <div style={sectionTitle}>Tool calls</div>
-          <ol style={{ margin: 0, paddingLeft: '1.25rem' }}>
-            {report.tool_calls.map((call) => (
-              <li key={call.seq} style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                {call.name}({formatArgs(call.arguments)}) {call.ok ? '✓' : '✗'} {call.duration_ms}ms
-                {call.error && <span style={{ color: 'var(--text-tertiary)' }}> — {call.error}</span>}
-              </li>
-            ))}
-          </ol>
+          <div className="execution-report-section">Code</div>
+          <div className="prose execution-report-box">
+            <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
+              {'```python\n' + code + '\n```'}
+            </ReactMarkdown>
+          </div>
         </>
       )}
 
-      {report.stdout && (
+      {report?.stdout && (
         <>
-          <div style={sectionTitle}>Output</div>
-          <pre style={scrollBox}>{report.stdout}</pre>
+          <div className="execution-report-section">Output</div>
+          <pre className="execution-report-box">{report.stdout}</pre>
         </>
       )}
 
-      {report.ok && (
+      {report?.ok && (
         <>
-          <div style={sectionTitle}>Result</div>
-          <div className="prose" style={{ ...scrollBox, whiteSpace: 'normal' }}>
+          <div className="execution-report-section">Result</div>
+          <div className="prose execution-report-box" style={{ whiteSpace: 'normal' }}>
             <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
               {'```json\n' + JSON.stringify(report.result, null, 2) + '\n```'}
             </ReactMarkdown>
@@ -79,10 +87,10 @@ export default function ExecutionReportView({ report }: { report: ExecutionRepor
         </>
       )}
 
-      {report.error && (
+      {report?.error && (
         <>
-          <div style={sectionTitle}>Error</div>
-          <pre style={scrollBox}>
+          <div className="execution-report-section">Error</div>
+          <pre className="execution-report-box">
             {report.error.message}
             {report.error.traceback && `\n\n${report.error.traceback}`}
           </pre>

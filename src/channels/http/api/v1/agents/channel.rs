@@ -25,7 +25,7 @@ use crate::{
         reaction_store,
     },
     schema::{
-        PlatformMessageId, ReactionAction, ReactionEntry, ReactionEvent, SessionHistory, SessionHistoryContent, TopicId,
+        PlatformMessageId, ReactionAction, ReactionEntry, ReactionEvent, SessionHistory, TopicId,
         VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent,
         VizierSession, VizierSessionDetail,
     },
@@ -53,6 +53,10 @@ pub fn channel() -> Router<HTTPState> {
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct HistoryQuery {
     before: Option<chrono::DateTime<Utc>>,
+    /// The ordering position of the oldest entry of the previous page, completing the
+    /// `before` cursor so a group of entries sharing a millisecond cannot be split across a
+    /// page boundary. Ignored without `before`; omitting it keeps the pre-`seq` behaviour.
+    before_seq: Option<i64>,
     limit: Option<usize>,
 }
 
@@ -123,21 +127,16 @@ pub async fn get_topic_history(
 
     let response = state
         .storage
-        .list_session_history(session, params.before, params.limit)
+        .list_session_history(session, params.before, params.before_seq, params.limit)
         .await;
 
-    if response.is_err() {
-        return err_response(StatusCode::NOT_FOUND, "Not found".into());
+    // Every entry kind is returned, `AssistantMessage` included: the intermediate narration
+    // an agent writes alongside its tool calls is part of the trail the WebUI renders, and
+    // dropping it here is what used to make it invisible.
+    match response {
+        Ok(history) => api_response(StatusCode::OK, history),
+        Err(_) => err_response(StatusCode::NOT_FOUND, "Not found".into()),
     }
-
-    // Filter out AssistantMessage entries (intermediate text during tool calling)
-    let history: Vec<SessionHistory> = response
-        .unwrap()
-        .into_iter()
-        .filter(|h| !matches!(h.content, SessionHistoryContent::AssistantMessage(_)))
-        .collect();
-
-    api_response(StatusCode::OK, history)
 }
 
 #[utoipa::path(

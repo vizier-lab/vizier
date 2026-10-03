@@ -3,7 +3,13 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { FaCopy, FaFile, FaFilePdf, FaFileImage, FaFileLines, FaFileVideo, FaFileAudio } from 'react-icons/fa6'
-import type { VizierAttachment, VizierResponseStats, ReactionEntry } from '../interfaces/types'
+import type {
+  VizierAttachment,
+  VizierResponseStats,
+  ReactionEntry,
+  TrailEvent,
+} from '../interfaces/types'
+import ActivityTrail from './ActivityTrail'
 import { base_url, api_protocol } from '~/services/vizier'
 import { EmojiPickerPopup } from './EmojiPickerPopup'
 import { ReactionBadges } from './ReactionBadges'
@@ -27,6 +33,11 @@ interface MessageItemProps {
   voiceSrc?: string
   audioReplySrc?: string
   isError?: boolean
+  // What the agent did on the way to this answer. Rendered folded at the top of the
+  // bubble, so the association between an answer and the work behind it needs no guessing.
+  trail?: TrailEvent[]
+  trailDurationMs?: number
+  trailLabel?: (name: string, args: Record<string, unknown>) => string
 }
 
 function MessageItemComponent({
@@ -45,6 +56,9 @@ function MessageItemComponent({
   voiceSrc,
   audioReplySrc,
   isError = false,
+  trail,
+  trailDurationMs,
+  trailLabel,
 }: MessageItemProps) {
   const [showPicker, setShowPicker] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -146,6 +160,15 @@ function MessageItemComponent({
           boxShadow: isUserMessage ? 'var(--shadow-sm)' : 'none',
         }}
       >
+        {trail && trail.length > 0 && trailLabel && (
+          <ActivityTrail
+            trail={trail}
+            live={false}
+            durationMs={trailDurationMs}
+            label={trailLabel}
+            variant="inset"
+          />
+        )}
         <div className="flex items-start justify-between">
           <div className='prose'>
             {audioReplySrc && (

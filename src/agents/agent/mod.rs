@@ -453,10 +453,9 @@ impl VizierAgent {
         let (output, stats, attachments, final_history) = match prompt_result {
             Ok(result) => result,
             Err((err, partial_history)) => {
-                // Save tool call/result entries from partial history
+                // Save narration and tool call/result entries from partial history
                 let new_messages = &partial_history[original_history_len..];
-                let mut tool_entries = messages_to_history_entries(new_messages);
-                tool_entries.retain(|e| !matches!(e, SessionHistoryContent::AssistantMessage(_)));
+                let tool_entries = messages_to_history_entries(new_messages);
                 for entry in tool_entries {
                     self.storage
                         .save_session_history(session.clone(), entry)
@@ -490,9 +489,12 @@ impl VizierAgent {
         // (final assistant response) which is saved explicitly below with full stats
         let new_messages = &final_history[original_history_len..];
         if new_messages.len() > 1 {
-            let mut tool_entries =
+            // `AssistantMessage` entries are kept: the narration an agent writes alongside
+            // its tool calls is part of what it did on the way to the answer, and it is
+            // recorded ahead of those tool calls so replay can merge the two back into the
+            // single assistant message the model actually sent.
+            let tool_entries =
                 messages_to_history_entries(&new_messages[..new_messages.len() - 1]);
-            tool_entries.retain(|e| !matches!(e, SessionHistoryContent::AssistantMessage(_)));
             for entry in tool_entries {
                 self.storage
                     .save_session_history(session.clone(), entry)

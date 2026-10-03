@@ -11,7 +11,7 @@ pub async fn record_reaction(
     entry: ReactionEntry,
 ) -> Result<()> {
     let history = storage
-        .list_session_history(session.clone(), None, None)
+        .list_session_history(session.clone(), None, None, None)
         .await?;
 
     let mut reactions = history
@@ -42,7 +42,7 @@ pub async fn find_message_uid_by_platform_id(
     platform_id: &PlatformMessageId,
 ) -> Result<Option<String>> {
     let history = storage
-        .list_session_history(session.clone(), None, None)
+        .list_session_history(session.clone(), None, None, None)
         .await?;
     for entry in history {
         if let crate::schema::SessionHistoryContent::Request(req) = &entry.content

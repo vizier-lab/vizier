@@ -25,6 +25,20 @@ where
         Ok((function_name, args))
     }
 
+    /// A tool call made by a python script rather than by the model.
+    ///
+    /// The default delegates to [`Self::on_tool_call`], so a hook that does not care keeps
+    /// behaving exactly as it does today. A hook that streams a frame per call overrides
+    /// this to stay quiet: a twelve-iteration loop is twelve nested calls, and the agent
+    /// asked for the loop, not for a commentary on it.
+    async fn on_nested_tool_call(
+        &self,
+        function_name: String,
+        args: String,
+    ) -> Result<(String, String)> {
+        self.on_tool_call(function_name, args).await
+    }
+
     async fn on_tool_response(&self, res: VizierResponse) -> Result<VizierResponse> {
         Ok(res)
     }
@@ -75,6 +89,21 @@ impl VizierSessionHook for VizierSessionHooks {
         for hook in self.0.iter() {
             (function_name, args) = hook
                 .on_tool_call(function_name.clone(), args.clone())
+                .await?;
+        }
+
+        Ok((function_name, args))
+    }
+
+    async fn on_nested_tool_call(
+        &self,
+        function_name: String,
+        args: String,
+    ) -> Result<(String, String)> {
+        let (mut function_name, mut args) = (function_name, args);
+        for hook in self.0.iter() {
+            (function_name, args) = hook
+                .on_nested_tool_call(function_name.clone(), args.clone())
                 .await?;
         }
 

@@ -1,10 +1,7 @@
 import { memo, useMemo } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
 import { FaStop } from 'react-icons/fa6'
-import ExecutionReportView from './ExecutionReportView'
-import type { ExecutionReport } from '../interfaces/types'
+import ActivityTrail from './ActivityTrail'
+import type { TrailEvent } from '../interfaces/types'
 
 const THINKING_WORDS = [
   'thinking',
@@ -63,22 +60,23 @@ const THINKING_WORDS = [
   'weighing the scrolls',
 ]
 
-interface InlineEvent {
-  id: string
-  type: 'tool_choice' | 'thinking' | 'execution'
-  content?: string
-  report?: ExecutionReport
-  timestamp: number
-}
-
 interface ThinkingIndicatorProps {
   isVisible: boolean
-  inlineEvents: InlineEvent[]
+  // The turn's trail as it streams. Rendered through the same component that renders a
+  // reloaded turn's, so a turn does not change appearance on refresh.
+  trail: TrailEvent[]
   agentName: string
+  toolLabel: (name: string, args: Record<string, unknown>) => string
   onAbort?: () => void
 }
 
-function ThinkingIndicatorComponent({ isVisible, inlineEvents, agentName, onAbort }: ThinkingIndicatorProps) {
+function ThinkingIndicatorComponent({
+  isVisible,
+  trail,
+  agentName,
+  toolLabel,
+  onAbort,
+}: ThinkingIndicatorProps) {
   const thinkingWord = useMemo(
     () => THINKING_WORDS[Math.floor(Math.random() * THINKING_WORDS.length)],
     []
@@ -104,11 +102,14 @@ function ThinkingIndicatorComponent({ isVisible, inlineEvents, agentName, onAbor
       <div style={{
         padding: '12px 16px',
         borderRadius: '8px',
+        // Green while the turn is still running, so a glance says "working". Once the
+        // answer lands the same trail is re-rendered from `ActivityTrail`'s own chrome,
+        // which is grey — the rule going cold is what marks the turn finished.
         borderLeft: '3px solid var(--accent-primary)',
         display: 'flex',
         flexDirection: 'column',
         color: 'var(--text-secondary)',
-        background: 'var(--surface)',
+        background: 'transparent',
       }}>
         <div style={{
           display: 'flex',
@@ -122,32 +123,7 @@ function ThinkingIndicatorComponent({ isVisible, inlineEvents, agentName, onAbor
             <span>.</span>
           </div>
         </div>
-        {inlineEvents.map((evt) => (
-          <div key={evt.id} style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: '8px',
-            fontSize: '14px',
-          }}>
-            {evt.type === 'tool_choice' && evt.content && (
-              <div className="prose">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                  {evt.content}
-                </ReactMarkdown>
-              </div>
-            )}
-            {evt.type === 'execution' && evt.report && (
-              <ExecutionReportView report={evt.report} />
-            )}
-            {evt.type === 'thinking' && evt.content && (
-              <div className="prose">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                  {evt.content.split('\n').map(line => `> ${line} `).join('\n')}
-                </ReactMarkdown>
-              </div>
-            )}
-          </div>
-        ))}
+        <ActivityTrail trail={trail} live label={toolLabel} variant="bare" />
         {onAbort && (
           <button
             onClick={onAbort}
@@ -164,5 +140,5 @@ function ThinkingIndicatorComponent({ isVisible, inlineEvents, agentName, onAbor
 }
 
 // Memoize component to prevent re-renders when parent re-renders
-// Only re-render if inlineEvents or agentName changes
+// Only re-render if the trail or agentName changes
 export const ThinkingIndicator = memo(ThinkingIndicatorComponent)

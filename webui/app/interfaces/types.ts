@@ -629,6 +629,9 @@ export interface VizierResponseStats {
 export interface ChatMessage {
   uid: string
   timestamp?: string
+  // Explicit ordering position, assigned by storage on write. Null for entries recorded
+  // before the column existed, which are not retroactively ordered.
+  seq?: number | null
   vizier_session: {
     agent_id: string
     channel: string
@@ -641,10 +644,50 @@ export interface ChatMessage {
       content: VizierResponseContent
       attachments?: VizierAttachment[]
     }
+    // Intermediate narration: text the agent wrote alongside its tool calls.
+    AssistantMessage?: string
+    ToolCall?: { call_id: string; name: string; arguments: Record<string, unknown> }
+    ToolResult?: { call_id: string; content: string }
     Checkpoint?: string | { handover: string | null; timestamp: string }
     Command?: string
   }
   reactions?: ReactionEntry[]
+}
+
+// ============================================================================
+// ACTIVITY TRAIL
+// ============================================================================
+
+// One entry of what an agent did on its way to an answer, normalized so the live
+// WebSocket stream and stored history produce the same shape and render through the same
+// component. There is deliberately no variant for a tool call made by a python script:
+// nested calls never reach history and are not streamed, so neither producer can emit one.
+export type TrailEvent =
+  | { kind: 'narration'; id: string; text: string }
+  | { kind: 'thought'; id: string; text: string }
+  | { kind: 'tool'; id: string; name: string; args: Record<string, unknown> }
+  | {
+      kind: 'python'
+      id: string
+      intent: string | null
+      code: string | null
+      report: ExecutionReport | null
+    }
+
+// One exchange: what was asked, what the agent did on the way, and what came back.
+export interface Turn {
+  key: string
+  // Absent for an agent-initiated turn — a scheduled task or a dream cycle.
+  request?: ChatMessage
+  trail: TrailEvent[]
+  outcome?: ChatMessage
+  // The uid of the entry the turn ends at — its outcome, or the checkpoint or command that
+  // closed it. It is what the trail renders above, and it is what lets a turn closed live
+  // and the same turn reloaded from history put their trail in the same place. Absent for a
+  // turn that nothing closed, such as one interrupted by a reload.
+  anchorUid?: string
+  // True while the turn is still streaming, which is when its trail renders expanded.
+  live: boolean
 }
 
 export interface WebSocketMessage {

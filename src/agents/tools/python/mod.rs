@@ -43,6 +43,15 @@ pub struct ExecutePythonInput {
         description = "Python source to run. The value of the last expression is returned as `result`."
     )]
     pub code: String,
+
+    /// `String`, not `Option<String>`, on purpose: a call that omits it fails
+    /// deserialization and the error goes back to the agent, which may retry. It is never
+    /// passed to the sandbox — see `call`.
+    #[schemars(description = "One short sentence, in plain language, saying what this \
+         script is for. It is shown to the person watching in place of the code — write it \
+         for them, not for yourself. E.g. \"compute the 99th percentile from the last 24h \
+         of latency samples\".")]
+    pub intent: String,
 }
 
 #[async_trait::async_trait]
@@ -75,6 +84,10 @@ impl VizierTool for ExecutePython {
             None => Arc::new(NoToolsBridge),
         };
 
+        // `args.intent` deliberately stops here: only the code reaches the sandbox, so the
+        // stated intent cannot become a script variable or affect limits, tool availability
+        // or the result. It is read only by whatever renders the call, from the tool call's
+        // arguments — which is also why it is not copied onto `ExecutionReport`.
         let mut report = sandbox::execute(&args.code, self.limits, engine_bridge)
             .instrument(span.clone())
             .await;
@@ -140,6 +153,9 @@ NOT callable from scripts (calling one raises NameError). Each run is stateless.
         "Run a Python script in an isolated sandbox and get back the value of its last expression
 (`result`) plus anything it printed (`stdout`). Use it for exact computation: arithmetic,
 date/time math, parsing, sorting, de-duplication, regex, JSON transformation, small algorithms.
+
+Every run needs an `intent` as well as `code`: one short sentence saying what the script is for.
+The person watching sees that sentence where the script would otherwise be, so write it for them.
 
 {access}
 

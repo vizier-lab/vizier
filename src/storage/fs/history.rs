@@ -51,6 +51,7 @@ impl HistoryStorage for FileSystemStorage {
             content,
             timestamp: Utc::now(),
             reactions: vec![],
+            seq: None,
         };
 
         let path = entry_path(&self.workspace, &session, &uid);
@@ -68,6 +69,9 @@ impl HistoryStorage for FileSystemStorage {
         &self,
         session: VizierSession,
         before: Option<DateTime<Utc>>,
+        // This backend survives only as a read source for the one-time migration into
+        // sqlite, and it never assigned a `seq`, so there is no cursor position to honour.
+        _before_seq: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>> {
         let pattern = format!("{}/*.json", topic_dir(&self.workspace, &session).display());
@@ -394,6 +398,7 @@ impl HistoryStorage for FileSystemStorage {
             content: SessionHistoryContent::Checkpoint(handover),
             timestamp: Utc::now(),
             reactions: vec![],
+            seq: None,
         };
 
         let path = entry_path(&self.workspace, &session, &uid);

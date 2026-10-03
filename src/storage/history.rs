@@ -14,10 +14,17 @@ pub trait HistoryStorage {
         content: SessionHistoryContent,
     ) -> Result<()>;
 
+    /// Newest-first-bounded, oldest-first-returned history for one session.
+    ///
+    /// `before` and `before_seq` together form the paging cursor: taken from the oldest entry
+    /// of the previous page they address one exact entry, so a group of entries sharing a
+    /// millisecond cannot be split across a page boundary. Passing `before` alone keeps the
+    /// pre-`seq` behaviour, and `before_seq` without `before` is ignored.
     async fn list_session_history(
         &self,
         session: VizierSession,
         before: Option<DateTime<Utc>>,
+        before_seq: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>>;
 
@@ -76,9 +83,12 @@ impl HistoryStorage for VizierStorage {
         &self,
         session: VizierSession,
         before: Option<DateTime<Utc>>,
+        before_seq: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>> {
-        self.0.list_session_history(session, before, limit).await
+        self.0
+            .list_session_history(session, before, before_seq, limit)
+            .await
     }
 
     async fn update_history_reactions(
