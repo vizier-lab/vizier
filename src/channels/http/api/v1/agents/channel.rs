@@ -52,12 +52,12 @@ pub fn channel() -> Router<HTTPState> {
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct HistoryQuery {
-    before: Option<chrono::DateTime<Utc>>,
+    pub before: Option<chrono::DateTime<Utc>>,
     /// The ordering position of the oldest entry of the previous page, completing the
     /// `before` cursor so a group of entries sharing a millisecond cannot be split across a
     /// page boundary. Ignored without `before`; omitting it keeps the pre-`seq` behaviour.
-    before_seq: Option<i64>,
-    limit: Option<usize>,
+    pub before_seq: Option<i64>,
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]

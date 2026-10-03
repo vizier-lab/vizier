@@ -23,6 +23,7 @@ use crate::{
                 context::{context_md, with_context},
                 init_workspace,
                 sandbox::sandbox_md,
+                scheduled_run::scheduled_run_md,
                 user::owner_md,
             },
         },
@@ -279,7 +280,11 @@ impl VizierAgent {
         }
     }
 
-    pub async fn prepare_system_prompts(&self) -> Vec<Message> {
+    /// Takes the session because one section is conditional on it: the scheduled-run
+    /// framing. The question is answered through `VizierSession::is_scheduled_task()` and
+    /// nowhere else — selecting on the request content kind would catch the dream cycle,
+    /// which sends `Unattended` too and carries its own framing.
+    pub async fn prepare_system_prompts(&self, session: &VizierSession) -> Vec<Message> {
         init_workspace(self.workspace.clone());
 
         let boot = boot_md(
@@ -316,6 +321,12 @@ impl VizierAgent {
 
         for document in &self.config.documents {
             res.push(Message::system(document.clone()));
+        }
+
+        // Appended last, after CORE and documents, so the cacheable boot/CORE prefix stays
+        // byte-identical to an interactive turn's.
+        if session.is_scheduled_task() {
+            res.push(Message::system(scheduled_run_md()));
         }
 
         res
@@ -370,7 +381,7 @@ impl VizierAgent {
         let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
         let initiative_factor = rng.random_range(0_f32..=1_f32);
 
-        let mut history = self.prepare_system_prompts().await;
+        let mut history = self.prepare_system_prompts(&session).await;
 
         // Inject checkpoint handover as system context
         if let Some(handover) = checkpoint_handover {
@@ -676,7 +687,7 @@ impl VizierAgent {
 
                     // Clear LLM history and rebuild with fresh context
                     history.clear();
-                    history.extend(self.prepare_system_prompts().await);
+                    history.extend(self.prepare_system_prompts(&ctx.session).await);
 
                     // Inject the new handover
                     if let Some(ref msg) = handover {
@@ -945,7 +956,7 @@ impl VizierAgent {
             .await?;
 
         // Prepare system prompts (same as chat)
-        let mut history = self.prepare_system_prompts().await;
+        let mut history = self.prepare_system_prompts(&session).await;
 
         // Extend with session history
         history.extend(history_entries_to_messages(&session_history));

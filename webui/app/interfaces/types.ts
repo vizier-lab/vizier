@@ -529,7 +529,10 @@ export type VizierRequestContent =
   | { chat: string }
   | { prompt: string }
   | { silent_read: string }
-  | { task: string }
+  // A machine wrote this prompt and nobody is waiting on the answer — a scheduled task run,
+  // or a dream cycle's own work. Renamed from `task`, because two of its three construction
+  // sites are the dream cycle.
+  | { unattended: string }
   | { command: string }
   | { reaction: ReactionEvent }
   | { audio_chat: [VizierAttachment, string | null] }
@@ -791,20 +794,49 @@ export type TaskSchedule =
   | { CronTask: string }
   | { OneTimeTask: string }
 
+// Who wanted the task to exist: somebody asked, or the agent set it up on its own
+// initiative. A person is recorded as the channel they reached the agent on knows them, so
+// it may not resolve to any account — it renders as recorded either way.
+export type Requester =
+  | { user: string }
+  | { agent: string }
+
+export type TaskRunState = 'running' | 'answered' | 'no_response' | 'interrupted'
+
+// One firing of a task. `response` is present only where the response is what the reader
+// came for — the task detail and a run's own fetch. The listing and the task table leave it
+// out entirely.
+export interface TaskRun {
+  run_id: string
+  id: number
+  ran_at: string
+  finished_at?: string | null
+  state: TaskRunState
+  response?: string | null
+}
+
+export interface TaskRunsResponse {
+  runs: TaskRun[]
+  has_more: boolean
+}
+
 export interface Task {
   slug: string
-  user: string
+  requester: Requester
   title: string
   instruction: string
   is_active: boolean
   schedule: TaskSchedule
   last_executed_at?: string
   timestamp: string
+  // `null` for a task that has never run — distinct from a run that answered nothing, which
+  // is a `last_run` whose `response` is `null`.
+  last_run?: TaskRun | null
 }
 
+// `user` is gone: the requester is taken from the authenticated caller, never supplied.
 export interface CreateTaskRequest {
   slug: string
-  user: string
   title: string
   instruction: string
   schedule: { type: 'Cron'; expression: string } | { type: 'OneTime'; datetime: string }

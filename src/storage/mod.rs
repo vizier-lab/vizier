@@ -12,7 +12,8 @@ use crate::{
         agent::AgentStorage, dream::DreamStorage, dream_journal::DreamJournalStorage,
         global_config::GlobalConfigStorage, history::HistoryStorage, memory::MemoryStorage,
         provider::ProviderStorage, session::SessionStorage, session_file::SessionFileStorage,
-        state::StateStorage, task::TaskStorage, user::UserStorage,
+        state::StateStorage, task::TaskStorage, task_run::TaskRunStorage,
+        user::UserStorage,
     },
 };
 
@@ -32,6 +33,7 @@ pub mod session;
 pub mod session_file;
 pub mod state;
 pub mod task;
+pub mod task_run;
 pub mod user;
 
 pub mod fs;
@@ -41,6 +43,7 @@ pub trait VizierStorageProvider
 where
     Self: MemoryStorage
         + TaskStorage
+        + TaskRunStorage
         + HistoryStorage
         + SessionStorage
         + StateStorage

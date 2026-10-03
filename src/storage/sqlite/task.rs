@@ -22,6 +22,12 @@ impl TaskStorage for SqliteStorage {
         let id = format!("{}/{}", agent_id, slug);
         let conn = self.conn.lock();
         conn.execute("DELETE FROM task WHERE id = ?1", rusqlite::params![id])?;
+        // The task's runs go with it, which is also what stops a new task reusing a
+        // freed slug from inheriting the deleted one's history.
+        conn.execute(
+            "DELETE FROM task_run WHERE agent_id = ?1 AND task_slug = ?2",
+            rusqlite::params![agent_id, slug],
+        )?;
         Ok(())
     }
 
