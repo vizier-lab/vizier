@@ -84,9 +84,11 @@
   rather than fixed: the cycle only runs when there were conversations in the
   window (dream/mod.rs early-returns on an empty session list), so an agent that
   only runs tasks still never reflects. Pre-existing gating, untouched here.
-- The prompt-framing work discussed alongside this (an unattended-run preamble,
-  and `sender:` no longer naming a person) is deliberately NOT in this spec. It
-  is spec 012, and it depends on the relevant requirements for somewhere honest to attribute to.
+- Iteration 9 (user direction, reversing an earlier decision): the unattended-run
+  prompt framing, first held back as a separate spec 012, is merged in here as
+  User Story 5 and its own requirement group. The argument for merging: shipping
+  the display without the framing would put conversational filler on screen, so
+  the two halves only deliver value together. No spec 012 exists.
 - Scope was narrowed on user direction after a first draft: no status taxonomy
   (succeeded/failed/blocked/timed out), no push notifications, no deduplication
   of repeated failures, no attention filter. The agent's own last response is
@@ -112,3 +114,12 @@
 - FR cross-references in these notes were replaced with group names after the
   requirement list was renumbered twice; numbers in notes went stale faster than
   they were worth maintaining.
+
+- Framing trap recorded in both the edge cases and the assumptions, because the
+  obvious implementation is the wrong one: the reflection cycle issues its work
+  as the SAME request content kind a scheduled task uses (it carries its own
+  framing already), so framing selected on content kind would double up. It must
+  be selected on the run being a scheduled task.
+- User Story 5 is P1 alongside User Story 1, deliberately. They are co-equal
+  rather than ordered: the display is what makes a report visible, the framing is
+  what makes it a report. Either alone leaves the original complaint unfixed.
