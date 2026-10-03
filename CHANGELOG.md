@@ -2,6 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0-rc.1] - 2026-10-03
+
+### 🚀 Features
+
+- Version history for CORE.md and memories
+- Add dummyplug offline test provider
+- Dummyplug tool listing, sample requests, and tool calls
+- Python sandbox and code mode (programmatic tool calling)
+- Passage-level memory retrieval [**breaking**]
+- [**breaking**] Keep reasoning and tool activity attached to the turn that produced it
+- [**breaking**] Give each task firing its own conversation
+- [**breaking**] Rename the Task request content variant to Unattended
+- [**breaking**] Replace a task's free-text user with a requester
+- Record and surface task run results
+
+### 🚜 Refactor
+
+- Share one frontmatter parser across utils and memory storage
+
+### 📚 Documentation
+
+- *(spec)* Add memory version history spec, plan, and tasks
+- *(spec)* Add dummyplug test provider spec, plan, and tasks
+- Document the dummyplug test provider
+- Amend constitution to v1.2.0 (dummyplug end-to-end verification gate)
+- *(spec)* Add python sandbox & code mode (programmatic tool calling) spec
+- *(spec)* Add plan, research, contracts and tasks for python sandbox & code mode
+- Align 007 spec artifacts with constitution v1.2.0 and analysis fixes
+- *(spec)* Add spec for semantic chunking of memories
+- *(spec)* Add plan, research, contracts and tasks for memory chunking
+- *(spec)* Add spec for webui reasoning and tool activity display
+- *(spec)* Add plan, research, contracts and tasks for webui reasoning display
+- *(spec)* Add spec for task results, requester and run reports
+- *(spec)* Fold unattended-run framing into the task results spec
+- *(spec)* Add plan, research, contracts and quickstart for task run results
+- *(spec)* Add tasks for task run results, requester and framing
+- *(spec)* Mark the task-run-results tasks complete
+
+### ⚡ Performance
+
+- Make agent prompts cacheable across requests
+- Shrink what an execute_python report costs the model
+
+### ⚙️ Miscellaneous Tasks
+
+- Drop per-write and per-document passage logging
 ## [0.11.0] - 2026-09-13
 
 ### 🚀 Features
@@ -29,6 +75,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Bump version to 0.11.0-rc.1
+- Bump version to 0.11.0
 ## [0.10.11] - 2026-07-02
 
 ### 🚀 Features
