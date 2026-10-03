@@ -28,6 +28,7 @@ use crate::{
         sqlite::SqliteStorage,
         state::StateStorage,
         task::TaskStorage,
+        task_run::TaskRunStorage,
         user::{AVAILABLE_PERMISSIONS, UserStorage},
     },
     transport::VizierTransport,
@@ -110,6 +111,8 @@ impl VizierDependencies {
         Self::migrate_providers(&config, &storage).await?;
         Self::migrate_agent_tools(&storage).await?;
         Self::migrate_agent_cores(&storage).await?;
+        Self::migrate_task_requester(conn.clone()).await?;
+        Self::interrupt_orphaned_task_runs(&storage).await?;
 
         let transport = VizierTransport::new();
         let file_manager = FileManager::new(config.workspace.clone());
@@ -803,6 +806,98 @@ impl VizierDependencies {
         }
         if seeded > 0 {
             tracing::info!("backfilled default CORE for {} agent(s)", seeded);
+        }
+
+        Ok(())
+    }
+    /// Every stored task's `user: "x"` becomes `requester: {"user": "x"}`
+    /// (`specs/011-task-completion-reports/data-model.md`).
+    ///
+    /// This works on the raw `task.data` blob rather than through `TaskStorage`, because a
+    /// row still carrying `user` no longer deserializes into `Task` at all — and
+    /// `get_task_list` drops a row it cannot parse silently, so going through it would
+    /// migrate nothing while reporting success.
+    ///
+    /// **Imprecise by construction, and plainly so**: nothing recorded before this change
+    /// distinguishes a task the agent set up on its own initiative, so every pre-existing
+    /// task becomes person-attributed. Guessing an agent from the string would be worse than
+    /// being approximate.
+    async fn migrate_task_requester(conn: Arc<Mutex<rusqlite::Connection>>) -> Result<()> {
+        const MARKER: &str = "migration__task_requester__v1";
+
+        let conn = conn.lock();
+        if Self::migration_done(&conn, MARKER)? {
+            return Ok(());
+        }
+
+        let rows: Vec<(String, String)> = {
+            let mut stmt = conn.prepare("SELECT id, data FROM task")?;
+            let mapped = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            mapped.filter_map(|r| r.ok()).collect()
+        };
+
+        let mut migrated = 0;
+        for (id, data) in rows {
+            let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&data) else {
+                tracing::warn!("skipping requester migration for task '{}': unparseable data", id);
+                continue;
+            };
+            let Some(object) = value.as_object_mut() else {
+                continue;
+            };
+            if object.contains_key("requester") {
+                continue;
+            }
+            // A task with neither field is already broken; `"user"` is the literal the web
+            // form used to default to, and it migrates as faithfully as anything else would.
+            let user = match object.remove("user") {
+                Some(serde_json::Value::String(user)) => user,
+                _ => continue,
+            };
+            object.insert(
+                "requester".to_string(),
+                serde_json::json!({ "user": user }),
+            );
+
+            match serde_json::to_string(&value) {
+                Ok(data) => {
+                    conn.execute(
+                        "UPDATE task SET data = ?1 WHERE id = ?2",
+                        rusqlite::params![data, id],
+                    )?;
+                    migrated += 1;
+                }
+                Err(e) => tracing::warn!("failed to re-encode task '{}': {}", id, e),
+            }
+        }
+
+        Self::mark_migration_done(&conn, MARKER)?;
+
+        if migrated > 0 {
+            tracing::info!("migrated {} task(s) from user to requester", migrated);
+        }
+
+        Ok(())
+    }
+
+    /// A process that stopped mid-run left a `task_run` row claiming to be in flight. Such a
+    /// row would both display as perpetually running and — since the row *is* the overlap
+    /// lock — permanently block the task from firing again.
+    ///
+    /// Running at startup is what makes this correct rather than a guess: nothing can
+    /// legitimately be running before the scheduler starts.
+    ///
+    /// Unlike the migrations above this is not one-time, so it carries no marker.
+    async fn interrupt_orphaned_task_runs(storage: &VizierStorage) -> Result<()> {
+        match storage.interrupt_open_task_runs().await {
+            Ok(0) => {}
+            Ok(swept) => tracing::info!(
+                "marked {} task run(s) left open by a previous process as interrupted",
+                swept
+            ),
+            // A failed sweep must not stop the process from booting; the cost is a task
+            // that looks busy until the next successful startup.
+            Err(e) => tracing::warn!("failed to sweep open task runs: {}", e),
         }
 
         Ok(())
