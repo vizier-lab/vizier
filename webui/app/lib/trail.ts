@@ -124,7 +124,13 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
     }
 
     if (content.Request !== undefined) {
-      open = newTurn(entry.uid, entry)
+      // An unattended request — a scheduled task run, a dream cycle — opens a turn without
+      // becoming its request. That is what the comment above `newTurn` has always claimed,
+      // and it held only because no such history had ever reached this function. A run's
+      // trail is rendered under the task's own instruction, so adopting the entry here
+      // would put a second, nameless copy of it on screen.
+      const unattended = 'unattended' in content.Request.content
+      open = newTurn(entry.uid, unattended ? undefined : entry)
       pendingPython = new Map()
       continue
     }

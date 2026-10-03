@@ -341,6 +341,7 @@ impl TelegramChannelReader {
                         metadata: serde_json::json!({}),
                         attachments: vec![],
                         expect_audio_reply: None,
+                        scheduled_task: None,
                     },
                     None,
                 )
@@ -362,6 +363,7 @@ impl TelegramChannelReader {
                         metadata: serde_json::json!({}),
                         attachments: vec![],
                         expect_audio_reply: None,
+                        scheduled_task: None,
                     },
                     Some(response_tx),
                 )
@@ -427,6 +429,7 @@ impl TelegramChannelReader {
                         metadata: serde_json::json!({}),
                         attachments: vec![],
                         expect_audio_reply: None,
+                        scheduled_task: None,
                     },
                     Some(response_tx),
                 )
@@ -505,6 +508,7 @@ impl TelegramChannelReader {
             metadata,
             attachments,
             expect_audio_reply: None,
+            scheduled_task: None,
         };
 
         let bot = self.bot.clone();

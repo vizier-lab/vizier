@@ -338,6 +338,7 @@ If I am halucinating, feel free to `/lobotomy` me
                             metadata: serde_json::json!({}),
                             attachments: vec![],
                             expect_audio_reply: None,
+                            scheduled_task: None,
                         },
                         None,
                     )
@@ -406,6 +407,7 @@ If I am halucinating, feel free to `/lobotomy` me
                     metadata: serde_json::json!({}),
                     attachments: vec![],
                     expect_audio_reply: None,
+                    scheduled_task: None,
                 },
                 Some(response_tx),
             )

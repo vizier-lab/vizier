@@ -978,6 +978,7 @@ async fn agent_chat(
         metadata: serde_json::json!({}),
         attachments,
         expect_audio_reply: None,
+        scheduled_task: None,
     };
 
     let (response_tx, response_rx) = flume::unbounded();
