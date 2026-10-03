@@ -209,7 +209,7 @@ shows its last run time and state, with never-run, running and no-response each 
 - [ ] T061 Walk quickstart.md §9's manual check: kill the process mid-run, restart, and confirm the run reads `interrupted` and the task is not permanently blocked
 - [ ] T062 Walk quickstart.md §10 against a small **live** model: confirm a scheduled run's answer reads as a report, and that an interactive turn and a dream extraction are both unchanged
 - [X] T063 [P] Update `CLAUDE.md` where it describes tasks and the scheduler, so the docs state that runs are recorded, one-time tasks are deactivated rather than deleted, and the content variant is `Unattended`
-- [ ] T064 Confirm the commits carrying the three breaking changes are flagged `[**breaking**]` per the `git-cliff` convention: the requester replacing `Task.user`, the session slug rendering, and the renamed content variant
+- [X] T064 Confirm the commits carrying the three breaking changes are flagged `[**breaking**]` per the `git-cliff` convention: the requester replacing `Task.user`, the session slug rendering, and the renamed content variant
 
 ---
 
