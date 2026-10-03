@@ -21,6 +21,7 @@ mod session;
 mod session_file;
 mod state;
 mod task;
+mod task_run;
 mod user;
 
 #[derive(Clone)]
@@ -326,9 +327,40 @@ impl SqliteStorage {
         init_history_schema(conn)?;
         init_memory_graph_schema(conn)?;
         init_revision_schema(conn)?;
+        init_task_run_schema(conn)?;
 
         Ok(())
     }
+}
+
+/// The `task_run` table (`specs/011-task-completion-reports/data-model.md`), split out of
+/// `init_schema` like [`init_history_schema`] so the cursor and invariant tests in
+/// `src/storage/sqlite/task_run.rs` can stand up just this table against an in-memory
+/// connection.
+///
+/// `AUTOINCREMENT` matters: `id` is the low half of the run-list page cursor and must be
+/// monotonic, which a plain `INTEGER PRIMARY KEY` is not — it can reuse a rowid freed by a
+/// delete, and the cursor would then skip or duplicate a run.
+pub fn init_task_run_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS task_run (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id     TEXT NOT NULL,
+            task_slug    TEXT NOT NULL,
+            ran_at       INTEGER NOT NULL,
+            finished_at  INTEGER,
+            session_key  TEXT NOT NULL,
+            state        TEXT NOT NULL
+        );
+        -- the run list: newest-first within one task, the only ordering anything asks for
+        CREATE INDEX IF NOT EXISTS idx_task_run_task ON task_run(agent_id, task_slug, ran_at DESC, id DESC);
+        -- the startup sweep, and the overlap check
+        CREATE INDEX IF NOT EXISTS idx_task_run_state ON task_run(state);
+        ",
+    )?;
+
+    Ok(())
 }
 
 /// The `session_history` table, split out of `init_schema` like

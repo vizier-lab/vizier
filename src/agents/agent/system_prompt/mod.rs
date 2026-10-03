@@ -1,6 +1,7 @@
 pub mod boot;
 pub mod context;
 pub mod sandbox;
+pub mod scheduled_run;
 pub mod user;
 
 pub fn init_workspace(path: String) {

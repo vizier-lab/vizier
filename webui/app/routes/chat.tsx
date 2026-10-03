@@ -92,7 +92,9 @@ const SLASH_COMMANDS = [
   { name: '/abort', description: 'Abort current thinking' },
 ]
 
-const formatToolChoice = (
+// Exported so the task view can label a run's trail with the same catalogue. One home for
+// the tool names, rather than a second list that drifts from this one.
+export const formatToolChoice = (
   name: string,
   args: Record<string, unknown>,
   agentNames: Record<string, string>
@@ -143,6 +145,10 @@ const formatToolChoice = (
       return `🗑️ Deleting task '${args.slug as string}'`
     case 'get_task_detail':
       return `📋 Getting task detail for '${args.slug as string}'`
+    case 'list_task_runs':
+      return `🕘 Listing past runs of task '${args.slug as string}'`
+    case 'get_task_run_detail':
+      return `📄 Reading the report from the ${args.run_id as string} run of '${args.slug as string}'`
     case 'schedule_one_time_task':
       return `⏰ Scheduling task: '${args.title as string}'`
     case 'schedule_cron_task':

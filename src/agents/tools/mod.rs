@@ -18,7 +18,10 @@ use crate::{
         fetch::FetchWebpage,
         http_client::HttpClient,
         python::{DescribeToolFunction, ExecutePython, ListToolFunctions},
-scheduler::{DeleteTask, GetTaskDetail, ListTask, ScheduleCronTask, ScheduleOneTimeTask},
+scheduler::{
+    DeleteTask, GetTaskDetail, GetTaskRunDetail, ListTask, ListTaskRuns, ScheduleCronTask,
+    ScheduleOneTimeTask,
+},
         read_image::ReadImageFile,
         session_files::{ListSessionFiles, ReadDocumentFile, SendAttachment},
         shell::ShellExec,
@@ -386,11 +389,17 @@ impl VizierTools {
         // Workspace (2)
         "WRITE_CORE",
         "READ_CORE",
-        // Scheduler (4)
+        // Scheduler (6)
         "schedule_one_time_task",
         "schedule_cron_task",
         "list_task",
         "delete_task",
+        // `is_non_user_channel` excludes `task__` from the sessions the dream cycle
+        // reflects on, so these two are the only route by which a task's outcome reaches
+        // memory at all. Paired with `list_task`, the cycle can walk from "what tasks do I
+        // have" to "how have they been going".
+        "list_task_runs",
+        "get_task_run_detail",
         // Skills (5)
         "create_skill",
         "update_skill",
@@ -499,6 +508,14 @@ impl VizierTools {
                 storage: deps.storage.clone(),
             })
             .tool(GetTaskDetail {
+                agent_id: agent_id.clone(),
+                storage: deps.storage.clone(),
+            })
+            .tool(ListTaskRuns {
+                agent_id: agent_id.clone(),
+                storage: deps.storage.clone(),
+            })
+            .tool(GetTaskRunDetail {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
             })

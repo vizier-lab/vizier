@@ -483,11 +483,11 @@ export const getTask = async (agentId: string, slug: string) => {
   return res.data
 }
 
+// No `user`: the requester is taken from the authenticated caller.
 export const createTask = async (
   agentId: string,
   data: {
     slug: string
-    user: string
     title: string
     instruction: string
     schedule: { type: 'Cron'; expression: string } | { type: 'OneTime'; datetime: string }
@@ -502,7 +502,6 @@ export const updateTask = async (
   slug: string,
   data: {
     slug: string
-    user: string
     title: string
     instruction: string
     schedule: { type: 'Cron'; expression: string } | { type: 'OneTime'; datetime: string }
@@ -514,6 +513,46 @@ export const updateTask = async (
 
 export const deleteTask = async (agentId: string, slug: string) => {
   const res = await apiClient.delete(`/agents/${agentId}/tasks/${slug}`)
+  return res.data
+}
+
+// A task's past runs, newest first. `before`/`beforeId` carry the page cursor: the pair is
+// what keeps runs sharing a millisecond from straddling a page boundary, so passing only
+// `before` can skip or repeat a run within a tie group.
+export const listTaskRuns = async (
+  agentId: string,
+  slug: string,
+  before?: string,
+  beforeId?: number,
+  limit?: number
+) => {
+  const params = new URLSearchParams()
+  if (before) params.append('before', before)
+  if (before && beforeId !== undefined) params.append('before_id', beforeId.toString())
+  if (limit) params.append('limit', limit.toString())
+
+  const res = await apiClient.get(`/agents/${agentId}/tasks/${slug}/runs?${params}`)
+  return res.data
+}
+
+// One run's full exchange, in the same shape the chat history comes back in, so it renders
+// through the existing trail grouping.
+export const getTaskRunHistory = async (
+  agentId: string,
+  slug: string,
+  runId: string,
+  before?: string,
+  beforeSeq?: number,
+  limit?: number
+) => {
+  const params = new URLSearchParams()
+  if (before) params.append('before', before)
+  if (before && beforeSeq !== undefined) params.append('before_seq', beforeSeq.toString())
+  if (limit) params.append('limit', limit.toString())
+
+  const res = await apiClient.get(
+    `/agents/${agentId}/tasks/${slug}/runs/${encodeURIComponent(runId)}/history?${params}`
+  )
   return res.data
 }
 

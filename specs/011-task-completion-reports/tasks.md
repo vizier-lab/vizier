@@ -36,7 +36,7 @@ repository root. No new module tree — see plan.md's Structure Decision.
 
 **Purpose**: a known-good baseline before three breaking changes land
 
-- [ ] T001 Establish a green baseline: `just install`, then confirm `cargo clippy`, `cargo test` and `cd webui && npm run typecheck` all pass on `c340e2b` before any change
+- [X] T001 Establish a green baseline: `just install`, then confirm `cargo clippy`, `cargo test` and `cd webui && npm run typecheck` all pass on `c340e2b` before any change
 
 ---
 
@@ -50,37 +50,37 @@ and US4 independently testable instead of all waiting on US1.
 
 ### Schema
 
-- [ ] T002 Add the `Requester` enum (`User(String)` / `Agent(AgentId)`) and replace `Task.user` with `Task.requester` in `src/schema/task.rs` per data-model.md
-- [ ] T003 Add `TaskRun` and `TaskRunState` (`Running`/`Answered`/`NoResponse`/`Interrupted`) to `src/schema/task.rs` per data-model.md (same file as T002)
-- [ ] T004 [P] Rename `VizierRequestContent::Task` to `Unattended` in `src/schema/request.rs` with **no serde alias** (research D12), and update every call site: `src/scheduler/mod.rs:175`, `src/scheduler/dream/mod.rs:195` and `:343`, `src/agents/process.rs:1065`, and the `Display` arm at `src/schema/request.rs:85`
-- [ ] T005 [P] In `src/schema/session.rs`, change the `Task` arm of `to_slug()` to render the full timestamp instead of `timestamp_subsec_nanos()`, and add `VizierSession::is_scheduled_task()` per data-model.md
+- [X] T002 Add the `Requester` enum (`User(String)` / `Agent(AgentId)`) and replace `Task.user` with `Task.requester` in `src/schema/task.rs` per data-model.md
+- [X] T003 Add `TaskRun` and `TaskRunState` (`Running`/`Answered`/`NoResponse`/`Interrupted`) to `src/schema/task.rs` per data-model.md (same file as T002)
+- [X] T004 [P] Rename `VizierRequestContent::Task` to `Unattended` in `src/schema/request.rs` with **no serde alias** (research D12), and update every call site: `src/scheduler/mod.rs:175`, `src/scheduler/dream/mod.rs:195` and `:343`, `src/agents/process.rs:1065`, and the `Display` arm at `src/schema/request.rs:85`
+- [X] T005 [P] In `src/schema/session.rs`, change the `Task` arm of `to_slug()` to render the full timestamp instead of `timestamp_subsec_nanos()`, and add `VizierSession::is_scheduled_task()` per data-model.md
 
 ### Storage
 
-- [ ] T006 Add the `task_run` table and both indices to the `CREATE TABLE IF NOT EXISTS` batch in `src/storage/sqlite/mod.rs`, using `INTEGER PRIMARY KEY AUTOINCREMENT` so `id` is monotonic for the page cursor
-- [ ] T007 Create the `TaskRunStorage` trait and its `VizierStorage` forwarding impl in `src/storage/task_run.rs` with the seven methods in data-model.md
-- [ ] T008 Implement `TaskRunStorage` for `SqliteStorage` in `src/storage/sqlite/task_run.rs`, with `list_task_runs` ordering `ran_at DESC, id DESC` and paging on `(before, before_id)`
-- [ ] T009 Compose `TaskRunStorage` into `VizierStorageProvider` and register the module in `src/storage/mod.rs`
-- [ ] T010 [P] Make `delete_task` also drop that task's runs in `src/storage/sqlite/task.rs` (FR-012, which also gives FR-013)
+- [X] T006 Add the `task_run` table and both indices to the `CREATE TABLE IF NOT EXISTS` batch in `src/storage/sqlite/mod.rs`, using `INTEGER PRIMARY KEY AUTOINCREMENT` so `id` is monotonic for the page cursor
+- [X] T007 Create the `TaskRunStorage` trait and its `VizierStorage` forwarding impl in `src/storage/task_run.rs` with the seven methods in data-model.md
+- [X] T008 Implement `TaskRunStorage` for `SqliteStorage` in `src/storage/sqlite/task_run.rs`, with `list_task_runs` ordering `ran_at DESC, id DESC` and paging on `(before, before_id)`
+- [X] T009 Compose `TaskRunStorage` into `VizierStorageProvider` and register the module in `src/storage/mod.rs`
+- [X] T010 [P] Make `delete_task` also drop that task's runs in `src/storage/sqlite/task.rs` (FR-012, which also gives FR-013)
 
 ### Startup
 
-- [ ] T011 [P] Add the requester migration to `src/dependencies.rs` beside the existing one-time migrations: every stored task's `user: "x"` becomes `requester: {"user": "x"}` (FR-031)
-- [ ] T012 Add the startup sweep to `src/dependencies.rs`: every `task_run` left `running` becomes `interrupted` (FR-018, research D6)
+- [X] T011 [P] Add the requester migration to `src/dependencies.rs` beside the existing one-time migrations: every stored task's `user: "x"` becomes `requester: {"user": "x"}` (FR-031)
+- [X] T012 Add the startup sweep to `src/dependencies.rs`: every `task_run` left `running` becomes `interrupted` (FR-018, research D6)
 
 ### Scheduler
 
-- [ ] T013 In `src/scheduler/mod.rs`, set `is_active = false` on a fired one-time task instead of calling `delete_task` (FR-001, FR-002) — the regression that started this feature
-- [ ] T014 In `src/scheduler/mod.rs`, open a `task_run` before dispatch, pass a `flume::Sender<VizierResponse>` to `send_request`, and close the run from the final response in a spawned task, following `DreamScheduler`'s pattern at `src/scheduler/dream/mod.rs:178-220` (FR-002, FR-003, research D3)
-- [ ] T015 In `src/scheduler/mod.rs`, close the run as `NoResponse` when `send_request` returns `Err` (agent not registered) or the channel closes with no message content (FR-024)
-- [ ] T016 In `src/scheduler/mod.rs`, replace the `running: HashSet` overlap check with a `running_task_run` lookup, and delete the now-dead set (FR-010, research D5)
-- [ ] T017 In `src/scheduler/mod.rs`, ensure a recording failure is logged via `tracing` and never aborts the run (FR-017)
+- [X] T013 In `src/scheduler/mod.rs`, set `is_active = false` on a fired one-time task instead of calling `delete_task` (FR-001, FR-002) — the regression that started this feature
+- [X] T014 In `src/scheduler/mod.rs`, open a `task_run` before dispatch, pass a `flume::Sender<VizierResponse>` to `send_request`, and close the run from the final response in a spawned task, following `DreamScheduler`'s pattern at `src/scheduler/dream/mod.rs:178-220` (FR-002, FR-003, research D3)
+- [X] T015 In `src/scheduler/mod.rs`, close the run as `NoResponse` when `send_request` returns `Err` (agent not registered) or the channel closes with no message content (FR-024)
+- [X] T016 In `src/scheduler/mod.rs`, replace the `running: HashSet` overlap check with a `running_task_run` lookup, and delete the now-dead set (FR-010, research D5)
+- [X] T017 In `src/scheduler/mod.rs`, ensure a recording failure is logged via `tracing` and never aborts the run (FR-017)
 
 ### Foundational tests
 
-- [ ] T018 [P] Unit tests in `src/schema/session.rs`: `to_slug()` yields a distinct key per timestamp, a legacy `task__{slug}__0` key still parses, and `is_scheduled_task()` is true for `Task` and false for `Dream`, `HTTP`, `System` and `Subagent`
-- [ ] T019 [P] Unit tests in `src/storage/sqlite/task_run.rs`: a page cursor over several runs sharing one millisecond neither duplicates nor skips, and `has_more` is false only on the last page
-- [ ] T020 [P] Unit tests in `src/storage/sqlite/task_run.rs`: at most one `Running` row per `(agent_id, task_slug)`, and the sweep turns every `Running` row into `Interrupted`
+- [X] T018 [P] Unit tests in `src/schema/session.rs`: `to_slug()` yields a distinct key per timestamp, a legacy `task__{slug}__0` key still parses, and `is_scheduled_task()` is true for `Task` and false for `Dream`, `HTTP`, `System` and `Subagent`
+- [X] T019 [P] Unit tests in `src/storage/sqlite/task_run.rs`: a page cursor over several runs sharing one millisecond neither duplicates nor skips, and `has_more` is false only on the last page
+- [X] T020 [P] Unit tests in `src/storage/sqlite/task_run.rs`: at most one `Running` row per `(agent_id, task_slug)`, and the sweep turns every `Running` row into `Interrupted`
 
 **Checkpoint**: runs are recorded and survive a restart; all five stories can now proceed in parallel
 
@@ -96,19 +96,19 @@ fire, then open each — both still exist, each shows the agent's final response
 
 ### Backend
 
-- [ ] T021 [US1] Add a helper that resolves a `TaskRun`'s response — the last `SessionHistoryContent::Response` carrying `VizierResponseContent::Message` in that run's session — in `src/channels/http/api/v1/agents/task.rs`, reading through `list_session_history` with a `Task(slug, ran_at)` session
-- [ ] T022 [US1] Extend `TaskResponse` in `src/channels/http/api/v1/agents/task.rs` with `requester` and `last_run` (`run_id`, `ran_at`, `finished_at`, `state`, `response`) per contracts/http-api.md, keeping `last_executed_at` for compatibility
-- [ ] T023 [US1] Make `last_run` distinguish the three non-results in `src/channels/http/api/v1/agents/task.rs`: `null` for never-run, `state: "running"` with `response: null` while in flight, and `state: "no_response"` with `response: null` for a run that answered nothing (FR-005)
-- [ ] T024 [US1] Take the requester from `AuthenticatedUser` in `create_task` and `update_task` in `src/channels/http/api/v1/agents/task.rs`, ignoring any `user` in the body rather than rejecting it (FR-028, **breaking**)
-- [ ] T025 [US1] Set the requester from the agent's declaration in `schedule_one_time_task` and `schedule_cron_task` in `src/agents/tools/scheduler/mod.rs`: either the agent itself or a named person, with no account lookup (FR-029, FR-030)
+- [X] T021 [US1] Add a helper that resolves a `TaskRun`'s response — the last `SessionHistoryContent::Response` carrying `VizierResponseContent::Message` in that run's session — in `src/channels/http/api/v1/agents/task.rs`, reading through `list_session_history` with a `Task(slug, ran_at)` session
+- [X] T022 [US1] Extend `TaskResponse` in `src/channels/http/api/v1/agents/task.rs` with `requester` and `last_run` (`run_id`, `ran_at`, `finished_at`, `state`, `response`) per contracts/http-api.md, keeping `last_executed_at` for compatibility
+- [X] T023 [US1] Make `last_run` distinguish the three non-results in `src/channels/http/api/v1/agents/task.rs`: `null` for never-run, `state: "running"` with `response: null` while in flight, and `state: "no_response"` with `response: null` for a run that answered nothing (FR-005)
+- [X] T024 [US1] Take the requester from `AuthenticatedUser` in `create_task` and `update_task` in `src/channels/http/api/v1/agents/task.rs`, ignoring any `user` in the body rather than rejecting it (FR-028, **breaking**)
+- [X] T025 [US1] Set the requester from the agent's declaration in `schedule_one_time_task` and `schedule_cron_task` in `src/agents/tools/scheduler/mod.rs`: either the agent itself or a named person, with no account lookup (FR-029, FR-030)
 
 ### WebUI
 
-- [ ] T026 [P] [US1] Add `Requester`, `TaskRun` and `TaskRunState` types and the `requester`/`last_run` fields to `Task` in `webui/app/interfaces/types.ts`, and rename the `{ task: string }` member of `VizierRequestContent` to `{ unattended: string }`
-- [ ] T027 [P] [US1] Drop `user` from `createTask`/`updateTask` payloads in `webui/app/services/vizier.tsx`
-- [ ] T028 [US1] Add the latest-run block to the task slide-over in `webui/app/routes/tasks.tsx`: `ran_at`, duration, and the response rendered as markdown, with the never-run / running / no-response states each reading distinctly (FR-015)
-- [ ] T029 [US1] Show the requester in the task slide-over in `webui/app/routes/tasks.tsx`, distinguishing a person from an agent's own initiative, and rendering a no-longer-resolvable person as recorded (FR-032, FR-033)
-- [ ] T030 [US1] Remove the free-text `User` input and its `formUser` state from the create/edit form in `webui/app/routes/tasks.tsx` (`:49`, `:102`, `:118`, `:161`, `:349-350`) — the requester is no longer caller-supplied
+- [X] T026 [P] [US1] Add `Requester`, `TaskRun` and `TaskRunState` types and the `requester`/`last_run` fields to `Task` in `webui/app/interfaces/types.ts`, and rename the `{ task: string }` member of `VizierRequestContent` to `{ unattended: string }`
+- [X] T027 [P] [US1] Drop `user` from `createTask`/`updateTask` payloads in `webui/app/services/vizier.tsx`
+- [X] T028 [US1] Add the latest-run block to the task slide-over in `webui/app/routes/tasks.tsx`: `ran_at`, duration, and the response rendered as markdown, with the never-run / running / no-response states each reading distinctly (FR-015)
+- [X] T029 [US1] Show the requester in the task slide-over in `webui/app/routes/tasks.tsx`, distinguishing a person from an agent's own initiative, and rendering a no-longer-resolvable person as recorded (FR-032, FR-033)
+- [X] T030 [US1] Remove the free-text `User` input and its `formUser` state from the create/edit form in `webui/app/routes/tasks.tsx` (`:49`, `:102`, `:118`, `:161`, `:349-350`) — the requester is no longer caller-supplied
 
 **Checkpoint**: a fired one-time task is still there and its report is readable — the original complaint is fixed
 
@@ -124,13 +124,13 @@ small live model and confirm the answer reads as a report (quickstart §10).
 
 **Depends on**: T004 (the rename) and T005 (`is_scheduled_task`) from Phase 2.
 
-- [ ] T031 [P] [US5] Create `src/agents/agent/system_prompt/scheduled_run.rs` with `scheduled_run_md()` returning the constant framing text from contracts/scheduled-run-framing.md — no task name, requester or timestamp in it, so it stays identical between runs (FR-033)
-- [ ] T032 [US5] Export the new module from `src/agents/agent/system_prompt/mod.rs`
-- [ ] T033 [US5] Thread the run kind into `prepare_system_prompts` in `src/agents/agent/mod.rs:282` and append `scheduled_run_md()` last — after CORE and documents — **selected via `session.is_scheduled_task()`, never on the request content kind** (FR-031, research D8)
-- [ ] T034 [US5] Update `prepare_system_prompts`'s callers in `src/agents/agent/mod.rs` to pass the session through
-- [ ] T035 [P] [US5] Change `generate_frontmatter` in `src/schema/request.rs:239` so a scheduled run emits `sender: scheduler`, the task slug, and `requested_by` (the person's identity, or `self` for an agent's own initiative) instead of `sender: <user>` (FR-030)
-- [ ] T036 [US5] Pass a rendering of the requester into `VizierRequest.user` in `src/scheduler/mod.rs` so the frontmatter has something honest to attribute to
-- [ ] T037 [P] [US5] Unit tests in `src/agents/agent/system_prompt/`: the framing is present for a `Task` session, **absent for a `Dream` session** and absent for `HTTP`/`Discord`/`Telegram` (FR-031, FR-032), and the string is byte-identical across two calls (FR-033)
+- [X] T031 [P] [US5] Create `src/agents/agent/system_prompt/scheduled_run.rs` with `scheduled_run_md()` returning the constant framing text from contracts/scheduled-run-framing.md — no task name, requester or timestamp in it, so it stays identical between runs (FR-033)
+- [X] T032 [US5] Export the new module from `src/agents/agent/system_prompt/mod.rs`
+- [X] T033 [US5] Thread the run kind into `prepare_system_prompts` in `src/agents/agent/mod.rs:282` and append `scheduled_run_md()` last — after CORE and documents — **selected via `session.is_scheduled_task()`, never on the request content kind** (FR-031, research D8)
+- [X] T034 [US5] Update `prepare_system_prompts`'s callers in `src/agents/agent/mod.rs` to pass the session through
+- [X] T035 [P] [US5] Change `generate_frontmatter` in `src/schema/request.rs:239` so a scheduled run emits `sender: scheduler`, the task slug, and `requested_by` (the person's identity, or `self` for an agent's own initiative) instead of `sender: <user>` (FR-030)
+- [X] T036 [US5] Pass a rendering of the requester into `VizierRequest.user` in `src/scheduler/mod.rs` so the frontmatter has something honest to attribute to
+- [X] T037 [P] [US5] Unit tests in `src/agents/agent/system_prompt/`: the framing is present for a `Task` session, **absent for a `Dream` session** and absent for `HTTP`/`Discord`/`Telegram` (FR-031, FR-032), and the string is byte-identical across two calls (FR-033)
 
 **Checkpoint**: a scheduled run's final message is a report; interactive turns and dream cycles are untouched
 
@@ -147,18 +147,18 @@ duplicated or skipped (quickstart §2, §3).
 
 ### Backend
 
-- [ ] T038 [US2] Add `GET /agents/{agent_id}/tasks/{slug}/runs` to `src/channels/http/api/v1/agents/task.rs` per contracts/http-api.md: `before`/`before_id`/`limit`, newest first, `has_more`, and **no response text in any entry** (FR-007, FR-009, FR-014)
-- [ ] T039 [US2] Add `GET /agents/{agent_id}/tasks/{slug}/runs/{run_id}/history` to `src/channels/http/api/v1/agents/task.rs`, building `VizierSession(agent_id, Task(slug, run_id), None)` and returning `Vec<SessionHistory>` through `list_session_history` with the same `before`/`before_seq`/`limit` query as `get_topic_history` (FR-010)
-- [ ] T040 [US2] Register both routes in the `task()` router and gate both on `user_can_view_agent` in `src/channels/http/api/v1/agents/task.rs`, so run results are reachable only by those already permitted to view the task (FR-016)
-- [ ] T041 [P] [US2] Add `utoipa` path annotations for both new routes in `src/channels/http/api/v1/agents/task.rs`, matching the style of the existing task handlers
+- [X] T038 [US2] Add `GET /agents/{agent_id}/tasks/{slug}/runs` to `src/channels/http/api/v1/agents/task.rs` per contracts/http-api.md: `before`/`before_id`/`limit`, newest first, `has_more`, and **no response text in any entry** (FR-007, FR-009, FR-014)
+- [X] T039 [US2] Add `GET /agents/{agent_id}/tasks/{slug}/runs/{run_id}/history` to `src/channels/http/api/v1/agents/task.rs`, building `VizierSession(agent_id, Task(slug, run_id), None)` and returning `Vec<SessionHistory>` through `list_session_history` with the same `before`/`before_seq`/`limit` query as `get_topic_history` (FR-010)
+- [X] T040 [US2] Register both routes in the `task()` router and gate both on `user_can_view_agent` in `src/channels/http/api/v1/agents/task.rs`, so run results are reachable only by those already permitted to view the task (FR-016)
+- [X] T041 [P] [US2] Add `utoipa` path annotations for both new routes in `src/channels/http/api/v1/agents/task.rs`, matching the style of the existing task handlers
 
 ### WebUI
 
-- [ ] T042 [P] [US2] Add `listTaskRuns` and `getTaskRunHistory` to `webui/app/services/vizier.tsx`, carrying the page cursor
-- [ ] T043 [US2] In `webui/app/lib/trail.ts:126`, open a turn without adopting the entry as its `request` when the request content is `unattended` — which makes the comment at `:106` true rather than aspirational and keeps a run's trail free of a nameless empty bubble (plan.md, WebUI consequences)
-- [ ] T044 [P] [US2] Add a `trail.test.ts` case in `webui/app/lib/` pinning T043: a history list opening with an `unattended` request produces one turn whose `request` is undefined and whose trail and outcome are intact
-- [ ] T045 [US2] Add the past-runs list to the task slide-over in `webui/app/routes/tasks.tsx`: newest first, each row showing `ran_at` and state, with a "load older runs" control driven by the cursor and hidden once `has_more` is false
-- [ ] T046 [US2] Make a listed run expand in place in `webui/app/routes/tasks.tsx`, rendering its history through `trail.ts`'s `groupHistory` and the existing trail component — no navigation to the chat view, which cannot address a task session
+- [X] T042 [P] [US2] Add `listTaskRuns` and `getTaskRunHistory` to `webui/app/services/vizier.tsx`, carrying the page cursor
+- [X] T043 [US2] In `webui/app/lib/trail.ts:126`, open a turn without adopting the entry as its `request` when the request content is `unattended` — which makes the comment at `:106` true rather than aspirational and keeps a run's trail free of a nameless empty bubble (plan.md, WebUI consequences)
+- [X] T044 [P] [US2] Add a `trail.test.ts` case in `webui/app/lib/` pinning T043: a history list opening with an `unattended` request produces one turn whose `request` is undefined and whose trail and outcome are intact
+- [X] T045 [US2] Add the past-runs list to the task slide-over in `webui/app/routes/tasks.tsx`: newest first, each row showing `ran_at` and state, with a "load older runs" control driven by the cursor and hidden once `has_more` is false
+- [X] T046 [US2] Make a listed run expand in place in `webui/app/routes/tasks.tsx`, rendering its history through `trail.ts`'s `groupHistory` and the existing trail component — no navigation to the chat view, which cannot address a task session
 
 **Checkpoint**: run history is browsable and each run's trail is readable in the task view
 
@@ -172,13 +172,13 @@ duplicated or skipped (quickstart §2, §3).
 hand through the dummyplug protocol — the listing is newest-first with no response text, the fetch
 returns that run's response, and neither carries reasoning or tool activity (quickstart §8).
 
-- [ ] T047 [P] [US4] Implement `list_task_runs` as a `VizierTool` in `src/agents/tools/scheduler/mod.rs` per contracts/agent-tools.md: `slug`, optional `limit` (default 10, cap 50) and `before`; returns `run_id`, `ran_at`, `state` and `has_more`, with **no response text and no previews** (FR-020)
-- [ ] T048 [US4] Implement `get_task_run_detail` as a `VizierTool` in `src/agents/tools/scheduler/mod.rs`: `slug` plus `run_id`; returns that run's response, `null` when the state is not `Answered`, truncated past a byte budget with `truncated: true` (FR-022, FR-023)
-- [ ] T049 [US4] Ensure both tools include a `NoResponse` run in their listing rather than omitting it, so a failing task is visible, in `src/agents/tools/scheduler/mod.rs` (FR-024)
-- [ ] T050 [US4] Scope both tools to the owning `agent_id` held on the struct, as the other tools in `src/agents/tools/scheduler/mod.rs` do, so another agent's task cannot be addressed at all (FR-025)
-- [ ] T051 [US4] Register both tools on `default_toolset` in `VizierTools::new()` in `src/agents/tools/mod.rs`
-- [ ] T052 [US4] Add both tool names to `VizierTools::DREAM_TOOL_NAMES` in `src/agents/tools/mod.rs:376`, beside the four scheduler tools already there (FR-026)
-- [ ] T053 [P] [US4] Add human-readable labels for both tools to the tool-label switch in `webui/app/routes/chat.tsx:135-149`, matching the existing task-tool entries
+- [X] T047 [P] [US4] Implement `list_task_runs` as a `VizierTool` in `src/agents/tools/scheduler/mod.rs` per contracts/agent-tools.md: `slug`, optional `limit` (default 10, cap 50) and `before`; returns `run_id`, `ran_at`, `state` and `has_more`, with **no response text and no previews** (FR-020)
+- [X] T048 [US4] Implement `get_task_run_detail` as a `VizierTool` in `src/agents/tools/scheduler/mod.rs`: `slug` plus `run_id`; returns that run's response, `null` when the state is not `Answered`, truncated past a byte budget with `truncated: true` (FR-022, FR-023)
+- [X] T049 [US4] Ensure both tools include a `NoResponse` run in their listing rather than omitting it, so a failing task is visible, in `src/agents/tools/scheduler/mod.rs` (FR-024)
+- [X] T050 [US4] Scope both tools to the owning `agent_id` held on the struct, as the other tools in `src/agents/tools/scheduler/mod.rs` do, so another agent's task cannot be addressed at all (FR-025)
+- [X] T051 [US4] Register both tools on `default_toolset` in `VizierTools::new()` in `src/agents/tools/mod.rs`
+- [X] T052 [US4] Add both tool names to `VizierTools::DREAM_TOOL_NAMES` in `src/agents/tools/mod.rs:376`, beside the four scheduler tools already there (FR-026)
+- [X] T053 [P] [US4] Add human-readable labels for both tools to the tool-label switch in `webui/app/routes/chat.tsx:135-149`, matching the existing task-tool entries
 
 **Checkpoint**: an agent can review how its own scheduled work has been going, awake or dreaming
 
@@ -192,10 +192,10 @@ returns that run's response, and neither carries reasoning or tool activity (qui
 shows its last run time and state, with never-run, running and no-response each distinguishable
 (quickstart §5).
 
-- [ ] T054 [US3] Include `requester` and a `last_run` **without** `response` on each entry of `get_tasks` in `src/channels/http/api/v1/agents/task.rs` (FR-014)
-- [ ] T055 [US3] Add a last-run column to the task table in `webui/app/routes/tasks.tsx`, showing `ran_at` and state, replacing the bare `last_executed_at` cell at `:264`
-- [ ] T056 [US3] Render never-run as "not yet run" rather than blank or an error, and show a run in flight as running, in `webui/app/routes/tasks.tsx` (FR-005)
-- [ ] T057 [P] [US3] Show the requester in the task table in `webui/app/routes/tasks.tsx`, distinguishing a person from an agent's own initiative (FR-032)
+- [X] T054 [US3] Include `requester` and a `last_run` **without** `response` on each entry of `get_tasks` in `src/channels/http/api/v1/agents/task.rs` (FR-014)
+- [X] T055 [US3] Add a last-run column to the task table in `webui/app/routes/tasks.tsx`, showing `ran_at` and state, replacing the bare `last_executed_at` cell at `:264`
+- [X] T056 [US3] Render never-run as "not yet run" rather than blank or an error, and show a run in flight as running, in `webui/app/routes/tasks.tsx` (FR-005)
+- [X] T057 [P] [US3] Show the requester in the task table in `webui/app/routes/tasks.tsx`, distinguishing a person from an agent's own initiative (FR-032)
 
 **Checkpoint**: all five stories independently functional
 
@@ -203,12 +203,12 @@ shows its last run time and state, with never-run, running and no-response each 
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T058 Run `cargo clippy` and fix every new warning; confirm no `unwrap()`/`expect()` was added outside tests (constitution Principle V)
-- [ ] T059 Run `cargo test` and `cd webui && npm run typecheck`, both green
+- [X] T058 Run `cargo clippy` and fix every new warning; confirm no `unwrap()`/`expect()` was added outside tests (constitution Principle V)
+- [X] T059 Run `cargo test` and `cd webui && npm run typecheck`, both green
 - [ ] T060 Walk quickstart.md §1-§8 against a running binary with a dummyplug agent (constitution e2e gate) — the fired one-time task surviving, per-run session separation, pagination, the no-response run, deletion cascade, requester, and both agent tools
 - [ ] T061 Walk quickstart.md §9's manual check: kill the process mid-run, restart, and confirm the run reads `interrupted` and the task is not permanently blocked
 - [ ] T062 Walk quickstart.md §10 against a small **live** model: confirm a scheduled run's answer reads as a report, and that an interactive turn and a dream extraction are both unchanged
-- [ ] T063 [P] Update `CLAUDE.md` where it describes tasks and the scheduler, so the docs state that runs are recorded, one-time tasks are deactivated rather than deleted, and the content variant is `Unattended`
+- [X] T063 [P] Update `CLAUDE.md` where it describes tasks and the scheduler, so the docs state that runs are recorded, one-time tasks are deactivated rather than deleted, and the content variant is `Unattended`
 - [ ] T064 Confirm the commits carrying the three breaking changes are flagged `[**breaking**]` per the `git-cliff` convention: the requester replacing `Task.user`, the session slug rendering, and the renamed content variant
 
 ---
