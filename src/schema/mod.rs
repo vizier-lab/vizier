@@ -56,7 +56,7 @@ pub use storage::{
     PaginatedMemory, Skill,
     SkillFrontMatter, default_bundle,
 };
-pub use task::{Task, TaskFrontMatter, TaskSchedule};
+pub use task::{Requester, Task, TaskFrontMatter, TaskRun, TaskRunState, TaskSchedule};
 
 use serde::{Deserialize, Serialize};
 

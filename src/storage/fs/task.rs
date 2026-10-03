@@ -79,7 +79,7 @@ impl TaskStorage for FileSystemStorage {
 
             res.push(Task {
                 slug: frontmatter.slug,
-                user: frontmatter.user,
+                requester: frontmatter.requester,
                 agent_id: frontmatter.agent_id,
                 title: frontmatter.title,
                 is_active: frontmatter.is_active,
@@ -117,7 +117,7 @@ impl TaskStorage for FileSystemStorage {
 
         Ok(Some(Task {
             slug: frontmatter.slug,
-            user: frontmatter.user,
+            requester: frontmatter.requester,
             agent_id: frontmatter.agent_id,
             title: frontmatter.title,
             is_active: frontmatter.is_active,
