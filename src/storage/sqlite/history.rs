@@ -12,6 +12,38 @@ use crate::{
     storage::{history::HistoryStorage, sqlite::SqliteStorage},
 };
 
+/// The only insert into `session_history`, shared by `save_session_history` and
+/// `save_checkpoint` so neither can write a row without a `seq`.
+///
+/// `seq` is assigned by the statement rather than by a caller (FR-001). The read-then-write
+/// of `MAX(seq)` is safe because every insert runs under `self.conn.lock()`, and `idx_sh_seq`
+/// makes the maximum an index lookup rather than a scan.
+const INSERT_HISTORY_SQL: &str = "INSERT INTO session_history \
+     (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, (SELECT IFNULL(MAX(seq), 0) + 1 FROM session_history))";
+
+/// `(data, seq)` as every ordered read selects it. `seq` lives on the column, not inside the
+/// serialized `data` blob, so it has to be read back and set on the deserialized entry.
+fn history_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(String, Option<i64>)> {
+    Ok((row.get(0)?, row.get(1)?))
+}
+
+fn parse_history_row((data, seq): (String, Option<i64>)) -> Option<SessionHistory> {
+    let mut entry = serde_json::from_str::<SessionHistory>(&data).ok()?;
+    entry.seq = seq;
+    Some(entry)
+}
+
+/// The sort key every in-Rust re-sort of history uses.
+///
+/// Keying on `timestamp` alone is the actual ordering defect: `sort_by_key` is a **stable**
+/// sort, so for every tie group it preserves the order SQLite handed it — which for a
+/// `DESC` query is backwards. The `ORDER BY` tie-break and this key have to change together
+/// (`specs/010-webui-reasoning-display/contracts/history-api.md` H6).
+fn history_order_key(entry: &SessionHistory) -> (DateTime<Utc>, Option<i64>) {
+    (entry.timestamp, entry.seq)
+}
+
 fn content_type_discriminant(content: &SessionHistoryContent) -> &'static str {
     match content {
         SessionHistoryContent::Request(_) => "Request",
@@ -70,13 +102,14 @@ impl HistoryStorage for SqliteStorage {
             content,
             timestamp: Utc::now(),
             reactions: vec![],
+            seq: None,
         };
 
         let data = serde_json::to_string(&entry)?;
         let content_type = content_type_discriminant(&entry.content);
         let conn = self.conn.lock();
         conn.execute(
-            "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            INSERT_HISTORY_SQL,
             rusqlite::params![
                 uid,
                 session.0,
@@ -94,10 +127,12 @@ impl HistoryStorage for SqliteStorage {
         &self,
         session: VizierSession,
         before: Option<DateTime<Utc>>,
+        before_seq: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>> {
         let conn = self.conn.lock();
-        let mut sql = "SELECT data FROM session_history WHERE agent_id = ?1 AND channel = ?2".to_string();
+        let mut sql =
+            "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND channel = ?2".to_string();
         let mut param_idx = 3;
 
         if session.2.is_some() {
@@ -107,11 +142,24 @@ impl HistoryStorage for SqliteStorage {
             sql.push_str(" AND topic IS NULL");
         }
 
+        // `before` alone can split a tie group across a page boundary; with `before_seq` the
+        // cursor addresses one exact entry. Passing only `before` keeps today's behaviour.
+        let seq_cursor = before.is_some().then_some(before_seq).flatten();
         if before.is_some() {
-            sql.push_str(&format!(" AND timestamp < ?{}", param_idx));
+            let before_param = param_idx;
             param_idx += 1;
+            match seq_cursor {
+                Some(_) => {
+                    sql.push_str(&format!(
+                        " AND (timestamp < ?{before_param} OR (timestamp = ?{before_param} AND seq < ?{}))",
+                        param_idx
+                    ));
+                    param_idx += 1;
+                }
+                None => sql.push_str(&format!(" AND timestamp < ?{before_param}")),
+            }
         }
-        sql.push_str(" ORDER BY timestamp DESC");
+        sql.push_str(" ORDER BY timestamp DESC, seq DESC");
         if limit.is_some() {
             sql.push_str(&format!(" LIMIT ?{}", param_idx));
         }
@@ -128,20 +176,20 @@ impl HistoryStorage for SqliteStorage {
         if let Some(before_dt) = before {
             params.push(Box::new(before_dt.timestamp_millis()));
         }
+        if let Some(seq) = seq_cursor {
+            params.push(Box::new(seq));
+        }
         if let Some(limit_val) = limit {
             params.push(Box::new(limit_val as i64));
         }
 
         let mut list: Vec<SessionHistory> = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-                let data: String = row.get(0)?;
-                Ok(data)
-            })?
+            .query_map(rusqlite::params_from_iter(params.iter()), history_row)?
             .filter_map(|r| r.ok())
-            .filter_map(|data| serde_json::from_str::<SessionHistory>(&data).ok())
+            .filter_map(parse_history_row)
             .collect();
 
-        list.sort_by_key(|a| a.timestamp);
+        list.sort_by_key(history_order_key);
         Ok(list)
     }
 
@@ -332,7 +380,8 @@ impl HistoryStorage for SqliteStorage {
         end_datetime: Option<DateTime<Utc>>,
     ) -> Result<Vec<SessionHistory>> {
         let conn = self.conn.lock();
-        let mut sql = "SELECT data FROM session_history WHERE agent_id = ?1 AND channel = ?2".to_string();
+        let mut sql =
+            "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND channel = ?2".to_string();
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
             Box::new(session.0.clone()),
             Box::new(session.1.to_slug()),
@@ -356,19 +405,16 @@ impl HistoryStorage for SqliteStorage {
             sql.push_str(&format!(" AND timestamp <= ?{}", param_idx));
             params.push(Box::new(end.timestamp_millis()));
         }
-        sql.push_str(" ORDER BY timestamp DESC");
+        sql.push_str(" ORDER BY timestamp DESC, seq DESC");
 
         let mut stmt = conn.prepare(&sql)?;
         let mut list: Vec<SessionHistory> = stmt
-            .query_map(rusqlite::params_from_iter(params.iter()), |row| {
-                let data: String = row.get(0)?;
-                Ok(data)
-            })?
+            .query_map(rusqlite::params_from_iter(params.iter()), history_row)?
             .filter_map(|r| r.ok())
-            .filter_map(|data| serde_json::from_str::<SessionHistory>(&data).ok())
+            .filter_map(parse_history_row)
             .collect();
 
-        list.sort_by_key(|a| a.timestamp);
+        list.sort_by_key(history_order_key);
         Ok(list)
     }
 
@@ -380,19 +426,16 @@ impl HistoryStorage for SqliteStorage {
     ) -> Result<Vec<VizierSession>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT data FROM session_history WHERE agent_id = ?1 AND timestamp >= ?2 AND timestamp <= ?3 ORDER BY timestamp DESC",
+            "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND timestamp >= ?2 AND timestamp <= ?3 ORDER BY timestamp DESC, seq DESC",
         )?;
 
         let entries: Vec<SessionHistory> = stmt
             .query_map(
                 rusqlite::params![agent_id, start.timestamp_millis(), end.timestamp_millis()],
-                |row| {
-                    let data: String = row.get(0)?;
-                    Ok(data)
-                },
+                history_row,
             )?
             .filter_map(|r| r.ok())
-            .filter_map(|data| serde_json::from_str::<SessionHistory>(&data).ok())
+            .filter_map(parse_history_row)
             .collect();
 
         let mut seen = HashSet::new();
@@ -420,7 +463,7 @@ impl HistoryStorage for SqliteStorage {
         let conn = self.conn.lock();
 
         // Find latest checkpoint
-        let mut cp_sql = "SELECT data FROM session_history WHERE agent_id = ?1 AND channel = ?2 AND content_type = 'Checkpoint'".to_string();
+        let mut cp_sql = "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND channel = ?2 AND content_type = 'Checkpoint'".to_string();
         let mut cp_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
             Box::new(session.0.clone()),
             Box::new(session.1.to_slug()),
@@ -439,17 +482,14 @@ impl HistoryStorage for SqliteStorage {
             cp_sql.push_str(&format!(" AND timestamp < ?{}", cp_param_idx));
             cp_params.push(Box::new(before.unwrap().timestamp_millis()));
         }
-        cp_sql.push_str(" ORDER BY timestamp DESC LIMIT 1");
+        cp_sql.push_str(" ORDER BY timestamp DESC, seq DESC LIMIT 1");
 
         let checkpoint = {
             let mut stmt = conn.prepare(&cp_sql)?;
             let rows: Vec<SessionHistory> = stmt
-                .query_map(rusqlite::params_from_iter(cp_params.iter()), |row| {
-                    let data: String = row.get(0)?;
-                    Ok(data)
-                })?
+                .query_map(rusqlite::params_from_iter(cp_params.iter()), history_row)?
                 .filter_map(|r| r.ok())
-                .filter_map(|data| serde_json::from_str::<SessionHistory>(&data).ok())
+                .filter_map(parse_history_row)
                 .collect();
             rows.into_iter().next()
         };
@@ -465,7 +505,7 @@ impl HistoryStorage for SqliteStorage {
         };
 
         // Get history after checkpoint
-        let mut hist_sql = "SELECT data FROM session_history WHERE agent_id = ?1 AND channel = ?2".to_string();
+        let mut hist_sql = "SELECT data, seq FROM session_history WHERE agent_id = ?1 AND channel = ?2".to_string();
         let mut hist_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
             Box::new(session.0.clone()),
             Box::new(session.1.to_slug()),
@@ -489,16 +529,13 @@ impl HistoryStorage for SqliteStorage {
             hist_sql.push_str(&format!(" AND timestamp < ?{}", param_idx));
             hist_params.push(Box::new(before_dt.timestamp_millis()));
         }
-        hist_sql.push_str(" ORDER BY timestamp ASC");
+        hist_sql.push_str(" ORDER BY timestamp ASC, seq ASC");
 
         let mut stmt = conn.prepare(&hist_sql)?;
         let history: Vec<SessionHistory> = stmt
-            .query_map(rusqlite::params_from_iter(hist_params.iter()), |row| {
-                let data: String = row.get(0)?;
-                Ok(data)
-            })?
+            .query_map(rusqlite::params_from_iter(hist_params.iter()), history_row)?
             .filter_map(|r| r.ok())
-            .filter_map(|data| serde_json::from_str::<SessionHistory>(&data).ok())
+            .filter_map(parse_history_row)
             .collect();
 
         Ok((history, handover))
@@ -516,12 +553,13 @@ impl HistoryStorage for SqliteStorage {
             content: SessionHistoryContent::Checkpoint(handover),
             timestamp: Utc::now(),
             reactions: vec![],
+            seq: None,
         };
 
         let data = serde_json::to_string(&entry)?;
         let conn = self.conn.lock();
         conn.execute(
-            "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            INSERT_HISTORY_SQL,
             rusqlite::params![
                 uid,
                 session.0,
@@ -533,5 +571,272 @@ impl HistoryStorage for SqliteStorage {
             ],
         )?;
         Ok(entry)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
+    use rusqlite::Connection;
+
+    use super::*;
+    use crate::schema::{VizierChannelId, VizierRequest, VizierRequestContent};
+    use crate::storage::document::LocalDocumentStore;
+
+    fn setup() -> (SqliteStorage, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        crate::storage::sqlite::init_history_schema(&conn).unwrap();
+        let storage = SqliteStorage::new(
+            Arc::new(Mutex::new(conn)),
+            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        );
+        (storage, dir)
+    }
+
+    fn session() -> VizierSession {
+        VizierSession(
+            "agent-1".to_string(),
+            VizierChannelId::HTTP("someone".to_string(), "webui".to_string()),
+            Some("General".to_string()),
+        )
+    }
+
+    /// A `Request` carrying `text`, so an entry is identifiable in the order it comes back.
+    fn request(text: &str) -> SessionHistoryContent {
+        SessionHistoryContent::Request(VizierRequest {
+            timestamp: Utc::now(),
+            user: "someone".to_string(),
+            content: VizierRequestContent::Chat(text.to_string()),
+            platform_message_id: None,
+            metadata: serde_json::Value::Null,
+            attachments: vec![],
+            expect_audio_reply: None,
+        })
+    }
+
+    fn prompts(entries: &[SessionHistory]) -> Vec<String> {
+        entries
+            .iter()
+            .filter_map(|entry| match &entry.content {
+                SessionHistoryContent::Request(req) => match &req.content {
+                    VizierRequestContent::Chat(text) => Some(text.clone()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Flatten every entry into the one instant they would realistically share, which is
+    /// the condition `seq` exists to disambiguate. `Utc::now()` cannot be made to collide on
+    /// demand, so the collision is created rather than waited for.
+    ///
+    /// Both copies of the timestamp have to be flattened. SQLite orders by the `timestamp`
+    /// **column**, written at millisecond resolution; the in-Rust re-sort reads
+    /// `SessionHistory::timestamp` out of the serialized `data` blob, which keeps
+    /// nanoseconds. Collapsing only the column would leave the blob's nanoseconds to order
+    /// the entries by accident and the test would pass against the defect.
+    fn collapse_timestamps(storage: &SqliteStorage) {
+        let conn = storage.conn.lock();
+        conn.execute_batch(
+            "UPDATE session_history
+                SET timestamp = 1700000000000,
+                    data = json_set(data, '$.timestamp', '2023-11-14T22:13:20Z');",
+        )
+        .unwrap();
+    }
+
+    fn seqs(storage: &SqliteStorage) -> Vec<Option<i64>> {
+        let conn = storage.conn.lock();
+        let mut stmt = conn
+            .prepare("SELECT seq FROM session_history ORDER BY rowid")
+            .unwrap();
+        let rows = stmt
+            .query_map([], |row| row.get::<_, Option<i64>>(0))
+            .unwrap();
+        rows.map(|r| r.unwrap()).collect()
+    }
+
+    /// H1, H5, SC-002.
+    #[tokio::test]
+    async fn seq_is_strictly_increasing_and_orders_entries_sharing_a_timestamp() {
+        let (storage, _dir) = setup();
+        let expected: Vec<String> = (0..25).map(|i| format!("entry {i}")).collect();
+
+        for text in &expected {
+            storage
+                .save_session_history(session(), request(text))
+                .await
+                .unwrap();
+        }
+
+        // H1: every entry got a position, and no two share one.
+        let assigned = seqs(&storage);
+        let positions: Vec<i64> = assigned.iter().map(|s| s.expect("seq assigned")).collect();
+        assert_eq!(positions, (1..=25).collect::<Vec<i64>>());
+
+        // H5: with every timestamp identical, insertion order still comes back.
+        collapse_timestamps(&storage);
+        for _ in 0..20 {
+            let list = storage
+                .list_session_history(session(), None, None, None)
+                .await
+                .unwrap();
+            assert_eq!(prompts(&list), expected);
+        }
+    }
+
+    /// H7, H8, FR-007, FR-008, SC-004.
+    #[tokio::test]
+    async fn entries_recorded_before_seq_existed_still_load_and_do_not_disturb_the_rest() {
+        let (storage, _dir) = setup();
+
+        // Three entries as a previous build would have left them: no ordering position.
+        for text in ["old a", "old b", "old c"] {
+            storage
+                .save_session_history(session(), request(text))
+                .await
+                .unwrap();
+        }
+        {
+            let conn = storage.conn.lock();
+            conn.execute_batch("UPDATE session_history SET seq = NULL;")
+                .unwrap();
+        }
+
+        for text in ["new a", "new b", "new c"] {
+            storage
+                .save_session_history(session(), request(text))
+                .await
+                .unwrap();
+        }
+        collapse_timestamps(&storage);
+
+        assert_eq!(
+            seqs(&storage),
+            vec![None, None, None, Some(1), Some(2), Some(3)],
+            "a pre-existing row keeps a NULL position and a new one starts the counter over"
+        );
+
+        // H8: the read succeeds over the mix, and every entry is returned.
+        let list = storage
+            .list_session_history(session(), None, None, None)
+            .await
+            .unwrap();
+        let returned = prompts(&list);
+        assert_eq!(returned.len(), 6);
+
+        // H8: the entries that do carry a position are in it, relative to each other.
+        let ordered: Vec<&String> = returned
+            .iter()
+            .filter(|text| text.starts_with("new "))
+            .collect();
+        assert_eq!(ordered, vec!["new a", "new b", "new c"]);
+
+        // H7: the NULL group is returned, in whatever order — only that it is all there.
+        let mut legacy: Vec<&String> = returned
+            .iter()
+            .filter(|text| text.starts_with("old "))
+            .collect();
+        legacy.sort();
+        assert_eq!(legacy, vec!["old a", "old b", "old c"]);
+    }
+
+    /// H5 on the path that feeds the agent's own replay context. It has no in-Rust re-sort
+    /// at all, so its order is whatever SQLite returns — which is why the `ORDER BY`
+    /// tie-break matters here even more than in the read the WebUI uses.
+    #[tokio::test]
+    async fn the_replay_read_is_ordered_when_entries_share_a_timestamp() {
+        let (storage, _dir) = setup();
+        let expected: Vec<String> = (0..25).map(|i| format!("entry {i}")).collect();
+
+        for text in &expected {
+            storage
+                .save_session_history(session(), request(text))
+                .await
+                .unwrap();
+        }
+        collapse_timestamps(&storage);
+
+        for _ in 0..20 {
+            let (history, handover) = storage
+                .list_session_history_until_checkpoint(session(), None)
+                .await
+                .unwrap();
+            assert_eq!(handover, None);
+            assert_eq!(prompts(&history), expected);
+        }
+    }
+    /// The upgrade path (quickstart step 1, research D2). A database created by the previous
+    /// build has `session_history` without `seq`, and `CREATE TABLE IF NOT EXISTS` will not
+    /// add it — so opening it has to `ALTER`, exactly once, without disturbing what is there.
+    #[test]
+    fn an_existing_database_gains_the_column_without_losing_its_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("vizier.db");
+
+        // The table exactly as the previous build left it, with one row in it.
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE session_history (
+                    uid TEXT PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    topic TEXT,
+                    timestamp INTEGER NOT NULL,
+                    content_type TEXT NOT NULL,
+                    data TEXT NOT NULL
+                );
+                INSERT INTO session_history
+                    VALUES ('old-1', 'a', 'http__someone__webui', 'General', 1, 'Request', '{}');",
+            )
+            .unwrap();
+        }
+
+        // Opening it twice: the first adds the column, the second must be a no-op rather
+        // than a duplicate-column error.
+        for _ in 0..2 {
+            let conn = Connection::open(&db).unwrap();
+            crate::storage::sqlite::init_history_schema(&conn)
+                .expect("opening an upgraded database must not fail");
+        }
+
+        let conn = Connection::open(&db).unwrap();
+
+        let seq_columns: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('session_history') WHERE name = 'seq'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(seq_columns, 1, "the column was added exactly once");
+
+        let (uid, seq): (String, Option<i64>) = conn
+            .query_row("SELECT uid, seq FROM session_history", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(uid, "old-1", "the pre-existing row is still there");
+        assert_eq!(seq, None, "and keeps a NULL position — there is no backfill");
+
+        // A row written after the upgrade gets a position, starting from one.
+        conn.execute(
+            INSERT_HISTORY_SQL,
+            rusqlite::params!["new-1", "a", "http__someone__webui", "General", 2, "Request", "{}"],
+        )
+        .unwrap();
+        let seq: Option<i64> = conn
+            .query_row(
+                "SELECT seq FROM session_history WHERE uid = 'new-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(seq, Some(1));
     }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { Fragment, useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import type { FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import {
@@ -18,13 +18,13 @@ import type {
   Agent,
   ChatMessage,
   Topic,
+  TrailEvent,
   VizierAttachment,
   WebSocketMessage,
   WebSocketResponse,
   VizierResponseStats,
   ReactionEntry,
   ReactionAction,
-  ExecutionReport,
 } from '../interfaces/types'
 import { getCurrentUsername } from '../utils/auth'
 import { Skeleton, SkeletonMessage } from '../components/Skeleton'
@@ -45,19 +45,12 @@ import { useUserStore } from '../hooks/userStore'
 import { useQuickChatStore } from '../hooks/quickChatStore'
 import { MessageItem } from '../components/MessageItem'
 import { ThinkingIndicator } from '../components/ThinkingIndicator'
-import { parseExecutionReport } from '../components/ExecutionReportView'
+import ActivityTrail from '../components/ActivityTrail'
+import { appendLiveEvent, groupHistory, outcomeDurationMs } from '../lib/trail'
 import { CheckpointDivider } from '../components/CheckpointDivider'
 import MarkdownEditor from '../components/MarkdownEditor'
 import AttachmentPreviewModal from '../components/AttachmentPreviewModal'
 import { useMeasure } from '@uidotdev/usehooks'
-
-interface InlineEvent {
-  id: string
-  type: 'tool_choice' | 'thinking' | 'execution'
-  content?: string
-  report?: ExecutionReport
-  timestamp: number
-}
 
 const PLACEHOLDERS = [
   'What counsel do you seek?',
@@ -107,8 +100,6 @@ const formatToolChoice = (
   switch (name) {
     case 'think':
       return `💭 ${args.thought as string}`
-    case 'execute_python':
-      return `🐍 Running Python\n\`\`\`python\n${args.code as string}\n\`\`\``
     case 'list_tool_functions':
       return `📖 Listing tool functions`
     case 'describe_tool_function':
@@ -264,7 +255,13 @@ export default function Chat() {
   const [clearKey, setClearKey] = useState(0)
   const [loading, setLoading] = useState(true)
   const [historyVersion] = useState(0)
-  const [inlineEvents, setInlineEvents] = useState<InlineEvent[]>([])
+  // What the agent is doing in the turn that is streaming right now.
+  const [liveTrail, setLiveTrail] = useState<TrailEvent[]>([])
+  // The trail of every turn that has already closed in this session, keyed by the uid of
+  // the entry it ended at. `historyVersion` has no setter, so history never refetches after
+  // mount — a finished turn's trail has to come from the events already collected here,
+  // not from a reload.
+  const [closedTrails, setClosedTrails] = useState<Record<string, TrailEvent[]>>({})
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null)
   const [attachments, setAttachments] = useState<{ file: File; previewUrl: string | null }[]>([])
   const [previewAttachment, setPreviewAttachment] = useState<VizierAttachment | null>(null)
@@ -484,7 +481,8 @@ export default function Chat() {
   // Clear inline events, attachments, and queued messages when topic changes
   useEffect(() => {
     currentTopicRef.current = resolvedTopicId
-    setInlineEvents([])
+    setLiveTrail([])
+    setClosedTrails({})
     setAttachments([])
     setQueuedMessages([])
     setImagePreviews((prev) => {
@@ -543,32 +541,58 @@ export default function Chat() {
     })
   }, [])
 
-  const clearInlineEvents = () => {
-    setInlineEvents([])
+  const clearLiveTrail = () => {
+    setLiveTrail([])
     if (thinkingTimeoutRef.current) {
       clearTimeout(thinkingTimeoutRef.current)
       thinkingTimeoutRef.current = null
     }
   }
 
-  const addInlineEvent = (
-    type: InlineEvent['type'],
-    content?: string,
-    report?: ExecutionReport
-  ) => {
-    setInlineEvents((prev) => [
-      ...prev,
-      {
-        id:
-          Date.now().toString() +
-          Math.random().toString(36).substr(2, 9),
-        type,
-        content,
-        report,
-        timestamp: Date.now(),
-      },
-    ])
+  /// Hands the closing turn the trail it accumulated, instead of throwing it away.
+  const closeTurn = (anchorUid: string) => {
+    setLiveTrail((trail) => {
+      if (trail.length > 0) {
+        setClosedTrails((prev) => ({ ...prev, [anchorUid]: trail }))
+      }
+      return []
+    })
+    if (thinkingTimeoutRef.current) {
+      clearTimeout(thinkingTimeoutRef.current)
+      thinkingTimeoutRef.current = null
+    }
   }
+
+  const toolLabel = useCallback(
+    (name: string, args: Record<string, unknown>) => formatToolChoice(name, args, agentNames),
+    [agentNames]
+  )
+
+  // Stored history, grouped into turns, so a trail recorded before this page loaded renders
+  // in the same place and through the same component as one collected live.
+  const storedTrails = useMemo(() => {
+    const byAnchor: Record<string, { trail: TrailEvent[]; durationMs?: number }> = {}
+    const unanchored: { trail: TrailEvent[]; key: string }[] = []
+    for (const turn of groupHistory(messages)) {
+      if (turn.trail.length === 0) continue
+      if (turn.anchorUid) {
+        byAnchor[turn.anchorUid] = {
+          trail: turn.trail,
+          durationMs: outcomeDurationMs(turn.outcome),
+        }
+      } else {
+        // A turn nothing closed — interrupted, or still running when the page loaded.
+        unanchored.push({ trail: turn.trail, key: turn.key })
+      }
+    }
+    return { byAnchor, unanchored }
+  }, [messages])
+
+  // A turn closed in this session wins: its events are the ones the person just watched.
+  const trailFor = (uid: string) =>
+    closedTrails[uid] !== undefined
+      ? { trail: closedTrails[uid], durationMs: undefined }
+      : storedTrails.byAnchor[uid]
 
   const handleReact = useCallback(
     (messageUid: string, emoji: string) => {
@@ -625,44 +649,28 @@ export default function Chat() {
     switch (content) {
       case 'empty':
         setIsThinking(false)
-        clearInlineEvents()
+        clearLiveTrail()
         return
 
       case 'abort':
+        // An aborted turn has no answer for a trail to belong to, so the trail goes.
         setIsThinking(false)
-        clearInlineEvents()
+        clearLiveTrail()
         setQueuedMessages([])
         return
     }
 
     if (typeof content === 'object') {
-      if ('thinking' in content) {
-        addInlineEvent('thinking', content.thinking)
-        return
-      }
-
-      if ('tool_choice' in content) {
-        const toolContent = formatToolChoice(
-          content.tool_choice.name,
-          content.tool_choice.args,
-          agentNames
-        )
-        addInlineEvent('tool_choice', toolContent)
-        return
-      }
-
-      if ('tool_response' in content) {
-        const report = parseExecutionReport(content.tool_response.response)
-        if (report) {
-          addInlineEvent('execution', undefined, report)
-        }
+      if ('thinking' in content || 'tool_choice' in content || 'tool_response' in content) {
+        const id = `${timestamp}-${Math.random().toString(36).slice(2, 11)}`
+        setLiveTrail((trail) => appendLiveEvent(trail, content, id))
         return
       }
 
       if ('checkpoint' in content) {
         // Add checkpoint to messages
         setIsThinking(false)
-        clearInlineEvents()
+        closeTurn(`checkpoint-${timestamp}`)
         setMessages((prev) => {
           const newMessage: ChatMessage = {
             uid: `checkpoint-${timestamp}`,
@@ -685,7 +693,7 @@ export default function Chat() {
 
       if ('message' in content) {
         setIsThinking(false)
-        clearInlineEvents()
+        closeTurn(timestamp)
         setMessages((prev) => {
           if (
             prev.some(
@@ -723,7 +731,7 @@ export default function Chat() {
 
       if ('error' in content) {
         setIsThinking(false)
-        clearInlineEvents()
+        closeTurn(timestamp)
         setMessages((prev) => {
           if (
             prev.some(
@@ -761,7 +769,7 @@ export default function Chat() {
 
       if ('audio_reply' in content) {
         setIsThinking(false)
-        clearInlineEvents()
+        closeTurn(timestamp)
         setMessages((prev) => {
           if (
             prev.some(
@@ -819,7 +827,7 @@ export default function Chat() {
     if (!showScrollButton && scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
     }
-  }, [messages, inlineEvents, queuedMessages, showScrollButton])
+  }, [messages, liveTrail, queuedMessages, showScrollButton])
 
   // Close session dropdown on outside click
   useEffect(() => {
@@ -1572,7 +1580,7 @@ export default function Chat() {
             gap: '1.5rem',
           }}
         >
-          {messages.length === 0 && inlineEvents.length === 0 ? (
+          {messages.length === 0 && liveTrail.length === 0 ? (
             <div
               style={{
                 display: 'flex',
@@ -1593,6 +1601,20 @@ export default function Chat() {
           ) : (
             <>
               {messages.map((msg) => {
+                // The trail of the turn this entry closes. An answer carries its own
+                // inside its bubble (see the MessageItem below); a divider has no bubble to
+                // sit in, so for those it is drawn as a block of its own.
+                const own = trailFor(msg.uid)
+                const trail = own ? (
+                  <ActivityTrail
+                    key={`${msg.uid}-trail`}
+                    trail={own.trail}
+                    live={false}
+                    durationMs={own.durationMs}
+                    label={toolLabel}
+                  />
+                ) : null
+
                 // Handle checkpoint entries
                 if (msg.content.Checkpoint !== undefined) {
                   const cp = msg.content.Checkpoint
@@ -1601,21 +1623,23 @@ export default function Chat() {
                     ? (msg.timestamp || new Date().toISOString())
                     : cp?.timestamp || msg.timestamp || new Date().toISOString()
                   return (
-                    <CheckpointDivider
-                      key={msg.uid}
-                      handover={handover}
-                      timestamp={timestamp}
-                    />
+                    <Fragment key={msg.uid}>
+                      {trail}
+                      <CheckpointDivider handover={handover} timestamp={timestamp} />
+                    </Fragment>
                   )
                 }
 
                 // Handle command entries
                 if (msg.content.Command) {
                   return (
-                    <div key={msg.uid} className="command-history-entry">
-                      <span className="command-history-icon">⚡</span>
-                      <span className="command-history-text">/{msg.content.Command}</span>
-                    </div>
+                    <Fragment key={msg.uid}>
+                      {trail}
+                      <div className="command-history-entry">
+                        <span className="command-history-icon">⚡</span>
+                        <span className="command-history-text">/{msg.content.Command}</span>
+                      </div>
+                    </Fragment>
                   )
                 }
 
@@ -1687,7 +1711,9 @@ export default function Chat() {
                   msgAttachments = response?.attachments
                 }
 
-                if (!content) return null
+                // Narration, tool calls and tool results are part of a trail, not messages
+                // of their own, so they render nothing at this level.
+                if (!content) return trail
 
                 return (
                   <MessageItem
@@ -1707,15 +1733,30 @@ export default function Chat() {
                     voiceSrc={voiceSrc}
                     audioReplySrc={audioReplySrc}
                     isError={isError}
+                    trail={isUserMessage ? undefined : own?.trail}
+                    trailDurationMs={own?.durationMs}
+                    trailLabel={toolLabel}
                   />
                 )
               })}
 
+              {/* A turn nothing closed — interrupted, or still running when the page
+                  loaded. Its trail belongs to no entry, so it renders where it happened. */}
+              {storedTrails.unanchored.map((item) => (
+                <ActivityTrail
+                  key={`${item.key}-trail`}
+                  trail={item.trail}
+                  live={false}
+                  label={toolLabel}
+                />
+              ))}
+
               {/* Thinking indicator with inline events */}
               <ThinkingIndicator
                 isVisible={isThinking}
-                inlineEvents={inlineEvents}
+                trail={liveTrail}
                 agentName={agentDetail?.name || 'Agent'}
+                toolLabel={toolLabel}
                 onAbort={isThinking ? handleAbort : undefined}
               />
 

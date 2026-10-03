@@ -4,6 +4,7 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 
+use crate::error::VizierError;
 use crate::storage::VizierStorageProvider;
 use crate::storage::document::DocumentStore;
 use crate::utils::build_path;
@@ -197,19 +198,6 @@ impl SqliteStorage {
             );
             CREATE INDEX IF NOT EXISTS idx_task_agent ON task(agent_id);
 
-            CREATE TABLE IF NOT EXISTS session_history (
-                uid TEXT PRIMARY KEY,
-                agent_id TEXT NOT NULL,
-                channel TEXT NOT NULL,
-                topic TEXT,
-                timestamp INTEGER NOT NULL,
-                content_type TEXT NOT NULL,
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_sh_session ON session_history(agent_id, channel, topic);
-            CREATE INDEX IF NOT EXISTS idx_sh_time ON session_history(timestamp);
-            CREATE INDEX IF NOT EXISTS idx_sh_agent_time ON session_history(agent_id, timestamp);
-
             CREATE TABLE IF NOT EXISTS session_detail (
                 id TEXT PRIMARY KEY,
                 agent_id TEXT NOT NULL,
@@ -335,11 +323,89 @@ impl SqliteStorage {
             ",
         )?;
 
+        init_history_schema(conn)?;
         init_memory_graph_schema(conn)?;
         init_revision_schema(conn)?;
 
         Ok(())
     }
+}
+
+/// The `session_history` table, split out of `init_schema` like
+/// [`init_memory_graph_schema`] so the ordering tests in `src/storage/sqlite/history.rs` can
+/// stand up just this table against an in-memory connection.
+pub fn init_history_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS session_history (
+            uid TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL,
+            channel TEXT NOT NULL,
+            topic TEXT,
+            timestamp INTEGER NOT NULL,
+            content_type TEXT NOT NULL,
+            data TEXT NOT NULL,
+            seq INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_sh_session ON session_history(agent_id, channel, topic);
+        CREATE INDEX IF NOT EXISTS idx_sh_time ON session_history(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_sh_agent_time ON session_history(agent_id, timestamp);
+        ",
+    )?;
+
+    // `seq` postdates the table, so a database created by an earlier build has
+    // `session_history` without the column and `CREATE TABLE IF NOT EXISTS` will not add it.
+    // The column has to exist before `idx_sh_seq` can reference it.
+    add_column_if_missing(conn, "session_history", "seq", "INTEGER")?;
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sh_seq ON session_history(seq);")?;
+
+    Ok(())
+}
+
+/// Add `column` to `table` when it is not there already, leaving it alone when it is.
+///
+/// The project's whole schema is one batch of `CREATE TABLE IF NOT EXISTS`, which by
+/// construction does nothing to a table that already exists — so a column added after a
+/// table shipped needs an explicit `ALTER`. The `PRAGMA table_info` guard is preferred over
+/// running the `ALTER` and ignoring its error, because "duplicate column name" is the only
+/// failure that would be benign to ignore and swallowing it would hide every other one
+/// (`specs/010-webui-reasoning-display/research.md` Decision 2).
+pub fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    decl: &str,
+) -> crate::Result<()> {
+    let present = {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info(\"{table}\")"))
+            .map_err(|err| VizierError(format!("failed to read {table} columns: {err}")))?;
+        let names = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|err| VizierError(format!("failed to read {table} columns: {err}")))?;
+        let mut present = false;
+        for name in names {
+            let name =
+                name.map_err(|err| VizierError(format!("failed to read {table} columns: {err}")))?;
+            if name == column {
+                present = true;
+                break;
+            }
+        }
+        present
+    };
+
+    if present {
+        return Ok(());
+    }
+
+    conn.execute_batch(&format!(
+        "ALTER TABLE \"{table}\" ADD COLUMN \"{column}\" {decl};"
+    ))
+    .map_err(|err| VizierError(format!("failed to add {table}.{column}: {err}")))?;
+    tracing::info!("added column {table}.{column}");
+
+    Ok(())
 }
 
 impl VizierStorageProvider for SqliteStorage {}

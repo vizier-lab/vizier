@@ -299,7 +299,7 @@ pub async fn agent_process(
                         tokio::spawn(async move {
                             // Get session history
                             let history = match storage_clone
-                                .list_session_history(session_clone.clone(), None, None)
+                                .list_session_history(session_clone.clone(), None, None, None)
                                 .await
                             {
                                 Ok(h) => h,

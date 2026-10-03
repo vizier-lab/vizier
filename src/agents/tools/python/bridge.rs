@@ -79,7 +79,7 @@ impl RouterBridge {
         let (mut tool, mut arguments) = (tool, arguments);
         if let Some(hooks) = &self.ctx.hooks {
             (tool, arguments) = hooks
-                .on_tool_call(tool, arguments)
+                .on_nested_tool_call(tool, arguments)
                 .await
                 .map_err(|err| err.to_string())?;
         }

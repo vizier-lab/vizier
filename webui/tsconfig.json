@@ -20,6 +20,10 @@
         "esModuleInterop": true,
         "verbatimModuleSyntax": true,
         "noEmit": true,
+        // `app/lib/trail.test.ts` runs under the Node test runner, which resolves the
+        // specifier it is given — so its imports carry the `.ts` extension. Permissive
+        // only; nothing else in the app writes imports that way.
+        "allowImportingTsExtensions": true,
         "resolveJsonModule": true,
         "skipLibCheck": true,
         "strict": true

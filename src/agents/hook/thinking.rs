@@ -41,4 +41,14 @@ impl VizierSessionHook for ThinkingHook {
 
         Ok((function_name, args))
     }
+
+    /// A script calling `think` is as script-internal as any other nested call, so it does
+    /// not stream either.
+    async fn on_nested_tool_call(
+        &self,
+        function_name: String,
+        args: String,
+    ) -> Result<(String, String)> {
+        Ok((function_name, args))
+    }
 }
