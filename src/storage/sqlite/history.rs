@@ -614,6 +614,7 @@ mod tests {
             metadata: serde_json::Value::Null,
             attachments: vec![],
             expect_audio_reply: None,
+            scheduled_task: None,
         })
     }
 

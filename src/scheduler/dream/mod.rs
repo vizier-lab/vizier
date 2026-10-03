@@ -192,7 +192,7 @@ impl DreamScheduler {
                         VizierRequest {
                             timestamp: Utc::now(),
                             user: agent_id.clone(),
-                            content: VizierRequestContent::Task(EXTRACTION_PROMPT.to_string()),
+                            content: VizierRequestContent::Unattended(EXTRACTION_PROMPT.to_string()),
                             metadata: serde_json::json!({
                                 "dream_cycle_id": cycle_id,
                             }),
@@ -340,7 +340,7 @@ impl DreamScheduler {
                 VizierRequest {
                     timestamp: now,
                     user: agent_id.to_string(),
-                    content: VizierRequestContent::Task(prompt),
+                    content: VizierRequestContent::Unattended(prompt),
                     metadata: serde_json::json!({
                         "dream_cycle_id": cycle_id,
                         "source_sessions": source_sessions,

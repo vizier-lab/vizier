@@ -63,7 +63,12 @@ pub enum VizierRequestContent {
     Chat(String),
     Prompt(String),
     SilentRead(String),
-    Task(String),
+    /// A machine wrote this prompt and nobody is waiting on the answer — a
+    /// scheduled task run, or a dream cycle's own work. Deliberately not named
+    /// `Task`: two of its three construction sites are the dream cycle, and the
+    /// old name invited selecting scheduled-run behaviour on the content kind
+    /// rather than on the session's channel.
+    Unattended(String),
     Command(String),
     Reaction(ReactionEvent),
     AudioChat(VizierAttachment, Option<String>),
@@ -82,7 +87,7 @@ impl Display for VizierRequestContent {
             Self::Chat(content) => write!(f, "{}", content),
             Self::Prompt(content) => write!(f, "{}", content),
             Self::SilentRead(content) => write!(f, "{}", content),
-            Self::Task(content) => write!(f, "{}", content),
+            Self::Unattended(content) => write!(f, "{}", content),
             Self::Command(content) => write!(f, "{}", content),
             Self::Reaction(event) => {
                 write!(
@@ -208,6 +213,14 @@ pub struct VizierRequest {
     pub attachments: Vec<VizierAttachment>,
     #[serde(default)]
     pub expect_audio_reply: Option<bool>,
+    /// The slug of the task this request is a scheduled run of.
+    ///
+    /// Set by the scheduler and by nothing else, which is what makes it safe where the
+    /// request content kind is not: the dream cycle sends `Unattended` too and must not be
+    /// attributed to the scheduler. `Default` leaves it `None` for every other construction
+    /// site, so no interactive turn's frontmatter changes.
+    #[serde(default)]
+    pub scheduled_task: Option<String>,
 }
 
 impl VizierRequest {
@@ -237,6 +250,24 @@ impl VizierRequest {
     }
 
     pub fn generate_frontmatter(&self) -> anyhow::Result<String> {
+        // A scheduled run is attributed to the scheduler on behalf of the requester. It
+        // used to emit the task's stored `user` as `sender`, so the run arrived looking
+        // like a message a named person had just sent — and with BOOT.md directive 4
+        // telling the agent to check the channel metadata to understand the interaction,
+        // that name was the only social cue in the request. Models read it correctly and
+        // answered conversationally.
+        //
+        // Who the work is *for* is kept: a report written for a specific person can be
+        // written for them. What is dropped is the false claim that they sent it.
+        if let Some(task) = &self.scheduled_task {
+            return Ok(serde_yaml::to_string(&json!({
+                "sender": "scheduler",
+                "task": task,
+                "requested_by": self.user,
+                "metadata": self.metadata,
+            }))?);
+        }
+
         Ok(serde_yaml::to_string(&json!({
             "sender": self.user,
             "metadata": self.metadata,
@@ -258,5 +289,88 @@ impl VizierRequest {
         };
 
         Ok(message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scheduled() -> VizierRequest {
+        VizierRequest {
+            timestamp: Utc::now(),
+            user: "@dani (DiscordId: 182)".to_string(),
+            content: VizierRequestContent::Unattended("Summarise merged PRs".to_string()),
+            metadata: serde_json::json!({ "timestamp": "2026-10-04T09:00:00Z" }),
+            scheduled_task: Some("daily-report".to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// A scheduled run is attributed to the scheduler on behalf of the requester. Before
+    /// this, the frontmatter emitted the task's stored `user` as `sender`, so the run
+    /// arrived looking like a message a named person had just sent — the only social cue in
+    /// a request that otherwise offers nothing to check.
+    #[test]
+    fn a_scheduled_run_is_sent_by_the_scheduler_on_someones_behalf() {
+        let frontmatter = scheduled().generate_frontmatter().unwrap();
+
+        assert!(frontmatter.contains("sender: scheduler"), "{frontmatter}");
+        assert!(frontmatter.contains("task: daily-report"), "{frontmatter}");
+        // Who the work is *for* is kept: a report written for a specific person can be
+        // written for them. What is dropped is the claim that they sent it.
+        assert!(
+            frontmatter.contains("requested_by: '@dani (DiscordId: 182)'"),
+            "{frontmatter}"
+        );
+        assert!(
+            !frontmatter.contains("sender: '@dani"),
+            "the requester must not appear as the sender: {frontmatter}"
+        );
+    }
+
+    /// An agent's own initiative renders as `self`, which is what `Requester::Agent` maps to.
+    #[test]
+    fn an_agents_own_initiative_is_requested_by_self() {
+        let mut req = scheduled();
+        req.user = "self".to_string();
+
+        let frontmatter = req.generate_frontmatter().unwrap();
+        assert!(frontmatter.contains("requested_by: self"), "{frontmatter}");
+    }
+
+    /// Every other turn's frontmatter is untouched. `scheduled_task` is `None` by `Default`
+    /// and set only by the scheduler, so no interactive turn and no dream request can reach
+    /// the scheduled branch — which is the same reason the framing is selected on the
+    /// session's channel rather than on this request's content kind.
+    #[test]
+    fn an_interactive_turn_still_names_its_sender() {
+        let req = VizierRequest {
+            timestamp: Utc::now(),
+            user: "someone".to_string(),
+            content: VizierRequestContent::Chat("hey".to_string()),
+            ..Default::default()
+        };
+
+        let frontmatter = req.generate_frontmatter().unwrap();
+        assert!(frontmatter.contains("sender: someone"), "{frontmatter}");
+        assert!(!frontmatter.contains("scheduler"), "{frontmatter}");
+        assert!(!frontmatter.contains("requested_by"), "{frontmatter}");
+    }
+
+    /// A dream request carries `Unattended` too, and must not be attributed to the
+    /// scheduler — the content kind is not the discriminator anywhere in this feature.
+    #[test]
+    fn a_dream_request_is_not_attributed_to_the_scheduler() {
+        let req = VizierRequest {
+            timestamp: Utc::now(),
+            user: "agent-1".to_string(),
+            content: VizierRequestContent::Unattended("extract insights".to_string()),
+            ..Default::default()
+        };
+
+        let frontmatter = req.generate_frontmatter().unwrap();
+        assert!(frontmatter.contains("sender: agent-1"), "{frontmatter}");
+        assert!(!frontmatter.contains("scheduler"), "{frontmatter}");
     }
 }

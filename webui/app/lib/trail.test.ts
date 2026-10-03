@@ -235,3 +235,47 @@ test('T6 the collapsed label is counts and a duration, not a list', () => {
   assert.equal(trailSummary(trail, 4200), 'Reasoning · 1 thought, 2 tools, 1 python run · 4.2s')
   assert.equal(trailSummary(trail), 'Reasoning · 1 thought, 2 tools, 1 python run')
 })
+
+// A task run's history opens with a `Request` entry carrying `unattended` content. Rendering
+// it through `groupHistory` is the whole reason reusing this function was attractive, so the
+// turn has to open without adopting that entry — otherwise every run's trail gains a
+// nameless empty bubble and the task's instruction appears twice on screen.
+const unattendedRequest = (instruction: string) =>
+  entry({
+    Request: {
+      timestamp: '2026-10-04T09:00:00Z',
+      user: 'scheduler',
+      content: { unattended: instruction },
+    },
+  })
+
+test('an unattended request opens a turn without becoming its request', () => {
+  const thought = think('checking the merged PRs')
+  const call = tool('fetch', { url: 'https://example.invalid' })
+  const outcome = response('Posted to #eng. 4 PRs merged since yesterday.')
+
+  const turns = groupHistory([
+    unattendedRequest('Summarise merged PRs and post to #eng'),
+    thought,
+    call,
+    outcome,
+  ])
+
+  assert.equal(turns.length, 1)
+  assert.equal(turns[0].request, undefined)
+  // The trail and the outcome are intact — the turn boundary is kept, only the request
+  // bubble is not adopted.
+  assert.equal(turns[0].trail.length, 2)
+  assert.equal(turns[0].trail[0].kind, 'thought')
+  assert.equal(turns[0].trail[1].kind, 'tool')
+  assert.equal(turns[0].outcome?.uid, outcome.uid)
+  assert.equal(turns[0].anchorUid, outcome.uid)
+})
+
+test('an ordinary chat request is still adopted as its turn request', () => {
+  const asked = request('how are the PRs looking?')
+  const turns = groupHistory([asked, response('four merged since yesterday')])
+
+  assert.equal(turns.length, 1)
+  assert.equal(turns[0].request?.uid, asked.uid)
+})

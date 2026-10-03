@@ -1062,7 +1062,7 @@ pub async fn handle_request(
         }
         VizierRequestContent::Prompt(_)
         | VizierRequestContent::AudioPrompt(_, _)
-        | VizierRequestContent::Task(_) => {
+        | VizierRequestContent::Unattended(_) => {
             let res = match &session.1 {
                 VizierChannelId::Dream(dream_session, stage) => {
                     let dream_start = Utc::now();
