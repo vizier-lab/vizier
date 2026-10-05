@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0-rc.3] - 2026-10-05
+
+### 🐛 Bug Fixes
+
+- Keep discord typing alive for the whole turn and render mentions
 ## [0.12.0-rc.2] - 2026-10-05
 
 ### 🚀 Features
@@ -53,6 +58,7 @@ All notable changes to this project will be documented in this file.
 
 - Drop per-write and per-document passage logging
 - Bump version to 0.12.0-rc.1
+- Bump version to 0.12.0-rc.2
 ## [0.11.0] - 2026-09-13
 
 ### 🚀 Features
