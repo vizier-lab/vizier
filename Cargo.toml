@@ -43,8 +43,9 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serde_urlencoded = "0.7.1"
 serde_yaml = "0.9.34"
-twilight-gateway = { version = "0.17.1", default-features = false, features = ["native-tls", "twilight-http", "zstd"] }
-twilight-http = { version = "0.17.1", default-features = false, features = ["native-tls", "decompression"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
+twilight-gateway = { version = "0.17.1", default-features = false, features = ["rustls-platform-verifier", "twilight-http", "zstd"] }
+twilight-http = { version = "0.17.1", default-features = false, features = ["rustls-platform-verifier", "decompression"] }
 twilight-model = "0.17.1"
 twilight-util = { version = "0.17.0", features = ["builder", "snowflake"] }
 teloxide = "0.14"

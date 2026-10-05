@@ -60,6 +60,11 @@ fn main() -> Result<()> {
         fmt().compact().init();
     }
 
+    // Both `ring` (ureq, bollard) and `aws-lc-rs` (reqwest) are compiled into
+    // rustls, so it cannot pick a process default on its own; twilight builds
+    // its TLS config from that default and would panic without one.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     if let Err(err) = cli::start() {
         tracing::error!("{}", err)
     }
