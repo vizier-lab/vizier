@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.12.0-rc.1] - 2026-10-03
+## [0.12.0-rc.2] - 2026-10-05
 
 ### 🚀 Features
 
@@ -16,6 +16,10 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] Rename the Task request content variant to Unattended
 - [**breaking**] Replace a task's free-text user with a requester
 - Record and surface task run results
+
+### 🐛 Bug Fixes
+
+- Use rustls for twilight to unblock x86_64 macOS cross-build
 
 ### 🚜 Refactor
 
@@ -48,6 +52,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Drop per-write and per-document passage logging
+- Bump version to 0.12.0-rc.1
 ## [0.11.0] - 2026-09-13
 
 ### 🚀 Features
