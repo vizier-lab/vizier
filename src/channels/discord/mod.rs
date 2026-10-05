@@ -506,15 +506,24 @@ If I am halucinating, feel free to `/lobotomy` me
 
         let session = VizierSession(self.agent_id.clone(), channel, topic_id);
 
+        let mentions: Vec<(Id<UserMarker>, &str)> = msg
+            .mentions
+            .iter()
+            .map(|mention| {
+                let name = mention
+                    .member
+                    .as_ref()
+                    .and_then(|member| member.nick.as_deref())
+                    .unwrap_or(&mention.name);
+                (mention.id, name)
+            })
+            .collect();
+        let content = render_mentions(&msg.content, &mentions, bot);
+
         let request_content = if !is_mention && !is_dm {
-            VizierRequestContent::SilentRead(msg.content.clone())
+            VizierRequestContent::SilentRead(content)
         } else {
-            let cleaned = if is_mention {
-                strip_mention(&msg.content, bot)
-            } else {
-                msg.content.clone()
-            };
-            VizierRequestContent::Chat(cleaned)
+            VizierRequestContent::Chat(content)
         };
 
         let author_name = msg
@@ -568,6 +577,10 @@ If I am halucinating, feel free to `/lobotomy` me
                                 crate::utils::format_thinking(&name, &args),
                             )
                             .await;
+                            // Discord clears a bot's typing indicator when it posts.
+                            if typing.is_some() {
+                                typing = Some(Typing::start(http.clone(), discord_channel_id));
+                            }
                         }
                     }
                     VizierResponse {
@@ -581,6 +594,9 @@ If I am halucinating, feel free to `/lobotomy` me
                                 format!("> {}", thought),
                             )
                             .await;
+                            if typing.is_some() {
+                                typing = Some(Typing::start(http.clone(), discord_channel_id));
+                            }
                         }
                     }
                     VizierResponse {
@@ -683,9 +699,8 @@ If I am halucinating, feel free to `/lobotomy` me
 
                         break;
                     }
-                    _ => {
-                        break;
-                    }
+                    // Mid-turn frames (tool responses, checkpoints) are not the end of the turn.
+                    _ => {}
                 }
             }
 
@@ -694,12 +709,42 @@ If I am halucinating, feel free to `/lobotomy` me
     }
 }
 
-/// Remove the bot's own mention (`<@id>`, legacy `<@!id>`, or plain `@name`) from message content.
-fn strip_mention(content: &str, bot: &BotIdentity) -> String {
-    content
-        .replace(&format!("<@{}>", bot.user_id), "")
-        .replace(&format!("<@!{}>", bot.user_id), "")
-        .replace(&format!("@{}", bot.name), "")
-        .trim()
-        .to_string()
+/// Rewrite raw user mentions (`<@id>`, legacy `<@!id>`) into a form the agent can read: the
+/// bot's own as `@name (you)`, anyone else's the way message authors are rendered. Mentions are
+/// rewritten rather than removed so the sentence keeps its shape and the agent can tell who is
+/// being addressed or talked about.
+fn render_mentions(content: &str, mentions: &[(Id<UserMarker>, &str)], bot: &BotIdentity) -> String {
+    let mut content = content.to_string();
+    let bot_mention = (bot.user_id, bot.name.as_str());
+    for (id, name) in mentions.iter().chain(std::iter::once(&bot_mention)) {
+        let rendered = if *id == bot.user_id {
+            format!("@{} (you)", bot.name)
+        } else {
+            format!("@{} (DiscordId: {})", name, id)
+        };
+        content = content
+            .replace(&format!("<@{}>", id), &rendered)
+            .replace(&format!("<@!{}>", id), &rendered);
+    }
+    content.trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mentions_are_rendered_not_stripped() {
+        let bot = BotIdentity {
+            user_id: Id::new(1),
+            name: "vizier".into(),
+        };
+        let mentions = [(Id::new(1), "vizier"), (Id::new(2), "alice")];
+        assert_eq!(
+            render_mentions("<@1> what does <@!2> think?", &mentions, &bot),
+            "@vizier (you) what does @alice (DiscordId: 2) think?"
+        );
+        // An unlisted mention of the bot (e.g. a SilentRead) is still recognised.
+        assert_eq!(render_mentions("ask <@1>", &[], &bot), "ask @vizier (you)");
+    }
 }

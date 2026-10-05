@@ -78,7 +78,6 @@ impl Typing {
             loop {
                 if let Err(err) = http.create_typing_trigger(channel_id).await {
                     tracing::warn!("discord typing trigger failed: {:?}", err);
-                    return;
                 }
                 tokio::time::sleep(TYPING_REFRESH).await;
             }
