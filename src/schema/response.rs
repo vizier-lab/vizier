@@ -30,11 +30,15 @@ pub struct VizierResponseStats {
     pub context_window: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct VizierResponse {
     pub timestamp: DateTime<Utc>,
     pub content: VizierResponseContent,
     pub attachments: Vec<VizierAttachment>,
+    /// The `session_history` uid this response was saved as. Set by whoever saved it,
+    /// after the save, so it is never part of the stored `data`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_uid: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, utoipa::ToSchema)]
@@ -61,7 +65,7 @@ impl ErrorKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum VizierResponseContent {
     ThinkingStart,
@@ -82,6 +86,7 @@ pub enum VizierResponseContent {
         kind: ErrorKind,
         message: String,
     },
+    #[default]
     Empty,
     Abort,
     Checkpoint {

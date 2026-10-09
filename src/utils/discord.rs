@@ -6,7 +6,7 @@ use tokio::task::JoinHandle;
 use twilight_http::Client;
 use twilight_model::http::attachment::Attachment;
 use twilight_model::id::Id;
-use twilight_model::id::marker::ChannelMarker;
+use twilight_model::id::marker::{ChannelMarker, MessageMarker};
 
 use crate::error::{VizierError, throw_vizier_error};
 
@@ -21,38 +21,41 @@ pub fn parse_id<T>(raw: u64, what: &str) -> Result<Id<T>, VizierError> {
     Id::new_checked(raw).ok_or_else(|| VizierError(format!("invalid discord {} id: {}", what, raw)))
 }
 
+/// Post `content`, split at Discord's limit, and return the id of every message that was
+/// posted so a reply can be linked to the history entry it renders. A chunk Discord rejects is
+/// logged and skipped, as before.
 pub async fn send_message(
     http: Arc<Client>,
     channel_id: Id<ChannelMarker>,
     content: String,
-) -> Result<(), VizierError> {
-    if content.len() < MESSAGE_LIMIT {
-        if let Err(err) = http.create_message(channel_id).content(&content).await {
-            tracing::error!("{:?}", err);
-        }
+) -> Result<Vec<Id<MessageMarker>>, VizierError> {
+    let chunks = if content.len() < MESSAGE_LIMIT {
+        vec![content]
+    } else {
+        MarkdownSplitter::new(MESSAGE_LIMIT)
+            .chunks(&content)
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+    };
 
-        return Ok(());
-    }
-
-    let splitter = MarkdownSplitter::new(MESSAGE_LIMIT);
-    let chunks = splitter
-        .chunks(&content)
-        .map(|s| s.to_string())
-        .collect::<Vec<String>>();
-
-    if let Err(err) = tokio::spawn(async move {
+    match tokio::spawn(async move {
+        let mut ids = Vec::with_capacity(chunks.len());
         for msg in chunks {
-            if let Err(err) = http.create_message(channel_id).content(&msg).await {
-                tracing::error!("{:?}", err);
+            match http.create_message(channel_id).content(&msg).await {
+                Ok(response) => match response.model().await {
+                    Ok(message) => ids.push(message.id),
+                    Err(err) => tracing::warn!("discord message sent but unreadable: {:?}", err),
+                },
+                Err(err) => tracing::error!("{:?}", err),
             }
         }
+        ids
     })
     .await
     {
-        return throw_vizier_error("sending message", err);
+        Ok(ids) => Ok(ids),
+        Err(err) => throw_vizier_error("sending message", err),
     }
-
-    Ok(())
 }
 
 pub async fn send_file(
@@ -60,13 +63,16 @@ pub async fn send_file(
     channel_id: Id<ChannelMarker>,
     filename: String,
     bytes: Vec<u8>,
-) -> Result<(), VizierError> {
+) -> Result<Id<MessageMarker>, VizierError> {
     let attachments = [Attachment::from_bytes(filename, bytes, 0)];
-    if let Err(err) = http.create_message(channel_id).attachments(&attachments).await {
-        return throw_vizier_error("sending attachment", err);
+    let response = match http.create_message(channel_id).attachments(&attachments).await {
+        Ok(response) => response,
+        Err(err) => return throw_vizier_error("sending attachment", err),
+    };
+    match response.model().await {
+        Ok(message) => Ok(message.id),
+        Err(err) => throw_vizier_error("reading sent attachment", err),
     }
-
-    Ok(())
 }
 
 /// Keeps the "is typing..." indicator alive in a channel until dropped.

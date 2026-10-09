@@ -58,6 +58,9 @@ impl VizierModelTrait for DummyplugModel {
             if text.eq_ignore_ascii_case("tools") {
                 tracing::debug!("dummyplug: listing {} tool(s)", tools.len());
                 AssistantContent::text(reply_tool_list(&tools))
+            } else if text.eq_ignore_ascii_case("context") {
+                tracing::debug!("dummyplug: echoing the context block");
+                AssistantContent::text(reply_context(&message))
             } else if let Some(tool) = tools.iter().find(|t| t.name == text) {
                 tracing::debug!("dummyplug: sample request for {}", tool.name);
                 AssistantContent::text(reply_tool_sample(tool))
@@ -110,6 +113,22 @@ fn command_text(message: &Message) -> String {
         None => &body[..],
     };
     strip_fence(body.trim()).trim().to_string()
+}
+
+/// §6: the per-request context block exactly as the agent received it this turn.
+fn reply_context(message: &Message) -> String {
+    let Message::User { content } = message else {
+        return "(no context block)".to_string();
+    };
+    content
+        .iter()
+        .find_map(|c| match c {
+            UserContent::Text(t) if t.text().starts_with(CONTEXT_HEADER) => {
+                Some(t.text().to_string())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| "(no context block)".to_string())
 }
 
 /// Drop one surrounding Markdown code fence, including the opening line's language tag.
@@ -566,8 +585,26 @@ mod tests {
     fn command_text_ignores_the_injected_context_block() {
         use crate::agents::agent::system_prompt::context::{context_md, with_context};
 
-        let message = with_context(user_message("tools"), context_md(&[], &[]));
+        let message = with_context(user_message("tools"), context_md(&[], &[], None));
         assert_eq!(command_text(&message), "tools");
+    }
+
+    // --- §6: context ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn context_replies_with_the_context_block() {
+        use crate::agents::agent::system_prompt::context::{context_md, with_context};
+
+        let message = with_context(user_message("context"), context_md(&[], &[], Some("- x")));
+        let text = reply_text(message, vec![]).await;
+        assert!(text.starts_with(CONTEXT_HEADER), "{text}");
+        assert!(text.contains("## Reactions"), "{text}");
+        assert!(text.ends_with("- x"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn context_without_a_block_says_so() {
+        assert_eq!(reply_text(user_message("context"), vec![]).await, "(no context block)");
     }
 
     // --- US4: tool requests -------------------------------------------------------------------

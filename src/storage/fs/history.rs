@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::{
     schema::{
         AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage,
-        DailyChannelTypeUsage, DailyUsage, ReactionEntry, SessionHistory, SessionHistoryContent,
+        DailyChannelTypeUsage, DailyUsage, SessionHistory, SessionHistoryContent,
         UsageSummary, VizierResponseContent, VizierSession,
     },
     storage::{
@@ -43,7 +43,7 @@ impl HistoryStorage for FileSystemStorage {
         &self,
         session: VizierSession,
         content: SessionHistoryContent,
-    ) -> Result<()> {
+    ) -> Result<String> {
         let uid = Uuid::new_v4().to_string();
         let entry = SessionHistory {
             uid: uid.clone(),
@@ -62,7 +62,7 @@ impl HistoryStorage for FileSystemStorage {
         let json = serde_json::to_string_pretty(&entry)?;
         tokio::fs::write(&path, json).await?;
 
-        Ok(())
+        Ok(uid)
     }
 
     async fn list_session_history(
@@ -94,21 +94,6 @@ impl HistoryStorage for FileSystemStorage {
         res.sort_by_key(|a| a.timestamp);
 
         Ok(res)
-    }
-
-    async fn update_history_reactions(
-        &self,
-        uid: String,
-        session: VizierSession,
-        reactions: Vec<ReactionEntry>,
-    ) -> Result<()> {
-        let path = entry_path(&self.workspace, &session, &uid);
-        let raw = tokio::fs::read_to_string(&path).await?;
-        let mut entry: SessionHistory = serde_json::from_str(&raw)?;
-        entry.reactions = reactions;
-        let json = serde_json::to_string_pretty(&entry)?;
-        tokio::fs::write(&path, json).await?;
-        Ok(())
     }
 
     async fn aggregate_usage(

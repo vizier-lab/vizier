@@ -89,8 +89,7 @@ impl VizierTool for ConsultAgent {
 
             if let VizierResponse {
                 content: VizierResponseContent::Message { content, stats: _ },
-                timestamp: _,
-                attachments: _,
+                ..
             } = response
             {
                 return Ok(content);

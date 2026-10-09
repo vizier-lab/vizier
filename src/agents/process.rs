@@ -97,6 +97,7 @@ async fn abort_session_notify(
                     timestamp: chrono::Utc::now(),
                     content: crate::schema::VizierResponseContent::Abort,
                     attachments: vec![],
+                    ..Default::default()
                 })
                 .await;
         }
@@ -256,6 +257,7 @@ pub async fn agent_process(
                                         stats: None,
                                     },
                                     attachments: vec![],
+                                    ..Default::default()
                                 })
                                 .await;
                         }
@@ -314,6 +316,7 @@ pub async fn agent_process(
                                                     stats: None,
                                                 },
                                                 attachments: vec![],
+                                                ..Default::default()
                                             })
                                             .await;
                                     }
@@ -322,6 +325,7 @@ pub async fn agent_process(
                             };
 
                             let messages = history_entries_to_messages(&history);
+                            let reactions = crate::agents::agent::system_prompt::reactions::reaction_digest(&history, 0);
                             let ctx = ToolContext {
                                 session: session_clone.clone(),
                                 pending_attachments: Arc::new(Mutex::new(vec![])),
@@ -330,7 +334,7 @@ pub async fn agent_process(
                             };
 
                             // Generate handover
-                            let handover = match agent_clone.generate_handover_message(&messages, &ctx).await {
+                            let handover = match agent_clone.generate_handover_message(&messages, reactions.as_deref(), &ctx).await {
                                 Ok(h) => h,
                                 Err(e) => {
                                     tracing::error!("Failed to generate handover: {}", e);
@@ -343,6 +347,7 @@ pub async fn agent_process(
                                                     stats: None,
                                                 },
                                                 attachments: vec![],
+                                                ..Default::default()
                                             })
                                             .await;
                                     }
@@ -362,6 +367,7 @@ pub async fn agent_process(
                                                 stats: None,
                                             },
                                             attachments: vec![],
+                                            ..Default::default()
                                         })
                                         .await;
                                 }
@@ -377,6 +383,7 @@ pub async fn agent_process(
                                             handover,
                                         },
                                         attachments: vec![],
+                                        ..Default::default()
                                     })
                                     .await;
                             }
@@ -423,6 +430,7 @@ pub async fn agent_process(
                                                 stats: None,
                                             },
                                             attachments: vec![],
+                                            ..Default::default()
                                         })
                                         .await;
                                 }
@@ -438,6 +446,7 @@ pub async fn agent_process(
                                             handover: None,
                                         },
                                         attachments: vec![],
+                                        ..Default::default()
                                     })
                                     .await;
                             }
@@ -472,6 +481,7 @@ pub async fn agent_process(
                                     timestamp: chrono::Utc::now(),
                                     content: crate::schema::VizierResponseContent::ThinkingStart,
                                     attachments: vec![],
+                                    ..Default::default()
                                 })
                                 .await;
                         }
@@ -524,6 +534,7 @@ pub async fn agent_process(
                                             message: err_str,
                                         },
                                         attachments: vec![],
+                                        ..Default::default()
                                     })
                                     .await;
                             }
@@ -564,6 +575,7 @@ pub async fn agent_process(
                                             timestamp: chrono::Utc::now(),
                                             content: crate::schema::VizierResponseContent::ThinkingStart,
                                             attachments: vec![],
+                                            ..Default::default()
                                         })
                                         .await;
                                 }
@@ -616,6 +628,7 @@ pub async fn agent_process(
                                                     message: err_str,
                                                 },
                                                 attachments: vec![],
+                                                ..Default::default()
                                             })
                                             .await;
                                     }
@@ -1095,6 +1108,7 @@ pub async fn handle_request(
                                             timestamp: end,
                                             content: VizierResponseContent::Abort,
                                             attachments: vec![],
+                                            ..Default::default()
                                         })
                                         .await;
                                 }
@@ -1200,15 +1214,6 @@ pub async fn handle_request(
         }
         VizierRequestContent::Command(cmd) => {
             tracing::warn!("unhandled command: {}", cmd);
-        }
-        VizierRequestContent::Reaction(event) => {
-            tracing::info!(
-                "Reaction recorded: user={}, emoji={}, action={}, message={:?}",
-                event.user_id,
-                event.emoji,
-                event.action_str(),
-                event.platform_message_id
-            );
         }
     }
 
@@ -1383,7 +1388,7 @@ mod auto_context_tests {
 
     #[test]
     fn the_memory_section_is_omitted_entirely_when_nothing_qualified() {
-        let rendered = crate::agents::agent::system_prompt::context::context_md(&[], &[]);
+        let rendered = crate::agents::agent::system_prompt::context::context_md(&[], &[], None);
         assert!(
             !rendered.contains("Related Memories"),
             "FR-026: no empty heading, no weakly-related filler: {rendered}"
@@ -1393,7 +1398,7 @@ mod auto_context_tests {
     #[test]
     fn a_rendered_passage_carries_its_address_and_is_labelled_as_data() {
         let rendered =
-            crate::agents::agent::system_prompt::context::context_md(&[passage("Deploys go out Tuesday.")], &[]);
+            crate::agents::agent::system_prompt::context::context_md(&[passage("Deploys go out Tuesday.")], &[], None);
         assert!(rendered.contains(r#"<memory bundle="work" path="ops/deploys" passage="3">"#));
         assert!(rendered.contains("Deploys go out Tuesday."));
         assert!(rendered.contains("</memory>"));
@@ -1411,7 +1416,7 @@ mod auto_context_tests {
     fn a_merged_passage_renders_its_ordinal_range() {
         let mut p = passage("merged text");
         p.ordinal_end = 5;
-        let rendered = crate::agents::agent::system_prompt::context::context_md(&[p], &[]);
+        let rendered = crate::agents::agent::system_prompt::context::context_md(&[p], &[], None);
         assert!(rendered.contains(r#"passage="3-5""#), "{rendered}");
     }
 
@@ -1419,7 +1424,7 @@ mod auto_context_tests {
     fn a_truncated_passage_says_so_in_the_rendered_block() {
         let mut p = passage("cut short");
         p.truncated = true;
-        let rendered = crate::agents::agent::system_prompt::context::context_md(&[p], &[]);
+        let rendered = crate::agents::agent::system_prompt::context::context_md(&[p], &[], None);
         assert!(rendered.contains(r#"truncated="true""#), "{rendered}");
         assert!(rendered.contains("truncated to fit"), "{rendered}");
     }

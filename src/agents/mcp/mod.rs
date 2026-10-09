@@ -110,6 +110,7 @@ impl<S: Service<RoleClient>> VizierMcpClient for RunningService<RoleClient, S> {
                 response: serde_json::Value::Array(contents),
             },
             attachments,
+            ..Default::default()
         };
 
         Ok(res)

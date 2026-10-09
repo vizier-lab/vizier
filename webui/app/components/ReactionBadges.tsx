@@ -4,7 +4,10 @@ import type { ReactionEntry } from '../interfaces/types'
 interface ReactionBadgesProps {
   reactions: ReactionEntry[]
   currentUserId?: string
-  onToggleReaction: (emoji: string) => void
+  // Sent and not yet confirmed: dimmed, and not clickable until the server answers.
+  pendingEmojis?: string[]
+  // Without it the badges are read-only.
+  onToggleReaction?: (emoji: string) => void
 }
 
 interface BadgeData {
@@ -13,7 +16,7 @@ interface BadgeData {
   hasReacted: boolean
 }
 
-function ReactionBadgesComponent({ reactions, currentUserId, onToggleReaction }: ReactionBadgesProps) {
+function ReactionBadgesComponent({ reactions, currentUserId, pendingEmojis, onToggleReaction }: ReactionBadgesProps) {
   const badges = useMemo(() => {
     const emojiMap = new Map<string, BadgeData>()
 
@@ -58,30 +61,50 @@ function ReactionBadgesComponent({ reactions, currentUserId, onToggleReaction }:
         gap: '4px',
       }}
     >
-      {badges.map((badge) => (
-        <button
-          key={badge.emoji}
-          onClick={() => onToggleReaction(badge.emoji)}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-            padding: '2px 8px',
-            borderRadius: '12px',
-            border: `1px solid ${badge.hasReacted ? 'var(--accent-primary)' : 'var(--border)'}`,
-            background: badge.hasReacted ? 'rgba(var(--accent-primary-rgb, 59, 130, 246), 0.1)' : 'var(--surface)',
-            color: 'var(--text-primary)',
-            cursor: 'pointer',
-            fontSize: '12px',
-            lineHeight: '18px',
-            transition: 'all 0.15s',
-          }}
-          title={badge.hasReacted ? 'Remove reaction' : 'Add reaction'}
-        >
-          <span>{badge.emoji}</span>
-          <span style={{ fontWeight: 500 }}>{badge.count}</span>
-        </button>
-      ))}
+      {badges.map((badge) => {
+        const pending = pendingEmojis?.includes(badge.emoji) ?? false
+        const interactive = onToggleReaction !== undefined && !pending
+        const style = {
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '4px',
+          padding: '2px 8px',
+          borderRadius: '12px',
+          border: `1px solid ${badge.hasReacted ? 'var(--accent-primary)' : 'var(--border)'}`,
+          background: badge.hasReacted ? 'rgba(var(--accent-primary-rgb, 59, 130, 246), 0.1)' : 'var(--surface)',
+          color: 'var(--text-primary)',
+          cursor: interactive ? 'pointer' : 'default',
+          fontSize: '12px',
+          lineHeight: '18px',
+          transition: 'all 0.15s',
+          opacity: pending ? 0.5 : 1,
+        } as const
+        const body = (
+          <>
+            <span>{badge.emoji}</span>
+            <span style={{ fontWeight: 500 }}>{badge.count}</span>
+            {pending && <span>…</span>}
+          </>
+        )
+        if (onToggleReaction === undefined) {
+          return (
+            <span key={badge.emoji} style={style}>
+              {body}
+            </span>
+          )
+        }
+        return (
+          <button
+            key={badge.emoji}
+            onClick={() => interactive && onToggleReaction(badge.emoji)}
+            disabled={pending}
+            style={style}
+            title={pending ? 'Saving reaction…' : badge.hasReacted ? 'Remove reaction' : 'Add reaction'}
+          >
+            {body}
+          </button>
+        )
+      })}
     </div>
   )
 }

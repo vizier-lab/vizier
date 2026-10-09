@@ -7,7 +7,7 @@ use tokio::task::JoinSet;
 
 use crate::schema::{
     AgentCommand, AgentId, BackgroundJobSnapshot, CommandRequest, CommandResponse, FileCommand,
-    MemoryOpEnvelope, VizierAttachment, VizierRequest, VizierResponse, VizierSession,
+    MemoryOpEnvelope, ReactionEntry, VizierAttachment, VizierRequest, VizierResponse, VizierSession,
 };
 
 /// How many session events a slow subscriber may fall behind before it starts losing them.
@@ -28,6 +28,11 @@ pub struct SessionEvent {
 pub enum SessionFrame {
     Response(VizierResponse),
     Job(BackgroundJobSnapshot),
+    /// The full current reaction set of one message, after any change to it.
+    Reactions {
+        history_uid: String,
+        reactions: Vec<ReactionEntry>,
+    },
 }
 
 #[derive(Debug, Clone)]

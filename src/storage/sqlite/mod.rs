@@ -18,6 +18,7 @@ mod history;
 mod memory;
 pub(crate) mod memory_revision;
 mod provider;
+mod reaction;
 mod session;
 mod session_file;
 mod state;
@@ -326,6 +327,7 @@ impl SqliteStorage {
         )?;
 
         init_history_schema(conn)?;
+        init_reaction_schema(conn)?;
         init_memory_graph_schema(conn)?;
         init_revision_schema(conn)?;
         init_task_run_schema(conn)?;
@@ -442,6 +444,77 @@ pub fn init_history_schema(conn: &Connection) -> Result<()> {
     // The column has to exist before `idx_sh_seq` can reference it.
     add_column_if_missing(conn, "session_history", "seq", "INTEGER")?;
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sh_seq ON session_history(seq);")?;
+
+    Ok(())
+}
+
+/// The reaction tables (`specs/013-reaction-awareness/data-model.md`), split out like
+/// [`init_history_schema`] so the tests in `src/storage/sqlite/reaction.rs` can stand them up
+/// against an in-memory connection. Must run after `init_history_schema`, which owns the
+/// table both cascade from.
+///
+/// Also moves reactions an earlier build kept inside each history row's `data` blob into
+/// `message_reaction`, clearing the blob's array. It needs no marker: after one run no row
+/// has a non-empty array left, so a second run finds nothing to do.
+pub fn init_reaction_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS message_reaction (
+            history_uid  TEXT NOT NULL REFERENCES session_history(uid) ON DELETE CASCADE,
+            reactor_id   TEXT NOT NULL,
+            reactor_name TEXT,
+            emoji        TEXT NOT NULL,
+            added_at     INTEGER NOT NULL,
+            PRIMARY KEY (history_uid, reactor_id, emoji)
+        );
+        CREATE INDEX IF NOT EXISTS idx_reaction_uid ON message_reaction(history_uid);
+
+        CREATE TABLE IF NOT EXISTS platform_message_link (
+            agent_id    TEXT NOT NULL,
+            platform    TEXT NOT NULL,
+            chat_id     TEXT NOT NULL,
+            message_id  TEXT NOT NULL,
+            history_uid TEXT NOT NULL REFERENCES session_history(uid) ON DELETE CASCADE,
+            PRIMARY KEY (agent_id, platform, chat_id, message_id)
+        );
+        ",
+    )?;
+
+    let legacy: Vec<(String, i64, String)> = {
+        let mut stmt = conn.prepare(
+            "SELECT uid, timestamp, data FROM session_history
+             WHERE json_array_length(json_extract(data, '$.reactions')) > 0",
+        )?;
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    if legacy.is_empty() {
+        return Ok(());
+    }
+
+    let tx = conn.unchecked_transaction()?;
+    for (uid, timestamp, data) in legacy {
+        let mut entry: crate::schema::SessionHistory = match serde_json::from_str(&data) {
+            Ok(entry) => entry,
+            Err(err) => {
+                tracing::warn!("skipping reaction migration for history entry {uid}: {err}");
+                continue;
+            }
+        };
+        for reaction in entry.reactions.drain(..) {
+            tx.execute(
+                "INSERT OR IGNORE INTO message_reaction
+                    (history_uid, reactor_id, reactor_name, emoji, added_at)
+                 VALUES (?1, ?2, NULL, ?3, ?4)",
+                rusqlite::params![uid, reaction.user_id, reaction.emoji, timestamp],
+            )?;
+        }
+        tx.execute(
+            "UPDATE session_history SET data = ?1 WHERE uid = ?2",
+            rusqlite::params![serde_json::to_string(&entry)?, uid],
+        )?;
+    }
+    tx.commit()?;
 
     Ok(())
 }

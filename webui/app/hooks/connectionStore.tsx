@@ -1,6 +1,13 @@
 import { create } from 'zustand'
 import { getChatWebSocketUrl } from '../services/vizier'
-import type { WebSocketJobFrame, WebSocketMessage, WebSocketResponse } from '../interfaces/types'
+import type {
+  WebSocketJobFrame,
+  WebSocketMessage,
+  WebSocketReactionErrorFrame,
+  WebSocketReactionMessage,
+  WebSocketReactionsFrame,
+  WebSocketResponse,
+} from '../interfaces/types'
 import { useBackgroundJobStore } from './backgroundJobStore'
 
 interface ConnectionState {
@@ -11,12 +18,26 @@ interface ConnectionState {
   messageCount: number
   connect: (agentId: string, topicId: string) => void
   disconnect: () => void
-  sendMessage: (msg: WebSocketMessage) => void
+  sendMessage: (msg: WebSocketMessage | WebSocketReactionMessage) => void
   clearLastMessage: () => void
 }
 
 let ws: WebSocket | null = null
 let reconnectTimeout: ReturnType<typeof setTimeout> | null = null
+
+export type ReactionFrame = WebSocketReactionsFrame | WebSocketReactionErrorFrame
+
+// Reaction frames are delivered to listeners rather than through `lastMessage`, like job
+// frames go to their store: `lastMessage` keeps only the latest frame, and a reaction frame
+// landing in the same tick as a response must not cost the chat that response.
+const reactionListeners = new Set<(frame: ReactionFrame) => void>()
+
+export function subscribeReactionFrames(listener: (frame: ReactionFrame) => void): () => void {
+  reactionListeners.add(listener)
+  return () => {
+    reactionListeners.delete(listener)
+  }
+}
 
 export const useConnectionStore = create<ConnectionState>()((set, get) => ({
   agentId: null,
@@ -87,6 +108,11 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
             useBackgroundJobStore.getState().applySnapshot(parsed.background_job)
             return
           }
+          if (parsed && typeof parsed === 'object' && ('reactions' in parsed || 'reaction_error' in parsed)) {
+            const frame = parsed as unknown as ReactionFrame
+            reactionListeners.forEach((listener) => listener(frame))
+            return
+          }
           const data = parsed as WebSocketResponse
           set(state => ({
             lastMessage: data,
@@ -113,7 +139,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
     set({ agentId: null, topicId: null, connected: false, lastMessage: null })
   },
 
-  sendMessage: (msg: WebSocketMessage) => {
+  sendMessage: (msg: WebSocketMessage | WebSocketReactionMessage) => {
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(msg))
     } else {

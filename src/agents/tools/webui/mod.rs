@@ -54,6 +54,7 @@ impl VizierTool for SendWebuiMessage {
                 stats: None,
             },
             attachments: vec![],
+            ..Default::default()
         };
 
         self.storage

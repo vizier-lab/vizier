@@ -3,15 +3,20 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use teloxide::Bot;
 use teloxide::prelude::*;
-use teloxide::types::{ChatAction, InputFile};
+use teloxide::types::{
+    AllowedUpdate, ChatAction, InputFile, MaybeAnonymousUser, MessageId, MessageReactionUpdated,
+    ReactionType,
+};
 
 use crate::channels::VizierChannel;
+use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::{
     PlatformMessageId, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
     VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
 };
+use crate::storage::reaction::{Platform, ReactionStorage, Reactor};
 use crate::storage::session::SessionStorage;
 use crate::storage::state::StateStorage;
 use crate::transport::VizierTransport;
@@ -48,6 +53,12 @@ impl VizierChannel for TelegramChannelReader {
                 .bot
                 .get_updates()
                 .offset(offset as i32)
+                // Telegram sends `message_reaction` only when asked for it by name.
+                .allowed_updates(vec![
+                    AllowedUpdate::Message,
+                    AllowedUpdate::EditedMessage,
+                    AllowedUpdate::MessageReaction,
+                ])
                 .timeout(30)
                 .await;
 
@@ -79,10 +90,69 @@ impl TelegramChannelReader {
             teloxide::types::UpdateKind::EditedMessage(msg) => {
                 self.handle_message(msg.clone()).await?;
             }
+            teloxide::types::UpdateKind::MessageReaction(update) => {
+                self.handle_reaction(update).await;
+            }
             _ => return Ok(()),
         }
 
         Ok(())
+    }
+
+    /// A person changed their reactions on a message. Telegram sends the whole old and new
+    /// set, so the change is the difference: removals first, so a swap ends on the new emoji.
+    /// Only the agent's own linked replies are recorded, and never a bot's reaction (FR-006).
+    async fn handle_reaction(&self, update: &MessageReactionUpdated) {
+        let reactor = match &update.actor {
+            MaybeAnonymousUser::User(user) => {
+                if user.is_bot {
+                    return;
+                }
+                let name = match &user.last_name {
+                    Some(last) => format!("{} {}", user.first_name, last),
+                    None => user.first_name.clone(),
+                };
+                let name = if name.trim().is_empty() {
+                    user.username.as_ref().map(|username| format!("@{username}"))
+                } else {
+                    Some(name)
+                };
+                Reactor {
+                    id: user.id.0.to_string(),
+                    name,
+                }
+            }
+            // An anonymous admin reacts as the chat itself.
+            MaybeAnonymousUser::Chat(chat) => Reactor {
+                id: chat.id.0.to_string(),
+                name: chat.title().map(str::to_string),
+            },
+        };
+
+        let (removed, added) = reaction_diff(&update.old_reaction, &update.new_reaction);
+        let changes = removed
+            .into_iter()
+            .map(ReactionKind::Remove)
+            .chain(added.into_iter().map(ReactionKind::Add));
+        for kind in changes {
+            let change = ReactionChange {
+                target: ReactionTarget::Platform {
+                    agent_id: self.agent_id.clone(),
+                    platform: Platform::Telegram,
+                    chat_id: update.chat.id.0.to_string(),
+                    message_id: update.message_id.0.to_string(),
+                },
+                reactor: reactor.clone(),
+                kind,
+            };
+            if let Err(err) = reactions::apply(&self.deps.storage, &self.deps.transport, change).await {
+                tracing::warn!(
+                    "failed to record telegram reaction on {}: {:?}",
+                    update.message_id.0,
+                    err
+                );
+            }
+        }
     }
 
     async fn handle_message(&self, msg: Message) -> Result<()> {
@@ -517,6 +587,8 @@ impl TelegramChannelReader {
 
         let bot = self.bot.clone();
         let file_manager = self.deps.file_manager.clone();
+        let storage = self.deps.storage.clone();
+        let agent_id = self.agent_id.clone();
         let chat_id_copy = chat_id;
 
         tokio::spawn(async move {
@@ -582,14 +654,17 @@ impl TelegramChannelReader {
                     VizierResponse {
                         content: VizierResponseContent::Message { content, stats: _ },
                         attachments,
+                        history_uid,
                         ..
                     } => {
                         if let Some(handle) = typing_handle.take() {
                             handle.abort();
                         }
                         let content = remove_think_tags(&content);
-                        let _ =
-                            crate::utils::telegram::send_message(&bot, chat_id_copy, content).await;
+                        let mut posted =
+                            crate::utils::telegram::send_message(&bot, chat_id_copy, content)
+                                .await
+                                .unwrap_or_default();
 
                         for attachment in &attachments {
                             match file_manager.resolve(attachment).await {
@@ -598,22 +673,20 @@ impl TelegramChannelReader {
                                     let input_file =
                                         InputFile::memory(bytes).file_name(filename.clone());
                                     if mime.starts_with("image/") {
-                                        if let Err(err) =
-                                            bot.send_photo(chat_id_copy, input_file).await
-                                        {
-                                            tracing::error!(
+                                        match bot.send_photo(chat_id_copy, input_file).await {
+                                            Ok(sent) => posted.push(sent.id),
+                                            Err(err) => tracing::error!(
                                                 "Failed to send photo attachment: {:?}",
                                                 err
-                                            );
+                                            ),
                                         }
                                     } else {
-                                        if let Err(err) =
-                                            bot.send_document(chat_id_copy, input_file).await
-                                        {
-                                            tracing::error!(
+                                        match bot.send_document(chat_id_copy, input_file).await {
+                                            Ok(sent) => posted.push(sent.id),
+                                            Err(err) => tracing::error!(
                                                 "Failed to send document attachment: {:?}",
                                                 err
-                                            );
+                                            ),
                                         }
                                     }
                                 }
@@ -626,27 +699,34 @@ impl TelegramChannelReader {
                                 }
                             }
                         }
+
+                        link_reply(&storage, &agent_id, chat_id_copy, &posted, history_uid).await;
                     }
                     VizierResponse {
                         content: VizierResponseContent::AudioReply(audio_att, text, _),
+                        history_uid,
                         ..
                     } => {
                         if let Some(handle) = typing_handle.take() {
                             handle.abort();
                         }
+                        let mut posted = vec![];
                         if let Some(content) = text {
                             let content = remove_think_tags(&content);
-                            let _ =
+                            posted =
                                 crate::utils::telegram::send_message(&bot, chat_id_copy, content)
-                                    .await;
+                                    .await
+                                    .unwrap_or_default();
                         }
                         match file_manager.resolve(&audio_att).await {
                             Ok((filename, bytes)) => {
                                 let input_file =
                                     InputFile::memory(bytes).file_name(filename.clone());
-                                if let Err(err) = bot.send_document(chat_id_copy, input_file).await
-                                {
-                                    tracing::error!("Failed to send audio reply: {:?}", err);
+                                match bot.send_document(chat_id_copy, input_file).await {
+                                    Ok(sent) => posted.push(sent.id),
+                                    Err(err) => {
+                                        tracing::error!("Failed to send audio reply: {:?}", err)
+                                    }
                                 }
                             }
                             Err(err) => {
@@ -657,6 +737,8 @@ impl TelegramChannelReader {
                                 );
                             }
                         }
+
+                        link_reply(&storage, &agent_id, chat_id_copy, &posted, history_uid).await;
                     }
                     VizierResponse {
                         content: VizierResponseContent::Abort,
@@ -711,4 +793,77 @@ struct ChannelState {
     show_thinking: bool,
     #[serde(default)]
     show_tool_calls: bool,
+}
+
+/// Link every message a reply was posted as to the history entry it renders, so reactions on
+/// any chunk or attachment reach that entry. A failure is logged and never fails the send.
+async fn link_reply(
+    storage: &crate::storage::VizierStorage,
+    agent_id: &str,
+    chat_id: ChatId,
+    posted: &[MessageId],
+    history_uid: Option<String>,
+) {
+    let Some(uid) = history_uid else { return };
+    if posted.is_empty() {
+        return;
+    }
+    let ids: Vec<String> = posted.iter().map(|id| id.0.to_string()).collect();
+    if let Err(err) = storage
+        .link_platform_messages(agent_id, Platform::Telegram, &chat_id.0.to_string(), &ids, &uid)
+        .await
+    {
+        tracing::warn!("failed to link telegram reply {}: {:?}", uid, err);
+    }
+}
+
+/// How a Telegram reaction is stored. Bots aren't given a custom emoji's name without another
+/// call, so it is kept by id.
+fn telegram_emoji_key(reaction: &ReactionType) -> String {
+    match reaction {
+        ReactionType::Emoji { emoji } => emoji.clone(),
+        ReactionType::CustomEmoji { custom_emoji_id } => format!("custom_emoji:{custom_emoji_id}"),
+        ReactionType::Paid => "⭐".to_string(),
+    }
+}
+
+/// `(removed, added)` keys between one person's old and new reaction sets.
+fn reaction_diff(old: &[ReactionType], new: &[ReactionType]) -> (Vec<String>, Vec<String>) {
+    let old: Vec<String> = old.iter().map(telegram_emoji_key).collect();
+    let new: Vec<String> = new.iter().map(telegram_emoji_key).collect();
+    let removed = old.iter().filter(|k| !new.contains(k)).cloned().collect();
+    let added = new.iter().filter(|k| !old.contains(k)).cloned().collect();
+    (removed, added)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn emoji(e: &str) -> ReactionType {
+        ReactionType::Emoji { emoji: e.to_string() }
+    }
+
+    #[test]
+    fn a_diff_gives_removals_and_additions() {
+        assert_eq!(reaction_diff(&[], &[emoji("👍")]), (vec![], vec!["👍".to_string()]));
+        assert_eq!(reaction_diff(&[emoji("👍")], &[]), (vec!["👍".to_string()], vec![]));
+        assert_eq!(
+            reaction_diff(&[emoji("👍")], &[emoji("🔥")]),
+            (vec!["👍".to_string()], vec!["🔥".to_string()])
+        );
+        assert_eq!(
+            reaction_diff(&[emoji("👍"), emoji("🔥")], &[emoji("🔥"), emoji("👍")]),
+            (vec![], vec![])
+        );
+    }
+
+    #[test]
+    fn custom_and_paid_reactions_have_stable_keys() {
+        assert_eq!(
+            telegram_emoji_key(&ReactionType::CustomEmoji { custom_emoji_id: "123".into() }),
+            "custom_emoji:123"
+        );
+        assert_eq!(telegram_emoji_key(&ReactionType::Paid), "⭐");
+    }
 }

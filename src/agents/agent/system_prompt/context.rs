@@ -4,7 +4,10 @@ use rig_core::{
     message::{Message, UserContent},
 };
 
-use crate::schema::{MemoryPassageResult, Skill};
+use crate::{
+    agents::agent::system_prompt::reactions::render_reaction_section,
+    schema::{MemoryPassageResult, Skill},
+};
 
 /// First line of every context block; lets consumers of the raw user message (e.g. dummyplug)
 /// tell the injected block apart from the user's own text.
@@ -15,7 +18,14 @@ pub const CONTEXT_HEADER: &str = "# Context\n";
 /// Prepended to the current user message instead of being sent as system messages, so the
 /// system prompts and replayed history stay byte-identical across requests and remain
 /// cacheable by the provider. Time is rounded to the minute for the same reason.
-pub fn context_md(memory: &[MemoryPassageResult], skills: &[Skill]) -> String {
+///
+/// `reactions` is the list from `reaction_digest`. Reactions change after the fact, which is
+/// exactly why they live here and not on the replayed assistant messages they are about.
+pub fn context_md(
+    memory: &[MemoryPassageResult],
+    skills: &[Skill],
+    reactions: Option<&str>,
+) -> String {
     let utc_now = Utc::now();
     let local_now = Local::now();
 
@@ -24,6 +34,10 @@ pub fn context_md(memory: &[MemoryPassageResult], skills: &[Skill]) -> String {
         utc_now.format("%A, %Y-%m-%d %H:%M UTC"),
         local_now.format("%A, %Y-%m-%d %H:%M %:z"),
     )];
+
+    if let Some(list) = reactions {
+        sections.push(render_reaction_section(list));
+    }
 
     // Omitted entirely when nothing qualified (FR-026) — an empty heading plus an apology costs
     // tokens and tells the agent nothing. The caller has already dropped everything below the
@@ -148,8 +162,42 @@ mod tests {
 
     #[test]
     fn the_context_header_is_the_first_line_so_consumers_can_strip_the_block() {
-        let rendered = context_md(&[], &[]);
+        let rendered = context_md(&[], &[], None);
         assert!(rendered.starts_with(CONTEXT_HEADER));
         assert!(rendered.contains("## Time"), "time is always present");
+        assert!(!rendered.contains("## Reactions"), "omitted when nothing was reacted to");
+    }
+
+    /// contracts/agent-context.md: after `## Time`, before the memories, and in the user
+    /// message like the rest of the block.
+    #[test]
+    fn reactions_sit_between_time_and_memories_in_the_user_message() {
+        let passage = MemoryPassageResult {
+            bundle: "b".into(),
+            path: "p.md".into(),
+            title: "Deploys".into(),
+            ordinal: 0,
+            ordinal_end: 0,
+            line_start: 1,
+            line_end: 1,
+            text: "deploys on tuesday".into(),
+            score: 0.9,
+            truncated: false,
+        };
+        let rendered = context_md(&[passage], &[], Some("- your reply 1 message ago"));
+        let time = rendered.find("## Time").unwrap();
+        let reactions = rendered.find("## Reactions").unwrap();
+        let memories = rendered.find("## Possibly Related Memories").unwrap();
+        assert!(time < reactions && reactions < memories, "{rendered}");
+        assert!(rendered.contains("These are reactions, not messages"));
+
+        let user = with_context(Message::user("hi"), rendered);
+        match user {
+            Message::User { content } => match content.first() {
+                UserContent::Text(text) => assert!(text.text.contains("## Reactions")),
+                other => panic!("expected text first, got {other:?}"),
+            },
+            other => panic!("a user message must stay a user message: {other:?}"),
+        }
     }
 }

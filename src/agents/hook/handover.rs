@@ -31,6 +31,7 @@ impl VizierSessionHook for HandoverSenderHook {
                     handover,
                 },
                 attachments: vec![],
+                ..Default::default()
             })
             .await;
 

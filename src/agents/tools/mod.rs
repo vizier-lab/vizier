@@ -260,6 +260,7 @@ fn tool_output_to_response(output: &str) -> Result<VizierResponse> {
         timestamp: Utc::now(),
         content: crate::schema::VizierResponseContent::ToolResponse { response: res },
         attachments: vec![],
+        ..Default::default()
     })
 }
 
@@ -456,6 +457,7 @@ impl VizierTools {
                     timestamp: Utc::now(),
                     content: crate::schema::VizierResponseContent::ToolResponse { response: res },
                     attachments: vec![],
+                    ..Default::default()
                 });
             }
             _ => {}

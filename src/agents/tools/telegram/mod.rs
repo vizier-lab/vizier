@@ -5,11 +5,17 @@ use serde::{Deserialize, Serialize};
 use teloxide::Bot;
 use teloxide::prelude::*;
 use teloxide::sugar::request::RequestReplyExt;
+use teloxide::types::ReactionType;
 
 use crate::agents::tools::{ToolContext, VizierTool};
 use crate::error::{VizierError, throw_vizier_error};
 use crate::schema::{AgentId, TopicId, VizierChannelId, VizierResponse, VizierResponseContent, VizierSession};
-use crate::storage::{VizierStorage, history::HistoryStorage, state::StateStorage};
+use crate::storage::{
+    VizierStorage,
+    history::HistoryStorage,
+    reaction::{Platform, ReactionStorage},
+    state::StateStorage,
+};
 
 #[derive(Debug, Deserialize, Serialize)]
 struct ChannelState {
@@ -66,7 +72,7 @@ impl VizierTool for SendTelegramMessage {
         let chat_id = args.chat_id;
         let content = args.content.clone();
 
-        crate::utils::telegram::send_message(&self.bot, ChatId(chat_id), args.content)
+        let posted = crate::utils::telegram::send_message(&self.bot, ChatId(chat_id), args.content)
             .await
             .map_err(|err| VizierError(err.to_string()))?;
 
@@ -84,11 +90,23 @@ impl VizierTool for SendTelegramMessage {
             timestamp: Utc::now(),
             content: VizierResponseContent::Message { content, stats: None },
             attachments: vec![],
+            ..Default::default()
         };
-        self.storage
+        let uid = self
+            .storage
             .save_session_history(session, crate::schema::SessionHistoryContent::Response(response))
             .await
             .map_err(|e| VizierError(e.to_string()))?;
+
+        // Linked like a reply, so reactions on what the agent posted here reach it too.
+        let ids: Vec<String> = posted.iter().map(|id| id.0.to_string()).collect();
+        if let Err(err) = self
+            .storage
+            .link_platform_messages(&self.agent_id, Platform::Telegram, &chat_id.to_string(), &ids, &uid)
+            .await
+        {
+            tracing::warn!("failed to link telegram message {}: {:?}", uid, err);
+        }
 
         Ok(format!("Message sent to chat {}", chat_id))
     }
@@ -120,18 +138,21 @@ impl VizierTool for ReactTelegramMessage {
     }
 
     fn description(&self) -> String {
-        "emoji react to a telegram message".into()
+        "emoji react to a telegram message. Telegram allows only its standard reaction emoji \
+         (for example 👍 👎 ❤ 🔥 🎉 🤔 👀 🙏). Other emoji are rejected."
+            .into()
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
         let chat_id = ChatId(args.chat_id);
         let message_id = teloxide::types::MessageId(args.message_id as i32);
 
+        // A native reaction: nothing is posted to the chat.
         self.bot
-            .send_message(chat_id, format!("Reaction: {}", args.emoji))
-            .reply_to(message_id)
+            .set_message_reaction(chat_id, message_id)
+            .reaction(vec![ReactionType::Emoji { emoji: args.emoji.clone() }])
             .await
-            .map_err(|err| VizierError(err.to_string()))?;
+            .map_err(|err| VizierError(format!("telegram rejected the reaction: {err}")))?;
 
         Ok(format!("Reacted with {} to message {}", args.emoji, args.message_id))
     }

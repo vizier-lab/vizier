@@ -10,19 +10,23 @@ use twilight_model::application::command::{Command, CommandType};
 use twilight_model::application::interaction::application_command::CommandOptionValue;
 use twilight_model::application::interaction::{Interaction, InteractionData};
 use twilight_model::channel::Message;
+use twilight_model::channel::message::EmojiReactionType;
+use twilight_model::gateway::GatewayReaction;
 use twilight_model::gateway::payload::incoming::Ready;
 use twilight_model::http::interaction::{InteractionResponse, InteractionResponseType};
 use twilight_model::id::Id;
-use twilight_model::id::marker::{ApplicationMarker, ChannelMarker, UserMarker};
+use twilight_model::id::marker::{ApplicationMarker, ChannelMarker, MessageMarker, UserMarker};
 use twilight_util::builder::InteractionResponseDataBuilder;
 use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 
 use crate::channels::VizierChannel;
+use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
     PlatformMessageId, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
     VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
 };
+use crate::storage::reaction::{Platform, ReactionStorage, Reactor};
 use crate::storage::session::SessionStorage;
 use crate::storage::state::StateStorage;
 use crate::utils::discord::Typing;
@@ -60,7 +64,11 @@ impl VizierChannel for DiscordChannelReader {
 
         let events = EventTypeFlags::READY
             | EventTypeFlags::MESSAGE_CREATE
-            | EventTypeFlags::INTERACTION_CREATE;
+            | EventTypeFlags::INTERACTION_CREATE
+            | EventTypeFlags::REACTION_ADD
+            | EventTypeFlags::REACTION_REMOVE
+            | EventTypeFlags::REACTION_REMOVE_ALL
+            | EventTypeFlags::REACTION_REMOVE_EMOJI;
         let shutdown = self.shutdown.1.clone();
         let mut closing = false;
 
@@ -97,6 +105,30 @@ impl VizierChannel for DiscordChannelReader {
                         }
                         Event::MessageCreate(msg) => {
                             tokio::spawn(async move { handler.message(msg.0).await });
+                        }
+                        Event::ReactionAdd(add) => {
+                            tokio::spawn(async move { handler.reaction_add(add.0).await });
+                        }
+                        Event::ReactionRemove(remove) => {
+                            tokio::spawn(async move { handler.reaction_remove(remove.0).await });
+                        }
+                        Event::ReactionRemoveEmoji(clear) => {
+                            tokio::spawn(async move {
+                                handler
+                                    .reaction_clear(
+                                        clear.channel_id,
+                                        clear.message_id,
+                                        ReactionKind::ClearEmoji(discord_emoji_key(&clear.emoji)),
+                                    )
+                                    .await
+                            });
+                        }
+                        Event::ReactionRemoveAll(clear) => {
+                            tokio::spawn(async move {
+                                handler
+                                    .reaction_clear(clear.channel_id, clear.message_id, ReactionKind::ClearAll)
+                                    .await
+                            });
                         }
                         _ => {}
                     }
@@ -448,6 +480,89 @@ If I am halucinating, feel free to `/lobotomy` me
         });
     }
 
+    /// A person reacted to a message. Only the agent's own linked replies are recorded, and
+    /// never a bot's reaction, the agent's own included (FR-006).
+    async fn reaction_add(&self, reaction: GatewayReaction) {
+        if self.is_bot(&reaction) {
+            return;
+        }
+        let name = match &reaction.member {
+            Some(member) => Some(
+                member
+                    .nick
+                    .clone()
+                    .or_else(|| member.user.global_name.clone())
+                    .unwrap_or_else(|| member.user.name.clone()),
+            ),
+            // A DM carries no member; one lookup names the person, and a failure leaves the id.
+            None => match self.http.user(reaction.user_id).await {
+                Ok(response) => response
+                    .model()
+                    .await
+                    .ok()
+                    .map(|user| user.global_name.unwrap_or(user.name)),
+                Err(err) => {
+                    tracing::debug!("could not resolve discord user {}: {:?}", reaction.user_id, err);
+                    None
+                }
+            },
+        };
+        let kind = ReactionKind::Add(discord_emoji_key(&reaction.emoji));
+        self.apply_reaction(reaction.channel_id, reaction.message_id, reaction.user_id.to_string(), name, kind)
+            .await;
+    }
+
+    async fn reaction_remove(&self, reaction: GatewayReaction) {
+        if self.is_bot(&reaction) {
+            return;
+        }
+        let kind = ReactionKind::Remove(discord_emoji_key(&reaction.emoji));
+        self.apply_reaction(reaction.channel_id, reaction.message_id, reaction.user_id.to_string(), None, kind)
+            .await;
+    }
+
+    /// A moderator cleared one emoji, or every reaction, on a message.
+    async fn reaction_clear(
+        &self,
+        channel_id: Id<ChannelMarker>,
+        message_id: Id<MessageMarker>,
+        kind: ReactionKind,
+    ) {
+        self.apply_reaction(channel_id, message_id, String::new(), None, kind)
+            .await;
+    }
+
+    fn is_bot(&self, reaction: &GatewayReaction) -> bool {
+        self.bot.get().is_some_and(|bot| bot.user_id == reaction.user_id)
+            || reaction.member.as_ref().is_some_and(|member| member.user.bot)
+    }
+
+    async fn apply_reaction(
+        &self,
+        channel_id: Id<ChannelMarker>,
+        message_id: Id<MessageMarker>,
+        reactor_id: String,
+        reactor_name: Option<String>,
+        kind: ReactionKind,
+    ) {
+        let change = ReactionChange {
+            target: ReactionTarget::Platform {
+                agent_id: self.agent_id.clone(),
+                platform: Platform::Discord,
+                chat_id: channel_id.to_string(),
+                message_id: message_id.to_string(),
+            },
+            reactor: Reactor {
+                id: reactor_id,
+                name: reactor_name,
+            },
+            kind,
+        };
+        if let Err(err) = reactions::apply(&self.deps.storage, &self.deps.transport, change).await {
+            tracing::warn!("failed to record discord reaction on {}: {:?}", message_id, err);
+        }
+    }
+
     async fn message(&self, msg: Message) {
         let Some(bot) = self.bot.get() else {
             return;
@@ -491,6 +606,8 @@ If I am halucinating, feel free to `/lobotomy` me
         let transport = self.deps.transport.clone();
         let file_manager = self.deps.file_manager.clone();
         let http = self.http.clone();
+        let storage = self.deps.storage.clone();
+        let agent_id = self.agent_id.clone();
 
         let replied_to = msg
             .referenced_message
@@ -604,27 +721,32 @@ If I am halucinating, feel free to `/lobotomy` me
                     VizierResponse {
                         content: VizierResponseContent::Message { content, stats: _ },
                         attachments,
+                        history_uid,
                         ..
                     } => {
                         typing = None;
                         let content = remove_think_tags(&content);
-                        let _ = crate::utils::discord::send_message(
+                        let mut posted = crate::utils::discord::send_message(
                             http.clone(),
                             discord_channel_id,
                             content,
                         )
-                        .await;
+                        .await
+                        .unwrap_or_default();
 
                         for attachment in &attachments {
                             match file_manager.resolve(attachment).await {
                                 Ok((filename, bytes)) => {
-                                    let _ = crate::utils::discord::send_file(
+                                    if let Ok(id) = crate::utils::discord::send_file(
                                         &http,
                                         discord_channel_id,
                                         filename,
                                         bytes,
                                     )
-                                    .await;
+                                    .await
+                                    {
+                                        posted.push(id);
+                                    }
                                 }
                                 Err(err) => {
                                     tracing::error!(
@@ -636,31 +758,38 @@ If I am halucinating, feel free to `/lobotomy` me
                             }
                         }
 
+                        link_reply(&storage, &agent_id, discord_channel_id, &posted, history_uid).await;
                         break;
                     }
                     VizierResponse {
                         content: VizierResponseContent::AudioReply(audio_att, text, _),
+                        history_uid,
                         ..
                     } => {
                         typing = None;
+                        let mut posted = vec![];
                         if let Some(content) = text {
                             let content = remove_think_tags(&content);
-                            let _ = crate::utils::discord::send_message(
+                            posted = crate::utils::discord::send_message(
                                 http.clone(),
                                 discord_channel_id,
                                 content,
                             )
-                            .await;
+                            .await
+                            .unwrap_or_default();
                         }
                         match file_manager.resolve(&audio_att).await {
                             Ok((filename, bytes)) => {
-                                let _ = crate::utils::discord::send_file(
+                                if let Ok(id) = crate::utils::discord::send_file(
                                     &http,
                                     discord_channel_id,
                                     filename,
                                     bytes,
                                 )
-                                .await;
+                                .await
+                                {
+                                    posted.push(id);
+                                }
                             }
                             Err(err) => {
                                 tracing::error!(
@@ -671,6 +800,7 @@ If I am halucinating, feel free to `/lobotomy` me
                             }
                         }
 
+                        link_reply(&storage, &agent_id, discord_channel_id, &posted, history_uid).await;
                         break;
                     }
                     VizierResponse {
@@ -711,6 +841,42 @@ If I am halucinating, feel free to `/lobotomy` me
     }
 }
 
+/// Link every message a reply was posted as to the history entry it renders, so reactions on
+/// any chunk or attachment reach that entry. A failure is logged and never fails the send.
+async fn link_reply(
+    storage: &crate::storage::VizierStorage,
+    agent_id: &str,
+    channel_id: Id<ChannelMarker>,
+    posted: &[Id<MessageMarker>],
+    history_uid: Option<String>,
+) {
+    let Some(uid) = history_uid else { return };
+    if posted.is_empty() {
+        return;
+    }
+    let ids: Vec<String> = posted.iter().map(|id| id.to_string()).collect();
+    if let Err(err) = storage
+        .link_platform_messages(agent_id, Platform::Discord, &channel_id.to_string(), &ids, &uid)
+        .await
+    {
+        tracing::warn!("failed to link discord reply {}: {:?}", uid, err);
+    }
+}
+
+/// How a Discord emoji is stored: Unicode as itself, a custom emoji in Discord's own wire
+/// form, so the agent can read its name.
+fn discord_emoji_key(emoji: &EmojiReactionType) -> String {
+    match emoji {
+        EmojiReactionType::Unicode { name } => name.clone(),
+        EmojiReactionType::Custom { animated, id, name } => format!(
+            "<{}:{}:{}>",
+            if *animated { "a" } else { "" },
+            name.as_deref().unwrap_or("unknown_emoji"),
+            id
+        ),
+    }
+}
+
 /// Rewrite raw user mentions (`<@id>`, legacy `<@!id>`) into a form the agent can read: the
 /// bot's own as `@name (you)`, anyone else's the way message authors are rendered. Mentions are
 /// rewritten rather than removed so the sentence keeps its shape and the agent can tell who is
@@ -734,6 +900,30 @@ fn render_mentions(content: &str, mentions: &[(Id<UserMarker>, &str)], bot: &Bot
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn emoji_keys_keep_unicode_and_name_custom_emoji() {
+        assert_eq!(
+            discord_emoji_key(&EmojiReactionType::Unicode { name: "👍".into() }),
+            "👍"
+        );
+        assert_eq!(
+            discord_emoji_key(&EmojiReactionType::Custom {
+                animated: false,
+                id: Id::new(42),
+                name: Some("party".into()),
+            }),
+            "<:party:42>"
+        );
+        assert_eq!(
+            discord_emoji_key(&EmojiReactionType::Custom {
+                animated: true,
+                id: Id::new(7),
+                name: None,
+            }),
+            "<a:unknown_emoji:7>"
+        );
+    }
 
     #[test]
     fn mentions_are_rendered_not_stripped() {

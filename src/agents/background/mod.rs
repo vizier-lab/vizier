@@ -727,6 +727,7 @@ mod tests {
             timestamp: Utc::now(),
             content: VizierResponseContent::ThinkingStart,
             attachments: vec![],
+            ..Default::default()
         })
         .unwrap();
         drop(tx);

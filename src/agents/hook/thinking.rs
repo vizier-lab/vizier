@@ -34,6 +34,7 @@ impl VizierSessionHook for ThinkingHook {
                             thinking["thought"].as_str().unwrap().to_string(),
                         ),
                         attachments: vec![],
+                        ..Default::default()
                     })
                     .await;
             }

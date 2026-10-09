@@ -113,6 +113,7 @@ pub fn messages_to_history_entries(messages: &[Message]) -> Vec<SessionHistoryCo
                                 stats: None,
                             },
                             attachments: vec![],
+                            ..Default::default()
                         }));
                     }
                 }
@@ -607,6 +608,7 @@ mod tests {
                     stats: None,
                 },
                 attachments: vec![],
+                ..Default::default()
             })),
         ];
 

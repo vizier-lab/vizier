@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 
 use crate::{
-    schema::{AgentUsageStats, ReactionEntry, SessionHistory, SessionHistoryContent, VizierSession},
+    schema::{AgentUsageStats, SessionHistory, SessionHistoryContent, VizierSession},
     storage::VizierStorage,
 };
 
@@ -12,7 +12,7 @@ pub trait HistoryStorage {
         &self,
         session: VizierSession,
         content: SessionHistoryContent,
-    ) -> Result<()>;
+    ) -> Result<String>;
 
     /// Newest-first-bounded, oldest-first-returned history for one session.
     ///
@@ -27,13 +27,6 @@ pub trait HistoryStorage {
         before_seq: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>>;
-
-    async fn update_history_reactions(
-        &self,
-        uid: String,
-        session: VizierSession,
-        reactions: Vec<ReactionEntry>,
-    ) -> Result<()>;
 
     async fn aggregate_usage(
         &self,
@@ -75,7 +68,7 @@ impl HistoryStorage for VizierStorage {
         &self,
         session: VizierSession,
         content: SessionHistoryContent,
-    ) -> Result<()> {
+    ) -> Result<String> {
         self.0.save_session_history(session, content).await
     }
 
@@ -88,17 +81,6 @@ impl HistoryStorage for VizierStorage {
     ) -> Result<Vec<SessionHistory>> {
         self.0
             .list_session_history(session, before, before_seq, limit)
-            .await
-    }
-
-    async fn update_history_reactions(
-        &self,
-        uid: String,
-        session: VizierSession,
-        reactions: Vec<ReactionEntry>,
-    ) -> Result<()> {
-        self.0
-            .update_history_reactions(uid, session, reactions)
             .await
     }
 

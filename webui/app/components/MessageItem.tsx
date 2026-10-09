@@ -27,7 +27,12 @@ interface MessageItemProps {
   onPreviewAttachment?: (attachment: VizierAttachment) => void
   attachments?: VizierAttachment[]
   reactions?: ReactionEntry[]
+  // Emoji of this message whose change was sent and not yet confirmed by the server.
+  pendingEmojis?: string[]
   currentUserId?: string
+  // Only an agent reply the server knows by uid can be reacted to (W6). Anything else shows
+  // its existing reactions read-only.
+  canReact?: boolean
   onReact?: (messageUid: string, emoji: string) => void
   isVoiceMessage?: boolean
   voiceSrc?: string
@@ -50,7 +55,9 @@ function MessageItemComponent({
   onPreviewAttachment,
   attachments,
   reactions,
+  pendingEmojis,
   currentUserId,
+  canReact = false,
   onReact,
   isVoiceMessage,
   voiceSrc,
@@ -268,7 +275,13 @@ function MessageItemComponent({
           </div>
         )}
 
-        {onReact && (
+        {!(canReact && onReact) && reactions && reactions.length > 0 && (
+          <div style={{ marginTop: '6px' }}>
+            <ReactionBadges reactions={reactions} currentUserId={currentUserId} />
+          </div>
+        )}
+
+        {canReact && onReact && (
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -280,9 +293,33 @@ function MessageItemComponent({
               <ReactionBadges
                 reactions={reactions}
                 currentUserId={currentUserId}
+                pendingEmojis={pendingEmojis}
                 onToggleReaction={(emoji) => onReact(uid, emoji)}
               />
             )}
+            {pendingEmojis
+              ?.filter((emoji) => !reactions?.some((r) => r.emoji === emoji))
+              .map((emoji) => (
+                <span
+                  key={emoji}
+                  title="Saving reaction…"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    fontSize: '12px',
+                    lineHeight: '18px',
+                    opacity: 0.5,
+                  }}
+                >
+                  <span>{emoji}</span>
+                  <span>…</span>
+                </span>
+              ))}
             <div style={{ position: 'relative' }}>
               <button
                 onClick={() => setShowPicker(!showPicker)}
@@ -327,9 +364,14 @@ function MessageItemComponent({
 }
 
 // Memoize component to prevent re-renders when parent re-renders
-// Only re-render if the message UID, content, stats, attachments, or reactions change
+// Only re-render if a prop that changes what renders, or what a click does, changes
 export const MessageItem = memo(MessageItemComponent, (prevProps, nextProps) => {
   if (prevProps.uid !== nextProps.uid) return false
+  if (prevProps.onReact !== nextProps.onReact) return false
+  if (prevProps.canReact !== nextProps.canReact) return false
+  if (prevProps.pendingEmojis !== nextProps.pendingEmojis) return false
+  if (prevProps.trail !== nextProps.trail) return false
+  if (prevProps.isError !== nextProps.isError) return false
   if (prevProps.content !== nextProps.content) return false
   if (prevProps.stats !== nextProps.stats) return false
   if (prevProps.attachments !== nextProps.attachments) return false
