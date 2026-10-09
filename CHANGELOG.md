@@ -2,11 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0-rc.4] - 2026-10-09
+
+### 🚀 Features
+
+- [**breaking**] background subagent jobs with report-back and cancel
+- Reaction awareness across webui, discord and telegram
+
+### 🐛 Bug Fixes
+
+- Post background-woken replies to discord and telegram
+
+### 📚 Documentation
+
+- Add spec and plan for background subagent results
+- Add task list for background subagent results
+- Add spec for reaction awareness
+- Add plan for reaction awareness
+- Add task list for reaction awareness
 ## [0.12.0-rc.3] - 2026-10-05
 
 ### 🐛 Bug Fixes
 
 - Keep discord typing alive for the whole turn and render mentions
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump version to 0.12.0-rc.3
 ## [0.12.0-rc.2] - 2026-10-05
 
 ### 🚀 Features
