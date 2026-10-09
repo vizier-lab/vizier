@@ -22,15 +22,15 @@ use crate::{
             },
             state::HTTPState,
         },
-        reaction_store,
+        reactions::{self, ApplyOutcome, ReactionChange, ReactionKind, ReactionTarget},
     },
     schema::{
-        PlatformMessageId, ReactionAction, ReactionEntry, ReactionEvent, SessionHistory, TopicId,
-        VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent,
-        VizierSession, VizierSessionDetail,
+        ReactionAction, SessionHistory, TopicId, VizierAttachmentContent, VizierChannelId,
+        VizierRequest, VizierSession, VizierSessionDetail,
     },
     storage::{
         agent::AgentStorage, background_job::BackgroundJobStorage, history::HistoryStorage,
+        reaction::{ReactionStorage, Reactor},
         session::SessionStorage,
     },
     transport::{SessionFrame, VizierTransport},
@@ -351,6 +351,50 @@ pub async fn chat(
     ws.on_upgrade(move |socket| handle_socket(socket, session, transport, state.storage.clone(), state.config.workspace.clone(), ws_idle_timeout_secs))
 }
 
+/// A reaction from this socket, applied through the shared ingest path. The new set reaches
+/// every socket on the session (this one included, as its acknowledgement) through the
+/// session-event broadcast; an `Err` is the message for a `reaction_error` to this socket only.
+async fn webui_reaction(
+    storage: &crate::storage::VizierStorage,
+    transport: &VizierTransport,
+    curr_session: &VizierSession,
+    payload: &WebSocketReactionPayload,
+) -> Result<(), String> {
+    // Reacting is scoped to the socket's own conversation, so one person cannot reach into
+    // another's by guessing a uid.
+    match storage.get_history_entry(&payload.message_uid).await {
+        Ok(Some(entry)) if &entry.vizier_session == curr_session => {}
+        Ok(_) => return Err("message not found in this conversation".to_string()),
+        Err(err) => {
+            tracing::warn!("failed to look up reaction target {}: {err}", payload.message_uid);
+            return Err("reaction not saved".to_string());
+        }
+    }
+
+    let username = match &curr_session.1 {
+        VizierChannelId::HTTP(user, _) => user.clone(),
+        _ => "unknown".to_string(),
+    };
+    let kind = match payload.action {
+        ReactionAction::Added => ReactionKind::Add(payload.emoji.clone()),
+        ReactionAction::Removed => ReactionKind::Remove(payload.emoji.clone()),
+    };
+    let change = ReactionChange {
+        target: ReactionTarget::History(payload.message_uid.clone()),
+        reactor: Reactor { id: username, name: None },
+        kind,
+    };
+
+    match reactions::apply(storage, transport, change).await {
+        Ok(ApplyOutcome::Applied) => Ok(()),
+        Ok(ApplyOutcome::Ignored(reason)) => Err(reason.to_string()),
+        Err(err) => {
+            tracing::warn!("failed to save reaction on {}: {err}", payload.message_uid);
+            Err("reaction not saved".to_string())
+        }
+    }
+}
+
 pub async fn handle_socket(
     socket: WebSocket,
     curr_session: VizierSession,
@@ -397,6 +441,11 @@ pub async fn handle_socket(
                             SessionFrame::Job(snapshot) => {
                                 serde_json::to_string(&serde_json::json!({ "background_job": snapshot }))
                             }
+                            SessionFrame::Reactions { history_uid, reactions } => {
+                                serde_json::to_string(&serde_json::json!({
+                                    "reactions": { "message_uid": history_uid, "reactions": reactions }
+                                }))
+                            }
                         };
                         if let Ok(json) = json {
                             let _ = write_tx.send(Message::Text(json.into())).await;
@@ -419,43 +468,13 @@ pub async fn handle_socket(
                         let text_str = text.to_string();
                         
                         if let Ok(reaction_msg) = serde_json::from_str::<WebSocketReactionMessage>(&text_str) {
-                            tracing::info!("received reaction from WebUI: {:?}", reaction_msg);
                             let payload = reaction_msg.reaction;
-                            let username = match &curr_session.1 {
-                                VizierChannelId::HTTP(user, _) => user.clone(),
-                                _ => "unknown".to_string(),
-                            };
-                            let entry = ReactionEntry {
-                                user_id: username.clone(),
-                                emoji: payload.emoji.clone(),
-                            };
-                            
-                            if let Err(e) = reaction_store::record_reaction(&storage, &curr_session, &payload.message_uid, entry).await {
-                                tracing::error!("failed to record reaction: {:?}", e);
-                            } else {
-                                tracing::info!("reaction recorded for message_uid: {}", payload.message_uid);
+                            if let Err(message) = webui_reaction(&storage, &transport, &curr_session, &payload).await {
+                                let frame = serde_json::json!({
+                                    "reaction_error": { "message_uid": payload.message_uid, "message": message }
+                                });
+                                let _ = write_tx.send(Message::Text(frame.to_string().into())).await;
                             }
-
-                            let event = ReactionEvent {
-                                platform_message_id: None,
-                                user_id: username,
-                                emoji: payload.emoji,
-                                action: payload.action,
-                            };
-
-                            let session = curr_session.clone();
-                            let _ = transport.send_request(
-                                session,
-                                VizierRequest {
-                                    timestamp: Utc::now(),
-                                    user: "system".to_string(),
-                                    content: VizierRequestContent::Reaction(event),
-                                    metadata: serde_json::json!({}),
-                                    attachments: vec![],
-                                    ..Default::default()
-                                },
-                                None,
-                            ).await;
                         } else if let Ok(request) = serde_json::from_str::<VizierRequest>(&text_str) {
                             let mut request = request.clone();
                             // A person's message starts a fresh chain; the depth is never

@@ -42,7 +42,7 @@ pub use metrics::{
 };
 pub use provider::{ProviderEntry, ProviderEntryConfig};
 pub use request::{
-    PlatformMessageId, ReactionAction, ReactionEntry, ReactionEvent, VizierAttachment,
+    PlatformMessageId, ReactionAction, ReactionEntry, VizierAttachment,
     VizierAttachmentContent, VizierRequest, VizierRequestContent,
 };
 pub use response::{ErrorKind, VizierResponse, VizierResponseContent, VizierResponseStats};

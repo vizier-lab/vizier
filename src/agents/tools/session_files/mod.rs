@@ -223,6 +223,7 @@ impl VizierTool for ReadDocumentFile {
                 response: serde_json::Value::String(text),
             },
             attachments: vec![],
+            ..Default::default()
         })
     }
 }

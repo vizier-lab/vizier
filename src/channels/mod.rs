@@ -6,7 +6,7 @@ use crate::{
 
 pub mod discord;
 pub mod http;
-pub mod reaction_store;
+pub mod reactions;
 pub mod telegram;
 
 #[async_trait::async_trait]

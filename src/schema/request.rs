@@ -31,30 +31,14 @@ pub enum ReactionAction {
     Removed,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
-pub struct ReactionEvent {
-    #[serde(default)]
-    pub platform_message_id: Option<PlatformMessageId>,
-    pub user_id: String,
-    pub emoji: String,
-    pub action: ReactionAction,
-}
-
-impl ReactionEvent {
-    pub fn action_str(&self) -> &str {
-        match self.action {
-            ReactionAction::Added => "added",
-            ReactionAction::Removed => "removed",
-        }
-    }
-}
-
 #[derive(
     Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq,
 )]
 pub struct ReactionEntry {
     pub user_id: String,
     pub emoji: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
@@ -70,7 +54,6 @@ pub enum VizierRequestContent {
     /// rather than on the session's channel.
     Unattended(String),
     Command(String),
-    Reaction(ReactionEvent),
     AudioChat(VizierAttachment, Option<String>),
     AudioPrompt(VizierAttachment, Option<String>),
     /// The outcome of background work this conversation started (`paralel_subtasks`,
@@ -92,15 +75,6 @@ impl Display for VizierRequestContent {
             Self::SilentRead(content) => write!(f, "{}", content),
             Self::Unattended(content) => write!(f, "{}", content),
             Self::Command(content) => write!(f, "{}", content),
-            Self::Reaction(event) => {
-                write!(
-                    f,
-                    "Reaction: {} {} by {}",
-                    event.action_str(),
-                    event.emoji,
-                    event.user_id
-                )
-            }
             Self::AudioChat(att, transcription) => match transcription {
                 Some(text) => write!(f, "{}", text),
                 None => write!(f, "Voice message ({})", att.filename),

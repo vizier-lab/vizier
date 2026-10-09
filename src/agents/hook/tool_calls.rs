@@ -36,6 +36,7 @@ impl VizierSessionHook for ToolCallsHook {
                         args: args_json,
                     },
                     attachments: vec![],
+                    ..Default::default()
                 })
                 .await;
         }

@@ -301,6 +301,7 @@ impl DreamScheduler {
                     timestamp: Utc::now(),
                     content: VizierResponseContent::Empty,
                     attachments: vec![],
+                    ..Default::default()
                 })
                 .await;
             return Ok(rx);

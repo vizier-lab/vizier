@@ -12,7 +12,12 @@ use crate::agents::tools::{ToolContext, VizierTool};
 use crate::error::{VizierError, throw_vizier_error};
 use crate::utils::discord::parse_id;
 use crate::schema::{AgentId, TopicId, VizierChannelId, VizierResponse, VizierResponseContent, VizierSession};
-use crate::storage::{VizierStorage, history::HistoryStorage, state::StateStorage};
+use crate::storage::{
+    VizierStorage,
+    history::HistoryStorage,
+    reaction::{Platform, ReactionStorage},
+    state::StateStorage,
+};
 
 /// Maximum number of channels/roles rendered before collapsing the rest into a trailing count.
 const LIST_TRUNCATE_LIMIT: usize = 50;
@@ -87,7 +92,7 @@ impl VizierTool for SendDiscordMessage {
         let channel_id = args.channel_id;
         let content = args.content.clone();
 
-        crate::utils::discord::send_message(
+        let posted = crate::utils::discord::send_message(
             self.http.clone(),
             parse_id(channel_id, "channel")?,
             args.content,
@@ -109,11 +114,23 @@ impl VizierTool for SendDiscordMessage {
             timestamp: Utc::now(),
             content: VizierResponseContent::Message { content, stats: None },
             attachments: vec![],
+            ..Default::default()
         };
-        self.storage
+        let uid = self
+            .storage
             .save_session_history(session, crate::schema::SessionHistoryContent::Response(response))
             .await
             .map_err(|e| VizierError(e.to_string()))?;
+
+        // Linked like a reply, so reactions on what the agent posted here reach it too.
+        let ids: Vec<String> = posted.iter().map(|id| id.to_string()).collect();
+        if let Err(err) = self
+            .storage
+            .link_platform_messages(&self.agent_id, Platform::Discord, &channel_id.to_string(), &ids, &uid)
+            .await
+        {
+            tracing::warn!("failed to link discord message {}: {:?}", uid, err);
+        }
 
         Ok(format!("Message sent to channel {}", channel_id))
     }

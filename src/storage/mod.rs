@@ -11,7 +11,7 @@ use crate::{
     storage::{
         agent::AgentStorage, background_job::BackgroundJobStorage, dream::DreamStorage, dream_journal::DreamJournalStorage,
         global_config::GlobalConfigStorage, history::HistoryStorage, memory::MemoryStorage,
-        provider::ProviderStorage, session::SessionStorage, session_file::SessionFileStorage,
+        provider::ProviderStorage, reaction::ReactionStorage, session::SessionStorage, session_file::SessionFileStorage,
         state::StateStorage, task::TaskStorage, task_run::TaskRunStorage,
         user::UserStorage,
     },
@@ -29,6 +29,7 @@ pub mod history;
 pub mod memory;
 pub mod memory_bundle;
 pub mod provider;
+pub mod reaction;
 pub mod rerank;
 pub mod session;
 pub mod session_file;
@@ -55,7 +56,8 @@ where
         + GlobalConfigStorage
         + DreamJournalStorage
         + DreamStorage
-        + SessionFileStorage,
+        + SessionFileStorage
+        + ReactionStorage,
 {
 }
 

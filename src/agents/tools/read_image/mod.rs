@@ -130,6 +130,7 @@ impl VizierTool for ReadImageFile {
                     response: serde_json::Value::String(text),
                 },
                 attachments: vec![],
+                ..Default::default()
             });
         }
 
@@ -145,6 +146,7 @@ impl VizierTool for ReadImageFile {
                 filename: file.filename,
                 content: crate::schema::VizierAttachmentContent::Base64(b64),
             }],
+            ..Default::default()
         })
     }
 }

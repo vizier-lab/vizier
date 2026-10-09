@@ -606,30 +606,35 @@ export type VizierRequestContent =
   // sites are the dream cycle.
   | { unattended: string }
   | { command: string }
-  | { reaction: ReactionEvent }
   | { audio_chat: [VizierAttachment, string | null] }
   | { audio_prompt: [VizierAttachment, string | null] }
   // The outcome of background work this conversation started. Not a message from a person.
   | { background_report: BackgroundReport }
 
 // Reaction types
-export interface PlatformMessageId {
-  Discord?: number
-  Telegram?: number
-}
-
 export type ReactionAction = 'added' | 'removed'
-
-export interface ReactionEvent {
-  platform_message_id?: PlatformMessageId
-  user_id: string
-  emoji: string
-  action: ReactionAction
-}
 
 export interface ReactionEntry {
   user_id: string
   emoji: string
+  // Display name at the time of reacting, when the channel resolved one. Unused by the WebUI.
+  user_name?: string
+}
+
+// Client → server: change one of the person's own reactions on an agent reply.
+export interface WebSocketReactionMessage {
+  reaction: { message_uid: string; emoji: string; action: ReactionAction }
+}
+
+// Server → every socket on the session: the full current set of one message, after any
+// change to it. The sender's own socket gets it too, as its acknowledgement.
+export interface WebSocketReactionsFrame {
+  reactions: { message_uid: string; reactions: ReactionEntry[] }
+}
+
+// Server → the sending socket only: a reaction that was not saved.
+export interface WebSocketReactionErrorFrame {
+  reaction_error: { message_uid: string; message: string }
 }
 
 // Python sandbox execution report (payload of a `tool_response` event for execute_python)
@@ -729,6 +734,9 @@ export interface ChatMessage {
     Command?: string
   }
   reactions?: ReactionEntry[]
+  // False for a live reply that arrived without the server's history uid (an older server):
+  // a reaction on it could not be saved, so it gets no react control.
+  serverUid?: boolean
 }
 
 // ============================================================================
@@ -783,6 +791,8 @@ export interface WebSocketResponse {
   timestamp: string
   content: VizierResponseContent
   attachments?: VizierAttachment[]
+  // The history uid the final frame of a turn was saved as; absent on every other frame.
+  history_uid?: string
 }
 
 // ============================================================================

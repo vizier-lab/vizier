@@ -125,6 +125,7 @@ impl VizierTool for ExecutePython {
                     .map_err(|err| VizierError(err.to_string()))?,
             },
             attachments,
+            ..Default::default()
         })
     }
 }

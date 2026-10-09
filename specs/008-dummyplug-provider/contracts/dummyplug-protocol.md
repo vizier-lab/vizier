@@ -100,6 +100,21 @@ This covers every other input, including scheduled task prompts, dream prompts, 
 
 **Output**: 1–3 paragraphs of random lorem ipsum. It is never empty and differs between calls.
 
+## 6. `context`: echo the context block
+
+Added by `specs/013-reaction-awareness` (`contracts/dummyplug-context.md`).
+
+**Behaviour**: when the command text of the incoming user message, trimmed, is exactly `context` (case-insensitive), the reply is one text message:
+
+- the verbatim text of the per-request context block, which is the user-content block starting with `# Context\n` (`CONTEXT_HEADER`); or
+- `(no context block)` if the message didn't carry one.
+
+Usage is zero, as in §5.
+
+**Precedence**: checked after §1 (`tools`) and before §2 (tool name), §3 (JSON) and §5 (lorem). No built-in tool is named `context`, so §2 can't shadow it.
+
+**Compatibility**: additive. Every message that produced a §1 to §5 reply before still produces the same reply, so existing quickstart scripts are unaffected. It exists because what the agent *receives* (for example the `## Reactions` section) is otherwise unobservable offline.
+
 ## Provider API
 
 | Endpoint | Behavior for `dummyplug` |

@@ -1,5 +1,6 @@
 pub mod boot;
 pub mod context;
+pub mod reactions;
 pub mod sandbox;
 pub mod scheduled_run;
 pub mod user;

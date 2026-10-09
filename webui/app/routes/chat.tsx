@@ -42,7 +42,7 @@ import {
   FaVolumeHigh,
 } from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
-import { useConnectionStore } from '../hooks/connectionStore'
+import { subscribeReactionFrames, useConnectionStore } from '../hooks/connectionStore'
 import { useUserStore } from '../hooks/userStore'
 import { useQuickChatStore } from '../hooks/quickChatStore'
 import { MessageItem } from '../components/MessageItem'
@@ -712,45 +712,104 @@ export default function Chat() {
       ? { trail: closedTrails[uid], durationMs: undefined }
       : storedTrails.byAnchor[uid]
 
+  // Read through a ref so `handleReact` keeps one identity across reconnects: a message
+  // rendered while offline must react normally once the socket is back (W5).
+  const connectedRef = useRef(connected)
+  useEffect(() => {
+    connectedRef.current = connected
+  }, [connected])
+  const reactionsRef = useRef(reactions)
+  useEffect(() => {
+    reactionsRef.current = reactions
+  }, [reactions])
+
+  // `${uid}|${emoji}` sent and not yet answered. The displayed set changes only when the
+  // server's `reactions` frame arrives, so nothing unsaved is ever shown as saved (W1–W3).
+  const [pendingReactions, setPendingReactions] = useState<Set<string>>(() => new Set())
+  const pendingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  const clearPending = useCallback((predicate: (key: string) => boolean) => {
+    for (const [key, timer] of pendingTimersRef.current) {
+      if (predicate(key)) {
+        clearTimeout(timer)
+        pendingTimersRef.current.delete(key)
+      }
+    }
+    setPendingReactions((prev) => {
+      const next = new Set([...prev].filter((key) => !predicate(key)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [])
+
+  useEffect(() => {
+    const timers = pendingTimersRef.current
+    return () => {
+      timers.forEach(clearTimeout)
+      timers.clear()
+    }
+  }, [])
+
   const handleReact = useCallback(
     (messageUid: string, emoji: string) => {
-      if (!connected) return
+      if (!connectedRef.current) {
+        addToast('error', 'Not connected', 'Reconnect to react to messages.')
+        return
+      }
+
+      const key = `${messageUid}|${emoji}`
+      if (pendingTimersRef.current.has(key)) return
 
       const currentUserId = getCurrentUsername()
+      const mine = (reactionsRef.current[messageUid] || []).some(
+        (r) => r.user_id === currentUserId && r.emoji === emoji
+      )
 
-      const reactionMessage = {
+      setPendingReactions((prev) => new Set(prev).add(key))
+      pendingTimersRef.current.set(
+        key,
+        setTimeout(() => {
+          if (!pendingTimersRef.current.has(key)) return
+          clearPending((k) => k === key)
+          addToast('error', 'Reaction not saved', 'The server did not confirm it in time.')
+        }, 5000)
+      )
+
+      sendMessage({
         reaction: {
           message_uid: messageUid,
           emoji,
-          action: 'added' as const,
+          action: mine ? 'removed' : 'added',
         },
-      }
-
-      sendMessage(reactionMessage as any)
-
-      setReactions((prev) => {
-        const existing = prev[messageUid] || []
-        const pairExists = existing.some(
-          (r) => r.user_id === currentUserId && r.emoji === emoji
-        )
-
-        if (pairExists) {
-          return {
-            ...prev,
-            [messageUid]: existing.filter(
-              (r) => !(r.user_id === currentUserId && r.emoji === emoji)
-            ),
-          }
-        } else {
-          return {
-            ...prev,
-            [messageUid]: [...existing, { user_id: currentUserId, emoji }],
-          }
-        }
       })
     },
-    [connected, sendMessage]
+    [sendMessage, addToast, clearPending]
   )
+
+  // The server's answer to a reaction from any tab, any channel, or a moderator: the full
+  // new set for one message, or this socket's own failure.
+  useEffect(() => {
+    return subscribeReactionFrames((frame) => {
+      if ('reactions' in frame) {
+        const { message_uid, reactions: set } = frame.reactions
+        setReactions((prev) => ({ ...prev, [message_uid]: set }))
+        clearPending((key) => key.startsWith(`${message_uid}|`))
+      } else {
+        const { message_uid, message } = frame.reaction_error
+        clearPending((key) => key.startsWith(`${message_uid}|`))
+        addToast('error', 'Reaction not saved', message)
+      }
+    })
+  }, [addToast, clearPending])
+
+  const pendingByMessage = useMemo(() => {
+    const byUid: Record<string, string[]> = {}
+    for (const key of pendingReactions) {
+      const cut = key.indexOf('|')
+      const uid = key.slice(0, cut)
+      ;(byUid[uid] ||= []).push(key.slice(cut + 1))
+    }
+    return byUid
+  }, [pendingReactions])
 
   // Handle incoming WebSocket messages
   useEffect(() => {
@@ -817,17 +876,19 @@ export default function Chat() {
 
       if ('message' in content) {
         setIsThinking(false)
-        closeTurn(timestamp)
+        const uid = wsResponse.history_uid ?? timestamp
+        closeTurn(uid)
         setMessages((prev) => {
           if (
             prev.some(
-              (m) => m.content.Response?.timestamp === timestamp
+              (m) => m.uid === uid || m.content.Response?.timestamp === timestamp
             )
           ) {
             return prev
           }
           const newMessage: ChatMessage = {
-            uid: timestamp,
+            uid,
+            serverUid: wsResponse.history_uid !== undefined,
             vizier_session: {
               agent_id: agentId!,
               channel: 'vizier-webui',
@@ -866,6 +927,7 @@ export default function Chat() {
           }
           const newMessage: ChatMessage = {
             uid: timestamp,
+            serverUid: false,
             vizier_session: {
               agent_id: agentId!,
               channel: 'vizier-webui',
@@ -893,17 +955,19 @@ export default function Chat() {
 
       if ('audio_reply' in content) {
         setIsThinking(false)
-        closeTurn(timestamp)
+        const uid = wsResponse.history_uid ?? timestamp
+        closeTurn(uid)
         setMessages((prev) => {
           if (
             prev.some(
-              (m) => m.content.Response?.timestamp === timestamp
+              (m) => m.uid === uid || m.content.Response?.timestamp === timestamp
             )
           ) {
             return prev
           }
           const newMessage: ChatMessage = {
-            uid: timestamp,
+            uid,
+            serverUid: wsResponse.history_uid !== undefined,
             vizier_session: {
               agent_id: agentId!,
               channel: 'vizier-webui',
@@ -1879,7 +1943,9 @@ export default function Chat() {
                     stats={stats}
                     attachments={msgAttachments}
                     reactions={reactions[msg.uid]}
+                    pendingEmojis={pendingByMessage[msg.uid]}
                     currentUserId={getCurrentUsername()}
+                    canReact={!isUserMessage && !isError && msg.serverUid !== false}
                     onReact={handleReact}
                     onCopy={handleCopyMessage}
                     onPreviewAttachment={setPreviewAttachment}

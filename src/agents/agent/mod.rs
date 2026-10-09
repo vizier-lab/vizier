@@ -21,6 +21,7 @@ use crate::{
             system_prompt::{
                 boot::boot_md,
                 context::{context_md, with_context},
+                reactions::reaction_digest,
                 init_workspace,
                 sandbox::sandbox_md,
                 scheduled_run::scheduled_run_md,
@@ -266,6 +267,7 @@ impl VizierAgent {
                             stats,
                         ),
                         attachments: response.attachments,
+                        ..Default::default()
                     },
                     Err(e) => {
                         tracing::error!("TTS audio reply upload failed: {}", e);
@@ -395,6 +397,8 @@ impl VizierAgent {
         }
 
         history.extend(history_entries_to_messages(&session_history));
+        // 1: this turn's own request follows the loaded history.
+        let digest = reaction_digest(&session_history, 1);
 
         if let Some(hooks) = hooks.clone() {
             req = hooks.on_request(req).await?;
@@ -438,6 +442,7 @@ impl VizierAgent {
                     timestamp: chrono::Utc::now(),
                     content: VizierResponseContent::Empty,
                     attachments: vec![],
+                    ..Default::default()
                 });
             }
         }
@@ -448,7 +453,7 @@ impl VizierAgent {
             .prompt(
                 with_context(
                     req.to_message(&self.global_workspace)?,
-                    context_md(&memory, &skills),
+                    context_md(&memory, &skills, digest.as_deref()),
                 ),
                 history,
                 0,
@@ -490,6 +495,7 @@ impl VizierAgent {
                                 message: err_str,
                             },
                             attachments: vec![],
+                            ..Default::default()
                         }),
                     )
                     .await?;
@@ -523,15 +529,20 @@ impl VizierAgent {
                 stats: Some(stats),
             },
             attachments,
+            ..Default::default()
         };
         response = self.maybe_audio_reply(response, &req).await;
 
-        self.storage
+        let uid = self
+            .storage
             .save_session_history(
                 session.clone(),
                 SessionHistoryContent::Response(response.clone()),
             )
             .await?;
+        // After the save, so the uid is never part of the stored entry: it travels on the
+        // response so every channel can address the reply it is about to render.
+        response.history_uid = Some(uid);
 
         if let Some(hooks) = hooks.clone() {
             response = hooks.on_response(response).await?;
@@ -666,9 +677,10 @@ impl VizierAgent {
                         ctx_window
                     );
 
-                    // Generate handover message
+                    // Generate handover message. No digest: the current user message already
+                    // carries it in its context block, and that message is in `history`.
                     let handover = self
-                        .generate_handover_message(&history, ctx)
+                        .generate_handover_message(&history, None, ctx)
                         .await
                         .map_err(|e| (e, full_history.clone()))?;
 
@@ -772,6 +784,7 @@ impl VizierAgent {
                             response: serde_json::Value::String(err.to_string()),
                         },
                         attachments: vec![],
+                        ..Default::default()
                     },
                     Ok(Ok(s)) => s,
                 };
@@ -916,12 +929,15 @@ impl VizierAgent {
         Ok(())
     }
 
+    /// `reactions` is the digest list for the history being summarised, so feedback survives
+    /// the checkpoint and reaches the dream cycle, which extracts from the handover.
     pub async fn generate_handover_message(
         &self,
         history: &[Message],
+        reactions: Option<&str>,
         _ctx: &ToolContext,
     ) -> Result<Option<String>> {
-        generate_handover_with_model(&self.model, history).await
+        generate_handover_with_model(&self.model, history, reactions).await
     }
 
     pub async fn recommend_skills(&self, query: &str) -> Result<Vec<Skill>> {
@@ -971,7 +987,10 @@ impl VizierAgent {
         let (output, stats) = self
             .dream_prompt(
                 &dream_model,
-                with_context(req.to_message(&self.global_workspace)?, context_md(&[], &[])),
+                with_context(
+                    req.to_message(&self.global_workspace)?,
+                    context_md(&[], &[], reaction_digest(&session_history, 1).as_deref()),
+                ),
                 history,
                 tools,
                 hooks.clone(),
@@ -992,6 +1011,7 @@ impl VizierAgent {
                 stats: Some(stats),
             },
             attachments: vec![],
+            ..Default::default()
         };
         response = self.maybe_audio_reply(response, &req).await;
         if let Some(hooks) = hooks.clone() {
@@ -1126,6 +1146,7 @@ impl VizierAgent {
                                 response: serde_json::Value::String(err.to_string()),
                             },
                             attachments: vec![],
+                            ..Default::default()
                         },
                         Ok(s) => s,
                     };
@@ -1251,8 +1272,15 @@ pub fn read_md_file(workspace: String, file: String) -> String {
 pub async fn generate_handover_with_model(
     model: &VizierModel,
     history: &[Message],
+    reactions: Option<&str>,
 ) -> Result<Option<String>> {
     let mut summary_history = messages_for_model(history);
+
+    if let Some(list) = reactions {
+        summary_history.push(Message::user(format!(
+            "Reactions people gave to your messages in this conversation (feedback, not messages):\n{list}"
+        )));
+    }
 
     summary_history.push(Message::user(
         "Analyze this conversation and extract key context for continuation. Include:\n\
@@ -1260,7 +1288,9 @@ pub async fn generate_handover_with_model(
          2. **Decisions Made**: Any choices, directions, or conclusions reached\n\
          3. **Current State**: What is being worked on right now\n\
          4. **Pending Tasks**: Incomplete work or next steps\n\
-         5. **Constraints**: Any limitations, preferences, or requirements\n\n\
+         5. **Constraints**: Any limitations, preferences, or requirements\n\
+         6. **Feedback**: Reactions people gave to your messages and what they suggest about \
+         what worked and what did not. Omit this item if there were no reactions.\n\n\
          Format as a concise structured summary. Be factual and precise.",
     ));
 

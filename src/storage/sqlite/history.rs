@@ -28,10 +28,55 @@ fn history_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(String, Option<i64>
     Ok((row.get(0)?, row.get(1)?))
 }
 
-fn parse_history_row((data, seq): (String, Option<i64>)) -> Option<SessionHistory> {
+pub(super) fn parse_history_row((data, seq): (String, Option<i64>)) -> Option<SessionHistory> {
     let mut entry = serde_json::from_str::<SessionHistory>(&data).ok()?;
     entry.seq = seq;
     Some(entry)
+}
+
+/// Attach each entry's reactions from `message_reaction`, which is their only home: the
+/// `data` blob never carries them (`specs/013-reaction-awareness/research.md` Decision 1).
+/// One query per 500 entries, so a page of history costs one extra indexed lookup.
+pub(super) fn fill_reactions(
+    conn: &rusqlite::Connection,
+    entries: &mut [SessionHistory],
+) -> rusqlite::Result<()> {
+    const CHUNK: usize = 500;
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let mut by_uid: HashMap<String, Vec<ReactionEntry>> = HashMap::new();
+    for chunk in entries.chunks(CHUNK) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let sql = format!(
+            "SELECT history_uid, reactor_id, reactor_name, emoji FROM message_reaction \
+             WHERE history_uid IN ({placeholders}) ORDER BY added_at, rowid"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(
+            rusqlite::params_from_iter(chunk.iter().map(|entry| entry.uid.as_str())),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    ReactionEntry {
+                        user_id: row.get(1)?,
+                        user_name: row.get(2)?,
+                        emoji: row.get(3)?,
+                    },
+                ))
+            },
+        )?;
+        for row in rows {
+            let (uid, reaction) = row?;
+            by_uid.entry(uid).or_default().push(reaction);
+        }
+    }
+
+    for entry in entries.iter_mut() {
+        entry.reactions = by_uid.remove(&entry.uid).unwrap_or_default();
+    }
+    Ok(())
 }
 
 /// The sort key every in-Rust re-sort of history uses.
@@ -94,7 +139,7 @@ impl HistoryStorage for SqliteStorage {
         &self,
         session: VizierSession,
         content: SessionHistoryContent,
-    ) -> Result<()> {
+    ) -> Result<String> {
         let uid = Uuid::new_v4().to_string();
         let entry = SessionHistory {
             uid: uid.clone(),
@@ -120,7 +165,7 @@ impl HistoryStorage for SqliteStorage {
                 data
             ],
         )?;
-        Ok(())
+        Ok(uid)
     }
 
     async fn list_session_history(
@@ -190,37 +235,8 @@ impl HistoryStorage for SqliteStorage {
             .collect();
 
         list.sort_by_key(history_order_key);
+        fill_reactions(&conn, &mut list)?;
         Ok(list)
-    }
-
-    async fn update_history_reactions(
-        &self,
-        uid: String,
-        _session: VizierSession,
-        reactions: Vec<ReactionEntry>,
-    ) -> Result<()> {
-        let conn = self.conn.lock();
-        let data: String = {
-            let mut stmt = conn.prepare("SELECT data FROM session_history WHERE uid = ?1")?;
-            let mut rows = stmt.query_map(rusqlite::params![uid], |row| {
-                let data: String = row.get(0)?;
-                Ok(data)
-            })?;
-            match rows.next() {
-                Some(Ok(d)) => d,
-                _ => return Ok(()),
-            }
-        };
-
-        let mut entry: SessionHistory = serde_json::from_str(&data)?;
-        entry.reactions = reactions;
-
-        let new_data = serde_json::to_string(&entry)?;
-        conn.execute(
-            "UPDATE session_history SET data = ?1 WHERE uid = ?2",
-            rusqlite::params![new_data, uid],
-        )?;
-        Ok(())
     }
 
     async fn aggregate_usage(
@@ -415,6 +431,7 @@ impl HistoryStorage for SqliteStorage {
             .collect();
 
         list.sort_by_key(history_order_key);
+        fill_reactions(&conn, &mut list)?;
         Ok(list)
     }
 
@@ -532,11 +549,13 @@ impl HistoryStorage for SqliteStorage {
         hist_sql.push_str(" ORDER BY timestamp ASC, seq ASC");
 
         let mut stmt = conn.prepare(&hist_sql)?;
-        let history: Vec<SessionHistory> = stmt
+        let mut history: Vec<SessionHistory> = stmt
             .query_map(rusqlite::params_from_iter(hist_params.iter()), history_row)?
             .filter_map(|r| r.ok())
             .filter_map(parse_history_row)
             .collect();
+        drop(stmt);
+        fill_reactions(&conn, &mut history)?;
 
         Ok((history, handover))
     }
@@ -589,6 +608,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_history_schema(&conn).unwrap();
+        crate::storage::sqlite::init_reaction_schema(&conn).unwrap();
         let storage = SqliteStorage::new(
             Arc::new(Mutex::new(conn)),
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
