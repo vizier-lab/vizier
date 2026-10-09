@@ -10,6 +10,7 @@ use crate::storage::document::DocumentStore;
 use crate::utils::build_path;
 
 mod agent;
+mod background_job;
 pub(crate) mod core_revision;
 mod dream_journal;
 mod global_config;
@@ -328,6 +329,7 @@ impl SqliteStorage {
         init_memory_graph_schema(conn)?;
         init_revision_schema(conn)?;
         init_task_run_schema(conn)?;
+        init_background_job_schema(conn)?;
 
         Ok(())
     }
@@ -357,6 +359,56 @@ pub fn init_task_run_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_task_run_task ON task_run(agent_id, task_slug, ran_at DESC, id DESC);
         -- the startup sweep, and the overlap check
         CREATE INDEX IF NOT EXISTS idx_task_run_state ON task_run(state);
+        ",
+    )?;
+
+    Ok(())
+}
+
+/// The background-job tables (`specs/012-background-subagent-results/data-model.md`), split
+/// out like [`init_task_run_schema`] so the tests in `src/storage/sqlite/background_job.rs` can
+/// stand them up against an in-memory connection.
+///
+/// There is no result column: an answered piece's text is the last message in its own
+/// session's history.
+pub fn init_background_job_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS background_job (
+            id             TEXT PRIMARY KEY,
+            kind           TEXT NOT NULL,
+            origin_agent   TEXT NOT NULL,
+            origin_channel TEXT NOT NULL,
+            origin_topic   TEXT,
+            depth          INTEGER NOT NULL,
+            timeout_secs   INTEGER NOT NULL,
+            created_at     INTEGER NOT NULL,
+            finished_at    INTEGER,
+            state          TEXT NOT NULL,
+            cancelled_by   TEXT,
+            reason         TEXT
+        );
+        -- the tray read, the topic-list badge, and the cancel cascade
+        CREATE INDEX IF NOT EXISTS idx_bg_job_origin ON background_job(origin_agent, origin_channel, origin_topic, state);
+        -- list_background_jobs
+        CREATE INDEX IF NOT EXISTS idx_bg_job_agent ON background_job(origin_agent, state);
+        -- the startup sweep
+        CREATE INDEX IF NOT EXISTS idx_bg_job_state ON background_job(state);
+
+        CREATE TABLE IF NOT EXISTS background_piece (
+            job_id          TEXT NOT NULL REFERENCES background_job(id) ON DELETE CASCADE,
+            ordinal         INTEGER NOT NULL,
+            prompt          TEXT NOT NULL,
+            executor_agent  TEXT NOT NULL,
+            session_channel TEXT NOT NULL,
+            session_topic   TEXT NOT NULL,
+            started_at      INTEGER NOT NULL,
+            finished_at     INTEGER,
+            state           TEXT NOT NULL,
+            reason          TEXT,
+            PRIMARY KEY (job_id, ordinal)
+        );
+        CREATE INDEX IF NOT EXISTS idx_bg_piece_state ON background_piece(state);
         ",
     )?;
 

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
+    agents::background::BackgroundJobs,
     config::VizierConfig,
     storage::{VizierStorage, agent::AgentStorage},
     transport::VizierTransport,
@@ -11,6 +12,7 @@ pub struct HTTPState {
     pub config: Arc<VizierConfig>,
     pub transport: VizierTransport,
     pub storage: Arc<VizierStorage>,
+    pub background_jobs: BackgroundJobs,
 }
 
 impl HTTPState {

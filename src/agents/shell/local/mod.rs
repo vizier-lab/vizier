@@ -30,7 +30,10 @@ impl ShellProvider for LocalShell {
             cmd.envs(env);
         }
 
-        let output = cmd.output()?;
+        // `output()` blocks until the command exits. On an async worker that stalls every
+        // other task on the runtime for as long as the command runs, and parallel background
+        // pieces make several long commands at once ordinary.
+        let output = tokio::task::spawn_blocking(move || cmd.output()).await??;
 
         Ok(String::from_utf8(output.stdout)?)
     }

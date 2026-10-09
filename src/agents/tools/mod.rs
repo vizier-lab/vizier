@@ -12,6 +12,7 @@ use crate::{
     agents::mcp::{VizierMcp, VizierMcpClient},
     agents::tools::{
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
+        background_jobs::{CancelBackgroundJob, ListBackgroundJobs},
         consult::{ConsultAgent, DelegateAgent},
         discord::new_discord_tools,
         dream_journal::ReadDreamJournal,
@@ -48,6 +49,7 @@ scheduler::{
     utils::agent_workspace,
 };
 
+mod background_jobs;
 mod brave_search;
 mod consult;
 mod discord;
@@ -79,6 +81,9 @@ pub struct ToolContext {
     /// The session's hooks, so tools that dispatch other tools (the Python
     /// sandbox bridge) run them through the same hook pipeline as direct calls.
     pub hooks: Option<Arc<crate::agents::hook::VizierSessionHooks>>,
+    /// The turn's `VizierRequest::background_depth`, which `BackgroundJobs::launch` checks
+    /// against `MAX_BACKGROUND_DEPTH`. 0 outside an ordinary chat turn.
+    pub background_depth: u8,
 }
 
 #[derive(Clone)]
@@ -524,12 +529,10 @@ impl VizierTools {
                 other_agents.clone(),
                 deps.transport.clone(),
             ))
-            .tool(DelegateAgent::new(
-                agent_id.clone(),
-                other_agents.clone(),
-                deps.transport.clone(),
-            ))
-            .tool(SubtasksTool::new(agent_id.clone(), deps.clone()))
+            .tool(DelegateAgent::new(other_agents.clone(), deps.clone()))
+            .tool(SubtasksTool::new(deps.clone()))
+            .tool(ListBackgroundJobs::new(deps.clone()))
+            .tool(CancelBackgroundJob::new(deps.clone()))
             .tool(CreateSkill::new(agent_id.clone(), deps.clone(), indexer.clone()))
             .tool(UpdateSkill::new(deps.clone(), indexer.clone()))
             .tool(DeleteSkill::new(deps.clone(), indexer.clone()))

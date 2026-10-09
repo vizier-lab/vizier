@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod background;
 mod commands;
 pub mod dream_journal;
 mod file;
@@ -23,6 +24,10 @@ pub use commands::{
     AgentCommand, AgentCommandResult, AgentHealthStatus, AgentSummary,
     CommandRequest, CommandResponse, FileCommand, MemoryOpEnvelope, MemoryOpRequest,
     MemoryOpResponse,
+};
+pub use background::{
+    BackgroundJob, BackgroundJobId, BackgroundJobSnapshot, BackgroundPiece, BackgroundPieceSnapshot,
+    BackgroundReport, Canceller, JobKind, JobState, PieceState, ReportEntry,
 };
 pub use dream_journal::{DreamJournalEntry, DreamJournalEntryFrontMatter};
 pub use file::FileRecord;

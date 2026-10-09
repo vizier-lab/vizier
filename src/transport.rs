@@ -6,9 +6,29 @@ use tokio::sync::RwLock;
 use tokio::task::JoinSet;
 
 use crate::schema::{
-    AgentCommand, AgentId, CommandRequest, CommandResponse, FileCommand,
+    AgentCommand, AgentId, BackgroundJobSnapshot, CommandRequest, CommandResponse, FileCommand,
     MemoryOpEnvelope, VizierAttachment, VizierRequest, VizierResponse, VizierSession,
 };
+
+/// How many session events a slow subscriber may fall behind before it starts losing them.
+/// A lagging WebSocket logs and carries on; the WebUI reconciles by re-reading the job list.
+const SESSION_EVENTS_CAPACITY: usize = 256;
+
+/// Something pushed to whoever is watching a session, outside of a turn they started
+/// themselves: a background job changing state, or the frames of a turn a background report
+/// woke. Only WebUI sockets subscribe, each filtering on its own session, so a session nobody
+/// can watch (Discord, Telegram, task, dream, inter-agent, subagent) has its events dropped.
+#[derive(Debug, Clone)]
+pub struct SessionEvent {
+    pub session: VizierSession,
+    pub frame: SessionFrame,
+}
+
+#[derive(Debug, Clone)]
+pub enum SessionFrame {
+    Response(VizierResponse),
+    Job(BackgroundJobSnapshot),
+}
 
 #[derive(Debug, Clone)]
 pub struct DreamCommand {
@@ -47,6 +67,8 @@ pub struct VizierTransport {
     dream_command_channel: Arc<(flume::Sender<DreamCommand>, flume::Receiver<DreamCommand>)>,
 
     file_command_channel: Arc<(flume::Sender<FileCommand>, flume::Receiver<FileCommand>)>,
+
+    session_events: tokio::sync::broadcast::Sender<SessionEvent>,
 }
 
 impl VizierTransport {
@@ -67,7 +89,22 @@ impl VizierTransport {
             exit_channel,
             dream_command_channel,
             file_command_channel,
+            session_events: tokio::sync::broadcast::channel(SESSION_EVENTS_CAPACITY).0,
         }
+    }
+
+    /// Publish to every subscriber of the session-event broadcast. Having no subscribers is
+    /// the normal case for most sessions, not an error.
+    pub fn publish_session_event(&self, ev: SessionEvent) {
+        let _ = self.session_events.send(ev);
+    }
+
+    pub fn subscribe_session_events(&self) -> tokio::sync::broadcast::Receiver<SessionEvent> {
+        self.session_events.subscribe()
+    }
+
+    pub async fn is_agent_registered(&self, agent_id: &AgentId) -> bool {
+        self.agent_channels.read().await.contains_key(agent_id)
     }
 
     pub async fn register_agent(

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getChatWebSocketUrl } from '../services/vizier'
-import type { WebSocketMessage, WebSocketResponse } from '../interfaces/types'
+import type { WebSocketJobFrame, WebSocketMessage, WebSocketResponse } from '../interfaces/types'
+import { useBackgroundJobStore } from './backgroundJobStore'
 
 interface ConnectionState {
   agentId: string | null
@@ -57,6 +58,9 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
       ws.onopen = () => {
         console.log('Connection store: WebSocket connected')
         set({ connected: true })
+        // (Re)connected: whatever happened to background jobs while the socket was down is
+        // re-read rather than replayed.
+        void useBackgroundJobStore.getState().load(agentId, topicId)
       }
 
       ws.onclose = () => {
@@ -76,7 +80,14 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data) as WebSocketResponse
+          const parsed = JSON.parse(event.data) as WebSocketResponse | WebSocketJobFrame
+          // A job frame goes to the job store and never to `lastMessage`, so the chat's
+          // response handler cannot mistake it for a response.
+          if (parsed && typeof parsed === 'object' && 'background_job' in parsed) {
+            useBackgroundJobStore.getState().applySnapshot(parsed.background_job)
+            return
+          }
+          const data = parsed as WebSocketResponse
           set(state => ({
             lastMessage: data,
             messageCount: state.messageCount + 1,

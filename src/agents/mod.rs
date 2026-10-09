@@ -24,6 +24,7 @@ use crate::storage::user::UserStorage;
 use crate::utils::agent_workspace;
 
 pub mod agent;
+pub mod background;
 pub mod hook;
 pub mod mcp;
 pub mod memory_ops;

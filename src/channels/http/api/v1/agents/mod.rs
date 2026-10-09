@@ -31,6 +31,7 @@ use crate::{
 pub mod channel;
 pub mod core;
 pub mod dream;
+pub mod jobs;
 pub mod memory;
 pub mod skills;
 pub mod task;
@@ -38,6 +39,7 @@ pub mod task;
 use channel::channel;
 use core::core;
 use dream::dream;
+use jobs::jobs;
 use memory::memory;
 use skills::agent_skills;
 use task::task;
@@ -90,7 +92,7 @@ pub fn agents() -> Router<HTTPState> {
             "/{agent_id}/sharing",
             get(get_sharing).patch(update_sharing),
         )
-        .nest("/{agent_id}/channel", channel())
+        .nest("/{agent_id}/channel", channel().merge(jobs()))
         .nest("/{agent_id}/core", core())
         .nest("/{agent_id}/memory", memory())
         .nest("/{agent_id}/skills", agent_skills())
@@ -979,6 +981,7 @@ async fn agent_chat(
         attachments,
         expect_audio_reply: None,
         scheduled_task: None,
+        background_depth: 0,
     };
 
     let (response_tx, response_rx) = flume::unbounded();

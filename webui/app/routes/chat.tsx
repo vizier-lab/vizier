@@ -9,6 +9,7 @@ import {
   listAgents,
   uploadFile,
   getTopicDetail,
+  getPieceHistory,
   api_protocol,
   base_url,
 } from '../services/vizier'
@@ -16,6 +17,7 @@ import { autoCorrectSlug, autoCorrectSlugStrict } from '../utils/slug'
 import { blobToWavFile } from '../utils/audio'
 import type {
   Agent,
+  BackgroundReport,
   ChatMessage,
   Topic,
   TrailEvent,
@@ -48,6 +50,12 @@ import { ThinkingIndicator } from '../components/ThinkingIndicator'
 import ActivityTrail from '../components/ActivityTrail'
 import { appendLiveEvent, groupHistory, outcomeDurationMs } from '../lib/trail'
 import { CheckpointDivider } from '../components/CheckpointDivider'
+import { BackgroundReportItem } from '../components/BackgroundReportItem'
+import { BackgroundJobTray } from '../components/BackgroundJobTray'
+import SlideOver from '../components/SlideOver'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { useBackgroundJobStore } from '../hooks/backgroundJobStore'
 import MarkdownEditor from '../components/MarkdownEditor'
 import AttachmentPreviewModal from '../components/AttachmentPreviewModal'
 import { useMeasure } from '@uidotdev/usehooks'
@@ -285,6 +293,10 @@ export default function Chat() {
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [reactions, setReactions] = useState<Record<string, ReactionEntry[]>>({})
   const [isThinking, setIsThinking] = useState(false)
+  // The background piece whose own conversation is open in the side panel.
+  const [openPiece, setOpenPiece] = useState<{ jobId: string; ordinal: number } | null>(null)
+  const [pieceHistory, setPieceHistory] = useState<ChatMessage[] | null>(null)
+  const lastAppliedJob = useBackgroundJobStore((s) => s.lastApplied)
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'recorded'>('idle')
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
@@ -504,6 +516,106 @@ export default function Chat() {
     }
   }, [topicId, resolvedTopicId])
 
+  // Background jobs launched from this topic. The socket reloads them on every (re)connect
+  // too; this covers opening a topic whose socket is already up.
+  useEffect(() => {
+    if (!agentId || !resolvedTopicId) return
+    void useBackgroundJobStore.getState().load(agentId, resolvedTopicId)
+    setOpenPiece(null)
+  }, [agentId, resolvedTopicId])
+
+  // A job moving to `reporting` is the report being handed to the agent: show its entry
+  // now rather than on the next reload. The snapshot carries prompts and states only; the
+  // answers' text arrives with history. Behind a running turn it waits in the queue, which
+  // is where the server is holding it too.
+  useEffect(() => {
+    const job = lastAppliedJob?.job
+    if (!job || job.state !== 'reporting' || !agentId) return
+    const { agentId: jobAgent, topicId: jobTopic } = useBackgroundJobStore.getState()
+    if (jobAgent !== agentId || jobTopic !== resolvedTopicId) return
+
+    const report: BackgroundReport = {
+      job_id: job.id,
+      kind: job.kind,
+      delegated_to: job.delegated_to,
+      entries: job.pieces.map((piece) => ({
+        ordinal: piece.ordinal,
+        prompt: piece.prompt,
+        state: piece.state,
+        text: piece.state === 'answered' ? '' : piece.reason ?? '',
+        truncated: false,
+      })),
+    }
+    const uid = `bg-report-${job.id}`
+    const entry: ChatMessage = {
+      uid,
+      timestamp: new Date().toISOString(),
+      vizier_session: { agent_id: agentId, channel: 'vizier-webui', topic: resolvedTopicId },
+      content: {
+        Request: {
+          timestamp: new Date().toISOString(),
+          user: agentId,
+          content: { background_report: report },
+        },
+      },
+    }
+    const seen = (list: ChatMessage[]) =>
+      list.some(
+        (m) =>
+          m.uid === uid ||
+          (m.content.Request?.content &&
+            'background_report' in m.content.Request.content &&
+            m.content.Request.content.background_report.job_id === job.id)
+      )
+    if (isThinking) {
+      setQueuedMessages((prev) => (seen(prev) ? prev : [...prev, entry]))
+    } else {
+      setMessages((prev) => (seen(prev) ? prev : [...prev, entry]))
+    }
+  }, [lastAppliedJob])
+
+  // The open piece's conversation. Its own frames are not streamed, so while it runs it is
+  // re-read whenever its job changes.
+  const openPieceJob = lastAppliedJob?.job.id === openPiece?.jobId ? lastAppliedJob?.n : 0
+  useEffect(() => {
+    if (!openPiece || !agentId) return
+    let stale = false
+    getPieceHistory(agentId, resolvedTopicId, openPiece.jobId, openPiece.ordinal)
+      .then((res) => {
+        if (!stale) setPieceHistory(res.data || [])
+      })
+      .catch((err) => {
+        console.error('Failed to load piece history', err)
+        if (!stale) setPieceHistory([])
+      })
+    return () => {
+      stale = true
+    }
+  }, [openPiece, openPieceJob, agentId, resolvedTopicId])
+
+  const openPieceTurns = useMemo(() => groupHistory(pieceHistory ?? []), [pieceHistory])
+
+  const handleOpenPiece = useCallback((jobId: string, ordinal: number) => {
+    setPieceHistory(null)
+    setOpenPiece({ jobId, ordinal })
+  }, [])
+
+  const closePiece = useCallback(() => setOpenPiece(null), [])
+
+  // `↥ jump`: the tool call that launched the job carries its id (see `lib/trail.ts`).
+  const handleJumpToJob = useCallback((jobId: string) => {
+    const target = scrollContainerRef.current?.querySelector<HTMLElement>(
+      `[data-job-id="${CSS.escape(jobId)}"]`
+    )
+    if (!target) {
+      addToast('info', 'Not on screen', `The call that started ${jobId} is not in the loaded history.`)
+      return
+    }
+    const details = target.closest('details')
+    if (details) details.open = true
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [])
+
   // Load chat history
   useEffect(() => {
     if (!agentId) return
@@ -653,6 +765,12 @@ export default function Chat() {
     const { timestamp, content } = wsResponse
 
     switch (content) {
+      case 'thinking_start':
+        // A turn the person did not start — one a background report woke — announces
+        // itself only through its frames.
+        setIsThinking(true)
+        return
+
       case 'empty':
         setIsThinking(false)
         clearLiveTrail()
@@ -1426,6 +1544,15 @@ export default function Chat() {
                     <div className="session-dropdown-item-info">
                       <span className="session-dropdown-item-id">
                         {session.topic_id}
+                        {(session.running_jobs ?? 0) > 0 && (
+                          <span
+                            className="bg-topic-badge"
+                            title={`${session.running_jobs} background job(s) running`}
+                            style={{ marginLeft: 6 }}
+                          >
+                            ⟳{session.running_jobs}
+                          </span>
+                        )}
                       </span>
                       {session.title &&
                         session.title !==
@@ -1638,13 +1765,34 @@ export default function Chat() {
 
                 // Handle command entries
                 if (msg.content.Command) {
+                  const cancelledJob = msg.content.Command.startsWith('cancelled background job ')
+                    ? msg.content.Command.slice('cancelled background job '.length)
+                    : null
                   return (
                     <Fragment key={msg.uid}>
                       {trail}
                       <div className="command-history-entry">
-                        <span className="command-history-icon">⚡</span>
-                        <span className="command-history-text">/{msg.content.Command}</span>
+                        <span className="command-history-icon">{cancelledJob ? '⊘' : '⚡'}</span>
+                        <span className="command-history-text">
+                          {cancelledJob
+                            ? `You cancelled background job ${cancelledJob}`
+                            : `/${msg.content.Command}`}
+                        </span>
                       </div>
+                    </Fragment>
+                  )
+                }
+
+                // A background report woke the agent; it is not a person's message.
+                const requestContent = msg.content.Request?.content
+                if (requestContent && 'background_report' in requestContent) {
+                  return (
+                    <Fragment key={msg.uid}>
+                      {trail}
+                      <BackgroundReportItem
+                        report={requestContent.background_report}
+                        onOpenPiece={handleOpenPiece}
+                      />
                     </Fragment>
                   )
                 }
@@ -1768,6 +1916,17 @@ export default function Chat() {
 
               {/* Queued messages */}
               {queuedMessages.map((msg) => {
+                const queuedContent = msg.content.Request?.content
+                if (queuedContent && 'background_report' in queuedContent) {
+                  return (
+                    <BackgroundReportItem
+                      key={msg.uid}
+                      report={queuedContent.background_report}
+                      onOpenPiece={handleOpenPiece}
+                      queued
+                    />
+                  )
+                }
                 const request = msg.content.Request as any
                 const content = request?.content?.chat || (request?.content?.audio_chat ? (request.content.audio_chat[1] || '🎤 Voice message') : null)
                 if (!content) return null
@@ -1831,6 +1990,14 @@ export default function Chat() {
                   Scroll to Bottom
                 </button>
               </div>
+            )}
+            {agentId && (
+              <BackgroundJobTray
+                agentId={agentId}
+                topicId={resolvedTopicId}
+                onJump={handleJumpToJob}
+                onOpenPiece={handleOpenPiece}
+              />
             )}
             {/* Command suggestions */}
             {showCommandSuggestions && filteredCommands.length > 0 && (
@@ -2105,6 +2272,68 @@ export default function Chat() {
         attachment={previewAttachment}
         onClose={() => setPreviewAttachment(null)}
       />
+
+      {/* A background piece's own conversation, read-only. */}
+      <SlideOver
+        open={openPiece !== null}
+        onClose={closePiece}
+        title={openPiece ? `${openPiece.jobId} · piece ${openPiece.ordinal + 1}` : ''}
+      >
+        {pieceHistory === null ? (
+          <SkeletonMessage />
+        ) : openPieceTurns.length === 0 ? (
+          <p style={{ color: 'var(--text-tertiary)' }}>Nothing recorded for this piece yet.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {openPieceTurns.map((turn) => {
+              const prompt = turn.request?.content.Request?.content
+              const promptText =
+                prompt && 'prompt' in prompt ? prompt.prompt : prompt && 'chat' in prompt ? prompt.chat : null
+              const outcome = turn.outcome?.content.Response?.content
+              const answer =
+                typeof outcome === 'object' && outcome !== null
+                  ? 'message' in outcome
+                    ? outcome.message.content
+                    : 'error' in outcome
+                      ? `**Error**: ${outcome.error.message}`
+                      : null
+                  : outcome === 'abort'
+                    ? '_Aborted._'
+                    : null
+              return (
+                <div key={turn.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {promptText && (
+                    <div className="bg-report-entry" style={{ whiteSpace: 'pre-wrap' }}>
+                      {promptText}
+                    </div>
+                  )}
+                  <ActivityTrail
+                    trail={turn.trail}
+                    live={false}
+                    durationMs={outcomeDurationMs(turn.outcome)}
+                    label={toolLabel}
+                  />
+                  {answer && (
+                    <div className="prose">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{answer}</ReactMarkdown>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            {(() => {
+              const live = openPiece
+                ? useBackgroundJobStore.getState().jobs.get(openPiece.jobId)?.pieces[openPiece.ordinal]
+                : undefined
+              return live?.state === 'running' ? (
+                <p style={{ color: 'var(--text-tertiary)' }}>
+                  <span className="bg-spin">⟳</span> Still running…
+                </p>
+              ) : null
+            })()}
+          </div>
+        )}
+      </SlideOver>
     </>
   )
 }

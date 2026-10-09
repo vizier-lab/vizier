@@ -279,3 +279,41 @@ test('an ordinary chat request is still adopted as its turn request', () => {
   assert.equal(turns.length, 1)
   assert.equal(turns[0].request?.uid, asked.uid)
 })
+
+// Background jobs: the call that launched a job is tagged with the job id its result quotes,
+// so the job tray can jump back to it.
+test('a launching call in history is tagged with the job id from its result', () => {
+  const turns = groupHistory([
+    entry({ Request: { timestamp: 't', user: 'u', content: { chat: 'go' } } }),
+    entry({ ToolCall: { call_id: 'c1', name: 'paralel_subtasks', arguments: { tasks: [] } } }),
+    entry({
+      ToolResult: {
+        call_id: 'c1',
+        content: '"Started background batch b-7f3a9c with 2 tasks. Results will arrive later."',
+      },
+    }),
+    entry({ ToolCall: { call_id: 'c2', name: 'fetch', arguments: {} } }),
+    entry({ ToolResult: { call_id: 'c2', content: 'b-000000 is not a job here' } }),
+  ])
+
+  const tools = turns[0].trail.filter((event) => event.kind === 'tool')
+  assert.equal(tools.length, 2)
+  assert.equal(tools[0].kind === 'tool' && tools[0].jobId, 'b-7f3a9c')
+  assert.equal(tools[1].kind === 'tool' && tools[1].jobId, undefined)
+})
+
+test('a live launch result tags the most recent launching call', () => {
+  let trail: TrailEvent[] = []
+  trail = appendLiveEvent(
+    trail,
+    { tool_choice: { name: 'delegate_agent', args: { agent_id: 'b', prompt: 'x' } } },
+    'e1'
+  )
+  trail = appendLiveEvent(
+    trail,
+    { tool_response: { response: "Delegated to agent 'b' as background job b-91c2e0." } },
+    'e2'
+  )
+  assert.equal(trail.length, 1)
+  assert.equal(trail[0].kind === 'tool' && trail[0].jobId, 'b-91c2e0')
+})
