@@ -9,6 +9,7 @@ use teloxide::types::{
 };
 
 use crate::channels::VizierChannel;
+use crate::channels::woken;
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
@@ -48,6 +49,19 @@ impl TelegramChannelReader {
 impl VizierChannel for TelegramChannelReader {
     async fn run(&self) -> Result<()> {
         let mut offset = self.offset;
+
+        let _woken = woken::watch(
+            &self.deps.transport,
+            self.agent_id.clone(),
+            |channel| matches!(channel, VizierChannelId::TelegramChannel(_)),
+            {
+                let bot = self.bot.clone();
+                let deps = self.deps.clone();
+                move |session, frames| {
+                    Self::render_woken(bot.clone(), deps.clone(), session, frames)
+                }
+            },
+        );
         loop {
             let updates = self
                 .bot
@@ -585,11 +599,15 @@ impl TelegramChannelReader {
             background_depth: 0,
         };
 
-        let bot = self.bot.clone();
-        let file_manager = self.deps.file_manager.clone();
-        let storage = self.deps.storage.clone();
-        let agent_id = self.agent_id.clone();
-        let chat_id_copy = chat_id;
+        let renderer = TurnRenderer {
+            bot: self.bot.clone(),
+            file_manager: self.deps.file_manager.clone(),
+            storage: self.deps.storage.clone(),
+            agent_id: self.agent_id.clone(),
+            chat_id,
+            show_thinking,
+            show_tool_calls,
+        };
 
         tokio::spawn(async move {
             let (response_tx, response_rx) = flume::unbounded();
@@ -602,187 +620,243 @@ impl TelegramChannelReader {
                 return;
             }
 
-            let mut typing_handle: Option<tokio::task::JoinHandle<()>> = None;
+            renderer.render(response_rx).await;
+        });
 
-            while let Ok(response) = response_rx.recv_async().await {
-                match response {
-                    VizierResponse {
-                        content: VizierResponseContent::ThinkingStart,
-                        ..
-                    } => {
-                        if let Some(handle) = typing_handle.take() {
-                            handle.abort();
-                        }
-                        let typing_bot = bot.clone();
-                        let typing_chat_id = chat_id_copy;
-                        let handle = tokio::spawn(async move {
-                            loop {
-                                let _ = typing_bot
-                                    .send_chat_action(typing_chat_id, ChatAction::Typing)
-                                    .await;
-                                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-                            }
-                        });
-                        typing_handle = Some(handle);
-                    }
-                    VizierResponse {
-                        content: VizierResponseContent::ToolChoice { name, args },
-                        ..
-                    } => {
-                        if show_tool_calls {
-                            let _ = crate::utils::telegram::send_message(
-                                &bot,
-                                chat_id_copy,
-                                crate::utils::format_thinking(&name, &args),
-                            )
-                            .await;
-                        }
-                    }
-                    VizierResponse {
-                        content: VizierResponseContent::Thinking(thought),
-                        ..
-                    } => {
-                        if show_thinking {
-                            let _ = crate::utils::telegram::send_message(
-                                &bot,
-                                chat_id_copy,
-                                format!("> {}", thought),
-                            )
-                            .await;
-                        }
-                    }
-                    VizierResponse {
-                        content: VizierResponseContent::Message { content, stats: _ },
-                        attachments,
-                        history_uid,
-                        ..
-                    } => {
-                        if let Some(handle) = typing_handle.take() {
-                            handle.abort();
-                        }
-                        let content = remove_think_tags(&content);
-                        let mut posted =
-                            crate::utils::telegram::send_message(&bot, chat_id_copy, content)
-                                .await
-                                .unwrap_or_default();
+        Ok(())
+    }
 
-                        for attachment in &attachments {
-                            match file_manager.resolve(attachment).await {
-                                Ok((filename, bytes)) => {
-                                    let mime = get_mime_type(&filename);
-                                    let input_file =
-                                        InputFile::memory(bytes).file_name(filename.clone());
-                                    if mime.starts_with("image/") {
-                                        match bot.send_photo(chat_id_copy, input_file).await {
-                                            Ok(sent) => posted.push(sent.id),
-                                            Err(err) => tracing::error!(
-                                                "Failed to send photo attachment: {:?}",
-                                                err
-                                            ),
-                                        }
-                                    } else {
-                                        match bot.send_document(chat_id_copy, input_file).await {
-                                            Ok(sent) => posted.push(sent.id),
-                                            Err(err) => tracing::error!(
-                                                "Failed to send document attachment: {:?}",
-                                                err
-                                            ),
-                                        }
-                                    }
-                                }
-                                Err(err) => {
-                                    tracing::error!(
-                                        "Failed to resolve attachment {:?}: {:?}",
-                                        attachment.filename,
-                                        err
-                                    );
-                                }
-                            }
-                        }
+    /// Post a turn a background report woke into the Telegram chat the work came from.
+    async fn render_woken(
+        bot: Bot,
+        deps: VizierDependencies,
+        session: VizierSession,
+        frames: flume::Receiver<VizierResponse>,
+    ) {
+        let VizierChannelId::TelegramChannel(chat_id) = session.1 else {
+            return;
+        };
+        let key = format!("{}__{}", session.0, session.1.to_slug());
+        let state = match deps.storage.get_state(key).await {
+            Ok(Some(value)) => serde_json::from_value::<ChannelState>(value).ok(),
+            _ => None,
+        };
+        TurnRenderer {
+            bot,
+            file_manager: deps.file_manager.clone(),
+            storage: deps.storage.clone(),
+            agent_id: session.0.clone(),
+            chat_id: ChatId(chat_id),
+            show_thinking: state.as_ref().is_some_and(|s| s.show_thinking),
+            show_tool_calls: state.as_ref().is_some_and(|s| s.show_tool_calls),
+        }
+        .render(frames)
+        .await;
+    }
+}
 
-                        link_reply(&storage, &agent_id, chat_id_copy, &posted, history_uid).await;
+/// Posts one turn's frames to a Telegram chat: a person's turn, or one a background report
+/// woke (`channels::woken`).
+struct TurnRenderer {
+    bot: Bot,
+    file_manager: crate::file_manager::FileManager,
+    storage: std::sync::Arc<crate::storage::VizierStorage>,
+    agent_id: String,
+    chat_id: ChatId,
+    show_thinking: bool,
+    show_tool_calls: bool,
+}
+
+impl TurnRenderer {
+    async fn render(self, response_rx: flume::Receiver<VizierResponse>) {
+        let Self {
+            bot,
+            file_manager,
+            storage,
+            agent_id,
+            chat_id: chat_id_copy,
+            show_thinking,
+            show_tool_calls,
+        } = self;
+
+        let mut typing_handle: Option<tokio::task::JoinHandle<()>> = None;
+
+        while let Ok(response) = response_rx.recv_async().await {
+            match response {
+                VizierResponse {
+                    content: VizierResponseContent::ThinkingStart,
+                    ..
+                } => {
+                    if let Some(handle) = typing_handle.take() {
+                        handle.abort();
                     }
-                    VizierResponse {
-                        content: VizierResponseContent::AudioReply(audio_att, text, _),
-                        history_uid,
-                        ..
-                    } => {
-                        if let Some(handle) = typing_handle.take() {
-                            handle.abort();
+                    let typing_bot = bot.clone();
+                    let typing_chat_id = chat_id_copy;
+                    let handle = tokio::spawn(async move {
+                        loop {
+                            let _ = typing_bot
+                                .send_chat_action(typing_chat_id, ChatAction::Typing)
+                                .await;
+                            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                         }
-                        let mut posted = vec![];
-                        if let Some(content) = text {
-                            let content = remove_think_tags(&content);
-                            posted =
-                                crate::utils::telegram::send_message(&bot, chat_id_copy, content)
-                                    .await
-                                    .unwrap_or_default();
-                        }
-                        match file_manager.resolve(&audio_att).await {
+                    });
+                    typing_handle = Some(handle);
+                }
+                VizierResponse {
+                    content: VizierResponseContent::ToolChoice { name, args },
+                    ..
+                } => {
+                    if show_tool_calls {
+                        let _ = crate::utils::telegram::send_message(
+                            &bot,
+                            chat_id_copy,
+                            crate::utils::format_thinking(&name, &args),
+                        )
+                        .await;
+                    }
+                }
+                VizierResponse {
+                    content: VizierResponseContent::Thinking(thought),
+                    ..
+                } => {
+                    if show_thinking {
+                        let _ = crate::utils::telegram::send_message(
+                            &bot,
+                            chat_id_copy,
+                            format!("> {}", thought),
+                        )
+                        .await;
+                    }
+                }
+                VizierResponse {
+                    content: VizierResponseContent::Message { content, stats: _ },
+                    attachments,
+                    history_uid,
+                    ..
+                } => {
+                    if let Some(handle) = typing_handle.take() {
+                        handle.abort();
+                    }
+                    let content = remove_think_tags(&content);
+                    let mut posted =
+                        crate::utils::telegram::send_message(&bot, chat_id_copy, content)
+                            .await
+                            .unwrap_or_default();
+
+                    for attachment in &attachments {
+                        match file_manager.resolve(attachment).await {
                             Ok((filename, bytes)) => {
+                                let mime = get_mime_type(&filename);
                                 let input_file =
                                     InputFile::memory(bytes).file_name(filename.clone());
-                                match bot.send_document(chat_id_copy, input_file).await {
-                                    Ok(sent) => posted.push(sent.id),
-                                    Err(err) => {
-                                        tracing::error!("Failed to send audio reply: {:?}", err)
+                                if mime.starts_with("image/") {
+                                    match bot.send_photo(chat_id_copy, input_file).await {
+                                        Ok(sent) => posted.push(sent.id),
+                                        Err(err) => tracing::error!(
+                                            "Failed to send photo attachment: {:?}",
+                                            err
+                                        ),
+                                    }
+                                } else {
+                                    match bot.send_document(chat_id_copy, input_file).await {
+                                        Ok(sent) => posted.push(sent.id),
+                                        Err(err) => tracing::error!(
+                                            "Failed to send document attachment: {:?}",
+                                            err
+                                        ),
                                     }
                                 }
                             }
                             Err(err) => {
                                 tracing::error!(
-                                    "Failed to resolve audio reply {:?}: {:?}",
-                                    audio_att.filename,
+                                    "Failed to resolve attachment {:?}: {:?}",
+                                    attachment.filename,
                                     err
                                 );
                             }
                         }
+                    }
 
-                        link_reply(&storage, &agent_id, chat_id_copy, &posted, history_uid).await;
-                    }
-                    VizierResponse {
-                        content: VizierResponseContent::Abort,
-                        ..
-                    } => {
-                        if let Some(handle) = typing_handle.take() {
-                            handle.abort();
-                        }
-                        let _ = crate::utils::telegram::send_message(
-                            &bot,
-                            chat_id_copy,
-                            "thinking aborted".to_string(),
-                        )
-                        .await;
-                    }
-                    VizierResponse {
-                        content: VizierResponseContent::Error { kind, message },
-                        ..
-                    } => {
-                        if let Some(handle) = typing_handle.take() {
-                            handle.abort();
-                        }
-                        let kind_str = match kind {
-                            crate::schema::ErrorKind::Completion => "Completion Error",
-                            crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
-                            crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
-                        };
-                        let _ = crate::utils::telegram::send_message(
-                            &bot,
-                            chat_id_copy,
-                            format!("**{}**: {}", kind_str, message),
-                        )
-                        .await;
-                    }
-                    _ => {}
+                    link_reply(&storage, &agent_id, chat_id_copy, &posted, history_uid).await;
                 }
-            }
+                VizierResponse {
+                    content: VizierResponseContent::AudioReply(audio_att, text, _),
+                    history_uid,
+                    ..
+                } => {
+                    if let Some(handle) = typing_handle.take() {
+                        handle.abort();
+                    }
+                    let mut posted = vec![];
+                    if let Some(content) = text {
+                        let content = remove_think_tags(&content);
+                        posted =
+                            crate::utils::telegram::send_message(&bot, chat_id_copy, content)
+                                .await
+                                .unwrap_or_default();
+                    }
+                    match file_manager.resolve(&audio_att).await {
+                        Ok((filename, bytes)) => {
+                            let input_file =
+                                InputFile::memory(bytes).file_name(filename.clone());
+                            match bot.send_document(chat_id_copy, input_file).await {
+                                Ok(sent) => posted.push(sent.id),
+                                Err(err) => {
+                                    tracing::error!("Failed to send audio reply: {:?}", err)
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            tracing::error!(
+                                "Failed to resolve audio reply {:?}: {:?}",
+                                audio_att.filename,
+                                err
+                            );
+                        }
+                    }
 
-            if let Some(handle) = typing_handle.take() {
-                handle.abort();
+                    link_reply(&storage, &agent_id, chat_id_copy, &posted, history_uid).await;
+                }
+                VizierResponse {
+                    content: VizierResponseContent::Abort,
+                    ..
+                } => {
+                    if let Some(handle) = typing_handle.take() {
+                        handle.abort();
+                    }
+                    let _ = crate::utils::telegram::send_message(
+                        &bot,
+                        chat_id_copy,
+                        "thinking aborted".to_string(),
+                    )
+                    .await;
+                }
+                VizierResponse {
+                    content: VizierResponseContent::Error { kind, message },
+                    ..
+                } => {
+                    if let Some(handle) = typing_handle.take() {
+                        handle.abort();
+                    }
+                    let kind_str = match kind {
+                        crate::schema::ErrorKind::Completion => "Completion Error",
+                        crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
+                        crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
+                    };
+                    let _ = crate::utils::telegram::send_message(
+                        &bot,
+                        chat_id_copy,
+                        format!("**{}**: {}", kind_str, message),
+                    )
+                    .await;
+                }
+                _ => {}
             }
-        });
+        }
 
-        Ok(())
+        if let Some(handle) = typing_handle.take() {
+            handle.abort();
+        }
     }
 }
 

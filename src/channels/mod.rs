@@ -8,6 +8,7 @@ pub mod discord;
 pub mod http;
 pub mod reactions;
 pub mod telegram;
+pub mod woken;
 
 #[async_trait::async_trait]
 pub trait VizierChannel {

@@ -16,8 +16,9 @@ const SESSION_EVENTS_CAPACITY: usize = 256;
 
 /// Something pushed to whoever is watching a session, outside of a turn they started
 /// themselves: a background job changing state, or the frames of a turn a background report
-/// woke. Only WebUI sockets subscribe, each filtering on its own session, so a session nobody
-/// can watch (Discord, Telegram, task, dream, inter-agent, subagent) has its events dropped.
+/// woke. WebUI sockets subscribe, each filtering on its own session, and Discord/Telegram
+/// readers subscribe for the woken turns of their own channels (`channels::woken`); a session
+/// nobody can watch (task, dream, inter-agent, subagent) has its events dropped.
 #[derive(Debug, Clone)]
 pub struct SessionEvent {
     pub session: VizierSession,

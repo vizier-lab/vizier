@@ -20,6 +20,7 @@ use twilight_util::builder::InteractionResponseDataBuilder;
 use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 
 use crate::channels::VizierChannel;
+use crate::channels::woken;
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
@@ -71,6 +72,19 @@ impl VizierChannel for DiscordChannelReader {
             | EventTypeFlags::REACTION_REMOVE_EMOJI;
         let shutdown = self.shutdown.1.clone();
         let mut closing = false;
+
+        let _woken = woken::watch(
+            &self.deps.transport,
+            self.agent_id.clone(),
+            |channel| matches!(channel, VizierChannelId::DiscordChanel(_)),
+            {
+                let handler = handler.clone();
+                move |session, frames| {
+                    let handler = handler.clone();
+                    async move { handler.render_woken(session, frames).await }
+                }
+            },
+        );
 
         loop {
             tokio::select! {
@@ -563,6 +577,28 @@ If I am halucinating, feel free to `/lobotomy` me
         }
     }
 
+    /// Post a turn a background report woke into the Discord channel the work came from.
+    async fn render_woken(&self, session: VizierSession, frames: flume::Receiver<VizierResponse>) {
+        let VizierChannelId::DiscordChanel(channel_id) = session.1 else {
+            return;
+        };
+        let Some(channel_id) = Id::<ChannelMarker>::new_checked(channel_id) else {
+            return;
+        };
+        let state = self.load_state(&session.1).await;
+        TurnRenderer {
+            http: self.http.clone(),
+            file_manager: self.deps.file_manager.clone(),
+            storage: self.deps.storage.clone(),
+            agent_id: self.agent_id.clone(),
+            channel_id,
+            show_thinking: state.show_thinking,
+            show_tool_calls: state.show_tool_calls,
+        }
+        .render(frames)
+        .await;
+    }
+
     async fn message(&self, msg: Message) {
         let Some(bot) = self.bot.get() else {
             return;
@@ -604,10 +640,6 @@ If I am halucinating, feel free to `/lobotomy` me
         }
 
         let transport = self.deps.transport.clone();
-        let file_manager = self.deps.file_manager.clone();
-        let http = self.http.clone();
-        let storage = self.deps.storage.clone();
-        let agent_id = self.agent_id.clone();
 
         let replied_to = msg
             .referenced_message
@@ -661,7 +693,15 @@ If I am halucinating, feel free to `/lobotomy` me
             ..Default::default()
         };
 
-        let discord_channel_id: Id<ChannelMarker> = msg.channel_id;
+        let renderer = TurnRenderer {
+            http: self.http.clone(),
+            file_manager: self.deps.file_manager.clone(),
+            storage: self.deps.storage.clone(),
+            agent_id: self.agent_id.clone(),
+            channel_id: msg.channel_id,
+            show_thinking,
+            show_tool_calls,
+        };
 
         tokio::spawn(async move {
             let (response_tx, response_rx) = flume::unbounded();
@@ -674,111 +714,97 @@ If I am halucinating, feel free to `/lobotomy` me
                 return;
             }
 
-            // Dropping the handle stops the typing indicator.
-            let mut typing: Option<Typing> = None;
+            renderer.render(response_rx).await;
+        });
+    }
+}
 
-            while let Ok(response) = response_rx.recv_async().await {
-                match response {
-                    VizierResponse {
-                        content: VizierResponseContent::ThinkingStart,
-                        ..
-                    } => {
-                        typing = Some(Typing::start(http.clone(), discord_channel_id));
-                    }
-                    VizierResponse {
-                        content: VizierResponseContent::ToolChoice { name, args },
-                        ..
-                    } => {
-                        if show_tool_calls {
-                            let _ = crate::utils::discord::send_message(
-                                http.clone(),
-                                discord_channel_id,
-                                crate::utils::format_thinking(&name, &args),
-                            )
-                            .await;
-                            // Discord clears a bot's typing indicator when it posts.
-                            if typing.is_some() {
-                                typing = Some(Typing::start(http.clone(), discord_channel_id));
-                            }
-                        }
-                    }
-                    VizierResponse {
-                        content: VizierResponseContent::Thinking(thought),
-                        ..
-                    } => {
-                        if show_thinking {
-                            let _ = crate::utils::discord::send_message(
-                                http.clone(),
-                                discord_channel_id,
-                                format!("> {}", thought),
-                            )
-                            .await;
-                            if typing.is_some() {
-                                typing = Some(Typing::start(http.clone(), discord_channel_id));
-                            }
-                        }
-                    }
-                    VizierResponse {
-                        content: VizierResponseContent::Message { content, stats: _ },
-                        attachments,
-                        history_uid,
-                        ..
-                    } => {
-                        typing = None;
-                        let content = remove_think_tags(&content);
-                        let mut posted = crate::utils::discord::send_message(
+/// Posts one turn's frames to a Discord channel: a person's turn, or one a background report
+/// woke (`channels::woken`).
+struct TurnRenderer {
+    http: Arc<Client>,
+    file_manager: crate::file_manager::FileManager,
+    storage: Arc<crate::storage::VizierStorage>,
+    agent_id: String,
+    channel_id: Id<ChannelMarker>,
+    show_thinking: bool,
+    show_tool_calls: bool,
+}
+
+impl TurnRenderer {
+    async fn render(self, response_rx: flume::Receiver<VizierResponse>) {
+        let Self {
+            http,
+            file_manager,
+            storage,
+            agent_id,
+            channel_id: discord_channel_id,
+            show_thinking,
+            show_tool_calls,
+        } = self;
+
+        // Dropping the handle stops the typing indicator.
+        let mut typing: Option<Typing> = None;
+
+        while let Ok(response) = response_rx.recv_async().await {
+            match response {
+                VizierResponse {
+                    content: VizierResponseContent::ThinkingStart,
+                    ..
+                } => {
+                    typing = Some(Typing::start(http.clone(), discord_channel_id));
+                }
+                VizierResponse {
+                    content: VizierResponseContent::ToolChoice { name, args },
+                    ..
+                } => {
+                    if show_tool_calls {
+                        let _ = crate::utils::discord::send_message(
                             http.clone(),
                             discord_channel_id,
-                            content,
+                            crate::utils::format_thinking(&name, &args),
                         )
-                        .await
-                        .unwrap_or_default();
-
-                        for attachment in &attachments {
-                            match file_manager.resolve(attachment).await {
-                                Ok((filename, bytes)) => {
-                                    if let Ok(id) = crate::utils::discord::send_file(
-                                        &http,
-                                        discord_channel_id,
-                                        filename,
-                                        bytes,
-                                    )
-                                    .await
-                                    {
-                                        posted.push(id);
-                                    }
-                                }
-                                Err(err) => {
-                                    tracing::error!(
-                                        "Failed to resolve attachment {:?}: {:?}",
-                                        attachment.filename,
-                                        err
-                                    );
-                                }
-                            }
+                        .await;
+                        // Discord clears a bot's typing indicator when it posts.
+                        if typing.is_some() {
+                            typing = Some(Typing::start(http.clone(), discord_channel_id));
                         }
-
-                        link_reply(&storage, &agent_id, discord_channel_id, &posted, history_uid).await;
-                        break;
                     }
-                    VizierResponse {
-                        content: VizierResponseContent::AudioReply(audio_att, text, _),
-                        history_uid,
-                        ..
-                    } => {
-                        typing = None;
-                        let mut posted = vec![];
-                        if let Some(content) = text {
-                            let content = remove_think_tags(&content);
-                            posted = crate::utils::discord::send_message(
-                                http.clone(),
-                                discord_channel_id,
-                                content,
-                            )
-                            .await
-                            .unwrap_or_default();
+                }
+                VizierResponse {
+                    content: VizierResponseContent::Thinking(thought),
+                    ..
+                } => {
+                    if show_thinking {
+                        let _ = crate::utils::discord::send_message(
+                            http.clone(),
+                            discord_channel_id,
+                            format!("> {}", thought),
+                        )
+                        .await;
+                        if typing.is_some() {
+                            typing = Some(Typing::start(http.clone(), discord_channel_id));
                         }
-                        match file_manager.resolve(&audio_att).await {
+                    }
+                }
+                VizierResponse {
+                    content: VizierResponseContent::Message { content, stats: _ },
+                    attachments,
+                    history_uid,
+                    ..
+                } => {
+                    typing = None;
+                    let content = remove_think_tags(&content);
+                    let mut posted = crate::utils::discord::send_message(
+                        http.clone(),
+                        discord_channel_id,
+                        content,
+                    )
+                    .await
+                    .unwrap_or_default();
+
+                    for attachment in &attachments {
+                        match file_manager.resolve(attachment).await {
                             Ok((filename, bytes)) => {
                                 if let Ok(id) = crate::utils::discord::send_file(
                                     &http,
@@ -793,51 +819,93 @@ If I am halucinating, feel free to `/lobotomy` me
                             }
                             Err(err) => {
                                 tracing::error!(
-                                    "Failed to resolve audio reply {:?}: {:?}",
-                                    audio_att.filename,
+                                    "Failed to resolve attachment {:?}: {:?}",
+                                    attachment.filename,
                                     err
                                 );
                             }
                         }
-
-                        link_reply(&storage, &agent_id, discord_channel_id, &posted, history_uid).await;
-                        break;
                     }
-                    VizierResponse {
-                        content: VizierResponseContent::Abort,
-                        ..
-                    } => {
-                        typing = None;
-                        let _ = crate::utils::discord::send_message(
-                            http.clone(),
-                            discord_channel_id,
-                            "thinking aborted".into(),
-                        )
-                        .await;
 
-                        break;
-                    }
-                    VizierResponse {
-                        content: VizierResponseContent::Error { kind, message },
-                        ..
-                    } => {
-                        typing = None;
-                        let _ = crate::utils::discord::send_message(
-                            http.clone(),
-                            discord_channel_id,
-                            format!("**{}**: {}", error_kind_label(&kind), message),
-                        )
-                        .await;
-
-                        break;
-                    }
-                    // Mid-turn frames (tool responses, checkpoints) are not the end of the turn.
-                    _ => {}
+                    link_reply(&storage, &agent_id, discord_channel_id, &posted, history_uid).await;
+                    break;
                 }
-            }
+                VizierResponse {
+                    content: VizierResponseContent::AudioReply(audio_att, text, _),
+                    history_uid,
+                    ..
+                } => {
+                    typing = None;
+                    let mut posted = vec![];
+                    if let Some(content) = text {
+                        let content = remove_think_tags(&content);
+                        posted = crate::utils::discord::send_message(
+                            http.clone(),
+                            discord_channel_id,
+                            content,
+                        )
+                        .await
+                        .unwrap_or_default();
+                    }
+                    match file_manager.resolve(&audio_att).await {
+                        Ok((filename, bytes)) => {
+                            if let Ok(id) = crate::utils::discord::send_file(
+                                &http,
+                                discord_channel_id,
+                                filename,
+                                bytes,
+                            )
+                            .await
+                            {
+                                posted.push(id);
+                            }
+                        }
+                        Err(err) => {
+                            tracing::error!(
+                                "Failed to resolve audio reply {:?}: {:?}",
+                                audio_att.filename,
+                                err
+                            );
+                        }
+                    }
 
-            drop(typing);
-        });
+                    link_reply(&storage, &agent_id, discord_channel_id, &posted, history_uid).await;
+                    break;
+                }
+                VizierResponse {
+                    content: VizierResponseContent::Abort,
+                    ..
+                } => {
+                    typing = None;
+                    let _ = crate::utils::discord::send_message(
+                        http.clone(),
+                        discord_channel_id,
+                        "thinking aborted".into(),
+                    )
+                    .await;
+
+                    break;
+                }
+                VizierResponse {
+                    content: VizierResponseContent::Error { kind, message },
+                    ..
+                } => {
+                    typing = None;
+                    let _ = crate::utils::discord::send_message(
+                        http.clone(),
+                        discord_channel_id,
+                        format!("**{}**: {}", error_kind_label(&kind), message),
+                    )
+                    .await;
+
+                    break;
+                }
+                // Mid-turn frames (tool responses, checkpoints) are not the end of the turn.
+                _ => {}
+            }
+        }
+
+        drop(typing);
     }
 }
 
