@@ -154,7 +154,7 @@ When an agent decides to react to a person's Telegram message, the reaction appe
 - **FR-014**: The WebUI MUST NOT show a reaction as saved unless the server accepted it. If saving fails, the display MUST roll back or show a visible error.
 - **FR-015**: Reaction changes MUST appear in every open WebUI view of the same conversation within a few seconds, without a reload.
 - **FR-016**: Reacting MUST work after a lost connection is re-established, without a page reload.
-- **FR-017**: The WebUI MUST show reactions made on Discord and Telegram when a person views those conversations in the WebUI.
+- **FR-017**: *(Withdrawn during planning: the WebUI has no view of Discord or Telegram conversations. Its history endpoint only serves its own topics, so there is nothing to show these reactions in. If such a view is ever added, it reads the same stored reactions.)*
 
 **Platforms**
 
