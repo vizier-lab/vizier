@@ -522,6 +522,78 @@ export interface Topic {
   agent_id: string
   channel: string
   is_thinking?: boolean
+  // Background jobs launched from this topic that are still in flight.
+  running_jobs?: number
+}
+
+// ============================================================================
+// BACKGROUND JOBS (specs/012-background-subagent-results/contracts/http-api.md)
+// ============================================================================
+
+export type BackgroundJobKind = 'batch' | 'delegation'
+
+// `running` and `reporting` are in flight.
+export type BackgroundJobState =
+  | 'running'
+  | 'reporting'
+  | 'reported'
+  | 'undelivered'
+  | 'cancelled'
+  | 'interrupted'
+
+export type BackgroundPieceState =
+  | 'running'
+  | 'answered'
+  | 'failed'
+  | 'timed_out'
+  | 'cancelled'
+  | 'interrupted'
+
+export type BackgroundCanceller = { agent: string } | { person: string }
+
+export interface BackgroundPieceSnapshot {
+  ordinal: number
+  prompt: string
+  state: BackgroundPieceState
+  reason: string | null
+  agent_id: string
+  topic: string | null
+  started_at: string
+  finished_at: string | null
+}
+
+export interface BackgroundJobSnapshot {
+  id: string
+  kind: BackgroundJobKind
+  delegated_to: string | null
+  state: BackgroundJobState
+  created_at: string
+  finished_at: string | null
+  timeout_secs: number
+  cancelled_by?: BackgroundCanceller | null
+  reason?: string | null
+  pieces: BackgroundPieceSnapshot[]
+}
+
+export interface ReportEntry {
+  ordinal: number
+  prompt: string
+  state: BackgroundPieceState
+  text: string
+  truncated: boolean
+}
+
+export interface BackgroundReport {
+  job_id: string
+  kind: BackgroundJobKind
+  delegated_to: string | null
+  entries: ReportEntry[]
+}
+
+// A WebSocket frame announcing a background job change. Every other frame is a bare
+// `WebSocketResponse`, which has no top-level `background_job` key.
+export interface WebSocketJobFrame {
+  background_job: BackgroundJobSnapshot
 }
 
 // VizierRequestContent - matches backend VizierRequestContent enum with serde rename_all = "snake_case"
@@ -537,6 +609,8 @@ export type VizierRequestContent =
   | { reaction: ReactionEvent }
   | { audio_chat: [VizierAttachment, string | null] }
   | { audio_prompt: [VizierAttachment, string | null] }
+  // The outcome of background work this conversation started. Not a message from a person.
+  | { background_report: BackgroundReport }
 
 // Reaction types
 export interface PlatformMessageId {
@@ -668,7 +742,9 @@ export interface ChatMessage {
 export type TrailEvent =
   | { kind: 'narration'; id: string; text: string }
   | { kind: 'thought'; id: string; text: string }
-  | { kind: 'tool'; id: string; name: string; args: Record<string, unknown> }
+  // `jobId` is set on the `paralel_subtasks`/`delegate_agent` call that launched a background
+  // job, read from its tool result, so the job tray can jump back to it.
+  | { kind: 'tool'; id: string; name: string; args: Record<string, unknown>; jobId?: string }
   | {
       kind: 'python'
       id: string

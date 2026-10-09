@@ -615,6 +615,7 @@ mod tests {
             attachments: vec![],
             expect_audio_reply: None,
             scheduled_task: None,
+            background_depth: 0,
         })
     }
 

@@ -1,6 +1,7 @@
 import axios, { AxiosError } from 'axios'
 import type {
   ApiResponse,
+  BackgroundJobSnapshot,
   CoreRevision,
   MemoryRevision,
   PaginatedCoreRevisions,
@@ -299,6 +300,61 @@ export const getChatWebSocketUrl = (agentId: string, topicId: string) => {
   const token = localStorage.getItem('auth_token')
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${base_url}/api/v1/agents/${agentId}/channel/${CHANNEL_ID}/topic/${topicId}/chat?token=${token}`
+}
+
+// ============================================================================
+// BACKGROUND JOB ENDPOINTS
+// ============================================================================
+
+const jobsPath = (agentId: string, topicId: string) =>
+  `/agents/${agentId}/channel/${CHANNEL_ID}/topic/${topicId}/jobs`
+
+// In-flight jobs launched from this topic, oldest first.
+export const listBackgroundJobs = async (agentId: string, topicId: string) => {
+  const res = await apiClient.get<ApiResponse<BackgroundJobSnapshot[]>>(jobsPath(agentId, topicId))
+  return res.data
+}
+
+// One job in any state; 404 when it was not launched from this topic.
+export const getBackgroundJob = async (agentId: string, topicId: string, jobId: string) => {
+  const res = await apiClient.get<ApiResponse<BackgroundJobSnapshot>>(
+    `${jobsPath(agentId, topicId)}/${encodeURIComponent(jobId)}`
+  )
+  return res.data
+}
+
+// A 409 means the job had already finished; its body is the job's final state, so it is
+// returned like a success rather than thrown.
+export const cancelBackgroundJob = async (
+  agentId: string,
+  topicId: string,
+  jobId: string,
+  reason?: string
+) => {
+  const res = await apiClient.post<ApiResponse<BackgroundJobSnapshot>>(
+    `${jobsPath(agentId, topicId)}/${encodeURIComponent(jobId)}/cancel`,
+    reason ? { reason } : {},
+    { validateStatus: (status) => status === 200 || status === 409 }
+  )
+  return { conflict: res.status === 409, data: res.data }
+}
+
+// A piece's own conversation, in the same shape as topic history.
+export const getPieceHistory = async (
+  agentId: string,
+  topicId: string,
+  jobId: string,
+  ordinal: number,
+  params?: { before?: string; limit?: number }
+) => {
+  const query = new URLSearchParams()
+  if (params?.before) query.append('before', params.before)
+  if (params?.limit) query.append('limit', params.limit.toString())
+
+  const res = await apiClient.get(
+    `${jobsPath(agentId, topicId)}/${encodeURIComponent(jobId)}/pieces/${ordinal}/history?${query}`
+  )
+  return res.data
 }
 
 export const deleteTopic = async (agentId: string, topicId: string) => {

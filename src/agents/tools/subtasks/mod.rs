@@ -1,27 +1,22 @@
-use std::collections::HashMap;
-
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::{ToolContext, VizierTool},
+    agents::{
+        background::{PieceSpec, validate_timeout},
+        tools::{ToolContext, VizierTool},
+    },
     dependencies::VizierDependencies,
     error::VizierError,
-    schema::{AgentId, VizierRequest, VizierRequestContent, VizierResponseContent, VizierSession},
-    transport::VizierTransport,
+    schema::JobKind,
 };
 
 pub struct SubtasksTool {
-    agent_id: AgentId,
-    transport: VizierTransport,
+    deps: VizierDependencies,
 }
 
 impl SubtasksTool {
-    pub fn new(agent_id: AgentId, deps: VizierDependencies) -> Self {
-        Self {
-            agent_id,
-            transport: deps.transport.clone(),
-        }
+    pub fn new(deps: VizierDependencies) -> Self {
+        Self { deps }
     }
 }
 
@@ -32,67 +27,56 @@ pub struct Task {
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct SubtasksArgs {
+    #[schemars(description = "the tasks to run, at least one")]
     tasks: Vec<Task>,
+    #[schemars(
+        description = "[optional] time limit for each task, in seconds, from 1 to 3600 (default 600)"
+    )]
+    #[serde(default)]
+    timeout_secs: Option<u64>,
 }
 
 #[async_trait::async_trait]
 impl VizierTool for SubtasksTool {
     type Input = SubtasksArgs;
-    type Output = Vec<String>;
+    type Output = String;
 
     fn name() -> String {
+        // Misspelt, and kept: tool names are the dispatch key.
         "paralel_subtasks".to_string()
     }
 
     fn description(&self) -> String {
-        "Complete multiple tasks in paralel".into()
+        "Run several independent tasks in parallel, in the background. This call returns immediately with a job id; it does NOT return the results. When every task has finished, you will receive one message in this same conversation, marked as a background report, listing each task's result in the order given. Do not wait, poll, or claim the work is done before that report arrives. Tell the person what you have started if they are waiting.".into()
     }
 
-    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        let mut response_rxs = Vec::new();
-
-        for task in &args.tasks {
-            let session = VizierSession(
-                self.agent_id.clone(),
-                crate::schema::VizierChannelId::Subagent,
-                Some(uuid::Uuid::new_v4().to_string().to_string()),
-            );
-
-            let (response_tx, response_rx) = flume::unbounded();
-
-            let _ = self
-                .transport
-                .send_request(
-                    session.clone(),
-                    VizierRequest {
-                        timestamp: Utc::now(),
-                        user: self.agent_id.clone(),
-                        content: VizierRequestContent::Prompt(task.prompt.clone()),
-                        metadata: serde_json::json!({}),
-
-                        ..Default::default()
-                    },
-                    Some(response_tx),
-                )
-                .await;
-
-            response_rxs.push(response_rx);
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+        if args.tasks.is_empty() || args.tasks.iter().any(|t| t.prompt.trim().is_empty()) {
+            return Err(VizierError("tasks must not be empty".into()));
         }
+        let timeout_secs = validate_timeout(args.timeout_secs)?;
 
-        let mut res = vec![];
-        for rx in response_rxs {
-            loop {
-                if let Ok(response) = rx.recv_async().await {
-                    if let VizierResponseContent::Message { content, stats: _ } = response.content {
-                        res.push(content);
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
-        }
+        let count = args.tasks.len();
+        let pieces = args
+            .tasks
+            .into_iter()
+            .map(|task| PieceSpec {
+                executor_agent: ctx.session.0.clone(),
+                prompt: task.prompt,
+            })
+            .collect();
 
-        Ok(res)
+        let job = self
+            .deps
+            .background_jobs
+            .launch(ctx, JobKind::Batch, pieces, timeout_secs)
+            .await?;
+
+        Ok(format!(
+            "Started background batch {} with {} task{}. Results will arrive as a background report in this conversation.",
+            job.id,
+            count,
+            if count == 1 { "" } else { "s" }
+        ))
     }
 }

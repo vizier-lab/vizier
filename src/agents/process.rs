@@ -190,7 +190,7 @@ pub async fn agent_process(
                                     session_detail_request.to_prompt().unwrap()
                                 );
                                 let res = session_detail_agent
-                                    .prompt(Message::user(prompt), vec![], 0, None, false, &ToolContext { session: session_detail_session_for_ctx, pending_attachments: Arc::new(Mutex::new(vec![])), hooks: None })
+                                    .prompt(Message::user(prompt), vec![], 0, None, false, &ToolContext { session: session_detail_session_for_ctx, pending_attachments: Arc::new(Mutex::new(vec![])), hooks: None, background_depth: 0 })
                                     .await;
 
                                 if let Ok((title, _, _, _)) = res {
@@ -326,6 +326,7 @@ pub async fn agent_process(
                                 session: session_clone.clone(),
                                 pending_attachments: Arc::new(Mutex::new(vec![])),
                                 hooks: None,
+                                background_depth: 0,
                             };
 
                             // Generate handover
@@ -464,7 +465,7 @@ pub async fn agent_process(
                 let thinking_request = request.clone();
                 let thinking_session = session.clone();
                 let thinking_handle = Arc::new(tokio::spawn(async move {
-                    if matches!(thinking_request.content, VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _)) {
+                    if matches!(thinking_request.content, VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _) | VizierRequestContent::BackgroundReport(_)) {
                         if let Some(ref tx) = thinking_response_tx {
                             let _ = tx
                                 .send_async(VizierResponse {
@@ -556,7 +557,7 @@ pub async fn agent_process(
                         let thinking_request = next_request.clone();
                         let thinking_session = completed_session.clone();
                         let thinking_handle = Arc::new(tokio::spawn(async move {
-                    if matches!(thinking_request.content, VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _)) {
+                    if matches!(thinking_request.content, VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _) | VizierRequestContent::BackgroundReport(_)) {
                                 if let Some(ref tx) = thinking_response_tx {
                                     let _ = tx
                                         .send_async(VizierResponse {
@@ -966,12 +967,21 @@ pub async fn handle_request(
     let hooks = Arc::new(hooks);
 
     match &request.content {
-        VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _) => {
+        VizierRequestContent::Chat(_)
+        | VizierRequestContent::AudioChat(_, _)
+        | VizierRequestContent::BackgroundReport(_) => {
             let prompt = match &request.content {
                 VizierRequestContent::Chat(p) => p.clone(),
                 VizierRequestContent::AudioChat(_, Some(text)) => text.clone(),
                 VizierRequestContent::AudioChat(_, None) => "[Voice message]".to_string(),
+                VizierRequestContent::BackgroundReport(report) => report.to_string(),
                 _ => unreachable!(),
+            };
+            // A report is a poor retrieval query — it is mostly other turns' answers — so it
+            // gets no automatic passages. Skill recommendation still sees its text.
+            let passage_budget = match &request.content {
+                VizierRequestContent::BackgroundReport(_) => 0,
+                _ => agent_config.auto_context.chat_passages,
             };
             let (history, checkpoint_handover) = storage
                 .list_session_history_until_checkpoint(
@@ -986,7 +996,7 @@ pub async fn handle_request(
                 &agent_config,
                 &session.0,
                 &prompt,
-                agent_config.auto_context.chat_passages,
+                passage_budget,
                 "chat",
             )
             .await;

@@ -35,6 +35,17 @@ const asArgs = (value: unknown): Record<string, unknown> =>
     ? (value as Record<string, unknown>)
     : {}
 
+// The tools that launch a background job, and the job id their result quotes.
+const JOB_LAUNCHING_TOOLS = new Set(['paralel_subtasks', 'delegate_agent'])
+const JOB_ID = /\bb-[0-9a-f]{6}\b/
+
+/** The background job id a launching tool's result quotes, if any. */
+export function launchedJobId(name: string, result: unknown): string | undefined {
+  if (!JOB_LAUNCHING_TOOLS.has(name)) return undefined
+  const text = typeof result === 'string' ? result : JSON.stringify(result ?? '')
+  return text.match(JOB_ID)?.[0]
+}
+
 /** Adjacent reasoning, and adjacent narration, read as one block rather than a list. */
 function push(trail: TrailEvent[], event: TrailEvent): void {
   const last = trail[trail.length - 1]
@@ -101,6 +112,8 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
   const turns: Turn[] = []
   // call_id of an unpaired `execute_python` call → the event waiting for its report.
   let pendingPython: Map<string, TrailEvent> = new Map()
+  // call_id of a job-launching call → its event, waiting for the result that names the job.
+  let pendingLaunch: Map<string, TrailEvent> = new Map()
   let open: Turn | null = null
 
   // An agent-initiated turn — a scheduled task, a dream cycle — has no request. Its trail
@@ -147,6 +160,11 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
 
     // A report pairs with its call by `call_id`, which history always carries.
     if (content.ToolResult) {
+      const launch = pendingLaunch.get(content.ToolResult.call_id)
+      if (launch && launch.kind === 'tool') {
+        launch.jobId = launchedJobId(launch.name, content.ToolResult.content)
+        pendingLaunch.delete(content.ToolResult.call_id)
+      }
       const waiting = pendingPython.get(content.ToolResult.call_id)
       if (waiting && waiting.kind === 'python') {
         try {
@@ -166,6 +184,9 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
     push(open.trail, event)
     if (event.kind === 'python' && content.ToolCall) {
       pendingPython.set(content.ToolCall.call_id, event)
+    }
+    if (event.kind === 'tool' && content.ToolCall && JOB_LAUNCHING_TOOLS.has(event.name)) {
+      pendingLaunch.set(content.ToolCall.call_id, event)
     }
   }
 
@@ -241,7 +262,20 @@ export function appendLiveEvent(
   id: string
 ): TrailEvent[] {
   if (typeof content === 'object' && content !== null && 'tool_response' in content) {
-    return attachReport(trail, content.tool_response.response)
+    const response = content.tool_response.response
+    // Like a python report, a launch result pairs with the most recent launching call that
+    // has not been given one.
+    for (let i = trail.length - 1; i >= 0; i -= 1) {
+      const event = trail[i]
+      if (event.kind === 'tool' && JOB_LAUNCHING_TOOLS.has(event.name) && !event.jobId) {
+        const jobId = launchedJobId(event.name, response)
+        if (!jobId) break
+        const next = trail.slice()
+        next[i] = { ...event, jobId }
+        return next
+      }
+    }
+    return attachReport(trail, response)
   }
 
   const event = liveEvent(content, id)

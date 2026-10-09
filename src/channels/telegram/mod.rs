@@ -342,6 +342,7 @@ impl TelegramChannelReader {
                         attachments: vec![],
                         expect_audio_reply: None,
                         scheduled_task: None,
+                        background_depth: 0,
                     },
                     None,
                 )
@@ -364,6 +365,7 @@ impl TelegramChannelReader {
                         attachments: vec![],
                         expect_audio_reply: None,
                         scheduled_task: None,
+                        background_depth: 0,
                     },
                     Some(response_tx),
                 )
@@ -430,6 +432,7 @@ impl TelegramChannelReader {
                         attachments: vec![],
                         expect_audio_reply: None,
                         scheduled_task: None,
+                        background_depth: 0,
                     },
                     Some(response_tx),
                 )
@@ -509,6 +512,7 @@ impl TelegramChannelReader {
             attachments,
             expect_audio_reply: None,
             scheduled_task: None,
+            background_depth: 0,
         };
 
         let bot = self.bot.clone();

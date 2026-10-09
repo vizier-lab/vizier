@@ -52,6 +52,7 @@ impl VizierChannel for HTTPChannel {
             config: self.deps.config.clone(),
             storage: self.deps.storage.clone(),
             transport: self.deps.transport.clone(),
+            background_jobs: self.deps.background_jobs.clone(),
         };
 
         let mut app = Router::new()
@@ -97,6 +98,10 @@ impl VizierChannel for HTTPChannel {
         api::v1::agents::channel::get_topic_history,
         api::v1::agents::channel::delete_topic,
         api::v1::agents::channel::chat,
+        api::v1::agents::jobs::list_jobs,
+        api::v1::agents::jobs::get_job,
+        api::v1::agents::jobs::cancel_job,
+        api::v1::agents::jobs::get_piece_history,
         api::v1::agents::agent_chat,
         api::v1::agents::core::get_core,
         api::v1::agents::core::update_core,

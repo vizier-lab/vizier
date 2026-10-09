@@ -80,7 +80,11 @@ export function ActivityTrail({
               )
             case 'tool':
               return (
-                <div key={event.id} className="prose activity-trail-event">
+                <div
+                  key={event.id}
+                  className="prose activity-trail-event"
+                  data-job-id={event.jobId}
+                >
                   <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
                     {label(event.name, event.args)}
                   </ReactMarkdown>

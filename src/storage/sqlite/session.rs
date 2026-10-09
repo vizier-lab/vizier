@@ -142,6 +142,21 @@ impl SessionStorage for SqliteStorage {
             "DELETE FROM session_detail WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3",
             rusqlite::params![agent_id, channel.to_slug(), topic],
         )?;
+
+        // The jobs launched from this topic go with it, so no orphaned rows remain to
+        // authorize a piece read against. Pieces are deleted explicitly rather than trusting
+        // `ON DELETE CASCADE`, which only fires with `PRAGMA foreign_keys` on.
+        let origin_channel = serde_json::to_string(&channel)?;
+        conn.execute(
+            "DELETE FROM background_piece WHERE job_id IN (SELECT id FROM background_job \
+             WHERE origin_agent = ?1 AND origin_channel = ?2 AND origin_topic IS ?3)",
+            rusqlite::params![agent_id, origin_channel, topic],
+        )?;
+        conn.execute(
+            "DELETE FROM background_job \
+             WHERE origin_agent = ?1 AND origin_channel = ?2 AND origin_topic IS ?3",
+            rusqlite::params![agent_id, origin_channel, topic],
+        )?;
         Ok(())
     }
 }

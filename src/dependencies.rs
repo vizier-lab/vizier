@@ -5,6 +5,7 @@ use parking_lot::Mutex;
 use rusqlite::OptionalExtension;
 
 use crate::{
+    agents::background::BackgroundJobs,
     config::{VizierConfig, provider::ProviderVariant, storage::StorageConfig},
     constant::CORE_MD,
     file_manager::FileManager,
@@ -16,6 +17,7 @@ use crate::{
     storage::{
         VizierStorage,
         agent::AgentStorage,
+        background_job::BackgroundJobStorage,
         document::LocalDocumentStore,
         dream::DreamStorage,
         dream_journal::DreamJournalStorage,
@@ -46,6 +48,7 @@ pub struct VizierDependencies {
     pub sqlite_conn: Arc<Mutex<rusqlite::Connection>>,
     pub transport: VizierTransport,
     pub file_manager: FileManager,
+    pub background_jobs: BackgroundJobs,
 }
 
 /// Old (pre-bundle) memory frontmatter shape, kept only so `migrate_memory_to_bundles` can parse
@@ -113,6 +116,7 @@ impl VizierDependencies {
         Self::migrate_agent_cores(&storage).await?;
         Self::migrate_task_requester(conn.clone()).await?;
         Self::interrupt_orphaned_task_runs(&storage).await?;
+        Self::interrupt_orphaned_background_jobs(&storage).await;
 
         let transport = VizierTransport::new();
         let file_manager = FileManager::new(config.workspace.clone());
@@ -123,12 +127,16 @@ impl VizierDependencies {
             fm.run(file_transport).await;
         });
 
+        let storage = Arc::new(storage);
+        let background_jobs = BackgroundJobs::new(storage.clone(), transport.clone());
+
         Ok(Self {
             config: Arc::new(config.clone()),
-            storage: Arc::new(storage),
+            storage,
             sqlite_conn: conn,
             transport,
             file_manager,
+            background_jobs,
         })
     }
 
@@ -901,5 +909,20 @@ impl VizierDependencies {
         }
 
         Ok(())
+    }
+
+    /// Background jobs live only as long as the process that runs them: a job still
+    /// `running` or `reporting` at startup died with the previous process, and will never
+    /// report. Marking it `interrupted` is what lets a reloaded WebUI show it as lost instead
+    /// of perpetually running (research D9).
+    async fn interrupt_orphaned_background_jobs(storage: &VizierStorage) {
+        match storage.interrupt_open_background_jobs().await {
+            Ok(0) => {}
+            Ok(swept) => tracing::info!(
+                "marked {} background job(s) left open by a previous process as interrupted",
+                swept
+            ),
+            Err(e) => tracing::warn!("failed to sweep open background jobs: {}", e),
+        }
     }
 }

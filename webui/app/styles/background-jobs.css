@@ -1,0 +1,297 @@
+/* Background jobs: the report entry in the conversation and the tray above the input. */
+
+/* ---- Report entry ---------------------------------------------------------------- */
+
+.bg-report {
+  padding: 10px 0;
+}
+
+.bg-report-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.bg-report-divider:hover .bg-report-label {
+  background: var(--hover);
+}
+
+.bg-report-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.bg-report-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  user-select: none;
+  max-width: 85%;
+  flex-wrap: wrap;
+  justify-content: center;
+  transition: background var(--transition-fast);
+}
+
+.bg-report-title {
+  font-weight: 500;
+}
+
+.bg-report-sep,
+.bg-muted {
+  color: var(--text-tertiary);
+}
+
+.bg-report-caret {
+  transition: transform var(--transition-fast);
+}
+
+.bg-report-caret--open {
+  transform: rotate(90deg);
+}
+
+.bg-report-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px auto 0;
+  max-width: 90%;
+}
+
+.bg-report-entry {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.bg-report-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bg-report-entry-prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.bg-report-entry-text {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  max-height: 240px;
+  overflow: auto;
+}
+
+.bg-state--answered {
+  color: var(--accent-primary);
+}
+
+.bg-state--failed,
+.bg-state--lost {
+  color: var(--error);
+}
+
+.bg-state--timed_out,
+.bg-state--cancelled,
+.bg-state--interrupted {
+  color: var(--warning);
+}
+
+.bg-open-btn {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.bg-open-btn:hover {
+  color: var(--text-primary);
+}
+
+/* ---- Tray ------------------------------------------------------------------------ */
+
+.bg-tray {
+  max-height: 40vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  font-size: 13px;
+}
+
+.bg-tray-job + .bg-tray-job {
+  border-top: 1px solid var(--border);
+}
+
+.bg-tray-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  min-height: 34px;
+}
+
+.bg-tray-row--head {
+  cursor: pointer;
+}
+
+.bg-tray-row--head:hover {
+  background: var(--hover);
+}
+
+.bg-tray-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.bg-tray-id {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.bg-progress {
+  display: inline-flex;
+  width: 48px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.bg-progress-fill {
+  background: var(--accent-primary);
+  transition: width var(--transition-base);
+}
+
+.bg-spin {
+  display: inline-block;
+  animation: bg-spin 1.2s linear infinite;
+}
+
+@keyframes bg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.bg-tray-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bg-tray-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.bg-tray-btn--danger {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.bg-tray-pieces {
+  padding: 0 0 6px;
+}
+
+.bg-tray-piece {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 12px 3px 28px;
+  color: var(--text-secondary);
+}
+
+.bg-tray-piece-prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bg-tray-elapsed {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.bg-tray-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* Phone width: a pill that opens a bottom sheet. */
+.bg-tray-pill {
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-primary);
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.bg-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+}
+
+.bg-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1001;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--background);
+  border-top: 1px solid var(--border);
+  border-radius: 14px 14px 0 0;
+  padding: 12px 16px 20px;
+}
+
+.bg-sheet .bg-tray {
+  max-height: none;
+}
+
+.bg-topic-badge {
+  font-size: 11px;
+  color: var(--accent-primary);
+  white-space: nowrap;
+}

@@ -339,6 +339,7 @@ If I am halucinating, feel free to `/lobotomy` me
                             attachments: vec![],
                             expect_audio_reply: None,
                             scheduled_task: None,
+                            background_depth: 0,
                         },
                         None,
                     )
@@ -408,6 +409,7 @@ If I am halucinating, feel free to `/lobotomy` me
                     attachments: vec![],
                     expect_audio_reply: None,
                     scheduled_task: None,
+                    background_depth: 0,
                 },
                 Some(response_tx),
             )

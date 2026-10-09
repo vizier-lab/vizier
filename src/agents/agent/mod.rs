@@ -342,6 +342,7 @@ impl VizierAgent {
         hooks: Option<Arc<VizierSessionHooks>>,
         checkpoint_handover: Option<String>,
     ) -> Result<VizierResponse> {
+        let background_depth = req.background_depth;
         // Auto-transcribe AudioChat/AudioPrompt in-place
         let mut req = req;
         if let Some(ref stt) = self.stt {
@@ -457,6 +458,7 @@ impl VizierAgent {
                     session: session.clone(),
                     pending_attachments: Arc::new(Mutex::new(vec![])),
                     hooks: hooks.clone(),
+                    background_depth,
                 },
             )
             .await;
@@ -978,6 +980,7 @@ impl VizierAgent {
                     session,
                     pending_attachments: Arc::new(Mutex::new(vec![])),
                     hooks: hooks.clone(),
+                    background_depth: 0,
                 },
             )
             .await?;

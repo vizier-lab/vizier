@@ -29,8 +29,11 @@ use crate::{
         VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent,
         VizierSession, VizierSessionDetail,
     },
-    storage::{agent::AgentStorage, history::HistoryStorage, session::SessionStorage},
-    transport::VizierTransport,
+    storage::{
+        agent::AgentStorage, background_job::BackgroundJobStorage, history::HistoryStorage,
+        session::SessionStorage,
+    },
+    transport::{SessionFrame, VizierTransport},
 };
 
 use super::user_can_view_agent;
@@ -67,6 +70,8 @@ pub struct TopicEntry {
     pub agent_id: String,
     pub channel: String,
     pub is_thinking: bool,
+    /// Background jobs launched from this topic that are still in flight.
+    pub running_jobs: usize,
 }
 
 impl From<VizierSessionDetail> for TopicEntry {
@@ -77,6 +82,7 @@ impl From<VizierSessionDetail> for TopicEntry {
             agent_id: detail.agent_id,
             channel: format!("{:?}", detail.channel),
             is_thinking: detail.is_thinking,
+            running_jobs: 0,
         }
     }
 }
@@ -171,8 +177,18 @@ pub async fn list_topics(
 
     let response = state
         .storage
-        .get_session_list(agent_id, Some(channel))
+        .get_session_list(agent_id.clone(), Some(channel.clone()))
         .await;
+
+    // One count query for the whole list; a failure only loses the badge.
+    let running_jobs = state
+        .storage
+        .count_running_background_jobs(agent_id, channel)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("failed to count running background jobs: {}", e);
+            Default::default()
+        });
 
     if response.is_err() {
         return err_response(
@@ -184,7 +200,12 @@ pub async fn list_topics(
     let list = response
         .unwrap()
         .into_iter()
-        .map(TopicEntry::from)
+        .map(|detail| {
+            let running = running_jobs.get(&detail.topic).copied().unwrap_or(0);
+            let mut entry = TopicEntry::from(detail);
+            entry.running_jobs = running;
+            entry
+        })
         .collect();
 
     api_response(StatusCode::OK, list)
@@ -352,6 +373,12 @@ pub async fn handle_socket(
         }
     });
 
+    // Background job changes and the frames of turns a background report woke. A turn the
+    // person started here still streams through its own per-message forwarder below and is
+    // never republished, so nothing arrives twice.
+    let mut session_events = transport.subscribe_session_events();
+    let mut session_events_open = true;
+
     let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
     let mut last_activity = tokio::time::Instant::now();
     let mut idle_deadline = tokio::time::sleep(idle_timeout);
@@ -361,6 +388,30 @@ pub async fn handle_socket(
         tokio::select! {
             _ = ping_interval.tick() => {
                 let _ = write_tx.send(Message::Ping(vec![].into())).await;
+            }
+            event = session_events.recv(), if session_events_open => {
+                match event {
+                    Ok(ev) if ev.session == curr_session => {
+                        let json = match ev.frame {
+                            SessionFrame::Response(response) => serde_json::to_string(&response),
+                            SessionFrame::Job(snapshot) => {
+                                serde_json::to_string(&serde_json::json!({ "background_job": snapshot }))
+                            }
+                        };
+                        if let Ok(json) = json {
+                            let _ = write_tx.send(Message::Text(json.into())).await;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        // The client re-reads the job list on reconnect, so a dropped frame
+                        // never leaves the tray wrong for good.
+                        tracing::warn!("websocket for {:?} lagged, {} session event(s) dropped", curr_session, skipped);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        session_events_open = false;
+                    }
+                }
             }
             msg = reader.next() => {
                 match msg {
@@ -407,6 +458,9 @@ pub async fn handle_socket(
                             ).await;
                         } else if let Ok(request) = serde_json::from_str::<VizierRequest>(&text_str) {
                             let mut request = request.clone();
+                            // A person's message starts a fresh chain; the depth is never
+                            // the client's to set.
+                            request.background_depth = 0;
                             for attachment in request.attachments.iter_mut() {
                                 match transport.send_file_resolve(attachment.clone()).await {
                                     Ok(content) => {

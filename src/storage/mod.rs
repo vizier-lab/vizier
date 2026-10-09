@@ -9,7 +9,7 @@ use crate::{
         RevisionDiff, RevisionOrigin, RollbackResponse, SessionFileRecord, VizierSession,
     },
     storage::{
-        agent::AgentStorage, dream::DreamStorage, dream_journal::DreamJournalStorage,
+        agent::AgentStorage, background_job::BackgroundJobStorage, dream::DreamStorage, dream_journal::DreamJournalStorage,
         global_config::GlobalConfigStorage, history::HistoryStorage, memory::MemoryStorage,
         provider::ProviderStorage, session::SessionStorage, session_file::SessionFileStorage,
         state::StateStorage, task::TaskStorage, task_run::TaskRunStorage,
@@ -18,6 +18,7 @@ use crate::{
 };
 
 pub mod agent;
+pub mod background_job;
 pub mod chunk;
 pub mod diff;
 pub mod document;
@@ -44,6 +45,7 @@ where
     Self: MemoryStorage
         + TaskStorage
         + TaskRunStorage
+        + BackgroundJobStorage
         + HistoryStorage
         + SessionStorage
         + StateStorage

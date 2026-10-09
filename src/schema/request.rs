@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 
-use crate::{error::VizierError, utils::get_mime_type};
+use crate::{error::VizierError, schema::BackgroundReport, utils::get_mime_type};
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq,
@@ -73,6 +73,9 @@ pub enum VizierRequestContent {
     Reaction(ReactionEvent),
     AudioChat(VizierAttachment, Option<String>),
     AudioPrompt(VizierAttachment, Option<String>),
+    /// The outcome of background work this conversation started (`paralel_subtasks`,
+    /// `delegate_agent`), delivered as a turn of its own. Not a message from a person.
+    BackgroundReport(BackgroundReport),
 }
 
 impl Default for VizierRequestContent {
@@ -106,6 +109,7 @@ impl Display for VizierRequestContent {
                 Some(text) => write!(f, "{}", text),
                 None => write!(f, "Voice message ({})", att.filename),
             },
+            Self::BackgroundReport(report) => write!(f, "{}", report),
         }
     }
 }
@@ -221,6 +225,12 @@ pub struct VizierRequest {
     /// site, so no interactive turn's frontmatter changes.
     #[serde(default)]
     pub scheduled_task: Option<String>,
+    /// How many background hops led to this turn: 0 for anything a person or the scheduler
+    /// started, `job.depth + 1` for a background piece or a background report. Carried on the
+    /// request rather than the session, because a woken turn runs in the same session as the
+    /// turn that launched the job and must still count as one level deeper.
+    #[serde(default)]
+    pub background_depth: u8,
 }
 
 impl VizierRequest {
@@ -264,6 +274,17 @@ impl VizierRequest {
                 "sender": "scheduler",
                 "task": task,
                 "requested_by": self.user,
+                "metadata": self.metadata,
+            }))?);
+        }
+
+        // A background report is machine-written too, and is attributed as such for the same
+        // reason: its `user` is the agent's own id, and nobody sent it.
+        if let VizierRequestContent::BackgroundReport(report) = &self.content {
+            return Ok(serde_yaml::to_string(&json!({
+                "sender": "background",
+                "job": report.job_id,
+                "job_kind": report.kind.as_str(),
                 "metadata": self.metadata,
             }))?);
         }
@@ -356,6 +377,31 @@ mod tests {
         assert!(frontmatter.contains("sender: someone"), "{frontmatter}");
         assert!(!frontmatter.contains("scheduler"), "{frontmatter}");
         assert!(!frontmatter.contains("requested_by"), "{frontmatter}");
+    }
+
+    /// A background report is sent by the background machinery, never by a person — its
+    /// `user` is the agent's own id and must not appear as the sender.
+    #[test]
+    fn a_background_report_is_sent_by_the_background() {
+        let req = VizierRequest {
+            timestamp: Utc::now(),
+            user: "agent-1".to_string(),
+            content: VizierRequestContent::BackgroundReport(BackgroundReport {
+                job_id: "b-7f3a9c".to_string(),
+                kind: crate::schema::JobKind::Batch,
+                delegated_to: None,
+                entries: vec![],
+            }),
+            metadata: serde_json::json!({}),
+            background_depth: 1,
+            ..Default::default()
+        };
+
+        let frontmatter = req.generate_frontmatter().unwrap();
+        assert!(frontmatter.contains("sender: background"), "{frontmatter}");
+        assert!(frontmatter.contains("job: b-7f3a9c"), "{frontmatter}");
+        assert!(frontmatter.contains("job_kind: batch"), "{frontmatter}");
+        assert!(!frontmatter.contains("agent-1"), "{frontmatter}");
     }
 
     /// A dream request carries `Unattended` too, and must not be attributed to the
