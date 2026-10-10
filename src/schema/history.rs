@@ -216,7 +216,143 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
     flush_pending_tool_calls(&mut pending_text, &mut pending_tool_calls, &mut messages);
     flush_pending_tool_results(&mut pending_tool_results, &mut messages);
 
-    messages
+    repair_tool_pairing(messages)
+}
+
+/// What a tool call with no recorded result replays as. Sessions saved before turns sealed
+/// their own tool calls (`seal_tool_calls`) can hold calls whose results were never stored.
+const NO_RESULT_RECORDED: &str = "[no result recorded: the turn ended before this tool returned]";
+
+fn placeholder_result(call: &ToolCall, text: &str) -> UserContent {
+    UserContent::ToolResult(rig_core::message::ToolResult {
+        id: call.id.clone(),
+        call_id: call.call_id.clone(),
+        content: OneOrMany::one(ToolResultContent::text(text)),
+    })
+}
+
+fn tool_calls_of(message: &Message) -> Vec<ToolCall> {
+    let Message::Assistant { content, .. } = message else {
+        return vec![];
+    };
+    content
+        .iter()
+        .filter_map(|item| match item {
+            AssistantContent::ToolCall(call) => Some(call.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn tool_result_ids(message: &Message) -> Vec<String> {
+    let Message::User { content } = message else {
+        return vec![];
+    };
+    content
+        .iter()
+        .filter_map(|item| match item {
+            UserContent::ToolResult(result) => Some(result.id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Answers every tool call of the last assistant message that has no result yet.
+///
+/// A turn that fails part-way through its tool calls would otherwise leave a `tool_use` with
+/// no `tool_result` after it, which every later request replays and the provider rejects, so
+/// the session can never continue. `completed` holds the results that came back before the
+/// failure; each call still unanswered after them gets `reason` as its result.
+pub fn seal_tool_calls(history: &mut Vec<Message>, completed: Vec<UserContent>, reason: &str) {
+    let Some(index) = history
+        .iter()
+        .rposition(|message| matches!(message, Message::Assistant { .. }))
+    else {
+        return;
+    };
+
+    let mut answered: Vec<String> = history[index + 1..]
+        .iter()
+        .flat_map(tool_result_ids)
+        .collect();
+    answered.extend(completed.iter().filter_map(|item| match item {
+        UserContent::ToolResult(result) => Some(result.id.clone()),
+        _ => None,
+    }));
+
+    let mut content = completed;
+    for call in tool_calls_of(&history[index]) {
+        if !answered.contains(&call.id) {
+            content.push(placeholder_result(&call, &format!("[tool did not return: {reason}]")));
+        }
+    }
+
+    if let Ok(content) = OneOrMany::many(content) {
+        history.push(Message::User { content });
+    }
+}
+
+/// Makes every assistant tool call be followed directly by a result for each of its ids, and
+/// drops tool results that answer no call just before them.
+///
+/// Providers reject either shape, and a stored history holding one fails every turn after it.
+/// This repairs the replay only; the stored entries are left as they are.
+fn repair_tool_pairing(messages: Vec<Message>) -> Vec<Message> {
+    let mut repaired = Vec::with_capacity(messages.len());
+    let mut expected: Vec<ToolCall> = vec![];
+
+    for message in messages {
+        let Message::User { content } = &message else {
+            repaired.extend(unanswered_message(&mut expected));
+            expected = tool_calls_of(&message);
+            repaired.push(message);
+            continue;
+        };
+
+        let mut kept: Vec<UserContent> = vec![];
+        for item in content.iter() {
+            match item {
+                UserContent::ToolResult(result) => {
+                    if let Some(position) = expected.iter().position(|call| call.id == result.id) {
+                        expected.remove(position);
+                        kept.push(item.clone());
+                    }
+                }
+                other => kept.push(other.clone()),
+            }
+        }
+        // Missing results go with the ones that did come back, ahead of anything else the
+        // message carries: a tool result has to lead the message that follows its call.
+        let (results, others): (Vec<UserContent>, Vec<UserContent>) = kept
+            .into_iter()
+            .partition(|item| matches!(item, UserContent::ToolResult(_)));
+        let mut content: Vec<UserContent> = results;
+        content.extend(
+            expected
+                .drain(..)
+                .map(|call| placeholder_result(&call, NO_RESULT_RECORDED)),
+        );
+        content.extend(others);
+
+        if let Ok(content) = OneOrMany::many(content) {
+            repaired.push(Message::User { content });
+        }
+    }
+
+    repaired.extend(unanswered_message(&mut expected));
+
+    repaired
+}
+
+/// A tool-result message answering each of `expected`, or nothing when it is empty.
+fn unanswered_message(expected: &mut Vec<ToolCall>) -> Option<Message> {
+    let placeholders: Vec<UserContent> = expected
+        .drain(..)
+        .map(|call| placeholder_result(&call, NO_RESULT_RECORDED))
+        .collect();
+    OneOrMany::many(placeholders)
+        .ok()
+        .map(|content| Message::User { content })
 }
 
 /// One assistant message out of the narration and the tool calls that came with it.
@@ -626,5 +762,194 @@ mod tests {
             panic!("expected the final response as an assistant message");
         };
         assert!(matches!(content.first(), AssistantContent::Text(_)));
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Tool-call pairing: a failed turn must never leave a tool call without a result
+    // (issue #58).
+    // ---------------------------------------------------------------------------------
+
+    fn call_entry(id: &str) -> SessionHistory {
+        entry(SessionHistoryContent::ToolCall {
+            call_id: id.to_string(),
+            name: "memory_search".to_string(),
+            arguments: json!({}),
+        })
+    }
+
+    fn result_entry(id: &str, text: &str) -> SessionHistory {
+        entry(SessionHistoryContent::ToolResult {
+            call_id: id.to_string(),
+            content: text.to_string(),
+        })
+    }
+
+    fn error_entry() -> SessionHistory {
+        entry(SessionHistoryContent::Response(VizierResponse {
+            timestamp: chrono::Utc::now(),
+            content: VizierResponseContent::Error {
+                kind: crate::schema::ErrorKind::ToolTimeout,
+                message: "Tool 'memory_search' timed out".to_string(),
+            },
+            attachments: vec![],
+            ..Default::default()
+        }))
+    }
+
+    fn calls_message(ids: &[&str]) -> Message {
+        Message::Assistant {
+            id: None,
+            content: OneOrMany::many(
+                ids.iter()
+                    .map(|id| {
+                        AssistantContent::ToolCall(ToolCall {
+                            id: id.to_string(),
+                            call_id: None,
+                            function: ToolFunction {
+                                name: "memory_search".to_string(),
+                                arguments: json!({}),
+                            },
+                            signature: None,
+                            additional_params: None,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap(),
+        }
+    }
+
+    /// `(id, text)` for every tool result in a user message.
+    fn results(message: &Message) -> Vec<(String, String)> {
+        let Message::User { content } = message else {
+            panic!("expected a user message, got {message:?}");
+        };
+        content
+            .iter()
+            .filter_map(|item| match item {
+                UserContent::ToolResult(result) => {
+                    Some((result.id.clone(), tool_result_content_to_text(&result.content)))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Every tool call is answered by the message right after it, and every tool result
+    /// answers a call in the message right before it.
+    fn assert_paired(messages: &[Message]) {
+        for (index, message) in messages.iter().enumerate() {
+            let calls: Vec<String> = tool_calls_of(message).into_iter().map(|c| c.id).collect();
+            let answered = messages.get(index + 1).map(tool_result_ids).unwrap_or_default();
+            for id in &calls {
+                assert!(answered.contains(id), "tool call {id} has no result after it");
+            }
+
+            let previous = index
+                .checked_sub(1)
+                .map(|i| tool_calls_of(&messages[i]))
+                .unwrap_or_default();
+            for id in tool_result_ids(message) {
+                assert!(
+                    previous.iter().any(|call| call.id == id),
+                    "tool result {id} answers no call before it"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_tool_call_left_at_the_end_is_answered_on_replay() {
+        let messages = history_entries_to_messages(&[call_entry("a")]);
+
+        assert_paired(&messages);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(results(&messages[1]), vec![("a".to_string(), NO_RESULT_RECORDED.to_string())]);
+    }
+
+    #[test]
+    fn a_tool_call_followed_by_an_error_is_answered_before_the_error() {
+        let messages = history_entries_to_messages(&[call_entry("a"), error_entry()]);
+
+        assert_paired(&messages);
+        let Message::User { content } = &messages[1] else {
+            panic!("expected a user message after the call");
+        };
+        assert!(
+            matches!(content.first(), UserContent::ToolResult(_)),
+            "the tool result has to lead the message"
+        );
+        assert!(
+            content.iter().any(|c| matches!(c, UserContent::Text(t) if t.text.starts_with("[Error"))),
+            "the error is still replayed"
+        );
+    }
+
+    #[test]
+    fn a_partly_answered_batch_keeps_its_real_results() {
+        let messages = history_entries_to_messages(&[
+            call_entry("a"),
+            call_entry("b"),
+            result_entry("a", "two hits"),
+            error_entry(),
+        ]);
+
+        assert_paired(&messages);
+        assert_eq!(
+            results(&messages[1]),
+            vec![
+                ("a".to_string(), "two hits".to_string()),
+                ("b".to_string(), NO_RESULT_RECORDED.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tool_result_with_no_call_is_dropped() {
+        let request = entry(SessionHistoryContent::Response(VizierResponse {
+            timestamp: chrono::Utc::now(),
+            content: VizierResponseContent::Message {
+                content: "hello".to_string(),
+                stats: None,
+            },
+            attachments: vec![],
+            ..Default::default()
+        }));
+        let messages = history_entries_to_messages(&[request, result_entry("ghost", "stale")]);
+
+        assert_paired(&messages);
+        assert_eq!(messages.len(), 1, "the orphaned result is not replayed");
+    }
+
+    #[test]
+    fn sealing_answers_only_the_calls_that_did_not_return() {
+        let mut history = vec![Message::user("find it"), calls_message(&["a", "b", "c"])];
+        let completed = vec![UserContent::tool_result(
+            "a",
+            OneOrMany::one(ToolResultContent::text("two hits")),
+        )];
+
+        seal_tool_calls(&mut history, completed, "timed out after 60s");
+
+        assert_paired(&history);
+        assert_eq!(
+            results(&history[2]),
+            vec![
+                ("a".to_string(), "two hits".to_string()),
+                ("b".to_string(), "[tool did not return: timed out after 60s]".to_string()),
+                ("c".to_string(), "[tool did not return: timed out after 60s]".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn sealing_an_answered_turn_changes_nothing() {
+        let mut history = vec![calls_message(&["a"]), tool_result("a", "two hits")];
+        seal_tool_calls(&mut history, vec![], "depth limit");
+        assert_eq!(history.len(), 2);
+
+        let mut history = vec![Message::user("hi"), Message::assistant("hello")];
+        seal_tool_calls(&mut history, vec![], "depth limit");
+        assert_eq!(history.len(), 2);
     }
 }

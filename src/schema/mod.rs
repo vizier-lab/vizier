@@ -34,7 +34,7 @@ pub use file::FileRecord;
 pub use global_config::{GlobalConfigEntry, GlobalConfigValue};
 pub use history::{
     SessionHistory, SessionHistoryContent, history_entries_to_messages, message_for_model,
-    messages_for_model, messages_to_history_entries,
+    messages_for_model, messages_to_history_entries, seal_tool_calls,
 };
 pub use metrics::{
     AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage, DailyChannelTypeUsage,

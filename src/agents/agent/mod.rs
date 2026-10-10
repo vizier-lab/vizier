@@ -41,7 +41,7 @@ use crate::{
         VizierAttachment, VizierAttachmentContent, VizierRequest, VizierRequestContent,
         VizierResponse, VizierResponseContent, VizierResponseStats, VizierSession,
         history_entries_to_messages, message_for_model, messages_for_model,
-        messages_to_history_entries,
+        messages_to_history_entries, seal_tool_calls,
     },
     storage::{
         VizierStorage,
@@ -471,8 +471,12 @@ impl VizierAgent {
         let (output, stats, attachments, final_history) = match prompt_result {
             Ok(result) => result,
             Err((err, partial_history)) => {
-                // Save narration and tool call/result entries from partial history
-                let new_messages = &partial_history[original_history_len..];
+                // Save narration and tool call/result entries from partial history.
+                // `prompt` returns its full record, which always starts with `history`, so
+                // the slice holds; `get` keeps a regression from panicking the turn.
+                let new_messages = partial_history
+                    .get(original_history_len..)
+                    .unwrap_or_default();
                 let tool_entries = messages_to_history_entries(new_messages);
                 for entry in tool_entries {
                     self.storage
@@ -598,23 +602,27 @@ impl VizierAgent {
         loop {
             turn_depth += 1;
             if max_turn_depth > 0 && turn_depth > max_turn_depth {
-                return Err((
+                return Err(fail_turn(
                     anyhow::anyhow!(VizierError(format!(
                         "thinking depth exceeding {}",
                         max_turn_depth
                     ))),
-                    history,
+                    full_history,
+                    Some(message),
+                    vec![],
                 ));
             }
 
             // Check prompt timeout
             if start.elapsed() > prompt_timeout {
-                return Err((
+                return Err(fail_turn(
                     anyhow::anyhow!(VizierError(format!(
                         "prompt timed out after {:?}",
                         prompt_timeout
                     ))),
-                    history,
+                    full_history,
+                    Some(message),
+                    vec![],
                 ));
             }
 
@@ -628,7 +636,7 @@ impl VizierAgent {
                     tools.clone(),
                 )
                 .await
-                .map_err(|e| (e, full_history.clone()))?;
+                .map_err(|e| fail_turn(e, full_history.clone(), Some(message.clone()), vec![]))?;
 
             tracing::debug!(
                 turn_depth = turn_depth,
@@ -682,7 +690,7 @@ impl VizierAgent {
                     let handover = self
                         .generate_handover_message(&history, None, ctx)
                         .await
-                        .map_err(|e| (e, full_history.clone()))?;
+                        .map_err(|e| fail_turn(e, full_history.clone(), None, vec![]))?;
 
                     // Save checkpoint to storage
                     if let Err(e) = self
@@ -756,7 +764,9 @@ impl VizierAgent {
                     (function_name, args) = hooks
                         .on_tool_call(function_name, args)
                         .await
-                        .map_err(|e| (e, full_history.clone()))?;
+                        .map_err(|e| {
+                            fail_turn(e, full_history.clone(), None, tool_responses.clone())
+                        })?;
                 }
 
                 let tool_server = self.tools.clone();
@@ -769,13 +779,16 @@ impl VizierAgent {
                 .await
                 {
                     Err(_elapsed) => {
-                        // Tool timeout - return error with partial history
-                        return Err((
+                        // Tool timeout - the results that came back are kept, and this call
+                        // and the ones after it are answered with the timeout
+                        return Err(fail_turn(
                             anyhow::anyhow!(VizierError(format!(
                                 "Tool '{}' timed out after {:?}",
                                 function_name, *self.config.tools.timeout
                             ))),
-                            history,
+                            full_history,
+                            None,
+                            tool_responses,
                         ));
                     }
                     Ok(Err(err)) => VizierResponse {
@@ -793,7 +806,9 @@ impl VizierAgent {
                     tool_res = hooks
                         .on_tool_response(tool_res)
                         .await
-                        .map_err(|e| (e, full_history.clone()))?;
+                        .map_err(|e| {
+                            fail_turn(e, full_history.clone(), None, tool_responses.clone())
+                        })?;
                 }
 
                 // Store tool attachments in SessionFiles (except from read_image_file)
@@ -838,33 +853,29 @@ impl VizierAgent {
 
                 // For read_image_file with images: collect for separate user messages
                 // (most providers drop images from tool results)
-                if function_name == "read_image_file" && !tool_res.attachments.is_empty() {
-                    let image_attachments: Vec<_> = tool_res.attachments.drain(..).collect();
-                    tool_responses.push(
-                        tool_res
-                            .to_tool_response_content(
-                                call.id.clone(),
-                                call.call_id.clone(),
-                                &self.global_workspace,
-                            )
-                            .map_err(|e| (e, full_history.clone()))?,
-                    );
-                    for attachment in &image_attachments {
-                        pending_images.push(
-                            attachment
-                                .to_user_content(&self.global_workspace)
-                                .map_err(|e| (e, full_history.clone()))?,
-                        );
-                    }
-                } else {
-                    tool_responses.push(
-                        tool_res
-                            .to_tool_response_content(
-                                call.id.clone(),
-                                call.call_id.clone(),
-                                &self.global_workspace,
-                            )
-                            .map_err(|e| (e, full_history.clone()))?,
+                let image_attachments: Vec<_> =
+                    if function_name == "read_image_file" && !tool_res.attachments.is_empty() {
+                        tool_res.attachments.drain(..).collect()
+                    } else {
+                        vec![]
+                    };
+                let response_content = tool_res
+                    .to_tool_response_content(
+                        call.id.clone(),
+                        call.call_id.clone(),
+                        &self.global_workspace,
+                    )
+                    .map_err(|e| {
+                        fail_turn(e, full_history.clone(), None, tool_responses.clone())
+                    })?;
+                tool_responses.push(response_content);
+                for attachment in &image_attachments {
+                    pending_images.push(
+                        attachment
+                            .to_user_content(&self.global_workspace)
+                            .map_err(|e| {
+                                fail_turn(e, full_history.clone(), None, tool_responses.clone())
+                            })?,
                     );
                 }
             }
@@ -1261,6 +1272,24 @@ impl VizierAgent {
         })
         .await?
     }
+}
+
+/// The error a failed turn returns, with every record it has to keep.
+///
+/// `unsent` is the message the next model call would have carried — after a round of tool
+/// calls, their results — which only reaches `full_history` once that call is made, so a
+/// failure before it would otherwise lose them. Any tool call still unanswered after
+/// `completed` is answered with the error, so the stored turn never ends on a tool call
+/// with no result (issue #58).
+fn fail_turn(
+    err: anyhow::Error,
+    mut full_history: Vec<Message>,
+    unsent: Option<Message>,
+    completed: Vec<UserContent>,
+) -> (anyhow::Error, Vec<Message>) {
+    full_history.extend(unsent);
+    seal_tool_calls(&mut full_history, completed, &err.to_string());
+    (err, full_history)
 }
 
 pub fn read_md_file(workspace: String, file: String) -> String {
