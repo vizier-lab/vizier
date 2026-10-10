@@ -32,14 +32,14 @@ use crate::{
     transport::DreamCommand,
 };
 
+/// Requests waiting for the session's running job, each with where its response goes.
+type SessionQueue = VecDeque<(VizierRequest, Option<flume::Sender<VizierResponse>>)>;
+
 fn abort_session_silent(
     session: &VizierSession,
     main_handles: &mut HashMap<VizierSession, JoinHandle<()>>,
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
-    session_queues: &mut HashMap<
-        VizierSession,
-        VecDeque<(VizierRequest, Option<flume::Sender<VizierResponse>>)>,
-    >,
+    session_queues: &mut HashMap<VizierSession, SessionQueue>,
     storage: &VizierStorage,
 ) -> bool {
     let had_in_flight = main_handles
@@ -76,10 +76,7 @@ async fn abort_session_notify(
     session: &VizierSession,
     main_handles: &mut HashMap<VizierSession, JoinHandle<()>>,
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
-    session_queues: &mut HashMap<
-        VizierSession,
-        VecDeque<(VizierRequest, Option<flume::Sender<VizierResponse>>)>,
-    >,
+    session_queues: &mut HashMap<VizierSession, SessionQueue>,
     storage: &VizierStorage,
     response_tx: &Option<flume::Sender<VizierResponse>>,
 ) {
@@ -123,12 +120,16 @@ pub async fn agent_process(
     let mut thinking_handles = HashMap::<VizierSession, Arc<JoinHandle<()>>>::new();
     let mut detail_tasks = JoinSet::new();
 
-    let mut session_queues = HashMap::<
-        VizierSession,
-        VecDeque<(VizierRequest, Option<flume::Sender<VizierResponse>>)>,
-    >::new();
+    let mut session_queues = HashMap::<VizierSession, SessionQueue>::new();
     let mut message_counts = HashMap::<VizierSession, usize>::new();
     let (complete_tx, mut complete_rx) = mpsc::unbounded_channel::<VizierSession>();
+    let jobs = SessionJobs {
+        agent: agent.clone(),
+        agent_config: agent_config.clone(),
+        deps: deps.clone(),
+        indexer: indexer.clone(),
+        complete_tx,
+    };
 
     tracing::info!(agent_id = %agent_id, "agent process loop started");
 
@@ -273,383 +274,50 @@ pub async fn agent_process(
                     }
                 }
 
-                // Handle checkpoint command
-                if let VizierRequestContent::Command(ref cmd) = request.content {
-                    if cmd == "checkpoint" {
-                        // Save command to history for display
-                        let _ = deps.storage
-                            .save_session_history(
-                                session.clone(),
-                                SessionHistoryContent::Command(cmd.clone()),
-                            )
-                            .await;
-
-                        abort_session_silent(
-                            &session,
-                            &mut main_handles,
-                            &mut thinking_handles,
-                            &mut session_queues,
-                            &deps.storage,
-                        );
-
-                        let session_clone = session.clone();
-                        let agent_clone = agent.clone();
-                        let storage_clone = deps.storage.clone();
-                        let response_tx_clone = response_tx.clone();
-                        let agent_id_clone = agent_id.clone();
-
-                        tokio::spawn(async move {
-                            // Get session history
-                            let history = match storage_clone
-                                .list_session_history(session_clone.clone(), None, None, None)
-                                .await
-                            {
-                                Ok(h) => h,
-                                Err(e) => {
-                                    tracing::error!("Failed to get session history for checkpoint: {}", e);
-                                    if let Some(ref tx) = response_tx_clone {
-                                        let _ = tx
-                                            .send_async(VizierResponse {
-                                                timestamp: chrono::Utc::now(),
-                                                content: VizierResponseContent::Message {
-                                                    content: "Failed to create checkpoint: could not retrieve history.".to_string(),
-                                                    stats: None,
-                                                },
-                                                attachments: vec![],
-                                                ..Default::default()
-                                            })
-                                            .await;
-                                    }
-                                    return;
-                                }
-                            };
-
-                            let messages = history_entries_to_messages(&history);
-                            let reactions = crate::agents::agent::system_prompt::reactions::reaction_digest(&history, 0);
-                            let ctx = ToolContext {
-                                session: session_clone.clone(),
-                                pending_attachments: Arc::new(Mutex::new(vec![])),
-                                hooks: None,
-                                background_depth: 0,
-                            };
-
-                            // Generate handover
-                            let handover = match agent_clone.generate_handover_message(&messages, reactions.as_deref(), &ctx).await {
-                                Ok(h) => h,
-                                Err(e) => {
-                                    tracing::error!("Failed to generate handover: {}", e);
-                                    if let Some(ref tx) = response_tx_clone {
-                                        let _ = tx
-                                            .send_async(VizierResponse {
-                                                timestamp: chrono::Utc::now(),
-                                                content: VizierResponseContent::Message {
-                                                    content: format!("Failed to create checkpoint: {}", e),
-                                                    stats: None,
-                                                },
-                                                attachments: vec![],
-                                                ..Default::default()
-                                            })
-                                            .await;
-                                    }
-                                    return;
-                                }
-                            };
-
-                            // Save checkpoint
-                            if let Err(e) = storage_clone.save_checkpoint(session_clone.clone(), handover.clone()).await {
-                                tracing::error!("Failed to save checkpoint: {}", e);
-                                if let Some(ref tx) = response_tx_clone {
-                                    let _ = tx
-                                        .send_async(VizierResponse {
-                                            timestamp: chrono::Utc::now(),
-                                            content: VizierResponseContent::Message {
-                                                content: format!("Failed to save checkpoint: {}", e),
-                                                stats: None,
-                                            },
-                                            attachments: vec![],
-                                            ..Default::default()
-                                        })
-                                        .await;
-                                }
-                                return;
-                            }
-
-                            // Send checkpoint response
-                            if let Some(ref tx) = response_tx_clone {
-                                let _ = tx
-                                    .send_async(VizierResponse {
-                                        timestamp: chrono::Utc::now(),
-                                        content: VizierResponseContent::Checkpoint {
-                                            handover,
-                                        },
-                                        attachments: vec![],
-                                        ..Default::default()
-                                    })
-                                    .await;
-                            }
-
-                            tracing::info!("Manual checkpoint created for session {:?}", session_clone);
-                        });
-                        continue;
-                    }
-                }
-
-                // Handle lobotomy command
-                if let VizierRequestContent::Command(ref cmd) = request.content {
-                    if cmd == "lobotomy" {
-                        // Save command to history for display
-                        let _ = deps.storage
-                            .save_session_history(
-                                session.clone(),
-                                SessionHistoryContent::Command(cmd.clone()),
-                            )
-                            .await;
-
-                        abort_session_silent(
-                            &session,
-                            &mut main_handles,
-                            &mut thinking_handles,
-                            &mut session_queues,
-                            &deps.storage,
-                        );
-
-                        let session_clone = session.clone();
-                        let storage_clone = deps.storage.clone();
-                        let response_tx_clone = response_tx.clone();
-
-                        tokio::spawn(async move {
-                            // Save checkpoint with no handover
-                            if let Err(e) = storage_clone.save_checkpoint(session_clone.clone(), None).await {
-                                tracing::error!("Failed to save lobotomy checkpoint: {}", e);
-                                if let Some(ref tx) = response_tx_clone {
-                                    let _ = tx
-                                        .send_async(VizierResponse {
-                                            timestamp: chrono::Utc::now(),
-                                            content: VizierResponseContent::Message {
-                                                content: format!("Failed to create lobotomy: {}", e),
-                                                stats: None,
-                                            },
-                                            attachments: vec![],
-                                            ..Default::default()
-                                        })
-                                        .await;
-                                }
-                                return;
-                            }
-
-                            // Send checkpoint response with no handover
-                            if let Some(ref tx) = response_tx_clone {
-                                let _ = tx
-                                    .send_async(VizierResponse {
-                                        timestamp: chrono::Utc::now(),
-                                        content: VizierResponseContent::Checkpoint {
-                                            handover: None,
-                                        },
-                                        attachments: vec![],
-                                        ..Default::default()
-                                    })
-                                    .await;
-                            }
-
-                            tracing::info!("Lobotomy created for session {:?}", session_clone);
-                        });
-                        continue;
-                    }
+                // A handover runs as a job in the session's queue rather than aborting it:
+                // the turn in progress finishes first, and messages sent before or during
+                // the handover carry on after it, reading the new checkpoint (#57).
+                if is_handover_command(&request) && session_is_busy(&main_handles, &session_queues, &session) {
+                    let queue = session_queues.entry(session.clone()).or_default();
+                    // Ahead of queued messages, behind any handover already waiting.
+                    let position = queue
+                        .iter()
+                        .position(|(queued, _)| !is_handover_command(queued))
+                        .unwrap_or(queue.len());
+                    queue.insert(position, (request, response_tx));
+                    continue;
                 }
 
                 // Queue message if a task is already running for this session
-                if let Some(handle) = main_handles.get(&session) {
-                    if !handle.is_finished() {
-                        tracing::debug!(agent_id = %session.0, "queuing message while task in progress");
-                        session_queues.entry(session.clone()).or_default().push_back((request, response_tx));
-                        continue;
-                    }
+                if session_is_busy(&main_handles, &session_queues, &session) {
+                    tracing::debug!(agent_id = %session.0, "queuing message while task in progress");
+                    session_queues.entry(session.clone()).or_default().push_back((request, response_tx));
+                    continue;
                 }
 
-                // handle thinking
-                if let Some(handle) = thinking_handles.get(&session) {
-                    handle.abort();
-                }
-                let thinking_response_tx = response_tx.clone();
-                let thinking_request = request.clone();
-                let thinking_session = session.clone();
-                let thinking_handle = Arc::new(tokio::spawn(async move {
-                    if matches!(thinking_request.content, VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _) | VizierRequestContent::BackgroundReport(_)) {
-                        if let Some(ref tx) = thinking_response_tx {
-                            let _ = tx
-                                .send_async(VizierResponse {
-                                    timestamp: chrono::Utc::now(),
-                                    content: crate::schema::VizierResponseContent::ThinkingStart,
-                                    attachments: vec![],
-                                    ..Default::default()
-                                })
-                                .await;
-                        }
-                    }
-                }));
-                thinking_handles.insert(session.clone(), thinking_handle.clone());
-
-                let agent = agent.clone();
-                let agent_config = agent_config.clone();
-                let session = session.clone();
-                let storage = deps.storage.clone();
-                let deps_clone = deps.clone();
-                let indexer = indexer.clone();
-                let complete_tx = complete_tx.clone();
-                let thinking_storage = storage.clone();
-                let thinking_session = session.clone();
-                main_handles.insert(
-                    session.clone(),
-                    tokio::spawn(async move {
-                        // Set is_thinking = true
-                        let _ = thinking_storage
-                            .update_thinking_state(
-                                thinking_session.0.clone(),
-                                thinking_session.1.clone(),
-                                thinking_session.2.clone(),
-                                true,
-                            )
-                            .await;
-
-                        if let Err(err) = handle_request(
-                            agent.clone(),
-                            agent_config.clone(),
-                            session.clone(),
-                            request.clone(),
-                            response_tx.clone(),
-                            storage.clone(),
-                            indexer.clone(),
-                            &deps_clone,
-                        )
-                        .await
-                        {
-                            tracing::error!("{}", err);
-                            if let Some(ref tx) = response_tx {
-                                let err_str = err.to_string();
-                                let _ = tx
-                                    .send_async(VizierResponse {
-                                        timestamp: chrono::Utc::now(),
-                                        content: VizierResponseContent::Error {
-                                            kind: ErrorKind::classify(&err_str),
-                                            message: err_str,
-                                        },
-                                        attachments: vec![],
-                                        ..Default::default()
-                                    })
-                                    .await;
-                            }
-                        }
-
-                        thinking_handle.abort();
-
-                        // Set is_thinking = false
-                        let _ = storage
-                            .update_thinking_state(
-                                session.0.clone(),
-                                session.1.clone(),
-                                session.2.clone(),
-                                false,
-                            )
-                            .await;
-
-                        let _ = complete_tx.send(session);
-                    }),
+                start_session_job(
+                    &jobs,
+                    session,
+                    request,
+                    response_tx,
+                    &mut main_handles,
+                    &mut thinking_handles,
                 );
             }
             // Handle task completions — process next queued message
             Some(completed_session) = complete_rx.recv() => {
-                if let Some(queue) = session_queues.get_mut(&completed_session) {
-                    if let Some((next_request, response_tx)) = queue.pop_front() {
-                        // handle thinking
-                        if let Some(handle) = thinking_handles.get(&completed_session) {
-                            handle.abort();
-                        }
-                        let thinking_response_tx = response_tx.clone();
-                        let thinking_request = next_request.clone();
-                        let thinking_session = completed_session.clone();
-                        let thinking_handle = Arc::new(tokio::spawn(async move {
-                    if matches!(thinking_request.content, VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _) | VizierRequestContent::BackgroundReport(_)) {
-                                if let Some(ref tx) = thinking_response_tx {
-                                    let _ = tx
-                                        .send_async(VizierResponse {
-                                            timestamp: chrono::Utc::now(),
-                                            content: crate::schema::VizierResponseContent::ThinkingStart,
-                                            attachments: vec![],
-                                            ..Default::default()
-                                        })
-                                        .await;
-                                }
-                            }
-                        }));
-                        thinking_handles.insert(completed_session.clone(), thinking_handle.clone());
-
-                        let agent = agent.clone();
-                        let agent_config = agent_config.clone();
-                        let session = completed_session.clone();
-                        let storage = deps.storage.clone();
-                        let deps_clone = deps.clone();
-                        let indexer = indexer.clone();
-                        let complete_tx = complete_tx.clone();
-                        let thinking_storage = storage.clone();
-                        let thinking_session = session.clone();
-                        main_handles.insert(
-                            session.clone(),
-                            tokio::spawn(async move {
-                                // Set is_thinking = true
-                                let _ = thinking_storage
-                                    .update_thinking_state(
-                                        thinking_session.0.clone(),
-                                        thinking_session.1.clone(),
-                                        thinking_session.2.clone(),
-                                        true,
-                                    )
-                                    .await;
-
-                                if let Err(err) = handle_request(
-                                    agent.clone(),
-                                    agent_config.clone(),
-                                    session.clone(),
-                                    next_request.clone(),
-                                    response_tx.clone(),
-                                    storage.clone(),
-                                    indexer.clone(),
-                                    &deps_clone,
-                                )
-                                .await
-                                {
-                                    tracing::error!("{}", err);
-                                    if let Some(ref tx) = response_tx {
-                                        let err_str = err.to_string();
-                                        let _ = tx
-                                            .send_async(VizierResponse {
-                                                timestamp: chrono::Utc::now(),
-                                                content: VizierResponseContent::Error {
-                                                    kind: ErrorKind::classify(&err_str),
-                                                    message: err_str,
-                                                },
-                                                attachments: vec![],
-                                                ..Default::default()
-                                            })
-                                            .await;
-                                    }
-                                }
-
-                                thinking_handle.abort();
-
-                                // Set is_thinking = false
-                                let _ = storage
-                                    .update_thinking_state(
-                                        session.0.clone(),
-                                        session.1.clone(),
-                                        session.2.clone(),
-                                        false,
-                                    )
-                                    .await;
-
-                                let _ = complete_tx.send(session);
-                            }),
-                        );
-                    }
+                if let Some((next_request, response_tx)) = session_queues
+                    .get_mut(&completed_session)
+                    .and_then(|queue| queue.pop_front())
+                {
+                    start_session_job(
+                        &jobs,
+                        completed_session,
+                        next_request,
+                        response_tx,
+                        &mut main_handles,
+                        &mut thinking_handles,
+                    );
                 }
             }
         }
@@ -657,6 +325,259 @@ pub async fn agent_process(
 
     agent_channels.shutdown().await;
     Ok(())
+}
+
+/// What every job started on a session needs, shared by the two places one starts: a
+/// request arriving at an idle session, and the next queued one when a job completes.
+struct SessionJobs {
+    agent: Arc<VizierAgent>,
+    agent_config: AgentConfig,
+    deps: VizierDependencies,
+    indexer: Option<VizierIndexer>,
+    complete_tx: mpsc::UnboundedSender<VizierSession>,
+}
+
+/// `/checkpoint` and `/lobotomy`: commands that write a new checkpoint for the session.
+fn is_handover_command(request: &VizierRequest) -> bool {
+    matches!(&request.content, VizierRequestContent::Command(cmd) if cmd == "checkpoint" || cmd == "lobotomy")
+}
+
+/// A job is running, or one has finished and the queue it leaves behind has not been
+/// picked up yet: its completion is still on its way, and starting a request now would
+/// jump ahead of the queue.
+fn session_is_busy(
+    main_handles: &HashMap<VizierSession, JoinHandle<()>>,
+    session_queues: &HashMap<VizierSession, SessionQueue>,
+    session: &VizierSession,
+) -> bool {
+    main_handles
+        .get(session)
+        .is_some_and(|handle| !handle.is_finished())
+        || session_queues
+            .get(session)
+            .is_some_and(|queue| !queue.is_empty())
+}
+
+/// Runs one request as the session's job. Registered in `main_handles`, so anything that
+/// arrives meanwhile queues behind it, `/abort` stops it, and its completion starts the
+/// next queued request.
+fn start_session_job(
+    jobs: &SessionJobs,
+    session: VizierSession,
+    request: VizierRequest,
+    response_tx: Option<flume::Sender<VizierResponse>>,
+    main_handles: &mut HashMap<VizierSession, JoinHandle<()>>,
+    thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
+) {
+    // handle thinking
+    if let Some(handle) = thinking_handles.get(&session) {
+        handle.abort();
+    }
+    let thinking_response_tx = response_tx.clone();
+    let thinking_request = request.clone();
+    let thinking_handle = Arc::new(tokio::spawn(async move {
+        if matches!(thinking_request.content, VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _) | VizierRequestContent::BackgroundReport(_)) {
+            if let Some(ref tx) = thinking_response_tx {
+                let _ = tx
+                    .send_async(VizierResponse {
+                        timestamp: chrono::Utc::now(),
+                        content: crate::schema::VizierResponseContent::ThinkingStart,
+                        attachments: vec![],
+                        ..Default::default()
+                    })
+                    .await;
+            }
+        }
+    }));
+    thinking_handles.insert(session.clone(), thinking_handle.clone());
+
+    let agent = jobs.agent.clone();
+    let agent_config = jobs.agent_config.clone();
+    let deps = jobs.deps.clone();
+    let storage = deps.storage.clone();
+    let indexer = jobs.indexer.clone();
+    let complete_tx = jobs.complete_tx.clone();
+    main_handles.insert(
+        session.clone(),
+        tokio::spawn(async move {
+            // Set is_thinking = true
+            let _ = storage
+                .update_thinking_state(session.0.clone(), session.1.clone(), session.2.clone(), true)
+                .await;
+
+            let result = match &request.content {
+                VizierRequestContent::Command(cmd) if cmd == "checkpoint" => {
+                    run_checkpoint(&agent, &storage, &session, &response_tx).await;
+                    Ok(())
+                }
+                VizierRequestContent::Command(cmd) if cmd == "lobotomy" => {
+                    run_lobotomy(&storage, &session, &response_tx).await;
+                    Ok(())
+                }
+                _ => {
+                    handle_request(
+                        agent.clone(),
+                        agent_config.clone(),
+                        session.clone(),
+                        request.clone(),
+                        response_tx.clone(),
+                        storage.clone(),
+                        indexer.clone(),
+                        &deps,
+                    )
+                    .await
+                }
+            };
+
+            if let Err(err) = result {
+                tracing::error!("{}", err);
+                if let Some(ref tx) = response_tx {
+                    let err_str = err.to_string();
+                    let _ = tx
+                        .send_async(VizierResponse {
+                            timestamp: chrono::Utc::now(),
+                            content: VizierResponseContent::Error {
+                                kind: ErrorKind::classify(&err_str),
+                                message: err_str,
+                            },
+                            attachments: vec![],
+                            ..Default::default()
+                        })
+                        .await;
+                }
+            }
+
+            thinking_handle.abort();
+
+            // Set is_thinking = false
+            let _ = storage
+                .update_thinking_state(session.0.clone(), session.1.clone(), session.2.clone(), false)
+                .await;
+
+            let _ = complete_tx.send(session);
+        }),
+    );
+}
+
+async fn send_text(response_tx: &Option<flume::Sender<VizierResponse>>, content: String) {
+    if let Some(tx) = response_tx {
+        let _ = tx
+            .send_async(VizierResponse {
+                timestamp: chrono::Utc::now(),
+                content: VizierResponseContent::Message {
+                    content,
+                    stats: None,
+                },
+                attachments: vec![],
+                ..Default::default()
+            })
+            .await;
+    }
+}
+
+async fn send_checkpoint(
+    response_tx: &Option<flume::Sender<VizierResponse>>,
+    handover: Option<String>,
+) {
+    if let Some(tx) = response_tx {
+        let _ = tx
+            .send_async(VizierResponse {
+                timestamp: chrono::Utc::now(),
+                content: VizierResponseContent::Checkpoint { handover },
+                attachments: vec![],
+                ..Default::default()
+            })
+            .await;
+    }
+}
+
+/// `/checkpoint`: summarises the session so far into a handover and saves it as a checkpoint.
+async fn run_checkpoint(
+    agent: &VizierAgent,
+    storage: &VizierStorage,
+    session: &VizierSession,
+    response_tx: &Option<flume::Sender<VizierResponse>>,
+) {
+    // Saved when the handover starts, not when the command arrived, so it lands after the
+    // turn it waited for.
+    let _ = storage
+        .save_session_history(
+            session.clone(),
+            SessionHistoryContent::Command("checkpoint".to_string()),
+        )
+        .await;
+
+    let history = match storage
+        .list_session_history(session.clone(), None, None, None)
+        .await
+    {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::error!("Failed to get session history for checkpoint: {}", e);
+            send_text(
+                response_tx,
+                "Failed to create checkpoint: could not retrieve history.".to_string(),
+            )
+            .await;
+            return;
+        }
+    };
+
+    let messages = history_entries_to_messages(&history);
+    let reactions = crate::agents::agent::system_prompt::reactions::reaction_digest(&history, 0);
+    let ctx = ToolContext {
+        session: session.clone(),
+        pending_attachments: Arc::new(Mutex::new(vec![])),
+        hooks: None,
+        background_depth: 0,
+    };
+
+    // Generate handover
+    let handover = match agent
+        .generate_handover_message(&messages, reactions.as_deref(), &ctx)
+        .await
+    {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::error!("Failed to generate handover: {}", e);
+            send_text(response_tx, format!("Failed to create checkpoint: {}", e)).await;
+            return;
+        }
+    };
+
+    // Save checkpoint
+    if let Err(e) = storage.save_checkpoint(session.clone(), handover.clone()).await {
+        tracing::error!("Failed to save checkpoint: {}", e);
+        send_text(response_tx, format!("Failed to save checkpoint: {}", e)).await;
+        return;
+    }
+
+    send_checkpoint(response_tx, handover).await;
+    tracing::info!("Manual checkpoint created for session {:?}", session);
+}
+
+/// `/lobotomy`: a checkpoint with no handover, so the session carries nothing over.
+async fn run_lobotomy(
+    storage: &VizierStorage,
+    session: &VizierSession,
+    response_tx: &Option<flume::Sender<VizierResponse>>,
+) {
+    let _ = storage
+        .save_session_history(
+            session.clone(),
+            SessionHistoryContent::Command("lobotomy".to_string()),
+        )
+        .await;
+
+    // Save checkpoint with no handover
+    if let Err(e) = storage.save_checkpoint(session.clone(), None).await {
+        tracing::error!("Failed to save lobotomy checkpoint: {}", e);
+        send_text(response_tx, format!("Failed to create lobotomy: {}", e)).await;
+        return;
+    }
+
+    send_checkpoint(response_tx, None).await;
+    tracing::info!("Lobotomy created for session {:?}", session);
 }
 
 pub struct AgentChannel(Box<dyn VizierChannel + Sync + Send + 'static>);
