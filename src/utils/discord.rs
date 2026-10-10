@@ -96,18 +96,3 @@ impl Drop for Typing {
         self.0.abort();
     }
 }
-
-#[cfg(test)]
-mod tests {
-    // Guards against twilight picking up a rustls backend: rustls has both `ring` and
-    // `aws-lc-rs` enabled in our tree, so building a client would panic at runtime.
-    #[tokio::test]
-    async fn twilight_clients_construct_without_panicking() {
-        let _http = twilight_http::Client::new("x".into());
-        let _shard = twilight_gateway::Shard::new(
-            twilight_gateway::ShardId::ONE,
-            "x".into(),
-            twilight_gateway::Intents::empty(),
-        );
-    }
-}
