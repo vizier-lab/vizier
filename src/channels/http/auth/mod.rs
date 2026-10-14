@@ -1,8 +1,5 @@
 use anyhow::Result;
-use argon2::{
-    Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
-    password_hash::{SaltString, rand_core::OsRng},
-};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use base64::Engine;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
@@ -38,10 +35,9 @@ impl AuthService {
 
     /// Hash a password using Argon2
     pub fn hash_password(&self, password: &str) -> Result<String> {
-        let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
-        let password_hash = argon2
-            .hash_password(password.as_bytes(), &salt)
+        let password_hash: PasswordHash = argon2
+            .hash_password(password.as_bytes())
             .map_err(|e| anyhow::anyhow!("Failed to hash password: {}", e))?;
         Ok(password_hash.to_string())
     }
@@ -104,7 +100,11 @@ impl AuthService {
     pub fn hash_api_key(&self, api_key: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(api_key.as_bytes());
-        format!("{:x}", hasher.finalize())
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
     }
 }
 
@@ -123,4 +123,50 @@ pub struct AuthenticatedUser {
     pub role: Role,
     pub permissions: Vec<String>,
     pub auth_method: AuthMethod,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn service() -> AuthService {
+        AuthService {
+            jwt_secret: "test-secret".into(),
+            jwt_expiry_hours: 1,
+        }
+    }
+
+    #[test]
+    fn password_hash_roundtrip() {
+        let auth = service();
+        let hash = auth.hash_password("hunter2").unwrap();
+        assert!(auth.verify_password("hunter2", &hash).unwrap());
+        assert!(!auth.verify_password("hunter3", &hash).unwrap());
+    }
+
+    #[test]
+    fn verifies_hashes_from_argon2_0_5() {
+        // Produced by argon2 0.5 (`Argon2::default()`); stored user passwords look like this.
+        let hash = "$argon2id$v=19$m=19456,t=2,p=1$9z1k3bVftUl57uONSs6lrw$nViMG0o4j+qwiT1TtSE9J1dZDjbwCHj/xKYxa6Fkau0";
+        assert!(service().verify_password("hunter2", hash).unwrap());
+    }
+
+    #[test]
+    fn api_key_hash_is_lowercase_hex_sha256() {
+        assert_eq!(
+            service().hash_api_key("vk_test"),
+            "84457fe090033a7aed800e1ba59fda7df2774e7217917cfe17225e37655dd08f"
+        );
+    }
+
+    #[test]
+    fn token_roundtrip() {
+        let auth = service();
+        let token = auth
+            .generate_token("u1", "alice", vec!["read".into()])
+            .unwrap();
+        let claims = auth.validate_token(&token).unwrap();
+        assert_eq!(claims.sub, "u1");
+        assert_eq!(claims.permissions, vec!["read".to_string()]);
+    }
 }

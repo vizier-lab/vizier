@@ -1984,7 +1984,10 @@ impl BundleMemoryStore {
             if file.is_dir() {
                 continue;
             }
-            let name = file.name().to_string();
+            let name = file
+                .name()
+                .map_err(|e| anyhow!("malformed zip archive: {e}"))?
+                .to_string();
             if name.contains("..") {
                 return Err(anyhow!("malformed archive: unsafe path '{name}'"));
             }

@@ -106,87 +106,72 @@ impl VizierTts {
 }
 
 pub fn mp3_to_wav(mp3_bytes: &[u8]) -> Result<Vec<u8>> {
-    use symphonia::core::audio::{AudioBufferRef, Signal};
-    use symphonia::core::codecs::DecoderOptions;
-    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::codecs::audio::AudioDecoderOptions;
+    use symphonia::core::formats::probe::Hint;
+    use symphonia::core::formats::{FormatOptions, TrackType};
     use symphonia::core::io::MediaSourceStream;
     use symphonia::core::meta::MetadataOptions;
-    use symphonia::core::probe::Hint;
 
     let cursor = std::io::Cursor::new(mp3_bytes.to_vec());
     let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
 
-    let probed = symphonia::default::get_probe()
-        .format(
+    let mut format = symphonia::default::get_probe()
+        .probe(
             &Hint::new(),
             mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
+            FormatOptions::default(),
+            MetadataOptions::default(),
         )
         .map_err(|e| VizierError(format!("mp3 probe: {e}")))?;
 
-    let mut format = probed.format;
     let track = format
-        .default_track()
+        .default_track(TrackType::Audio)
         .ok_or_else(|| VizierError("no default track in mp3".into()))?;
-
-    let sample_rate = track
+    let track_id = track.id;
+    let params = track
         .codec_params
+        .as_ref()
+        .and_then(|p| p.audio())
+        .ok_or_else(|| VizierError("no audio codec parameters in mp3".into()))?
+        .clone();
+
+    let sample_rate = params
         .sample_rate
         .ok_or_else(|| VizierError("unknown sample rate".into()))?;
-    let channels = track
-        .codec_params
-        .channels
-        .map(|c| c.count())
-        .unwrap_or(1) as u16;
+    let channels = params.channels.as_ref().map(|c| c.count()).unwrap_or(1) as u16;
 
     let mut decoder = symphonia::default::get_codecs()
-        .make(&track.codec_params, &DecoderOptions::default())
+        .make_audio_decoder(&params, &AudioDecoderOptions::default())
         .map_err(|e| VizierError(format!("mp3 decoder: {e}")))?;
 
     let mut samples: Vec<i16> = Vec::new();
+    let mut chunk: Vec<i16> = Vec::new();
     loop {
-        match format.next_packet() {
-            Ok(packet) => match decoder.decode(&packet) {
-                Ok(decoded) => match decoded {
-                    AudioBufferRef::F32(buf) => {
-                        for ch in 0..buf.spec().channels.count() {
-                            let channel = buf.chan(ch);
-                            for &s in channel.iter() {
-                                let clamped = s.clamp(-1.0, 1.0);
-                                samples.push((clamped * 32767.0) as i16);
-                            }
-                        }
-                    }
-                    AudioBufferRef::S16(buf) => {
-                        for ch in 0..buf.spec().channels.count() {
-                            samples.extend_from_slice(buf.chan(ch));
-                        }
-                    }
-                    AudioBufferRef::U8(buf) => {
-                        for ch in 0..buf.spec().channels.count() {
-                            for &s in buf.chan(ch).iter() {
-                                samples.push(((s as i16) - 128) * 256);
-                            }
-                        }
-                    }
-                    _ => {
-                        return Err(VizierError("unsupported audio sample format".into()));
-                    }
-                },
-                Err(symphonia::core::errors::Error::IoError(e))
-                    if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-                {
-                    break;
-                }
-                Err(e) => return Err(VizierError(format!("mp3 decode: {e}"))),
-            },
+        let packet = match format.next_packet() {
+            Ok(Some(packet)) => packet,
+            Ok(None) => break,
             Err(symphonia::core::errors::Error::IoError(e))
                 if e.kind() == std::io::ErrorKind::UnexpectedEof =>
             {
                 break;
             }
             Err(e) => return Err(VizierError(format!("mp3 read: {e}"))),
+        };
+        if packet.track_id != track_id {
+            continue;
+        }
+        match decoder.decode(&packet) {
+            Ok(decoded) => {
+                chunk.resize(decoded.samples_interleaved(), 0);
+                decoded.copy_to_slice_interleaved(&mut chunk);
+                samples.extend_from_slice(&chunk);
+            }
+            Err(symphonia::core::errors::Error::IoError(e))
+                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break;
+            }
+            Err(e) => return Err(VizierError(format!("mp3 decode: {e}"))),
         }
     }
 
