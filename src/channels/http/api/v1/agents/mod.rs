@@ -1011,6 +1011,9 @@ async fn agent_chat(
                     VizierResponseContent::Abort => {
                         return Err("Agent aborted the request".to_string());
                     }
+                    VizierResponseContent::Error { kind, message } => {
+                        return Err(format!("{}: {}", kind.label(), message));
+                    }
                     _ => continue,
                 },
                 Err(_) => {
