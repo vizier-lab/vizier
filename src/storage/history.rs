@@ -60,6 +60,16 @@ pub trait HistoryStorage {
         session: VizierSession,
         handover: Option<String>,
     ) -> Result<SessionHistory>;
+
+    /// How many requests the session has stored, across checkpoints.
+    async fn count_session_requests(&self, session: VizierSession) -> Result<usize> {
+        Ok(self
+            .list_session_history(session, None, None, None)
+            .await?
+            .iter()
+            .filter(|entry| matches!(entry.content, SessionHistoryContent::Request(_)))
+            .count())
+    }
 }
 
 #[async_trait::async_trait]
@@ -131,5 +141,9 @@ impl HistoryStorage for VizierStorage {
         handover: Option<String>,
     ) -> Result<SessionHistory> {
         self.0.save_checkpoint(session, handover).await
+    }
+
+    async fn count_session_requests(&self, session: VizierSession) -> Result<usize> {
+        self.0.count_session_requests(session).await
     }
 }

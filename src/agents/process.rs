@@ -112,7 +112,7 @@ pub async fn agent_process(
     let mut detail_tasks = JoinSet::new();
 
     let mut session_queues = HashMap::<VizierSession, SessionQueue>::new();
-    let mut message_counts = HashMap::<VizierSession, usize>::new();
+    let titling = TitlingSessions::default();
     let jobs = SessionJobs {
         agent: agent.clone(),
         agent_config: agent_config.clone(),
@@ -140,76 +140,13 @@ pub async fn agent_process(
                 let response_tx = envelope.response_tx;
                 tracing::trace!(agent_id = %session.0, channel = ?session.1, "incoming request");
 
-                // handle session_detail
-                let session_detail_storage = deps.storage.clone();
-                let session_detail_session = session.clone();
-                let session_detail_session_for_ctx = session.clone();
-                let session_detail_agent = agent.clone();
-                let session_detail_request = request.clone();
-                let msg_count = message_counts.entry(session.clone()).or_insert(0);
-                *msg_count += 1;
-                let current_count = *msg_count;
-                detail_tasks.spawn(async move {
-                    let agent_id = session_detail_session.0;
-                    let channel = session_detail_session.1;
-                    let topic = session_detail_session.2;
-                    let slug_title = topic.clone().unwrap_or("DEFAULT".to_string());
-
-                    if current_count == 1 {
-                        // Create session_detail immediately with slug as title
-                        let detail = VizierSessionDetail {
-                            agent_id,
-                            channel,
-                            topic,
-                            title: slug_title,
-                            is_thinking: true,
-                        };
-                        let _ = session_detail_storage.save_session_detail(detail).await;
-                    } else if current_count == 10 {
-                        // Check if title is still the slug (hasn't been updated yet)
-                        if let Ok(Some(existing)) = session_detail_storage
-                            .get_session_detail_by_topic(agent_id.clone(), channel.clone(), topic.clone())
-                            .await
-                        {
-                            let request_prompt = session_detail_request.to_prompt();
-                            if let (true, Ok(request_prompt)) = (existing.title == slug_title, request_prompt) {
-                                // Generate title via LLM
-                                let prompt = format!(
-                                    r#"summarize (don't execute) the prompt below into a 60 character title:
-"{}"
-
-**only response the summarize title**"#,
-                                    request_prompt
-                                );
-                                let res = session_detail_agent
-                                    .prompt(Message::user(prompt), vec![], 0, None, false, &ToolContext { session: session_detail_session_for_ctx, pending_attachments: Arc::new(Mutex::new(vec![])), hooks: None, background_depth: 0 })
-                                    .await;
-
-                                if let Ok((title, _, _, _)) = res {
-                                    let mut title = title.clone();
-                                    title.truncate(60);
-
-                                    if title.starts_with('"') {
-                                        title.remove(0);
-                                    }
-
-                                    if title.ends_with('"') {
-                                        title.pop();
-                                    }
-
-                                    let detail = VizierSessionDetail {
-                                        agent_id,
-                                        channel,
-                                        topic,
-                                        title,
-                                        is_thinking: existing.is_thinking,
-                                    };
-                                    let _ = session_detail_storage.update_session_detail(detail).await;
-                                }
-                            }
-                        }
-                    }
-                });
+                detail_tasks.spawn(refresh_session_detail(
+                    agent.clone(),
+                    deps.storage.clone(),
+                    session.clone(),
+                    request.clone(),
+                    titling.clone(),
+                ));
 
                 // Handle abort command
                 if let VizierRequestContent::Command(ref cmd) = request.content {
@@ -333,6 +270,133 @@ pub async fn agent_process(
     turns.detach_all();
     agent_channels.shutdown().await;
     Ok(())
+}
+
+/// A session titled from the topic slug gets a generated title once it has this many
+/// requests stored.
+const TITLE_AFTER_REQUESTS: usize = 10;
+
+/// Sessions with a title being generated, so a burst of messages (a busy group chat) starts
+/// one generation rather than one each. Holds only generations in flight.
+type TitlingSessions = Arc<std::sync::Mutex<std::collections::HashSet<VizierSession>>>;
+
+/// A session's claim on title generation, released however the generation ends.
+struct TitlingClaim {
+    titling: TitlingSessions,
+    session: VizierSession,
+}
+
+impl TitlingClaim {
+    fn take(titling: &TitlingSessions, session: &VizierSession) -> Option<Self> {
+        let mut in_flight = titling.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        in_flight.insert(session.clone()).then(|| Self {
+            titling: titling.clone(),
+            session: session.clone(),
+        })
+    }
+}
+
+impl Drop for TitlingClaim {
+    fn drop(&mut self) {
+        self.titling
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.session);
+    }
+}
+
+/// Keeps the session's detail in step with an arriving request: created, titled with the
+/// topic slug, if it does not exist yet; given a generated title once it has enough requests.
+///
+/// Both decisions read storage, never a count kept in memory: such a count grew with every
+/// session ever seen and restarted from zero with the process, so the first message after a
+/// restart re-created the detail and reset its title to the slug (#49).
+async fn refresh_session_detail(
+    agent: Arc<VizierAgent>,
+    storage: Arc<VizierStorage>,
+    session: VizierSession,
+    request: VizierRequest,
+    titling: TitlingSessions,
+) {
+    let VizierSession(agent_id, channel, topic) = session.clone();
+    let slug_title = topic.clone().unwrap_or("DEFAULT".to_string());
+
+    let existing = match storage
+        .get_session_detail_by_topic(agent_id.clone(), channel.clone(), topic.clone())
+        .await
+    {
+        Ok(existing) => existing,
+        Err(err) => {
+            tracing::warn!(agent_id = %agent_id, "failed to read session detail: {err}");
+            return;
+        }
+    };
+    let Some(existing) = existing else {
+        let detail = VizierSessionDetail {
+            agent_id,
+            channel,
+            topic,
+            title: slug_title,
+            is_thinking: true,
+        };
+        let _ = storage.save_session_detail(detail).await;
+        return;
+    };
+
+    // Titled already, by generation or by someone renaming it.
+    if existing.title != slug_title {
+        return;
+    }
+    // The turn saves this request concurrently, so the count may or may not include it yet:
+    // the title comes on the tenth request or the one after.
+    match storage.count_session_requests(session.clone()).await {
+        Ok(count) if count >= TITLE_AFTER_REQUESTS => {}
+        _ => return,
+    }
+    let Some(_claim) = TitlingClaim::take(&titling, &session) else {
+        return;
+    };
+    let Ok(request_prompt) = request.to_prompt() else {
+        return;
+    };
+
+    let prompt = format!(
+        r#"summarize (don't execute) the prompt below into a 60 character title:
+"{}"
+
+**only response the summarize title**"#,
+        request_prompt
+    );
+    let ctx = ToolContext {
+        session,
+        pending_attachments: Arc::new(Mutex::new(vec![])),
+        hooks: None,
+        background_depth: 0,
+    };
+    let Ok((title, _, _, _)) = agent
+        .prompt(Message::user(prompt), vec![], 0, None, false, &ctx)
+        .await
+    else {
+        return;
+    };
+
+    let mut title = title;
+    title.truncate(60);
+    if title.starts_with('"') {
+        title.remove(0);
+    }
+    if title.ends_with('"') {
+        title.pop();
+    }
+
+    let detail = VizierSessionDetail {
+        agent_id,
+        channel,
+        topic,
+        title,
+        is_thinking: existing.is_thinking,
+    };
+    let _ = storage.update_session_detail(detail).await;
 }
 
 /// What every job started on a session needs, shared by the two places one starts: a
@@ -1599,5 +1663,18 @@ mod session_turns_tests {
             None,
         ));
         assert!(session_is_busy(&turns, &queues, &session("a")));
+    }
+
+    #[test]
+    fn one_title_generation_per_session_at_a_time() {
+        let titling = TitlingSessions::default();
+        let first = TitlingClaim::take(&titling, &session("a"));
+        assert!(first.is_some());
+        assert!(TitlingClaim::take(&titling, &session("a")).is_none(), "a burst starts one");
+        assert!(TitlingClaim::take(&titling, &session("b")).is_some(), "other sessions are independent");
+
+        drop(first);
+        assert!(TitlingClaim::take(&titling, &session("a")).is_some(), "released when it ends");
+        assert!(titling.lock().unwrap().is_empty(), "nothing is kept once generations end");
     }
 }

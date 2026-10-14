@@ -591,6 +591,17 @@ impl HistoryStorage for SqliteStorage {
         )?;
         Ok(entry)
     }
+
+    async fn count_session_requests(&self, session: VizierSession) -> Result<usize> {
+        let conn = self.conn.lock();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM session_history \
+             WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3 AND content_type = 'Request'",
+            rusqlite::params![session.0, session.1.to_slug(), session.2],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
 }
 
 #[cfg(test)]
@@ -860,5 +871,30 @@ mod tests {
             )
             .unwrap();
         assert_eq!(seq, Some(1));
+    }
+
+    /// The session title is generated once a conversation has enough requests; the count
+    /// comes from storage so it survives a restart (#49).
+    #[tokio::test]
+    async fn count_session_requests_counts_only_that_sessions_requests() {
+        let (storage, _dir) = setup();
+        let other_topic = VizierSession(session().0, session().1, Some("Other".to_string()));
+        let no_topic = VizierSession(session().0, session().1, None);
+
+        for text in ["one", "two", "three"] {
+            storage.save_session_history(session(), request(text)).await.unwrap();
+        }
+        storage
+            .save_session_history(session(), SessionHistoryContent::Command("abort".to_string()))
+            .await
+            .unwrap();
+        storage.save_checkpoint(session(), Some("handover".to_string())).await.unwrap();
+        storage.save_session_history(session(), request("after checkpoint")).await.unwrap();
+        storage.save_session_history(other_topic.clone(), request("elsewhere")).await.unwrap();
+        storage.save_session_history(no_topic.clone(), request("no topic")).await.unwrap();
+
+        assert_eq!(storage.count_session_requests(session()).await.unwrap(), 4);
+        assert_eq!(storage.count_session_requests(other_topic).await.unwrap(), 1);
+        assert_eq!(storage.count_session_requests(no_topic).await.unwrap(), 1);
     }
 }
