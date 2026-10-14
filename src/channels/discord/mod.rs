@@ -199,11 +199,7 @@ fn slash_commands() -> Vec<Command> {
 }
 
 fn error_kind_label(kind: &crate::schema::ErrorKind) -> &'static str {
-    match kind {
-        crate::schema::ErrorKind::Completion => "Completion Error",
-        crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
-        crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
-    }
+    kind.label()
 }
 
 impl Handler {

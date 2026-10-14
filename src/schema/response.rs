@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 
 use crate::{
+    agents::agent::model::{PROMPT_TIMED_OUT, PROVIDER_UNAVAILABLE, RATE_LIMITED},
     error::VizierError,
     schema::{VizierAttachment, VizierAttachmentContent},
     utils::get_mime_type,
@@ -47,6 +48,11 @@ pub enum ErrorKind {
     Completion,
     ToolTimeout,
     PromptTimeout,
+    /// The provider kept rate limiting after every retry.
+    RateLimited,
+    /// The provider kept failing transiently (5xx, dropped connection, no answer) after every
+    /// retry.
+    ProviderUnavailable,
 }
 
 impl ErrorKind {
@@ -57,10 +63,35 @@ impl ErrorKind {
     pub fn classify(err_str: &str) -> Self {
         if err_str.contains("timed out") && err_str.contains("Tool") {
             ErrorKind::ToolTimeout
-        } else if err_str.contains("thinking depth") || err_str.contains("prompt timed out") {
+        } else if err_str.contains("thinking depth") || err_str.contains(PROMPT_TIMED_OUT) {
             ErrorKind::PromptTimeout
+        } else if err_str.contains(RATE_LIMITED) {
+            ErrorKind::RateLimited
+        } else if err_str.contains(PROVIDER_UNAVAILABLE) {
+            ErrorKind::ProviderUnavailable
         } else {
             ErrorKind::Completion
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ErrorKind::Completion => "completion",
+            ErrorKind::ToolTimeout => "tool_timeout",
+            ErrorKind::PromptTimeout => "prompt_timeout",
+            ErrorKind::RateLimited => "rate_limited",
+            ErrorKind::ProviderUnavailable => "provider_unavailable",
+        }
+    }
+
+    /// How a chat channel titles the error for a person.
+    pub fn label(&self) -> &'static str {
+        match self {
+            ErrorKind::Completion => "Completion Error",
+            ErrorKind::ToolTimeout => "Tool Timeout",
+            ErrorKind::PromptTimeout => "Prompt Timeout",
+            ErrorKind::RateLimited => "Rate Limited",
+            ErrorKind::ProviderUnavailable => "Provider Unavailable",
         }
     }
 }
@@ -155,12 +186,7 @@ impl VizierResponse {
             }
 
             VizierResponseContent::Error { kind, message } => {
-                let kind_str = match kind {
-                    ErrorKind::Completion => "completion",
-                    ErrorKind::ToolTimeout => "tool_timeout",
-                    ErrorKind::PromptTimeout => "prompt_timeout",
-                };
-                vec![ToolResultContent::text(format!("[Error: {}] {}", kind_str, message))]
+                vec![ToolResultContent::text(format!("[Error: {}] {}", kind.as_str(), message))]
             }
 
             _ => return Err(VizierError("unimplemented".into()).into()),

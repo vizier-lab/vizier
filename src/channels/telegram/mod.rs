@@ -481,11 +481,7 @@ impl TelegramChannelReader {
                             break;
                         }
                         VizierResponseContent::Error { kind, message } => {
-                            let kind_str = match kind {
-                                crate::schema::ErrorKind::Completion => "Completion Error",
-                                crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
-                                crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
-                            };
+                            let kind_str = kind.label();
                             let _ = crate::utils::telegram::send_message(
                                 &bot,
                                 chat_id,
@@ -548,11 +544,7 @@ impl TelegramChannelReader {
                             break;
                         }
                         VizierResponseContent::Error { kind, message } => {
-                            let kind_str = match kind {
-                                crate::schema::ErrorKind::Completion => "Completion Error",
-                                crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
-                                crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
-                            };
+                            let kind_str = kind.label();
                             let _ = crate::utils::telegram::send_message(
                                 &bot,
                                 chat_id,
@@ -838,11 +830,7 @@ impl TurnRenderer {
                     if let Some(handle) = typing_handle.take() {
                         handle.abort();
                     }
-                    let kind_str = match kind {
-                        crate::schema::ErrorKind::Completion => "Completion Error",
-                        crate::schema::ErrorKind::ToolTimeout => "Tool Timeout",
-                        crate::schema::ErrorKind::PromptTimeout => "Prompt Timeout",
-                    };
+                    let kind_str = kind.label();
                     let _ = crate::utils::telegram::send_message(
                         &bot,
                         chat_id_copy,

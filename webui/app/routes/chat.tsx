@@ -1908,6 +1908,8 @@ export default function Chat() {
                     const errorContent = response.content.error
                     const kindStr = errorContent.kind === 'completion' ? 'Completion Error' :
                                     errorContent.kind === 'tool_timeout' ? 'Tool Timeout' :
+                                    errorContent.kind === 'rate_limited' ? 'Rate Limited' :
+                                    errorContent.kind === 'provider_unavailable' ? 'Provider Unavailable' :
                                     'Prompt Timeout'
                     content = `**${kindStr}**: ${errorContent.message}`
                   } else if (response?.content?.audio_reply) {

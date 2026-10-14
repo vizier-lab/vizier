@@ -63,10 +63,58 @@ pub struct AgentConfig {
     /// Budget for the related-memory block injected into each turn (FR-022, FR-023, FR-030).
     #[serde(default)]
     pub auto_context: AutoContextConfig,
+    /// How a failed completion call is retried, and how long one attempt may take (#41).
+    #[serde(default)]
+    pub completion_retry: CompletionRetryConfig,
 }
 
 fn default_checkpoint_threshold() -> f64 {
     0.8
+}
+
+/// Retries for transient provider failures (rate limits, 5xx, dropped connections). Never
+/// applied to errors that would fail the same way again, such as a bad key or a bad request.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CompletionRetryConfig {
+    /// Attempts in all, the first included. 1 disables retrying.
+    #[serde(default = "default_retry_max_attempts")]
+    pub max_attempts: u32,
+    /// Wait before the first retry; doubled for each later one, with jitter.
+    #[serde(default = "default_retry_base_delay")]
+    pub base_delay: DurationString,
+    #[serde(default = "default_retry_max_delay")]
+    pub max_delay: DurationString,
+    /// How long one attempt may take before it is abandoned and retried. A turn's
+    /// `prompt_timeout` still bounds the attempts together.
+    #[serde(default = "default_retry_attempt_timeout")]
+    pub attempt_timeout: DurationString,
+}
+
+impl Default for CompletionRetryConfig {
+    fn default() -> Self {
+        Self {
+            max_attempts: default_retry_max_attempts(),
+            base_delay: default_retry_base_delay(),
+            max_delay: default_retry_max_delay(),
+            attempt_timeout: default_retry_attempt_timeout(),
+        }
+    }
+}
+
+fn default_retry_max_attempts() -> u32 {
+    4
+}
+
+fn default_retry_base_delay() -> DurationString {
+    std::time::Duration::from_secs(1).into()
+}
+
+fn default_retry_max_delay() -> DurationString {
+    std::time::Duration::from_secs(30).into()
+}
+
+fn default_retry_attempt_timeout() -> DurationString {
+    std::time::Duration::from_secs(300).into()
 }
 
 /// What the per-turn related-memory lookup is allowed to spend, budgeted separately per request

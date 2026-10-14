@@ -483,6 +483,7 @@ impl CreateAgentRequest {
             ),
             chunking: Default::default(),
             auto_context: Default::default(),
+            completion_retry: Default::default(),
         }
     }
 }

@@ -673,7 +673,7 @@ export type VizierResponseContent =
   | { tool_response: { response: unknown } }
   | { message: { content: string; stats?: VizierResponseStats } }
   | { audio_reply: [VizierAttachment, string | null, VizierResponseStats | null] }
-  | { error: { kind: 'completion' | 'tool_timeout' | 'prompt_timeout'; message: string } }
+  | { error: { kind: 'completion' | 'tool_timeout' | 'prompt_timeout' | 'rate_limited' | 'provider_unavailable'; message: string } }
   | 'empty'
   | 'abort'
   | { checkpoint: { handover: string | null } }

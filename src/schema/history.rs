@@ -158,12 +158,7 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
                         }
                     }
                     VizierResponseContent::Error { kind, message } => {
-                        let kind_str = match kind {
-                            crate::schema::ErrorKind::Completion => "completion",
-                            crate::schema::ErrorKind::ToolTimeout => "tool_timeout",
-                            crate::schema::ErrorKind::PromptTimeout => "prompt_timeout",
-                        };
-                        messages.push(Message::user(format!("[Error: {}] {}", kind_str, message)));
+                        messages.push(Message::user(format!("[Error: {}] {}", kind.as_str(), message)));
                     }
                     _ => {}
                 }

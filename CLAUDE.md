@@ -95,7 +95,7 @@ The one-time conversion of an existing corpus runs **per agent in `VizierAgents:
 
 ### Providers / models (`src/agents/agent/model/`)
 
-Provider abstraction (`VizierModel`) over the many backends declared in `config/provider.rs` (ollama, openai, anthropic, deepseek, openrouter, gemini, mimo, llama_cpp, elevenlabs, and a growing long tail — groq, mistral, xai, perplexity, moonshot, zai, minimax, together, cohere, huggingface, hyperbolic, voyageai, galadriel, mira, chatgpt, copilot, azure, opencode, custom), plus `dummyplug` — an offline test provider (`model/dummyplug.rs`) that needs no keys and lets you list/sample/run tools by hand. Runs on `rig-core`.
+Every completion goes through `model/retry.rs`: transient failures (429, 5xx, connection errors, an attempt that exceeds `completion_retry.attempt_timeout`) are retried with jittered backoff per `AgentConfig.completion_retry`, and the chat loop passes its `prompt_timeout` as a hard deadline (`completion_until`). rig drops status codes from most provider errors, so classification falls back to the error text and `Retry-After` isn't honoured. Exhausted retries surface as `ErrorKind::RateLimited` / `ProviderUnavailable`. Provider abstraction (`VizierModel`) over the many backends declared in `config/provider.rs` (ollama, openai, anthropic, deepseek, openrouter, gemini, mimo, llama_cpp, elevenlabs, and a growing long tail — groq, mistral, xai, perplexity, moonshot, zai, minimax, together, cohere, huggingface, hyperbolic, voyageai, galadriel, mira, chatgpt, copilot, azure, opencode, custom), plus `dummyplug` — an offline test provider (`model/dummyplug.rs`) that needs no keys and lets you list/sample/run tools by hand. Runs on `rig-core`.
 
 ### Scheduler (`src/scheduler/`)
 

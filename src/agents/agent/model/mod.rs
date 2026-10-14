@@ -19,12 +19,15 @@ use crate::{
         ResolvedProvider, resolve_chatgpt_provider, resolve_custom_provider, resolve_local_provider,
         resolve_provider_key, resolve_provider_with_base_url, resolve_azure_provider,
     },
-    schema::{AgentConfig, AgentId},
+    schema::{AgentConfig, AgentId, agent::CompletionRetryConfig},
 };
 
 mod dummyplug;
 mod provider;
 mod registry;
+mod retry;
+
+pub use retry::{PROMPT_TIMED_OUT, PROVIDER_UNAVAILABLE, RATE_LIMITED};
 
 /// Try to fetch context window size from provider's ModelListing API.
 /// Falls back to model name detection.
@@ -63,15 +66,38 @@ where
 }
 
 #[derive(Clone)]
-pub struct VizierModel(Arc<Box<dyn VizierModelTrait + Sync + Send + 'static>>);
+pub struct VizierModel {
+    inner: Arc<Box<dyn VizierModelTrait + Sync + Send + 'static>>,
+    retry: CompletionRetryConfig,
+}
 
 impl VizierModel {
     fn build<Model: VizierModelTrait + Sync + Send + 'static>(model: Model) -> Self {
-        Self(Arc::new(Box::new(model)))
+        Self {
+            inner: Arc::new(Box::new(model)),
+            retry: CompletionRetryConfig::default(),
+        }
+    }
+
+    fn with_retry(mut self, retry: CompletionRetryConfig) -> Self {
+        self.retry = retry;
+        self
     }
 
     pub fn context_window(&self) -> Option<u64> {
-        self.0.context_window()
+        self.inner.context_window()
+    }
+
+    /// A completion, retried on transient failures, that gives up at `deadline`: the turn's
+    /// `prompt_timeout`, which otherwise only applies between completions (#41).
+    pub async fn completion_until(
+        &self,
+        message: Message,
+        history: Vec<Message>,
+        tools: Vec<ToolDefinition>,
+        deadline: Option<tokio::time::Instant>,
+    ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
+        retry::complete(&**self.inner, &self.retry, message, history, tools, deadline).await
     }
 
     // NOTE: `mistral` is the rig cloud provider (Mistral AI API).
@@ -86,7 +112,7 @@ impl VizierModel {
         // Config override takes priority over API/pattern detection
         let config_context_window = agent_config.context_window;
 
-        Ok(match agent_config.provider {
+        let model = match agent_config.provider {
             // Providers that support ModelListing — try API first (unless config override)
             ProviderVariant::openrouter => {
                 let client = openrouter::Client::new(resolved.api_key.clone())?;
@@ -271,7 +297,8 @@ impl VizierModel {
                 anyhow::bail!("elevenlabs is a TTS-only provider")
             }
             ProviderVariant::dummyplug => Self::build(dummyplug::DummyplugModel::new(agent_config)),
-        })
+        };
+        Ok(model.with_retry(agent_config.completion_retry.clone()))
     }
 
     pub async fn new_with_override(
@@ -290,7 +317,7 @@ impl VizierModel {
 
         let resolved = resolve_provider(&deps.storage, &provider).await?;
 
-        Ok(match override_config.provider {
+        let model = match override_config.provider {
             ProviderVariant::ollama => Self::build(
                 VizierModelImpl::<ollama::Client>::build(&resolved, &override_config).await?,
             ),
@@ -383,7 +410,8 @@ impl VizierModel {
             ProviderVariant::dummyplug => {
                 Self::build(dummyplug::DummyplugModel::new(&override_config))
             }
-        })
+        };
+        Ok(model.with_retry(agent_config.completion_retry.clone()))
     }
 }
 
@@ -506,11 +534,11 @@ impl VizierModelTrait for VizierModel {
         history: Vec<Message>,
         tools: Vec<ToolDefinition>,
     ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
-        self.0.completion(message, history, tools).await
+        self.completion_until(message, history, tools, None).await
     }
 
     fn context_window(&self) -> Option<u64> {
-        self.0.context_window()
+        self.inner.context_window()
     }
 }
 

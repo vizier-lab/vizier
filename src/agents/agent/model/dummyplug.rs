@@ -445,6 +445,7 @@ mod tests {
             indexer: None,
             chunking: Default::default(),
             auto_context: Default::default(),
+            completion_retry: Default::default(),
         }
     }
 

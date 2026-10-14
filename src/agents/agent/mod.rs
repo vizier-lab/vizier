@@ -630,10 +630,11 @@ impl VizierAgent {
             // which is what storage and the WebUI are served from.
             let (message_id, choices, usage) = self
                 .model
-                .completion(
+                .completion_until(
                     message_for_model(&message),
                     messages_for_model(&history),
                     tools.clone(),
+                    Some(start + prompt_timeout),
                 )
                 .await
                 .map_err(|e| fail_turn(e, full_history.clone(), Some(message.clone()), vec![]))?;
