@@ -354,19 +354,21 @@ impl VizierAgent {
                 _ => None,
             };
             if let Some((att, _is_prompt)) = audio_att {
-                let audio_bytes = self
-                    .transport
-                    .send_file_resolve(att.clone())
-                    .await
-                    .map_err(|e| anyhow::anyhow!(e))?;
-
                 let language = self.config.tools.stt.settings.language.as_deref();
-                let text = match stt.transcribe(&audio_bytes, &att.filename, language).await {
-                    Ok(t) if !t.is_empty() => t,
-                    Ok(_) => "[Voice message]".to_string(),
+                let text = match self.transport.send_file_resolve(att.clone()).await {
                     Err(e) => {
-                        tracing::error!("STT transcription failed: {}", e);
-                        "[Voice message - transcription failed]".to_string()
+                        tracing::error!("failed to load voice message for transcription: {}", e);
+                        "[Voice message - could not be loaded]".to_string()
+                    }
+                    Ok(audio_bytes) => {
+                        match stt.transcribe(&audio_bytes, &att.filename, language).await {
+                            Ok(t) if !t.is_empty() => t,
+                            Ok(_) => "[Voice message]".to_string(),
+                            Err(e) => {
+                                tracing::error!("STT transcription failed: {}", e);
+                                "[Voice message - transcription failed]".to_string()
+                            }
+                        }
                     }
                 };
                 req.content = match req.content {
@@ -404,37 +406,25 @@ impl VizierAgent {
             req = hooks.on_request(req).await?;
         }
 
-        // Store attachments in SessionFiles via FileManager
+        // Store attachments in SessionFiles via FileManager. One that fails is left out and
+        // the model told so, rather than failing the turn over one file (#47).
+        let mut unavailable = vec![];
         for attachment in &req.attachments {
-            let content = self
-                .transport
-                .send_file_resolve(attachment.clone())
-                .await
-                .map_err(|e| anyhow::anyhow!(e))?;
-            let file_record = self
-                .transport
-                .send_file_upload(attachment.filename.clone(), content)
-                .await
-                .map_err(|e| anyhow::anyhow!(e))?;
-            let mime_type = get_mime_type(&attachment.filename);
-            self.storage
-                .save_session_file(
-                    &session,
-                    &attachment.filename,
-                    &mime_type,
-                    file_record.size,
-                    &file_record.id,
-                )
-                .await
-                .map_err(|e| anyhow::anyhow!(e))?;
+            if let Err(e) = self.store_session_file(&session, attachment).await {
+                tracing::warn!(
+                    "attachment '{}' could not be stored, continuing without it: {}",
+                    attachment.filename,
+                    e
+                );
+                unavailable.push(attachment.filename.clone());
+            }
         }
         // Clear attachments so they don't get injected directly into the conversation
         req.attachments.clear();
 
         // Always save request to history (even for SilentRead that may not get a response)
-        self.storage
-            .save_session_history(session.clone(), SessionHistoryContent::Request(req.clone()))
-            .await?;
+        self.save_history_or_log(&session, SessionHistoryContent::Request(req.clone()))
+            .await;
 
         if let VizierRequestContent::SilentRead(_) = req.content {
             if initiative_factor > self.config.silent_read_initiative_chance {
@@ -449,12 +439,20 @@ impl VizierAgent {
 
         let original_history_len = history.len();
 
+        let mut message = req.to_message(&self.global_workspace)?;
+        if !unavailable.is_empty() {
+            message = with_note(
+                message,
+                format!(
+                    "[These attachments could not be loaded: {}]",
+                    unavailable.join(", ")
+                ),
+            );
+        }
+
         let prompt_result = self
             .prompt(
-                with_context(
-                    req.to_message(&self.global_workspace)?,
-                    context_md(&memory, &skills, digest.as_deref()),
-                ),
+                with_context(message, context_md(&memory, &skills, digest.as_deref())),
                 history,
                 0,
                 hooks.clone(),
@@ -479,30 +477,28 @@ impl VizierAgent {
                     .unwrap_or_default();
                 let tool_entries = messages_to_history_entries(new_messages);
                 for entry in tool_entries {
-                    self.storage
-                        .save_session_history(session.clone(), entry)
-                        .await?;
+                    self.save_history_or_log(&session, entry).await;
                 }
 
                 // Determine error kind
                 let err_str = err.to_string();
                 let kind = ErrorKind::classify(&err_str);
 
-                // Save error entry as Response with Error content
-                self.storage
-                    .save_session_history(
-                        session.clone(),
-                        SessionHistoryContent::Response(VizierResponse {
-                            timestamp: chrono::Utc::now(),
-                            content: VizierResponseContent::Error {
-                                kind,
-                                message: err_str,
-                            },
-                            attachments: vec![],
-                            ..Default::default()
-                        }),
-                    )
-                    .await?;
+                // Save error entry as Response with Error content. A failed save is logged,
+                // never reported in place of the error that ended the turn (#47).
+                self.save_history_or_log(
+                    &session,
+                    SessionHistoryContent::Response(VizierResponse {
+                        timestamp: chrono::Utc::now(),
+                        content: VizierResponseContent::Error {
+                            kind,
+                            message: err_str,
+                        },
+                        attachments: vec![],
+                        ..Default::default()
+                    }),
+                )
+                .await;
 
                 return Err(err.into());
             }
@@ -519,9 +515,7 @@ impl VizierAgent {
             let tool_entries =
                 messages_to_history_entries(&new_messages[..new_messages.len() - 1]);
             for entry in tool_entries {
-                self.storage
-                    .save_session_history(session.clone(), entry)
-                    .await?;
+                self.save_history_or_log(&session, entry).await;
             }
         }
 
@@ -537,16 +531,14 @@ impl VizierAgent {
         };
         response = self.maybe_audio_reply(response, &req).await;
 
+        // The answer exists and is paid for: a failed save loses it from history, not from
+        // the person waiting for it (#47).
         let uid = self
-            .storage
-            .save_session_history(
-                session.clone(),
-                SessionHistoryContent::Response(response.clone()),
-            )
-            .await?;
+            .save_history_or_log(&session, SessionHistoryContent::Response(response.clone()))
+            .await;
         // After the save, so the uid is never part of the stored entry: it travels on the
         // response so every channel can address the reply it is about to render.
-        response.history_uid = Some(uid);
+        response.history_uid = uid;
 
         if let Some(hooks) = hooks.clone() {
             response = hooks.on_response(response).await?;
@@ -688,43 +680,50 @@ impl VizierAgent {
 
                     // Generate handover message. No digest: the current user message already
                     // carries it in its context block, and that message is in `history`.
-                    let handover = self
-                        .generate_handover_message(&history, None, ctx)
-                        .await
-                        .map_err(|e| fail_turn(e, full_history.clone(), None, vec![]))?;
+                    //
+                    // If it can't be generated, the turn carries on with its full context and
+                    // the checkpoint is tried again after the next completion: compaction is
+                    // an optimisation, the person's answer is not (#47).
+                    match self.generate_handover_message(&history, None, ctx).await {
+                        Err(e) => tracing::warn!(
+                            "checkpoint handover failed, continuing without compacting: {}",
+                            e
+                        ),
+                        Ok(handover) => {
+                            // Save checkpoint to storage
+                            if let Err(e) = self
+                                .save_checkpoint(ctx.session.clone(), handover.clone())
+                                .await
+                            {
+                                tracing::error!("Failed to save checkpoint: {}", e);
+                            }
 
-                    // Save checkpoint to storage
-                    if let Err(e) = self
-                        .save_checkpoint(ctx.session.clone(), handover.clone())
-                        .await
-                    {
-                        tracing::error!("Failed to save checkpoint: {}", e);
-                    }
+                            // Notify hooks about handover
+                            if let Some(ref hooks) = hooks {
+                                if let Err(e) = hooks.on_handover(handover.clone()).await {
+                                    tracing::error!("Failed to notify hooks about handover: {}", e);
+                                }
+                            }
 
-                    // Notify hooks about handover
-                    if let Some(ref hooks) = hooks {
-                        if let Err(e) = hooks.on_handover(handover.clone()).await {
-                            tracing::error!("Failed to notify hooks about handover: {}", e);
+                            // Clear LLM history and rebuild with fresh context
+                            history.clear();
+                            history.extend(self.prepare_system_prompts(&ctx.session).await);
+
+                            // Inject the new handover
+                            if let Some(ref msg) = handover {
+                                history.push(Message::system(format!(
+                                        "# Conversation Context (Previous Checkpoint)\n\
+                                         The following is a summary of the conversation before this session was checkpointed.\n\n{}",
+                                        msg
+                                    )));
+                            }
+
+                            // Re-add current user message to LLM history
+                            history.push(message.clone());
+
+                            checkpoint_created = true;
                         }
                     }
-
-                    // Clear LLM history and rebuild with fresh context
-                    history.clear();
-                    history.extend(self.prepare_system_prompts(&ctx.session).await);
-
-                    // Inject the new handover
-                    if let Some(ref msg) = handover {
-                        history.push(Message::system(format!(
-                                "# Conversation Context (Previous Checkpoint)\n\
-                                 The following is a summary of the conversation before this session was checkpointed.\n\n{}",
-                                msg
-                            )));
-                    }
-
-                    // Re-add current user message to LLM history
-                    history.push(message.clone());
-
-                    checkpoint_created = true;
                 }
             }
 
@@ -927,6 +926,72 @@ impl VizierAgent {
             attachments,
             full_history,
         ))
+    }
+
+    /// Store one attachment of the request as a session file.
+    async fn store_session_file(
+        &self,
+        session: &VizierSession,
+        attachment: &VizierAttachment,
+    ) -> Result<()> {
+        let content = self
+            .transport
+            .send_file_resolve(attachment.clone())
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let file_record = self
+            .transport
+            .send_file_upload(attachment.filename.clone(), content)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let mime_type = get_mime_type(&attachment.filename);
+        self.storage
+            .save_session_file(
+                session,
+                &attachment.filename,
+                &mime_type,
+                file_record.size,
+                &file_record.id,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        Ok(())
+    }
+
+    /// Save a history entry without letting a failure end the turn (#47): retried briefly
+    /// while sqlite is busy, then logged. The entry's uid when it was saved.
+    async fn save_history_or_log(
+        &self,
+        session: &VizierSession,
+        content: SessionHistoryContent,
+    ) -> Option<String> {
+        const BUSY_RETRIES_MS: [u64; 2] = [100, 400];
+        let mut attempt = 0;
+        loop {
+            match self
+                .storage
+                .save_session_history(session.clone(), content.clone())
+                .await
+            {
+                Ok(uid) => return Some(uid),
+                Err(e) => {
+                    let busy = {
+                        let msg = e.to_string().to_lowercase();
+                        msg.contains("database is locked") || msg.contains("busy")
+                    };
+                    if busy && let Some(ms) = BUSY_RETRIES_MS.get(attempt) {
+                        attempt += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(*ms)).await;
+                        continue;
+                    }
+                    tracing::error!(
+                        agent_id = %session.0,
+                        "failed to save session history, the turn continues without it: {e}"
+                    );
+                    return None;
+                }
+            }
+        }
     }
 
     async fn save_checkpoint(
@@ -1283,6 +1348,17 @@ impl VizierAgent {
 /// failure before it would otherwise lose them. Any tool call still unanswered after
 /// `completed` is answered with the error, so the stored turn never ends on a tool call
 /// with no result (issue #58).
+/// `note` appended to a user message, after what the person sent.
+fn with_note(message: Message, note: String) -> Message {
+    match message {
+        Message::User { mut content } => {
+            content.push(UserContent::text(note));
+            Message::User { content }
+        }
+        other => other,
+    }
+}
+
 /// The result a timed-out tool call hands the model. The call is abandoned, but whatever it
 /// did before the deadline may already have happened.
 fn tool_timeout_response(function_name: &str, limit: std::time::Duration) -> VizierResponse {
