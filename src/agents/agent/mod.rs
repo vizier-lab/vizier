@@ -577,6 +577,9 @@ impl VizierAgent {
         let output: String;
 
         let mut message = message;
+        // The turn's own request, which a mid-turn checkpoint keeps ahead of the exchange in
+        // progress.
+        let request = message.clone();
 
         let start = Instant::now();
         let prompt_timeout = *self.config.prompt_timeout;
@@ -664,69 +667,6 @@ impl VizierAgent {
             total_tokens += usage.total_tokens;
             current_context_size = Some(usage.input_tokens);
 
-            // Check for context window overflow - create checkpoint if needed
-            let mut checkpoint_created = false;
-            if let (Some(ctx_size), Some(ctx_window)) =
-                (current_context_size, self.model.context_window())
-            {
-                let usage_ratio = ctx_size as f64 / ctx_window as f64;
-                if usage_ratio >= self.config.checkpoint_threshold {
-                    tracing::info!(
-                        "Context window usage at {:.1}% ({} / {} tokens), creating checkpoint",
-                        usage_ratio * 100.0,
-                        ctx_size,
-                        ctx_window
-                    );
-
-                    // Generate handover message. No digest: the current user message already
-                    // carries it in its context block, and that message is in `history`.
-                    //
-                    // If it can't be generated, the turn carries on with its full context and
-                    // the checkpoint is tried again after the next completion: compaction is
-                    // an optimisation, the person's answer is not (#47).
-                    match self.generate_handover_message(&history, None, ctx).await {
-                        Err(e) => tracing::warn!(
-                            "checkpoint handover failed, continuing without compacting: {}",
-                            e
-                        ),
-                        Ok(handover) => {
-                            // Save checkpoint to storage
-                            if let Err(e) = self
-                                .save_checkpoint(ctx.session.clone(), handover.clone())
-                                .await
-                            {
-                                tracing::error!("Failed to save checkpoint: {}", e);
-                            }
-
-                            // Notify hooks about handover
-                            if let Some(ref hooks) = hooks {
-                                if let Err(e) = hooks.on_handover(handover.clone()).await {
-                                    tracing::error!("Failed to notify hooks about handover: {}", e);
-                                }
-                            }
-
-                            // Clear LLM history and rebuild with fresh context
-                            history.clear();
-                            history.extend(self.prepare_system_prompts(&ctx.session).await);
-
-                            // Inject the new handover
-                            if let Some(ref msg) = handover {
-                                history.push(Message::system(format!(
-                                        "# Conversation Context (Previous Checkpoint)\n\
-                                         The following is a summary of the conversation before this session was checkpointed.\n\n{}",
-                                        msg
-                                    )));
-                            }
-
-                            // Re-add current user message to LLM history
-                            history.push(message.clone());
-
-                            checkpoint_created = true;
-                        }
-                    }
-                }
-            }
-
             let (tool_calls, others): (Vec<_>, Vec<_>) = choices
                 .iter()
                 .partition(|choice| matches!(choice, AssistantContent::ToolCall(_)));
@@ -744,6 +684,10 @@ impl VizierAgent {
                     .collect::<Vec<_>>()
                     .join("\n");
 
+                // A final answer leaves no tool call waiting, so the checkpoint is safe here,
+                // and it's what keeps the session's next turn small.
+                self.maybe_checkpoint(current_context_size, &mut history, &request, None, &hooks, ctx)
+                    .await;
                 break;
             }
 
@@ -904,6 +848,18 @@ impl VizierAgent {
                     )),
                 };
             }
+
+            // Only now, with every tool call of the reply answered: checkpointing between the
+            // completion and its tool results dropped the calls the results answer (#63).
+            self.maybe_checkpoint(
+                current_context_size,
+                &mut history,
+                &request,
+                Some(&message),
+                &hooks,
+                ctx,
+            )
+            .await;
         }
 
         let attachments = ctx.pending_attachments.lock().await.drain(..).collect();
@@ -926,6 +882,82 @@ impl VizierAgent {
             attachments,
             full_history,
         ))
+    }
+
+    /// Compact the turn's context once the last completion used `checkpoint_threshold` of the
+    /// window: generate a handover, save it as the session's checkpoint, and rebuild `history`
+    /// as system prompts, handover, the turn's `request` and the exchange in progress (from the
+    /// last assistant message on). `next` is the message about to be sent, if any; the handover
+    /// covers it too.
+    ///
+    /// Called only where no tool call is waiting for its result, so the rebuilt history never
+    /// starts a tool exchange halfway (#63). If the handover can't be generated the turn carries
+    /// on with its full context and tries again after the next completion (#47).
+    async fn maybe_checkpoint(
+        &self,
+        context_size: Option<u64>,
+        history: &mut Vec<Message>,
+        request: &Message,
+        next: Option<&Message>,
+        hooks: &Option<Arc<VizierSessionHooks>>,
+        ctx: &ToolContext,
+    ) {
+        let (Some(ctx_size), Some(ctx_window)) = (context_size, self.model.context_window())
+        else {
+            return;
+        };
+        let usage_ratio = ctx_size as f64 / ctx_window as f64;
+        if usage_ratio < self.config.checkpoint_threshold {
+            return;
+        }
+        tracing::info!(
+            "Context window usage at {:.1}% ({} / {} tokens), creating checkpoint",
+            usage_ratio * 100.0,
+            ctx_size,
+            ctx_window
+        );
+
+        // No digest: the turn's request already carries it in its context block.
+        let mut summarised = history.clone();
+        summarised.extend(next.cloned());
+        let handover = match self.generate_handover_message(&summarised, None, ctx).await {
+            Ok(handover) => handover,
+            Err(e) => {
+                tracing::warn!("checkpoint handover failed, continuing without compacting: {}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = self
+            .save_checkpoint(ctx.session.clone(), handover.clone())
+            .await
+        {
+            tracing::error!("Failed to save checkpoint: {}", e);
+        }
+
+        if let Some(hooks) = hooks
+            && let Err(e) = hooks.on_handover(handover.clone()).await
+        {
+            tracing::error!("Failed to notify hooks about handover: {}", e);
+        }
+
+        let in_progress = history
+            .iter()
+            .rposition(|m| matches!(m, Message::Assistant { .. }))
+            .map(|at| history.split_off(at))
+            .unwrap_or_default();
+
+        history.clear();
+        history.extend(self.prepare_system_prompts(&ctx.session).await);
+        if let Some(ref msg) = handover {
+            history.push(Message::system(format!(
+                "# Conversation Context (Previous Checkpoint)\n\
+                 The following is a summary of the conversation before this session was checkpointed.\n\n{}",
+                msg
+            )));
+        }
+        history.push(request.clone());
+        history.extend(in_progress);
     }
 
     /// Store one attachment of the request as a session file.
