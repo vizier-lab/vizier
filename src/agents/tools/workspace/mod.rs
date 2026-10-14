@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::{ToolContext, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::VizierError,
     schema::RevisionOrigin,
     storage::{VizierStorage, agent::AgentStorage},
@@ -33,8 +33,12 @@ impl VizierTool for WriteCore {
     type Input = WriteCoreArgs;
     type Output = String;
 
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Identity)
+    }
+
     fn name() -> String {
-        "WRITE_CORE".to_string()
+        "write_core".to_string()
     }
 
     fn description(&self) -> String {
@@ -77,8 +81,12 @@ impl VizierTool for ReadCore {
     type Input = ReadCoreArgs;
     type Output = String;
 
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Identity)
+    }
+
     fn name() -> String {
-        "READ_CORE".to_string()
+        "read_core".to_string()
     }
 
     fn description(&self) -> String {

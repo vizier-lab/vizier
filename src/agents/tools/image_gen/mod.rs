@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     VizierError,
-    agents::tools::{ToolContext, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     file_manager::FileManager,
     image_generation::VizierImageGen,
     storage::{VizierStorage, session_file::SessionFileStorage},
@@ -42,6 +42,10 @@ pub struct ImageGenerate {
 impl VizierTool for ImageGenerate {
     type Input = ImageGenerateArgs;
     type Output = ImageGenerateOutput;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Media)
+    }
 
     fn name() -> String {
         "image_generate".to_string()

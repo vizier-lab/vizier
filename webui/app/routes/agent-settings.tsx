@@ -21,7 +21,6 @@ import MarkdownEditor from '../components/MarkdownEditor'
 import Avatar from '../components/avatar'
 import AvatarCropModal from '../components/AvatarCropModal'
 import EmbeddingIndexerSection from '../components/EmbeddingIndexerSection'
-import PythonSandboxSection from '../components/PythonSandboxSection'
 import { useToastStore } from '../hooks/toastStore'
 import { useAgentStore } from '../hooks/agentStore'
 import type {
@@ -35,7 +34,6 @@ import type {
   ShellConfigData,
 } from '../interfaces/types'
 import {
-  DEFAULT_PYTHON_SANDBOX,
   CHAT_PROVIDERS,
   chatProviderLabel,
   CHAT_PROVIDER_MODELS,
@@ -131,7 +129,6 @@ export default function AgentSettings() {
       read_image_settings: {},
       image_gen: false,
       image_gen_settings: {},
-      python: DEFAULT_PYTHON_SANDBOX,
     },
   prompt_timeout: '60m',
   dream_enabled: false,
@@ -215,7 +212,6 @@ export default function AgentSettings() {
             read_image_settings: d.read_image_settings || {},
             image_gen: d.image_gen,
             image_gen_settings: d.image_gen_settings || {},
-            python: d.python ?? DEFAULT_PYTHON_SANDBOX,
           },
           prompt_timeout: d.prompt_timeout,
           dream_enabled: d.dream_enabled,
@@ -1324,11 +1320,6 @@ export default function AgentSettings() {
                   ))}
                 </div>
               </div>
-
-              <PythonSandboxSection
-                value={form.tools?.python}
-                onChange={(python) => setForm((prev) => ({ ...prev, tools: { ...prev.tools, python } }))}
-              />
 
               {/* Tool Timeout */}
               <div>

@@ -102,8 +102,8 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "delegate_agent" => "👤 Delegating task:".to_string(),
         "paralel_subtasks" => "⚡ Running parallel tasks".to_string(),
         "create_skill" => "🎯 Creating skill:".to_string(),
-        "WRITE_CORE" => "🧠 Updating core".to_string(),
-        "READ_CORE" => "🧠 Reading core".to_string(),
+        "write_core" => "🧠 Updating core".to_string(),
+        "read_core" => "🧠 Reading core".to_string(),
         "discord_send_message" => "💬 Discord message".to_string(),
         "discord_react_message" => "👍 Discord reaction".to_string(),
         "discord_get_message_by_id" => "📩 Discord message".to_string(),
@@ -112,7 +112,6 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "telegram_get_message_by_id" => "📩 Telegram message".to_string(),
         "webui_send_message" => "💬 WebUI message:".to_string(),
         "webui_list_topics" => "📋 WebUI topics:".to_string(),
-        _ if name.starts_with("mcp_") => "🔌 MCP tool:".to_string(),
         _ => format!("use {}", &name),
     };
 
@@ -260,15 +259,6 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         }
         "webui_list_topics" => {
             format!("@{}", args["username"].as_str().unwrap_or("?"))
-        }
-        _ if name.starts_with("mcp_") => {
-            let parts = name.strip_prefix("mcp_").unwrap_or(name);
-            let segments: Vec<&str> = parts.splitn(2, "__").collect();
-            if segments.len() == 2 {
-                format!("{} ({})", segments[1], segments[0])
-            } else {
-                name.to_string()
-            }
         }
         _ => format!(
             "```js\n{}\n```",

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::{ToolContext, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::{throw_vizier_error, VizierError},
 };
 
@@ -25,6 +25,10 @@ pub struct FetchWebpage;
 impl VizierTool for FetchWebpage {
     type Input = FetchArgs;
     type Output = FetchOutput;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Web)
+    }
 
     fn name() -> String {
         "fetch".to_string()

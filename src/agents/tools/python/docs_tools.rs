@@ -5,77 +5,126 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::{ToolContext, ToolRouter, VizierTool},
+    agents::tools::{
+        CatalogueEntry, CategorySummary, ToolCategory, ToolContext, ToolRouter, ToolTarget,
+        VizierTool, mcp_category_name,
+    },
     error::VizierError,
-    sandbox::docs,
+    sandbox::{ToolFunctionDoc, docs},
 };
 
-/// Output schema of the tool behind a function, when it is a native tool.
-pub(super) fn output_schema(router: &ToolRouter, tool: &str) -> Option<serde_json::Value> {
-    router
-        .default_toolset
-        .get_tool(tool.to_string())
-        .or_else(|_| router.user_toolset.get_tool(tool.to_string()))
-        .ok()
-        .map(|tool| tool.output_schema())
+/// The full documentation of one catalogue entry, output schema included for native tools.
+pub(super) fn entry_doc(router: &ToolRouter, entry: &CatalogueEntry) -> ToolFunctionDoc {
+    let output_schema = match &entry.target {
+        ToolTarget::Native(tool) => router
+            .default_toolset
+            .get_tool(tool.clone())
+            .or_else(|_| router.user_toolset.get_tool(tool.clone()))
+            .ok()
+            .map(|tool| tool.output_schema()),
+        ToolTarget::Mcp { .. } => None,
+    };
+    docs::describe_as(
+        entry.name.clone(),
+        &entry.definition,
+        output_schema.as_ref(),
+        Some(entry.category.clone()),
+    )
 }
 
 pub struct ListToolFunctions {
     router: ToolRouter,
+    categories: Vec<CategorySummary>,
 }
 
 impl ListToolFunctions {
-    pub fn new(router: ToolRouter) -> Self {
-        Self { router }
+    pub fn new(router: ToolRouter, categories: Vec<CategorySummary>) -> Self {
+        Self { router, categories }
     }
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ListToolFunctionsInput {}
-
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ToolFunctionSummary {
-    pub name: String,
-    pub summary: String,
-}
-
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ListToolFunctionsOutput {
-    pub count: usize,
-    pub functions: Vec<ToolFunctionSummary>,
+pub struct ListToolFunctionsInput {
+    #[serde(default)]
+    #[schemars(
+        description = "A category from the system prompt's list, e.g. \"memory\". Leave it out to list every function with its category."
+    )]
+    pub category: Option<String>,
 }
 
 #[async_trait::async_trait]
 impl VizierTool for ListToolFunctions {
     type Input = ListToolFunctionsInput;
-    type Output = ListToolFunctionsOutput;
+    /// `{count, functions}`, `{category, count, functions}`, or
+    /// `{available: false, category, message, did_you_mean}`.
+    type Output = serde_json::Value;
 
     fn name() -> String {
         "list_tool_functions".into()
     }
 
-    fn description(&self) -> String {
-        "List every function this agent can call from an execute_python script: each entry is {\"name\", \"summary\"}. Pass a name to describe_tool_function for parameters and examples.".into()
+    fn category() -> Option<ToolCategory> {
+        None
     }
 
-    async fn call(&self, _args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        let defs = self
-            .router
-            .definitions()
-            .await
-            .map_err(|err| VizierError(err.to_string()))?;
-        let functions: Vec<ToolFunctionSummary> = docs::catalogue(&defs)
-            .into_iter()
-            .map(|doc| ToolFunctionSummary {
-                name: doc.name,
-                summary: doc.summary,
+    fn description(&self) -> String {
+        "List the functions this agent can call from an execute_python script. Pass a `category` from the system prompt's list to see only that category's functions, each {\"name\", \"summary\"}; leave it out to list every function with its category. Pass a name to describe_tool_function for parameters and examples.".into()
+    }
+
+    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+        let catalogue = self.router.catalogue().await;
+
+        let Some(category) = args.category else {
+            let functions: Vec<serde_json::Value> = catalogue
+                .iter()
+                .map(|entry| {
+                    serde_json::json!({
+                        "name": entry.name,
+                        "summary": docs::summary(&entry.definition.description),
+                        "category": entry.category,
+                    })
+                })
+                .collect();
+            return Ok(serde_json::json!({ "count": functions.len(), "functions": functions }));
+        };
+
+        if !self.categories.iter().any(|known| known.name == category) {
+            let known: Vec<String> = self.categories.iter().map(|known| known.name.clone()).collect();
+            return Ok(serde_json::json!({
+                "available": false,
+                "category": category,
+                "message": format!("No category named '{category}'."),
+                "did_you_mean": docs::did_you_mean(&category, &known),
+            }));
+        }
+
+        let functions: Vec<serde_json::Value> = catalogue
+            .iter()
+            .filter(|entry| entry.category == category)
+            .map(|entry| {
+                serde_json::json!({
+                    "name": entry.name,
+                    "summary": docs::summary(&entry.definition.description),
+                })
             })
             .collect();
+        let mut output = serde_json::json!({
+            "category": category,
+            "count": functions.len(),
+            "functions": functions,
+        });
 
-        Ok(ListToolFunctionsOutput {
-            count: functions.len(),
-            functions,
-        })
+        let server = self
+            .router
+            .mcp
+            .keys()
+            .find(|server| mcp_category_name(server) == category);
+        if let (true, Some(server)) = (functions.is_empty(), server) {
+            output["message"] = serde_json::json!(format!(
+                "No functions from the {server} MCP server right now; it may be unreachable. Try again later."
+            ));
+        }
+        Ok(output)
     }
 }
 
@@ -105,29 +154,22 @@ impl VizierTool for DescribeToolFunction {
         "describe_tool_function".into()
     }
 
+    fn category() -> Option<ToolCategory> {
+        None
+    }
+
     fn description(&self) -> String {
         "Show the parameters, return shape and a usage example for one function callable from execute_python.".into()
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        let defs = self
-            .router
-            .definitions()
-            .await
-            .map_err(|err| VizierError(err.to_string()))?;
-        let catalogue = docs::catalogue(&defs);
+        let catalogue = self.router.catalogue().await;
 
-        let found = catalogue
-            .iter()
-            .find(|doc| doc.name == args.name)
-            .and_then(|doc| {
-                docs::describe_in(&defs, &doc.name, output_schema(&self.router, &doc.tool).as_ref())
-            });
-
-        Ok(match found {
-            Some(doc) => serde_json::to_value(doc).map_err(|err| VizierError(err.to_string()))?,
+        Ok(match catalogue.iter().find(|entry| entry.name == args.name) {
+            Some(entry) => serde_json::to_value(entry_doc(&self.router, entry))
+                .map_err(|err| VizierError(err.to_string()))?,
             None => {
-                let known: Vec<String> = catalogue.into_iter().map(|doc| doc.name).collect();
+                let known: Vec<String> = catalogue.into_iter().map(|entry| entry.name).collect();
                 docs::not_found(&args.name, &known)
             }
         })

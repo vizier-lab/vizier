@@ -45,7 +45,7 @@ Now do the following:
    |------|--------|
    | Specific deadline or one-time follow-up | `schedule_one_time_task` |
    | Recurring check-in at specific times | `schedule_cron_task` |
-   | Behavioral correction or user preference | `WRITE_CORE` |
+   | Behavioral correction or user preference | `write_core` |
    | General fact or context worth remembering | `memory_write` |
 
    Do NOT skip any action item. Every item must be persisted or explicitly noted as intentionally dropped in your final report.

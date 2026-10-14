@@ -227,9 +227,9 @@ export const formatToolChoice = (
       if (args.limit) filters.push(`limit: ${args.limit as number}`)
       return `💤 Reading dream journal${filters.length > 0 ? ` (${filters.join(', ')})` : ''}`
     }
-    case 'WRITE_CORE':
+    case 'write_core':
       return `🧠 Updating core`
-    case 'READ_CORE':
+    case 'read_core':
       return `🧠 Reading core`
     case 'discord_send_message':
       return `💬 Sending Discord message`
@@ -248,12 +248,6 @@ export const formatToolChoice = (
     case 'webui_list_topics':
       return `📋 Listing WebUI topics for @${args.username as string}`
     default:
-      if (name.startsWith('mcp_')) {
-        const parts = name.replace('mcp_', '').split('__')
-        const server = parts[0]
-        const toolName = parts.slice(1).join('__')
-        return `🔌 MCP tool: ${toolName} (${server})`
-      }
       const formattedArgs = `\`\`\`js\n${JSON.stringify(args, null, 2)}\n\`\`\``
       return `🔧 Using ${name}\n${formattedArgs}`
   }

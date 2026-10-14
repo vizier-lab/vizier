@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::agents::tools::{ToolContext, VizierTool};
+use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::error::VizierError;
 use crate::schema::{
     AgentId, VizierChannelId, VizierResponse, VizierResponseContent, VizierSession,
@@ -31,6 +31,10 @@ pub struct SendWebuiMessageArgs {
 impl VizierTool for SendWebuiMessage {
     type Input = SendWebuiMessageArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Webui)
+    }
 
     fn name() -> String {
         "webui_send_message".to_string()
@@ -96,6 +100,10 @@ pub struct WebuiTopicEntry {
 impl VizierTool for ListWebuiTopics {
     type Input = ListWebuiTopicsArgs;
     type Output = Vec<WebuiTopicEntry>;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Webui)
+    }
 
     fn name() -> String {
         "webui_list_topics".to_string()

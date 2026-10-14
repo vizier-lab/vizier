@@ -1,38 +1,74 @@
-use crate::agents::tools::ToolExposure;
+use crate::agents::tools::CategorySummary;
 
-/// The mode-specific `SANDBOX.md` briefing, or `None` while the sandbox is off.
-pub fn sandbox_md(exposure: &ToolExposure, tools_timeout: &str) -> Option<String> {
-    match exposure {
-        ToolExposure::Direct => None,
-        ToolExposure::SandboxAdditive => Some(format!(
-            r#"# SANDBOX.md - Python Sandbox
+/// The `SANDBOX.md` briefing: how tools are reached, and the agent's tool categories.
+/// Built only from configuration, so it is byte-identical across turns.
+pub fn sandbox_md(categories: &[CategorySummary], tools_timeout: &str) -> String {
+    let categories = categories
+        .iter()
+        .map(|category| format!("- {}: {}", category.name, category.description))
+        .collect::<Vec<_>>()
+        .join("\n");
 
-You can run Python with the `execute_python` tool. Use it whenever an answer depends on exact
-computation — arithmetic, dates, parsing, sorting, regex, JSON reshaping — instead of working it
-out in your head. The value of the script's last expression comes back as `result`; `print()`
-output comes back as `stdout`.
+    format!(
+        r#"# SANDBOX.md - Tools
 
-The sandbox is isolated: no files, network, environment or OS, and your other tools are NOT
-callable from inside a script — call them directly as usual. A script must finish within
-{tools_timeout}. If a script fails you receive the exception and a traceback; fix it and run again."#
-        )),
-        ToolExposure::CodeModeExclusive => Some(format!(
-            r#"# SANDBOX.md - Code Mode
+You work through scripts: your tools are not offered to you directly. Each tool is a plain
+Python function you call inside an `execute_python` script, with keyword arguments, and it
+returns plain data. Only `think`, `execute_python`, `list_tool_functions` and
+`describe_tool_function` are called directly.
 
-Code mode is on: your tools are not offered to you directly. You reach every one of them by
-writing a Python script for `execute_python`, where each tool is a plain function taking
-keyword arguments and returning plain data.
+## Tool categories
 
-- Not sure what exists? Call `list_tool_functions` first, then `describe_tool_function` for
-  parameters and an example. Inside a script the same information is available from
-  `list_tools()` and `describe_tool("name")`.
+{categories}
+
+## Finding and calling a tool
+
+1. Pick the category that fits what you need from the list above.
+2. `list_tool_functions(category="…")` lists its functions. Leave `category` out to list
+   every function with its category, if you are unsure which one fits.
+3. `describe_tool_function(name="…")` shows a function's parameters, return shape and an
+   example.
+4. Call it inside an `execute_python` script.
+
+You can skip steps you don't need: call a function you already know directly from a script.
+Inside a script the same lookups are `list_tools(category=…)` and `describe_tool("name")`.
+
 - Prefer ONE script that loops, filters and aggregates over many small round-trips; only the
   script's final `result` (and `stdout`) enters your context.
-- A tool error is raised inside the script as `RuntimeError("<tool>: ...")` — catch it if partial
+- A tool error is raised inside the script as `RuntimeError("<tool>: ...")`. Catch it if partial
   results are acceptable; uncaught, it ends the run and you get the traceback.
 - The whole script, including every tool call it makes, must finish within {tools_timeout}.
-- Return only what you need. Everything you return or print is delivered to you verbatim.
-- `think` is still available directly for reasoning."#
-        )),
+- Return only what you need. Everything you return or print is delivered to you verbatim."#
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn category(name: &str, description: &str) -> CategorySummary {
+        CategorySummary {
+            name: name.into(),
+            description: description.into(),
+        }
+    }
+
+    #[test]
+    fn lists_categories_in_the_given_order_without_counts() {
+        let categories = [
+            category("memory", "Search, read, write and organise long-term memory"),
+            category("identity", "Read and update your CORE identity document"),
+            category("github", "Tools from the github MCP server"),
+        ];
+        let md = sandbox_md(&categories, "30s");
+
+        assert!(md.contains(
+            "## Tool categories\n\n\
+             - memory: Search, read, write and organise long-term memory\n\
+             - identity: Read and update your CORE identity document\n\
+             - github: Tools from the github MCP server\n\n"
+        ));
+        assert!(md.contains("must finish within 30s"));
+        assert_eq!(md, sandbox_md(&categories, "30s"));
     }
 }

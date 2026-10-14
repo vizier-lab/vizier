@@ -210,18 +210,6 @@ pub struct AgentToolsConfig {
     pub read_image: ToolConfig<ReadImageToolSettings>,
     #[serde(default)]
     pub image_gen: ToolConfig<ImageGenToolSettings>,
-    #[serde(default)]
-    pub python: PythonSandboxConfig,
-}
-
-/// The two Python switches: `enabled` gives the agent `execute_python`; `code_mode`
-/// (valid only with `enabled`) makes its other tools callable from scripts only.
-#[derive(Debug, Serialize, Deserialize, Clone, Default, JsonSchema, utoipa::ToSchema)]
-pub struct PythonSandboxConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub code_mode: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -415,15 +403,14 @@ pub struct ImageGenToolSettings {
 }
 
 #[cfg(test)]
-mod python_sandbox_config_tests {
+mod removed_python_config_tests {
     use super::*;
 
     #[test]
-    fn records_saved_before_the_python_switches_load_with_both_off() {
-        let tools: AgentToolsConfig = serde_json::from_str(r#"{"timeout": "30s"}"#).unwrap();
-        assert!(!tools.python.enabled);
-        assert!(!tools.python.code_mode);
-        let python: PythonSandboxConfig = serde_json::from_str(r#"{"enabled": true}"#).unwrap();
-        assert!(python.enabled && !python.code_mode);
+    fn records_saved_with_the_removed_python_switches_still_load() {
+        let tools: Result<AgentToolsConfig, _> = serde_json::from_str(
+            r#"{"timeout": "30s", "python": {"enabled": false, "code_mode": false}}"#,
+        );
+        assert!(tools.is_ok(), "{tools:?}");
     }
 }

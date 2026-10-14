@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::{ToolContext, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::VizierError,
     file_manager::FileManager,
     schema::{VizierResponse, VizierResponseContent, session_file::SessionFileRecord},
@@ -40,6 +40,10 @@ pub struct ListSessionFiles {
 impl VizierTool for ListSessionFiles {
     type Input = ListSessionFilesArgs;
     type Output = ListSessionFilesOutput;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Files)
+    }
 
     fn name() -> String {
         "list_session_files".to_string()
@@ -188,6 +192,10 @@ fn extract_text(mime_type: &str, content: Vec<u8>) -> Result<String, VizierError
 impl VizierTool for ReadDocumentFile {
     type Input = ReadDocumentFileArgs;
     type Output = VizierResponse;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Files)
+    }
 
     fn name() -> String {
         "read_document_file".to_string()

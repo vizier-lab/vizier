@@ -4,7 +4,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::agents::skill::{deindex_skill, global_scope};
-use crate::agents::tools::{ToolContext, VizierTool};
+use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::indexer::VizierIndexer;
@@ -29,6 +29,10 @@ pub struct DeleteSkillArgs {
 impl VizierTool for DeleteSkill {
     type Input = DeleteSkillArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Skills)
+    }
 
     fn name() -> String {
         "delete_skill".to_string()

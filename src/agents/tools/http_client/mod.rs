@@ -4,7 +4,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::{ToolContext, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::{VizierError, throw_vizier_error},
 };
 
@@ -36,6 +36,10 @@ pub struct HttpClient;
 impl VizierTool for HttpClient {
     type Input = HttpClientArgs;
     type Output = HttpClientOutput;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Web)
+    }
 
     fn name() -> String {
         "http_client".to_string()

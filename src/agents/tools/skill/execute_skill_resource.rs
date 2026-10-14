@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::agents::tools::{ToolContext, VizierTool};
+use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::skill::SkillManager;
@@ -47,6 +47,10 @@ pub struct ExecuteResult {
 impl VizierTool for ExecuteSkillResource {
     type Input = ExecuteSkillResourceArgs;
     type Output = ExecuteResult;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Skills)
+    }
 
     fn name() -> String {
         "execute_skill_resource".to_string()

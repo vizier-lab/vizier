@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::agents::tools::{ToolContext, VizierTool};
+use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::AgentId;
@@ -38,6 +38,10 @@ pub struct SkillInfo {
 impl VizierTool for ListSkills {
     type Input = ListSkillsArgs;
     type Output = Vec<SkillInfo>;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Skills)
+    }
 
     fn name() -> String {
         "list_skills".to_string()

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::agents::tools::{ToolContext, VizierTool};
+use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::skill::SkillManager;
@@ -36,6 +36,10 @@ pub struct ReadSkillResourceArgs {
 impl VizierTool for ReadSkillResource {
     type Input = ReadSkillResourceArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Skills)
+    }
 
     fn name() -> String {
         "read_skill_resource".to_string()

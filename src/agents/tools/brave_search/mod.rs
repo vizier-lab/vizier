@@ -4,7 +4,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::{ToolContext, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     config::tools::BraveSearchConfig,
     error::{VizierError, throw_vizier_error},
 };
@@ -77,6 +77,10 @@ where
 {
     type Input = BraveSearchArgs;
     type Output = response::BraveResponse;
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Web)
+    }
+
     fn name() -> String {
         T::NAME.to_string()
     }

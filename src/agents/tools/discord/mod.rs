@@ -8,7 +8,7 @@ use twilight_model::channel::ChannelType;
 use twilight_model::guild::Role;
 use twilight_util::snowflake::Snowflake;
 
-use crate::agents::tools::{ToolContext, VizierTool};
+use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::error::{VizierError, throw_vizier_error};
 use crate::utils::discord::parse_id;
 use crate::schema::{AgentId, TopicId, VizierChannelId, VizierResponse, VizierResponseContent, VizierSession};
@@ -79,6 +79,10 @@ pub struct SendDiscoedMessageArgs {
 impl VizierTool for SendDiscordMessage {
     type Input = SendDiscoedMessageArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Discord)
+    }
 
     fn name() -> String {
         "discord_send_message".to_string()
@@ -157,6 +161,10 @@ impl VizierTool for ReactDiscordMessage {
     type Input = ReactDiscoedMessageArgs;
     type Output = String;
 
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Discord)
+    }
+
     fn name() -> String {
         "discord_react_message".to_string()
     }
@@ -200,6 +208,10 @@ impl VizierTool for GetDiscordMessage {
     type Input = GetDiscordMessageArgs;
     type Output = String;
 
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Discord)
+    }
+
     fn name() -> String {
         "discord_get_message_by_id".to_string()
     }
@@ -239,6 +251,10 @@ pub struct GetDiscordGuildInfoArgs {
 impl VizierTool for GetDiscordGuildInfo {
     type Input = GetDiscordGuildInfoArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Discord)
+    }
 
     fn name() -> String {
         "discord_get_guild_info".to_string()
@@ -307,6 +323,10 @@ impl VizierTool for GetDiscordChannelInfo {
     type Input = GetDiscordChannelInfoArgs;
     type Output = String;
 
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Discord)
+    }
+
     fn name() -> String {
         "discord_get_channel_info".to_string()
     }
@@ -372,6 +392,10 @@ pub struct GetDiscordMemberInfoArgs {
 impl VizierTool for GetDiscordMemberInfo {
     type Input = GetDiscordMemberInfoArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Discord)
+    }
 
     fn name() -> String {
         "discord_get_member_info".to_string()

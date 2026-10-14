@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -44,6 +44,7 @@ scheduler::{
     dependencies::VizierDependencies,
     error::VizierError,
     indexer::VizierIndexer,
+    sandbox::docs::python_identifier,
     schema::{AgentId, VizierAttachment, VizierResponse, VizierSession},
     storage::{VizierStorage, agent::AgentStorage},
     utils::agent_workspace,
@@ -73,6 +74,83 @@ mod webui;
 mod workspace;
 
 type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
+
+/// What a script-callable tool is for, so an agent can list one area at a time
+/// instead of every tool. Declaration order is display order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ToolCategory {
+    Memory,
+    Identity,
+    Scheduling,
+    Agents,
+    Skills,
+    Files,
+    Web,
+    Audio,
+    Media,
+    Discord,
+    Telegram,
+    Webui,
+    Shell,
+}
+
+impl ToolCategory {
+    pub const ALL: [ToolCategory; 13] = [
+        Self::Memory,
+        Self::Identity,
+        Self::Scheduling,
+        Self::Agents,
+        Self::Skills,
+        Self::Files,
+        Self::Web,
+        Self::Audio,
+        Self::Media,
+        Self::Discord,
+        Self::Telegram,
+        Self::Webui,
+        Self::Shell,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Memory => "memory",
+            Self::Identity => "identity",
+            Self::Scheduling => "scheduling",
+            Self::Agents => "agents",
+            Self::Skills => "skills",
+            Self::Files => "files",
+            Self::Web => "web",
+            Self::Audio => "audio",
+            Self::Media => "media",
+            Self::Discord => "discord",
+            Self::Telegram => "telegram",
+            Self::Webui => "webui",
+            Self::Shell => "shell",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Memory => "Search, read, write and organise long-term memory",
+            Self::Identity => "Read and update your CORE identity document",
+            Self::Scheduling => "Schedule one-time and recurring tasks and check their results",
+            Self::Agents => {
+                "Consult or delegate to other agents, run parallel subtasks, manage background jobs"
+            }
+            Self::Skills => "Create, find and use reusable skills",
+            Self::Files => "Read files attached to this conversation and send attachments",
+            Self::Web => "Search the web and news, fetch pages, make HTTP requests",
+            Self::Audio => "Generate speech from text and transcribe audio",
+            Self::Media => "Generate images",
+            Self::Discord => {
+                "Send, read and react to Discord messages; look up guild, channel and member info"
+            }
+            Self::Telegram => "Send, read and react to Telegram messages",
+            Self::Webui => "Message WebUI users and list their topics",
+            Self::Shell => "Run shell commands",
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct ToolContext {
@@ -133,36 +211,8 @@ impl VizierToolSet {
     }
 }
 
-/// How an agent's tools are offered to the model, derived from `tools.python`.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ToolExposure {
-    /// Sandbox off: regular tools only.
-    Direct,
-    /// Sandbox on, code mode off: regular tools plus `execute_python`.
-    SandboxAdditive,
-    /// Code mode on: only `think`, `execute_python` and the docs tools are direct;
-    /// every other tool is reachable from scripts only.
-    CodeModeExclusive,
-}
-
-impl ToolExposure {
-    fn from_config(agent_id: &AgentId, python: &crate::schema::PythonSandboxConfig) -> Self {
-        match (python.enabled, python.code_mode) {
-            (false, false) => Self::Direct,
-            (false, true) => {
-                tracing::warn!(
-                    "agent {agent_id} has tools.python.code_mode without tools.python.enabled; treating code mode as off"
-                );
-                Self::SandboxAdditive
-            }
-            (true, false) => Self::SandboxAdditive,
-            (true, true) => Self::CodeModeExclusive,
-        }
-    }
-}
-
-/// Name-based dispatch over the agent's regular tools. Shared by direct calls
-/// (`VizierTools::call`) and calls made from Python scripts.
+/// Name-based dispatch over the agent's script-callable tools: every native tool
+/// with a category, plus the MCP servers' tools.
 #[derive(Clone)]
 pub struct ToolRouter {
     pub default_toolset: VizierToolSet,
@@ -170,16 +220,45 @@ pub struct ToolRouter {
     pub mcp: HashMap<String, Arc<McpServer>>,
 }
 
+/// What a catalogue name dispatches to.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ToolTarget {
+    Native(String),
+    /// `tool` is the server's own name for it.
+    Mcp { server: String, tool: String },
+}
+
+/// One script-callable function: the single source for its name, category and dispatch.
+#[derive(Clone, Debug)]
+pub struct CatalogueEntry {
+    pub name: String,
+    pub category: String,
+    pub target: ToolTarget,
+    pub definition: ToolDefinition,
+}
+
+/// A category line of the system prompt.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CategorySummary {
+    pub name: String,
+    pub description: String,
+}
+
 #[derive(Clone)]
 pub struct VizierTools {
     pub router: ToolRouter,
+    /// The only tools the model calls directly: `think`, `execute_python` and the docs tools.
     pub sandbox_toolset: VizierToolSet,
-    pub exposure: ToolExposure,
+    /// Fixed for the instance's lifetime, so the system prompt that lists them stays
+    /// byte-identical across turns.
+    pub categories: Vec<CategorySummary>,
 }
 
 #[async_trait::async_trait]
 pub trait VizierToolDyn {
     fn tool_name(&self) -> String;
+
+    fn category(&self) -> Option<ToolCategory>;
 
     fn tool_def(&self) -> ToolDefinition;
 
@@ -196,6 +275,10 @@ pub trait VizierToolDyn {
 impl<Tool: VizierTool + Sync + Send> VizierToolDyn for Tool {
     fn tool_name(&self) -> String {
         Self::name()
+    }
+
+    fn category(&self) -> Option<ToolCategory> {
+        Self::category()
     }
 
     fn tool_def(&self) -> ToolDefinition {
@@ -233,6 +316,10 @@ pub trait VizierTool {
 
     fn name() -> String;
 
+    /// The category a script lists this tool under; `None` only for the tools the model
+    /// calls directly and the dream-only journal tools, which no script can reach.
+    fn category() -> Option<ToolCategory>;
+
     fn input_schema() -> serde_json::Value {
         serde_json::to_value(schema_for!(<Self as VizierTool>::Input)).unwrap()
     }
@@ -264,51 +351,139 @@ fn tool_output_to_response(output: &str) -> Result<VizierResponse> {
     })
 }
 
-/// Tools the model may call directly while code mode is on.
-const CODE_MODE_DIRECT_TOOLS: &[&str] = &[
-    "think",
-    "execute_python",
-    "list_tool_functions",
-    "describe_tool_function",
-];
-
-/// Whether `name` is offered to (and callable by) the model under `exposure`.
-fn exposed_directly(exposure: ToolExposure, name: &str) -> bool {
-    match exposure {
-        ToolExposure::Direct | ToolExposure::SandboxAdditive => true,
-        ToolExposure::CodeModeExclusive => CODE_MODE_DIRECT_TOOLS.contains(&name),
+/// An MCP server's category: its key, unless that is a built-in category's name.
+fn mcp_category_name(server: &str) -> String {
+    if ToolCategory::ALL.iter().any(|category| category.name() == server) {
+        format!("{server}_mcp")
+    } else {
+        server.to_string()
     }
 }
 
+/// Names for MCP tools (`(server, tool)` pairs), aligned with `mcp`. Native names are
+/// reserved first, so an MCP tool can never take one; MCP tools are then named in
+/// `(server, tool)` order and a taken name gets `_2`, `_3`, …, so the result does not
+/// depend on the order servers connected in.
+fn assign_names(native: &[&str], mcp: &[(&str, &str)]) -> Vec<String> {
+    let mut taken: HashSet<String> = native.iter().map(|name| python_identifier(name)).collect();
+    let mut order: Vec<usize> = (0..mcp.len()).collect();
+    order.sort_by_key(|&i| mcp[i]);
+
+    let mut names = vec![String::new(); mcp.len()];
+    for i in order {
+        let (server, tool) = mcp[i];
+        let base = python_identifier(&format!("{server}_{tool}"));
+        let mut name = base.clone();
+        let mut n = 2;
+        while !taken.insert(name.clone()) {
+            name = format!("{base}_{n}");
+            n += 1;
+        }
+        names[i] = name;
+    }
+    names
+}
+
+/// Built-in categories in declaration order, then one per MCP server sorted by name.
+fn summarise_categories<'a>(
+    present: impl IntoIterator<Item = ToolCategory>,
+    servers: impl IntoIterator<Item = &'a String>,
+) -> Vec<CategorySummary> {
+    let present: BTreeSet<ToolCategory> = present.into_iter().collect();
+    let mut mcp: Vec<CategorySummary> = servers
+        .into_iter()
+        .map(|server| CategorySummary {
+            name: mcp_category_name(server),
+            description: format!("Tools from the {server} MCP server"),
+        })
+        .collect();
+    mcp.sort_by(|a, b| a.name.cmp(&b.name));
+
+    present
+        .into_iter()
+        .map(|category| CategorySummary {
+            name: category.name().into(),
+            description: category.description().into(),
+        })
+        .chain(mcp)
+        .collect()
+}
+
+/// The agent's categories, from its registered tools and configured MCP servers — never
+/// live listings, so a server that is down keeps its line.
+fn category_summaries(router: &ToolRouter) -> Vec<CategorySummary> {
+    summarise_categories(
+        router.native_tools().filter_map(|tool| tool.category()),
+        router.mcp.keys(),
+    )
+}
+
 impl ToolRouter {
-    pub async fn definitions(&self) -> Result<Vec<ToolDefinition>> {
-        let mut res = vec![];
+    fn native_tools(&self) -> impl Iterator<Item = &VizierToolDef> {
+        self.default_toolset
+            .tools
+            .values()
+            .chain(self.user_toolset.tools.values())
+    }
 
-        for (_, tool) in self.default_toolset.tools.iter() {
-            res.push(tool.tool_def());
-        }
-
-        for (_, tool) in self.user_toolset.tools.iter() {
-            res.push(tool.tool_def());
-        }
+    /// Every script-callable function, sorted by category (system-prompt order) then name.
+    pub async fn catalogue(&self) -> Vec<CatalogueEntry> {
+        let mut entries: Vec<CatalogueEntry> = self
+            .native_tools()
+            .filter_map(|tool| {
+                Some(CatalogueEntry {
+                    name: python_identifier(&tool.tool_name()),
+                    category: tool.category()?.name().into(),
+                    target: ToolTarget::Native(tool.tool_name()),
+                    definition: tool.tool_def(),
+                })
+            })
+            .collect();
 
         // Concurrently, so one slow server costs one listing timeout, not one per server. A
         // server that can't list leaves its tools out of this turn and never fails it (#53).
         let listings = futures::future::join_all(
             self.mcp
                 .iter()
-                .map(|(key, server)| async move { (key, server.tools().await) }),
+                .map(|(key, server)| async move { (key.clone(), server.tools().await) }),
         )
         .await;
-        for (key, tools) in listings {
-            res.extend(tools.into_iter().map(|tool| ToolDefinition {
-                name: format!("mcp_{}__{}", key, tool.name),
-                description: tool.description,
-                parameters: tool.parameters,
-            }));
-        }
+        let mcp: Vec<(String, ToolDefinition)> = listings
+            .into_iter()
+            .flat_map(|(key, tools)| tools.into_iter().map(move |tool| (key.clone(), tool)))
+            .collect();
 
-        Ok(res)
+        let native: Vec<String> = self.native_tools().map(|tool| tool.tool_name()).collect();
+        let native: Vec<&str> = native.iter().map(String::as_str).collect();
+        let pairs: Vec<(&str, &str)> = mcp
+            .iter()
+            .map(|(server, tool)| (server.as_str(), tool.name.as_str()))
+            .collect();
+        let names = assign_names(&native, &pairs);
+
+        entries.extend(mcp.into_iter().zip(names).map(|((server, definition), name)| {
+            CatalogueEntry {
+                name,
+                category: mcp_category_name(&server),
+                target: ToolTarget::Mcp {
+                    server,
+                    tool: definition.name.clone(),
+                },
+                definition,
+            }
+        }));
+
+        let rank = |entry: &CatalogueEntry| match entry.target {
+            ToolTarget::Native(_) => ToolCategory::ALL
+                .iter()
+                .position(|category| category.name() == entry.category)
+                .unwrap_or(ToolCategory::ALL.len()),
+            ToolTarget::Mcp { .. } => ToolCategory::ALL.len(),
+        };
+        entries.sort_by(|a, b| {
+            (rank(a), &a.category, &a.name).cmp(&(rank(b), &b.category, &b.name))
+        });
+        entries
     }
 
     pub async fn call(
@@ -317,22 +492,6 @@ impl ToolRouter {
         params: String,
         ctx: &ToolContext,
     ) -> Result<VizierResponse> {
-        // mcp calls
-        if function_name.starts_with("mcp_") {
-            if let Some((server, function_name)) = function_name.split_once("__") {
-                let server = server.replace("mcp_", "");
-
-                let res = self
-                    .mcp
-                    .get(&server)
-                    .ok_or(VizierError("mcp not found".into()))?
-                    .call(function_name.to_string(), serde_json::from_str(&params)?)
-                    .await?;
-
-                return Ok(res);
-            }
-        }
-
         if let Ok(tool) = self.default_toolset.get_tool(function_name.clone()) {
             let output = tool.tool_call(params.clone(), ctx).await?;
             return tool_output_to_response(&output);
@@ -343,25 +502,41 @@ impl ToolRouter {
             return tool_output_to_response(&output);
         }
 
-        Err(VizierError(format!("{} not found", function_name)).into())
+        let target = self
+            .catalogue()
+            .await
+            .into_iter()
+            .find(|entry| entry.name == function_name)
+            .map(|entry| entry.target);
+
+        match target {
+            Some(ToolTarget::Native(tool)) => {
+                let tool = self
+                    .default_toolset
+                    .get_tool(tool.clone())
+                    .or_else(|_| self.user_toolset.get_tool(tool))?;
+                let output = tool.tool_call(params, ctx).await?;
+                tool_output_to_response(&output)
+            }
+            Some(ToolTarget::Mcp { server, tool }) => self
+                .mcp
+                .get(&server)
+                .ok_or(VizierError("mcp not found".into()))?
+                .call(tool, serde_json::from_str(&params)?)
+                .await,
+            None => Err(VizierError(format!("{} not found", function_name)).into()),
+        }
     }
 }
 
 impl VizierTools {
     pub async fn tools(&self) -> Result<Vec<ToolDefinition>> {
-        let mut defs = match self.exposure {
-            ToolExposure::CodeModeExclusive => self
-                .router
-                .default_toolset
-                .tools
-                .values()
-                .chain(self.router.user_toolset.tools.values())
-                .filter(|tool| exposed_directly(self.exposure, &tool.tool_name()))
-                .map(|tool| tool.tool_def())
-                .collect(),
-            _ => self.router.definitions().await?,
-        };
-        defs.extend(self.sandbox_toolset.tools.values().map(|tool| tool.tool_def()));
+        let mut defs: Vec<ToolDefinition> = self
+            .sandbox_toolset
+            .tools
+            .values()
+            .map(|tool| tool.tool_def())
+            .collect();
         // Toolsets are HashMaps, whose iteration order changes across process restarts and agent
         // respawns; a stable order keeps the tool list a cacheable prompt prefix.
         defs.sort_by(|a, b| a.name.cmp(&b.name));
@@ -375,19 +550,13 @@ impl VizierTools {
         params: String,
         ctx: &ToolContext,
     ) -> Result<VizierResponse> {
-        if let Ok(tool) = self.sandbox_toolset.get_tool(function_name.clone()) {
-            let output = tool.tool_call(params, ctx).await?;
-            return tool_output_to_response(&output);
-        }
-
-        if !exposed_directly(self.exposure, &function_name) {
-            return Err(VizierError(format!(
-                "{function_name} is not exposed directly while code mode is on; call it from a script via execute_python (see list_tool_functions)"
+        let tool = self.sandbox_toolset.get_tool(function_name.clone()).map_err(|_| {
+            VizierError(format!(
+                "{function_name} is not called directly; call it from an execute_python script (see list_tool_functions)"
             ))
-            .into());
-        }
-
-        self.router.call(function_name, params, ctx).await
+        })?;
+        let output = tool.tool_call(params, ctx).await?;
+        tool_output_to_response(&output)
     }
 
     const DREAM_TOOL_NAMES: &'static [&'static str] = &[
@@ -401,8 +570,8 @@ impl VizierTools {
         "memory_delete",
         "memory_delete_bundle",
         // Workspace (2)
-        "WRITE_CORE",
-        "READ_CORE",
+        "write_core",
+        "read_core",
         // Scheduler (6)
         "schedule_one_time_task",
         "schedule_cron_task",
@@ -503,7 +672,6 @@ impl VizierTools {
         let mut user_toolset = VizierToolSet::new();
 
         default_toolset = default_toolset
-            .tool(ThinkTool)
             .tool(WriteCore::new(agent_id.clone(), deps.storage.clone()))
             .tool(ReadCore::new(agent_id.clone(), deps.storage.clone()))
             .tool(ScheduleOneTimeTask {
@@ -730,31 +898,26 @@ impl VizierTools {
             user_toolset,
             mcp,
         };
-        let exposure = ToolExposure::from_config(&agent_id, &agent_config.tools.python);
+        let categories = category_summaries(&router);
 
-        let mut sandbox_toolset = VizierToolSet::new();
-        if exposure != ToolExposure::Direct {
-            let code_mode = exposure == ToolExposure::CodeModeExclusive;
-            let limits = crate::sandbox::SandboxLimits {
-                timeout: *agent_config.tools.timeout,
-                tools_enabled: code_mode,
-            };
-            sandbox_toolset = sandbox_toolset.tool(ExecutePython::new(
+        let limits = crate::sandbox::SandboxLimits {
+            timeout: *agent_config.tools.timeout,
+            tools_enabled: true,
+        };
+        let sandbox_toolset = VizierToolSet::new()
+            .tool(ThinkTool)
+            .tool(ExecutePython::new(
                 router.clone(),
                 limits,
                 &agent_config.tools.timeout.to_string(),
-            ));
-            if code_mode {
-                sandbox_toolset = sandbox_toolset
-                    .tool(ListToolFunctions::new(router.clone()))
-                    .tool(DescribeToolFunction::new(router.clone()));
-            }
-        }
+            ))
+            .tool(ListToolFunctions::new(router.clone(), categories.clone()))
+            .tool(DescribeToolFunction::new(router.clone()));
 
         Ok(Self {
             router,
             sandbox_toolset,
-            exposure,
+            categories,
         })
     }
 }
@@ -806,18 +969,236 @@ async fn build_read_image_vision(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::tools::{
+        discord::{
+            GetDiscordChannelInfo, GetDiscordGuildInfo, GetDiscordMemberInfo, GetDiscordMessage,
+            ReactDiscordMessage, SendDiscordMessage,
+        },
+        dream_journal::WriteDreamJournal,
+        telegram::{GetTelegramMessage, ReactTelegramMessage, SendTelegramMessage},
+        vector_memory::{
+            MemoryDelete, MemoryDeleteBundle, MemoryFollow, MemoryGraphTool, MemoryList,
+            MemoryRead, MemorySearch, MemoryWrite,
+        },
+    };
+
+    fn entry<T: VizierTool>() -> (String, Option<ToolCategory>) {
+        (T::name(), T::category())
+    }
+
+    /// data-model.md's tool → category table, read off the tools themselves.
+    fn every_tool() -> Vec<(String, Option<ToolCategory>)> {
+        vec![
+            entry::<MemorySearch>(),
+            entry::<MemoryRead>(),
+            entry::<MemoryWrite>(),
+            entry::<MemoryList>(),
+            entry::<MemoryFollow>(),
+            entry::<MemoryGraphTool>(),
+            entry::<MemoryDelete>(),
+            entry::<MemoryDeleteBundle>(),
+            entry::<ReadCore>(),
+            entry::<WriteCore>(),
+            entry::<ScheduleOneTimeTask>(),
+            entry::<ScheduleCronTask>(),
+            entry::<ListTask>(),
+            entry::<GetTaskDetail>(),
+            entry::<DeleteTask>(),
+            entry::<ListTaskRuns>(),
+            entry::<GetTaskRunDetail>(),
+            entry::<ConsultAgent>(),
+            entry::<DelegateAgent>(),
+            entry::<SubtasksTool>(),
+            entry::<ListBackgroundJobs>(),
+            entry::<CancelBackgroundJob>(),
+            entry::<CreateSkill>(),
+            entry::<UpdateSkill>(),
+            entry::<DeleteSkill>(),
+            entry::<ListSkills>(),
+            entry::<GetSkillDetails>(),
+            entry::<UseSkill>(),
+            entry::<ReadSkillResource>(),
+            entry::<ExecuteSkillResource>(),
+            entry::<ListSessionFiles>(),
+            entry::<ReadDocumentFile>(),
+            entry::<ReadImageFile>(),
+            entry::<SendAttachment>(),
+            entry::<BraveSearch<WebOnlySearch>>(),
+            entry::<BraveSearch<NewsOnlySearch>>(),
+            entry::<FetchWebpage>(),
+            entry::<HttpClient>(),
+            entry::<TtsGenerate>(),
+            entry::<SttTranscribe>(),
+            entry::<ImageGenerate>(),
+            entry::<SendDiscordMessage>(),
+            entry::<ReactDiscordMessage>(),
+            entry::<GetDiscordMessage>(),
+            entry::<GetDiscordGuildInfo>(),
+            entry::<GetDiscordChannelInfo>(),
+            entry::<GetDiscordMemberInfo>(),
+            entry::<SendTelegramMessage>(),
+            entry::<ReactTelegramMessage>(),
+            entry::<GetTelegramMessage>(),
+            entry::<SendWebuiMessage>(),
+            entry::<ListWebuiTopics>(),
+            entry::<ShellExec>(),
+            entry::<ThinkTool>(),
+            entry::<ExecutePython>(),
+            entry::<ListToolFunctions>(),
+            entry::<DescribeToolFunction>(),
+            entry::<ReadDreamJournal>(),
+            entry::<WriteDreamJournal>(),
+        ]
+    }
 
     #[test]
-    fn code_mode_exposes_only_the_sandbox_tools_directly() {
-        for exposure in [ToolExposure::Direct, ToolExposure::SandboxAdditive] {
-            assert!(exposed_directly(exposure, "memory_read"));
-            assert!(exposed_directly(exposure, "mcp_gh__create_issue"));
+    fn every_tool_is_in_its_category() {
+        use ToolCategory::*;
+        const EXPECTED: &[(&str, ToolCategory)] = &[
+            ("memory_search", Memory),
+            ("memory_read", Memory),
+            ("memory_write", Memory),
+            ("memory_list", Memory),
+            ("memory_follow", Memory),
+            ("memory_graph", Memory),
+            ("memory_delete", Memory),
+            ("memory_delete_bundle", Memory),
+            ("read_core", Identity),
+            ("write_core", Identity),
+            ("schedule_one_time_task", Scheduling),
+            ("schedule_cron_task", Scheduling),
+            ("list_task", Scheduling),
+            ("get_task_detail", Scheduling),
+            ("delete_task", Scheduling),
+            ("list_task_runs", Scheduling),
+            ("get_task_run_detail", Scheduling),
+            ("consult_agent", Agents),
+            ("delegate_agent", Agents),
+            ("paralel_subtasks", Agents),
+            ("list_background_jobs", Agents),
+            ("cancel_background_job", Agents),
+            ("create_skill", Skills),
+            ("update_skill", Skills),
+            ("delete_skill", Skills),
+            ("list_skills", Skills),
+            ("get_skill_details", Skills),
+            ("use_skill", Skills),
+            ("read_skill_resource", Skills),
+            ("execute_skill_resource", Skills),
+            ("list_session_files", Files),
+            ("read_document_file", Files),
+            ("read_image_file", Files),
+            ("send_attachment", Files),
+            ("web_search", Web),
+            ("news_search", Web),
+            ("fetch", Web),
+            ("http_client", Web),
+            ("tts_generate", Audio),
+            ("stt_transcribe", Audio),
+            ("image_generate", Media),
+            ("discord_send_message", Discord),
+            ("discord_react_message", Discord),
+            ("discord_get_message_by_id", Discord),
+            ("discord_get_guild_info", Discord),
+            ("discord_get_channel_info", Discord),
+            ("discord_get_member_info", Discord),
+            ("telegram_send_message", Telegram),
+            ("telegram_react_message", Telegram),
+            ("telegram_get_message_by_id", Telegram),
+            ("webui_send_message", Webui),
+            ("webui_list_topics", Webui),
+            ("shell_exec", Shell),
+        ];
+        const UNCATEGORISED: &[&str] = &[
+            "think",
+            "execute_python",
+            "list_tool_functions",
+            "describe_tool_function",
+            "read_dream_journal",
+            "write_dream_journal",
+        ];
+
+        let tools = every_tool();
+        let categorised: Vec<(&str, ToolCategory)> = tools
+            .iter()
+            .filter_map(|(name, category)| Some((name.as_str(), (*category)?)))
+            .collect();
+        let mut expected = EXPECTED.to_vec();
+        let mut actual = categorised.clone();
+        expected.sort();
+        actual.sort();
+        assert_eq!(actual, expected);
+
+        let mut uncategorised: Vec<&str> = tools
+            .iter()
+            .filter(|(_, category)| category.is_none())
+            .map(|(name, _)| name.as_str())
+            .collect();
+        let mut expected_none = UNCATEGORISED.to_vec();
+        uncategorised.sort();
+        expected_none.sort();
+        assert_eq!(uncategorised, expected_none);
+
+        for category in ToolCategory::ALL {
+            assert!(
+                EXPECTED.iter().any(|(_, c)| *c == category),
+                "{category:?} has no tool"
+            );
         }
-        for name in ["think", "execute_python", "list_tool_functions", "describe_tool_function"] {
-            assert!(exposed_directly(ToolExposure::CodeModeExclusive, name));
-        }
-        for name in ["memory_read", "READ_CORE", "mcp_gh__create_issue"] {
-            assert!(!exposed_directly(ToolExposure::CodeModeExclusive, name));
-        }
+    }
+
+    #[test]
+    fn categories_list_built_ins_in_order_then_mcp_servers_by_name() {
+        use ToolCategory::*;
+        let servers: Vec<String> = ["memory", "github", "a"].iter().map(|s| s.to_string()).collect();
+        // No Discord, Telegram, TTS, STT, image or shell tools registered.
+        let present = [Webui, Memory, Agents, Identity, Memory, Skills, Files, Scheduling];
+        let summaries = summarise_categories(present, &servers);
+        let names: Vec<&str> = summaries.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "memory", "identity", "scheduling", "agents", "skills", "files", "webui", "a",
+                "github", "memory_mcp"
+            ]
+        );
+        assert_eq!(summaries[9].description, "Tools from the memory MCP server");
+        assert_eq!(summaries, summarise_categories(present, &servers));
+    }
+
+    #[test]
+    fn mcp_tools_are_named_server_then_tool() {
+        assert_eq!(assign_names(&[], &[("github", "create_issue")]), ["github_create_issue"]);
+        assert_eq!(assign_names(&[], &[("my-srv", "do-thing")]), ["my_srv_do_thing"]);
+    }
+
+    #[test]
+    fn native_names_win_and_collisions_are_suffixed_in_server_order() {
+        assert_eq!(
+            assign_names(&["memory_search"], &[("memory", "search")]),
+            ["memory_search_2"]
+        );
+        assert_eq!(
+            assign_names(&[], &[("a", "b_c"), ("a_b", "c")]),
+            ["a_b_c", "a_b_c_2"]
+        );
+        assert_eq!(
+            assign_names(&[], &[("a_b", "c"), ("a", "b_c")]),
+            ["a_b_c_2", "a_b_c"]
+        );
+    }
+
+    #[test]
+    fn no_mcp_name_keeps_the_old_prefix() {
+        let names = assign_names(&["read_core"], &[("github", "create_issue"), ("fs", "read_file")]);
+        assert!(names.iter().all(|name| !name.starts_with("mcp_")));
+        assert!(!names.contains(&"mcp_github__create_issue".to_string()));
+    }
+
+    #[test]
+    fn a_server_named_like_a_built_in_category_gets_a_suffix() {
+        assert_eq!(mcp_category_name("memory"), "memory_mcp");
+        assert_eq!(mcp_category_name("discord"), "discord_mcp");
+        assert_eq!(mcp_category_name("github"), "github");
     }
 }

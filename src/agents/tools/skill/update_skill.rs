@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{SkillResource, write_resource_files};
 use crate::agents::skill::{global_scope, index_skill};
-use crate::agents::tools::{ToolContext, VizierTool};
+use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::indexer::VizierIndexer;
@@ -42,6 +42,10 @@ pub struct UpdateSkillArgs {
 impl VizierTool for UpdateSkill {
     type Input = UpdateSkillArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Skills)
+    }
 
     fn name() -> String {
         "update_skill".to_string()

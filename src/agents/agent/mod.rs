@@ -307,12 +307,13 @@ impl VizierAgent {
             ),
         ];
 
-        if let Some(md) = sandbox_md(
-            &self.tools.exposure,
-            &self.config.tools.timeout.to_string(),
-        ) {
-            res.insert(1, Message::system(md));
-        }
+        res.insert(
+            1,
+            Message::system(sandbox_md(
+                &self.tools.categories,
+                &self.config.tools.timeout.to_string(),
+            )),
+        );
 
         // Add owner info if available
         if let Some(ref owner) = self.owner_profile {

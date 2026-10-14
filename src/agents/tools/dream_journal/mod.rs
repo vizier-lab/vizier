@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::{ToolContext, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::VizierError,
     schema::{
         AgentId,
@@ -44,6 +44,10 @@ pub struct WriteDreamJournalOutput {
 impl VizierTool for WriteDreamJournal {
     type Input = WriteDreamJournalArgs;
     type Output = WriteDreamJournalOutput;
+
+    fn category() -> Option<ToolCategory> {
+        None
+    }
 
     fn name() -> String {
         "write_dream_journal".into()
@@ -128,6 +132,10 @@ pub struct ReadDreamJournalOutput {
 impl VizierTool for ReadDreamJournal {
     type Input = ReadDreamJournalArgs;
     type Output = ReadDreamJournalOutput;
+
+    fn category() -> Option<ToolCategory> {
+        None
+    }
 
     fn name() -> String {
         "read_dream_journal".into()

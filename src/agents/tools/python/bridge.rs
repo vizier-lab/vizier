@@ -2,20 +2,18 @@
 //! `ToolRouter` dispatch, session hooks and per-tool timeout as a direct call.
 
 use std::{
-    collections::HashMap,
     sync::Mutex,
     time::{Duration, Instant},
 };
 
-use rig_core::completion::ToolDefinition;
 use tokio::sync::OnceCell;
 
 use crate::{
     agents::{
         hook::VizierSessionHook,
-        tools::{ToolContext, ToolRouter},
+        tools::{CatalogueEntry, ToolContext, ToolRouter},
     },
-    agents::tools::python::docs_tools::output_schema,
+    agents::tools::python::docs_tools::entry_doc,
     sandbox::{BridgeError, SandboxBridge, ToolFunctionDoc, ToolInvocationRecord, docs},
     schema::{VizierAttachment, VizierResponseContent},
 };
@@ -24,9 +22,8 @@ pub struct RouterBridge {
     router: ToolRouter,
     ctx: ToolContext,
     tool_timeout: Duration,
-    /// Script function name → tool name, snapshotted once per run for names that
-    /// are not native tools (MCP tools, sanitised names).
-    names: OnceCell<HashMap<String, String>>,
+    /// The router's catalogue, snapshotted once per run so names stay put while it runs.
+    catalogue: OnceCell<Vec<CatalogueEntry>>,
     invocations: Mutex<Vec<ToolInvocationRecord>>,
     attachments: Mutex<Vec<VizierAttachment>>,
 }
@@ -37,7 +34,7 @@ impl RouterBridge {
             router,
             ctx,
             tool_timeout,
-            names: OnceCell::new(),
+            catalogue: OnceCell::new(),
             invocations: Mutex::new(vec![]),
             attachments: Mutex::new(vec![]),
         }
@@ -48,31 +45,15 @@ impl RouterBridge {
         (take(&self.invocations), take(&self.attachments))
     }
 
-    async fn definitions(&self) -> Vec<ToolDefinition> {
-        self.router.definitions().await.unwrap_or_else(|err| {
-            tracing::warn!("failed to list tools for the python sandbox: {err}");
-            vec![]
-        })
+    async fn entries(&self) -> &[CatalogueEntry] {
+        self.catalogue
+            .get_or_init(|| self.router.catalogue())
+            .await
     }
 
-    async fn resolve(&self, function: &str) -> Option<String> {
-        if self.router.default_toolset.tools.contains_key(function)
-            || self.router.user_toolset.tools.contains_key(function)
-        {
-            return Some(function.to_string());
-        }
-        let names = self
-            .names
-            .get_or_init(|| async {
-                docs::catalogue(&self.definitions().await)
-                    .into_iter()
-                    .map(|doc| (doc.name, doc.tool))
-                    .collect()
-            })
-            .await;
-        names.get(function).cloned()
+    async fn entry(&self, function: &str) -> Option<&CatalogueEntry> {
+        self.entries().await.iter().find(|entry| entry.name == function)
     }
-
 
     /// One nested call, exactly as the agent loop makes a direct one.
     async fn dispatch(&self, tool: String, arguments: String) -> Result<serde_json::Value, String> {
@@ -114,16 +95,22 @@ impl RouterBridge {
 #[async_trait::async_trait]
 impl SandboxBridge for RouterBridge {
     async fn catalogue(&self) -> Vec<ToolFunctionDoc> {
-        docs::catalogue(&self.definitions().await)
+        self.entries()
+            .await
+            .iter()
+            .map(|entry| {
+                docs::describe_as(
+                    entry.name.clone(),
+                    &entry.definition,
+                    None,
+                    Some(entry.category.clone()),
+                )
+            })
+            .collect()
     }
 
     async fn describe(&self, function: &str) -> Option<ToolFunctionDoc> {
-        let defs = self.definitions().await;
-        let tool = docs::catalogue(&defs)
-            .into_iter()
-            .find(|doc| doc.name == function)?
-            .tool;
-        docs::describe_in(&defs, function, output_schema(&self.router, &tool).as_ref())
+        Some(entry_doc(&self.router, self.entry(function).await?))
     }
 
     async fn call(
@@ -131,10 +118,13 @@ impl SandboxBridge for RouterBridge {
         function: &str,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value, BridgeError> {
+        // The catalogue name is the one `ToolRouter::call` dispatches on.
         let tool = self
-            .resolve(function)
+            .entry(function)
             .await
-            .ok_or(BridgeError::UnknownFunction)?;
+            .ok_or(BridgeError::UnknownFunction)?
+            .name
+            .clone();
 
         let started = Instant::now();
         let result = self.dispatch(tool.clone(), arguments.to_string()).await;

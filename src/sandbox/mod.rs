@@ -26,7 +26,7 @@ pub const MAX_SCRIPT_BYTES: usize = 64 * 1024;
 pub struct SandboxLimits {
     /// The agent's `tools.timeout`; becomes Monty's CPU clock limit.
     pub timeout: Duration,
-    /// Whether scripts may call the agent's tools (code mode).
+    /// Whether scripts may call the agent's tools (always, for agents; off in engine tests).
     pub tools_enabled: bool,
 }
 
@@ -55,7 +55,7 @@ pub trait SandboxBridge: Send + Sync {
     ) -> Result<serde_json::Value, BridgeError>;
 }
 
-/// Bridge for runs without tool access (sandbox-only mode, unit tests).
+/// Bridge for runs without tool access (engine unit tests).
 pub struct NoToolsBridge;
 
 #[async_trait::async_trait]

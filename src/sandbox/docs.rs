@@ -1,7 +1,7 @@
 //! Script-callable function documentation, derived from `ToolDefinition` — the
 //! same definitions the model receives, so there is no second source of truth.
-
-use std::collections::HashSet;
+//! Naming (and collision suffixes) is the agent layer's: this module documents a
+//! function under the name it is given.
 
 use rig_core::completion::ToolDefinition;
 use serde::Serialize;
@@ -9,11 +9,12 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolFunctionDoc {
-    /// Sanitised Python identifier (== tool name for all native tools); the
-    /// function a script calls.
+    /// The function a script calls.
     pub name: String,
-    /// Original tool name (differs only if sanitised).
+    /// The tool's own name (for an MCP tool, its name on the server).
     pub tool: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
     /// First sentence/line of the tool description.
     pub summary: String,
     pub description: String,
@@ -65,63 +66,14 @@ pub fn python_identifier(tool_name: &str) -> String {
     ident
 }
 
-/// `(function, definition)` pairs with collisions resolved deterministically:
-/// original names in sorted order, later duplicates suffixed `_2`, `_3`, …
-fn named(defs: &[ToolDefinition]) -> Vec<(String, &ToolDefinition)> {
-    let mut sorted: Vec<&ToolDefinition> = defs.iter().collect();
-    sorted.sort_by(|a, b| a.name.cmp(&b.name));
-
-    let mut taken = HashSet::new();
-    let mut out = Vec::with_capacity(sorted.len());
-    for def in sorted {
-        let base = python_identifier(&def.name);
-        let mut function = base.clone();
-        let mut n = 2;
-        while !taken.insert(function.clone()) {
-            function = format!("{base}_{n}");
-            n += 1;
-        }
-        out.push((function, def));
-    }
-    out.sort_by(|a, b| a.0.cmp(&b.0));
-    out
-}
-
-/// Every script-callable function, sorted by `function`.
-pub fn catalogue(defs: &[ToolDefinition]) -> Vec<ToolFunctionDoc> {
-    named(defs)
-        .into_iter()
-        .map(|(function, def)| describe_as(function, def, None))
-        .collect()
-}
-
-/// The definition behind a script function name, with its catalogue name.
-pub fn find<'a>(defs: &'a [ToolDefinition], function: &str) -> Option<&'a ToolDefinition> {
-    named(defs)
-        .into_iter()
-        .find(|(name, _)| name == function)
-        .map(|(_, def)| def)
-}
-
-/// Full documentation for one tool; `output_schema` is `None` for MCP tools.
-pub fn describe(def: &ToolDefinition, output_schema: Option<&Value>) -> ToolFunctionDoc {
-    describe_as(python_identifier(&def.name), def, output_schema)
-}
-
-/// `describe` for a definition whose function name was already resolved by the
-/// catalogue (so collision suffixes are kept).
-pub fn describe_in(
-    defs: &[ToolDefinition],
-    function: &str,
+/// Full documentation for one tool, under the script function name `function`;
+/// `output_schema` is `None` for MCP tools.
+pub fn describe_as(
+    function: String,
+    def: &ToolDefinition,
     output_schema: Option<&Value>,
-) -> Option<ToolFunctionDoc> {
-    named(defs)
-        .into_iter()
-        .find(|(name, _)| name == function)
-        .map(|(name, def)| describe_as(name, def, output_schema))
-}
-
-fn describe_as(function: String, def: &ToolDefinition, output_schema: Option<&Value>) -> ToolFunctionDoc {
+    category: Option<String>,
+) -> ToolFunctionDoc {
     let parameters = params(&def.parameters);
     let example_args: Vec<String> = parameters
         .iter()
@@ -133,6 +85,7 @@ fn describe_as(function: String, def: &ToolDefinition, output_schema: Option<&Va
         example: format!("result = {function}({})", example_args.join(", ")),
         name: function,
         tool: def.name.clone(),
+        category,
         summary: summary(&def.description),
         description: def.description.clone(),
         parameters,
@@ -144,7 +97,7 @@ fn describe_as(function: String, def: &ToolDefinition, output_schema: Option<&Va
 }
 
 /// First line of the description, cut after its first sentence.
-fn summary(description: &str) -> String {
+pub fn summary(description: &str) -> String {
     let line = description
         .lines()
         .map(str::trim)
@@ -350,40 +303,14 @@ mod tests {
         assert_eq!(python_identifier("list_tools"), "list_tools_tool");
         assert_eq!(python_identifier("list_tool_functions"), "list_tool_functions_tool");
         assert_eq!(python_identifier("describe_tool_function"), "describe_tool_function_tool");
-        assert_eq!(python_identifier("mcp_gh__create_issue"), "mcp_gh__create_issue");
+        assert_eq!(python_identifier("my-srv_do-thing"), "my_srv_do_thing");
     }
 
     #[test]
-    fn collisions_get_deterministic_suffixes() {
-        let defs = vec![
-            def("a.b", "", json!({})),
-            def("a-b", "", json!({})),
-            def("a_b", "", json!({})),
-        ];
-        let names: Vec<(String, String)> = catalogue(&defs)
-            .into_iter()
-            .map(|d| (d.name, d.tool))
-            .collect();
-        assert_eq!(
-            names,
-            vec![
-                ("a_b".into(), "a-b".into()),
-                ("a_b_2".into(), "a.b".into()),
-                ("a_b_3".into(), "a_b".into()),
-            ]
-        );
-    }
-
-    #[test]
-    fn catalogue_is_sorted_with_first_sentence_summaries() {
-        let defs = vec![
-            def("zeta", "Last one. With more detail.", json!({})),
-            def("alpha", "\nFirst line\nsecond line", json!({})),
-        ];
-        let docs = catalogue(&defs);
-        assert_eq!(docs[0].name, "alpha");
-        assert_eq!(docs[0].summary, "First line");
-        assert_eq!(docs[1].summary, "Last one.");
+    fn summaries_are_the_first_sentence_of_the_first_line() {
+        let doc = |description| describe_as("f".into(), &def("f", description, json!({})), None, None);
+        assert_eq!(doc("\nFirst line\nsecond line").summary, "First line");
+        assert_eq!(doc("Last one. With more detail.").summary, "Last one.");
     }
 
     #[test]
@@ -398,7 +325,12 @@ mod tests {
                 "tags": { "type": "array", "items": { "type": "string" } }
             }
         });
-        let doc = describe(&def("memory_read", "Search memory.", schema), None);
+        let doc = describe_as(
+            "memory_read".into(),
+            &def("memory_read", "Search memory.", schema),
+            None,
+            Some("memory".into()),
+        );
         let params: Vec<(&str, &str, bool)> = doc
             .parameters
             .iter()
@@ -416,6 +348,7 @@ mod tests {
         assert_eq!(doc.parameters[0].description, "What to search for");
         assert_eq!(doc.example, "result = memory_read(query=\"…\", limit=0)");
         assert_eq!(doc.returns, "any JSON value");
+        assert_eq!(doc.category.as_deref(), Some("memory"));
     }
 
     #[test]
@@ -425,13 +358,13 @@ mod tests {
             "properties": { "results": { "type": "array", "items": { "$ref": "#/$defs/Hit" } } },
             "$defs": { "Hit": { "type": "object", "properties": { "slug": { "type": "string" } } } }
         });
-        let doc = describe(&def("t", "", json!({})), Some(&output));
+        let doc = describe_as("t".into(), &def("t", "", json!({})), Some(&output), None);
         assert_eq!(doc.returns, "{ results: [{ slug: string }] }");
     }
 
     #[test]
     fn did_you_mean_suggests_close_names() {
-        let known: Vec<String> = ["memory_read", "memory_detail", "READ_CORE", "think"]
+        let known: Vec<String> = ["memory_read", "memory_search", "read_core", "think"]
             .iter()
             .map(|s| s.to_string())
             .collect();

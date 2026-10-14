@@ -16,7 +16,7 @@ pub struct ExecutionReport {
     pub stdout: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<ExecutionError>,
-    /// Ordered; empty when code mode is off.
+    /// Ordered; empty when the run had no tool access.
     pub tool_calls: Vec<ToolInvocationRecord>,
     pub duration_ms: u64,
 }

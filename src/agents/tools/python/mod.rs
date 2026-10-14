@@ -1,5 +1,4 @@
-//! The Python sandbox tools: `execute_python` and, in code mode, the two
-//! documentation tools. The engine itself lives in `crate::sandbox`.
+//! The Python sandbox tools: `execute_python` and the two documentation tools. The engine itself lives in `crate::sandbox`.
 
 use std::sync::Arc;
 
@@ -9,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::Instrument;
 
 use crate::{
-    agents::tools::{ToolContext, ToolRouter, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, ToolRouter, VizierTool},
     error::VizierError,
     sandbox::{self, NoToolsBridge, SandboxBridge, SandboxLimits},
     schema::{VizierResponse, VizierResponseContent},
@@ -32,7 +31,7 @@ impl ExecutePython {
         Self {
             router,
             limits,
-            description: execute_python_description(limits.tools_enabled, tools_timeout),
+            description: execute_python_description(tools_timeout),
         }
     }
 }
@@ -58,6 +57,10 @@ pub struct ExecutePythonInput {
 impl VizierTool for ExecutePython {
     type Input = ExecutePythonInput;
     type Output = VizierResponse;
+
+    fn category() -> Option<ToolCategory> {
+        None
+    }
 
     fn name() -> String {
         "execute_python".into()
@@ -131,25 +134,20 @@ impl VizierTool for ExecutePython {
 }
 
 /// The `execute_python` description, with the agent's tool timeout interpolated.
-pub fn execute_python_description(code_mode: bool, tools_timeout: &str) -> String {
-    let access = if code_mode {
-        format!(
+pub fn execute_python_description(tools_timeout: &str) -> String {
+    let access = format!(
             "The sandbox has NO filesystem, network, environment or OS access. This agent's tools ARE callable
 from the script as plain functions with keyword arguments, e.g.
     hits = memory_search(query=\"rust releases\")
     note = memory_read(bundle=hits[0][\"bundle\"], path=hits[0][\"path\"])
-Call `list_tool_functions` to see every available function and `describe_tool_function` for a
-function's parameters, return shape and example — either as a tool, or from inside the script
-(`list_tools()` / `describe_tool(\"name\")` are the same two functions under shorter names).
-`list_tools()` returns a list of {{\"name\": ..., \"summary\": ...}} dicts; pass a `name` to `describe_tool`.
+`list_tool_functions(category=\"…\")` lists a category's functions (leave `category` out for all of
+them) and `describe_tool_function` shows a function's parameters, return shape and example — either
+as a tool, or from inside the script (`list_tools(category=…)` / `describe_tool(\"name\")` are the same
+two functions under shorter names). `list_tools()` returns a list of
+{{\"name\": ..., \"summary\": ..., \"category\": ...}} dicts; pass a `name` to `describe_tool`.
 A tool error is raised as an exception you may catch; an uncaught one ends the run. The whole script, including every tool call it makes, must finish within {tools_timeout}.
 Each run is stateless; loop and aggregate inside one script and return only what you need."
-        )
-    } else {
-        "The sandbox has NO filesystem, network, environment or OS access, and this agent's tools are
-NOT callable from scripts (calling one raises NameError). Each run is stateless."
-            .to_string()
-    };
+    );
 
     format!(
         "Run a Python script in an isolated sandbox and get back the value of its last expression

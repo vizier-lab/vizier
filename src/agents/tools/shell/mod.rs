@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
-    agents::tools::{ToolContext, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::VizierError,
     agents::shell::{ShellProvider, VizierShell},
 };
@@ -20,6 +20,10 @@ pub struct ShellExec(pub Arc<VizierShell>);
 impl VizierTool for ShellExec {
     type Input = ShellExecArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Shell)
+    }
 
     fn name() -> String {
         "shell_exec".to_string()

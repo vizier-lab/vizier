@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
 use crate::agents::skill::{index_skill, scope_for_agent};
-use crate::agents::tools::{ToolContext, VizierTool};
+use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::indexer::VizierIndexer;
@@ -109,6 +109,10 @@ pub struct CreateSkillArgs {
 impl VizierTool for CreateSkill {
     type Input = CreateSkillArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Skills)
+    }
 
     fn name() -> String {
         "create_skill".to_string()

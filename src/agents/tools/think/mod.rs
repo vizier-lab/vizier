@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{agents::tools::{ToolContext, VizierTool}, error::VizierError};
+use crate::{agents::tools::{ToolCategory, ToolContext, VizierTool}, error::VizierError};
 
 pub struct ThinkTool;
 
@@ -8,6 +8,10 @@ pub struct ThinkTool;
 impl VizierTool for ThinkTool {
     type Input = ThinkToolArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        None
+    }
 
     fn name() -> String {
         "think".into()

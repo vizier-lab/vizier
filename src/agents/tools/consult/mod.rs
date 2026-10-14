@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::agents::background::{PieceSpec, validate_timeout};
-use crate::agents::tools::{ToolContext, VizierTool};
+use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::{
@@ -46,6 +46,10 @@ pub struct ConsultAgentArgs {
 impl VizierTool for ConsultAgent {
     type Input = ConsultAgentArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Agents)
+    }
 
     fn name() -> String {
         "consult_agent".to_string()
@@ -126,6 +130,10 @@ pub struct DelegateAgentArgs {
 impl VizierTool for DelegateAgent {
     type Input = DelegateAgentArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Agents)
+    }
 
     fn name() -> String {
         "delegate_agent".to_string()

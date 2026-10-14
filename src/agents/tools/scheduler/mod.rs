@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
 use crate::{
-    agents::tools::{ToolContext, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::VizierError,
     schema::{AgentId, Requester, Task, TaskRunState, TaskSchedule},
     storage::{
@@ -75,6 +75,10 @@ pub struct ScheduleOneTimeTaskArgs {
 impl VizierTool for ScheduleOneTimeTask {
     type Input = ScheduleOneTimeTaskArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Scheduling)
+    }
 
     fn name() -> String {
         "schedule_one_time_task".to_string()
@@ -162,6 +166,10 @@ impl VizierTool for ScheduleCronTask {
     type Input = ScheduleCronTaskArgs;
     type Output = String;
 
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Scheduling)
+    }
+
     fn name() -> String {
         "schedule_cron_task".to_string()
     }
@@ -222,6 +230,10 @@ impl VizierTool for ListTask {
     type Input = ListTaskArgs;
     type Output = Vec<Task>;
 
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Scheduling)
+    }
+
     fn name() -> String {
         "list_task".to_string()
     }
@@ -257,6 +269,10 @@ impl VizierTool for DeleteTask {
     type Input = DeleteTaskArgs;
     type Output = String;
 
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Scheduling)
+    }
+
     fn name() -> String {
         "delete_task".to_string()
     }
@@ -291,6 +307,10 @@ pub struct GetTaskDetailArgs {
 impl VizierTool for GetTaskDetail {
     type Input = GetTaskDetailArgs;
     type Output = Option<Task>;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Scheduling)
+    }
 
     fn name() -> String {
         "get_task_detail".to_string()
@@ -359,6 +379,10 @@ pub struct ListTaskRunsOutput {
 impl VizierTool for ListTaskRuns {
     type Input = ListTaskRunsArgs;
     type Output = ListTaskRunsOutput;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Scheduling)
+    }
 
     fn name() -> String {
         "list_task_runs".to_string()
@@ -435,6 +459,10 @@ pub struct TaskRunDetail {
 impl VizierTool for GetTaskRunDetail {
     type Input = GetTaskRunDetailArgs;
     type Output = TaskRunDetail;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Scheduling)
+    }
 
     fn name() -> String {
         "get_task_run_detail".to_string()

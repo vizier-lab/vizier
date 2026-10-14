@@ -231,14 +231,52 @@ impl Interpreter {
         }
     }
 
+    /// `list_tools()` / `list_tools(category=…)`: an unknown category raises a catchable
+    /// `ValueError`, so the result is always a list.
     fn list_tools(&self, args: &CallArgs) -> ExtFunctionResult {
-        if args.args().len() > 0 || args.kwargs().len() > 0 {
-            return type_error("list_tools() takes no arguments").into();
+        let positional: Vec<ObjectRef<'_>> = args.args().collect();
+        let keywords: Vec<(ObjectRef<'_>, ObjectRef<'_>)> = args.kwargs().collect();
+        let category = match (positional.as_slice(), keywords.as_slice()) {
+            ([], []) => Ok(serde_json::Value::Null),
+            ([category], []) => ref_to_json(*category),
+            ([], [(key, category)]) if key.as_str() == Some("category") => ref_to_json(*category),
+            _ => return type_error("list_tools() takes one optional argument: category").into(),
+        };
+        let category = match category {
+            Ok(serde_json::Value::Null) => None,
+            Ok(serde_json::Value::String(category)) => Some(category),
+            _ => return type_error("list_tools() category must be a string").into(),
+        };
+
+        let catalogue = self.catalogue();
+        if let Some(category) = &category
+            && !catalogue.iter().any(|doc| doc.category.as_ref() == Some(category))
+        {
+            let mut known: Vec<String> = vec![];
+            for name in catalogue.iter().filter_map(|doc| doc.category.clone()) {
+                if !known.contains(&name) {
+                    known.push(name);
+                }
+            }
+            let suggestions = docs::did_you_mean(category, &known);
+            let hint = if suggestions.is_empty() {
+                format!("available: {}", known.join(", "))
+            } else {
+                format!("did you mean: {}", suggestions.join(", "))
+            };
+            return MontyException::new(
+                ExcType::ValueError,
+                Some(format!("no category '{category}'; {hint}")),
+            )
+            .into();
         }
-        let entries = self
-            .catalogue()
+
+        let entries = catalogue
             .into_iter()
-            .map(|doc| serde_json::json!({ "name": doc.name, "summary": doc.summary }))
+            .filter(|doc| category.is_none() || doc.category == category)
+            .map(|doc| {
+                serde_json::json!({ "name": doc.name, "summary": doc.summary, "category": doc.category })
+            })
             .collect();
         json_to_monty(serde_json::Value::Array(entries)).into()
     }
@@ -436,7 +474,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tools_are_undefined_without_code_mode() {
+    async fn tools_are_undefined_without_a_bridge() {
         let report = run("memory_read(query='x')").await;
         let err = error_of(&report);
         assert_eq!(err.kind, ExecutionErrorKind::Script);
@@ -501,10 +539,11 @@ mod tests {
         }
     }
 
-    fn doc(function: &str, required: &[&str]) -> ToolFunctionDoc {
+    fn doc(function: &str, category: &str, required: &[&str]) -> ToolFunctionDoc {
         ToolFunctionDoc {
             name: function.into(),
             tool: function.into(),
+            category: Some(category.into()),
             summary: format!("{function} summary."),
             description: String::new(),
             parameters: required
@@ -524,7 +563,11 @@ mod tests {
     #[async_trait::async_trait]
     impl SandboxBridge for FakeBridge {
         async fn catalogue(&self) -> Vec<ToolFunctionDoc> {
-            vec![doc("broken", &[]), doc("echo", &[]), doc("search", &["query"])]
+            vec![
+                doc("broken", "misc", &[]),
+                doc("echo", "misc", &[]),
+                doc("search", "memory", &["query"]),
+            ]
         }
 
         async fn describe(&self, function: &str) -> Option<ToolFunctionDoc> {
@@ -635,7 +678,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tools_are_undefined_when_code_mode_is_off() {
+    async fn tools_are_undefined_when_tools_are_disabled() {
         let bridge = FakeBridge::new();
         let report = run_with("echo(a=1)", bridge.clone(), false).await;
         assert!(error_of(&report).message.contains("NameError"));
@@ -655,6 +698,29 @@ mod tests {
         assert_eq!(report.result, serde_json::json!(["broken", "echo", "search"]));
         let report = run_with("list_tools()", FakeBridge::new(), false).await;
         assert_eq!(report.result, serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn list_tools_filters_by_category() {
+        let report = run_with("[d['name'] for d in list_tools(category='misc')]", FakeBridge::new(), true).await;
+        assert_eq!(report.result, serde_json::json!(["broken", "echo"]), "{report:?}");
+        let report = run_with("[d['name'] for d in list_tools('memory')]", FakeBridge::new(), true).await;
+        assert_eq!(report.result, serde_json::json!(["search"]), "{report:?}");
+        let report = run_with("list_tools()[2]['category']", FakeBridge::new(), true).await;
+        assert_eq!(report.result, serde_json::json!("memory"), "{report:?}");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_category_is_a_catchable_value_error() {
+        let code = "try:\n    list_tools(category='memry')\nexcept ValueError as e:\n    r = str(e)\nr";
+        let report = run_with(code, FakeBridge::new(), true).await;
+        assert!(report.ok, "{report:?}");
+        assert_eq!(
+            report.result,
+            serde_json::json!("no category 'memry'; did you mean: memory")
+        );
+        let report = run_with("list_tools(category='nope')", FakeBridge::new(), true).await;
+        assert!(error_of(&report).message.contains("ValueError"), "{report:?}");
     }
 
     #[tokio::test]

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     agents::{
         background::{PieceSpec, validate_timeout},
-        tools::{ToolContext, VizierTool},
+        tools::{ToolCategory, ToolContext, VizierTool},
     },
     dependencies::VizierDependencies,
     error::VizierError,
@@ -40,6 +40,10 @@ pub struct SubtasksArgs {
 impl VizierTool for SubtasksTool {
     type Input = SubtasksArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Agents)
+    }
 
     fn name() -> String {
         // Misspelt, and kept: tool names are the dispatch key.

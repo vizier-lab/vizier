@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     VizierError,
-    agents::tools::{ToolContext, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     file_manager::FileManager,
     storage::{VizierStorage, session_file::SessionFileStorage},
     stt::VizierStt,
@@ -35,6 +35,10 @@ pub struct SttTranscribe {
 impl VizierTool for SttTranscribe {
     type Input = SttTranscribeArgs;
     type Output = SttTranscribeOutput;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Audio)
+    }
 
     fn name() -> String {
         "stt_transcribe".to_string()

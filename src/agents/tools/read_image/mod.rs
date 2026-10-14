@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     agents::agent::model::{VizierModel, VizierModelTrait},
-    agents::tools::{ToolContext, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::VizierError,
     file_manager::FileManager,
     schema::{VizierResponse, VizierResponseContent},
@@ -45,6 +45,10 @@ pub struct ReadImageFile {
 impl VizierTool for ReadImageFile {
     type Input = ReadImageFileArgs;
     type Output = VizierResponse;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Files)
+    }
 
     fn name() -> String {
         "read_image_file".to_string()

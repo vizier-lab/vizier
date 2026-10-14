@@ -279,10 +279,6 @@ impl VizierAgents {
         config: AgentConfig,
         resp: oneshot::Sender<AgentCommandResult>,
     ) {
-        if let Err(msg) = validate_config(&config) {
-            let _ = resp.send(AgentCommandResult::Error(msg));
-            return;
-        }
         if self.building.contains(&agent_id) {
             let _ = resp.send(Self::busy(&agent_id));
             return;
@@ -339,10 +335,6 @@ impl VizierAgents {
         config: AgentConfig,
         resp: oneshot::Sender<AgentCommandResult>,
     ) {
-        if let Err(msg) = validate_config(&config) {
-            let _ = resp.send(AgentCommandResult::Error(msg));
-            return;
-        }
         if self.building.contains(&agent_id) {
             let _ = resp.send(Self::busy(&agent_id));
             return;
@@ -429,12 +421,4 @@ impl VizierAgents {
             shared_to: Vec::new(),
         })
     }
-}
-
-/// Invariants an agent config must satisfy before it is persisted.
-fn validate_config(config: &AgentConfig) -> Result<(), String> {
-    if config.tools.python.code_mode && !config.tools.python.enabled {
-        return Err("tools.python.code_mode requires tools.python.enabled".into());
-    }
-    Ok(())
 }

@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::{ToolContext, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::VizierError,
     schema::{VizierAttachment, VizierAttachmentContent},
     storage::{VizierStorage, session_file::SessionFileStorage},
@@ -30,6 +30,10 @@ pub struct SendAttachment {
 impl VizierTool for SendAttachment {
     type Input = SendAttachmentArgs;
     type Output = SendAttachmentOutput;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Files)
+    }
 
     fn name() -> String {
         "send_attachment".to_string()

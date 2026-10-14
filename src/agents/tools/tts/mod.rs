@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     VizierError,
-    agents::tools::{ToolContext, VizierTool},
+    agents::tools::{ToolCategory, ToolContext, VizierTool},
     file_manager::FileManager,
     storage::{VizierStorage, session_file::SessionFileStorage},
     tts::VizierTts,
@@ -39,6 +39,10 @@ pub struct TtsGenerate {
 impl VizierTool for TtsGenerate {
     type Input = TtsGenerateArgs;
     type Output = TtsGenerateOutput;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Audio)
+    }
 
     fn name() -> String {
         "tts_generate".to_string()

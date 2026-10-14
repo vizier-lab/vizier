@@ -5,7 +5,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use slugify::slugify;
 
-use crate::agents::tools::{ToolContext, VizierTool};
+use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::error::VizierError;
 use crate::indexer::VizierIndexer;
 use crate::schema::{AgentId, RevisionOrigin, VizierAttachment, VizierAttachmentContent};
@@ -173,6 +173,10 @@ impl VizierTool for MemoryList {
     type Input = MemoryListArgs;
     type Output = MemoryListOutput;
 
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Memory)
+    }
+
     fn name() -> String {
         "memory_list".to_string()
     }
@@ -272,6 +276,10 @@ pub struct MemorySearchHit {
 impl VizierTool for MemorySearch {
     type Input = MemorySearchArgs;
     type Output = Vec<MemorySearchHit>;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Memory)
+    }
 
     fn name() -> String {
         "memory_search".to_string()
@@ -396,6 +404,10 @@ impl VizierTool for MemoryWrite {
     type Input = MemoryWriteArgs;
     type Output = String;
 
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Memory)
+    }
+
     fn name() -> String {
         "memory_write".to_string()
     }
@@ -518,6 +530,10 @@ impl VizierTool for MemoryRead {
     type Input = MemoryDetailArgs;
     type Output = String;
 
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Memory)
+    }
+
     fn name() -> String {
         "memory_read".to_string()
     }
@@ -637,6 +653,10 @@ fn default_depth() -> Option<usize> {
 impl VizierTool for MemoryFollow {
     type Input = MemoryFollowArgs;
     type Output = Vec<MemoryDetailOutput>;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Memory)
+    }
 
     fn name() -> String {
         "memory_follow".to_string()
@@ -771,6 +791,10 @@ impl VizierTool for MemoryGraphTool {
     type Input = MemoryGraphArgs;
     type Output = MemoryGraphOutput;
 
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Memory)
+    }
+
     fn name() -> String {
         "memory_graph".to_string()
     }
@@ -858,6 +882,10 @@ pub struct MemoryDeleteArgs {
 impl VizierTool for MemoryDelete {
     type Input = MemoryDeleteArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Memory)
+    }
 
     fn name() -> String {
         "memory_delete".to_string()
@@ -963,6 +991,10 @@ pub struct MemoryDeleteBundleArgs {
 impl VizierTool for MemoryDeleteBundle {
     type Input = MemoryDeleteBundleArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Memory)
+    }
 
     fn name() -> String {
         "memory_delete_bundle".to_string()

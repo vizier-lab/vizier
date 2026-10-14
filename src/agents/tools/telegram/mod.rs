@@ -7,7 +7,7 @@ use teloxide::prelude::*;
 use teloxide::sugar::request::RequestReplyExt;
 use teloxide::types::ReactionType;
 
-use crate::agents::tools::{ToolContext, VizierTool};
+use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::error::{VizierError, throw_vizier_error};
 use crate::schema::{AgentId, TopicId, VizierChannelId, VizierResponse, VizierResponseContent, VizierSession};
 use crate::storage::{
@@ -59,6 +59,10 @@ pub struct SendTelegramMessageArgs {
 impl VizierTool for SendTelegramMessage {
     type Input = SendTelegramMessageArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Telegram)
+    }
 
     fn name() -> String {
         "telegram_send_message".to_string()
@@ -133,6 +137,10 @@ impl VizierTool for ReactTelegramMessage {
     type Input = ReactTelegramMessageArgs;
     type Output = String;
 
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Telegram)
+    }
+
     fn name() -> String {
         "telegram_react_message".to_string()
     }
@@ -175,6 +183,10 @@ pub struct GetTelegramMessageArgs {
 impl VizierTool for GetTelegramMessage {
     type Input = GetTelegramMessageArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Telegram)
+    }
 
     fn name() -> String {
         "telegram_get_message_by_id".to_string()

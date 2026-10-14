@@ -150,7 +150,7 @@ export default function AgentCore() {
         >
           Persistent memory and identity for the agent. This document is included
           in the agent's system prompt and can be updated by the agent itself using
-          the <code>WRITE_CORE</code> tool.
+          the <code>write_core</code> tool.
         </p>
 
         {loading ? (

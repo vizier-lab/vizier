@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     agents::{
         background::{CancelOutcome, CancelScope, report::render_cancel_result},
-        tools::{ToolContext, VizierTool},
+        tools::{ToolCategory, ToolContext, VizierTool},
     },
     dependencies::VizierDependencies,
     error::VizierError,
@@ -64,6 +64,10 @@ pub struct ListBackgroundJobsArgs {}
 impl VizierTool for ListBackgroundJobs {
     type Input = ListBackgroundJobsArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Agents)
+    }
 
     fn name() -> String {
         "list_background_jobs".to_string()
@@ -155,6 +159,10 @@ pub struct CancelBackgroundJobArgs {
 impl VizierTool for CancelBackgroundJob {
     type Input = CancelBackgroundJobArgs;
     type Output = String;
+
+    fn category() -> Option<ToolCategory> {
+        Some(ToolCategory::Agents)
+    }
 
     fn name() -> String {
         "cancel_background_job".to_string()

@@ -692,7 +692,7 @@ mod tests {
         let tools = vec![
             echo_tool(),
             ToolDefinition {
-                name: "mcp_fs__read_file".into(),
+                name: "fs_read_file".into(),
                 description: "Read a file.\nSecond line.".into(),
                 parameters: json!({}),
             },
@@ -701,7 +701,7 @@ mod tests {
             let text = reply_text(user_message(input), tools.clone()).await;
             assert_eq!(
                 text,
-                "**Available tools** (2):\n\n- `echo` — Echo\n- `mcp_fs__read_file` — Read a file.\n\nSend a tool name to get a sample request."
+                "**Available tools** (2):\n\n- `echo` — Echo\n- `fs_read_file` — Read a file.\n\nSend a tool name to get a sample request."
             );
         }
     }
