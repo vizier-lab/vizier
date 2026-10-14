@@ -136,11 +136,12 @@ pub fn execute_python_description(code_mode: bool, tools_timeout: &str) -> Strin
         format!(
             "The sandbox has NO filesystem, network, environment or OS access. This agent's tools ARE callable
 from the script as plain functions with keyword arguments, e.g.
-    hits = memory_read(query=\"rust releases\")
-    page = fetch_webpage(url=hits[0][\"url\"])
+    hits = memory_search(query=\"rust releases\")
+    note = memory_read(bundle=hits[0][\"bundle\"], path=hits[0][\"path\"])
 Call `list_tool_functions` to see every available function and `describe_tool_function` for a
 function's parameters, return shape and example — either as a tool, or from inside the script
 (`list_tools()` / `describe_tool(\"name\")` are the same two functions under shorter names).
+`list_tools()` returns a list of {{\"name\": ..., \"summary\": ...}} dicts; pass a `name` to `describe_tool`.
 A tool error is raised as an exception you may catch; an uncaught one ends the run. The whole script, including every tool call it makes, must finish within {tools_timeout}.
 Each run is stateless; loop and aggregate inside one script and return only what you need."
         )

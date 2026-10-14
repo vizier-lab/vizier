@@ -35,7 +35,7 @@ pub struct ListToolFunctionsInput {}
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ToolFunctionSummary {
-    pub function: String,
+    pub name: String,
     pub summary: String,
 }
 
@@ -55,7 +55,7 @@ impl VizierTool for ListToolFunctions {
     }
 
     fn description(&self) -> String {
-        "List every function this agent can call from an execute_python script, with a one-line summary each. Use describe_tool_function for parameters and examples.".into()
+        "List every function this agent can call from an execute_python script: each entry is {\"name\", \"summary\"}. Pass a name to describe_tool_function for parameters and examples.".into()
     }
 
     async fn call(&self, _args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
@@ -67,7 +67,7 @@ impl VizierTool for ListToolFunctions {
         let functions: Vec<ToolFunctionSummary> = docs::catalogue(&defs)
             .into_iter()
             .map(|doc| ToolFunctionSummary {
-                function: doc.function,
+                name: doc.name,
                 summary: doc.summary,
             })
             .collect();
@@ -119,15 +119,15 @@ impl VizierTool for DescribeToolFunction {
 
         let found = catalogue
             .iter()
-            .find(|doc| doc.function == args.name)
+            .find(|doc| doc.name == args.name)
             .and_then(|doc| {
-                docs::describe_in(&defs, &doc.function, output_schema(&self.router, &doc.tool).as_ref())
+                docs::describe_in(&defs, &doc.name, output_schema(&self.router, &doc.tool).as_ref())
             });
 
         Ok(match found {
             Some(doc) => serde_json::to_value(doc).map_err(|err| VizierError(err.to_string()))?,
             None => {
-                let known: Vec<String> = catalogue.into_iter().map(|doc| doc.function).collect();
+                let known: Vec<String> = catalogue.into_iter().map(|doc| doc.name).collect();
                 docs::not_found(&args.name, &known)
             }
         })

@@ -73,12 +73,12 @@ Each run is stateless; loop and aggregate inside one script and return only what
 
 ```json
 { "count": 23,
-  "functions": [ { "function": "memory_read", "summary": "Search this agent's memory…" }, … ] }
+  "functions": [ { "name": "memory_read", "summary": "Search this agent's memory…" }, … ] }
 ```
 
-Sorted by `function`. Reflects the agent's *current* tool configuration on every call (FR-012) — it is computed from `ToolRouter::definitions()` at call time, not cached at agent start (MCP servers may add tools after connect).
+Sorted by `name`. Reflects the agent's *current* tool configuration on every call (FR-012) — it is computed from `ToolRouter::definitions()` at call time, not cached at agent start (MCP servers may add tools after connect).
 
-**Description**: `List every function this agent can call from an execute_python script, with a one-line summary each. Use describe_tool_function for parameters and examples.`
+**Description**: `List every function this agent can call from an execute_python script: each entry is {"name", "summary"}. Pass a name to describe_tool_function for parameters and examples.`
 
 ## `describe_tool_function` (code mode only)
 
@@ -92,7 +92,7 @@ Sorted by `function`. Reflects the agent's *current* tool configuration on every
 **Output (found)**: `ToolFunctionDoc` (data-model.md):
 
 ```json
-{ "function": "memory_read", "tool": "memory_read",
+{ "name": "memory_read", "tool": "memory_read",
   "summary": "Search this agent's memory…", "description": "…full…",
   "parameters": [ { "name": "query", "type": "string", "required": true, "description": "…" },
                   { "name": "bundle", "type": "string", "required": false, "description": "…" } ],

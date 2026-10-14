@@ -9,8 +9,9 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolFunctionDoc {
-    /// Sanitised Python identifier (== tool name for all native tools).
-    pub function: String,
+    /// Sanitised Python identifier (== tool name for all native tools); the
+    /// function a script calls.
+    pub name: String,
     /// Original tool name (differs only if sanitised).
     pub tool: String,
     /// First sentence/line of the tool description.
@@ -130,7 +131,7 @@ fn describe_as(function: String, def: &ToolDefinition, output_schema: Option<&Va
 
     ToolFunctionDoc {
         example: format!("result = {function}({})", example_args.join(", ")),
-        function,
+        name: function,
         tool: def.name.clone(),
         summary: summary(&def.description),
         description: def.description.clone(),
@@ -361,7 +362,7 @@ mod tests {
         ];
         let names: Vec<(String, String)> = catalogue(&defs)
             .into_iter()
-            .map(|d| (d.function, d.tool))
+            .map(|d| (d.name, d.tool))
             .collect();
         assert_eq!(
             names,
@@ -380,7 +381,7 @@ mod tests {
             def("alpha", "\nFirst line\nsecond line", json!({})),
         ];
         let docs = catalogue(&defs);
-        assert_eq!(docs[0].function, "alpha");
+        assert_eq!(docs[0].name, "alpha");
         assert_eq!(docs[0].summary, "First line");
         assert_eq!(docs[1].summary, "Last one.");
     }

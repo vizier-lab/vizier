@@ -66,7 +66,7 @@ impl RouterBridge {
             .get_or_init(|| async {
                 docs::catalogue(&self.definitions().await)
                     .into_iter()
-                    .map(|doc| (doc.function, doc.tool))
+                    .map(|doc| (doc.name, doc.tool))
                     .collect()
             })
             .await;
@@ -121,7 +121,7 @@ impl SandboxBridge for RouterBridge {
         let defs = self.definitions().await;
         let tool = docs::catalogue(&defs)
             .into_iter()
-            .find(|doc| doc.function == function)?
+            .find(|doc| doc.name == function)?
             .tool;
         docs::describe_in(&defs, function, output_schema(&self.router, &tool).as_ref())
     }
