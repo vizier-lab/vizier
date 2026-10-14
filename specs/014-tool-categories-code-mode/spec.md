@@ -35,15 +35,15 @@ An operator creates an agent, or upgrades vizier with agents already set up. Eve
 
 ### User Story 2 - Agent discovers tools by category (Priority: P1)
 
-An agent in code mode needs to do something, for example schedule a reminder or open a GitHub issue. Instead of reading one long list of every function, it asks which categories exist (with a short description and a tool count for each), then lists only the functions in the category it needs, then asks for that function's details. Inside a script it can do the same lookup.
+An agent in code mode needs to do something, for example schedule a reminder or open a GitHub issue. It already knows the categories from its system prompt. Instead of reading one long list of every function, it lists only the functions in the category it needs, then asks for that function's details. If it is unsure which category fits, it can still list every function, each labelled with its category. Inside a script it can do the same lookup.
 
 **Why this priority**: Without this, code mode gets more expensive as tools are added. One flat list of 60+ functions costs more context than the tool definitions code mode was meant to save.
 
-**Independent Test**: On `dummyplug`, call the listing tool with no category and check that the result is a set of categories with counts. Call it again with one category and check that only that category's functions come back. Do the same from inside a script.
+**Independent Test**: On `dummyplug`, call the listing tool with one category and check that only that category's functions come back. Call it with no category and check that every function comes back, each labelled with its category. Do the same from inside a script.
 
 **Acceptance Scenarios**:
 
-1. **Given** a code-mode agent, **When** it lists tools without naming a category, **Then** it gets every category it has access to, each with a name, a one-line description and a count of functions.
+1. **Given** a code-mode agent, **When** it lists tools without naming a category, **Then** it gets every function it can call, each with its name, summary and category.
 2. **Given** a code-mode agent, **When** it lists tools for one category, **Then** it gets exactly the functions in that category, each with a name and a summary.
 3. **Given** a category name that does not exist, **When** the agent lists it, **Then** it gets a clear "no such category" answer with the closest matching category names. This is not an error that ends the turn.
 4. **Given** any agent's turn, **When** its system prompt is built, **Then** it contains a list of the agent's tool categories (name and one-line description each) and short instructions for finding and calling a tool, so the agent can go straight to listing one category without first asking what categories exist.
@@ -53,19 +53,19 @@ An agent in code mode needs to do something, for example schedule a reminder or 
 
 ### User Story 3 - MCP tools are tagged by server and get simpler names (Priority: P2)
 
-An operator attaches an MCP server called `github` to an agent. Its tools show up under a `github` category, named `<server>_<tool>` (`github_create_issue`, not `mcp_github__create_issue`). The agent calls them from scripts by those names, and the chat views still show which server a tool came from.
+An operator attaches an MCP server called `github` to an agent. Its tools show up under a `github` category, named `<server>_<tool>` (`github_create_issue`, not `mcp_github__create_issue`). The agent calls them from scripts by those names. The old names stop working.
 
 **Why this priority**: Shorter, more natural names are easier for the model to write correctly in scripts, while the server name in each tool name keeps tools from different servers distinct. Which server a tool belongs to comes from its category (Story 2), not from parsing the name: a server name can itself contain underscores, so `<server>_<tool>` cannot be split reliably.
 
-**Independent Test**: Give a `dummyplug` agent an MCP server, list its category, and call one of its tools by its `<server>_<tool>` name. The WebUI and the Discord/Telegram renderings of that call both show the tool and its server.
+**Independent Test**: Give a `dummyplug` agent an MCP server, list its category, and call one of its tools by its `<server>_<tool>` name. Calling the old `mcp_<server>__<tool>` name from a script fails with an unknown-function error.
 
 **Acceptance Scenarios**:
 
 1. **Given** an agent with MCP server `github` exposing `create_issue`, **When** the agent lists categories, **Then** a `github` category appears containing `github_create_issue`.
 2. **Given** that agent, **When** it calls `github_create_issue`, **Then** the call goes to the `github` server.
 3. **Given** an MCP tool whose `<server>_<tool>` name equals a built-in tool's name (e.g. server `memory` with tool `search` versus built-in `memory_search`), or two MCP tools that end up with the same name (e.g. server `a_b` tool `c` and server `a` tool `b_c`), **When** tools are listed, **Then** every tool is still listed and callable under a unique name: built-in tools keep their names, and colliding MCP tools get a predictable distinguishing suffix.
-4. **Given** a past conversation whose history contains calls under the old `mcp_<server>__<tool>` names, **When** it is viewed in the WebUI, **Then** those calls still render with the tool and server shown.
-5. **Given** a model that calls a tool by its old `mcp_<server>__<tool>` name (e.g. copying from earlier history), **When** the call is dispatched, **Then** it still reaches the right server and tool, even though old names are never offered.
+4. **Given** a model that calls a tool by its old `mcp_<server>__<tool>` name (e.g. copying from earlier history), **When** the call is dispatched, **Then** it fails as an unknown function, and the agent can find the current name through `list_tool_functions`.
+5. **Given** a past conversation whose history contains calls under old names, **When** it is viewed, **Then** it still loads, and those calls show with the generic tool-call display under their full old name.
 
 ---
 
@@ -128,9 +128,9 @@ Every built-in tool belongs to a category that reflects what it is for, for exam
 
   `think`, `execute_python`, and the two discovery tools are offered to the model directly, so they are not in any category.
 - **FR-007**: Every tool provided by an MCP server MUST have that server's configured name as its category.
-- **FR-008**: The agent MUST be able to list its categories (name, description, function count), and list the functions in one named category, both through a direct tool and from inside a script.
+- **FR-008**: One listing tool MUST cover both cases, through a direct tool call and from inside a script. With a category, it returns that category's functions (name and summary). Without one, it returns every function the agent can call (name, summary and category). There is no separate wildcard value; leaving the category out is how the agent asks for everything.
 - **FR-009**: Listing with an unknown category MUST return a non-fatal "not found" result that suggests the closest matching category names.
-- **FR-010**: The agent's system prompt MUST list its tool categories, built-in and MCP alike, each with its name and one-line description. An MCP category's description is "Tools from the `<server>` MCP server". The server's own description is used instead if it gives one.
+- **FR-010**: The agent's system prompt MUST list its tool categories, built-in and MCP alike, each with its name and one-line description. An MCP category's description is "Tools from the `<server>` MCP server". The server's own self-description is not used: it is only known once the server connects, which would change the prompt between turns (FR-010b).
 - **FR-010a**: The system prompt MUST include short instructions for finding and calling tools:
   1. Pick a category from the list.
   2. List its functions, directly or from inside a script.
@@ -138,7 +138,7 @@ Every built-in tool belongs to a category that reflects what it is for, for exam
   4. Call it from an `execute_python` script.
 
   It MUST also tell the agent to batch several calls in one script where it can, and say how tool errors show up inside a script. With this, finding a tool normally takes no more than two lookups.
-- **FR-010b**: The category list in the system prompt MUST stay the same from turn to turn while the agent's configuration is unchanged. It shows every configured MCP server even when that server is temporarily unreachable, and it leaves out function counts, which change when a server drops out. Counts and live availability are reported by the listing tool instead.
+- **FR-010b**: The category list in the system prompt MUST stay the same from turn to turn while the agent's configuration is unchanged. It shows every configured MCP server even when that server is temporarily unreachable, and it leaves out function counts, which change when a server drops out. Live availability is reported by the listing tool instead.
 - **FR-011**: A built-in category whose tools are all disabled for the agent (e.g. `audio` when speech generation and transcription are off, or `discord` when the agent has no Discord channel) MUST NOT be listed. An MCP category is listed for every configured server (FR-010b).
 - **FR-012**: The order of categories and of functions within a category MUST be stable across restarts, so the system prompt stays the same from turn to turn.
 
@@ -146,14 +146,14 @@ Every built-in tool belongs to a category that reflects what it is for, for exam
 
 - **FR-013**: MCP tools MUST be offered and called as `<server>_<tool>`, where `<server>` is the configured server name and `<tool>` is the name the server gives the tool. Characters that are not valid in a function name are cleaned up as today.
 - **FR-014**: When an MCP tool's `<server>_<tool>` name collides with a built-in tool or with another MCP tool, the built-in tool MUST keep its name, and each colliding MCP tool MUST get a unique, predictable name (e.g. a numeric suffix). The result MUST be the same for the same set of tools, whatever order servers connect in.
-- **FR-015**: A call made under the old `mcp_<server>__<tool>` form MUST still go to the right server and tool. Old-form names MUST NOT be advertised.
-- **FR-016**: Every view that displays tool calls (the WebUI chat, Discord and Telegram tool-call rendering) MUST show an MCP tool's name and its server, for new calls (`<server>_<tool>`) and for calls already in history (`mcp_<server>__<tool>`). For new calls the server MUST come from what is known about the tool, not from splitting its name.
-- **FR-017**: The offline `dummyplug` provider's tool listing and sample flow MUST show categories and `<server>_<tool>` MCP names, so the change can be checked end to end without provider keys.
+- **FR-015**: Old `mcp_<server>__<tool>` names MUST NOT be supported: they are neither listed nor dispatched. A call under one fails like any unknown function.
+- **FR-016**: No view parses tool names to find an MCP server. New MCP calls are made only from scripts, and script calls are deliberately not shown individually (spec 007). The special `mcp_` prefix rendering in the WebUI chat and on Discord/Telegram is removed, so calls already in history under old names fall back to the generic tool-call display, which shows the full name. Where a tool's server matters to the agent, it comes from the tool's category.
+- **FR-017**: Every part of this feature MUST be checkable end to end on the offline `dummyplug` provider without provider keys: listing by category, calling `<server>_<tool>` names from scripts, old names failing, and the system prompt's category list.
 
 **Tool name normalisation**
 
-- **FR-018**: `READ_CORE` and `WRITE_CORE` MUST be renamed to `read_core` and `write_core`, so every built-in tool name is lowercase snake_case. This applies everywhere the names appear: the tool list, the dream cycle's tool set and its prompt, the WebUI's CORE page, and the tool-call display in the WebUI, Discord and Telegram.
-- **FR-019**: Calls made under `READ_CORE` / `WRITE_CORE` MUST still reach the renamed tools, and past calls under those names MUST still display correctly. Old CORE documents and conversation history can mention the uppercase names, so models may keep using them. As with old MCP names (FR-015), the uppercase names are never offered.
+- **FR-018**: `READ_CORE` and `WRITE_CORE` MUST be renamed to `read_core` and `write_core`, so every built-in tool name is lowercase snake_case. This applies everywhere the names appear: the tool list, the dream cycle's tool set and its prompt, the WebUI's CORE page, and the tool-call labels in the WebUI, Discord and Telegram (which replace the upper-case labels).
+- **FR-019**: `READ_CORE` / `WRITE_CORE` MUST NOT be supported after the rename: neither listed nor dispatched, the same as old MCP names (FR-015).
 
 ### Key Entities
 
@@ -166,10 +166,10 @@ Every built-in tool belongs to a category that reflects what it is for, for exam
 ### Measurable Outcomes
 
 - **SC-001**: For an agent that used direct tools before the upgrade, at least 80% less tool-definition text is sent to the model per turn after it.
-- **SC-002**: A code-mode agent can go from "I need tool X" to having X's full parameter description in at most 2 lookups when it knows the category, and at most 3 when it does not.
+- **SC-002**: A code-mode agent can go from "I need tool X" to having X's full parameter description in at most 2 lookups: list one category, or every function when unsure which category fits, then describe one function.
 - **SC-003**: A category-filtered listing for an agent with 50+ tools returns under a quarter of the text of the full flat listing.
 - **SC-004**: 100% of MCP-provided tools appear under their server's category and can be called by their `<server>_<tool>` name, or by their suffixed name when they collide.
-- **SC-005**: No conversation recorded before this change loses the "tool (server)" display for MCP calls, and no old-form MCP call made by a model fails to dispatch.
+- **SC-005**: Every conversation recorded before this change still loads and displays. Calls under old names show with the generic display.
 
 ## Assumptions
 
@@ -177,7 +177,6 @@ Every built-in tool belongs to a category that reflects what it is for, for exam
 - A tool may be in more than one category. In practice, built-in tools have one curated category each and MCP tools have exactly one (their server).
 - Operators cannot edit categories in this iteration. Built-in categories are fixed by the product, and MCP categories come from the server name.
 - Agents whose model cannot write working Python have no direct-tool fallback. This is accepted; reintroducing an opt-out is a separate decision if it proves necessary.
-- The full flat listing stays available (e.g. "list everything") for agents with few tools. Category browsing is added, not substituted.
-- Calls under the old MCP names keep working indefinitely. Removing them is a later decision.
-- Renaming MCP tools from `mcp_<server>__<tool>` to `<server>_<tool>`, and `READ_CORE`/`WRITE_CORE` to lowercase, is a breaking change to the tool names the model sees, which the project's changelog convention will flag. It is accepted as part of this feature.
+- Listing without a category returns the full flat list, as today, now with each function's category. Category browsing narrows it; it does not replace it. The category overview itself lives in the system prompt, so no listing call is needed to see what categories exist.
+- Renaming MCP tools from `mcp_<server>__<tool>` to `<server>_<tool>`, and `READ_CORE`/`WRITE_CORE` to lowercase, is a breaking change to the tool names the model sees, which the project's changelog convention will flag. It is accepted as part of this feature. Old names are dropped outright, with no alias period. Agents whose CORE documents or history mention old names (e.g. `WRITE_CORE`) may call them once, get an unknown-function error, and must look up the current name. This is accepted.
 - Calling one tool function at a time from scripts stays the same. Only discovery and naming change.
