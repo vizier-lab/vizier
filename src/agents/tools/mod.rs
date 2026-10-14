@@ -564,7 +564,7 @@ impl VizierTools {
         "memory_read",
         "memory_write",
         "memory_list",
-        "memory_detail",
+        "memory_search",
         "memory_follow",
         "memory_graph",
         "memory_delete",
@@ -1144,6 +1144,14 @@ mod tests {
                 EXPECTED.iter().any(|(_, c)| *c == category),
                 "{category:?} has no tool"
             );
+        }
+    }
+
+    #[test]
+    fn every_dream_tool_name_is_a_real_tool() {
+        let names: Vec<String> = every_tool().into_iter().map(|(name, _)| name).collect();
+        for name in VizierTools::DREAM_TOOL_NAMES {
+            assert!(names.iter().any(|n| n == name), "{name} is not a tool");
         }
     }
 

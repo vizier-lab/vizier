@@ -29,22 +29,15 @@ impl DreamJournalStorage for SqliteStorage {
         offset: Option<usize>,
     ) -> Result<Vec<DreamJournalEntry>> {
         let conn = self.conn.lock();
+        // SQLite rejects OFFSET without LIMIT; a negative LIMIT means no limit.
+        let limit_val = limit.map_or(-1, |l| l as i64);
         let offset_val = offset.unwrap_or(0) as i64;
 
-        let sql = match limit {
-            Some(l) => format!(
-                "SELECT data FROM dream_journal WHERE agent_id = ?1 ORDER BY timestamp DESC LIMIT {} OFFSET {}",
-                l, offset_val
-            ),
-            None => format!(
-                "SELECT data FROM dream_journal WHERE agent_id = ?1 ORDER BY timestamp DESC OFFSET {}",
-                offset_val
-            ),
-        };
-
-        let mut stmt = conn.prepare(&sql)?;
+        let mut stmt = conn.prepare(
+            "SELECT data FROM dream_journal WHERE agent_id = ?1 ORDER BY timestamp DESC LIMIT ?2 OFFSET ?3",
+        )?;
         let entries = stmt
-            .query_map(rusqlite::params![agent_id], |row| {
+            .query_map(rusqlite::params![agent_id, limit_val, offset_val], |row| {
                 let data: String = row.get(0)?;
                 Ok(data)
             })?
