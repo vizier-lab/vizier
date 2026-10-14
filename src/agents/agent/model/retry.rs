@@ -112,6 +112,14 @@ fn backoff(config: &CompletionRetryConfig, retry: u32) -> Duration {
     doubled.min(max).mul_f64(0.5 + rand::random::<f64>() * 0.5)
 }
 
+/// Whether a completion may call tools.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolUse {
+    Allowed,
+    /// Answer in text only (`VizierModelTrait::answer_only`).
+    Off,
+}
+
 /// Run `model.completion`, retrying transient failures under `config`. Every attempt is cut
 /// off at `config.attempt_timeout`, and at `deadline` when one is given, so a stalled provider
 /// can no longer hold a turn past its `prompt_timeout`.
@@ -121,6 +129,7 @@ pub async fn complete(
     message: Message,
     history: Vec<Message>,
     tools: Vec<ToolDefinition>,
+    tool_use: ToolUse,
     deadline: Option<Instant>,
 ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
     let max_attempts = config.max_attempts.max(1);
@@ -138,7 +147,16 @@ pub async fn complete(
 
         let err = match tokio::time::timeout(
             limit,
-            model.completion(message.clone(), history.clone(), tools.clone()),
+            async {
+                match tool_use {
+                    ToolUse::Allowed => {
+                        model.completion(message.clone(), history.clone(), tools.clone()).await
+                    }
+                    ToolUse::Off => {
+                        model.answer_only(message.clone(), history.clone(), tools.clone()).await
+                    }
+                }
+            },
         )
         .await
         {
@@ -251,7 +269,7 @@ mod tests {
         config: &CompletionRetryConfig,
         deadline: Option<Instant>,
     ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
-        complete(model, config, Message::user("hi"), vec![], vec![], deadline).await
+        complete(model, config, Message::user("hi"), vec![], vec![], ToolUse::Allowed, deadline).await
     }
 
     #[tokio::test]

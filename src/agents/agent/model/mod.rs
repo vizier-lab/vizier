@@ -4,7 +4,7 @@ use anyhow::Result;
 use rig_core::{
     OneOrMany,
     completion::{CompletionModel, ToolDefinition, Usage},
-    message::{AssistantContent, Message},
+    message::{AssistantContent, Message, ToolChoice},
     providers::{
         anthropic, azure, chatgpt, cohere, copilot, deepseek, galadriel, gemini, groq,
         huggingface, hyperbolic, llamafile, minimax, mira, mistral, moonshot, ollama, openai,
@@ -27,7 +27,7 @@ mod provider;
 mod registry;
 mod retry;
 
-pub use retry::{PROMPT_TIMED_OUT, PROVIDER_UNAVAILABLE, RATE_LIMITED};
+pub use retry::{PROMPT_TIMED_OUT, PROVIDER_UNAVAILABLE, RATE_LIMITED, ToolUse};
 
 /// Try to fetch context window size from provider's ModelListing API.
 /// Falls back to model name detection.
@@ -95,9 +95,11 @@ impl VizierModel {
         message: Message,
         history: Vec<Message>,
         tools: Vec<ToolDefinition>,
+        tool_use: retry::ToolUse,
         deadline: Option<tokio::time::Instant>,
     ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
-        retry::complete(&**self.inner, &self.retry, message, history, tools, deadline).await
+        retry::complete(&**self.inner, &self.retry, message, history, tools, tool_use, deadline)
+            .await
     }
 
     // NOTE: `mistral` is the rig cloud provider (Mistral AI API).
@@ -534,7 +536,18 @@ impl VizierModelTrait for VizierModel {
         history: Vec<Message>,
         tools: Vec<ToolDefinition>,
     ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
-        self.completion_until(message, history, tools, None).await
+        self.completion_until(message, history, tools, retry::ToolUse::Allowed, None)
+            .await
+    }
+
+    async fn answer_only(
+        &self,
+        message: Message,
+        history: Vec<Message>,
+        tools: Vec<ToolDefinition>,
+    ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
+        self.completion_until(message, history, tools, retry::ToolUse::Off, None)
+            .await
     }
 
     fn context_window(&self) -> Option<u64> {
@@ -598,6 +611,19 @@ pub trait VizierModelTrait {
         tools: Vec<ToolDefinition>,
     ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)>;
 
+    /// A completion that must answer in text. `tools` stay defined, since providers reject a
+    /// history holding tool calls when no tools are, but the model is told not to call them
+    /// (`tool_choice: none`). Providers that don't support that may call one anyway, so the
+    /// caller must not run what comes back. By default, a plain completion.
+    async fn answer_only(
+        &self,
+        message: Message,
+        history: Vec<Message>,
+        tools: Vec<ToolDefinition>,
+    ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
+        self.completion(message, history, tools).await
+    }
+
     fn context_window(&self) -> Option<u64>;
 }
 
@@ -627,13 +653,13 @@ impl<T: rig_core::client::CompletionClient> VizierModelImpl<T> {
     }
 }
 
-#[async_trait::async_trait]
-impl<T: rig_core::client::CompletionClient> VizierModelTrait for VizierModelImpl<T> {
-    async fn completion(
+impl<T: rig_core::client::CompletionClient> VizierModelImpl<T> {
+    async fn complete(
         &self,
         message: Message,
         history: Vec<Message>,
         tools: Vec<ToolDefinition>,
+        tool_choice: Option<ToolChoice>,
     ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
         let mut builder = self
             .model
@@ -644,12 +670,37 @@ impl<T: rig_core::client::CompletionClient> VizierModelTrait for VizierModelImpl
         if let Some(max) = self.max_tokens {
             builder = builder.max_tokens(max);
         }
+        if let Some(tool_choice) = tool_choice {
+            builder = builder.tool_choice(tool_choice);
+        }
 
         let request = builder.build();
 
         let response = self.model.completion(request).await?;
 
         Ok((response.message_id, response.choice, response.usage))
+    }
+}
+
+#[async_trait::async_trait]
+impl<T: rig_core::client::CompletionClient> VizierModelTrait for VizierModelImpl<T> {
+    async fn completion(
+        &self,
+        message: Message,
+        history: Vec<Message>,
+        tools: Vec<ToolDefinition>,
+    ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
+        self.complete(message, history, tools, None).await
+    }
+
+    async fn answer_only(
+        &self,
+        message: Message,
+        history: Vec<Message>,
+        tools: Vec<ToolDefinition>,
+    ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
+        self.complete(message, history, tools, Some(ToolChoice::None))
+            .await
     }
 
     fn context_window(&self) -> Option<u64> {

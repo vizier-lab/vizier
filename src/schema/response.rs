@@ -29,6 +29,9 @@ pub struct VizierResponseStats {
     pub total_cache_creation_input_tokens: u64,
     pub current_context_size: Option<u64>,
     pub context_window: Option<u64>,
+    /// The turn reached `thinking_depth`, and the reply is what it had by then (#48).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub depth_exhausted: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]

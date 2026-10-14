@@ -17,7 +17,7 @@ use crate::{
     VizierError,
     agents::{
         agent::{
-            model::{VizierModel, VizierModelTrait},
+            model::{ToolUse, VizierModel, VizierModelTrait},
             system_prompt::{
                 boot::boot_md,
                 context::{context_md, with_context},
@@ -594,18 +594,15 @@ impl VizierAgent {
         let mut total_cache_creation_input_tokens: u64 = 0;
         let mut current_context_size: Option<u64> = None;
 
+        let mut depth_exhausted = false;
+
         loop {
             turn_depth += 1;
-            if max_turn_depth > 0 && turn_depth > max_turn_depth {
-                return Err(fail_turn(
-                    anyhow::anyhow!(VizierError(format!(
-                        "thinking depth exceeding {}",
-                        max_turn_depth
-                    ))),
-                    full_history,
-                    Some(message),
-                    vec![],
-                ));
+            // Past the last tool-using step, one more completion answers with what the turn
+            // found, instead of the turn failing and losing it (#48).
+            let wrapping_up = max_turn_depth > 0 && turn_depth > max_turn_depth;
+            if wrapping_up {
+                message = with_wrap_up_note(message, max_turn_depth);
             }
 
             // Check prompt timeout
@@ -629,10 +626,16 @@ impl VizierAgent {
                     message_for_model(&message),
                     messages_for_model(&history),
                     tools.clone(),
+                    if wrapping_up { ToolUse::Off } else { ToolUse::Allowed },
                     Some(start + prompt_timeout),
                 )
                 .await
                 .map_err(|e| fail_turn(e, full_history.clone(), Some(message.clone()), vec![]))?;
+            let choices = if wrapping_up {
+                answer_without_tool_calls(choices)
+            } else {
+                choices
+            };
 
             tracing::debug!(
                 turn_depth = turn_depth,
@@ -683,6 +686,13 @@ impl VizierAgent {
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
+                depth_exhausted = wrapping_up;
+                if wrapping_up {
+                    tracing::info!(
+                        thinking_depth = max_turn_depth,
+                        "tool budget used up; answered with what the turn had"
+                    );
+                }
 
                 // A final answer leaves no tool call waiting, so the checkpoint is safe here,
                 // and it's what keeps the session's next turn small.
@@ -878,6 +888,7 @@ impl VizierAgent {
                 total_cache_creation_input_tokens,
                 current_context_size,
                 context_window: self.model.context_window(),
+                depth_exhausted,
             },
             attachments,
             full_history,
@@ -1157,22 +1168,34 @@ impl VizierAgent {
             let mut total_cache_creation_input_tokens: u64 = 0;
             let mut current_context_size: Option<u64> = None;
 
+            let mut depth_exhausted = false;
+
             loop {
                 turn_depth += 1;
-                if max_turn_depth > 0 && turn_depth > max_turn_depth {
-                    return Err(anyhow::anyhow!(VizierError(format!(
-                        "thinking depth exceeding {}",
-                        max_turn_depth
-                    ))));
+                // As in `prompt`: the dream answers with what it has rather than failing (#48).
+                let wrapping_up = max_turn_depth > 0 && turn_depth > max_turn_depth;
+                if wrapping_up {
+                    message = with_wrap_up_note(message, max_turn_depth);
                 }
 
-                let (message_id, choices, usage) = model
-                    .completion(
-                        message_for_model(&message),
-                        messages_for_model(&history),
-                        tools.clone(),
-                    )
-                    .await?;
+                let (message_id, choices, usage) = if wrapping_up {
+                    let (id, choices, usage) = model
+                        .answer_only(
+                            message_for_model(&message),
+                            messages_for_model(&history),
+                            tools.clone(),
+                        )
+                        .await?;
+                    (id, answer_without_tool_calls(choices), usage)
+                } else {
+                    model
+                        .completion(
+                            message_for_model(&message),
+                            messages_for_model(&history),
+                            tools.clone(),
+                        )
+                        .await?
+                };
 
                 history.push(message);
 
@@ -1210,6 +1233,7 @@ impl VizierAgent {
                         })
                         .collect::<Vec<_>>()
                         .join("\n");
+                    depth_exhausted = wrapping_up;
 
                     break;
                 }
@@ -1366,6 +1390,7 @@ impl VizierAgent {
                     total_cache_creation_input_tokens,
                     current_context_size,
                     context_window: model.context_window(),
+                    depth_exhausted,
                 },
             ))
         })
@@ -1393,6 +1418,52 @@ fn with_note(message: Message, note: String) -> Message {
 
 /// The result a timed-out tool call hands the model. The call is abandoned, but whatever it
 /// did before the deadline may already have happened.
+/// Said when the wrap-up completion offered nothing to say.
+const DEPTH_EXHAUSTED_FALLBACK: &str =
+    "I ran out of steps for this turn before I could finish. Ask me to continue and I'll pick \
+     up from here.";
+
+/// `message` (normally the latest tool results) with a note that the turn's tool budget is
+/// spent, so the wrap-up completion answers instead of reaching for another tool (#48).
+fn with_wrap_up_note(message: Message, thinking_depth: usize) -> Message {
+    let note = format!(
+        "[You have used all {thinking_depth} tool steps for this turn, and no more tool calls \
+         will run. Answer now with what you have. Say plainly what is still unfinished or \
+         unverified, so the user can ask you to continue.]"
+    );
+    match message {
+        Message::User { content } => {
+            let mut content: Vec<UserContent> = content.into_iter().collect();
+            content.push(UserContent::text(note));
+            Message::User {
+                content: OneOrMany::many(content)
+                    .unwrap_or_else(|_| OneOrMany::one(UserContent::text(""))),
+            }
+        }
+        other => other,
+    }
+}
+
+/// The wrap-up completion as the turn keeps it: its text (and reasoning), never a tool call.
+/// A call would never get a result, and a call without one breaks the next request on
+/// providers that check the pairing (#63). Some providers ignore `tool_choice: none`, so a
+/// reply may be nothing but calls; it then says the turn ran out of steps.
+fn answer_without_tool_calls(
+    choices: OneOrMany<AssistantContent>,
+) -> OneOrMany<AssistantContent> {
+    let mut kept: Vec<AssistantContent> = choices
+        .into_iter()
+        .filter(|choice| !matches!(choice, AssistantContent::ToolCall(_)))
+        .collect();
+    let has_text = kept
+        .iter()
+        .any(|choice| matches!(choice, AssistantContent::Text(text) if !text.text.trim().is_empty()));
+    if !has_text {
+        kept.push(AssistantContent::text(DEPTH_EXHAUSTED_FALLBACK));
+    }
+    OneOrMany::many(kept).unwrap_or_else(|_| OneOrMany::one(AssistantContent::text(DEPTH_EXHAUSTED_FALLBACK)))
+}
+
 fn tool_timeout_response(function_name: &str, limit: std::time::Duration) -> VizierResponse {
     VizierResponse {
         timestamp: Utc::now(),
@@ -1492,5 +1563,66 @@ fn note_stored_files(response: &mut serde_json::Value, stored_files: &[String]) 
                 notification
             ));
         }
+    }
+}
+
+#[cfg(test)]
+mod wrap_up_tests {
+    use super::*;
+    use rig_core::message::{ToolCall, ToolFunction};
+
+    fn call() -> AssistantContent {
+        AssistantContent::ToolCall(ToolCall::new(
+            "call-1".into(),
+            ToolFunction::new("shell_exec".into(), serde_json::json!({"commands": "ls"})),
+        ))
+    }
+
+    fn texts(choices: &OneOrMany<AssistantContent>) -> Vec<String> {
+        choices
+            .iter()
+            .filter_map(|c| match c {
+                AssistantContent::Text(t) => Some(t.text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_note_follows_the_tool_results_in_the_same_message() {
+        let results = Message::User {
+            content: OneOrMany::one(UserContent::tool_result(
+                "call-1",
+                OneOrMany::one(rig_core::message::ToolResultContent::text("done")),
+            )),
+        };
+        let Message::User { content } = with_wrap_up_note(results, 3) else {
+            panic!("still a user message");
+        };
+        let content: Vec<_> = content.into_iter().collect();
+        assert_eq!(content.len(), 2);
+        assert!(matches!(content[0], UserContent::ToolResult(_)), "results stay first");
+        let UserContent::Text(note) = &content[1] else { panic!("the note is text") };
+        assert!(note.text.contains("all 3 tool steps"), "{}", note.text);
+    }
+
+    /// #48: a provider that ignores `tool_choice: none` may still call a tool; the call is
+    /// dropped (it would never get a result, #63) and the text kept.
+    #[test]
+    fn a_wrap_up_keeps_its_text_and_drops_tool_calls() {
+        let choices = OneOrMany::many(vec![AssistantContent::text("Here's what I found."), call()])
+            .unwrap();
+        let kept = answer_without_tool_calls(choices);
+        assert!(!kept.iter().any(|c| matches!(c, AssistantContent::ToolCall(_))));
+        assert_eq!(texts(&kept), vec!["Here's what I found."]);
+    }
+
+    #[test]
+    fn a_wrap_up_with_nothing_to_say_says_it_ran_out_of_steps() {
+        let kept = answer_without_tool_calls(OneOrMany::one(call()));
+        assert_eq!(texts(&kept), vec![DEPTH_EXHAUSTED_FALLBACK]);
+
+        let blank = answer_without_tool_calls(OneOrMany::one(AssistantContent::text("  ")));
+        assert!(texts(&blank).contains(&DEPTH_EXHAUSTED_FALLBACK.to_string()));
     }
 }
