@@ -5,8 +5,8 @@ use tokio::sync::{Mutex, RwLock};
 use anyhow::Result;
 use chrono::Utc;
 use rig_core::message::Message;
-use tokio::sync::{mpsc, watch};
-use tokio::task::{JoinHandle, JoinSet};
+use tokio::sync::watch;
+use tokio::task::{AbortHandle, Id as TaskId, JoinHandle, JoinSet};
 
 use crate::{
     agents::{
@@ -37,21 +37,12 @@ type SessionQueue = VecDeque<(VizierRequest, Option<flume::Sender<VizierResponse
 
 fn abort_session_silent(
     session: &VizierSession,
-    main_handles: &mut HashMap<VizierSession, JoinHandle<()>>,
+    turns: &mut SessionTurns,
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
     session_queues: &mut HashMap<VizierSession, SessionQueue>,
     storage: &VizierStorage,
 ) -> bool {
-    let had_in_flight = main_handles
-        .get(session)
-        .map(|h| !h.is_finished())
-        .unwrap_or(false);
-
-    if let Some(handle) = main_handles.get(session) {
-        if !handle.is_finished() {
-            handle.abort();
-        }
-    }
+    let had_in_flight = turns.abort(session);
     if let Some(handle) = thinking_handles.remove(session) {
         handle.abort();
     }
@@ -74,7 +65,7 @@ fn abort_session_silent(
 
 async fn abort_session_notify(
     session: &VizierSession,
-    main_handles: &mut HashMap<VizierSession, JoinHandle<()>>,
+    turns: &mut SessionTurns,
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
     session_queues: &mut HashMap<VizierSession, SessionQueue>,
     storage: &VizierStorage,
@@ -82,7 +73,7 @@ async fn abort_session_notify(
 ) {
     let had_in_flight = abort_session_silent(
         session,
-        main_handles,
+        turns,
         thinking_handles,
         session_queues,
         storage,
@@ -116,19 +107,17 @@ pub async fn agent_process(
     let mut agent_channels = spawn_agent_channels(&agent_id, &agent_config, &deps).await;
     agent_channels.run().await;
 
-    let mut main_handles = HashMap::<VizierSession, JoinHandle<()>>::new();
+    let mut turns = SessionTurns::default();
     let mut thinking_handles = HashMap::<VizierSession, Arc<JoinHandle<()>>>::new();
     let mut detail_tasks = JoinSet::new();
 
     let mut session_queues = HashMap::<VizierSession, SessionQueue>::new();
     let mut message_counts = HashMap::<VizierSession, usize>::new();
-    let (complete_tx, mut complete_rx) = mpsc::unbounded_channel::<VizierSession>();
     let jobs = SessionJobs {
         agent: agent.clone(),
         agent_config: agent_config.clone(),
         deps: deps.clone(),
         indexer: indexer.clone(),
-        complete_tx,
     };
 
     tracing::info!(agent_id = %agent_id, "agent process loop started");
@@ -182,14 +171,15 @@ pub async fn agent_process(
                             .get_session_detail_by_topic(agent_id.clone(), channel.clone(), topic.clone())
                             .await
                         {
-                            if existing.title == slug_title {
+                            let request_prompt = session_detail_request.to_prompt();
+                            if let (true, Ok(request_prompt)) = (existing.title == slug_title, request_prompt) {
                                 // Generate title via LLM
                                 let prompt = format!(
                                     r#"summarize (don't execute) the prompt below into a 60 character title:
 "{}"
 
 **only response the summarize title**"#,
-                                    session_detail_request.to_prompt().unwrap()
+                                    request_prompt
                                 );
                                 let res = session_detail_agent
                                     .prompt(Message::user(prompt), vec![], 0, None, false, &ToolContext { session: session_detail_session_for_ctx, pending_attachments: Arc::new(Mutex::new(vec![])), hooks: None, background_depth: 0 })
@@ -234,7 +224,7 @@ pub async fn agent_process(
 
                         abort_session_notify(
                             &session,
-                            &mut main_handles,
+                            &mut turns,
                             &mut thinking_handles,
                             &mut session_queues,
                             &deps.storage,
@@ -277,7 +267,7 @@ pub async fn agent_process(
                 // A handover runs as a job in the session's queue rather than aborting it:
                 // the turn in progress finishes first, and messages sent before or during
                 // the handover carry on after it, reading the new checkpoint (#57).
-                if is_handover_command(&request) && session_is_busy(&main_handles, &session_queues, &session) {
+                if is_handover_command(&request) && session_is_busy(&turns, &session_queues, &session) {
                     let queue = session_queues.entry(session.clone()).or_default();
                     // Ahead of queued messages, behind any handover already waiting.
                     let position = queue
@@ -289,7 +279,7 @@ pub async fn agent_process(
                 }
 
                 // Queue message if a task is already running for this session
-                if session_is_busy(&main_handles, &session_queues, &session) {
+                if session_is_busy(&turns, &session_queues, &session) {
                     tracing::debug!(agent_id = %session.0, "queuing message while task in progress");
                     session_queues.entry(session.clone()).or_default().push_back((request, response_tx));
                     continue;
@@ -300,29 +290,47 @@ pub async fn agent_process(
                     session,
                     request,
                     response_tx,
-                    &mut main_handles,
+                    &mut turns,
                     &mut thinking_handles,
                 );
             }
-            // Handle task completions — process next queued message
-            Some(completed_session) = complete_rx.recv() => {
+            // A turn ended — returned, panicked or was aborted. Learned from the task itself
+            // ending, so a turn that never reaches its last line still releases its session.
+            Some(finished) = turns.join_next(), if !turns.is_empty() => {
+                // An aborted turn, or one a newer turn has replaced: `/abort` already reset
+                // the session, and the queue belongs to whatever runs there now.
+                if !finished.current {
+                    continue;
+                }
+                let session = finished.session;
+                if finished.outcome != TurnOutcome::Done {
+                    recover_failed_turn(&session, finished.outcome, finished.response_tx, &mut thinking_handles, &deps.storage);
+                }
+
                 if let Some((next_request, response_tx)) = session_queues
-                    .get_mut(&completed_session)
+                    .get_mut(&session)
                     .and_then(|queue| queue.pop_front())
                 {
                     start_session_job(
                         &jobs,
-                        completed_session,
+                        session,
                         next_request,
                         response_tx,
-                        &mut main_handles,
+                        &mut turns,
                         &mut thinking_handles,
                     );
+                } else {
+                    // Idle: nothing per-session needs keeping until it is next used (#49).
+                    session_queues.remove(&session);
+                    thinking_handles.remove(&session);
                 }
             }
+            Some(_) = detail_tasks.join_next(), if !detail_tasks.is_empty() => {}
         }
     }
 
+    // In-flight turns outlive the loop, as they did before turns were tracked here (#52).
+    turns.detach_all();
     agent_channels.shutdown().await;
     Ok(())
 }
@@ -334,7 +342,141 @@ struct SessionJobs {
     agent_config: AgentConfig,
     deps: VizierDependencies,
     indexer: Option<VizierIndexer>,
-    complete_tx: mpsc::UnboundedSender<VizierSession>,
+}
+
+/// How a session's turn ended, as seen from its task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TurnOutcome {
+    Done,
+    Panicked,
+    Cancelled,
+}
+
+/// A turn whose task has ended, with where its response was going.
+struct FinishedTurn {
+    session: VizierSession,
+    response_tx: Option<flume::Sender<VizierResponse>>,
+    outcome: TurnOutcome,
+    /// Still the session's running turn when it ended. False when `/abort` stopped it, or
+    /// a newer turn was started in its place: the session is no longer this turn's to hand on.
+    current: bool,
+}
+
+/// The sessions' running turns. A turn is known to have ended because its task ended,
+/// not because it reported so on its way out — a turn that panics never gets there, and
+/// would otherwise hold its session (and every message queued behind it) forever (#46).
+#[derive(Default)]
+struct SessionTurns {
+    tasks: JoinSet<()>,
+    running: HashMap<VizierSession, (TaskId, AbortHandle)>,
+    spawned: HashMap<TaskId, (VizierSession, Option<flume::Sender<VizierResponse>>)>,
+}
+
+impl SessionTurns {
+    fn spawn<F>(
+        &mut self,
+        session: VizierSession,
+        response_tx: Option<flume::Sender<VizierResponse>>,
+        turn: F,
+    ) where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let handle = self.tasks.spawn(turn);
+        let id = handle.id();
+        self.spawned.insert(id, (session.clone(), response_tx));
+        self.running.insert(session, (id, handle));
+    }
+
+    fn is_running(&self, session: &VizierSession) -> bool {
+        self.running.contains_key(session)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.tasks.is_empty()
+    }
+
+    /// Stops the session's running turn. True if there was one. The session is free at
+    /// once; the stopped task still comes out of `join_next`, as not `current`.
+    fn abort(&mut self, session: &VizierSession) -> bool {
+        match self.running.remove(session) {
+            Some((_, handle)) => {
+                handle.abort();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Cancel-safe: the only await is `JoinSet::join_next_with_id`, which is.
+    async fn join_next(&mut self) -> Option<FinishedTurn> {
+        loop {
+            let (id, outcome) = match self.tasks.join_next_with_id().await? {
+                Ok((id, ())) => (id, TurnOutcome::Done),
+                Err(err) if err.is_panic() => (err.id(), TurnOutcome::Panicked),
+                Err(err) => (err.id(), TurnOutcome::Cancelled),
+            };
+            let Some((session, response_tx)) = self.spawned.remove(&id) else {
+                continue;
+            };
+            let current = self.running.get(&session).is_some_and(|(running, _)| *running == id);
+            if current {
+                self.running.remove(&session);
+            }
+            return Some(FinishedTurn {
+                session,
+                response_tx,
+                outcome,
+                current,
+            });
+        }
+    }
+
+    /// Lets every running turn carry on without being tracked.
+    fn detach_all(&mut self) {
+        self.tasks.detach_all();
+        self.running.clear();
+        self.spawned.clear();
+    }
+}
+
+/// What a turn does on its way out, done for it when it never got there: the session
+/// stops showing as thinking, and whoever sent the request hears that it failed.
+fn recover_failed_turn(
+    session: &VizierSession,
+    outcome: TurnOutcome,
+    response_tx: Option<flume::Sender<VizierResponse>>,
+    thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
+    storage: &VizierStorage,
+) {
+    if outcome == TurnOutcome::Panicked {
+        tracing::error!(agent_id = %session.0, channel = ?session.1, "turn panicked; releasing its session");
+    }
+    if let Some(handle) = thinking_handles.remove(session) {
+        handle.abort();
+    }
+    let storage = storage.clone();
+    let session = session.clone();
+    tokio::spawn(async move {
+        let _ = storage
+            .update_thinking_state(session.0, session.1, session.2, false)
+            .await;
+        if outcome == TurnOutcome::Panicked
+            && let Some(tx) = response_tx
+        {
+            let message = "The turn failed with an internal error and was stopped.".to_string();
+            let _ = tx
+                .send_async(VizierResponse {
+                    timestamp: chrono::Utc::now(),
+                    content: VizierResponseContent::Error {
+                        kind: ErrorKind::classify(&message),
+                        message,
+                    },
+                    attachments: vec![],
+                    ..Default::default()
+                })
+                .await;
+        }
+    });
 }
 
 /// `/checkpoint` and `/lobotomy`: commands that write a new checkpoint for the session.
@@ -344,29 +486,28 @@ fn is_handover_command(request: &VizierRequest) -> bool {
 
 /// A job is running, or one has finished and the queue it leaves behind has not been
 /// picked up yet: its completion is still on its way, and starting a request now would
-/// jump ahead of the queue.
+/// jump ahead of the queue. Every turn's end reaches the loop through `SessionTurns`,
+/// however it ended, so a non-empty queue is always picked up.
 fn session_is_busy(
-    main_handles: &HashMap<VizierSession, JoinHandle<()>>,
+    turns: &SessionTurns,
     session_queues: &HashMap<VizierSession, SessionQueue>,
     session: &VizierSession,
 ) -> bool {
-    main_handles
-        .get(session)
-        .is_some_and(|handle| !handle.is_finished())
+    turns.is_running(session)
         || session_queues
             .get(session)
             .is_some_and(|queue| !queue.is_empty())
 }
 
-/// Runs one request as the session's job. Registered in `main_handles`, so anything that
-/// arrives meanwhile queues behind it, `/abort` stops it, and its completion starts the
-/// next queued request.
+/// Runs one request as the session's job. Registered in `turns`, so anything that
+/// arrives meanwhile queues behind it, `/abort` stops it, and its end starts the next
+/// queued request.
 fn start_session_job(
     jobs: &SessionJobs,
     session: VizierSession,
     request: VizierRequest,
     response_tx: Option<flume::Sender<VizierResponse>>,
-    main_handles: &mut HashMap<VizierSession, JoinHandle<()>>,
+    turns: &mut SessionTurns,
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
 ) {
     // handle thinking
@@ -396,10 +537,12 @@ fn start_session_job(
     let deps = jobs.deps.clone();
     let storage = deps.storage.clone();
     let indexer = jobs.indexer.clone();
-    let complete_tx = jobs.complete_tx.clone();
-    main_handles.insert(
-        session.clone(),
-        tokio::spawn(async move {
+    let turn_session = session.clone();
+    let turn_response_tx = response_tx.clone();
+    turns.spawn(
+        turn_session,
+        turn_response_tx,
+        async move {
             // Set is_thinking = true
             let _ = storage
                 .update_thinking_state(session.0.clone(), session.1.clone(), session.2.clone(), true)
@@ -453,9 +596,7 @@ fn start_session_job(
             let _ = storage
                 .update_thinking_state(session.0.clone(), session.1.clone(), session.2.clone(), false)
                 .await;
-
-            let _ = complete_tx.send(session);
-        }),
+        },
     );
 }
 
@@ -1348,5 +1489,115 @@ mod auto_context_tests {
         let rendered = crate::agents::agent::system_prompt::context::context_md(&[p], &[], None);
         assert!(rendered.contains(r#"truncated="true""#), "{rendered}");
         assert!(rendered.contains("truncated to fit"), "{rendered}");
+    }
+}
+
+#[cfg(test)]
+mod session_turns_tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+
+    fn session(topic: &str) -> VizierSession {
+        VizierSession("agent".into(), VizierChannelId::System, Some(topic.into()))
+    }
+
+    async fn next(turns: &mut SessionTurns) -> FinishedTurn {
+        tokio::time::timeout(Duration::from_secs(5), turns.join_next())
+            .await
+            .expect("a turn ended")
+            .expect("the set was not empty")
+    }
+
+    #[tokio::test]
+    async fn a_turn_that_returns_frees_its_session() {
+        let mut turns = SessionTurns::default();
+        turns.spawn(session("a"), None, async {});
+        assert!(turns.is_running(&session("a")));
+
+        let finished = next(&mut turns).await;
+        assert_eq!(finished.outcome, TurnOutcome::Done);
+        assert!(finished.current);
+        assert!(!turns.is_running(&session("a")));
+        assert!(turns.is_empty());
+    }
+
+    /// #46: the session is released and its sender is handed back, even though the turn
+    /// never reached its last line.
+    #[tokio::test]
+    async fn a_panicking_turn_still_frees_its_session_and_returns_its_sender() {
+        let mut turns = SessionTurns::default();
+        let (tx, _rx) = flume::unbounded();
+        turns.spawn(session("a"), Some(tx), async { panic!("turn blew up") });
+
+        let finished = next(&mut turns).await;
+        assert_eq!(finished.outcome, TurnOutcome::Panicked);
+        assert!(finished.current, "the loop must pick up the queue behind it");
+        assert_eq!(finished.session, session("a"));
+        assert!(!turns.is_running(&session("a")));
+
+        assert!(finished.response_tx.is_some(), "so the sender can be told it failed");
+    }
+
+    #[tokio::test]
+    async fn an_aborted_turn_frees_its_session_at_once_and_ends_as_not_current() {
+        let mut turns = SessionTurns::default();
+        turns.spawn(session("a"), None, std::future::pending());
+
+        assert!(turns.abort(&session("a")));
+        assert!(!turns.is_running(&session("a")), "a new request may start right away");
+        assert!(!turns.abort(&session("a")), "nothing left to abort");
+
+        let finished = next(&mut turns).await;
+        assert_eq!(finished.outcome, TurnOutcome::Cancelled);
+        assert!(!finished.current);
+    }
+
+    /// An aborted turn ends after a newer one has started in its session. Its end must not
+    /// release the session, or the next queued message would run beside the newer turn.
+    #[tokio::test]
+    async fn a_stale_turn_ending_leaves_the_newer_turn_running() {
+        let mut turns = SessionTurns::default();
+        let (release_old, old_released) = oneshot::channel::<()>();
+        turns.spawn(session("a"), None, async {
+            let _ = old_released.await;
+            panic!("old turn");
+        });
+        // Abort only marks it; replace it as the session's turn before it is joined.
+        turns.abort(&session("a"));
+        turns.spawn(session("a"), None, std::future::pending());
+        drop(release_old);
+
+        let finished = next(&mut turns).await;
+        assert!(!finished.current);
+        assert!(turns.is_running(&session("a")), "the newer turn still holds the session");
+    }
+
+    #[tokio::test]
+    async fn sessions_are_tracked_independently() {
+        let mut turns = SessionTurns::default();
+        turns.spawn(session("a"), None, async { panic!("a fails") });
+        turns.spawn(session("b"), None, std::future::pending());
+
+        let finished = next(&mut turns).await;
+        assert_eq!(finished.session, session("a"));
+        assert!(!turns.is_running(&session("a")));
+        assert!(turns.is_running(&session("b")));
+    }
+
+    #[test]
+    fn a_queue_behind_a_finished_turn_still_counts_as_busy_until_picked_up() {
+        let turns = SessionTurns::default();
+        let mut queues = HashMap::<VizierSession, SessionQueue>::new();
+        assert!(!session_is_busy(&turns, &queues, &session("a")));
+
+        queues.entry(session("a")).or_default().push_back((
+            VizierRequest {
+                content: VizierRequestContent::Chat("queued".into()),
+                ..Default::default()
+            },
+            None,
+        ));
+        assert!(session_is_busy(&turns, &queues, &session("a")));
     }
 }

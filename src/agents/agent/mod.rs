@@ -756,10 +756,10 @@ impl VizierAgent {
                     None
                 }
             }) {
-                let (mut function_name, mut args) = (
-                    call.function.name.clone(),
-                    serde_json::to_string(&call.function.arguments).unwrap(),
-                );
+                let args = serde_json::to_string(&call.function.arguments).map_err(|e| {
+                    fail_turn(e.into(), full_history.clone(), None, tool_responses.clone())
+                })?;
+                let (mut function_name, mut args) = (call.function.name.clone(), args);
                 if let Some(hooks) = hooks.clone() {
                     (function_name, args) = hooks
                         .on_tool_call(function_name, args)
@@ -882,7 +882,14 @@ impl VizierAgent {
 
             // Push tool response message to history
             let tool_message = Message::User {
-                content: OneOrMany::many(tool_responses).unwrap(),
+                content: OneOrMany::many(tool_responses).map_err(|_| {
+                    fail_turn(
+                        anyhow::anyhow!("tool calls produced no responses"),
+                        full_history.clone(),
+                        None,
+                        vec![],
+                    )
+                })?,
             };
 
             if pending_images.is_empty() {
@@ -1130,7 +1137,7 @@ impl VizierAgent {
                 }) {
                     let (mut function_name, mut args) = (
                         call.function.name.clone(),
-                        serde_json::to_string(&call.function.arguments).unwrap(),
+                        serde_json::to_string(&call.function.arguments)?,
                     );
                     if let Some(hooks) = hooks.clone() {
                         (function_name, args) = hooks.on_tool_call(function_name, args).await?;
@@ -1229,7 +1236,8 @@ impl VizierAgent {
                 }
 
                 let tool_message = Message::User {
-                    content: OneOrMany::many(tool_responses).unwrap(),
+                    content: OneOrMany::many(tool_responses)
+                        .map_err(|_| anyhow::anyhow!("tool calls produced no responses"))?,
                 };
 
                 if pending_attachments.is_empty() {

@@ -64,17 +64,17 @@ impl<S: Service<RoleClient>> VizierMcpClient for RunningService<RoleClient, S> {
     async fn tools(&self) -> Result<Vec<ToolDefinition>> {
         let tools = self.list_all_tools().await?;
 
-        Ok(tools
+        tools
             .iter()
             .map(|tool| {
-                let parameters = serde_json::to_value(tool.input_schema.clone()).unwrap();
-                ToolDefinition {
+                let parameters = serde_json::to_value(tool.input_schema.clone())?;
+                Ok(ToolDefinition {
                     name: tool.name.to_string(),
                     description: tool.description.clone().unwrap_or("".into()).to_string(),
                     parameters,
-                }
+                })
             })
-            .collect())
+            .collect()
     }
 
     async fn call(
