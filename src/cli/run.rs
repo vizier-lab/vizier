@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 use anyhow::Result;
 use clap::{Args, ValueEnum};
@@ -98,51 +98,71 @@ pub fn run_server(config: VizierConfig) -> Result<()> {
         let exit_transport = deps.clone().transport;
         let exit_signal = exit_transport.exit_signal();
 
-        let mut set = JoinSet::new();
+        let mut subsystems = Subsystems::default();
 
         // Agents first: `VizierAgents::new` registers every agent's request channel, so the
         // scheduler's immediate first tick queues a due task instead of losing it (#26).
         let mut agents = VizierAgents::new(deps.clone()).await?;
-        set.spawn(async move {
-            if let Err(err) = agents.run().await {
-                tracing::error!("{}", err);
-            }
-        });
+        subsystems.spawn("agent manager", async move { agents.run().await });
 
         let mut scheduler = VizierScheduler::new(deps.clone()).await?;
-        set.spawn(async move {
-            if let Err(err) = scheduler.run().await {
-                tracing::error!("{}", err);
-            }
-        });
+        subsystems.spawn("scheduler", async move { scheduler.run().await });
 
         let mut channels = VizierChannels::new(config.channels.http.clone(), deps.clone())?;
-        set.spawn(async move {
-            if let Err(err) = channels.run().await {
-                tracing::error!("{}", err);
-            }
-        });
+        subsystems.spawn("http channel", async move { channels.run().await });
 
         let commands = VizierCommandServer::new(deps.clone())?;
-        set.spawn(async move {
-            if let Err(err) = commands.run().await {
-                tracing::error!("{}", err);
-            }
-        });
+        subsystems.spawn("command server", async move { commands.run().await });
 
-        set.spawn(async move {
-            if let Err(err) = deps.run().await {
-                tracing::error!("{}", err);
-            }
-        });
+        let transport = deps.clone();
+        subsystems.spawn("command handler", async move { transport.run().await });
 
         tracing::info!("vizier is running!");
 
-        let _ = exit_signal.await;
-        set.abort_all();
-
-        std::process::exit(0);
+        // Every subsystem runs for the life of the process, so one that stops, for whatever
+        // reason, leaves vizier half-working. Exit instead, and let whatever runs vizier
+        // (Docker's restart policy, systemd) start it again whole (#51).
+        tokio::select! {
+            _ = exit_signal => {
+                subsystems.set.abort_all();
+                std::process::exit(0);
+            }
+            (name, outcome) = subsystems.next_stopped() => {
+                tracing::error!("{name} stopped ({outcome}); exiting so vizier can be restarted");
+                std::process::exit(1);
+            }
+        }
     })
+}
+
+/// The long-lived tasks the server is made of, by name.
+#[derive(Default)]
+struct Subsystems {
+    set: JoinSet<Result<()>>,
+    names: HashMap<tokio::task::Id, &'static str>,
+}
+
+impl Subsystems {
+    fn spawn(
+        &mut self,
+        name: &'static str,
+        task: impl std::future::Future<Output = Result<()>> + Send + 'static,
+    ) {
+        let id = self.set.spawn(task).id();
+        self.names.insert(id, name);
+    }
+
+    /// The first subsystem to stop, and how.
+    async fn next_stopped(&mut self) -> (&'static str, String) {
+        let (id, outcome) = match self.set.join_next_with_id().await {
+            Some(Ok((id, Ok(())))) => (id, "it returned".to_string()),
+            Some(Ok((id, Err(e)))) => (id, format!("{e:#}")),
+            Some(Err(e)) if e.is_panic() => (e.id(), "it panicked".to_string()),
+            Some(Err(e)) => (e.id(), e.to_string()),
+            None => return std::future::pending().await,
+        };
+        (self.names.get(&id).copied().unwrap_or("a subsystem"), outcome)
+    }
 }
 
 pub fn run(args: RunArgs) -> Result<()> {

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{Mutex, RwLock};
 
 use anyhow::Result;
@@ -17,7 +18,7 @@ use crate::{
         },
         tools::ToolContext,
     },
-    channels::{VizierChannel, discord::DiscordChannelReader, telegram::TelegramChannelReader},
+    channels::readers::{ChannelHealthHandle, ChannelReaders},
     dependencies::VizierDependencies,
     indexer::VizierIndexer,
     schema::{
@@ -103,9 +104,10 @@ pub async fn agent_process(
     indexer: Option<crate::indexer::VizierIndexer>,
     recv: flume::Receiver<VizierRequestEnvelope>,
     mut shutdown_rx: watch::Receiver<bool>,
+    channel_health: ChannelHealthHandle,
 ) -> Result<()> {
-    let mut agent_channels = spawn_agent_channels(&agent_id, &agent_config, &deps).await;
-    agent_channels.run().await;
+    // Each reader restarts itself with backoff and reports through `channel_health` (#50).
+    let agent_channels = ChannelReaders::start(&agent_id, &agent_config, &deps, channel_health);
 
     let mut turns = SessionTurns::default();
     let mut thinking_handles = HashMap::<VizierSession, Arc<JoinHandle<()>>>::new();
@@ -132,9 +134,6 @@ pub async fn agent_process(
                     break;
                 }
             }
-            // Some(_) = agent_channels.tasks.join_next(), if !agent_channels.tasks.is_empty() => {
-            //     tracing::warn!(agent_id = %agent_id, "channel reader task ended unexpectedly");
-            // }
             result = recv.recv_async() => {
                 let Ok(envelope) = result else { break };
                 let session = envelope.session;
@@ -268,10 +267,82 @@ pub async fn agent_process(
         }
     }
 
-    // In-flight turns outlive the loop, as they did before turns were tracked here (#52).
-    turns.detach_all();
+    // This instance's turns stop with it, so none outlives an update or delete and carries
+    // on with the old config, tools and MCP clients (#52).
+    for (session, response_tx) in turns.stop_all(TURN_STOP_TIMEOUT).await {
+        notify_turn_stopped(&session, response_tx, &mut thinking_handles, &deps.storage).await;
+    }
+    hand_on_queued(session_queues, &deps).await;
     agent_channels.shutdown().await;
     Ok(())
+}
+
+/// How long a stopping agent waits for its aborted turns to end.
+const TURN_STOP_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// A turn cut short because its agent stopped: the session stops showing as thinking,
+/// and whoever sent the request hears why there is no answer.
+async fn notify_turn_stopped(
+    session: &VizierSession,
+    response_tx: Option<flume::Sender<VizierResponse>>,
+    thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
+    storage: &VizierStorage,
+) {
+    if let Some(handle) = thinking_handles.remove(session) {
+        handle.abort();
+    }
+    let _ = storage
+        .update_thinking_state(session.0.clone(), session.1.clone(), session.2.clone(), false)
+        .await;
+    if let Some(tx) = response_tx {
+        let _ = tx
+            .send_async(VizierResponse {
+                timestamp: chrono::Utc::now(),
+                content: VizierResponseContent::Error {
+                    kind: ErrorKind::AgentUnavailable,
+                    message: "The agent was updated or stopped while working on this, so the \
+                              turn was cut short. Send it again to retry."
+                        .to_string(),
+                },
+                attachments: vec![],
+                ..Default::default()
+            })
+            .await;
+    }
+}
+
+/// Requests still queued when the agent stops go back on its request channel, which the
+/// next instance inherits (an update, a restart). With no agent left to take them (a
+/// delete), their senders are told so.
+async fn hand_on_queued(
+    session_queues: HashMap<VizierSession, SessionQueue>,
+    deps: &VizierDependencies,
+) {
+    for (session, queue) in session_queues {
+        for (request, response_tx) in queue {
+            if let Err(e) = deps
+                .transport
+                .send_request(session.clone(), request, response_tx.clone())
+                .await
+            {
+                tracing::debug!(agent_id = %session.0, "dropping a queued request: {e}");
+                if let Some(tx) = response_tx {
+                    let _ = tx
+                        .send_async(VizierResponse {
+                            timestamp: chrono::Utc::now(),
+                            content: VizierResponseContent::Error {
+                                kind: ErrorKind::AgentUnavailable,
+                                message: "The agent was removed before it got to this."
+                                    .to_string(),
+                            },
+                            attachments: vec![],
+                            ..Default::default()
+                        })
+                        .await;
+                }
+            }
+        }
+    }
 }
 
 /// A session titled from the topic slug gets a generated title once it has this many
@@ -497,11 +568,28 @@ impl SessionTurns {
         }
     }
 
-    /// Lets every running turn carry on without being tracked.
-    fn detach_all(&mut self) {
-        self.tasks.detach_all();
-        self.running.clear();
+    /// Stops every turn and waits up to `timeout` for their tasks to end. Returns each
+    /// session that had a running turn, with where its response was going; turns already
+    /// aborted (not running) told their sender when they were.
+    async fn stop_all(
+        &mut self,
+        timeout: Duration,
+    ) -> Vec<(VizierSession, Option<flume::Sender<VizierResponse>>)> {
+        let stopped = self
+            .running
+            .drain()
+            .filter_map(|(_, (id, _))| self.spawned.remove(&id))
+            .collect();
         self.spawned.clear();
+        self.tasks.abort_all();
+        let drained = tokio::time::timeout(timeout, async {
+            while self.tasks.join_next().await.is_some() {}
+        })
+        .await;
+        if drained.is_err() {
+            tracing::warn!("turns did not stop in time; leaving them aborted");
+        }
+        stopped
     }
 }
 
@@ -785,95 +873,6 @@ async fn run_lobotomy(
 
     send_checkpoint(response_tx, None).await;
     tracing::info!("Lobotomy created for session {:?}", session);
-}
-
-pub struct AgentChannel(Box<dyn VizierChannel + Sync + Send + 'static>);
-
-#[async_trait::async_trait]
-impl VizierChannel for AgentChannel {
-    async fn run(&self) -> Result<()> {
-        self.0.run().await
-    }
-
-    async fn shutdown(&self) -> Result<()> {
-        self.0.shutdown().await
-    }
-}
-
-pub struct AgentChannels {
-    channels: Vec<Arc<AgentChannel>>,
-    tasks: JoinSet<()>,
-}
-
-impl AgentChannels {
-    async fn run(&mut self) -> Result<()> {
-        for channel in self.channels.iter() {
-            let mut channel = channel.clone();
-            self.tasks.spawn(async move {
-                if let Err(e) = channel.run().await {
-                    tracing::error!("channel error: {:?}", e);
-                }
-            });
-        }
-
-        Ok(())
-    }
-
-    async fn shutdown(&self) -> Result<()> {
-        for channel in self.channels.iter() {
-            channel.shutdown().await;
-        }
-
-        Ok(())
-    }
-}
-
-async fn spawn_agent_channels(
-    agent_id: &str,
-    agent_config: &AgentConfig,
-    deps: &VizierDependencies,
-) -> AgentChannels {
-    let mut channels = AgentChannels {
-        channels: vec![],
-        tasks: JoinSet::new(),
-    };
-    if let Some(token) = &agent_config.discord_token
-        && !token.is_empty()
-    {
-        let agent_id_owned = agent_id.to_string();
-        let token_owned = token.clone();
-        let deps_owned = deps.clone();
-        match DiscordChannelReader::new(agent_id_owned.clone(), token_owned, deps_owned).await {
-            Ok(mut reader) => {
-                let mut discord = Arc::new(AgentChannel(Box::new(reader)));
-
-                channels.channels.push(discord.clone());
-            }
-            Err(e) => {
-                tracing::error!("failed to create discord reader: {:?}", e);
-            }
-        }
-    }
-
-    if let Some(token) = &agent_config.telegram_token
-        && !token.is_empty()
-    {
-        let agent_id_owned = agent_id.to_string();
-        let token_owned = token.clone();
-        let deps_owned = deps.clone();
-        match TelegramChannelReader::new(agent_id_owned.clone(), token_owned, deps_owned).await {
-            Ok(mut reader) => {
-                let mut telegram = Arc::new(AgentChannel(Box::new(reader)));
-
-                channels.channels.push(telegram.clone());
-            }
-            Err(e) => {
-                tracing::error!("failed to create telegram reader: {:?}", e);
-            }
-        }
-    }
-
-    channels
 }
 
 /// Whether a message is usable as a retrieval query on its own (FR-029).
@@ -1637,6 +1636,28 @@ mod session_turns_tests {
         let finished = next(&mut turns).await;
         assert!(!finished.current);
         assert!(turns.is_running(&session("a")), "the newer turn still holds the session");
+    }
+
+    /// #52: a stopping agent's turns end with it, and only the running ones are handed back
+    /// to be told why (an aborted turn's sender already heard).
+    #[tokio::test]
+    async fn stop_all_ends_every_turn_and_returns_the_running_ones() {
+        let mut turns = SessionTurns::default();
+        let (tx, _rx) = flume::unbounded();
+        let (dropped_tx, dropped) = oneshot::channel::<()>();
+        turns.spawn(session("a"), Some(tx), async move {
+            let _keep = dropped_tx;
+            std::future::pending::<()>().await
+        });
+        turns.spawn(session("b"), None, std::future::pending());
+        turns.abort(&session("b"));
+
+        let stopped = turns.stop_all(Duration::from_secs(5)).await;
+        assert_eq!(stopped.len(), 1);
+        assert_eq!(stopped[0].0, session("a"));
+        assert!(stopped[0].1.is_some());
+        assert!(turns.is_empty(), "every task has ended");
+        assert!(dropped.await.is_err(), "the turn's future was dropped, not detached");
     }
 
     #[tokio::test]

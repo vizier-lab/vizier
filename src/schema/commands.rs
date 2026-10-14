@@ -21,6 +21,51 @@ pub struct AgentHealthStatus {
     pub failures: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_retry_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The agent's Discord and Telegram readers, while it is running (#50).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub channels: Vec<ChannelHealth>,
+}
+
+/// One of an agent's platform readers, as its health reports it.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ChannelHealth {
+    pub platform: ChannelPlatform,
+    pub state: ChannelState,
+    /// Why it last stopped, while it is reconnecting or failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    /// Stops since it last ran for a while.
+    #[serde(default)]
+    pub failures: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_retry_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelPlatform {
+    Discord,
+    Telegram,
+}
+
+impl std::fmt::Display for ChannelPlatform {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Discord => "discord",
+            Self::Telegram => "telegram",
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelState {
+    Running,
+    /// Stopped, and started again at `next_retry_at`.
+    Reconnecting,
+    /// Stopped by an error retrying won't fix, such as a revoked token. Started again when
+    /// the agent is updated.
+    Failed,
 }
 
 /// Where an agent's supervisor is (#42).

@@ -22,6 +22,7 @@ pub use agent::{
 };
 pub use commands::{
     AgentCommand, AgentCommandResult, AgentHealthStatus, AgentRunState, AgentSummary,
+    ChannelHealth, ChannelPlatform, ChannelState,
     CommandRequest, CommandResponse, FileCommand, MemoryOpEnvelope, MemoryOpRequest,
     MemoryOpResponse,
 };

@@ -1,10 +1,11 @@
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
-use tokio::sync::watch;
-use tokio::task::JoinHandle;
+use tokio::sync::{oneshot, watch};
+use tokio::task::{JoinHandle, JoinSet};
 
 use crate::agents::supervisor::{AgentStatus, BuiltAgent, SharedStatus, Supervisor};
+use crate::channels::readers::ChannelHealthHandle;
 use crate::constant::CORE_MD;
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
@@ -36,6 +37,7 @@ struct AgentProcess {
     handle: JoinHandle<()>,
     shutdown: watch::Sender<bool>,
     status: SharedStatus,
+    channels: ChannelHealthHandle,
     /// The agent's request channel, registered once and handed from one supervisor to the
     /// next across updates, so nothing sent during a swap is lost (#43).
     recv: flume::Receiver<VizierRequestEnvelope>,
@@ -53,9 +55,30 @@ impl AgentProcess {
     }
 }
 
+/// A create or update whose new config is being built, off the command loop.
+struct PendingBuild {
+    agent_id: AgentId,
+    config: AgentConfig,
+    kind: BuildKind,
+    built: Result<BuiltAgent>,
+    resp: oneshot::Sender<AgentCommandResult>,
+}
+
+#[derive(Clone, Copy)]
+enum BuildKind {
+    Create,
+    Update,
+}
+
 pub struct VizierAgents {
     deps: VizierDependencies,
     processes: HashMap<AgentId, AgentProcess>,
+    /// Builds run as their own tasks, so one slow build (an Ollama pull, an embedder) does
+    /// not hold up every other agent's commands and health checks (#52).
+    builds: JoinSet<PendingBuild>,
+    /// Agents with a build in flight. Other creates, updates and deletes of them are
+    /// refused until it finishes, so two swaps of one agent never race.
+    building: HashSet<AgentId>,
 }
 
 impl VizierAgents {
@@ -65,6 +88,8 @@ impl VizierAgents {
         let mut agents = Self {
             deps,
             processes: HashMap::new(),
+            builds: JoinSet::new(),
+            building: HashSet::new(),
         };
 
         for (agent_id, config) in agents.deps.storage.list_agents().await? {
@@ -86,7 +111,9 @@ impl VizierAgents {
     ) {
         let (shutdown, shutdown_rx) = watch::channel(false);
         let status = SharedStatus::default();
+        let channels = ChannelHealthHandle::default();
         let supervisor = Supervisor {
+            channels: channels.clone(),
             agent_id: agent_id.clone(),
             deps: self.deps.clone(),
             config,
@@ -101,6 +128,7 @@ impl VizierAgents {
                 handle,
                 shutdown,
                 status,
+                channels,
                 recv,
             },
         );
@@ -108,42 +136,104 @@ impl VizierAgents {
 
     pub async fn run(&mut self) -> Result<()> {
         loop {
-            let cmd = self.deps.transport.recv_agent_command().await?;
-            match cmd {
-                AgentCommand::Create {
-                    agent_id,
-                    config,
-                    resp,
-                } => {
-                    let result = self.handle_create(&agent_id, config).await;
-                    let _ = resp.send(result);
-                }
-                AgentCommand::Update {
-                    agent_id,
-                    config,
-                    resp,
-                } => {
-                    let result = self.handle_update(&agent_id, config).await;
-                    let _ = resp.send(result);
-                }
-                AgentCommand::Delete {
-                    agent_id,
-                    delete_workspace,
-                    resp,
-                } => {
-                    let result = self.handle_delete(&agent_id, delete_workspace).await;
-                    let _ = resp.send(result);
-                }
-                AgentCommand::HealthCheck { resp } => {
-                    let statuses: Vec<AgentHealthStatus> = self
-                        .processes
-                        .iter()
-                        .map(|(id, process)| AgentStatus::health(&process.status, id))
-                        .collect();
-                    let _ = resp.send(statuses);
-                }
+            tokio::select! {
+                cmd = self.deps.transport.recv_agent_command() => self.handle_command(cmd?).await,
+                Some(done) = self.builds.join_next(), if !self.builds.is_empty() => match done {
+                    Ok(done) => self.finish_build(done).await,
+                    // `start_build` catches a panicking build, so only an abort lands here.
+                    Err(e) => tracing::error!("agent build task ended: {e}"),
+                },
             }
         }
+    }
+
+    async fn handle_command(&mut self, cmd: AgentCommand) {
+        match cmd {
+            AgentCommand::Create {
+                agent_id,
+                config,
+                resp,
+            } => self.handle_create(agent_id, config, resp).await,
+            AgentCommand::Update {
+                agent_id,
+                config,
+                resp,
+            } => self.handle_update(agent_id, config, resp).await,
+            AgentCommand::Delete {
+                agent_id,
+                delete_workspace,
+                resp,
+            } => {
+                let result = self.handle_delete(&agent_id, delete_workspace).await;
+                let _ = resp.send(result);
+            }
+            AgentCommand::HealthCheck { resp } => {
+                let statuses: Vec<AgentHealthStatus> = self
+                    .processes
+                    .iter()
+                    .map(|(id, process)| AgentStatus::health(&process.status, &process.channels, id))
+                    .collect();
+                let _ = resp.send(statuses);
+            }
+        }
+    }
+
+    fn busy(agent_id: &str) -> AgentCommandResult {
+        AgentCommandResult::Error(format!(
+            "agent '{agent_id}' is still being created or updated; try again once that finishes"
+        ))
+    }
+
+    /// Build the config as its own task; `finish_build` picks up the result.
+    fn start_build(
+        &mut self,
+        agent_id: AgentId,
+        config: AgentConfig,
+        kind: BuildKind,
+        resp: oneshot::Sender<AgentCommandResult>,
+    ) {
+        self.building.insert(agent_id.clone());
+        let deps = self.deps.clone();
+        self.builds.spawn(async move {
+            // Its own task, so a panicking build is an error for this one command.
+            let build = tokio::spawn({
+                let (deps, agent_id, config) = (deps.clone(), agent_id.clone(), config.clone());
+                async move { BuiltAgent::build(&deps, &agent_id, &config).await }
+            });
+            let built = match build.await {
+                Ok(built) => built,
+                Err(e) => Err(anyhow::anyhow!("building the agent panicked: {e}")),
+            };
+            PendingBuild {
+                agent_id,
+                config,
+                kind,
+                built,
+                resp,
+            }
+        });
+    }
+
+    async fn finish_build(&mut self, done: PendingBuild) {
+        let PendingBuild {
+            agent_id,
+            config,
+            kind,
+            built,
+            resp,
+        } = done;
+        self.building.remove(&agent_id);
+        let result = match (kind, built) {
+            (BuildKind::Create, Err(e)) => {
+                AgentCommandResult::Error(format!("failed to start agent: {e:#}"))
+            }
+            (BuildKind::Update, Err(e)) => AgentCommandResult::Error(format!(
+                "the new config failed to start, so the agent keeps its previous one: {e:#}"
+            )),
+            (BuildKind::Create, Ok(built)) => self.finish_create(agent_id, config, built).await,
+            (BuildKind::Update, Ok(built)) => self.finish_update(agent_id, config, built).await,
+        };
+        let _ = resp.send(result);
     }
 
     async fn summary(&self, agent_id: &str, config: &AgentConfig) -> AgentSummary {
@@ -183,21 +273,36 @@ impl VizierAgents {
 
     /// Built before it is persisted, so a config that can't start is refused rather than
     /// stored as an agent that never runs.
-    async fn handle_create(&mut self, agent_id: &str, config: AgentConfig) -> AgentCommandResult {
+    async fn handle_create(
+        &mut self,
+        agent_id: AgentId,
+        config: AgentConfig,
+        resp: oneshot::Sender<AgentCommandResult>,
+    ) {
         if let Err(msg) = validate_config(&config) {
-            return AgentCommandResult::Error(msg);
+            let _ = resp.send(AgentCommandResult::Error(msg));
+            return;
         }
-
-        if self.exists(agent_id).await {
-            return AgentCommandResult::Error(format!("agent '{}' already exists", agent_id));
+        if self.building.contains(&agent_id) {
+            let _ = resp.send(Self::busy(&agent_id));
+            return;
         }
+        if self.exists(&agent_id).await {
+            let _ = resp.send(AgentCommandResult::Error(format!(
+                "agent '{}' already exists",
+                agent_id
+            )));
+            return;
+        }
+        self.start_build(agent_id, config, BuildKind::Create, resp);
+    }
 
-        let agent_id = agent_id.to_string();
-        let built = match BuiltAgent::build(&self.deps, &agent_id, &config).await {
-            Ok(built) => built,
-            Err(e) => return AgentCommandResult::Error(format!("failed to start agent: {e:#}")),
-        };
-
+    async fn finish_create(
+        &mut self,
+        agent_id: AgentId,
+        config: AgentConfig,
+        built: BuiltAgent,
+    ) -> AgentCommandResult {
         if let Err(e) = self.deps.storage.create_agent(&agent_id, &config).await {
             return AgentCommandResult::Error(format!("failed to persist agent: {}", e));
         }
@@ -228,25 +333,36 @@ impl VizierAgents {
     /// Build the new config first and swap only once it has started: a config that can't
     /// start is refused and the agent keeps running as it was (#43). Requests sent during
     /// the swap wait in the agent's channel, which the new supervisor inherits.
-    async fn handle_update(&mut self, agent_id: &str, config: AgentConfig) -> AgentCommandResult {
+    async fn handle_update(
+        &mut self,
+        agent_id: AgentId,
+        config: AgentConfig,
+        resp: oneshot::Sender<AgentCommandResult>,
+    ) {
         if let Err(msg) = validate_config(&config) {
-            return AgentCommandResult::Error(msg);
+            let _ = resp.send(AgentCommandResult::Error(msg));
+            return;
         }
-
-        if !self.exists(agent_id).await {
-            return AgentCommandResult::Error(format!("agent '{}' not found", agent_id));
+        if self.building.contains(&agent_id) {
+            let _ = resp.send(Self::busy(&agent_id));
+            return;
         }
+        if !self.exists(&agent_id).await {
+            let _ = resp.send(AgentCommandResult::Error(format!(
+                "agent '{}' not found",
+                agent_id
+            )));
+            return;
+        }
+        self.start_build(agent_id, config, BuildKind::Update, resp);
+    }
 
-        let agent_id = agent_id.to_string();
-        let built = match BuiltAgent::build(&self.deps, &agent_id, &config).await {
-            Ok(built) => built,
-            Err(e) => {
-                return AgentCommandResult::Error(format!(
-                    "the new config failed to start, so the agent keeps its previous one: {e:#}"
-                ));
-            }
-        };
-
+    async fn finish_update(
+        &mut self,
+        agent_id: AgentId,
+        config: AgentConfig,
+        built: BuiltAgent,
+    ) -> AgentCommandResult {
         if let Err(e) = self.deps.storage.update_agent(&agent_id, &config).await {
             return AgentCommandResult::Error(format!("failed to persist agent: {}", e));
         }
@@ -271,6 +387,9 @@ impl VizierAgents {
         agent_id: &str,
         delete_workspace: bool,
     ) -> AgentCommandResult {
+        if self.building.contains(agent_id) {
+            return Self::busy(agent_id);
+        }
         if !self.exists(agent_id).await {
             return AgentCommandResult::Error(format!("agent '{}' not found", agent_id));
         }

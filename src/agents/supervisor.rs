@@ -18,6 +18,7 @@ use tokio::time::Instant;
 use crate::agents::agent::VizierAgent;
 use crate::agents::memory_ops;
 use crate::agents::process::agent_process;
+use crate::channels::readers::ChannelHealthHandle;
 use crate::config::provider::ProviderVariant;
 use crate::dependencies::VizierDependencies;
 use crate::embedding::VizierEmbedder;
@@ -33,8 +34,15 @@ use crate::transport::VizierRequestEnvelope;
 
 const RESTART_BASE: Duration = Duration::from_secs(2);
 const RESTART_MAX: Duration = Duration::from_secs(300);
-/// An agent that ran this long before failing starts its backoff over.
-const HEALTHY_RUN: Duration = Duration::from_secs(60);
+/// An agent (or a channel reader) that ran this long before failing starts its backoff over.
+pub(crate) const HEALTHY_RUN: Duration = Duration::from_secs(60);
+
+/// How long to wait before the next restart, after `failures` failures in a row.
+pub(crate) fn restart_delay(failures: u32) -> Duration {
+    RESTART_BASE
+        .saturating_mul(1u32 << failures.saturating_sub(1).min(16))
+        .min(RESTART_MAX)
+}
 
 /// What it takes to run an agent, built before anything already running is stopped.
 pub struct BuiltAgent {
@@ -94,9 +102,18 @@ pub struct AgentStatus {
 pub type SharedStatus = Arc<RwLock<AgentStatus>>;
 
 impl AgentStatus {
-    pub fn health(status: &SharedStatus, agent_id: &AgentId) -> AgentHealthStatus {
+    pub fn health(
+        status: &SharedStatus,
+        channels: &ChannelHealthHandle,
+        agent_id: &AgentId,
+    ) -> AgentHealthStatus {
         let status = status.read().unwrap_or_else(|p| p.into_inner()).clone();
+        let channels = match status.state {
+            AgentRunState::Running => channels.read().unwrap_or_else(|p| p.into_inner()).clone(),
+            _ => Vec::new(),
+        };
         AgentHealthStatus {
+            channels,
             agent_id: agent_id.clone(),
             alive: status.state == AgentRunState::Running,
             state: status.state,
@@ -118,6 +135,7 @@ pub struct Supervisor {
     pub recv: flume::Receiver<VizierRequestEnvelope>,
     pub shutdown_rx: watch::Receiver<bool>,
     pub status: SharedStatus,
+    pub channels: ChannelHealthHandle,
 }
 
 impl Supervisor {
@@ -164,9 +182,7 @@ impl Supervisor {
             };
 
             failures += 1;
-            let wait = RESTART_BASE
-                .saturating_mul(1u32 << (failures - 1).min(16))
-                .min(RESTART_MAX);
+            let wait = restart_delay(failures);
             tracing::error!(
                 agent_id = %self.agent_id,
                 failures,
@@ -198,7 +214,8 @@ impl Supervisor {
         let memory_ops = self.start_memory_ops(indexer.as_ref()).await;
 
         // Its own task, so a panic in the request loop ends this run instead of the supervisor.
-        let result = tokio::spawn(agent_process(
+        // Aborted with the supervisor (a stop that timed out), rather than detached (#52).
+        let mut process = AbortOnDrop(tokio::spawn(agent_process(
             agent,
             self.agent_id.clone(),
             self.deps.clone(),
@@ -206,8 +223,9 @@ impl Supervisor {
             indexer,
             self.recv.clone(),
             self.shutdown_rx.clone(),
-        ))
-        .await;
+            self.channels.clone(),
+        )));
+        let result = (&mut process.0).await;
 
         if let Some(handle) = memory_ops {
             handle.abort();
@@ -308,6 +326,15 @@ impl Supervisor {
 
     fn is_shut_down(&self) -> bool {
         *self.shutdown_rx.borrow() || self.shutdown_rx.has_changed().is_err()
+    }
+}
+
+/// A task that is aborted when its handle is dropped, instead of carrying on detached.
+struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 

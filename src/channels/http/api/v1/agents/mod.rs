@@ -827,23 +827,9 @@ async fn update_sharing(
 async fn health_check(
     State(state): State<HTTPState>,
 ) -> models::response::Response<Vec<AgentHealthStatus>> {
-    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-
-    let cmd = AgentCommand::HealthCheck { resp: resp_tx };
-
-    if let Err(e) = state.transport.send_agent_command(cmd).await {
-        return err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to send command: {}", e),
-        );
-    }
-
-    match resp_rx.await {
+    match state.transport.agent_health().await {
         Ok(statuses) => api_response(StatusCode::OK, statuses),
-        Err(_) => err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "agent manager unavailable".into(),
-        ),
+        Err(e) => err_response(StatusCode::SERVICE_UNAVAILABLE, e.to_string()),
     }
 }
 
@@ -871,26 +857,12 @@ async fn ping_agent(
         return err_response(StatusCode::NOT_FOUND, "agent not found".into());
     }
 
-    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-
-    let cmd = AgentCommand::HealthCheck { resp: resp_tx };
-
-    if let Err(e) = state.transport.send_agent_command(cmd).await {
-        return err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to send command: {}", e),
-        );
-    }
-
-    match resp_rx.await {
+    match state.transport.agent_health().await {
         Ok(statuses) => {
             let alive = statuses.iter().any(|s| s.agent_id == agent_id && s.alive);
             api_response(StatusCode::OK, PingResponse { alive })
         }
-        Err(_) => err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "agent manager unavailable".into(),
-        ),
+        Err(e) => err_response(StatusCode::SERVICE_UNAVAILABLE, e.to_string()),
     }
 }
 

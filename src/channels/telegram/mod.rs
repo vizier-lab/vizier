@@ -1,14 +1,17 @@
+use std::sync::atomic::{AtomicI64, Ordering};
+
 use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use teloxide::Bot;
+use teloxide::{ApiError, RequestError};
 use teloxide::prelude::*;
 use teloxide::types::{
     AllowedUpdate, ChatAction, InputFile, MaybeAnonymousUser, MessageId, MessageReactionUpdated,
     ReactionType,
 };
 
-use crate::channels::VizierChannel;
+use crate::channels::{FatalChannelError, VizierChannel};
 use crate::channels::woken;
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
 use crate::dependencies::VizierDependencies;
@@ -28,27 +31,28 @@ pub struct TelegramChannelReader {
     token: String,
     agent_id: String,
     deps: VizierDependencies,
-    offset: i64,
+    /// The next update to ask for. Kept across restarts of `run`, so a restart doesn't ask
+    /// Telegram again for updates already handled.
+    offset: AtomicI64,
 }
 
 impl TelegramChannelReader {
-    pub async fn new(agent_id: String, token: String, deps: VizierDependencies) -> Result<Self> {
+    pub fn new(agent_id: String, token: String, deps: VizierDependencies) -> Self {
         let bot = Bot::new(token.clone());
 
-        Ok(Self {
+        Self {
             bot,
             token,
             agent_id,
             deps,
-            offset: 0,
-        })
+            offset: AtomicI64::new(0),
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl VizierChannel for TelegramChannelReader {
     async fn run(&self) -> Result<()> {
-        let mut offset = self.offset;
 
         let _woken = woken::watch(
             &self.deps.transport,
@@ -66,7 +70,7 @@ impl VizierChannel for TelegramChannelReader {
             let updates = self
                 .bot
                 .get_updates()
-                .offset(offset as i32)
+                .offset(self.offset.load(Ordering::SeqCst) as i32)
                 // Telegram sends `message_reaction` only when asked for it by name.
                 .allowed_updates(vec![
                     AllowedUpdate::Message,
@@ -79,15 +83,30 @@ impl VizierChannel for TelegramChannelReader {
             match updates {
                 Ok(updates) => {
                     for update in updates {
-                        offset = update.id.0 as i64 + 1;
+                        self.offset.store(update.id.0 as i64 + 1, Ordering::SeqCst);
                         if let Err(e) = self.handle_update(update).await {
                             tracing::error!("Error handling update: {:?}", e);
                         }
                     }
                 }
-                Err(_e) => {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                // Asked to slow down: not a failure, so no restart and no backoff growth.
+                Err(RequestError::RetryAfter(wait)) => {
+                    tokio::time::sleep(wait.duration()).await;
                 }
+                // Ends this run; the reader's supervisor logs it and retries with backoff
+                // (#50), instead of the silent fixed 1s loop this used to be.
+                Err(RequestError::Api(ApiError::InvalidToken)) => {
+                    return Err(FatalChannelError(
+                        "telegram rejected the bot token (revoked, or mistyped)".into(),
+                    )
+                    .into());
+                }
+                Err(RequestError::Api(ApiError::TerminatedByOtherGetUpdates)) => {
+                    return Err(anyhow::anyhow!(
+                        "another process is polling this telegram bot; only one may at a time"
+                    ));
+                }
+                Err(e) => return Err(anyhow::anyhow!("telegram polling failed: {e}")),
             }
         }
     }

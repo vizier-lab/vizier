@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
 
-use crate::{command::VizierCommandClient, config::VizierConfig, schema::{AgentRunState, CommandRequest}};
+use crate::{command::VizierCommandClient, config::VizierConfig, schema::{AgentRunState, ChannelState, CommandRequest}};
 
 #[derive(Debug, Args, Clone)]
 pub struct AgentArgs {
@@ -81,6 +81,22 @@ fn ps(config_path: Option<std::path::PathBuf>) -> Result<()> {
                         println!(
                             "  {:<20} {}{} (failure {}{}){}",
                             "", d, error, status.failures, retry, reset
+                        );
+                    }
+                    for channel in &status.channels {
+                        let (indicator, color) = match channel.state {
+                            ChannelState::Running => ("\u{25cf} running", g),
+                            ChannelState::Reconnecting => ("\u{25cc} reconnecting", y),
+                            ChannelState::Failed => ("\u{25cb} failed", r),
+                        };
+                        let error = channel
+                            .last_error
+                            .as_ref()
+                            .map(|e| format!(" {d}({e}){reset}"))
+                            .unwrap_or_default();
+                        println!(
+                            "  {:<20}   {} {}{}{}{}",
+                            "", channel.platform, color, indicator, reset, error
                         );
                     }
                 }

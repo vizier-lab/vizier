@@ -11,6 +11,7 @@ use twilight_model::application::interaction::application_command::CommandOption
 use twilight_model::application::interaction::{Interaction, InteractionData};
 use twilight_model::channel::Message;
 use twilight_model::channel::message::EmojiReactionType;
+use twilight_model::gateway::CloseCode;
 use twilight_model::gateway::GatewayReaction;
 use twilight_model::gateway::payload::incoming::Ready;
 use twilight_model::http::interaction::{InteractionResponse, InteractionResponseType};
@@ -19,7 +20,7 @@ use twilight_model::id::marker::{ApplicationMarker, ChannelMarker, MessageMarker
 use twilight_util::builder::InteractionResponseDataBuilder;
 use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 
-use crate::channels::VizierChannel;
+use crate::channels::{FatalChannelError, VizierChannel};
 use crate::channels::woken;
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
 use crate::dependencies::VizierDependencies;
@@ -40,14 +41,29 @@ pub struct DiscordChannelReader {
     shutdown: (flume::Sender<bool>, flume::Receiver<bool>),
 }
 
+/// Why the gateway stream ended. Close codes Discord says not to reconnect after (a bad
+/// token, intents the bot isn't allowed) need a config change, so retrying them is pointless.
+fn gateway_closed(code: Option<u16>) -> anyhow::Error {
+    match code.and_then(|code| CloseCode::try_from(code).ok()) {
+        Some(code) if !code.can_reconnect() => FatalChannelError(format!(
+            "discord refused the connection ({code:?}, close code {}). Check the bot token \
+             and that the bot is allowed the intents it asks for (message content, members, \
+             presence) in the Discord developer portal",
+            code as u16
+        ))
+        .into(),
+        _ => anyhow!("discord gateway closed (close code {code:?})"),
+    }
+}
+
 impl DiscordChannelReader {
-    pub async fn new(agent_id: String, token: String, deps: VizierDependencies) -> Result<Self> {
-        Ok(Self {
+    pub fn new(agent_id: String, token: String, deps: VizierDependencies) -> Self {
+        Self {
             deps,
             agent_id,
             token,
             shutdown: flume::bounded(1),
-        })
+        }
     }
 }
 
@@ -72,6 +88,8 @@ impl VizierChannel for DiscordChannelReader {
             | EventTypeFlags::REACTION_REMOVE_EMOJI;
         let shutdown = self.shutdown.1.clone();
         let mut closing = false;
+        // The last close Discord sent, to tell a bad token or intents from a dropped line.
+        let mut last_close: Option<u16> = None;
 
         let _woken = woken::watch(
             &self.deps.transport,
@@ -97,7 +115,7 @@ impl VizierChannel for DiscordChannelReader {
                         if closing {
                             return Ok(());
                         }
-                        return Err(anyhow!("discord gateway closed fatally for agent {}", self.agent_id));
+                        return Err(gateway_closed(last_close));
                     };
 
                     let event = match item {
@@ -111,6 +129,10 @@ impl VizierChannel for DiscordChannelReader {
                     let handler = handler.clone();
                     match event {
                         Event::GatewayClose(_) if closing => return Ok(()),
+                        Event::GatewayClose(frame) => {
+                            last_close = frame.map(|frame| frame.code);
+                            tracing::warn!(agent_id = %self.agent_id, code = ?last_close, "discord gateway closed the connection");
+                        }
                         Event::Ready(ready) => {
                             tokio::spawn(async move { handler.ready(ready).await });
                         }

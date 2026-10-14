@@ -3,16 +3,17 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use tokio::sync::RwLock;
-use tokio::task::JoinSet;
 
 use crate::schema::{
-    AgentCommand, AgentId, BackgroundJobSnapshot, CommandRequest, CommandResponse, FileCommand,
+    AgentCommand, AgentHealthStatus, AgentId, BackgroundJobSnapshot, CommandRequest, CommandResponse, FileCommand,
     MemoryOpEnvelope, ReactionEntry, VizierAttachment, VizierRequest, VizierResponse, VizierSession,
 };
 
 /// How many session events a slow subscriber may fall behind before it starts losing them.
 /// A lagging WebSocket logs and carries on; the WebUI reconciles by re-reading the job list.
 const SESSION_EVENTS_CAPACITY: usize = 256;
+/// How long a health check waits for the agent manager.
+const HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Something pushed to whoever is watching a session, outside of a turn they started
 /// themselves: a background job changing state, or the frames of a turn a background report
@@ -252,47 +253,41 @@ impl VizierTransport {
         Ok(self.exit_channel.1.recv_async().await?)
     }
 
+    /// Every agent's health from the agent manager, or an error if it doesn't answer within
+    /// `HEALTH_TIMEOUT`: a monitor gets an answer rather than a hang (#51).
+    pub async fn agent_health(&self) -> Result<Vec<AgentHealthStatus>> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.send_agent_command(AgentCommand::HealthCheck { resp: tx })
+            .await?;
+        match tokio::time::timeout(HEALTH_TIMEOUT, rx).await {
+            Ok(Ok(statuses)) => Ok(statuses),
+            Ok(Err(_)) => Err(anyhow::anyhow!("the agent manager is not running")),
+            Err(_) => Err(anyhow::anyhow!("the agent manager did not answer in time")),
+        }
+    }
+
+    /// Answer commands from the command socket until the process stops.
     pub async fn run(&self) -> Result<()> {
-        let mut set = JoinSet::new();
-
-        let req_rx = self.command_request_channel.clone().1.clone();
-        let res = self.command_response_channel.clone().0.clone();
-        let exit = self.exit_channel.clone().0.clone();
-        let agent_cmd_tx = self.agent_command_channel.clone().0.clone();
-        set.spawn(async move {
-            while let Ok(req) = req_rx.recv_async().await {
-                match req {
-                    CommandRequest::Exit => {
-                        let _ = res
-                            .send_async(CommandResponse::Ok("vizier is stopping".into()))
-                            .await;
-                        let _ = exit.send_async(true).await;
+        let req_rx = self.command_request_channel.1.clone();
+        let res = self.command_response_channel.0.clone();
+        while let Ok(req) = req_rx.recv_async().await {
+            let exit = matches!(req, CommandRequest::Exit);
+            let response = match req {
+                CommandRequest::Exit => CommandResponse::Ok("vizier is stopping".into()),
+                CommandRequest::HealthCheck => match self.agent_health().await {
+                    Ok(statuses) => {
+                        CommandResponse::Ok(serde_json::to_string(&statuses).unwrap_or_default())
                     }
-                    CommandRequest::HealthCheck => {
-                        let (tx, rx) = tokio::sync::oneshot::channel();
-                        let _ = agent_cmd_tx
-                            .send_async(AgentCommand::HealthCheck { resp: tx })
-                            .await;
-                        match rx.await {
-                            Ok(statuses) => {
-                                let json = serde_json::to_string(&statuses).unwrap_or_default();
-                                let _ = res.send_async(CommandResponse::Ok(json)).await;
-                            }
-                            Err(_) => {
-                                let _ = res
-                                    .send_async(CommandResponse::Error(
-                                        "health check failed".into(),
-                                    ))
-                                    .await;
-                            }
-                        }
-                    }
-                    _ => unimplemented!(),
-                }
+                    Err(e) => CommandResponse::Error(format!("health check failed: {e}")),
+                },
+                other => CommandResponse::Error(format!("unsupported command: {other:?}")),
+            };
+            let _ = res.send_async(response).await;
+            // After the answer is on its way, since the process exits on this signal.
+            if exit {
+                let _ = self.exit_channel.0.send_async(true).await;
             }
-        });
-
-        set.join_all().await;
-        Ok(())
+        }
+        Err(anyhow::anyhow!("the command request channel closed"))
     }
 }
