@@ -246,7 +246,7 @@ impl Interpreter {
         let entries = self
             .catalogue()
             .into_iter()
-            .map(|doc| serde_json::json!({ "function": doc.function, "summary": doc.summary }))
+            .map(|doc| serde_json::json!({ "name": doc.name, "summary": doc.summary }))
             .collect();
         json_to_monty(serde_json::Value::Array(entries)).into()
     }
@@ -274,7 +274,7 @@ impl Interpreter {
             Some(doc) => serde_json::to_value(doc).unwrap_or_default(),
             None => {
                 let known: Vec<String> =
-                    self.catalogue().into_iter().map(|doc| doc.function).collect();
+                    self.catalogue().into_iter().map(|doc| doc.name).collect();
                 docs::not_found(function, &known)
             }
         };
@@ -519,7 +519,7 @@ mod tests {
 
     fn doc(function: &str, required: &[&str]) -> ToolFunctionDoc {
         ToolFunctionDoc {
-            function: function.into(),
+            name: function.into(),
             tool: function.into(),
             summary: format!("{function} summary."),
             description: String::new(),
@@ -544,7 +544,7 @@ mod tests {
         }
 
         async fn describe(&self, function: &str) -> Option<ToolFunctionDoc> {
-            self.catalogue().await.into_iter().find(|d| d.function == function)
+            self.catalogue().await.into_iter().find(|d| d.name == function)
         }
 
         async fn call(
@@ -666,7 +666,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_tools_returns_the_catalogue() {
-        let report = run_with("[d['function'] for d in list_tools()]", FakeBridge::new(), true).await;
+        let report = run_with("[d['name'] for d in list_tools()]", FakeBridge::new(), true).await;
         assert!(report.ok, "{report:?}");
         assert_eq!(report.result, serde_json::json!(["broken", "echo", "search"]));
         let report = run_with("list_tools()", FakeBridge::new(), false).await;
@@ -688,7 +688,7 @@ mod tests {
     #[tokio::test]
     async fn the_model_side_tool_names_work_inside_a_script_too() {
         let report = run_with(
-            "[d['function'] for d in list_tool_functions()]",
+            "[d['name'] for d in list_tool_functions()]",
             FakeBridge::new(),
             true,
         )
@@ -697,7 +697,7 @@ mod tests {
         assert_eq!(report.result, serde_json::json!(["broken", "echo", "search"]));
 
         let report = run_with(
-            "describe_tool_function(name='search')['function']",
+            "describe_tool_function(name='search')['name']",
             FakeBridge::new(),
             true,
         )

@@ -110,7 +110,7 @@ Tool *results* are intentionally **not** stored in the record (they would defeat
 
 ```rust
 pub struct ToolFunctionDoc {
-    pub function: String,            // sanitised Python identifier (== tool name for all native tools)
+    pub name: String,                // sanitised Python identifier (== tool name for all native tools)
     pub tool: String,                // original tool name (differs only if sanitised)
     pub summary: String,             // first sentence/line of the tool description
     pub description: String,         // full description

@@ -109,10 +109,10 @@ On `dp-code`:
 
 | Send | Expect |
 |---|---|
-| `{"tool": "list_tool_functions", "arguments": {}}` | `count` and a list sorted by `function`, including `memory_read`, `READ_CORE`, `think` and any `mcp_*` tools (sanitised names); no `execute_python`, and no tool the agent doesn't have enabled |
+| `{"tool": "list_tool_functions", "arguments": {}}` | `count` and a list sorted by `name`, including `memory_read`, `READ_CORE`, `think` and any `mcp_*` tools (sanitised names); no `execute_python`, and no tool the agent doesn't have enabled |
 | `{"tool": "describe_tool_function", "arguments": {"name": "memory_read"}}` | parameters with types and required flags, `returns`, and an `example` line |
 | `{"tool": "describe_tool_function", "arguments": {"name": "memory_reed"}}` | `available: false`, `did_you_mean` contains `memory_read` — a normal result, not a turn error |
-| `execute_python` with `[d["function"] for d in list_tools()][:5]` | same names as the catalogue; no invocation records (docs lookups are not tool calls) |
+| `execute_python` with `[d["name"] for d in list_tools()][:5]` | same names as the catalogue; no invocation records (docs lookups are not tool calls) |
 | `execute_python` with `describe_tool("nope")` | the `available: False` dict; the run succeeds |
 | enable `fetch` on `dp-code`, save, then `list_tool_functions` again | `fetch` now appears (US3-S5) |
 

@@ -33,7 +33,7 @@ pub async fn execute(code: &str, limits: SandboxLimits, bridge: Arc<dyn SandboxB
 
 | Script does | Host answers | Script sees |
 |---|---|---|
-| `list_tools()` | catalogue → list of `{"function", "summary"}` dicts | `list[dict]` |
+| `list_tools()` | catalogue → list of `{"name", "summary"}` dicts | `list[dict]` |
 | `describe_tool("x")` | describe → dict (`ToolFunctionDoc`) or `{"available": False, …}` | `dict` |
 | `describe_tool()` / wrong arity | `TypeError` | catchable |
 | `execute_python(...)` | `RuntimeError("nested execute_python is not allowed")` | catchable (FR-011) |
