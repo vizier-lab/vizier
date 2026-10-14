@@ -53,6 +53,8 @@ pub enum ErrorKind {
     /// The provider kept failing transiently (5xx, dropped connection, no answer) after every
     /// retry.
     ProviderUnavailable,
+    /// The agent itself is down: it failed to start and is waiting to be restarted.
+    AgentUnavailable,
 }
 
 impl ErrorKind {
@@ -81,6 +83,7 @@ impl ErrorKind {
             ErrorKind::PromptTimeout => "prompt_timeout",
             ErrorKind::RateLimited => "rate_limited",
             ErrorKind::ProviderUnavailable => "provider_unavailable",
+            ErrorKind::AgentUnavailable => "agent_unavailable",
         }
     }
 
@@ -92,6 +95,7 @@ impl ErrorKind {
             ErrorKind::PromptTimeout => "Prompt Timeout",
             ErrorKind::RateLimited => "Rate Limited",
             ErrorKind::ProviderUnavailable => "Provider Unavailable",
+            ErrorKind::AgentUnavailable => "Agent Unavailable",
         }
     }
 }

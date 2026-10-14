@@ -739,6 +739,10 @@ export const ping = async () => {
 export interface AgentHealthStatus {
   agent_id: string
   alive: boolean
+  state?: 'starting' | 'running' | 'failed' | 'stopped'
+  last_error?: string
+  failures?: number
+  next_retry_at?: string
 }
 
 export const getAgentsHealth = async (): Promise<AgentHealthStatus[]> => {

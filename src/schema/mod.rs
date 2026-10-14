@@ -21,7 +21,7 @@ pub use agent::{
     PythonSandboxConfig, ReadImageToolSettings, SttToolSettings, ToolConfig, TtsToolSettings,
 };
 pub use commands::{
-    AgentCommand, AgentCommandResult, AgentHealthStatus, AgentSummary,
+    AgentCommand, AgentCommandResult, AgentHealthStatus, AgentRunState, AgentSummary,
     CommandRequest, CommandResponse, FileCommand, MemoryOpEnvelope, MemoryOpRequest,
     MemoryOpResponse,
 };

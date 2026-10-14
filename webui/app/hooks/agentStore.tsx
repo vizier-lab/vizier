@@ -11,6 +11,8 @@ interface AgentStore {
   lastAgentId: string | null
   setLastAgentId: (id: string | null) => void
   agentHealth: Record<string, boolean>
+  /** Why an agent is down, for agents whose supervisor reports a failure. */
+  agentFailure: Record<string, string>
   startHealthPolling: () => void
   stopHealthPolling: () => void
 }
@@ -20,6 +22,7 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
   loading: true,
   lastAgentId: null,
   agentHealth: {},
+  agentFailure: {},
   setLastAgentId: (id) => set({ lastAgentId: id }),
   loadAgents: async () => {
     try {
@@ -37,12 +40,16 @@ export const useAgentStore = create<AgentStore>()((set, get) => ({
       try {
         const statuses = await getAgentsHealth()
         const health: Record<string, boolean> = {}
+        const failure: Record<string, string> = {}
         for (const s of statuses) {
           health[s.agent_id] = s.alive
+          if (s.state === 'failed' && s.last_error) {
+            failure[s.agent_id] = s.last_error
+          }
         }
-        set({ agentHealth: health })
+        set({ agentHealth: health, agentFailure: failure })
       } catch {
-        set({ agentHealth: {} })
+        set({ agentHealth: {}, agentFailure: {} })
       }
     }
 

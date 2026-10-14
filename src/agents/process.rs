@@ -29,7 +29,7 @@ use crate::{
         VizierStorage, dream_journal::DreamJournalStorage, history::HistoryStorage,
         memory::MemoryStorage, session::SessionStorage,
     },
-    transport::DreamCommand,
+    transport::{DreamCommand, VizierRequestEnvelope},
 };
 
 /// Requests waiting for the session's running job, each with where its response goes.
@@ -92,18 +92,18 @@ async fn abort_session_notify(
     }
 }
 
+/// Serve one built agent's requests until `shutdown_rx` turns true or the request channel is
+/// closed. Building the agent and registering its channel belong to the supervisor in
+/// `agents/mod.rs`, which owns `recv` across restarts so requests wait rather than fail (#43).
 pub async fn agent_process(
+    agent: Arc<VizierAgent>,
     agent_id: AgentId,
     deps: VizierDependencies,
     agent_config: AgentConfig,
     indexer: Option<crate::indexer::VizierIndexer>,
+    recv: flume::Receiver<VizierRequestEnvelope>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
-    let agent =
-        Arc::new(VizierAgent::new(agent_id.clone(), &deps, &agent_config, indexer.clone()).await?);
-
-    let recv = deps.transport.register_agent(agent_id.clone()).await;
-
     let mut agent_channels = spawn_agent_channels(&agent_id, &agent_config, &deps).await;
     agent_channels.run().await;
 
@@ -124,8 +124,10 @@ pub async fn agent_process(
 
     loop {
         tokio::select! {
-            _ = shutdown_rx.changed() => {
-                if *shutdown_rx.borrow() {
+            changed = shutdown_rx.changed() => {
+                // A dropped sender means the supervisor is gone: stop as well, rather than
+                // spin on a `changed()` that now returns at once.
+                if changed.is_err() || *shutdown_rx.borrow() {
                     tracing::info!(agent_id = %agent_id, "shutdown signal received");
                     break;
                 }

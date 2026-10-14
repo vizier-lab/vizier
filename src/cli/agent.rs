@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
 
-use crate::{command::VizierCommandClient, config::VizierConfig, schema::CommandRequest};
+use crate::{command::VizierCommandClient, config::VizierConfig, schema::{AgentRunState, CommandRequest}};
 
 #[derive(Debug, Args, Clone)]
 pub struct AgentArgs {
@@ -64,13 +64,25 @@ fn ps(config_path: Option<std::path::PathBuf>) -> Result<()> {
                 println!("  {}Agent ID           Status{}", d, reset);
                 println!("  {}------------------- --------{}", d, reset);
 
+                let y = "\x1b[33m";
                 for status in &statuses {
-                    let (indicator, color) = if status.alive {
-                        ("\u{25cf} online", g)
-                    } else {
-                        ("\u{25cb} offline", r)
+                    let (indicator, color) = match status.state {
+                        AgentRunState::Running => ("\u{25cf} online", g),
+                        AgentRunState::Starting => ("\u{25cc} starting", y),
+                        AgentRunState::Failed => ("\u{25cb} failed", r),
+                        AgentRunState::Stopped => ("\u{25cb} stopped", r),
                     };
                     println!("  {:<20} {}{}{}", status.agent_id, color, indicator, reset);
+                    if let Some(error) = &status.last_error {
+                        let retry = status
+                            .next_retry_at
+                            .map(|at| format!(", retrying at {}", at.format("%H:%M:%S UTC")))
+                            .unwrap_or_default();
+                        println!(
+                            "  {:<20} {}{} (failure {}{}){}",
+                            "", d, error, status.failures, retry, reset
+                        );
+                    }
                 }
 
                 let online = statuses.iter().filter(|s| s.alive).count();

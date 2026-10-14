@@ -1,26 +1,19 @@
 use anyhow::Result;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tokio::task::JoinSet;
 
-use crate::agents::process::agent_process;
-use crate::config::provider::ProviderVariant;
+use crate::agents::supervisor::{AgentStatus, BuiltAgent, SharedStatus, Supervisor};
 use crate::constant::CORE_MD;
 use crate::dependencies::VizierDependencies;
-use crate::embedding::VizierEmbedder;
-use crate::indexer::VizierIndexer;
-use crate::indexer::sqlite::SqliteIndexer;
 use crate::schema::{
     AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentId, AgentSummary,
-    ProviderEntryConfig, RevisionOrigin, RevisionTrigger,
+    RevisionOrigin, RevisionTrigger,
 };
-use crate::storage::memory::MemoryStorage;
 use crate::storage::agent::AgentStorage;
-use crate::storage::provider::ProviderStorage;
 use crate::storage::user::UserStorage;
+use crate::transport::VizierRequestEnvelope;
 use crate::utils::agent_workspace;
 
 pub mod agent;
@@ -31,13 +24,33 @@ pub mod memory_ops;
 pub mod process;
 pub mod shell;
 pub mod skill;
+pub mod supervisor;
 pub mod tools;
 
+/// How long an update waits for the old agent to stop before aborting it.
+const STOP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// One agent's supervisor. Every agent in storage has one, whether it is running, starting
+/// or failed, so update and delete always find it (#42).
 struct AgentProcess {
     handle: JoinHandle<()>,
-    config: AgentConfig,
     shutdown: watch::Sender<bool>,
-    memory_op_handle: Option<JoinHandle<()>>,
+    status: SharedStatus,
+    /// The agent's request channel, registered once and handed from one supervisor to the
+    /// next across updates, so nothing sent during a swap is lost (#43).
+    recv: flume::Receiver<VizierRequestEnvelope>,
+}
+
+impl AgentProcess {
+    /// Ask the supervisor to stop, and wait for it to, up to `STOP_TIMEOUT`.
+    async fn stop(self, agent_id: &str) {
+        let _ = self.shutdown.send(true);
+        let abort = self.handle.abort_handle();
+        if tokio::time::timeout(STOP_TIMEOUT, self.handle).await.is_err() {
+            tracing::warn!(agent_id, "agent did not stop in time, aborting it");
+            abort.abort();
+        }
+    }
 }
 
 pub struct VizierAgents {
@@ -46,166 +59,51 @@ pub struct VizierAgents {
 }
 
 impl VizierAgents {
+    /// Register and start every stored agent. Returns once all are registered, without
+    /// waiting for any to finish starting: requests sent meanwhile queue (#26, #43).
     pub async fn new(deps: VizierDependencies) -> Result<Self> {
-        let mut processes = HashMap::new();
+        let mut agents = Self {
+            deps,
+            processes: HashMap::new(),
+        };
 
-        let stored_agents = deps.storage.list_agents().await?;
-        let mut join_set = JoinSet::new();
-
-        for (agent_id, config) in stored_agents {
+        for (agent_id, config) in agents.deps.storage.list_agents().await? {
             tracing::info!("starting agent: {}", agent_id);
-            let deps = deps.clone();
-            join_set.spawn(async move {
-                let result = Self::spawn_agent(&deps, &agent_id, &config).await;
-                (agent_id, result)
-            });
+            let recv = agents.deps.transport.register_agent(agent_id.clone()).await;
+            agents.start(agent_id, config, recv, None);
         }
 
-        while let Some(result) = join_set.join_next().await {
-            match result {
-                Ok((agent_id, Ok(process))) => {
-                    processes.insert(agent_id, process);
-                }
-                Ok((agent_id, Err(e))) => {
-                    tracing::error!("failed to start agent '{}': {}", agent_id, e);
-                }
-                Err(e) => {
-                    tracing::error!("agent spawn task failed: {}", e);
-                }
-            }
-        }
-
-        Ok(Self { deps, processes })
+        Ok(agents)
     }
 
-    async fn build_indexer(
-        deps: &VizierDependencies,
-        config: &AgentConfig,
-    ) -> Result<Option<VizierIndexer>> {
-        let (emb_settings, _idx_cfg) = match (&config.embedding, &config.indexer) {
-            (Some(e), Some(i)) => (e, i),
-            _ => return Ok(None),
+    /// Spawn a supervisor for the agent on an already-registered request channel.
+    fn start(
+        &mut self,
+        agent_id: AgentId,
+        config: AgentConfig,
+        recv: flume::Receiver<VizierRequestEnvelope>,
+        prebuilt: Option<BuiltAgent>,
+    ) {
+        let (shutdown, shutdown_rx) = watch::channel(false);
+        let status = SharedStatus::default();
+        let supervisor = Supervisor {
+            agent_id: agent_id.clone(),
+            deps: self.deps.clone(),
+            config,
+            recv: recv.clone(),
+            shutdown_rx,
+            status: status.clone(),
         };
-
-        let conn = deps.sqlite_conn.clone();
-
-        let embedder = Arc::new(
-            VizierEmbedder::from_agent_settings(
-                emb_settings,
-                &deps.storage,
-                &deps.config.workspace,
-            )
-            .await?,
+        let handle = tokio::spawn(supervisor.run(prebuilt));
+        self.processes.insert(
+            agent_id,
+            AgentProcess {
+                handle,
+                shutdown,
+                status,
+                recv,
+            },
         );
-        let sqlite_idx = SqliteIndexer::new(conn, embedder).await?;
-        Ok(Some(VizierIndexer::build(sqlite_idx)))
-    }
-
-    async fn spawn_agent(
-        deps: &VizierDependencies,
-        agent_id: &str,
-        config: &AgentConfig,
-    ) -> Result<AgentProcess> {
-        if config.provider == ProviderVariant::ollama {
-            if let Ok(Some(provider)) = deps.storage.get_provider(&ProviderVariant::ollama).await {
-                if let ProviderEntryConfig::Ollama { base_url } = &provider.config {
-                    crate::utils::ollama::ollama_pull_model(base_url, &config.model).await?;
-                }
-            }
-        }
-
-        let indexer = Self::build_indexer(deps, config).await?;
-        let memory_op_handle = if let Some(idx) = indexer.clone() {
-            let rx = deps
-                .transport
-                .register_memory_op(agent_id.to_string())
-                .await;
-            let storage = (*deps.storage).clone();
-            let agent_id_owned = agent_id.to_string();
-            let settings = memory_ops::MemoryOpSettings {
-                chunking: config.chunking.clone(),
-                per_document: config.auto_context.per_document,
-            };
-            Some(tokio::spawn(async move {
-                if let Err(e) =
-                    memory_ops::handle_memory_ops(rx, idx, agent_id_owned, storage, settings).await
-                {
-                    tracing::error!("memory_ops handler exited with error: {}", e);
-                }
-            }))
-        } else {
-            None
-        };
-
-        // One-time passage conversion for this agent's existing corpus (FR-038).
-        //
-        // It lives here, and not in `dependencies.rs` where every other migration lives, because
-        // **the indexer does not exist there**: it is built per agent from that agent's own
-        // embedding config, which is why the two memory migrations in `dependencies.rs` pass
-        // `NoopIndexer` and leave semantic search to catch up (research Decision 8). It must also
-        // use *this* agent's indexer rather than any shared one, since two agents configured with
-        // different embedding models write into one fixed-dimension vector table.
-        //
-        // Spawned detached rather than awaited, so the agent serves requests throughout (FR-040).
-        // It holds neither the agent's request channel nor the sqlite write lock for the duration:
-        // `reconcile_all_passages` takes the connection lock per statement and yields between
-        // bundles.
-        if let Some(idx) = indexer.clone() {
-            let storage = deps.storage.clone();
-            let agent_id_owned = agent_id.to_string();
-            let limits = config.chunking.clone();
-            tokio::spawn(async move {
-                let started = std::time::Instant::now();
-                match storage
-                    .reconcile_agent_passages(&agent_id_owned, &limits, &idx)
-                    .await
-                {
-                    // FR-042: counts processed, counts failed, and the reason for each failure —
-                    // the reasons are logged per document by the reconcile itself. Silent when
-                    // there was nothing to do, which is every start after the first.
-                    Ok((0, 0)) => {}
-                    Ok((converted, failed)) => tracing::info!(
-                        agent_id = agent_id_owned,
-                        converted,
-                        failed,
-                        elapsed_ms = started.elapsed().as_millis() as u64,
-                        "memory passage conversion finished"
-                    ),
-                    Err(e) => tracing::warn!(
-                        agent_id = agent_id_owned,
-                        "memory passage conversion failed; memories stay readable and are retried \
-                         on the next start: {e}"
-                    ),
-                }
-            });
-        }
-
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let deps_clone = deps.clone();
-        let agent_id_clone = agent_id.to_string();
-        let config_clone = config.clone();
-        let indexer_clone = indexer.clone();
-
-        let handle = tokio::spawn(async move {
-            if let Err(e) = agent_process(
-                agent_id_clone.clone(),
-                deps_clone,
-                config_clone,
-                indexer_clone,
-                shutdown_rx,
-            )
-            .await
-            {
-                tracing::error!("agent '{}' exited with error: {}", agent_id_clone, e);
-            }
-        });
-
-        Ok(AgentProcess {
-            handle,
-            config: config.clone(),
-            shutdown: shutdown_tx,
-            memory_op_handle,
-        })
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -240,10 +138,7 @@ impl VizierAgents {
                     let statuses: Vec<AgentHealthStatus> = self
                         .processes
                         .iter()
-                        .map(|(id, process)| AgentHealthStatus {
-                            agent_id: id.clone(),
-                            alive: !process.handle.is_finished(),
-                        })
+                        .map(|(id, process)| AgentStatus::health(&process.status, id))
                         .collect();
                     let _ = resp.send(statuses);
                 }
@@ -251,16 +146,59 @@ impl VizierAgents {
         }
     }
 
+    async fn summary(&self, agent_id: &str, config: &AgentConfig) -> AgentSummary {
+        let owner_username = if let Some(ref owner_id) = config.owner_id {
+            self.deps
+                .storage
+                .get_user_by_id(owner_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|u| u.username)
+        } else {
+            None
+        };
+        AgentSummary {
+            agent_id: agent_id.to_string(),
+            name: config.name.clone(),
+            description: config.description.clone(),
+            avatar_url: config.avatar_url.clone(),
+            owner_username,
+            owner_id: config.owner_id.clone(),
+            shared_to: config.shared_to.clone(),
+        }
+    }
+
+    async fn exists(&self, agent_id: &str) -> bool {
+        self.processes.contains_key(agent_id)
+            || self
+                .deps
+                .storage
+                .get_agent(agent_id)
+                .await
+                .ok()
+                .flatten()
+                .is_some()
+    }
+
+    /// Built before it is persisted, so a config that can't start is refused rather than
+    /// stored as an agent that never runs.
     async fn handle_create(&mut self, agent_id: &str, config: AgentConfig) -> AgentCommandResult {
         if let Err(msg) = validate_config(&config) {
             return AgentCommandResult::Error(msg);
         }
 
-        if self.processes.contains_key(agent_id) {
+        if self.exists(agent_id).await {
             return AgentCommandResult::Error(format!("agent '{}' already exists", agent_id));
         }
 
-        if let Err(e) = self.deps.storage.create_agent(agent_id, &config).await {
+        let agent_id = agent_id.to_string();
+        let built = match BuiltAgent::build(&self.deps, &agent_id, &config).await {
+            Ok(built) => built,
+            Err(e) => return AgentCommandResult::Error(format!("failed to start agent: {e:#}")),
+        };
+
+        if let Err(e) = self.deps.storage.create_agent(&agent_id, &config).await {
             return AgentCommandResult::Error(format!("failed to persist agent: {}", e));
         }
 
@@ -268,7 +206,7 @@ impl VizierAgents {
             .deps
             .storage
             .set_agent_core(
-                agent_id,
+                &agent_id,
                 CORE_MD,
                 &RevisionOrigin::system(RevisionTrigger::Baseline),
             )
@@ -281,108 +219,59 @@ impl VizierAgents {
             );
         }
 
-        match Self::spawn_agent(&self.deps, agent_id, &config).await {
-            Ok(process) => {
-                let owner_username = if let Some(ref owner_id) = config.owner_id {
-                    self.deps
-                        .storage
-                        .get_user_by_id(owner_id)
-                        .await
-                        .ok()
-                        .flatten()
-                        .map(|u| u.username)
-                } else {
-                    None
-                };
-                let summary = AgentSummary {
-                    agent_id: agent_id.to_string(),
-                    name: config.name.clone(),
-                    description: config.description.clone(),
-                    avatar_url: config.avatar_url.clone(),
-                    owner_username,
-                    owner_id: config.owner_id.clone(),
-                    shared_to: config.shared_to.clone(),
-                };
-                self.processes.insert(agent_id.to_string(), process);
-                AgentCommandResult::Ok(summary)
-            }
-            Err(e) => AgentCommandResult::Error(format!("failed to start agent: {}", e)),
-        }
+        let recv = self.deps.transport.register_agent(agent_id.clone()).await;
+        let summary = self.summary(&agent_id, &config).await;
+        self.start(agent_id, config, recv, Some(built));
+        AgentCommandResult::Ok(summary)
     }
 
+    /// Build the new config first and swap only once it has started: a config that can't
+    /// start is refused and the agent keeps running as it was (#43). Requests sent during
+    /// the swap wait in the agent's channel, which the new supervisor inherits.
     async fn handle_update(&mut self, agent_id: &str, config: AgentConfig) -> AgentCommandResult {
         if let Err(msg) = validate_config(&config) {
             return AgentCommandResult::Error(msg);
         }
 
-        if !self.processes.contains_key(agent_id)
-            && self
-                .deps
-                .storage
-                .get_agent(agent_id)
-                .await
-                .ok()
-                .flatten()
-                .is_none()
-        {
+        if !self.exists(agent_id).await {
             return AgentCommandResult::Error(format!("agent '{}' not found", agent_id));
         }
 
-        if let Err(e) = self.deps.storage.update_agent(agent_id, &config).await {
+        let agent_id = agent_id.to_string();
+        let built = match BuiltAgent::build(&self.deps, &agent_id, &config).await {
+            Ok(built) => built,
+            Err(e) => {
+                return AgentCommandResult::Error(format!(
+                    "the new config failed to start, so the agent keeps its previous one: {e:#}"
+                ));
+            }
+        };
+
+        if let Err(e) = self.deps.storage.update_agent(&agent_id, &config).await {
             return AgentCommandResult::Error(format!("failed to persist agent: {}", e));
         }
 
-        if let Some(old) = self.processes.remove(agent_id) {
-            let _ = old.shutdown.send(true);
-            if let Some(mh) = old.memory_op_handle {
-                mh.abort();
+        let recv = match self.processes.remove(&agent_id) {
+            Some(old) => {
+                let recv = old.recv.clone();
+                old.stop(&agent_id).await;
+                recv
             }
-        }
+            None => self.deps.transport.register_agent(agent_id.clone()).await,
+        };
 
-        self.deps
-            .transport
-            .unregister_agent(&agent_id.to_string())
-            .await;
-        self.deps
-            .transport
-            .unregister_memory_op(&agent_id.to_string())
-            .await;
-
-        match Self::spawn_agent(&self.deps, agent_id, &config).await {
-            Ok(process) => {
-                let owner_username = if let Some(ref owner_id) = config.owner_id {
-                    self.deps
-                        .storage
-                        .get_user_by_id(owner_id)
-                        .await
-                        .ok()
-                        .flatten()
-                        .map(|u| u.username)
-                } else {
-                    None
-                };
-                let summary = AgentSummary {
-                    agent_id: agent_id.to_string(),
-                    name: config.name.clone(),
-                    description: config.description.clone(),
-                    avatar_url: config.avatar_url.clone(),
-                    owner_username,
-                    owner_id: config.owner_id.clone(),
-                    shared_to: config.shared_to.clone(),
-                };
-                self.processes.insert(agent_id.to_string(), process);
-                AgentCommandResult::Ok(summary)
-            }
-            Err(e) => AgentCommandResult::Error(format!("failed to restart agent: {}", e)),
-        }
+        let summary = self.summary(&agent_id, &config).await;
+        self.start(agent_id, config, recv, Some(built));
+        AgentCommandResult::Ok(summary)
     }
 
+    /// Works for an agent in any state, and for one that exists only in storage.
     async fn handle_delete(
         &mut self,
         agent_id: &str,
         delete_workspace: bool,
     ) -> AgentCommandResult {
-        if !self.processes.contains_key(agent_id) {
+        if !self.exists(agent_id).await {
             return AgentCommandResult::Error(format!("agent '{}' not found", agent_id));
         }
 
@@ -390,17 +279,13 @@ impl VizierAgents {
             return AgentCommandResult::Error(format!("failed to delete agent: {}", e));
         }
 
-        if let Some(process) = self.processes.remove(agent_id) {
-            let _ = process.shutdown.send(true);
-            if let Some(mh) = process.memory_op_handle {
-                mh.abort();
-            }
-        }
-
         self.deps
             .transport
             .unregister_agent(&agent_id.to_string())
             .await;
+        if let Some(process) = self.processes.remove(agent_id) {
+            process.stop(agent_id).await;
+        }
         self.deps
             .transport
             .unregister_memory_op(&agent_id.to_string())

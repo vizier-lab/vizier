@@ -12,7 +12,7 @@ import { useUserStore } from './hooks/userStore'
 import { hasPermission } from './utils/auth'
 
 export default function Layout() {
-  const { agents, loading, loadAgents, lastAgentId, setLastAgentId: setStoreLastAgentId, agentHealth, startHealthPolling, stopHealthPolling } = useAgentStore()
+  const { agents, loading, loadAgents, lastAgentId, setLastAgentId: setStoreLastAgentId, agentHealth, agentFailure, startHealthPolling, stopHealthPolling } = useAgentStore()
   const { user, loadUser } = useUserStore()
   const [showAgentDropdown, setShowAgentDropdown] = useState(false)
   const [dropdownRect, setDropdownRect] = useState<DOMRect | null>(null)
@@ -171,6 +171,7 @@ export default function Layout() {
         <div className="agent-card-wrapper" ref={agentCardRef}>
           <div
             className="agent-card"
+            title={currentAgent ? agentFailure[currentAgent.agent_id] : undefined}
             onClick={() => {
               if (!showAgentDropdown && agentCardRef.current) {
                 setDropdownRect(agentCardRef.current.getBoundingClientRect())

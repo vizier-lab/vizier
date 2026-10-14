@@ -9,7 +9,32 @@ use crate::schema::{
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AgentHealthStatus {
     pub agent_id: AgentId,
+    /// `state == Running`, kept for clients that only read this.
     pub alive: bool,
+    #[serde(default)]
+    pub state: AgentRunState,
+    /// Why the agent last failed to start or stopped running, while it is `Failed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    /// Failed starts since it last ran for a while.
+    #[serde(default)]
+    pub failures: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_retry_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Where an agent's supervisor is (#42).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentRunState {
+    /// Being built: requests queue until it runs.
+    #[default]
+    Starting,
+    Running,
+    /// Failed to build, or stopped with an error. Restarted at `next_retry_at`; until then
+    /// requests are answered with an error rather than queued.
+    Failed,
+    Stopped,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

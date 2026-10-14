@@ -100,6 +100,15 @@ pub fn run_server(config: VizierConfig) -> Result<()> {
 
         let mut set = JoinSet::new();
 
+        // Agents first: `VizierAgents::new` registers every agent's request channel, so the
+        // scheduler's immediate first tick queues a due task instead of losing it (#26).
+        let mut agents = VizierAgents::new(deps.clone()).await?;
+        set.spawn(async move {
+            if let Err(err) = agents.run().await {
+                tracing::error!("{}", err);
+            }
+        });
+
         let mut scheduler = VizierScheduler::new(deps.clone()).await?;
         set.spawn(async move {
             if let Err(err) = scheduler.run().await {
@@ -110,13 +119,6 @@ pub fn run_server(config: VizierConfig) -> Result<()> {
         let mut channels = VizierChannels::new(config.channels.http.clone(), deps.clone())?;
         set.spawn(async move {
             if let Err(err) = channels.run().await {
-                tracing::error!("{}", err);
-            }
-        });
-
-        let mut agents = VizierAgents::new(deps.clone()).await?;
-        set.spawn(async move {
-            if let Err(err) = agents.run().await {
                 tracing::error!("{}", err);
             }
         });

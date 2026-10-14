@@ -1910,6 +1910,7 @@ export default function Chat() {
                                     errorContent.kind === 'tool_timeout' ? 'Tool Timeout' :
                                     errorContent.kind === 'rate_limited' ? 'Rate Limited' :
                                     errorContent.kind === 'provider_unavailable' ? 'Provider Unavailable' :
+                                    errorContent.kind === 'agent_unavailable' ? 'Agent Unavailable' :
                                     'Prompt Timeout'
                     content = `**${kindStr}**: ${errorContent.message}`
                   } else if (response?.content?.audio_reply) {
