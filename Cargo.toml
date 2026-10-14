@@ -110,8 +110,8 @@ hound = "3.5"
 symphonia = { version = "0.6.1", features = ["mp3", "ogg", "vorbis", "wav", "flac", "isomp4", "mkv", "pcm"] }
 sherpa-onnx = "1.13"
 similar = { version = "3", default-features = false, features = ["text"] }
-monty = "=0.0.23"
-monty-types = "=0.0.23"
+monty = "=1.0.0"
+monty-types = "=1.0.0"
 vizier-derive = { path = "vizier-derive", version = "0.12.0" }
 
 [dev-dependencies]

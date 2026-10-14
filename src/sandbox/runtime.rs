@@ -10,14 +10,14 @@ use std::{
 
 use monty::{MontyRun, RunProgress};
 use monty_types::{
-    CompileOptions, DEFAULT_MAX_PRINT_COLLECT_BYTES, ExcType, ExtFunctionResult, MontyException,
-    MontyObject, NameLookupResult, PrintWriter, ResourceLimits, ResourceTracker,
+    CallArgs, CompileOptions, DEFAULT_MAX_PRINT_COLLECT_BYTES, ExcType, ExtFunctionResult,
+    MontyException, NameLookupResult, ObjectRef, PrintWriter, ResourceLimits, ResourceTracker,
 };
 
 use super::{
     BridgeError, MAX_SCRIPT_BYTES, SINGLE_ALLOCATION_GUARD, SandboxBridge, SandboxLimits,
     ToolFunctionDoc,
-    convert::{json_to_monty, monty_to_json},
+    convert::{json_to_monty, monty_to_json, ref_to_json},
     docs,
     report::{ExecutionErrorKind, ExecutionReport},
 };
@@ -128,7 +128,9 @@ impl Interpreter {
         };
         let tracker = ResourceTracker::new(
             ResourceLimits::default()
-                .max_duration(self.limits.timeout + CPU_CLOCK_GRACE)
+                // Per feed, i.e. the whole script: like 0.0.23's `max_duration` it
+                // excludes time suspended on host calls.
+                .max_feed_duration(self.limits.timeout + CPU_CLOCK_GRACE)
                 .max_memory(SINGLE_ALLOCATION_GUARD)
                 // Host-enforced in Monty; deliberately not counted here — the
                 // timeout is the only bound on host round-trips.
@@ -154,8 +156,7 @@ impl Interpreter {
                     if self.is_cancelled() {
                         call.abort(cancelled_error(), pw!())
                     } else {
-                        let result =
-                            self.function_call(&call.function_name, &call.args, &call.kwargs);
+                        let result = self.function_call(&call.function_name, &call.args);
                         call.resume(result, pw!())
                     }
                 }
@@ -210,20 +211,15 @@ impl Interpreter {
         report
     }
 
-    fn function_call(
-        &mut self,
-        name: &str,
-        args: &[MontyObject],
-        kwargs: &[(MontyObject, MontyObject)],
-    ) -> ExtFunctionResult {
+    fn function_call(&mut self, name: &str, args: &CallArgs) -> ExtFunctionResult {
         match name {
             "execute_python" => runtime_error("nested execute_python is not allowed").into(),
             // `list_tool_functions`/`describe_tool_function` are the model-side tool
             // names; models reach for them inside scripts too, so both spellings work.
-            "list_tools" | "list_tool_functions" => self.list_tools(args, kwargs),
-            "describe_tool" | "describe_tool_function" => self.describe_tool(args, kwargs),
+            "list_tools" | "list_tool_functions" => self.list_tools(args),
+            "describe_tool" | "describe_tool_function" => self.describe_tool(args),
             _ if !self.limits.tools_enabled => ExtFunctionResult::NotFound(name.to_string()),
-            _ => self.tool_call(name, args, kwargs),
+            _ => self.tool_call(name, args),
         }
     }
 
@@ -235,12 +231,8 @@ impl Interpreter {
         }
     }
 
-    fn list_tools(
-        &self,
-        args: &[MontyObject],
-        kwargs: &[(MontyObject, MontyObject)],
-    ) -> ExtFunctionResult {
-        if !args.is_empty() || !kwargs.is_empty() {
+    fn list_tools(&self, args: &CallArgs) -> ExtFunctionResult {
+        if args.args().len() > 0 || args.kwargs().len() > 0 {
             return type_error("list_tools() takes no arguments").into();
         }
         let entries = self
@@ -251,19 +243,16 @@ impl Interpreter {
         json_to_monty(serde_json::Value::Array(entries)).into()
     }
 
-    fn describe_tool(
-        &self,
-        args: &[MontyObject],
-        kwargs: &[(MontyObject, MontyObject)],
-    ) -> ExtFunctionResult {
-        let function = match (args, kwargs) {
-            ([MontyObject::String(function)], []) => function,
-            ([], [(MontyObject::String(key), MontyObject::String(function))]) if key == "name" => {
-                function
-            }
-            _ => {
-                return type_error("describe_tool() takes one argument: the function name").into();
-            }
+    fn describe_tool(&self, args: &CallArgs) -> ExtFunctionResult {
+        let positional: Vec<ObjectRef<'_>> = args.args().collect();
+        let keywords: Vec<(ObjectRef<'_>, ObjectRef<'_>)> = args.kwargs().collect();
+        let function = match (positional.as_slice(), keywords.as_slice()) {
+            ([function], []) => function.as_str(),
+            ([], [(key, function)]) if key.as_str() == Some("name") => function.as_str(),
+            _ => None,
+        };
+        let Some(function) = function else {
+            return type_error("describe_tool() takes one argument: the function name").into();
         };
         let doc = if self.limits.tools_enabled {
             self.handle.block_on(self.bridge.describe(function))
@@ -281,13 +270,8 @@ impl Interpreter {
         json_to_monty(value).into()
     }
 
-    fn tool_call(
-        &mut self,
-        name: &str,
-        args: &[MontyObject],
-        kwargs: &[(MontyObject, MontyObject)],
-    ) -> ExtFunctionResult {
-        let arguments = match self.arguments(name, args, kwargs) {
+    fn tool_call(&mut self, name: &str, args: &CallArgs) -> ExtFunctionResult {
+        let arguments = match self.arguments(name, args) {
             Ok(Some(arguments)) => arguments,
             Ok(None) => return ExtFunctionResult::NotFound(name.to_string()),
             Err(exc) => return exc.into(),
@@ -309,11 +293,10 @@ impl Interpreter {
     fn arguments(
         &self,
         name: &str,
-        args: &[MontyObject],
-        kwargs: &[(MontyObject, MontyObject)],
+        call: &CallArgs,
     ) -> Result<Option<serde_json::Value>, MontyException> {
-        let convert = |param: &str, value: &MontyObject| {
-            monty_to_json(value).map_err(|err| {
+        let convert = |param: &str, value: ObjectRef<'_>| {
+            ref_to_json(value).map_err(|err| {
                 type_error(format!(
                     "{name}() argument '{param}' is a {}; pass plain data (str, int, float, bool, None, list, dict)",
                     err.python_type
@@ -321,6 +304,7 @@ impl Interpreter {
             })
         };
 
+        let args: Vec<ObjectRef<'_>> = call.args().collect();
         let mut object = serde_json::Map::new();
         if !args.is_empty() {
             let Some(doc) = self.handle.block_on(self.bridge.describe(name)) else {
@@ -341,8 +325,8 @@ impl Interpreter {
                 object.insert(param.to_string(), convert(param, value)?);
             }
         }
-        for (key, value) in kwargs {
-            let MontyObject::String(key) = key else {
+        for (key, value) in call.kwargs() {
+            let Some(key) = key.as_str() else {
                 return Err(type_error(format!("{name}() keywords must be strings")));
             };
             if object.contains_key(key) {
@@ -350,7 +334,7 @@ impl Interpreter {
                     "{name}() got multiple values for argument '{key}'"
                 )));
             }
-            object.insert(key.clone(), convert(key, value)?);
+            object.insert(key.to_string(), convert(key, value)?);
         }
         Ok(Some(serde_json::Value::Object(object)))
     }
