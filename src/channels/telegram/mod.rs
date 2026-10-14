@@ -233,7 +233,7 @@ impl TelegramChannelReader {
         if let Some(photo) = msg.photo() {
             if let Some(photo) = photo.iter().max_by_key(|p| p.width * p.height) {
                 let file_id = photo.file.id.clone();
-                if let Ok(file) = self.bot.get_file(&file_id).await {
+                if let Ok(file) = self.bot.get_file(file_id.clone()).await {
                     let url = format!(
                         "https://api.telegram.org/file/bot{}/{}",
                         self.token, file.path
@@ -255,7 +255,7 @@ impl TelegramChannelReader {
 
         if let Some(doc) = msg.document() {
             let file_id = doc.file.id.clone();
-            if let Ok(file) = self.bot.get_file(&file_id).await {
+            if let Ok(file) = self.bot.get_file(file_id.clone()).await {
                 let url = format!(
                     "https://api.telegram.org/file/bot{}/{}",
                     self.token, file.path

@@ -1,11 +1,13 @@
 /// originally from yoinked from https://github.com/0xPlaygrounds/rig/blob/main/rig-integrations/rig-fastembed/src/lib.rs
 use std::{path::PathBuf, sync::Arc};
 
+use parking_lot::Mutex;
+
 pub use fastembed::EmbeddingModel as FastembedModel;
 use fastembed::TextEmbedding;
 use rig_core::embeddings::{self, EmbeddingError};
 
-use fastembed::InitOptions;
+use fastembed::TextInitOptions;
 use rig_core::{Embed, embeddings::EmbeddingsBuilder};
 
 use crate::{embedding::VizierEmbeddingModel, utils::build_path};
@@ -38,7 +40,9 @@ impl Client {
                 None => None,
                 Some(workspace) => {
                     let path =
-                        build_path(&workspace, &[".runtime", "embeddings", &model.to_string()]);
+                        // The Hugging Face model code (e.g. `Qdrant/all-MiniLM-L6-v2-onnx`) is what
+                    // fastembed < 5 rendered as `Display`; keep using it so existing caches load.
+                    build_path(&workspace, &[".runtime", "embeddings", &model_info.model_code]);
                     Some(path)
                 }
             },
@@ -56,7 +60,7 @@ impl Client {
 
 #[derive(Clone)]
 pub struct EmbeddingModel {
-    embedder: Arc<TextEmbedding>,
+    embedder: Arc<Mutex<TextEmbedding>>,
     pub model: FastembedModel,
     ndims: usize,
 }
@@ -67,13 +71,13 @@ impl EmbeddingModel {
         cache_dir: Option<PathBuf>,
         ndims: usize,
     ) -> Self {
-        let mut opts = InitOptions::new(model.to_owned()).with_show_download_progress(true);
+        let mut opts = TextInitOptions::new(model.to_owned()).with_show_download_progress(true);
 
         if let Some(cache_dir) = cache_dir {
             opts = opts.with_cache_dir(cache_dir);
         }
 
-        let embedder = Arc::new(TextEmbedding::try_new(opts).unwrap());
+        let embedder = Arc::new(Mutex::new(TextEmbedding::try_new(opts).unwrap()));
 
         Self {
             embedder,
@@ -124,6 +128,7 @@ impl embeddings::EmbeddingModel for EmbeddingModel {
 
         let documents_as_vec = self
             .embedder
+            .lock()
             .embed(documents_as_strings.clone(), None)
             .map_err(|err| EmbeddingError::ProviderError(err.to_string()))?;
 
