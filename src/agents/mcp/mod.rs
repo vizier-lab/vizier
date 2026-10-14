@@ -22,7 +22,7 @@ use tokio::{process::Command, sync::Mutex, time::Instant};
 
 use rmcp::{
     ClientHandler, RoleClient, ServiceError, ServiceExt,
-    model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation, RawContent},
+    model::{CallToolRequestParams, ClientCapabilities, ClientConfig, ContentBlock, Implementation},
     service::{NotificationContext, RunningService},
     transport::{ConfigureCommandExt, StreamableHttpClientTransport, TokioChildProcess},
 };
@@ -47,12 +47,12 @@ type McpClient = RunningService<RoleClient, McpHandler>;
 /// when the server announces `notifications/tools/list_changed`.
 #[derive(Clone)]
 struct McpHandler {
-    info: ClientInfo,
+    info: ClientConfig,
     tools_stale: Arc<AtomicBool>,
 }
 
 impl ClientHandler for McpHandler {
-    fn get_info(&self) -> ClientInfo {
+    fn get_info(&self) -> ClientConfig {
         self.info.clone()
     }
 
@@ -229,11 +229,11 @@ impl McpServer {
         let mut contents = vec![];
         let mut attachments = vec![];
         for content in result.content {
-            match content.raw {
-                RawContent::Text(text) => {
+            match content {
+                ContentBlock::Text(text) => {
                     contents.push(serde_json::Value::String(text.text));
                 }
-                RawContent::Image(image) => {
+                ContentBlock::Image(image) => {
                     let ext = image.mime_type.replace("image/", "");
                     attachments.push(VizierAttachment {
                         filename: format!("{}.{}", uuid::Uuid::new_v4(), ext),
@@ -281,7 +281,7 @@ impl McpServer {
         }
 
         let handler = McpHandler {
-            info: ClientInfo::new(
+            info: ClientConfig::new(
                 ClientCapabilities::default(),
                 Implementation::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
             ),
