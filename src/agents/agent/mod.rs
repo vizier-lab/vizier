@@ -779,19 +779,9 @@ impl VizierAgent {
                 })
                 .await
                 {
-                    Err(_elapsed) => {
-                        // Tool timeout - the results that came back are kept, and this call
-                        // and the ones after it are answered with the timeout
-                        return Err(fail_turn(
-                            anyhow::anyhow!(VizierError(format!(
-                                "Tool '{}' timed out after {:?}",
-                                function_name, *self.config.tools.timeout
-                            ))),
-                            full_history,
-                            None,
-                            tool_responses,
-                        ));
-                    }
+                    // Answered like a failed call, so the model can work around it; the turn
+                    // stays bounded by `prompt_timeout` and `thinking_depth` (#45).
+                    Err(_elapsed) => tool_timeout_response(&function_name, *self.config.tools.timeout),
                     Ok(Err(err)) => VizierResponse {
                         timestamp: Utc::now(),
                         content: VizierResponseContent::ToolResponse {
@@ -1157,9 +1147,12 @@ impl VizierAgent {
                             )
                             .await
                     })
-                    .await?
+                    .await
                     {
-                        Err(err) => VizierResponse {
+                        Err(_elapsed) => {
+                            tool_timeout_response(&function_name, *self.config.tools.timeout)
+                        }
+                        Ok(Err(err)) => VizierResponse {
                             timestamp: Utc::now(),
                             content: VizierResponseContent::ToolResponse {
                                 response: serde_json::Value::String(err.to_string()),
@@ -1167,7 +1160,7 @@ impl VizierAgent {
                             attachments: vec![],
                             ..Default::default()
                         },
-                        Ok(s) => s,
+                        Ok(Ok(s)) => s,
                     };
 
                     if let Some(hooks) = hooks.clone() {
@@ -1290,6 +1283,22 @@ impl VizierAgent {
 /// failure before it would otherwise lose them. Any tool call still unanswered after
 /// `completed` is answered with the error, so the stored turn never ends on a tool call
 /// with no result (issue #58).
+/// The result a timed-out tool call hands the model. The call is abandoned, but whatever it
+/// did before the deadline may already have happened.
+fn tool_timeout_response(function_name: &str, limit: std::time::Duration) -> VizierResponse {
+    VizierResponse {
+        timestamp: Utc::now(),
+        content: VizierResponseContent::ToolResponse {
+            response: serde_json::Value::String(format!(
+                "error: tool '{function_name}' timed out after {limit:?} and was abandoned; \
+                 any effect it had before then may still have happened"
+            )),
+        },
+        attachments: vec![],
+        ..Default::default()
+    }
+}
+
 fn fail_turn(
     err: anyhow::Error,
     mut full_history: Vec<Message>,
