@@ -9,7 +9,7 @@ use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::mcp::{VizierMcp, VizierMcpClient},
+    agents::mcp::McpServer,
     agents::tools::{
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
         background_jobs::{CancelBackgroundJob, ListBackgroundJobs},
@@ -167,7 +167,7 @@ impl ToolExposure {
 pub struct ToolRouter {
     pub default_toolset: VizierToolSet,
     pub user_toolset: VizierToolSet,
-    pub mcp: HashMap<String, Arc<VizierMcp>>,
+    pub mcp: HashMap<String, Arc<McpServer>>,
 }
 
 #[derive(Clone)]
@@ -292,11 +292,19 @@ impl ToolRouter {
             res.push(tool.tool_def());
         }
 
-        for (key, mcp) in &self.mcp {
-            res.extend(mcp.tools().await?.iter().map(|tool| ToolDefinition {
-                name: format!("mcp_{}__{}", key.clone(), tool.name.clone()),
-                description: tool.description.clone(),
-                parameters: tool.parameters.clone(),
+        // Concurrently, so one slow server costs one listing timeout, not one per server. A
+        // server that can't list leaves its tools out of this turn and never fails it (#53).
+        let listings = futures::future::join_all(
+            self.mcp
+                .iter()
+                .map(|(key, server)| async move { (key, server.tools().await) }),
+        )
+        .await;
+        for (key, tools) in listings {
+            res.extend(tools.into_iter().map(|tool| ToolDefinition {
+                name: format!("mcp_{}__{}", key, tool.name),
+                description: tool.description,
+                parameters: tool.parameters,
             }));
         }
 
@@ -708,21 +716,13 @@ impl VizierTools {
             });
         }
 
+        // Connected in the background: a slow or broken server must not hold up the agent's
+        // start, and one that fails to connect is retried on later turns (#53).
         let mut mcp = HashMap::new();
         for (name, mcp_config) in &agent_config.tools.mcp_servers {
-            match mcp_config.to_client().await {
-                Ok(client) => {
-                    mcp.insert(name.clone(), Arc::new(client));
-                }
-                Err(e) => {
-                    tracing::error!(
-                        "failed to create MCP client '{}' for agent {}: {}",
-                        name,
-                        agent_id,
-                        e
-                    );
-                }
-            }
+            let server = McpServer::new(name.clone(), mcp_config.clone());
+            server.warm_up();
+            mcp.insert(name.clone(), server);
         }
 
         let router = ToolRouter {
