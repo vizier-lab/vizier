@@ -10,6 +10,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 pub type Result<T> = std::result::Result<T, VizierError>;
 
 mod agents;
+mod catalogue;
 mod channels;
 mod cli;
 mod command;
@@ -20,6 +21,7 @@ mod embedding;
 mod error;
 mod file_manager;
 mod indexer;
+mod llm;
 mod sandbox;
 mod scheduler;
 mod schema;
