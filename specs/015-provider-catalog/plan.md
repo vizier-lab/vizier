@@ -46,7 +46,7 @@ Around the catalogue:
 - the `ProviderId` legacy map;
 - custom-model merge;
 - context-window resolution;
-- a temporary rig-parity harness.
+- golden fixtures recorded from rig 0.39 before the cutover, so wire formats are checked without keys.
 
 End to end: dummyplug agent steps plus the stdlib `fixtures/stub_llm.py` in [quickstart.md](quickstart.md). Live-key steps are marked.
 
@@ -178,20 +178,22 @@ webui/app/
 
 ## Phases
 
-Each phase compiles, passes clippy, tests and typecheck, and leaves vizier working. rig stays until Phase 8, so any unported path can still use it.
+**rig is removed in one cut, and the provider layer is built first.**
+
+- In Phase 1, the new `src/llm/` and `src/catalogue/` modules are written alongside the untouched rig code. Nothing is wired to them yet, so there is no shim and no conversion layer.
+- Phase 2 is a single cutover. Every call site moves to the new layer, and rig is deleted in the same change. From the end of Phase 2 on, `cargo tree | grep rig-core` prints nothing (SC-007).
+- Every phase compiles and passes clippy, tests and typecheck. The branch is merged as a whole, so no release ever contains both.
 
 | # | Phase | Delivers | Key risks |
 |---|---|---|---|
 | 0 | **Research** ✅ | [research.md](research.md) | — |
-| 1 | **WebUI form merge** (`refactor:`) | `agent-settings.tsx` → `AgentForm mode="edit"` plus Sharing and Danger; sticky save bar. No behaviour change | Settings-only fields lost in the merge → walk every field, old against new |
-| 2 | **Own the types** | `src/llm/types.rs`; all non-model call sites on our types; one `rig_shim.rs` at the model boundary. Dummyplug 008 and 014 scripts pass | Large mechanical diff → land it alone |
-| 3 | **Transport and errors** | `llm/{http,error,sse,auth}.rs`; axum transport tests; `retry.rs` on `LlmError` with `Retry-After` | Copilot refresh edge cases |
-| 4 | **Catalogue core** | `src/catalogue/`, the bundled snapshot plus `scripts/catalogue_update.py`, `ProviderId` with its legacy map, `ProviderCredentials`, the `custom_provider` table, the startup migration, YAML `providers` removed, the `/catalogue` read API and logos | The migration's base-URL rule; agents left on removed providers |
-| 5 | **Completion dialects** | `openai_chat`, then `anthropic`, `ollama`, `gemini`, `openai_responses` (OpenAI, then ChatGPT), each with fixtures and a parity test; `llm::resolve`; `VizierModel::new` → resolve, dialect, retry; context and output from R8; FR-013 image note; FR-033 read-image rules; `model/provider.rs` deleted | Wire drift (cache control, schema sanitising, reasoning round-trip) → parity harness plus live smoke tests |
-| 6 | **Media and embeddings** | `llm/{embed,audio,image}`; curated enums use `credentials()`; vector-parity test; constructor `expect`s removed | Embedding vectors differ → index drift |
-| 7 | **Providers API and WebUI** | `/providers` (`used_by`, `reachable`, `test`), `/providers/custom` (CRUD, fetch, test), agent `warnings`; `ProviderModelPicker`, `ProviderLogo`, providers page, custom provider form, inline connect, Advanced section, auto read-image, Review card | Picker performance on OpenRouter → client-side filtering and a virtualised list |
-| 8 | **Refresh, cost, rig removal** | Refresher in `VizierScheduler`; `POST /catalogue/refresh`; stats `provider`/`model` and `estimated_cost_usd`; usage cost column; rig, shim and parity tests removed; `main.rs` directive; `CLAUDE.md` | Refresh validation too strict or too loose |
-| 9 | **Verification** | the whole quickstart (§1–§7), and live smoke tests on the main five dialects (§8) | — |
+| 1 | **Build the provider layer** (new code only; rig untouched and nothing wired) | `src/llm/`: types, errors, HTTP, SSE, auth (`StaticKey`, `CopilotExchange`, `ChatGptAccount`), the five completion dialects, the media and embedding clients, and `resolve`. `src/catalogue/`: data, R2 dialect derivation, R3 base-URL table, built-ins, the snapshot plus `scripts/catalogue_update.py` and the bundled `catalogue.zip`. `ProviderId` with its legacy map. **Golden fixtures**: rig 0.39 is run once against a local capture server to record its request bodies and parsed responses for every dialect and media path, plus embedding vectors. These become committed fixtures that the new layer must match. Axum transport tests cover `Retry-After`, 5xx, timeouts, SSE and Copilot's refresh | Wire drift (cache control, schema sanitising, reasoning round-trip): the golden fixtures are the check |
+| 2 | **Cutover: rig deleted** (one change) | Every call site moves to `llm::types` (schema, history, process, agent, context, tools, MCP, sandbox, read-image, dummyplug). `VizierModel::new` becomes resolve, dialect, retry. `retry.rs` moves to `LlmError` and honours `Retry-After`. Context and output limits follow R8. FR-013 image note and FR-033 read-image rules. Media and embedding wrappers use `credentials()`. `ProviderCredentials` and the `custom_provider` table. The startup migration (contract), YAML `providers` removed, onboarding updated. Deleted: `rig-core`, `model/provider.rs`, all rig adapters, the rig log directive. Dummyplug 008 and 014 scripts pass unchanged | A large diff: it is mechanical, but must land at once. Quickstart §1 (a real upgrade from `master`) and §3–§5 run before moving on |
+| 3 | **WebUI form merge** (`refactor:`) | `agent-settings.tsx` becomes `AgentForm mode="edit"` plus Sharing and Danger, with a sticky save bar. No behaviour change | Settings-only fields lost in the merge: walk every field, old against new |
+| 4 | **Catalogue and providers API** | `/catalogue` read API and logos; `/providers` (`used_by`, `reachable`, `test`); `/providers/custom` (CRUD, fetch, test); agent `warnings` | Secrets leaking through responses: the contract tests check every response |
+| 5 | **WebUI pickers and providers page** | `ProviderModelPicker`, `ProviderLogo`, the providers page (connected list, search and connect, env detection, `used_by`, delete warning, reachability), the two-step custom provider form, inline connect, the Advanced section, automatic read-image, the Review card. Hard-coded chat lists removed | Picker performance on OpenRouter: client-side filtering plus a virtualised list |
+| 6 | **Refresh and cost** | Refresher in `VizierScheduler`; `POST /catalogue/refresh`; stats `provider`/`model`; `estimated_cost_usd`; usage cost column; `CLAUDE.md` updated | Refresh validation too strict or too loose |
+| 7 | **Verification** | The whole quickstart (§1–§7), and live smoke tests on the main five dialects (§8) | — |
 
 ## Complexity Tracking
 

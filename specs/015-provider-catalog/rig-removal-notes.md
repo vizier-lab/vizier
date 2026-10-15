@@ -2,6 +2,7 @@
 
 > Pre-spec draft, written before [spec.md](spec.md). It is input to `/speckit-plan`, not the plan. Where the two disagree, the spec wins:
 > - The provider table is now generated from the models.dev catalogue, not hand-written.
+> - Removal order: the shim and staged per-provider switch-over described below are **not** used. The new layer is built first, then rig is removed in one cutover (plan Phases 1–2).
 > - D1 is decided the other way: Hyperbolic, Galadriel and Mira are dropped as chat providers (FR-014).
 
 **Branch**: `015-own-provider-layer` (not created yet) | **Date**: 2026-10-15 | **Issue**: [#69](https://github.com/blinfoldking/vizier/issues/69)

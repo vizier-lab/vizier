@@ -10,7 +10,7 @@
 - the pinned rig 0.39 source in `~/.cargo/registry`;
 - the current code.
 
-The earlier pre-spec draft is [rig-removal-notes.md](rig-removal-notes.md). Its phases are folded into the plan here.
+The earlier pre-spec draft is [rig-removal-notes.md](rig-removal-notes.md). The plan here supersedes it: rig is removed in one cut after the new layer is built, with no shim.
 
 Each entry gives the **Decision**, then the **Rationale**, then the **Alternatives** considered.
 
@@ -303,11 +303,13 @@ Then a shared `ProviderModelPicker` component replaces the six provider and mode
    - an attempt timeout;
    - SSE aggregation;
    - Copilot's token refresh after a 401.
-3. **Temporary parity tests** (deleted with rig): send the rig 0.39 client and ours, with the same input, to the same capture server, and require semantically equal request bodies. Both also decode the same recorded response.
+3. **Golden fixtures recorded from rig**: before the cutover (plan Phase 1), run the rig 0.39 clients once against a local capture server, with the same inputs we use for our own tests. Record each request body, the response used, and rig's parsed result, and commit them as fixtures. The new dialects must produce semantically equal request bodies and identical parsed results. Embedding fixtures record rig's vectors. After the cutover, the fixtures stay as plain regression tests, with no rig involved.
 4. **End to end**: the dummyplug quickstart, plus a stdlib-only Python stub server (`specs/015-provider-catalog/fixtures/stub_llm.py`). It speaks OpenAI chat (including `/models`) and Anthropic `/v1/messages`, and echoes what it received. That drives custom providers, capability handling (FR-013) and the agent loop over the real HTTP path, with no key.
 
 Steps that need a live key are marked as such in `quickstart.md`.
 
 **Rationale**: This covers the issue's open question ("how to verify each provider without keys") and the constitution's dummyplug gate.
 
-**Alternatives**: `wiremock`, a new crate that duplicates what axum already gives us.
+**Alternatives**:
+- *`wiremock`*: a new crate that duplicates what axum already gives us.
+- *Live side-by-side parity tests with a compatibility shim*: rejected by the owner (2026-10-15), who chose to remove rig in one cut once the new layer is built. Recorded fixtures keep the parity check without keeping rig around.

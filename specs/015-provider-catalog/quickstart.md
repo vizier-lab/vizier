@@ -8,10 +8,10 @@
 just install
 cargo build
 cargo test          # dialect encode/decode fixtures, transport tests (axum), catalogue parse/validation,
-                    # ProviderId legacy map, custom-model merge, context-window resolution, rig parity (until removed)
+                    # ProviderId legacy map, custom-model merge, context-window resolution, golden fixtures recorded from rig 0.39
 cargo clippy
 cd webui && npm run typecheck
-cargo tree | grep -c rig-core     # must print 0 once rig is removed (SC-007)
+cargo tree | grep -c rig-core     # must print 0 from Phase 2 (cutover) on (SC-007)
 ```
 
 ## Fixtures
