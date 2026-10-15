@@ -8,7 +8,7 @@ Vizier keeps file-based configuration deliberately small. The YAML seed file cov
 ┌──────────────────────────────────────────────────────────────┐
 │  .vizier.yaml (optional, read once at startup)               │
 │                                                              │
-│    providers ──── migrated on first run ───► providers table │
+│    catalogue      (models.dev refresh on/off, ttl)           │
 │    storage        (always sqlite)                            │
 │    channels.http  (port, jwt_secret, jwt_expiry, ws timeout) │
 │    worker_threads                                            │
@@ -28,7 +28,7 @@ Vizier keeps file-based configuration deliberately small. The YAML seed file cov
 
 | Key | Purpose | Lifecycle |
 |-----|---------|-----------|
-| `providers` | API keys / base URLs per provider | **Seed** — copied into storage on first run, then edited via WebUI/API. Later changes to the file for an already-migrated provider are ignored. |
+| `catalogue` | `refresh`, `ttl`, `url` for the models.dev catalogue | Read every start |
 | `storage` | `type: sqlite` | Read every start |
 | `channels.http` | `port`, `jwt_secret`, `jwt_expiry_hours`, `ws_idle_timeout_secs` | Read every start |
 | `worker_threads` | Tokio worker threads | Read every start |
@@ -60,7 +60,7 @@ Full reference: [Main Configuration](./main-config.md).
 3. `./.vizier.yaml` in the current directory
 4. Built-in defaults
 
-With no file, the defaults are: `ollama` + `llama_cpp` providers at their localhost URLs, SQLite storage, HTTP on port `9999` with `jwt_secret: "${VIZIER_JWT_SECRET}"`, 4 worker threads. The workspace resolves to `$VIZIER_DATA_DIR` if set, otherwise `$HOME/.vizier`.
+With no file, the defaults are: SQLite storage, HTTP on port `9999` with `jwt_secret: "${VIZIER_JWT_SECRET}"`, 4 worker threads. The workspace resolves to `$VIZIER_DATA_DIR` if set, otherwise `$HOME/.vizier`.
 
 When a config file **is** used, the workspace is `<config dir>/.vizier/`.
 
@@ -87,9 +87,9 @@ When a config file **is** used, the workspace is `<config dir>/.vizier/`.
 
 ```yaml
 vizier:
-  providers:
-    openrouter:
-      api_key: "${OPENROUTER_API_KEY}"
+  channels:
+    http:
+      jwt_secret: "${VIZIER_JWT_SECRET}"
 ```
 
 Variables used by the defaults and the Docker entrypoint:
@@ -100,13 +100,14 @@ Variables used by the defaults and the Docker entrypoint:
 | `VIZIER_DATA_DIR` / `VIZIER_WORKSPACE` | Workspace directory in config-less mode / Docker |
 | `VIZIER_JWT_SECRET` | Referenced by the default `channels.http.jwt_secret` |
 | `VIZIER_PORT`, `VIZIER_STORAGE`, `VIZIER_WORKERS`, `VIZIER_WS_IDLE_TIMEOUT`, `VIZIER_EXTRA_ARGS` | Docker entrypoint → CLI flags |
+| `VIZIER_CATALOGUE_REFRESH`, `VIZIER_CATALOGUE_TTL` | `catalogue.refresh` / `catalogue.ttl` |
 | `RUST_LOG` | Tracing filter (e.g. `vizier=debug`) |
-| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `XIAOMI_MIMO_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, `XAI_API_KEY`, … | Referenced by each provider's default `api_key` placeholder — see [Providers](./providers.md) |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, … | Provider keys, picked up without any configuration — see [Providers](./providers.md) |
 
 ## Sections
 
 - **[Main Configuration](./main-config.md)** — full `.vizier.yaml` reference
-- **[Providers](./providers.md)** — supported LLM providers and their keys
+- **[Providers](./providers.md)** — the model catalogue, connecting providers, custom providers
 - **[Channels](./channels.md)** — HTTP server, Discord, Telegram
 - **[Tools & Embedding](./tools-embedding.md)** — per-agent tools, embedding, indexer
 - **[Storage & Shell](./storage-shell.md)** — SQLite storage and per-agent shell (local/Docker)

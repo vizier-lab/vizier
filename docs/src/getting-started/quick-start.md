@@ -21,7 +21,7 @@ ollama serve
 
 **Windows** — download from [ollama.com](https://ollama.com/download/windows).
 
-The built-in defaults already include `ollama` (`http://localhost:11434`) and `llama_cpp` (`http://localhost:8080`) providers, so a local setup needs no configuration at all.
+Ollama (`http://localhost:11434`) and llama.cpp (`http://localhost:8080`) work on their default addresses with no configuration, and a cloud provider only needs its key — in Settings → Providers or as its usual environment variable (e.g. `ANTHROPIC_API_KEY`).
 
 ## 2. (Optional) Generate a seed config
 

@@ -140,10 +140,28 @@ Under `/agents/{id}/channel/{channel_id}`. The WebUI uses `channel_id = "vizier-
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/providers` | `[{ variant, has_api_key, base_url, enabled }]` |
-| `GET` | `/providers/{variant}` | One provider |
-| `PUT` | `/providers/{variant}` | Upsert: `{ "api_key"?, "base_url"?, "enabled"?, "access_token"?, "account_id"?, "endpoint"? }` |
-| `DELETE` | `/providers/{variant}` | Remove |
+| `GET` | `/providers` | Connected providers (saved or from env): `[{ id, name, source, has_api_key, endpoint, base_url, migrated_from, used_by, reachable, … }]` — never a secret |
+| `GET` | `/providers/{id}` | One connected provider |
+| `PUT` | `/providers/{id}` | Save credentials: only the fields the provider uses (`api_key`, `endpoint`, `base_url`, `access_token`, `account_id`); an omitted field keeps its value, `""` clears it |
+| `DELETE` | `/providers/{id}[?confirm=true]` | Remove saved credentials; `409` listing the agents that use it unless confirmed |
+| `POST` | `/providers/{id}/test` | One cheap call with the saved (or given) credentials: `{ ok, model_count? , status?, error? }` |
+| `GET`/`POST` | `/providers/custom` | List / create custom providers |
+| `PUT`/`DELETE` | `/providers/custom/{id}` | Edit (id is fixed) / remove |
+| `POST` | `/providers/custom/{id}/fetch-models` | Merge the server's model list |
+| `POST` | `/providers/custom/test` | Test an unsaved custom provider |
+
+`{id}` is a catalogue or built-in provider id; pre-catalogue names (`gemini`, `opencode_zen`, …) are accepted.
+
+## Catalogue (any signed-in user)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/catalogue` | Snapshot source, date and refresh state |
+| `GET` | `/catalogue/providers?q=&kind=chat\|media\|local\|custom&connected=` | Selectable providers with connection state |
+| `GET` | `/catalogue/providers/{id}/models?all=false` | Models, newest first; tool-capable and current only unless `all=true` |
+| `GET` | `/catalogue/providers/{id}/models/{model}` | One model, or `404 "not in catalogue"` |
+| `GET` | `/catalogue/logos/{id}.svg` | Logo (no auth) |
+| `POST` | `/catalogue/refresh` | Check models.dev now (`settings:providers`) |
 
 ## Skills (global)
 

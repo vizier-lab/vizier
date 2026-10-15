@@ -90,7 +90,7 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 | `groq` | `whisper-large-v3` | `groq` key |
 | `mistral` | `voxtral-mini-2507` | `mistral` key |
 | `huggingface` | `openai/whisper-large-v3` | `huggingface` key |
-| `gemini` | `gemini-1.5-flash` | `gemini` key |
+| `gemini` | `gemini-1.5-flash` | `google` key |
 | `whisper` | `large-v3` | none — runs locally via sherpa-onnx; model downloaded into `<workspace>/.runtime/stt/whisper/` |
 
 `language` is optional (auto-detect when unset).
@@ -116,9 +116,7 @@ Each agent has its own embedding model, used for semantic memory search and skil
 {
   "embedding": {
     "provider": "local",
-    "model": "all_mini_lml6_v2",
-    "api_key": null,
-    "base_url": null
+    "model": "all_mini_lml6_v2"
   },
   "indexer": { "kind": "sqlite" }
 }
@@ -133,17 +131,17 @@ Defaults when omitted on create: `local` / `all_mini_lml6_v2` and `sqlite` index
 | `provider` | `model` example | Notes |
 |------------|-----------------|-------|
 | `local` (default) | `all_mini_lml6_v2` | Runs in-process via [fastembed](https://github.com/Anush008/fastembed-rs); model files download to the workspace on first use |
-| `ollama` | `nomic-embed-text` | Uses the `ollama` provider's `base_url` (override with `base_url`) |
+| `ollama` | `nomic-embed-text` | Uses the `ollama` provider's `base_url` |
 | `openai` | `text-embedding-3-small` | |
-| `gemini` | `text-embedding-004` | |
+| `gemini` | `text-embedding-004` | Uses the `google` key |
 | `openrouter` | `openai/text-embedding-3-small` | |
 | `voyageai` | `voyage-3` | |
 | `mistral` | `mistral-embed` | |
-| `together` | `togethercomputer/m2-bert-80M-8k-retrieval` | |
+| `together` | `togethercomputer/m2-bert-80M-8k-retrieval` | Uses the `togetherai` key |
 | `cohere` | `embed-english-v3.0` | |
 | `copilot` | `text-embedding-3-small` | |
 
-Cloud providers resolve credentials from the providers table → env var (see [Providers](./providers.md#credential-resolution)); `api_key` on the embedding config is an optional per-agent override.
+Cloud providers use the credentials of the matching provider in Settings → Providers, or its environment variable (see [Providers](./providers.md#connecting-a-provider)). There is no per-agent embedding key; an `api_key`/`base_url` saved on an older agent is ignored.
 
 ### Local models
 

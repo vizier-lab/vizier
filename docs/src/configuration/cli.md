@@ -34,10 +34,12 @@ vizier run --port 8080 --data-dir /srv/vizier --workers 8
 | `--storage <STORAGE>` | `sqlite` is the only accepted value (`filesystem` is rejected by clap) |
 | `--workers <N>` | Tokio worker threads |
 | `--ws-idle-timeout <SECS>` | WebSocket idle timeout |
+| `--catalogue-refresh <true\|false>` | Allow the lazy models.dev catalogue check (default `true`) |
+| `--catalogue-ttl <DURATION>` | How often that check may run (default `24h`) |
 
 **Config resolution:** `-c` → `$VIZIER_CONFIG` → `./.vizier.yaml` → built-in defaults. With a file, the workspace is `<config dir>/.vizier/`; without one it's `$VIZIER_DATA_DIR` or `$HOME/.vizier`. See [Overview](./index.md#config-less-mode) — note `VIZIER_JWT_SECRET` must be set in config-less mode.
 
-**Logging:** `tracing` with `RUST_LOG` (e.g. `RUST_LOG=vizier=debug`). Noisy dependencies (rig, twilight, hyper, reqwest, bollard, rmcp, sqlite…) are quieted by default unless you name them explicitly.
+**Logging:** `tracing` with `RUST_LOG` (e.g. `RUST_LOG=vizier=debug`). Noisy dependencies (twilight, hyper, reqwest, bollard, rmcp, sqlite…) are quieted by default unless you name them explicitly.
 
 ## `vizier shutdown`
 
@@ -57,7 +59,7 @@ vizier onboard [-p <PATH>]
 |------|-------------|
 | `-p, --path <PATH>` | Workspace directory (prompted if omitted; `~` is expanded). `.vizier.yaml` is written there. |
 
-Prompts for: HTTP port, JWT secret (random default), one primary provider (`ollama`, `deepseek`, `openrouter`, `anthropic`, `openai`, `gemini`, `mimo`, `llama_cpp`) and its key/URL, storage type (choose **SQLite**), worker threads, WebSocket idle timeout. Shows a preview and asks to confirm before writing.
+Prompts for: HTTP port, JWT secret (random default), one primary provider (`ollama`, `deepseek`, `openrouter`, `anthropic`, `openai`, `google`, `xiaomi`, `llama-cpp`) — it prints the environment variable to set for its key; keys are never written to the file — storage type (choose **SQLite**), worker threads, WebSocket idle timeout. Shows a preview and asks to confirm before writing.
 
 It does **not** create users or agents — do that in the WebUI after `vizier run`. Embedding is configured per agent, not here.
 
@@ -103,6 +105,8 @@ The image (`blinfoldking/vizier`, also `ghcr.io/vizier-lab/vizier`) runs `vizier
 | `VIZIER_STORAGE` | `--storage` | `sqlite` (only valid value) |
 | `VIZIER_WORKERS` | `--workers` | `4` |
 | `VIZIER_WS_IDLE_TIMEOUT` | `--ws-idle-timeout` | `300` |
+| `VIZIER_CATALOGUE_REFRESH` | `--catalogue-refresh` | `true` |
+| `VIZIER_CATALOGUE_TTL` | `--catalogue-ttl` | `24h` |
 | `VIZIER_JWT_SECRET` | env read by the default config | `vizier-default-secret-change-me` — **change it** |
 | `VIZIER_EXTRA_ARGS` | appended verbatim | unset |
 | `RUST_LOG` | logging filter | unset |

@@ -26,7 +26,7 @@ The `indexer` key that older docs mentioned at this level no longer exists — v
 1. Flat memory files → bundles (pre-bundle layouts)
 2. `filesystem` backend → SQLite (if the config still says `filesystem`)
 3. Seed users → `superadmin` system role
-4. YAML `providers` → providers table
+4. Provider credentials saved under pre-catalogue names → catalogue ids (`gemini` → `google`, …), once
 5. Per-agent MCP / shell config backfill (from the old global config)
 6. Default `CORE.md` for agents missing one
 

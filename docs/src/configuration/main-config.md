@@ -6,19 +6,10 @@
 
 ```yaml
 vizier:
-  # ── Providers (seed values, migrated into storage on first run) ──
-  providers:
-    ollama:
-      base_url: "http://localhost:11434"
-    llama_cpp:
-      base_url: "http://localhost:8080"
-    openai:
-      api_key: "${OPENAI_API_KEY}"
-    anthropic:
-      api_key: "${ANTHROPIC_API_KEY}"
-    openrouter:
-      api_key: "${OPENROUTER_API_KEY}"
-    # …any of the variants listed in Providers
+  # ── Model catalogue (read every start) ──
+  catalogue:
+    refresh: true                     # default true; false = never contact models.dev
+    ttl: 24h                          # default 24h
 
   # ── Storage (read every start) ──
   storage:
@@ -36,11 +27,17 @@ vizier:
   worker_threads: 4                   # tokio worker threads, default 4
 ```
 
-### `providers`
+### `catalogue`
 
-A map of provider variant → credentials. Only the providers you list are seeded; each variant has its own fields (`api_key`, `base_url`, `endpoint`, `access_token`/`account_id`). See [Providers](./providers.md) for the full table.
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `refresh` | bool | `true` | Let a person's visit to the provider pickers or Settings → Providers check [models.dev](https://models.dev) for an updated catalogue in the background. `false` keeps the snapshot built into the binary. |
+| `ttl` | duration | `24h` | How often such a check may happen. |
+| `url` | string | `https://models.dev/api.json` | Where the catalogue is fetched from. |
 
-Providers are migrated into the providers table on first run. After that, edit them in **Settings → Providers** or via `PUT /api/v1/providers/{variant}` — changes to the YAML for an already-migrated variant are not re-applied.
+Agents, tasks and dreams never trigger a check, and startup never does. See [Providers](./providers.md#the-model-catalogue).
+
+> **No `providers` section.** Provider credentials are no longer set here: use **Settings → Providers** or the provider's environment variable (e.g. `ANTHROPIC_API_KEY`). A leftover `providers:` section is ignored, with a warning at startup naming the variable to set. See [Providers](./providers.md).
 
 ### `storage`
 
@@ -73,9 +70,6 @@ Every string in the file goes through `${VAR}` expansion before parsing, so secr
 
 ```yaml
 vizier:
-  providers:
-    openrouter:
-      api_key: "${OPENROUTER_API_KEY}"
   channels:
     http:
       jwt_secret: "${VIZIER_JWT_SECRET}"
@@ -94,6 +88,8 @@ CLI flags win over the file (`VizierConfig::apply_overrides`):
 | `--storage sqlite` | `storage.type` |
 | `--workers <N>` | `worker_threads` |
 | `--ws-idle-timeout <SECS>` | `channels.http.ws_idle_timeout_secs` |
+| `--catalogue-refresh <true\|false>` | `catalogue.refresh` |
+| `--catalogue-ttl <DURATION>` | `catalogue.ttl` |
 
 ## Ignored legacy keys
 
@@ -107,16 +103,14 @@ Older versions accepted `embedding`, `shell`, `tools.brave_search`, `tools.mcp_s
 | `tools.brave_search` | per-agent `tools.brave_search_settings` |
 | `channels.discord.<agent>.token` | per-agent `discord_token` |
 | `channels.telegram.<agent>.token` | per-agent `telegram_token` |
+| `providers` | Settings → Providers, or the provider's env var |
 
 ## Minimal examples
 
-**Local only**
+**Local only** (Ollama on its default address needs no configuration)
 
 ```yaml
 vizier:
-  providers:
-    ollama:
-      base_url: "http://localhost:11434"
   storage:
     type: sqlite
   channels:
@@ -125,13 +119,10 @@ vizier:
       jwt_secret: "change-me"
 ```
 
-**Cloud provider, secrets from env**
+**Cloud provider, key from env** (run with `ANTHROPIC_API_KEY` set)
 
 ```yaml
 vizier:
-  providers:
-    anthropic:
-      api_key: "${ANTHROPIC_API_KEY}"
   storage:
     type: sqlite
   channels:

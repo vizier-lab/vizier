@@ -38,13 +38,13 @@ Content-Type: application/json
 | `name` | string | required | Display name; injected into the boot prompt |
 | `description` | string | `null` | Short purpose statement; injected into the boot prompt (defaults to "a Digital Steward") |
 | `avatar_url` | string | `null` | Avatar shown in the WebUI |
-| `provider` | enum | required | One of the [provider variants](./providers.md) |
+| `provider` | string | required | A [provider id](./providers.md): catalogue, built-in or custom (old names like `gemini` are accepted) |
 | `model` | string | required | Model id for that provider (for `ollama`, the model is pulled automatically on start) |
 | `system_prompt` | string | `null` | Free-form system prompt. Sits between the built-in boot prompt and `CORE.md` |
 | `thinking_depth` | number | `100` | **Max tool-call turns** per request. When exceeded the request fails with a `prompt_timeout` error |
 | `prompt_timeout` | duration | `"60m"` | Wall-clock limit for one request (all turns included) |
-| `max_tokens` | number | `null` | Max output tokens per completion |
-| `context_window` | number | `null` (auto) | Override the model's detected context window. Used for checkpoints |
+| `max_tokens` | number | `null` | Cap on output tokens per completion; unset uses the model's own limit |
+| `context_window` | number | `null` (catalogue) | Override the context window the catalogue gives for the model. Used for checkpoints |
 | `checkpoint_threshold` | float 0–1 | `0.8` | Auto-checkpoint when `input_tokens / context_window` reaches this ratio |
 | `silent_read_initiative_chance` | float 0–1 | `0.0` | Probability of replying to a `silent_read` (un-mentioned group message) |
 | `tools` | object | all off | See [Tools & Embedding](./tools-embedding.md) |

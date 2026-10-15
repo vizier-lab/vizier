@@ -546,13 +546,13 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 ## Phase 11: Polish & Cross-Cutting Concerns
 
-- [ ] T093 [P] Update `CLAUDE.md`:
+- [X] T093 [P] Update `CLAUDE.md`:
   - The **Providers/models** section: `src/llm` (dialects, `HttpModel`, `RetryingModel`, `prepare`, media clients), `src/catalogue` (seed, cache, lazy refresh), `ProviderId`, custom providers; remove "Runs on `rig-core`" and the "rig drops status codes" note.
   - The **Storage** section: `custom_provider`, `catalogue_snapshot`, `catalogue_logo`, and `provider_config` holding `ProviderCredentials`.
   - The **Config layering** section: no YAML `providers`; the `catalogue.*` keys.
   - The **Tools** section: `ToolDefinition` now lives in `llm::types`.
   - The **Commands** section: `just catalogue-update`.
-- [ ] T094 [P] Update `docs/` (the mdBook) pages on providers, configuration and Docker env vars: no `providers:` YAML; `VIZIER_CATALOGUE_*`; custom providers; legacy env vars still honoured.
+- [X] T094 [P] Update `docs/` (the mdBook) pages on providers, configuration and Docker env vars: no `providers:` YAML; `VIZIER_CATALOGUE_*`; custom providers; legacy env vars still honoured.
 - [ ] T095 [P] Add the live-provider smoke tests to `src/llm/smoke_tests.rs`, `#[ignore]` and named `llm_smoke_*`. Each test runs one text turn, one tool call and one tool result through `llm::build`, for each of openai (Responses), anthropic (asserting `cached_input_tokens > 0` on the second turn), google, deepseek (reasoning plus a tool loop), ollama, and one catalogue provider vizier didn't support before, skipping when its env key is not set.
 - [ ] T096 Run `cargo build`, `cargo test`, `cargo clippy` and `cd webui && npm run typecheck`, and fix everything.
 - [ ] T097 End-to-end check with a `dummyplug` agent on a running binary (constitution e2e gate): walk every quickstart.md dummyplug and stub-server step (§1–§7) in one session, and record the results in the PR.
