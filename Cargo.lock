@@ -7865,6 +7865,7 @@ dependencies = [
  "dotenvy",
  "duration-string",
  "fastembed",
+ "flate2",
  "flume",
  "form_urlencoded",
  "futures",

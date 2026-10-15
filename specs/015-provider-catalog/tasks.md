@@ -40,15 +40,15 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 **Purpose**: Record the baseline, add the build inputs (the catalogue seed and build-time gzip), and create the offline test fixture every story uses.
 
-- [ ] T001 Confirm the baseline on branch `015-provider-catalog`:
+- [X] T001 Confirm the baseline on branch `015-provider-catalog`:
   - Run `cargo build`, `cargo test`, `cargo clippy` and `cd webui && npm run typecheck`, and record any pre-existing failures in the PR description so they aren't blamed on this feature.
   - Save `cargo tree -e normal | wc -l` for comparison after the cutover.
-- [ ] T002 In `Cargo.toml`:
+- [X] T002 In `Cargo.toml`:
   - Enable the `reqwest` features `json` and `multipart`, keeping the existing version 0.13.
   - Add `flate2` under `[build-dependencies]`, using the version already in `Cargo.lock`.
   - Add `"/assets/catalogue/**/*"` to the package `include` list.
   - Do **not** remove `rig-core` yet; that is T052.
-- [ ] T003 [P] Create `scripts/catalogue_update.py` per contract `catalogue-snapshot.md` § `scripts/catalogue_update.py`:
+- [X] T003 [P] Create `scripts/catalogue_update.py` per contract `catalogue-snapshot.md` § `scripts/catalogue_update.py`:
   - Use only the standard library, with `urllib`, run as `python3 -I`, and a `--keep-on-failure` flag.
   - Fetch `https://models.dev/api.json` and validate it against the committed `assets/catalogue/api.json` when one exists: it must parse, keep at least 50% of the provider count, and have at least one provider whose `npm` maps to a supported dialect per research R2.
   - Trim it to the kept provider and model fields.
@@ -56,13 +56,13 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - Download `https://models.dev/logos/{id}.svg` for every provider id and every `canonical_model_id` prefix, 8 at a time, into `assets/catalogue/logos/`. Detect the fallback image by comparing against the bytes for `__none__`, and record those ids in `no_logo`. Remove logos for ids that no longer exist.
   - Print the counts and the total size.
   - On any error: with `--keep-on-failure`, print a `::warning::` line plus the age of the current snapshot and exit 0; without it, exit 1.
-- [ ] T004 [P] Add a `catalogue-update` recipe to `justfile` that runs `python3 -I scripts/catalogue_update.py`.
-- [ ] T005 Run `just catalogue-update` to produce the first seed in `assets/catalogue/`: `meta.json`, `api.json` and `logos/`. Commit it as `chore: add model catalogue seed` (depends on T003, T004).
-- [ ] T006 Extend `build.rs`, after the existing WebUI step:
+- [X] T004 [P] Add a `catalogue-update` recipe to `justfile` that runs `python3 -I scripts/catalogue_update.py`.
+- [X] T005 Run `just catalogue-update` to produce the first seed in `assets/catalogue/`: `meta.json`, `api.json` and `logos/`. Commit it as `chore: add model catalogue seed` (depends on T003, T004).
+- [X] T006 Extend `build.rs`, after the existing WebUI step:
   - Gzip `assets/catalogue/api.json` with `flate2` into `$OUT_DIR/catalogue.json.gz`, and emit `cargo:rerun-if-changed=assets/catalogue`.
   - If the file is missing or not valid JSON, `panic!` with a message telling the developer to run `just catalogue-update`.
   - Never access the network (depends on T002, T005).
-- [ ] T007 [P] Create `specs/015-provider-catalog/fixtures/stub_llm.py` per quickstart.md § Fixtures. It uses only the standard library (`http.server`, `json`, `argparse`), takes `--port`, and is run as `python3 -I`. It serves:
+- [X] T007 [P] Create `specs/015-provider-catalog/fixtures/stub_llm.py` per quickstart.md § Fixtures. It uses only the standard library (`http.server`, `json`, `argparse`), takes `--port`, and is run as `python3 -I`. It serves:
   - **`GET /v1/models`**: returns `stub-tools` and `stub-vision` in OpenAI list format.
   - **`POST /v1/chat/completions`**: OpenAI chat format. It replies with text `ECHO <compact JSON of the last user message's content parts>`, or, when the last user text starts with `CALL <tool> <json>`, with a single tool call. After a `role: tool` message, it replies `ECHO tool-result <content>`.
   - **`POST /v1/messages`**: the same behaviour in Anthropic Messages format (`tool_use` and `tool_result` blocks).
