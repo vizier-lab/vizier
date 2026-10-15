@@ -11,7 +11,7 @@ use crate::{
     schema::VizierAttachment,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct VizierResponseStats {
     pub input_tokens: u64,
     pub cached_input_tokens: u64,
@@ -27,6 +27,12 @@ pub struct VizierResponseStats {
     /// The turn reached `thinking_depth`, and the reply is what it had by then (#48).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub depth_exhausted: bool,
+    /// The provider and model that answered, for the usage view's cost estimate (FR-021).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>)]
+    pub provider: Option<crate::config::provider::ProviderId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]

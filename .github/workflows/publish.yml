@@ -79,7 +79,8 @@ jobs:
 
       - name: Verify package
         run: |
-          cargo package --allow-dirty --no-verify --list
+          cargo package --allow-dirty --no-verify --list | tee package-list.txt
+          grep -qx 'assets/catalogue/api.json' package-list.txt || (echo "::error::the package lacks assets/catalogue/api.json (the catalogue seed)"; exit 1)
           echo ""
           echo "Package size:"
           cargo package --allow-dirty --no-verify 2>&1 | grep -E "Packaged|Compressing" || true

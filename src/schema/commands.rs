@@ -141,6 +141,12 @@ pub enum AgentCommand {
     HealthCheck {
         resp: tokio::sync::oneshot::Sender<Vec<AgentHealthStatus>>,
     },
+    /// Stop the agent and start it again from its stored config, e.g. after the credentials or
+    /// custom provider it was built with changed. A build that fails leaves it `Failed`.
+    Restart {
+        agent_id: String,
+        resp: tokio::sync::oneshot::Sender<AgentCommandResult>,
+    },
 }
 
 pub enum AgentCommandResult {

@@ -429,7 +429,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 **Independent Test**: quickstart.md §4, against `stub_llm.py`.
 
-- [ ] T066 [US6] Add `src/channels/http/api/v1/providers/custom.rs` with every endpoint in contract `http-api.md` § Custom providers: `GET`, `POST`, `PUT`, `DELETE` (with `?confirm=true` and a 409 that lists the agents using it), `POST /{id}/fetch-models` and `POST /test`.
+- [X] T066 [US6] Add `src/channels/http/api/v1/providers/custom.rs` with every endpoint in contract `http-api.md` § Custom providers: `GET`, `POST`, `PUT`, `DELETE` (with `?confirm=true` and a 409 that lists the agents using it), `POST /{id}/fetch-models` and `POST /test`.
   - Validate ids with the `ProviderId` regex. A clash with a catalogue, built-in or other custom id returns 409, and the message names the clash.
   - The id is immutable on `PUT`; a different id in the body returns 400.
   - An omitted `api_key` or header value keeps the stored value; a header value set to `null` removes it.
@@ -438,14 +438,14 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - Fetch-models merges by id as data-model.md §5 describes: add new ids, keep edited rows, refresh the others. Unit-test the merge.
 
   Mount it under `/providers/custom` with `settings:providers` (depends on T035).
-- [ ] T067 [US6] Wire custom providers into `src/llm/resolve.rs`: look up `CustomProviderStorage` first. The dialect is `OpenAiChat` for `OpenAiCompatible` and `Anthropic` for `Anthropic`; the base URL and headers come from the record, with `StaticKey` Bearer (OpenAI) or `x-api-key` (Anthropic) when a key is set. Model data follows FR-024: the custom row's fields, then `catalogue.find_model_by_id(model, prefer_dialect)`, then name detection. Add a unit test for the fill-in.
-- [ ] T068 [US6] Handle catalogue id collisions in `src/catalogue/mod.rs` `providers()`: a catalogue provider whose id equals a custom provider's id is hidden, and the custom provider wins (spec edge case).
+- [X] T067 [US6] Wire custom providers into `src/llm/resolve.rs`: look up `CustomProviderStorage` first. The dialect is `OpenAiChat` for `OpenAiCompatible` and `Anthropic` for `Anthropic`; the base URL and headers come from the record, with `StaticKey` Bearer (OpenAI) or `x-api-key` (Anthropic) when a key is set. Model data follows FR-024: the custom row's fields, then `catalogue.find_model_by_id(model, prefer_dialect)`, then name detection. Add a unit test for the fill-in.
+- [X] T068 [US6] Handle catalogue id collisions in `src/catalogue/mod.rs` `providers()`: a catalogue provider whose id equals a custom provider's id is hidden, and the custom provider wins (spec edge case).
 - [ ] T069 [P] [US6] Add `webui/app/components/providers/CustomProviderForm.tsx`, the two-step form from the agreed mockup:
   - **Step 1, connection**: name; id, auto-slugged and editable until first save; a protocol radio card for OpenAI-compatible or Anthropic; base URL with an "Requests go to …" hint; API key; "Extra headers" expander; and a "Test connection" button calling `POST /providers/custom/test`.
   - **Step 2, models**: "Fetch from server", and an editable table with columns id, context, output, tools, vision and reasoning. Fields filled from the catalogue are marked ⓒ. A warning appears for rows with tool calling unknown or false.
   - **Edit mode**: the id is read-only, and the key and header values show as `•••• [Replace]`.
 - [ ] T070 [US6] Add the custom-provider API calls to `webui/app/services/vizier.tsx`, and render custom providers in the CUSTOM group of `ProviderModelPicker.tsx`, each with a "custom" badge.
-- [ ] T071 [US6] Run quickstart.md §4 against `stub_llm.py` (both protocols, id clash, immutable id, edited-row survival, secret masking, delete warning, the FR-027 base-URL refusal), then the deferred §3 from T058. Record the results in the PR.
+- [X] T071 [US6] Run quickstart.md §4 against `stub_llm.py` (both protocols, id clash, immutable id, edited-row survival, secret masking, delete warning, the FR-027 base-URL refusal), then the deferred §3 from T058. Record the results in the PR.
 
 **Checkpoint**: self-hosted and proxy endpoints work, with no code change and no file editing (SC-009).
 
@@ -457,7 +457,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 **Independent Test**: quickstart.md §7, "Providers page" bullet, plus a live run on one provider vizier didn't support before (§8).
 
-- [ ] T072 [US5] Complete `src/channels/http/api/v1/providers/mod.rs` per contract `http-api.md` § Providers:
+- [X] T072 [US5] Complete `src/channels/http/api/v1/providers/mod.rs` per contract `http-api.md` § Providers:
   - **`GET /providers`** returns connected providers: saved rows plus env-detected ones from `resolve_credentials`, with `source`, `has_api_key`, `endpoint`, `base_url`, `migrated_from` (recorded by T037 in a `global_config` key `migration.provider_ids_v1.map`) and `used_by`.
     - `used_by` is computed by scanning agent configs: chat includes the main, dream and read-image models; STT, TTS, image generation and embeddings go through each enum's `credentials()`.
     - `reachable` applies to local and custom providers. It is checked in a background task with a 2s timeout, cached for 30s in a `parking_lot::Mutex<HashMap>`, and the endpoint never waits on it.
@@ -520,10 +520,10 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
     - **200**: trim to the kept fields, then validate (parses; a supported provider exists; at least 50% of the provider count; every provider id used by stored agents, credentials and media settings is present). On success, `put_snapshot` and `catalogue.swap`. On failure, `record_failure`.
   - Add the config keys `catalogue.refresh` (default `true`), `catalogue.ttl` (default `24h`) and `catalogue.url` to `src/config/mod.rs`, plus `VIZIER_CATALOGUE_REFRESH` and `VIZIER_CATALOGUE_TTL` in `docker-entrypoint.sh` and the `apply_overrides` CLI/env handling.
   - Unit tests run against an axum server serving 200, 304, invalid bodies and timeouts.
-- [ ] T085 [US4] Call `catalogue::refresh::maybe_refresh(&deps)` at the start of every handler in `src/channels/http/api/v1/catalogue.rs` and of `GET /providers` and `GET /providers/custom`. Never call it from agent, scheduler or dream code (add a doc comment on `maybe_refresh` stating this rule). Add `POST /catalogue/refresh` (`settings:providers`): 200 with the status, 502 on failure, and 409 when refresh is disabled.
+- [X] T085 [US4] Call `catalogue::refresh::maybe_refresh(&deps)` at the start of every handler in `src/channels/http/api/v1/catalogue.rs` and of `GET /providers` and `GET /providers/custom`. Never call it from agent, scheduler or dream code (add a doc comment on `maybe_refresh` stating this rule). Add `POST /catalogue/refresh` (`settings:providers`): 200 with the status, 502 on failure, and 409 when refresh is disabled.
 - [X] T086 [US4] Extend the logo handler in `catalogue.rs` to follow the contract's lookup order: the `catalogue_logo` row, then the seed, then `seed_no_logo`. Otherwise, when refresh is enabled, spawn a background fetch of `https://models.dev/logos/{id}.svg`, storing the svg, or NULL if it equals the fallback, and return 404 this time.
 - [ ] T087 [US4] Fill in `GET /catalogue`'s `source`, `fetched_at`, `checked_at` and `refresh.{enabled, ttl, in_progress, last_error, failed_at}`. In `settingsRoot.tsx`, show "Catalogue: models.dev · as of <fetched_at> (<source>)", with the last error if any, and wire the "Refresh now" button to `POST /catalogue/refresh`.
-- [ ] T088 [P] [US4] In `.github/workflows/release.yml`, job `prepare-release`, add a "Refresh model catalogue" step after "Update Cargo.toml versions" that runs `python3 -I scripts/catalogue_update.py --keep-on-failure`, and add `assets/catalogue` to the `git add` in "Commit version bump". In `.github/workflows/publish.yml`'s "Verify package" step, fail when `cargo package --allow-dirty --no-verify --list` lacks `assets/catalogue/api.json`.
+- [X] T088 [P] [US4] In `.github/workflows/release.yml`, job `prepare-release`, add a "Refresh model catalogue" step after "Update Cargo.toml versions" that runs `python3 -I scripts/catalogue_update.py --keep-on-failure`, and add `assets/catalogue` to the `git add` in "Commit version bump". In `.github/workflows/publish.yml`'s "Verify package" step, fail when `cargo package --allow-dirty --no-verify --list` lacks `assets/catalogue/api.json`.
 - [X] T089 [US4] Run quickstart.md §6: refresh off and offline; agents running with no request; a lazy check on read; 304 with `VIZIER_CATALOGUE_TTL=1s`; broken URL with backoff; offline restart from SQLite. Record the results in the PR.
 
 **Checkpoint**: the catalogue stays current for people using it, stays visible offline, and a headless install never phones home.
@@ -536,8 +536,8 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 **Independent Test**: quickstart.md §7, "Usage view" bullet.
 
-- [ ] T090 [US8] Add `provider: Option<ProviderId>` and `model: Option<String>` (`serde(default)`) to `VizierResponseStats` in `src/schema/response.rs`, set in `VizierAgent::chat` (`src/agents/agent/mod.rs`) from the agent's resolved provider and model.
-- [ ] T091 [US8] In `src/storage/sqlite/history.rs` `aggregate_usage` and `src/schema/metrics.rs`, add `estimated_cost_usd: Option<f64>` to the summary, each `by_day` entry and each `by_channel_type` entry. For each response with `provider`/`model`, look up the catalogue cost, or the custom model's (none for now), and compute `(input − cached) × input + cached × cache_read (or input) + cache_creation × cache_write (or input) + output × output`, divided by 1e6. A bucket with no priced responses stays `None`. Pass the catalogue snapshot to `aggregate_usage` from the usage handler in `src/channels/http/api/v1/agents/mod.rs`, and unit-test the arithmetic.
+- [X] T090 [US8] Add `provider: Option<ProviderId>` and `model: Option<String>` (`serde(default)`) to `VizierResponseStats` in `src/schema/response.rs`, set in `VizierAgent::chat` (`src/agents/agent/mod.rs`) from the agent's resolved provider and model.
+- [X] T091 [US8] In `src/storage/sqlite/history.rs` `aggregate_usage` and `src/schema/metrics.rs`, add `estimated_cost_usd: Option<f64>` to the summary, each `by_day` entry and each `by_channel_type` entry. For each response with `provider`/`model`, look up the catalogue cost, or the custom model's (none for now), and compute `(input − cached) × input + cached × cache_read (or input) + cache_creation × cache_write (or input) + output × output`, divided by 1e6. A bucket with no priced responses stays `None`. Pass the catalogue snapshot to `aggregate_usage` from the usage handler in `src/channels/http/api/v1/agents/mod.rs`, and unit-test the arithmetic.
 - [ ] T092 [US8] In `webui/app/routes/usage.tsx`, show the estimated cost next to token totals, per day and per channel, labelled "est.", with `—` when it is `null`.
 
 **Checkpoint**: all stories are done.

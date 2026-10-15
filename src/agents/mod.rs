@@ -167,6 +167,10 @@ impl VizierAgents {
                 let result = self.handle_delete(&agent_id, delete_workspace).await;
                 let _ = resp.send(result);
             }
+            AgentCommand::Restart { agent_id, resp } => {
+                let result = self.handle_restart(agent_id).await;
+                let _ = resp.send(result);
+            }
             AgentCommand::HealthCheck { resp } => {
                 let statuses: Vec<AgentHealthStatus> = self
                     .processes
@@ -370,6 +374,30 @@ impl VizierAgents {
 
         let summary = self.summary(&agent_id, &config).await;
         self.start(agent_id, config, recv, Some(built));
+        AgentCommandResult::Ok(summary)
+    }
+
+    /// The supervisor builds from the stored config; a build that fails is retried with
+    /// backoff and shows as `Failed`, like at boot.
+    async fn handle_restart(&mut self, agent_id: AgentId) -> AgentCommandResult {
+        if self.building.contains(&agent_id) {
+            return Self::busy(&agent_id);
+        }
+        let config = match self.deps.storage.get_agent(&agent_id).await {
+            Ok(Some(config)) => config,
+            Ok(None) => return AgentCommandResult::Error(format!("agent '{agent_id}' not found")),
+            Err(e) => return AgentCommandResult::Error(e.to_string()),
+        };
+        let recv = match self.processes.remove(&agent_id) {
+            Some(old) => {
+                let recv = old.recv.clone();
+                old.stop(&agent_id).await;
+                recv
+            }
+            None => self.deps.transport.register_agent(agent_id.clone()).await,
+        };
+        let summary = self.summary(&agent_id, &config).await;
+        self.start(agent_id, config, recv, None);
         AgentCommandResult::Ok(summary)
     }
 

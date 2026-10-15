@@ -881,6 +881,8 @@ impl VizierAgent {
                 current_context_size,
                 context_window: self.model.context_window(),
                 depth_exhausted,
+                provider: Some(self.model.info().provider.clone()),
+                model: Some(self.model.info().model.clone()),
             },
             attachments,
             full_history,
@@ -1352,6 +1354,8 @@ impl VizierAgent {
                     current_context_size,
                     context_window: model.context_window(),
                     depth_exhausted,
+                    provider: Some(model.info().provider.clone()),
+                    model: Some(model.info().model.clone()),
                 },
             ))
         })

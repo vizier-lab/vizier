@@ -33,6 +33,7 @@ pub trait HistoryStorage {
         agent_id: &str,
         start_date: Option<DateTime<Utc>>,
         end_date: Option<DateTime<Utc>>,
+        pricing: crate::schema::metrics::Pricing<'_>,
     ) -> Result<AgentUsageStats>;
 
     async fn list_session_by_time_window(
@@ -99,8 +100,9 @@ impl HistoryStorage for VizierStorage {
         agent_id: &str,
         start_date: Option<DateTime<Utc>>,
         end_date: Option<DateTime<Utc>>,
+        pricing: crate::schema::metrics::Pricing<'_>,
     ) -> Result<AgentUsageStats> {
-        self.0.aggregate_usage(agent_id, start_date, end_date).await
+        self.0.aggregate_usage(agent_id, start_date, end_date, pricing).await
     }
 
     async fn list_session_by_time_window(

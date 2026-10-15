@@ -5,7 +5,7 @@ pub mod dream_journal;
 mod file;
 mod global_config;
 mod history;
-mod metrics;
+pub mod metrics;
 pub mod provider;
 mod request;
 mod response;

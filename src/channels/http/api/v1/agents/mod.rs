@@ -736,8 +736,16 @@ async fn agent_usage(
     });
 
     let storage: &VizierStorage = &state.storage;
+    let catalogue = state.catalogue.clone();
+    // Custom providers have no prices yet; their replies count as unpriced.
+    let pricing = move |provider: &crate::config::provider::ProviderId, model: &str| {
+        let cost = catalogue.model(provider, model)?.cost?;
+        let outside = catalogue.provider(provider).and_then(|p| p.dialect)
+            == Some(crate::llm::DialectKind::Anthropic);
+        Some((cost, outside))
+    };
     let usage_result = storage
-        .aggregate_usage(&agent_id, start_date, end_date)
+        .aggregate_usage(&agent_id, start_date, end_date, &pricing)
         .await;
 
     match usage_result {

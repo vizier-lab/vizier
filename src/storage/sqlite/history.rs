@@ -244,6 +244,7 @@ impl HistoryStorage for SqliteStorage {
         agent_id: &str,
         start_date: Option<DateTime<Utc>>,
         end_date: Option<DateTime<Utc>>,
+        pricing: crate::schema::metrics::Pricing<'_>,
     ) -> Result<AgentUsageStats> {
         let conn = self.conn.lock();
         let mut sql = "SELECT data FROM session_history WHERE agent_id = ?1".to_string();
@@ -275,6 +276,7 @@ impl HistoryStorage for SqliteStorage {
         let mut total_output_tokens: u64 = 0;
         let mut total_requests: u64 = 0;
         let mut total_duration_ms: u64 = 0;
+        let mut estimated_cost_usd: Option<f64> = None;
 
         let mut by_channel_type: HashMap<String, ChannelTypeUsage> = HashMap::new();
         let mut by_day: HashMap<NaiveDate, DailyUsage> = HashMap::new();
@@ -291,6 +293,12 @@ impl HistoryStorage for SqliteStorage {
                     _ => None,
                 };
                 if let Some(stats) = stats {
+                    let cost = match (&stats.provider, &stats.model) {
+                        (Some(provider), Some(model)) => pricing(provider, model)
+                            .map(|(c, outside)| crate::schema::metrics::estimate_cost(stats, &c, outside)),
+                        _ => None,
+                    };
+                    crate::schema::metrics::add_cost(&mut estimated_cost_usd, cost);
                     total_tokens += stats.total_tokens;
                     total_input_tokens += stats.total_input_tokens;
                     total_output_tokens += stats.total_output_tokens;
@@ -308,9 +316,11 @@ impl HistoryStorage for SqliteStorage {
                                 total_tokens: 0,
                                 total_requests: 0,
                                 channels: Vec::new(),
+                                estimated_cost_usd: None,
                             });
                     channel_entry.total_tokens += stats.total_tokens;
                     channel_entry.total_requests += 1;
+                    crate::schema::metrics::add_cost(&mut channel_entry.estimated_cost_usd, cost);
 
                     let channel_id = channel_slug.clone();
                     if let Some(ch) = channel_entry
@@ -334,11 +344,13 @@ impl HistoryStorage for SqliteStorage {
                         input_tokens: 0,
                         output_tokens: 0,
                         total_requests: 0,
+                        estimated_cost_usd: None,
                     });
                     day_entry.total_tokens += stats.total_tokens;
                     day_entry.input_tokens += stats.total_input_tokens;
                     day_entry.output_tokens += stats.total_output_tokens;
                     day_entry.total_requests += 1;
+                    crate::schema::metrics::add_cost(&mut day_entry.estimated_cost_usd, cost);
 
                     let day_channel_entry = by_day_and_channel_type.entry(date).or_default();
                     let channel_detail = day_channel_entry
@@ -382,6 +394,7 @@ impl HistoryStorage for SqliteStorage {
                 total_output_tokens,
                 total_requests,
                 avg_duration_ms,
+                estimated_cost_usd,
             },
             by_channel_type,
             by_day: by_day_vec,

@@ -83,6 +83,10 @@ jobs:
           grep -q "^version = \"$VERSION\"$" vizier-derive/Cargo.toml || (echo "::error::vizier-derive version not bumped"; exit 1)
           grep -q "^vizier-derive = { path = \"vizier-derive\", version = \"$VERSION\" }$" Cargo.toml || (echo "::error::vizier-derive dependency requirement not bumped"; exit 1)
 
+      - name: Refresh model catalogue
+        # Offline or a bad response keeps the committed snapshot (a warning, never a failure).
+        run: python3 -I scripts/catalogue_update.py --keep-on-failure
+
       - name: Install git-cliff
         uses: taiki-e/install-action@git-cliff
 
@@ -108,7 +112,7 @@ jobs:
 
       - name: Commit version bump
         run: |
-          git add Cargo.toml vizier-derive/Cargo.toml CHANGELOG.md
+          git add Cargo.toml vizier-derive/Cargo.toml CHANGELOG.md assets/catalogue
           # A retried release finds the bump already committed by the failed run.
           git diff --cached --quiet || git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
           git tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
