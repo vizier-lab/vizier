@@ -84,7 +84,7 @@ End to end: dummyplug agent steps plus the stdlib `fixtures/stub_llm.py` in [qui
 | **V. Unified Errors & Observability** | ✅ `LlmError` converts into `VizierError`, and the `ErrorKind` prefixes are kept. Migration, refresh and validation outcomes are logged with `tracing`, and keys are redacted from request debug logs. The `expect("failed to create … client")` calls in today's media constructors are removed. |
 | **Gate: dummyplug e2e** | ✅ The quickstart scripts upgrade, capabilities, custom providers, retry and refresh as dummyplug or stub-server steps, with no keys. The 008 and 014 dummyplug scripts must pass unchanged. Live-provider steps are marked (§8). |
 | **Gate: clippy / test / typecheck** | ✅ Required at every phase boundary. |
-| **Gate: manual run for startup and migration changes** | ✅ Quickstart §1 runs a real upgrade from `master`. |
+| **Gate: manual run for startup and migration changes** | ✅ Quickstart §1 runs a real upgrade from `master`. `build.rs` and the release workflow change, so a release dry run (`release-and-publish.yml` with `dry_run: true`) and `cargo package --list` are part of verification. |
 | **Gate: conventional commits** | ⚠ This feature has breaking changes: Galadriel and Mira are dropped, and `providers` is removed from YAML. Commit them as `feat!:` with `[**breaking**]`. The form merge is `refactor:`, and snapshot refreshes are `chore:`. |
 
 **Result (pre-research)**: PASS. **Result (post-design)**: PASS. The design added no dependency or service and no type-branching. Nothing goes in Complexity Tracking.
@@ -115,9 +115,12 @@ specs/015-provider-catalog/
 ### Source Code (repository root)
 
 ```text
-assets/catalogue/{meta.json,api.json.gz,logos/}   # NEW build-time seed, embedded with rust-embed
-scripts/catalogue_update.py               # NEW release-time snapshot builder (stdlib only)
+assets/catalogue/{meta.json,api.json,logos/}   # NEW committed seed (plain sorted JSON + SVGs)
+scripts/catalogue_update.py               # NEW snapshot builder (stdlib only; --keep-on-failure for releases)
 justfile                                  # + catalogue-update recipe
+build.rs                                  # + gzip assets/catalogue/api.json into OUT_DIR (flate2 build-dep)
+.github/workflows/release.yml             # + prepare-release step: catalogue_update.py --keep-on-failure; git add assets/catalogue
+.github/workflows/publish.yml             # + fail if assets/catalogue/api.json missing from `cargo package --list`
 
 src/llm/                                  # NEW — agent-agnostic provider layer (replaces rig)
 ├── mod.rs                                # CompletionModel trait; build(resolved) → VizierModel
@@ -159,7 +162,7 @@ src/channels/http/api/v1/providers/mod.rs # ProviderId routes, used_by, reachabl
 src/channels/http/api/v1/agents/mod.rs    # warnings on save
 src/cli/onboard.rs                        # stops writing providers to YAML
 src/main.rs                               # drop rig log directive
-Cargo.toml                                # − rig-core; reqwest features json, multipart
+Cargo.toml                                # − rig-core; reqwest features json, multipart; include += /assets/catalogue/**/*; flate2 build-dep
 CLAUDE.md                                 # Providers/Storage/Config sections updated
 
 webui/app/
@@ -193,7 +196,7 @@ webui/app/
 | 3 | **WebUI form merge** (`refactor:`) | `agent-settings.tsx` becomes `AgentForm mode="edit"` plus Sharing and Danger, with a sticky save bar. No behaviour change | Settings-only fields lost in the merge: walk every field, old against new |
 | 4 | **Catalogue and providers API** | `/catalogue` read API and logos; `/providers` (`used_by`, `reachable`, `test`); `/providers/custom` (CRUD, fetch, test); agent `warnings` | Secrets leaking through responses: the contract tests check every response |
 | 5 | **WebUI pickers and providers page** | `ProviderModelPicker`, `ProviderLogo`, the providers page (connected list, search and connect, env detection, `used_by`, delete warning, reachability), the two-step custom provider form, inline connect, the Advanced section, automatic read-image, the Review card. Hard-coded chat lists removed | Picker performance on OpenRouter: client-side filtering plus a virtualised list |
-| 6 | **Refresh and cost** | The `catalogue_snapshot`/`catalogue_logo` cache; lazy conditional refresh wired into the catalogue and provider read endpoints; lazy logo fetch; `POST /catalogue/refresh`; release workflow runs `just catalogue-update`; stats `provider`/`model`; `estimated_cost_usd`; usage cost column; `CLAUDE.md` updated | Refresh validation too strict or too loose |
+| 6 | **Refresh and cost** | The `catalogue_snapshot`/`catalogue_logo` cache; lazy conditional refresh wired into the catalogue and provider read endpoints; lazy logo fetch; `POST /catalogue/refresh`; release workflow fetches the seed in `prepare-release` (keeping the old one, with a warning, on failure); `Cargo.toml` `include` and the `publish.yml` package check; stats `provider`/`model`; `estimated_cost_usd`; usage cost column; `CLAUDE.md` updated | Refresh validation too strict or too loose |
 | 7 | **Verification** | The whole quickstart (§1–§7), and live smoke tests on the main five dialects (§8) | — |
 
 ## Complexity Tracking

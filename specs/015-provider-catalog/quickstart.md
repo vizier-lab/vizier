@@ -12,6 +12,9 @@ cargo test          # dialect encode/decode fixtures, transport tests (axum), ca
 cargo clippy
 cd webui && npm run typecheck
 cargo tree | grep -c rig-core     # must print 0 from Phase 2 (cutover) on (SC-007)
+cargo package --allow-dirty --no-verify --list | grep -c '^assets/catalogue/api.json$'   # must print 1
+python3 -I scripts/catalogue_update.py --keep-on-failure   # with network: refreshes assets/catalogue; offline: warns, exit 0, files untouched
+# Release dry run: run release-and-publish.yml with dry_run: true and check the prepare-release log shows the catalogue step
 ```
 
 ## Fixtures

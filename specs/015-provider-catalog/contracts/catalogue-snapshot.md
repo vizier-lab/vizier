@@ -13,25 +13,55 @@
 ## Seed (build time)
 
 ```
-assets/catalogue/
+assets/catalogue/                      # committed to git
 ├── meta.json        {"schema": 1, "source_url": "https://models.dev/api.json",
 │                     "fetched_at": "2026-10-15T09:12:00Z", "etag": "\"a819…\"",
 │                     "providers": 230, "models": 8870, "no_logo": ["…"]}
-├── api.json.gz      trimmed models.dev JSON (fields below), gzip
+├── api.json         trimmed models.dev JSON, plain text: keys sorted, one model per line
 └── logos/{id}.svg   one per provider id or lab id with its own logo
 ```
 
-The files are embedded with `rust-embed`, the same way `webui/build/client/` is. Total size is about 650 KB.
+**Why plain JSON is committed**:
+- Git delta-compresses it, so each refresh adds only what changed.
+- A refresh diff is reviewable (e.g. "+ claude-opus-5 …", "status: deprecated").
 
-`just catalogue-update` runs `scripts/catalogue_update.py` (standard library only, `python3 -I`):
+**Build**: `build.rs`, which already exists to build the WebUI, gzips `api.json` into `$OUT_DIR/catalogue.json.gz` with `flate2`. `flate2` is already in the dependency tree and is added as a build-dependency only. The binary embeds that file with `include_bytes!`, and `meta.json` and `logos/` with `rust-embed`, for about 650 KB in all. A missing or unparsable `assets/catalogue/api.json` is a build error, with a message pointing at `just catalogue-update`. `cargo build` never accesses the network.
+
+**Packaging**: `Cargo.toml` `include` gains `"/assets/catalogue/**/*"`, so the crates.io package builds; without it, `cargo install vizier` would fail. `publish.yml`'s existing `cargo package --list` step fails if `assets/catalogue/api.json` is missing from the list.
+
+### When the seed is downloaded
+
+**Once per release**, in the release workflow (`.github/workflows/release.yml`, job `prepare-release`), between the version bump and the changelog:
+
+```
+prepare-release:  bump Cargo.toml → catalogue_update.py → git-cliff → commit + tag → push
+build ×4, cargo publish, docker:  check out the tag → all ship the same snapshot
+```
+
+The new step:
+- runs `python3 -I scripts/catalogue_update.py --keep-on-failure`;
+- then `git add assets/catalogue`, so the snapshot rides in the existing `chore: bump version to X` commit, and the tag contains it.
+
+**Dry runs** fetch and validate, but push nothing, like the rest of the dry run.
+
+**Failure** (owner decision, 2026-10-15): if models.dev is unreachable, or the response fails validation, the step **keeps the committed snapshot** and exits 0. It writes a `::warning::` and a run-summary line giving the snapshot's `fetched_at` age. A catalogue outage never blocks a release.
+
+**Between releases**: there is no scheduled job (owner decision). Developers run `just catalogue-update`, a wrapper around the same script, whenever they want. The release runner calls the script directly, since it doesn't need `just`. Normal `cargo build`, `just install` and CI never fetch.
+
+### `scripts/catalogue_update.py`
+
+Standard library only, run with `python3 -I`:
 
 1. GET `api.json`.
-2. Trim it to the kept fields.
-3. Collect the logo ids: every provider id, plus every `canonical_model_id` prefix.
-4. GET each logo. A logo whose bytes equal models.dev's fallback (the response for an unknown id) is recorded in `no_logo` instead of being saved.
-5. Write the files and print the counts.
+2. Validate it, with the same rules as the runtime refresh, comparing against the currently committed snapshot.
+3. Trim it to the kept fields.
+4. Collect the logo ids: every provider id, plus every `canonical_model_id` prefix.
+5. GET each logo, eight at a time. A logo whose bytes equal models.dev's fallback (the response for an unknown id) is recorded in `no_logo` instead of being saved. Logos that fail to download keep their committed file.
+6. Write `api.json` (sorted, one model per line), `meta.json` and `logos/`. Remove logo files for ids that no longer exist. Print the counts and the size.
 
-The release workflow runs it before tagging and commits the result as `chore: refresh model catalogue`. Developers can run it any time.
+| Flag | Effect |
+|---|---|
+| `--keep-on-failure` | on any fetch or validation error: print a warning, leave the files untouched, exit 0 (release use). Without it the script exits 1 (local use) |
 
 ## Kept fields
 
