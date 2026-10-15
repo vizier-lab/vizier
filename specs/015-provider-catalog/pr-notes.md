@@ -126,23 +126,60 @@ a YAML `providers.openrouter`) and clearing the migration marker. 19/19 and 3/3 
   `VIZIER_CATALOGUE_REFRESH`/`VIZIER_CATALOGUE_TTL` env vars (read directly too, not only by the
   Docker entrypoint).
 
-## Handoff: where the next session starts
+## Custom providers and the providers API (T066–T072, T085), with `fixtures/e2e/custom_providers.py` — 24/24
 
-Done: Phases 1–4 (T001–T058), and from later phases T059, T060, T082–T084, T086, T089.
+- §4: `POST /providers/custom/test` against the stub lists 2 models; a closed port fails with
+  "refused"; `id: "openai"` is 409 naming the catalogue; a second `home` is 409 naming the custom
+  provider; fetch-models adds both stub models with empty limits (no catalogue match); edited
+  rows (`context = 32768`) and an added `extra` row survive a second fetch; a different `id` on
+  `PUT` is 400; `GET /providers/custom` shows `has_api_key` and header names, never values.
+- Both protocols through the agent loop: `c1` on the OpenAI-compatible provider runs a tool and
+  the stub echoes the result; `c2` on `protocol: anthropic` answers via `/v1/messages`.
+- Providers API: `base_url` on `anthropic` is 400 (FR-027); an unused field is 400; a saved key
+  shows `source: saved`; `used_by.chat` counts main/dream/read-image; dummyplug and custom providers
+  are never in `GET /providers`; `POST /providers/{id}/test` works for a custom provider; deleting a
+  used provider (catalogue or custom) is 409 listing the agents; with `?confirm=true` the agent is
+  `Failed` with "not available".
+- **Added while testing**: an agent built with credentials that are then changed or removed kept
+  running on the old ones until a restart. Saving or deleting a provider's credentials (or editing
+  or deleting a custom provider) now restarts the agents that use it through a new
+  `AgentCommand::Restart`; a build that fails leaves the agent `Failed`, as at boot.
 
-Next, in order:
-- **T085**: `GET /providers/custom` must also call `catalogue::refresh::maybe_refresh` once the custom
-  providers API exists (`GET /catalogue/*`, `GET /providers` and `POST /catalogue/refresh` already
-  do). Mark T085 then.
-- **T061–T065 (US2 WebUI)**: form merge, `ProviderLogo`, catalogue API client, `ProviderModelPicker`,
-  replacing `CHAT_PROVIDERS*` in `webui/app/interfaces/types.ts`. The WebUI still uses the old
-  providers page and hard-coded lists; `GET /providers` keeps a `variant` field (same as `id`) until
-  T076 replaces that page.
-- **T066–T071 (US6)**: custom providers API and form. Custom providers already work end to end through
-  `resolve` (rows inserted straight into `custom_provider` in the e2e scripts).
-- **T072–T076 (US5)**, **T077–T081 (US7)**, **T087** (status line + Refresh button in Settings),
-  **T088** (release/publish workflows), **T090–T092 (US8 cost)**, **T093–T100 (polish)**.
+## WebUI (T061–T065, T069–T081, T087, T092), checked in Chrome against a scratch server
 
-e2e scripts: `fixtures/e2e/{upgrade,retry,capabilities,catalogue}.py <scratch dir> <port>`, with
-`python3 -I specs/015-provider-catalog/fixtures/stub_llm.py --port 18080` running (capabilities.py
-uses 18081). Build first: they run `target/debug/vizier`.
+- One form: `/agents/<id>/settings` is `AgentForm` in edit mode with Sharing and Danger Zone as
+  extra tabs (`agent-settings.tsx` 3286 → 493 lines). The sticky "Save changes" bar appears only
+  after an edit (a bug where it showed on load was fixed), saving clears it, Discard reloads.
+- Picker: grouped providers (connected / custom / all) with logos inverted on the dark theme;
+  choosing Anthropic (not connected) opened the inline connect form, saving it moved Anthropic to
+  CONNECTED and loaded its models (a stale-cache bug that left "Loading…" was fixed); the model list
+  shows lab logos, context, 🔧👁💭 and prices; choosing Sonnet 5.5 shows its card, the checkpoint
+  line "≈ 800,000 tokens of 1,000,000" and Advanced placeholders "1,000,000 · from catalogue" /
+  "128,000 · from catalogue".
+- Read-image: "✓ Claude Sonnet 5.5 can see images. They are sent to it directly."
+- Settings › Providers: catalogue line (models.dev, date, bundled, counts), Refresh disabled with
+  a tooltip when refresh is off, connected rows with source badge, model count, "Used by: chat
+  (1 agent)" and reachability; the custom provider form ran Test (✓ 2 models) → Create → Fetch
+  from server → Save.
+- Usage: an "Estimated Cost" card shows "—" with no priced replies; per-day (chart tooltip) and
+  per-channel-type costs read "$x.xx est." or "—".
+
+## Polish (T093–T097)
+
+- `CLAUDE.md` and the mdBook (`docs/src/configuration/{providers,main-config,index,cli,
+  storage-shell,agents,tools-embedding}.md`, `api-integration/rest-api.md`, quick start) describe
+  the catalogue, custom providers, `catalogue.*` / `VIZIER_CATALOGUE_*`, and no YAML `providers`.
+- `src/llm/smoke_tests.rs`: six `#[ignore]` `llm_smoke_*` tests (openai Responses, anthropic with a
+  cache-hit assertion, google, deepseek, ollama, and `LLM_SMOKE_EXTRA`, default `cerebras`), each
+  skipping without its key.
+- `cargo test`: 395 passed, 6 ignored. `cargo clippy`: 0 errors, 87 warnings (baseline 98); none in
+  the new providers/catalogue code. `npm run typecheck`: ok.
+- T097: all five e2e scripts in one run on the final build — upgrade 19/19, retry 3/3,
+  capabilities 8/8, catalogue 27/27, custom providers 24/24.
+
+## Remaining
+
+- **T098**: live runs of quickstart §8 need provider keys (`llm_smoke_*`). Until they run, every
+  dialect is golden-fixture-tested only.
+- **T099**: `release-and-publish.yml` with `dry_run: true` must be dispatched on GitHub. Locally,
+  `cargo package --allow-dirty --no-verify --list` contains `assets/catalogue/api.json`.

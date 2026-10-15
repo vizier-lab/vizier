@@ -555,10 +555,10 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 - [X] T094 [P] Update `docs/` (the mdBook) pages on providers, configuration and Docker env vars: no `providers:` YAML; `VIZIER_CATALOGUE_*`; custom providers; legacy env vars still honoured.
 - [X] T095 [P] Add the live-provider smoke tests to `src/llm/smoke_tests.rs`, `#[ignore]` and named `llm_smoke_*`. Each test runs one text turn, one tool call and one tool result through `llm::build`, for each of openai (Responses), anthropic (asserting `cached_input_tokens > 0` on the second turn), google, deepseek (reasoning plus a tool loop), ollama, and one catalogue provider vizier didn't support before, skipping when its env key is not set.
 - [X] T096 Run `cargo build`, `cargo test`, `cargo clippy` and `cd webui && npm run typecheck`, and fix everything.
-- [ ] T097 End-to-end check with a `dummyplug` agent on a running binary (constitution e2e gate): walk every quickstart.md dummyplug and stub-server step (§1–§7) in one session, and record the results in the PR.
+- [X] T097 End-to-end check with a `dummyplug` agent on a running binary (constitution e2e gate): walk every quickstart.md dummyplug and stub-server step (§1–§7) in one session, and record the results in the PR.
 - [ ] T098 Run the live steps in quickstart.md §8 with the keys available, and list every dialect not run live as "golden-fixture-tested only" in the PR.
 - [ ] T099 Run `release-and-publish.yml` with `dry_run: true`. Confirm that the prepare-release log shows the catalogue step, and that `cargo package --list` contains `assets/catalogue/api.json`.
-- [ ] T100 Write the PR description:
+- [X] T100 Write the PR description:
   - **Breaking changes**: Galadriel and Mira are dropped; YAML `providers` is removed; provider ids are renamed and legacy names are still accepted.
   - The baseline and dependency-count delta (T001, T052).
   - The suggested PATCH clarification to the constitution's Distribution constraint (research R13).
