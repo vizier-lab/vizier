@@ -9,7 +9,9 @@ Endpoints:
   POST /v1/messages          Anthropic Messages
   GET  /broken               {} (an invalid catalogue, for the refresh steps)
 
-Both completion endpoints reply `ECHO <compact JSON of the last user message's parts>`.
+Both completion endpoints reply `ECHO <compact JSON of the last user message's parts>
+images=<n> notes=<m>`, counting image parts and "cannot view images" notes in the whole
+conversation.
 When the last user text starts with `CALL <tool> <json>`, they answer with one call to
 <tool> instead. After a tool result, they reply `ECHO tool-result <content>`.
 
@@ -67,6 +69,21 @@ def anthropic_parts(content):
         else:
             parts.append({"type": kind})
     return parts
+
+
+def conversation_summary(messages, to_parts):
+    """` images=<n> notes=<m>`: image parts anywhere in the conversation, and the notes vizier
+    puts in place of images a model can't see."""
+    images = notes = 0
+    for m in messages:
+        if m.get("role") not in ("user", "tool"):
+            continue
+        for part in to_parts(m.get("content")):
+            if part.get("type") == "image":
+                images += 1
+            elif "cannot view images" in part.get("text", ""):
+                notes += 1
+    return f" images={images} notes={notes}"
 
 
 def parse_call(parts):
@@ -174,7 +191,7 @@ class Handler(BaseHTTPRequestHandler):
                     "function": {"name": name, "arguments": json.dumps(arguments)},
                 }]
             else:
-                message["content"] = f"ECHO {compact(parts)}"
+                message["content"] = f"ECHO {compact(parts)}" + conversation_summary(messages, openai_parts)
         return {
             "id": "chatcmpl-stub",
             "object": "chat.completion",
@@ -209,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
                 out = [{"type": "tool_use", "id": "toolu_stub_1", "name": name, "input": arguments}]
                 stop = "tool_use"
             else:
-                out = [{"type": "text", "text": f"ECHO {compact(parts)}"}]
+                out = [{"type": "text", "text": f"ECHO {compact(parts)}" + conversation_summary(messages, anthropic_parts)}]
                 stop = "end_turn"
         return {
             "id": "msg_stub",

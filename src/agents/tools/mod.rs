@@ -161,6 +161,10 @@ pub struct ToolContext {
     /// The turn's `VizierRequest::background_depth`, which `BackgroundJobs::launch` checks
     /// against `MAX_BACKGROUND_DEPTH`. 0 outside an ordinary chat turn.
     pub background_depth: u8,
+    /// Images a tool loaded for the model to see (`read_image_file`), however it was called —
+    /// directly, or from an `execute_python` script. The agent loop adds them to the
+    /// conversation after the round's tool results (FR-033).
+    pub loaded_images: Arc<Mutex<Vec<VizierAttachment>>>,
 }
 
 #[derive(Clone)]
@@ -934,14 +938,10 @@ async fn build_read_image_vision(
 
     let (provider, model) = match (provider, model) {
         (Some(p), Some(m)) if !m.trim().is_empty() => (p, m),
-        _ => {
-            tracing::warn!(
-                "read_image.enabled is true for agent {} but provider/model not set; \
-                falling back to attachment-injection flow",
-                agent_config.name
-            );
-            return None;
-        }
+        // FR-033: no vision model of its own, so images go to the main model as
+        // attachments. `llm::prepare` replaces them with a note for a model that can't see
+        // images, and agent health warns about that case.
+        _ => return None,
     };
 
     match crate::agents::agent::model::VizierModel::new_with_override(

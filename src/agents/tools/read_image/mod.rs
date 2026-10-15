@@ -129,18 +129,17 @@ impl VizierTool for ReadImageFile {
             });
         }
 
+        let loaded = format!("Loaded {} into context.", file.filename);
+        ctx.loaded_images.lock().await.push(crate::schema::VizierAttachment {
+            filename: file.filename,
+            content: crate::schema::VizierAttachmentContent::Base64(b64),
+        });
         Ok(VizierResponse {
             timestamp: Utc::now(),
             content: VizierResponseContent::ToolResponse {
-                response: serde_json::Value::String(format!(
-                    "Loaded {} into context.",
-                    file.filename
-                )),
+                response: serde_json::Value::String(loaded),
             },
-            attachments: vec![crate::schema::VizierAttachment {
-                filename: file.filename,
-                content: crate::schema::VizierAttachmentContent::Base64(b64),
-            }],
+            attachments: vec![],
             ..Default::default()
         })
     }

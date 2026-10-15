@@ -368,19 +368,19 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 **Independent Test**: quickstart.md §2 (the `ant-1` context-window and override rows, and the warning rows) and §3 (the `img-yes`/`img-no` agents against `stub_llm.py`).
 
-- [ ] T054 [US3] Add `model: Option<AgentModelInfo { provider: ProviderId, model: String, context_window: Option<u64>, max_output: Option<u64>, context_source: "override"|"catalogue"|"listing"|"name"|"unknown" }>` to `AgentHealthStatus` in `src/schema/commands.rs`. Fill it in `src/agents/supervisor.rs` from the agent's `ResolvedModel` when it is built, and show it in `vizier agent ps` (`src/cli/agent.rs`).
-- [ ] T055 [US3] In `src/llm/resolve.rs`, complete the R8 fallback chain past the catalogue: when the catalogue and overrides give no context window, call `list_models` on the built model (OpenRouter, OpenAI-style `/models` with `context_length`) or `ollama::show_context`, once per build, with a 5s timeout. Then fall back to `agents::agent::model::registry::detect_context_window`. Record `context_source` (depends on T054).
-- [ ] T056 [US3] Implement the FR-033 read-image rules in `src/agents/tools/mod.rs` (`build_read_image_vision`) and `src/agents/agent/mod.rs`, per the data-model.md §7 table:
+- [X] T054 [US3] Add `model: Option<AgentModelInfo { provider: ProviderId, model: String, context_window: Option<u64>, max_output: Option<u64>, context_source: "override"|"catalogue"|"listing"|"name"|"unknown" }>` to `AgentHealthStatus` in `src/schema/commands.rs`. Fill it in `src/agents/supervisor.rs` from the agent's `ResolvedModel` when it is built, and show it in `vizier agent ps` (`src/cli/agent.rs`).
+- [X] T055 [US3] In `src/llm/resolve.rs`, complete the R8 fallback chain past the catalogue: when the catalogue and overrides give no context window, call `list_models` on the built model (OpenRouter, OpenAI-style `/models` with `context_length`) or `ollama::show_context`, once per build, with a 5s timeout. Then fall back to `agents::agent::model::registry::detect_context_window`. Record `context_source` (depends on T054).
+- [X] T056 [US3] Implement the FR-033 read-image rules in `src/agents/tools/mod.rs` (`build_read_image_vision`) and `src/agents/agent/mod.rs`, per the data-model.md §7 table:
   - read-image enabled, no explicit vision model, and the main model's `caps.image_input != Some(false)`: images stay as attachments for the main model, and no vision model is built;
   - the same with `image_input == Some(false)`: `prepare` replaces the image with the note (T016), and the agent health gets the warning `read_image: main model cannot view images; configure a vision model`;
   - an explicit vision model keeps today's behaviour.
-- [ ] T057 [US3] Add `warnings: Vec<AgentWarning { code, message }>` to the create and update agent responses in `src/channels/http/api/v1/agents/mod.rs`, computed from the catalogue for `provider`/`model`:
+- [X] T057 [US3] Add `warnings: Vec<AgentWarning { code, message }>` to the create and update agent responses in `src/channels/http/api/v1/agents/mod.rs`, computed from the catalogue for `provider`/`model`:
   - `no_tool_calling` when `tool_call == Some(false)`;
   - `no_image_input` when read-image is enabled with no vision model and `image_input == Some(false)`;
   - `unknown_model` when the model is not in the catalogue and is not a custom-provider model.
 
   Warnings never block a save (FR-013, contract `http-api.md` § Agents).
-- [ ] T058 [US3] Run quickstart.md §2 (the context-window and warning rows) and §3 against `stub_llm.py`, and record the results in the PR (depends on T054–T057, and on T066 for the custom provider `stub`, so run it after US6's API or create the provider through the storage API in a test).
+- [X] T058 [US3] Run quickstart.md §2 (the context-window and warning rows) and §3 against `stub_llm.py`, and record the results in the PR (depends on T054–T057, and on T066 for the custom provider `stub`, so run it after US6's API or create the provider through the storage API in a test).
 
 **Checkpoint**: US1 and US3 both work. Agents use accurate limits, and images never fail a turn.
 

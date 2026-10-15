@@ -203,6 +203,23 @@ impl VizierAgent {
         })
     }
 
+    /// What this agent's model resolved to.
+    pub fn model_info(&self) -> &model::ModelInfo {
+        self.model.info()
+    }
+
+    /// Settings that work but likely aren't what was meant, for agent health.
+    pub fn health_warnings(&self) -> Vec<String> {
+        let mut warnings = vec![];
+        let read_image = &self.config.tools.read_image;
+        let explicit_vision = read_image.settings.provider.is_some()
+            && read_image.settings.model.as_deref().is_some_and(|m| !m.trim().is_empty());
+        if read_image.enabled && !explicit_vision && self.model.info().caps.image_input() == Some(false) {
+            warnings.push("read_image: main model cannot view images; configure a vision model".into());
+        }
+        warnings
+    }
+
     pub fn stt(&self) -> Option<&Arc<VizierStt>> {
         self.stt.as_ref()
     }
@@ -455,6 +472,7 @@ impl VizierAgent {
                 hooks.clone(),
                 false,
                 &ToolContext {
+                    loaded_images: Default::default(),
                     session: session.clone(),
                     pending_attachments: Arc::new(Mutex::new(vec![])),
                     hooks: hooks.clone(),
@@ -784,29 +802,20 @@ impl VizierAgent {
                     }
                 }
 
-                // For read_image_file with images: collect for separate user messages
-                // (most providers drop images from tool results)
-                let image_attachments: Vec<_> =
-                    if function_name == "read_image_file" && !tool_res.attachments.is_empty() {
-                        tool_res.attachments.drain(..).collect()
-                    } else {
-                        vec![]
-                    };
                 let response_content = tool_res
                     .to_tool_result(call_id.clone(), &self.global_workspace)
                     .map_err(|e| {
                         fail_turn(e, full_history.clone(), None, tool_responses.clone())
                     })?;
                 tool_responses.push(response_content);
-                for attachment in &image_attachments {
-                    pending_images.push(
-                        attachment
-                            .to_part(&self.global_workspace)
-                            .map_err(|e| {
-                                fail_turn(e, full_history.clone(), None, tool_responses.clone())
-                            })?,
-                    );
-                }
+            }
+
+            // Images the round's tools loaded go in separate user messages, since most
+            // providers drop images from tool results.
+            for attachment in ctx.loaded_images.lock().await.drain(..) {
+                pending_images.push(attachment.to_part(&self.global_workspace).map_err(|e| {
+                    fail_turn(e, full_history.clone(), None, tool_responses.clone())
+                })?);
             }
 
             if tool_responses.is_empty() {
@@ -1096,6 +1105,7 @@ impl VizierAgent {
                 hooks.clone(),
                 deps,
                 &ToolContext {
+                    loaded_images: Default::default(),
                     session,
                     pending_attachments: Arc::new(Mutex::new(vec![])),
                     hooks: hooks.clone(),
@@ -1297,19 +1307,12 @@ impl VizierAgent {
                         }
                     }
 
-                    // For read_image_file with images: collect for separate user messages
-                    // (most providers drop images from tool results)
-                    if function_name == "read_image_file" && !tool_res.attachments.is_empty() {
-                        let image_attachments: Vec<_> = tool_res.attachments.drain(..).collect();
-                        tool_responses
-                            .push(tool_res.to_tool_result(call_id.clone(), &self.global_workspace)?);
-                        for attachment in &image_attachments {
-                            pending_attachments.push(attachment.to_part(&self.global_workspace)?);
-                        }
-                    } else {
-                        tool_responses
-                            .push(tool_res.to_tool_result(call_id.clone(), &self.global_workspace)?);
-                    }
+                    tool_responses
+                        .push(tool_res.to_tool_result(call_id.clone(), &self.global_workspace)?);
+                }
+
+                for attachment in ctx.loaded_images.lock().await.drain(..) {
+                    pending_attachments.push(attachment.to_part(&self.global_workspace)?);
                 }
 
                 if tool_responses.is_empty() {

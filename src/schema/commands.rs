@@ -24,6 +24,22 @@ pub struct AgentHealthStatus {
     /// The agent's Discord and Telegram readers, while it is running (#50).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub channels: Vec<ChannelHealth>,
+    /// What the agent's model resolved to, once it has been built (spec 015, SC-004).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<AgentModelInfo>,
+    /// Configuration that works but probably isn't what was meant (FR-033).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+/// The model an agent runs on, with its effective limits and where they came from.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AgentModelInfo {
+    pub provider: crate::config::provider::ProviderId,
+    pub model: String,
+    pub context_window: Option<u64>,
+    pub max_output: Option<u64>,
+    pub context_source: crate::llm::ContextSource,
 }
 
 /// One of an agent's platform readers, as its health reports it.

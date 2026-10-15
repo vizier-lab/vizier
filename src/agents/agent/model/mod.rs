@@ -121,6 +121,7 @@ impl VizierModel {
             max_tokens: agent_config.max_tokens,
         };
         let mut resolved = llm::resolve::resolve(deps, &provider, &model, &overrides).await?;
+        llm::resolve::fill_context_from_provider(&mut resolved, &deps.http).await;
         if resolved.context_window.is_none()
             && let Some(window) = registry::detect_context_window(&model)
         {

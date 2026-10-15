@@ -21,7 +21,7 @@ pub use agent::{
     ReadImageToolSettings, SttToolSettings, ToolConfig, TtsToolSettings,
 };
 pub use commands::{
-    AgentCommand, AgentCommandResult, AgentHealthStatus, AgentRunState, AgentSummary,
+    AgentCommand, AgentCommandResult, AgentHealthStatus, AgentModelInfo, AgentRunState, AgentSummary,
     ChannelHealth, ChannelPlatform, ChannelState,
     CommandRequest, CommandResponse, FileCommand, MemoryOpEnvelope, MemoryOpRequest,
     MemoryOpResponse,

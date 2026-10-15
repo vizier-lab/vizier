@@ -480,12 +480,39 @@ impl CreateAgentRequest {
     }
 }
 
+/// A saved agent, with anything about its model worth knowing (contract `http-api.md` §
+/// Agents).
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct AgentSaved {
+    #[serde(flatten)]
+    pub summary: AgentSummary,
+    pub warnings: Vec<crate::catalogue::AgentWarning>,
+}
+
+async fn saved_with_warnings(
+    state: &HTTPState,
+    config: &crate::schema::AgentConfig,
+    summary: AgentSummary,
+) -> AgentSaved {
+    use crate::storage::provider::CustomProviderStorage;
+    let custom = state
+        .storage
+        .get_custom_provider(&config.provider)
+        .await
+        .ok()
+        .flatten();
+    AgentSaved {
+        summary,
+        warnings: crate::catalogue::agent_warnings(&state.catalogue, custom.as_ref(), config),
+    }
+}
+
 #[utoipa::path(
     post,
     path = "/agents",
     request_body = CreateAgentRequest,
     responses(
-        (status = 201, description = "Agent created", body = APIResponse<AgentSummary>),
+        (status = 201, description = "Agent created", body = APIResponse<AgentSaved>),
         (status = 400, description = "Bad request", body = APIResponse<String>)
     )
 )]
@@ -493,7 +520,7 @@ async fn create_agent(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<CreateAgentRequest>,
-) -> models::response::Response<AgentSummary> {
+) -> models::response::Response<AgentSaved> {
     if let Some(emb) = &body.embedding {
         if emb.model.trim().is_empty() {
             return err_response(StatusCode::BAD_REQUEST, "embedding.model is required".into());
@@ -503,6 +530,7 @@ async fn create_agent(
     let agent_id = body.agent_id.clone();
     let mut config = body.into_config();
     config.owner_id = Some(user.user_id);
+    let saved = config.clone();
 
     let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
 
@@ -520,7 +548,9 @@ async fn create_agent(
     }
 
     match resp_rx.await {
-        Ok(AgentCommandResult::Ok(summary)) => api_response(StatusCode::CREATED, summary),
+        Ok(AgentCommandResult::Ok(summary)) => {
+            api_response(StatusCode::CREATED, saved_with_warnings(&state, &saved, summary).await)
+        }
         Ok(AgentCommandResult::Error(e)) => err_response(StatusCode::BAD_REQUEST, e),
         Err(_) => err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -537,7 +567,7 @@ async fn create_agent(
     ),
     request_body = CreateAgentRequest,
     responses(
-        (status = 200, description = "Agent updated", body = APIResponse<AgentSummary>),
+        (status = 200, description = "Agent updated", body = APIResponse<AgentSaved>),
         (status = 404, description = "Agent not found", body = APIResponse<String>)
     )
 )]
@@ -546,7 +576,7 @@ async fn update_agent(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<CreateAgentRequest>,
-) -> models::response::Response<AgentSummary> {
+) -> models::response::Response<AgentSaved> {
     if let Some(emb) = &body.embedding {
         if emb.model.trim().is_empty() {
             return err_response(StatusCode::BAD_REQUEST, "embedding.model is required".into());
@@ -568,6 +598,7 @@ async fn update_agent(
 
     config.owner_id = existing.owner_id;
     config.shared_to = existing.shared_to;
+    let saved = config.clone();
 
     let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
 
@@ -585,7 +616,9 @@ async fn update_agent(
     }
 
     match resp_rx.await {
-        Ok(AgentCommandResult::Ok(summary)) => api_response(StatusCode::OK, summary),
+        Ok(AgentCommandResult::Ok(summary)) => {
+            api_response(StatusCode::OK, saved_with_warnings(&state, &saved, summary).await)
+        }
         Ok(AgentCommandResult::Error(e)) => err_response(StatusCode::BAD_REQUEST, e),
         Err(_) => err_response(
             StatusCode::INTERNAL_SERVER_ERROR,

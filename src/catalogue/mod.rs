@@ -283,6 +283,37 @@ mod tests {
         assert!(c.find_model_by_id("missing", None).is_none());
     }
 
+    fn agent_config(provider: &str, model: &str, read_image: bool) -> crate::schema::AgentConfig {
+        serde_json::from_value(serde_json::json!({
+            "name": "a", "system_prompt": null, "description": null,
+            "provider": provider, "model": model, "thinking_depth": 5,
+            "tools": {"timeout": "30s", "read_image": {"enabled": read_image, "settings": {}}},
+            "silent_read_initiative_chance": 0.0, "prompt_timeout": "60s", "heartbeat_interval": "60s"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn agent_warnings_flag_tools_vision_and_unknown_models() {
+        let c = catalogue();
+        let codes = |cfg| -> Vec<&'static str> {
+            agent_warnings(&c, None, &cfg).into_iter().map(|w| w.code).collect()
+        };
+        assert!(codes(agent_config("acme", "new", true)).is_empty(), "image input unknown counts as supported");
+        assert_eq!(codes(agent_config("acme", "notools", false)), vec!["no_tool_calling"]);
+        assert_eq!(codes(agent_config("acme", "my-unlisted", false)), vec!["unknown_model"]);
+        assert!(codes(agent_config("dummyplug", "dummyplug", false)).is_empty(), "built-ins list live");
+
+        let text_only = Catalogue::new(
+            data::parse(br#"{"acme": {"id": "acme", "name": "A", "npm": "@ai-sdk/openai-compatible", "api": "https://a/v1",
+                "models": {"t": {"id": "t", "tool_call": true, "modalities": {"input": ["text"]}}}}}"#)
+            .unwrap(),
+        );
+        let w = agent_warnings(&text_only, None, &agent_config("acme", "t", true));
+        assert_eq!(w.iter().map(|w| w.code).collect::<Vec<_>>(), vec!["no_image_input"]);
+        assert!(agent_warnings(&text_only, None, &agent_config("acme", "t", false)).is_empty());
+    }
+
     #[test]
     fn swap_replaces_what_readers_see() {
         let c = catalogue();
@@ -291,4 +322,71 @@ mod tests {
         assert!(c.snapshot().providers.is_empty());
         assert!(!before.providers.is_empty(), "an old snapshot is unchanged");
     }
+}
+
+/// A setting that saves but probably isn't what was meant (FR-013, FR-035). Never blocks a
+/// save.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+pub struct AgentWarning {
+    pub code: &'static str,
+    pub message: String,
+}
+
+/// The warnings for an agent's chosen model, from what the catalogue (or the custom
+/// provider's own row) says about it.
+pub fn agent_warnings(
+    catalogue: &Catalogue,
+    custom: Option<&CustomProvider>,
+    config: &crate::schema::AgentConfig,
+) -> Vec<AgentWarning> {
+    let mut out = vec![];
+    let (tool_call, image_input, known) = match custom.filter(|c| c.id == config.provider) {
+        Some(c) => {
+            let row = c.models.iter().find(|m| m.id == config.model);
+            let borrowed = catalogue.find_model_by_id(&config.model, None);
+            (
+                row.and_then(|r| r.tool_call)
+                    .or_else(|| borrowed.as_ref().and_then(|m| m.caps.tool_call)),
+                row.and_then(|r| r.image_input)
+                    .or_else(|| borrowed.as_ref().and_then(|m| m.caps.image_input())),
+                true,
+            )
+        }
+        None => match catalogue.model(&config.provider, &config.model) {
+            Some(m) => (m.caps.tool_call, m.caps.image_input(), true),
+            // Built-ins list their models live; there is nothing to check them against.
+            None => (None, None, builtin::builtin(&config.provider).is_some()),
+        },
+    };
+    if tool_call == Some(false) {
+        out.push(AgentWarning {
+            code: "no_tool_calling",
+            message: format!(
+                "{} can't call tools; the agent will only be able to answer in text",
+                config.model
+            ),
+        });
+    }
+    let read_image = &config.tools.read_image;
+    let explicit_vision = read_image.settings.provider.is_some()
+        && read_image.settings.model.as_deref().is_some_and(|m| !m.trim().is_empty());
+    if read_image.enabled && !explicit_vision && image_input == Some(false) {
+        out.push(AgentWarning {
+            code: "no_image_input",
+            message: format!(
+                "{} can't view images; configure a vision model for read-image",
+                config.model
+            ),
+        });
+    }
+    if !known {
+        out.push(AgentWarning {
+            code: "unknown_model",
+            message: format!(
+                "{} isn't in the catalogue for {}; it will be used as typed",
+                config.model, config.provider
+            ),
+        });
+    }
+    out
 }

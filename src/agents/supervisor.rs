@@ -102,6 +102,8 @@ pub struct AgentStatus {
     pub last_error: Option<String>,
     pub failures: u32,
     pub next_retry_at: Option<chrono::DateTime<Utc>>,
+    pub model: Option<crate::schema::AgentModelInfo>,
+    pub warnings: Vec<String>,
 }
 
 pub type SharedStatus = Arc<RwLock<AgentStatus>>;
@@ -125,6 +127,8 @@ impl AgentStatus {
             last_error: status.last_error,
             failures: status.failures,
             next_retry_at: status.next_retry_at,
+            model: status.model,
+            warnings: status.warnings,
         }
     }
 }
@@ -165,10 +169,21 @@ impl Supervisor {
                     if failures > 0 {
                         tracing::info!(agent_id = %self.agent_id, "agent recovered");
                     }
+                    let info = built.agent.model_info();
+                    let model = Some(crate::schema::AgentModelInfo {
+                        provider: info.provider.clone(),
+                        model: info.model.clone(),
+                        context_window: info.context_window,
+                        max_output: info.max_output,
+                        context_source: info.context_source,
+                    });
+                    let warnings = built.agent.health_warnings();
                     set_status(&self.status, |s| {
                         *s = AgentStatus {
                             state: AgentRunState::Running,
                             failures: s.failures,
+                            model,
+                            warnings,
                             ..Default::default()
                         }
                     });
@@ -202,6 +217,7 @@ impl Supervisor {
                     next_retry_at: chrono::Duration::from_std(wait)
                         .ok()
                         .map(|w| Utc::now() + w),
+                    ..Default::default()
                 }
             });
 

@@ -53,6 +53,8 @@ impl VizierChannel for HTTPChannel {
             storage: self.deps.storage.clone(),
             transport: self.deps.transport.clone(),
             background_jobs: self.deps.background_jobs.clone(),
+            catalogue: self.deps.catalogue.clone(),
+            deps: self.deps.clone(),
         };
 
         let mut app = Router::new()

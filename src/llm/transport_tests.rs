@@ -235,3 +235,30 @@ async fn copilot_refreshes_its_token_after_a_401() {
     assert_eq!(seen.seen[3].1["authorization"], "Bearer tok-2");
     assert_eq!(seen.seen[3].1["x-initiator"], "user");
 }
+
+#[tokio::test]
+async fn a_missing_context_window_is_read_from_the_model_listing() {
+    let listing = reply(200, json!({"data": [
+        {"id": "other", "context_length": 1},
+        {"id": "m", "context_length": 131072}
+    ]}));
+    let (url, state) = server(vec![listing]).await;
+    let mut resolved = ResolvedModel {
+        base_url: url,
+        ..ResolvedModel::test("m")
+    };
+    super::resolve::fill_context_from_provider(&mut resolved, &reqwest::Client::new()).await;
+    assert_eq!(resolved.context_window, Some(131072));
+    assert_eq!(resolved.context_source, super::resolve::ContextSource::Listing);
+    assert_eq!(state.lock().unwrap().seen[0].0, "/models");
+
+    // A known window is never looked up.
+    let (url, state) = server(vec![]).await;
+    let mut known = ResolvedModel {
+        base_url: url,
+        context_window: Some(5),
+        ..ResolvedModel::test("m")
+    };
+    super::resolve::fill_context_from_provider(&mut known, &reqwest::Client::new()).await;
+    assert!(state.lock().unwrap().seen.is_empty());
+}

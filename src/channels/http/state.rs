@@ -13,6 +13,10 @@ pub struct HTTPState {
     pub transport: VizierTransport,
     pub storage: Arc<VizierStorage>,
     pub background_jobs: BackgroundJobs,
+    /// The provider and model catalogue (spec 015).
+    pub catalogue: crate::catalogue::Catalogue,
+    /// For the catalogue and providers APIs, which resolve models and reach providers.
+    pub deps: crate::dependencies::VizierDependencies,
 }
 
 impl HTTPState {

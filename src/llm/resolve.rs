@@ -405,6 +405,46 @@ fn resolve_custom(
     resolved
 }
 
+/// The R8 fallback past the catalogue: when neither the agent nor the catalogue gives a context
+/// window, ask the provider once, within 5s: Ollama's `/api/show`, or the model listing
+/// (OpenRouter and many OpenAI-compatible servers report `context_length`, Gemini
+/// `inputTokenLimit`). Never fails; the caller falls back to name detection.
+pub async fn fill_context_from_provider(resolved: &mut ResolvedModel, http: &reqwest::Client) {
+    if resolved.context_window.is_some() {
+        return;
+    }
+    let found = match resolved.dialect {
+        DialectKind::Ollama => {
+            super::dialect::ollama::show_context(http, &resolved.base_url, &resolved.model).await
+        }
+        _ => {
+            let model = super::build(
+                resolved.clone(),
+                http.clone(),
+                crate::schema::agent::CompletionRetryConfig::default(),
+            );
+            match tokio::time::timeout(std::time::Duration::from_secs(5), model.list_models()).await {
+                Ok(Ok(models)) => models
+                    .into_iter()
+                    .find(|m| m.id == resolved.model)
+                    .and_then(|m| m.context),
+                Ok(Err(e)) => {
+                    tracing::debug!(provider = %resolved.provider, "model listing for the context window failed: {e}");
+                    None
+                }
+                Err(_) => {
+                    tracing::debug!(provider = %resolved.provider, "model listing for the context window timed out");
+                    None
+                }
+            }
+        }
+    };
+    if let Some(window) = found {
+        resolved.context_window = Some(window);
+        resolved.context_source = ContextSource::Listing;
+    }
+}
+
 /// The env vars a provider's credentials may come from: the catalogue's, or a built-in's.
 pub fn provider_env(catalogue: &Catalogue, provider: &ProviderId) -> Vec<String> {
     catalogue

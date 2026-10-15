@@ -441,6 +441,7 @@ async fn refresh_session_detail(
         request_prompt
     );
     let ctx = ToolContext {
+        loaded_images: Default::default(),
         session,
         pending_attachments: Arc::new(Mutex::new(vec![])),
         hooks: None,
@@ -821,6 +822,7 @@ async fn run_checkpoint(
     let messages = history_entries_to_messages(&history);
     let reactions = crate::agents::agent::system_prompt::reactions::reaction_digest(&history, 0);
     let ctx = ToolContext {
+        loaded_images: Default::default(),
         session: session.clone(),
         pending_attachments: Arc::new(Mutex::new(vec![])),
         hooks: None,

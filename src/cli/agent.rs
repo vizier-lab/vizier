@@ -73,6 +73,19 @@ fn ps(config_path: Option<std::path::PathBuf>) -> Result<()> {
                         AgentRunState::Stopped => ("\u{25cb} stopped", r),
                     };
                     println!("  {:<20} {}{}{}", status.agent_id, color, indicator, reset);
+                    if let Some(model) = &status.model {
+                        let context = model
+                            .context_window
+                            .map(|w| format!("context {w} ({:?})", model.context_source).to_lowercase())
+                            .unwrap_or_else(|| "context unknown".into());
+                        println!(
+                            "  {:<20} {}{}/{} · {}{}",
+                            "", d, model.provider, model.model, context, reset
+                        );
+                    }
+                    for warning in &status.warnings {
+                        println!("  {:<20} {}! {}{}", "", y, warning, reset);
+                    }
                     if let Some(error) = &status.last_error {
                         let retry = status
                             .next_retry_at

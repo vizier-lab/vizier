@@ -86,3 +86,21 @@ a YAML `providers.openrouter`) and clearing the migration marker. 19/19 and 3/3 
   `Retry-After: 2` waited ≥ 2 s (`wait_ms=2000+` in the log) and answered;
 - a custom-provider agent ran a full tool loop through the stub over HTTP (`CALL …` → tool
   runs → `ECHO tool-result …`).
+
+## US3 (T054–T058), with `fixtures/e2e/capabilities.py` — 8/8
+
+- `ant-1` on `anthropic/claude-sonnet-4-5` with no override: health `model.context_window`
+  200000, `context_source: catalogue`; with `context_window: 50000`: 50000, `override`.
+- Saving an agent on `openai/gpt-3.5-turbo` (catalogue `tool_call: false`) returns
+  `warnings: [no_tool_calling]`; on `anthropic/my-unlisted-model`, `[unknown_model]`.
+- Custom provider `stub` with `stub-vision` (`image_input: true`) and `stub-tools` (`false`),
+  both agents with read-image on and no vision model: the image reaches `stub-vision`; for
+  `stub-tools` the turn succeeds and the model gets "[image attached: dot.png, but this model
+  cannot view images]"; `img-no` health warns `read_image: main model cannot view images;
+  configure a vision model`; with `stub/stub-vision` as the vision model, the description comes
+  back as before.
+- **Found and fixed while testing**: since code mode (014) the model can only call
+  `read_image_file` from an `execute_python` script, and the loop only forwarded images when the
+  outer tool was `read_image_file` itself — so images loaded from a script were filed as session
+  files and never shown to the model. `read_image_file` now hands its image to the turn through
+  `ToolContext.loaded_images`, which the loop drains after each round, whichever way it was called.
