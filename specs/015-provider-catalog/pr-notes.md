@@ -62,3 +62,27 @@ Each is a named normaliser in `src/llm/dialect/golden_tests.rs` or noted in
   than in `global_config`, whose rows are typed.
 - The provider-id migration also matches a saved base URL by host when no catalogue `api` is
   equal (`api.minimax.cn/v1` → `minimax-cn`), as the contract's examples need.
+
+## Quickstart §1 and §5 (T053), with `fixtures/e2e/upgrade.py` and `retry.py`
+
+A pre-015 workspace was simulated by planting legacy rows (tagged `ProviderEntryConfig` JSON
+under legacy names; agents on `gemini`, `custom`, `galadriel`, `moonshot` + `api.moonshot.cn`;
+a YAML `providers.openrouter`) and clearing the migration marker. 19/19 and 3/3 checks passed:
+
+- log lines `provider 'gemini' → 'google'`, `'moonshot' → 'moonshotai-cn'`, `custom` → custom
+  provider, galadriel credentials deleted, per-agent rewrites, and
+  `providers.openrouter is ignored; set OPENROUTER_API_KEY or add it in Settings › Providers`;
+- health: `gal-old` failed with `provider "galadriel" is not available; pick another provider`;
+  `dp-old`, `cus-old`, `moon-old` alive. `gem-old` was refused at startup by Google's real API
+  ("API key not valid") when its Gemini embeddings were built with the planted dummy key — the
+  new request path working end to end;
+- `GET /providers` lists `google` and `moonshotai-cn`, not `openrouter` or `galadriel`; the
+  `custom` custom provider holds the old base URL;
+- a second restart logs no migration lines (idempotent);
+- `PUT /agents/gem-old` with `"provider": "gemini"` reads back `google` (old client);
+- dummyplug (008/014): `tools` lists the 4 code-mode tools, the `execute_python` request
+  returns `"ok": true`, `context` echoes the context block;
+- §5: an agent on a custom provider whose headers make the stub answer `429` with
+  `Retry-After: 2` waited ≥ 2 s (`wait_ms=2000+` in the log) and answered;
+- a custom-provider agent ran a full tool loop through the stub over HTTP (`CALL …` → tool
+  runs → `ECHO tool-result …`).

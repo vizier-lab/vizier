@@ -70,19 +70,20 @@ def anthropic_parts(content):
 
 
 def parse_call(parts):
-    """`CALL <tool> <json>` in the first text part → (tool, args) or None."""
+    """A line `CALL <tool> <json>` in any text part → (tool, args) or None. Any line, because
+    vizier puts its context block and the channel frontmatter ahead of what the person typed."""
     for part in parts:
-        if part.get("type") == "text":
-            text = part.get("text", "").strip()
-            if text.startswith("CALL "):
-                rest = text[len("CALL "):].strip()
-                name, _, args = rest.partition(" ")
+        if part.get("type") != "text":
+            continue
+        for line in part.get("text", "").splitlines():
+            line = line.strip()
+            if line.startswith("CALL "):
+                name, _, args = line[len("CALL "):].strip().partition(" ")
                 try:
                     arguments = json.loads(args) if args.strip() else {}
                 except ValueError:
                     arguments = {"raw": args}
                 return name, arguments
-            return None
     return None
 
 

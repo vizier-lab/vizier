@@ -356,7 +356,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - `grep -rn "rig_core\|rig::" src` is empty;
   - `cargo build`, `cargo test` and `cargo clippy` pass;
   - the `cargo tree -e normal | wc -l` delta is recorded in the PR (depends on T039–T051).
-- [ ] T053 [US1] Run quickstart.md §1 by hand: upgrade a `master` workspace, check the log lines, health, `vizier agent ps` and provider rows, restart for idempotence, and confirm the old-client `PUT`. Run §5 (Retry-After via `stub_llm.py`) and the 008 and 014 dummyplug scripts, all unchanged. Record the results in the PR (depends on T052).
+- [X] T053 [US1] Run quickstart.md §1 by hand: upgrade a `master` workspace, check the log lines, health, `vizier agent ps` and provider rows, restart for idempotence, and confirm the old-client `PUT`. Run §5 (Retry-After via `stub_llm.py`) and the 008 and 014 dummyplug scripts, all unchanged. Record the results in the PR (depends on T052).
 
 **Checkpoint**: rig is gone. Every pre-existing agent works on the new layer. This is the MVP: it ships issue #69 on its own.
 
