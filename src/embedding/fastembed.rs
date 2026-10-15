@@ -2,16 +2,14 @@
 
 use std::sync::Arc;
 
-use parking_lot::Mutex;
-
 pub use fastembed::EmbeddingModel as FastembedModel;
-use fastembed::{TextEmbedding, TextInitOptions};
+use fastembed::{InitOptions, TextEmbedding};
 
 use crate::{embedding::VizierEmbeddingModel, utils::build_path};
 
 #[derive(Clone)]
 pub struct LocalEmbedder {
-    embedder: Arc<Mutex<TextEmbedding>>,
+    embedder: Arc<TextEmbedding>,
 }
 
 impl LocalEmbedder {
@@ -22,13 +20,13 @@ impl LocalEmbedder {
         let info = TextEmbedding::get_model_info(model)
             .map_err(|e| anyhow::anyhow!("unknown local embedding model: {e}"))?;
         let cache = build_path(workspace, &[".runtime", "embeddings", &info.model_code]);
-        let opts = TextInitOptions::new(model.to_owned())
+        let opts = InitOptions::new(model.to_owned())
             .with_show_download_progress(true)
             .with_cache_dir(cache);
         let embedder = TextEmbedding::try_new(opts)
             .map_err(|e| anyhow::anyhow!("cannot load the local embedding model: {e}"))?;
         Ok(Self {
-            embedder: Arc::new(Mutex::new(embedder)),
+            embedder: Arc::new(embedder),
         })
     }
 }
@@ -44,7 +42,6 @@ impl VizierEmbeddingModel for LocalEmbedder {
     async fn embed_texts(&self, documents: Vec<String>) -> anyhow::Result<Vec<Vec<f64>>> {
         let vectors = self
             .embedder
-            .lock()
             .embed(documents, None)
             .map_err(|e| anyhow::anyhow!("local embeddings: {e}"))?;
         Ok(vectors
