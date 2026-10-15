@@ -107,7 +107,7 @@ Built-in providers, which are not in the catalogue, are defined in code with the
 | `ollama` | local | native `ollama` |
 | `llama-cpp` | local | `openai_chat` |
 | `chatgpt` | subscription | `openai_responses` over SSE |
-| `dummyplug` | offline test provider | its own `CompletionProvider` |
+| `dummyplug` | offline test provider | its own `CompletionModel` |
 | `elevenlabs`, `voyageai`, `hyperbolic` | credentials only, used for media and embeddings (FR-016a) | none, never offered for chat |
 
 `galadriel` and `mira` map to nothing. Agents that use them fail with a clear message (Story 1, scenario 4).
@@ -162,24 +162,32 @@ Anthropic automatic prompt caching is a behaviour of the `anthropic` dialect, so
 
 ## R7. Our own message types, and the reasoning round-trip
 
-**Decision**: Add `src/llm/types.rs`:
+**Decision**: Write `src/llm/types.rs` around how vizier actually calls the model, rather than mirroring rig's types. The shapes, and the ten simplifications S1–S10, are in [contracts/provider-layer.md](contracts/provider-layer.md). In short:
 
-- `Message` with three variants: `System`, `User(Vec<UserPart>)` and `Assistant{id, content: Vec<AssistantPart>}`;
-- `UserPart` and `AssistantPart`, the latter including `Reasoning{text, signature, provider_data}`;
-- `ToolDefinition{name, description, parameters}`, `ToolChoice{Auto, None}` and `Usage`, with the same field names as rig.
+- **One `messages` list**, with no separate "prompt" message (S3).
+- **`Message::ToolResult` as its own kind** (S4). This matches the one-entry-per-call shape of `SessionHistoryContent`, so `history.rs` loses its grouping logic.
+- **One tool-call id** (S5).
+- **One `Part::Attachment { mime, data }`** (S6), handled by capability in a single `prepare` step.
+- **`tool_choice` on the request**, replacing the `answer_only` method (S7).
+- **System messages allowed anywhere**, normalised once per dialect style (S8).
 
-The non-empty rule rig enforced with `OneOrMany` is now checked where messages are built.
+`ToolDefinition` JSON and `Usage` field names stay identical to rig's on purpose: the sandbox docs, the 014 fixtures and token accounting depend on them.
 
-Persisted history still drops reasoning, as it does today. Inside one turn, reasoning stays in memory and each dialect sends it back:
+Persisted history still drops reasoning, as it does today. Within a turn, `AssistantPart::Reasoning { text, provider_data }` stays in memory, and each dialect sends it back:
 
-- **Anthropic**: thinking blocks, with their signatures.
-- **DeepSeek, over `openai_chat`**: the `reasoning_content` field.
-- **Responses**: reasoning items.
+- **Anthropic**: thinking signatures.
+- **DeepSeek**: `reasoning_content`.
+- **Responses**: encrypted reasoning items.
 - **Gemini**: `thoughtSignature`.
 
-**Rationale**: History never stored rig types (`SessionHistoryContent` is our own), so no data changes. Sending reasoning back within a turn is required by Anthropic and DeepSeek for tool loops with thinking enabled, and rig did it implicitly.
+**Rationale**:
+- History never stored rig types, so no data changes.
+- Anthropic and DeepSeek require the reasoning round-trip in tool loops with thinking enabled.
+- Shaping the types to vizier's own history removes conversion code instead of moving it.
 
-**Alternatives**: Keep rig's types and remove only its transport. That leaves the dependency in place, which is the point of #69.
+**Alternatives**:
+- *Port rig's types one-to-one*: keeps the `OneOrMany`, tool-results-inside-`User` and `id`/`call_id` complexity that vizier never needed.
+- *Keep rig's types and remove only its transport*: leaves the dependency in place, which is the point of #69.
 
 ## R8. Effective context window and max output (FR-012, FR-032)
 

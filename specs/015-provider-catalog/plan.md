@@ -77,8 +77,8 @@ End to end: dummyplug agent steps plus the stdlib `fixtures/stub_llm.py` in [qui
 
 | Principle | Assessment |
 |---|---|
-| **I. Lean by Default** | ✅ Net removal: rig (a 43k-line dependency), about 50 near-identical provider match arms and builder impls, the 29-variant `ProviderEntryConfig`, the duplicate agent form, and the hard-coded WebUI model lists. No new crates: SSE is parsed by hand (R6), zip handling and the transport-test server are already dependencies. No streaming API and no speculative abstractions; each trait has at least two real implementations (`CompletionProvider` ×5 dialects plus dummyplug, `CredentialSource` ×3). |
-| **II. DRY via Trait-Based Extensibility** | ✅ Wire formats are `CompletionProvider` impls, and providers are **data** (catalogue rows plus a small base-URL table). Adding a provider means a catalogue update, or a custom provider in the UI, with no code. Quirks are `CredentialSource` impls and endpoint rules, never `if provider == …` in dialect code (R5). Media providers stay curated enums with one `credentials()` mapping table (data-model §8); their media-specific dispatch is unchanged in this feature. |
+| **I. Lean by Default** | ✅ The layer is deliberately not a port of rig's API: it covers only vizier's slice, with ten simplifications (contract S1–S10). Net removal: rig (a 43k-line dependency), about 50 near-identical provider match arms and builder impls, the 29-variant `ProviderEntryConfig`, the duplicate agent form, and the hard-coded WebUI model lists. No new crates: SSE is parsed by hand (R6), zip handling and the transport-test server are already dependencies. No streaming API and no speculative abstractions. Each trait has at least two real implementations: `CompletionModel` ×3, `Dialect` ×5, `CredentialSource` ×3. No duplicate media trait layer: the media clients implement the existing `Vizier*Model` traits (S9). |
+| **II. DRY via Trait-Based Extensibility** | ✅ Wire formats are pure `Dialect` impls behind one shared `HttpModel<D>`, so HTTP, auth and errors are written once (S1). Capability handling and system-message normalisation live in one `prepare` step (S6, S8). Providers are **data** (catalogue rows plus a small base-URL table). Adding a provider means a catalogue update, or a custom provider in the UI, with no code. Quirks are `CredentialSource` impls and endpoint rules, never `if provider == …` in dialect code (R5). Media providers stay curated enums with one `credentials()` mapping table (data-model §8); their media-specific dispatch is unchanged in this feature. |
 | **III. Self-Contained Runtime** | ✅ **The catalogue and logos are embedded**, so the binary works offline and on first start. **Background refresh is on by default.** The project owner ruled on 2026-10-15 that it complies (R13): it fetches metadata only, is never required, and degrades silently to local data, so local-first behaviour is unaffected. It can be turned off with `catalogue.refresh: false`. The Distribution constraint's literal wording ("MUST be gated behind explicit user configuration") reads more strictly than that ruling. A PATCH clarification to `constitution.md` is recommended as a follow-up so reviewers don't flag it again. Logos are served from the binary, so the WebUI makes no third-party requests. |
 | **IV. Portability** | ✅ Pure Rust over `reqwest`/rustls, and no OS-specific code. Catalogue files go through the existing workspace path helpers (`utils::build_path`). The update script is stdlib Python, used at release time only. |
 | **V. Unified Errors & Observability** | ✅ `LlmError` converts into `VizierError`, and the `ErrorKind` prefixes are kept. Migration, refresh and validation outcomes are logged with `tracing`, and keys are redacted from request debug logs. The `expect("failed to create … client")` calls in today's media constructors are removed. |
@@ -120,17 +120,17 @@ scripts/catalogue_update.py               # NEW release-time snapshot builder (s
 justfile                                  # + catalogue-update recipe
 
 src/llm/                                  # NEW — agent-agnostic provider layer (replaces rig)
-├── mod.rs                                # traits: CompletionProvider, CredentialSource, Embedding/Stt/Tts/ImageGenProvider
-├── types.rs                              # Message, parts, ToolDefinition, ToolChoice, Usage, request/response
+├── mod.rs                                # CompletionModel trait; build(resolved) → VizierModel
+├── types.rs                              # Message (incl. ToolResult), Part::Attachment, AssistantPart, ToolDefinition, Usage, request/response
 ├── error.rs                              # LlmError (+ From for VizierError)
 ├── http.rs                               # shared reqwest client, send_json/send_multipart, status→LlmError, redaction
 ├── sse.rs                                # whole-body SSE parser (ChatGPT)
+├── auth.rs                               # CredentialSource: StaticKey, CopilotExchange, ChatGptAccount
 ├── resolve.rs                            # (ProviderId, model, overrides) → ResolvedModel
-├── auth.rs                               # StaticKey, CopilotExchange, ChatGptAccount
-├── dialect/{openai_chat,openai_responses,anthropic,gemini,ollama}.rs + fixtures/
-├── embed/{openai,gemini,cohere,ollama}.rs
-├── audio/{openai_stt,gemini_stt,hf_stt,openai_tts,hyperbolic_tts}.rs
-└── image/{openai,hyperbolic,hf}.rs
+├── model.rs                              # HttpModel<D: Dialect>, RetryingModel<M> (retry logic moves here from agents/…/retry.rs)
+├── prepare.rs                            # attachments by capability (FR-013) + normalize_system (3 styles)
+├── dialect/{mod,openai_chat,openai_responses,anthropic,gemini,ollama}.rs + fixtures/   # pure encode/decode
+└── media/{openai_shaped,gemini,cohere,ollama,hyperbolic,huggingface}.rs   # implement Vizier*Model traits directly
 
 src/catalogue/                            # NEW
 ├── mod.rs                                # Catalogue handle (Arc<RwLock<Arc<CatalogueData>>>), queries for pickers
@@ -145,12 +145,13 @@ src/provider_keys.rs                      # collapses to credential lookup: save
 src/schema/provider.rs                    # ProviderEntryConfig → ProviderCredentials; CustomProvider, CustomModel
 src/storage/provider.rs, storage/sqlite/provider.rs   # ProviderId keys; + CustomProviderStorage, custom_provider table
 src/dependencies.rs                       # + catalogue load, http client; provider-id migration; migrate_providers removed
-src/agents/agent/model/                   # mod.rs shrinks to resolve→dialect→retry; provider.rs DELETED;
-                                          #   retry.rs on LlmError (+Retry-After); registry.rs kept as last fallback; dummyplug on new types
-src/schema/{request,response,history}.rs, agents/process.rs, agents/agent/mod.rs,
+src/agents/agent/model/                   # mod.rs: VizierModel = Arc<dyn CompletionModel> via llm::resolve + llm::build;
+                                          #   provider.rs and retry.rs DELETED (retry → llm::model::RetryingModel);
+                                          #   registry.rs kept as last fallback; dummyplug implements CompletionModel
+src/schema/{request,response,history}.rs, agents/process.rs, agents/agent/mod.rs,   # history.rs: tool-result grouping deleted (1:1 mapping)
 src/agents/agent/system_prompt/context.rs, agents/tools/{mod,read_image/mod}.rs,
 src/agents/mcp/mod.rs, sandbox/docs.rs     # rig types → llm::types; FR-013 image note; FR-033 read-image rules
-src/embedding/, stt/, tts/, image_generation/  # per-provider rig adapters DELETED → thin wrappers over src/llm; credentials() table
+src/embedding/, stt/, tts/, image_generation/  # ~30 per-provider rig adapter files DELETED; factories build src/llm/media clients; credentials() table
 src/scheduler/mod.rs                      # runs catalogue refresher
 src/schema/response.rs, storage/sqlite/history.rs, schema/metrics.rs   # stats provider/model; estimated_cost_usd
 src/channels/http/api/v1/catalogue.rs     # NEW /catalogue routes + logo serving

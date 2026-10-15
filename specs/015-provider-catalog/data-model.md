@@ -82,7 +82,7 @@ Each built-in has the same shape as `CatalogueProvider`, plus a `CredentialSourc
 | `ollama` | Local | `Ollama` | `base_url` (`OLLAMA_BASE_URL`, default `http://localhost:11434`) | models from `/api/tags`; existing model pull kept |
 | `llama-cpp` | Local | `OpenAiChat` | `base_url` (`LLAMA_CPP_BASE_URL`, default `http://localhost:8080`) | models from `/v1/models` |
 | `chatgpt` | Cloud | `OpenAiResponses` (SSE) | `access_token`, `account_id`, optional `base_url` (`CHATGPT_*`) | `ChatGptAccount` source |
-| `dummyplug` | Local | its own `CompletionProvider` | none | protocol unchanged |
+| `dummyplug` | Local | its own `CompletionModel` | none | protocol unchanged |
 | `elevenlabs` | media-only | none | `api_key` (`ELEVENLABS_API_KEY`) | never in the chat picker |
 | `voyageai` | media-only | none | `api_key` (`VOYAGE_API_KEY`) | embeddings only |
 | `hyperbolic` | media-only | none | `api_key` (`HYPERBOLIC_API_KEY`) | TTS and image generation only |
@@ -171,7 +171,7 @@ struct ResolvedModel {
 }
 ```
 
-It is built by `llm::resolve(&deps, provider_id, model_id, &agent_overrides)`. This is the only place that consults the catalogue, built-ins, custom providers, credentials and the route overrides. `VizierModel::new` becomes `resolve`, then `dialect.build(resolved)`, then a wrap in `retry`.
+It is built by `llm::resolve(&deps, provider_id, model_id, &agent_overrides)`. This is the only place that consults the catalogue, built-ins, custom providers, credentials and the route overrides. `VizierModel::new` becomes `resolve`, then `llm::build`, which returns `RetryingModel<HttpModel<D>>` as an `Arc<dyn CompletionModel>`. `caps` also drives the shared `prepare` step that handles attachments by capability (contract S6).
 
 ## 7. Agent config changes (`AgentConfig`, stored in `agent_config`)
 
@@ -227,9 +227,15 @@ It is built by `llm::resolve(&deps, provider_id, model_id, &agent_overrides)`. T
 
 ## 11. `src/llm` types
 
-The full shapes are in [contracts/provider-layer.md](contracts/provider-layer.md). In short:
+The full shapes, and the S1–S10 simplifications versus rig, are in [contracts/provider-layer.md](contracts/provider-layer.md). In short:
 
-- `Message`, `UserPart`, `AssistantPart` (with `Reasoning`), `ToolDefinition`, `ToolChoice`, `Usage`;
-- `CompletionRequest` and `CompletionResponse`;
-- `LlmError`;
-- the traits `CompletionProvider` (`complete` and `list_models`) and `CredentialSource`.
+- **Messages**: `Message` is `System` / `User(Vec<Part>)` / `Assistant(Vec<AssistantPart>)` / `ToolResult { call_id, content }`.
+- **Parts**: `Part` is `Text` / `Attachment { mime, data, name }`.
+- **Assistant parts**: `AssistantPart` is `Text` / `ToolCall { id, name, arguments, provider_data }` / `Reasoning { text, provider_data }`.
+- **Unchanged JSON and field names**: `ToolDefinition` (same JSON as rig's) and `Usage` (same field names).
+- **Request and response**: `CompletionRequest { messages, tools, tool_choice, max_tokens }` and `CompletionResponse`.
+- **Errors**: `LlmError`.
+- **Traits**: `CompletionModel` (`HttpModel<D>`, `DummyplugModel`, `RetryingModel<M>`), `Dialect` (pure `encode`/`decode`, five implementations) and `CredentialSource` (three implementations).
+- **Media**: the media clients implement the existing `Vizier*Model` traits directly.
+
+**History mapping**: `SessionHistoryContent::ToolCall` and `ToolResult` map one-to-one to `AssistantPart::ToolCall` and `Message::ToolResult`. Reasoning is still not persisted.
