@@ -54,8 +54,9 @@ An operator upgrades vizier. Their agents, provider credentials, scheduled tasks
 
 1. **Given** a workspace from the previous release, **When** the new build starts, **Then** every agent that was healthy before is healthy after, with the same provider (under its catalogue id), model and credentials.
 2. **Given** a saved agent whose provider name has a different catalogue id, **When** vizier starts, **Then** the agent's provider, dream provider and saved credentials are migrated to that id once, and the migration is logged.
-3. **Given** a saved agent whose provider has no catalogue entry and is not a built-in provider (see FR-014), **When** vizier starts, **Then** the agent is not silently dropped. It shows as failed, with a message naming the provider and telling the operator to pick a replacement.
-4. **Given** any agent turn after the upgrade, **When** the model replies, calls tools and receives their results, **Then** the conversation history and what the person sees are the same as before the upgrade.
+3. **Given** a saved `gemini` key used by an agent's Gemini speech-to-text and embeddings, **When** vizier starts after upgrading, **Then** those features keep working from the migrated `google` credentials, with no key entered again.
+4. **Given** a saved agent whose provider has no catalogue entry and is not a built-in provider (see FR-014), **When** vizier starts, **Then** the agent is not silently dropped. It shows as failed, with a message naming the provider and telling the operator to pick a replacement.
+5. **Given** any agent turn after the upgrade, **When** the model replies, calls tools and receives their results, **Then** the conversation history and what the person sees are the same as before the upgrade.
 
 ---
 
@@ -135,10 +136,79 @@ An operator wants to use a provider vizier has never had first-class support for
 1. **Given** a catalogue provider vizier did not support before, using a supported protocol, **When** the operator saves its API key, **Then** agents can be created on it and complete turns with tool calls.
 2. **Given** a provider's credentials, **When** they are looked up, **Then** a key saved in settings wins, and otherwise the environment variables the catalogue names for that provider are tried in order.
 3. **Given** the providers settings page, **When** the operator opens it, **Then** each provider asks for the fields it needs: an API key for most, plus extra fields where the provider needs them (for example Azure's endpoint, or the base URL for local providers).
+4. **Given** a provider with no saved key but one of its catalogue environment variables set, **When** the operator opens the providers page, **Then** that provider is listed as connected, labelled with the name of the environment variable it is using. The variable's value is never shown.
+5. **Given** a connected provider, **When** the operator views it, **Then** it shows which features use it and how many agents each (for example "chat (3 agents) · TTS (1) · embeddings (2)").
+6. **Given** a provider that agents still use, **When** the operator deletes its saved credentials, **Then** they are first warned with the list of affected agents and must confirm.
+7. **Given** a local provider (Ollama, llama.cpp) or a custom provider, **When** the operator views the providers page, **Then** each shows whether its server is reachable, and how many models it serves when that can be listed.
 
 ---
 
-### User Story 6 - Model prices feed the usage view (Priority: P3)
+### User Story 6 - Operator adds their own custom providers (Priority: P2)
+
+An operator runs models the catalogue doesn't know about: vLLM on a home server, a LiteLLM gateway at work, or an Anthropic-format proxy. In the providers settings they choose **Custom provider** and enter:
+
+- a name (the id is derived from the name and can be edited);
+- the protocol: OpenAI-compatible or Anthropic;
+- the base URL;
+- an optional API key;
+- optional extra headers.
+
+Then they list the provider's models, either fetched from the server's own model list or typed in by hand. A model entry can carry its context window, maximum output and capabilities. An operator can have as many custom providers as they need, and agents pick them exactly like catalogue providers.
+
+**Why this priority**: Self-hosted and proxied models are a core use for a self-hosted agent framework, and today there is only one fixed `custom` slot, which speaks only OpenAI's chat format. This story extends Story 5 to providers no catalogue will ever list.
+
+**Independent Test**:
+- Run a local OpenAI-compatible stub server and create a custom provider for it. Fetch its models, create an agent on one, and complete a turn with a tool call. The stub can echo tool calls, so this needs no key.
+- Create a second custom provider using the Anthropic protocol against a stub.
+- Check that a workspace with the old single `custom` provider still works after the upgrade.
+
+**Acceptance Scenarios**:
+
+1. **Given** the providers settings, **When** the operator creates a custom provider with the OpenAI-compatible protocol and a base URL, **Then** it shows under connected providers with a "custom" label, and agents can be created on it.
+2. **Given** a custom provider whose server publishes a model list, **When** the operator asks to fetch models, **Then** the list is filled from the server, and the operator can still edit, add or remove entries.
+3. **Given** a custom model entry with no limits or capabilities entered, **When** an agent uses it, **Then** the values come from a catalogue model with the same id if there is one, and otherwise from name-based detection.
+4. **Given** two custom providers, **When** agents use each, **Then** each agent talks to its own provider's base URL, with that provider's key and headers.
+5. **Given** a workspace with the old single `custom` provider (saved in settings, or set through `CUSTOM_BASE_URL`/`CUSTOM_API_KEY`), **When** vizier starts after upgrading, **Then** it becomes a custom provider with id `custom`, and agents on it keep working.
+6. **Given** a catalogue refresh, **When** it completes, **Then** custom providers and their model lists are unchanged.
+7. **Given** the custom provider form, **When** the operator tests the connection, **Then** they see either that the server is reachable (with how many models it lists) or the error it returned, such as a 401 or a refused connection, before saving.
+8. **Given** a model list the operator has edited, **When** they fetch models from the server again, **Then** new models are added, and the edited entries keep the operator's values.
+9. **Given** a saved custom provider, **When** the operator edits it, **Then** its id cannot be changed, and its API key and header values are shown masked, with an option to replace them.
+
+---
+
+### User Story 7 - Agent setup is simpler because vizier knows the models (Priority: P2)
+
+An operator creating an agent in the wizard, or editing one in settings, sees one form either way. They pick a provider and model from the same searchable picker everywhere: main, dream and read-image models. The picker:
+
+- lists tool-capable, current models first;
+- preselects the provider's newest suitable model;
+- shows the chosen model's limits, capabilities and price.
+
+Context window and max output are no longer fields to fill in. They come from the catalogue, and can be overridden under "Advanced". The checkpoint threshold shows how many tokens it means. If the main model can see images, the read-image setup disappears, because images go straight to the model. Only when the model can't see images is the operator asked to pick a vision model. If the chosen provider isn't connected yet, the operator enters its key right there, without leaving the wizard.
+
+**Why this priority**: The provider and model fields have to change for Stories 2–3 anyway. Doing it once, in one form, turns accurate model data into a visibly easier setup. It ranks below the P1 stories, which already deliver correctness.
+
+**Independent Test**: With the bundled catalogue and no network access:
+- Create an agent in the wizard on a vision-capable, tool-capable catalogue model. The default model must be preselected, no context or max-token value has to be entered, and no read-image model is asked for.
+- Switch the model to one without image input: the vision-model picker must appear, listing only image-capable models.
+- Open the agent's settings: the same form and pickers are shown, plus the sharing and danger-zone sections.
+- Pick a provider with no credentials in the wizard, enter a key inline, and finish creating the agent.
+
+**Acceptance Scenarios**:
+
+1. **Given** the agent wizard and the agent settings page, **When** the operator opens either, **Then** both show the same form, with the same fields, pickers and validation. Settings adds only sharing and the danger zone.
+2. **Given** the model picker, **When** it opens, **Then** it lists the provider's tool-capable, non-deprecated models, and offers a "show all models" option for the rest.
+3. **Given** a provider just selected while creating an agent, **When** the model field is still empty, **Then** the provider's newest non-deprecated, tool-capable model is preselected.
+4. **Given** a selected model, **When** the operator looks at the form, **Then** it shows the model's context window, maximum output, capabilities and price. The context-window and max-output fields are empty, show the catalogue values as placeholders, and sit under an "Advanced" section.
+5. **Given** a checkpoint threshold, **When** the operator changes it, **Then** the form shows the matching token count for the selected model, for example "80% ≈ 160,000 tokens".
+6. **Given** a main model that accepts images, **When** the operator views the read-image settings, **Then** no vision model is asked for, and the form says images go to the main model directly.
+7. **Given** a main model that does not accept images, **When** the operator views the read-image settings, **Then** they are warned and offered a vision-model picker limited to image-capable models.
+8. **Given** a provider with no credentials, **When** the operator selects it in the agent form, **Then** they can enter and save its credentials inline and carry on, and the key is saved to the shared provider settings.
+9. **Given** the Review step of the wizard, **When** the operator reaches it, **Then** it shows the chosen model's card, with limits, capabilities, price and any warning (no tool calling, no image input).
+
+---
+
+### User Story 8 - Model prices feed the usage view (Priority: P3)
 
 The usage view already counts tokens per agent. With prices from the catalogue, it can also show an estimated cost per agent and per period, including cached-token discounts.
 
@@ -161,6 +231,10 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
 - **Two vizier processes sharing one workspace**: refreshing the catalogue must not corrupt the saved copy.
 - **Refresh in the middle of a turn**: an agent that is running keeps the limits it started the turn with. The refreshed data applies from its next build.
 - **Catalogue data that is obviously wrong** (missing limits, context window 0): it is treated as unknown, and the fallback detection is used.
+- **A custom server that is down**: test connection and fetch report the error, and the provider can still be saved, for example when the server is not running yet. Its card then shows "unreachable". Agents on it fail their turns with the server's error, as with any provider outage.
+- **A custom provider whose id clashes** with a catalogue, built-in or other custom id: it cannot be saved, and the form names the clash. A catalogue refresh that later adds a provider with the same id as an existing custom provider MUST NOT take it over. The custom provider keeps its id, and the catalogue entry is hidden until the conflict is resolved.
+- **A logo that is missing or fails to load**: the generic icon or the provider's initials are shown instead, and layout never breaks or shifts.
+- **One key, several features**: an operator who saved an OpenAI key for chat turns on OpenAI text-to-speech. It works with no second key entry, both before and after the upgrade migration (FR-016a).
 - **An old client** (a WebUI build or script) still sends an old provider name such as `gemini` through the API: it is accepted and mapped to the catalogue id.
 
 ## Requirements *(mandatory)*
@@ -194,11 +268,21 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
 
 **Provider selection and credentials**
 
+- **FR-005a**: Providers and models MUST be shown with logos from models.dev wherever they are listed: the provider picker, the model picker, the providers settings and the agent list.
+  - **Provider logos**: a catalogue provider shows its own logo.
+  - **Model logos**: a model shows its lab's logo, taken from the lab named in the model's canonical id (so a Claude model hosted on OpenRouter shows the Anthropic logo). If that lab has no logo, the model shows its hosting provider's logo.
+  - **No logo**: providers and labs without a logo, built-in providers and custom providers show a generic icon or the provider's initials.
+  - **Bundled**: logos MUST ship with the bundled catalogue snapshot and refresh with it, so they display offline and viewing a page never contacts models.dev.
+  - **Safe**: logos MUST be displayed in a way that cannot run scripts embedded in them.
+  - **Themes**: logos MUST stay legible in both light and dark themes.
 - **FR-006**: Agents MUST identify their provider by catalogue provider id (or built-in provider id, FR-014) and their model by model id. Any provider whose protocol vizier supports MUST be selectable, not only a hard-coded list.
 - **FR-007**: The system MUST support enough wire protocols to cover every provider supported before this change, plus every catalogue provider that uses those protocols. At minimum this means OpenAI-compatible chat, OpenAI, Anthropic, Google Gemini and Ollama.
 - **FR-008**: Catalogue providers whose protocol is not supported MUST NOT be offered for selection.
 - **FR-009**: Credentials MUST be resolved in this order: a value saved in provider settings first, then each environment variable the catalogue names for that provider, in order. The environment variable names vizier accepted before this change MUST keep working for the providers that had them.
 - **FR-010**: The providers settings MUST let an admin save credentials for any selectable provider, asking only for the fields that provider needs.
+- **FR-010a**: The providers settings MUST list as connected any provider whose credentials come from an environment variable, naming the variable but never showing its value.
+- **FR-010b**: Each connected provider MUST show which features use it and how many agents each: chat (including dream, read-image and handover), speech-to-text, text-to-speech, image generation and embeddings. Deleting a provider's credentials while agents use it MUST warn first, listing the affected agents.
+- **FR-010c**: Local providers (Ollama, llama.cpp) and custom providers MUST show whether their server is reachable, and how many models it serves where it can list them. Checking this MUST NOT delay the page from loading.
 - **FR-011**: The model picker MUST accept a typed-in model id that isn't in the catalogue.
 
 **Using catalogue data at runtime**
@@ -220,13 +304,13 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
 - **FR-014**: Providers vizier supports today that are not in the catalogue MUST remain available as built-in providers with the same behaviour:
   - local Ollama;
   - llama.cpp;
-  - the generic custom OpenAI-compatible endpoint;
   - ChatGPT subscription access;
   - the offline `dummyplug` test provider.
 
   Hyperbolic, Galadriel and Mira are **dropped as chat providers**, because none of them is in the catalogue. A saved agent on one of them is handled as in Story 1, scenario 3: it shows as failed, with a message naming the provider and asking the operator to pick a replacement. This is a breaking change. Hyperbolic stays available as a text-to-speech and image-generation provider.
 - **FR-015**: On first start after upgrading, the system MUST migrate saved agents (provider and dream provider) and saved provider credentials from old provider names to catalogue ids, exactly once, and log each change. The HTTP API MUST keep accepting old provider names and map them to catalogue ids.
 - **FR-016**: Speech-to-text, text-to-speech, image generation and embedding provider choices MUST keep working with their current providers and models. In this feature their pickers **stay curated** and are not driven by the catalogue. They move onto vizier's own provider layer (FR-017) without changing what they offer. The catalogue drives only chat-model selection: the main, dream, read-image and handover models.
+- **FR-016a**: Credentials MUST be saved once per provider and shared by every feature that uses that provider. One saved OpenAI key (or `OPENAI_API_KEY`) MUST serve chat, speech-to-text, text-to-speech, image generation and embeddings alike, which is today's behaviour. Each curated media or embedding provider MUST refer to the same provider id as its chat counterpart (for example, Gemini speech-to-text and embeddings use the `google` credentials after migration, and Together embeddings use `togetherai`), so the FR-015 migration never makes an operator enter a key again. Providers used only for media or embeddings (ElevenLabs, Voyage AI, Hyperbolic) MUST still be able to save credentials in the providers settings, even though they are not chat providers.
 
 **rig removal**
 
@@ -239,6 +323,44 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
 - **FR-019**: Provider errors MUST keep the provider's HTTP status and its retry-after hint, so rate limits and outages are recognised reliably. A provider's `Retry-After` MUST be honoured, within the turn's time limit.
 - **FR-020**: Existing embedding indexes MUST stay valid: the same embedding provider and model MUST produce the same vectors as before, so stored memory search keeps matching.
 
+**Custom providers**
+
+- **FR-022**: Operators MUST be able to create, edit and delete any number of custom providers. Each has:
+  - a name;
+  - a unique id that does not clash with catalogue or built-in ids;
+  - a protocol, either **OpenAI-compatible** or **Anthropic**;
+  - a base URL;
+  - an optional API key;
+  - optional extra request headers.
+
+  A custom provider's id MUST be fixed once it is first saved, because agents refer to it. To "rename" one, the operator duplicates it and moves the agents. API keys and header values MUST be treated as secrets: shown masked after saving, and never returned by the API.
+- **FR-022a**: Before saving, the custom provider form MUST let the operator test the connection, which reports either success (with the number of models listed, where available) or the error the server returned.
+- **FR-023**: A custom provider's models MUST be possible to list by hand, or fetch from the server's own model listing where it offers one. Fetched lists stay editable. Each model entry MAY carry a context window, maximum output, and capability flags (tool calling, image input, reasoning). When models are fetched again, new ids MUST be added, and entries the operator edited MUST keep the operator's values. Fetched entries whose id matches a catalogue model MUST be pre-filled from that model, and shown as such.
+- **FR-024**: For a custom model, the FR-012 order applies, with the operator-entered values in the "catalogue value" step. Values that were not entered MUST fall back to a catalogue model with the same id, if one exists, before name-based detection.
+- **FR-025**: The catalogue refresh MUST NOT change or remove custom providers.
+- **FR-026**: The existing single `custom` provider, whether saved in settings or set through `CUSTOM_BASE_URL`/`CUSTOM_API_KEY`, MUST be migrated to a custom provider with id `custom` and the OpenAI-compatible protocol, so agents on it keep working.
+- **FR-027**: The base URL of a catalogue provider MUST NOT be operator-overridable. To route a catalogue provider through a proxy or gateway, operators create a custom provider instead.
+
+**Configuration file**
+
+- **FR-028**: The `.vizier.yaml` config file MUST no longer hold provider configuration. Provider credentials come only from the providers settings (WebUI/API) and from environment variables (FR-009).
+  - **Leftover config**: a `providers` section left in an existing config file MUST NOT stop startup. It is ignored, and a warning tells the operator to move it to the providers settings or to environment variables.
+  - **Upgrades**: deployments that already imported their YAML providers into settings keep them as they are.
+  - **Onboarding**: the onboarding wizard MUST NOT write providers into the config file.
+
+**Agent form**
+
+- **FR-029**: The WebUI MUST use a single agent form for both creating and editing an agent. The settings page adds only its sharing and danger-zone sections, and the separate settings-page copy of the form is removed. This merge MUST land before the picker changes below, so that each change is made once. In edit mode, a single sticky "Save changes" bar MUST appear whenever there are unsaved edits, replacing the per-tab Save buttons.
+- **FR-030**: Every chat-model choice in the agent form (main, dream, read-image) MUST use one shared provider-and-model picker. It shows logos (FR-005a), capability badges, connected providers first and custom providers as their own group, and can be searched. The hard-coded provider and model lists in the WebUI MUST be removed.
+- **FR-031**: The model picker MUST list tool-capable, non-deprecated models by default, with an option to show all. When a provider is chosen while creating an agent, its newest non-deprecated, tool-capable model MUST be preselected.
+- **FR-032**: Context window and maximum output MUST be presented as optional overrides under an "Advanced" section, with the effective catalogue value shown as the placeholder. Rarely changed settings (thinking depth, prompt timeout, silent-read chance) MUST move into the same section. The checkpoint threshold MUST show its equivalent token count for the selected model.
+- **FR-033**: Read-image MUST configure itself from the main model's capabilities:
+  - **Main model accepts images**: images go to it directly, and no vision model is asked for.
+  - **Main model does not accept images**: the form warns, and offers a vision-model picker limited to image-capable models.
+  - **Existing agents**: an agent saved with an explicit vision model keeps using it. The form shows that vision model as an optional override the operator can remove.
+- **FR-034**: Selecting a provider with no credentials in the agent form MUST let the operator enter and save its credentials inline. They are saved to the shared provider settings (FR-016a), subject to the same permission as the providers settings. Without that permission, the operator is told to ask an admin.
+- **FR-035**: The wizard's Review step MUST show the chosen model's card: limits, capabilities, price and any capability warnings.
+
 **Cost (P3)**
 
 - **FR-021**: The usage view SHOULD show an estimated cost per agent and period, computed from token counts and the catalogue's prices for the agent's provider and model. Cost MUST be omitted, never shown as zero, where no price is known.
@@ -247,8 +369,10 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
 
 - **Catalogue**: the set of known providers and models, with an "as of" time and a source (bundled snapshot or refreshed copy). One per vizier process, shared by all agents.
 - **Catalogue Provider**: id, display name, wire protocol, base URL, credential environment variables, documentation link, and whether vizier supports its protocol.
+- **Logo**: an image for a catalogue provider or model lab, keyed by its id. It is bundled and refreshed with the catalogue.
 - **Catalogue Model**: belongs to one catalogue provider. Holds id, name, family, context and output limits, input and output kinds, capability flags (tool calling, reasoning, attachments, temperature), prices, status (for example deprecated), release date and knowledge cut-off.
-- **Built-in Provider**: a provider vizier supports that the catalogue does not list (local Ollama, llama.cpp, custom endpoint, ChatGPT subscription, dummyplug). It has the same shape as a catalogue provider, but vizier maintains it.
+- **Built-in Provider**: a provider vizier supports that the catalogue does not list (local Ollama, llama.cpp, ChatGPT subscription, dummyplug). It has the same shape as a catalogue provider, but vizier maintains it.
+- **Custom Provider**: a provider an operator defines. It holds a name, id, protocol (OpenAI-compatible or Anthropic), base URL, optional key, optional headers, and its own list of model entries with optional limits and capabilities. It has the same shape as a catalogue provider, and refreshes never touch it.
 - **Provider Credentials** (existing, re-keyed): saved per provider id, holding whatever fields that provider needs (API key; endpoint or base URL where required).
 - **Agent model choice** (existing): the provider id and model id on an agent, its dream settings, and its read-image settings. It may carry explicit context-window and max-token overrides.
 
@@ -264,6 +388,9 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
 - **SC-006**: A model added to models.dev appears in the model picker within one refresh interval (default 24 hours), with no vizier upgrade.
 - **SC-007**: The rig library is fully removed from the build, and the existing agent-loop end-to-end checks (the 008/014 dummyplug quickstarts) pass unchanged.
 - **SC-008**: In the agent form, an operator can find a model by search among 380 or more models (OpenRouter) within 2 seconds of typing.
+- **SC-009**: An operator can connect a self-hosted OpenAI-compatible server and run an agent on it in under 2 minutes, without editing any file.
+- **SC-010**: Creating an agent on a catalogue model needs no typed-in number for context window or max output, and no vision-model choice when the model can see images. That is at least 3 fewer required decisions than today.
+- **SC-011**: The agent form's code is reduced by at least 40%, because the create and edit copies are merged.
 
 ## Assumptions
 
@@ -275,6 +402,10 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
 - **The catalogue is advisory.** It never blocks a request the operator configured explicitly.
 - **Streaming of model output** stays out of scope. Completions remain single request and response, as today.
 - **No new external service**: the catalogue is a file kept in the workspace and storage, not a dependency vizier needs at runtime.
-- **Breaking change**: dropping three chat providers (FR-014) is breaking. Commit it as `feat!:` with `[**breaking**]`.
+- **Onboarding without providers in YAML**: the onboarding wizard either saves the chosen provider's credentials straight into the providers settings, or tells the operator which environment variable to set. Which one is decided in planning.
+- **Audio input** (sending voice messages straight to models that accept audio, skipping speech-to-text) is out of scope. It is a possible follow-up, mirroring FR-033.
+- **The form merge** (FR-029) is a WebUI refactor with no behaviour change. It is planned as its own early phase.
+- **Logos are trademarks** of their owners. They are used only to identify each provider or lab, which is how models.dev and opencode use them.
+- **Breaking change**: dropping three chat providers (FR-014) and removing `providers` from `.vizier.yaml` (FR-028) are both breaking. Commit it as `feat!:` with `[**breaking**]`.
 - **Media stays curated**: the speech-to-text, text-to-speech, image-generation and embedding pickers keep their curated lists in this feature (FR-016). Driving them from the catalogue is a possible follow-up.
 - **Delivery order**: removing rig (FR-017–FR-020) and the catalogue (FR-001–FR-016) ship as one feature. Rebuilding the provider layer around wire protocols is what makes the catalogue's providers usable without per-provider code. They may still land in stages behind each other.
