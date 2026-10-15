@@ -251,6 +251,11 @@ impl SqliteStorage {
                 data TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS custom_provider (
+                id TEXT PRIMARY KEY,
+                data TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS global_config (
                 key TEXT PRIMARY KEY,
                 data TEXT NOT NULL

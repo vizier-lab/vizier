@@ -17,7 +17,7 @@ use std::{
 
 use anyhow::Result;
 use chrono::Utc;
-use rig_core::completion::ToolDefinition;
+use crate::llm::types::ToolDefinition;
 use tokio::{process::Command, sync::Mutex, time::Instant};
 
 use rmcp::{

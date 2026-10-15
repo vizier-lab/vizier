@@ -6,8 +6,7 @@ use inquire::{Confirm, Password, Select, Text};
 use termimad::print_text;
 
 use crate::config::{
-    ChannelsConfig, HTTPChannelConfig, VizierConfig,
-    provider::ProviderConfig,
+    ChannelsConfig, HTTPChannelConfig, VizierConfig, provider::ProviderId,
     storage::StorageConfig,
 };
 
@@ -53,9 +52,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         .with_default(&default_jwt)
         .prompt()?;
 
-    let mut providers = ProviderConfig::default();
-
-    print_text("\n> **Note:** You can add more providers later in the WebUI settings.\n");
+    print_text("\n> **Note:** Provider keys are not written to the config file. Add them in Settings › Providers after the first start, or set the environment variable shown below.\n");
 
     let provider_type = Select::new(
         "Select primary provider:",
@@ -65,54 +62,14 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
             "openrouter",
             "anthropic",
             "openai",
-            "gemini",
-            "mimo",
-            "llama_cpp",
+            "google",
+            "xiaomi",
+            "llama-cpp",
         ],
     )
     .prompt()?;
 
-    match provider_type {
-        "ollama" => {
-            let base_url = Text::new("Ollama base URL:")
-                .with_default("http://localhost:11434")
-                .prompt()?;
-            providers.ollama = Some(crate::config::provider::OllamaProviderConfig { base_url });
-        }
-        "deepseek" => {
-            let api_key = Password::new("Deepseek API key:").prompt()?;
-            providers.deepseek = Some(crate::config::provider::DeepseekProviderConfig { api_key });
-        }
-        "openrouter" => {
-            let api_key = Password::new("OpenRouter API key:").prompt()?;
-            providers.openrouter =
-                Some(crate::config::provider::OpenRouterProviderConfig { api_key });
-        }
-        "anthropic" => {
-            let api_key = Password::new("Anthropic API key:").prompt()?;
-            providers.anthropic = Some(crate::config::provider::AnthropicProviderConfig { api_key });
-        }
-        "openai" => {
-            let api_key = Password::new("OpenAI API key:").prompt()?;
-            providers.openai = Some(crate::config::provider::OpenAIProviderConfig { api_key });
-        }
-        "gemini" => {
-            let api_key = Password::new("Gemini API key:").prompt()?;
-            providers.gemini = Some(crate::config::provider::GeminiProviderConfig { api_key });
-        }
-        "mimo" => {
-            let api_key = Password::new("Xiaomi MiMo API key:").prompt()?;
-            providers.mimo = Some(crate::config::provider::MimoProviderConfig { api_key });
-        }
-        "llama_cpp" => {
-            let base_url = Text::new("Llama.cpp base URL:")
-                .with_default("http://localhost:8080")
-                .prompt()?;
-            providers.llama_cpp =
-                Some(crate::config::provider::LlamaCppProviderConfig { base_url });
-        }
-        _ => unreachable!(),
-    }
+    let provider_hint = provider_env_hint(provider_type);
 
     let storage_type = Select::new("Storage type:", vec!["Filesystem", "SQLite"]).prompt()?;
 
@@ -144,7 +101,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         | **Workspace** | `{}` |\n\
         | **Config file** | `{}` |\n\
         | **HTTP port** | `{}` |\n\
-        | **Provider** | `{}` |\n\
+        | **Provider** | `{}` ({}) |\n\
         | **Storage** | `{}` |\n\
         | **Worker threads** | `{}` |\n\
         | **WS idle timeout** | `{}s` |\n\
@@ -155,6 +112,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         config_path.display(),
         port,
         provider_type,
+        provider_hint,
         storage_type,
         worker_threads,
         ws_idle_timeout_secs,
@@ -171,7 +129,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
 
     let config = VizierConfig {
         workspace: workspace.clone(),
-        providers,
+        providers: None,
         storage,
         channels: ChannelsConfig {
             http: Some(HTTPChannelConfig {
@@ -192,12 +150,34 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         | | |\n\
         |---|---|\n\
         | **Start server** | `vizier run` |\n\
-        | **WebUI** | `http://localhost:{}` |\n\n\
+        | **WebUI** | `http://localhost:{}` |\n\
+        | **Provider** | {} |\n\n\
         Open the WebUI and follow the onboarding flow to create your first user account.\n\
         You can configure embedding and indexer per-agent in agent settings.\n",
         config_path.display(),
         port,
+        provider_hint,
     ));
 
     Ok(())
+}
+
+/// How to give the chosen provider its credentials: the environment variable from the
+/// catalogue (or the built-in's), or Settings › Providers.
+fn provider_env_hint(provider: &str) -> String {
+    let Ok(id) = ProviderId::parse(provider) else {
+        return "add it in Settings › Providers".into();
+    };
+    let env = crate::catalogue::builtin::builtin(&id)
+        .and_then(|b| b.env.first().map(|e| e.to_string()))
+        .or_else(|| {
+            crate::catalogue::seed::load_seed()
+                .providers
+                .get(&id)
+                .and_then(|p| p.env.iter().find(|e| e.contains("KEY") || e.contains("TOKEN")).cloned())
+        });
+    match env {
+        Some(var) => format!("set `{var}`, or add it in Settings › Providers"),
+        None => "add it in Settings › Providers".into(),
+    }
 }

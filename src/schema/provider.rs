@@ -1,16 +1,26 @@
 use serde::{Deserialize, Serialize};
 
-use crate::config::provider::ProviderVariant;
+use crate::config::provider::ProviderId;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// A provider's saved credentials, keyed by its id (`provider_config`).
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ProviderEntry {
-    pub variant: ProviderVariant,
-    pub config: ProviderEntryConfig,
+    pub id: ProviderId,
+    pub credentials: ProviderCredentials,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// A `provider_config` row as vizier stored it before spec 015: the legacy enum name and one
+/// tagged variant per provider. Read only by `migrate_provider_ids_v1`, which rewrites every
+/// row as a [`ProviderEntry`].
+#[derive(Debug, Deserialize, Clone)]
+pub struct LegacyProviderEntry {
+    pub variant: String,
+    pub config: LegacyProviderEntryConfig,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "type", content = "data")]
-pub enum ProviderEntryConfig {
+pub enum LegacyProviderEntryConfig {
     Ollama {
         base_url: String,
     },
@@ -195,7 +205,7 @@ pub struct CustomModel {
 /// An operator-defined provider (data-model §5), stored in `custom_provider`.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct CustomProvider {
-    pub id: crate::config::provider::ProviderId,
+    pub id: ProviderId,
     pub name: String,
     pub protocol: CustomProtocol,
     pub base_url: String,

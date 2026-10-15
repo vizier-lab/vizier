@@ -3,7 +3,7 @@
 //! Naming (and collision suffixes) is the agent layer's: this module documents a
 //! function under the name it is given.
 
-use rig_core::completion::ToolDefinition;
+use crate::llm::types::ToolDefinition;
 use serde::Serialize;
 use serde_json::Value;
 

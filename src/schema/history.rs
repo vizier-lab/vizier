@@ -1,12 +1,9 @@
-use rig_core::{
-    OneOrMany,
-    message::{AssistantContent, Message, ToolCall, ToolFunction, ToolResultContent, UserContent},
-};
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 
+use crate::llm::types::{AssistantPart, Message, Part};
 use crate::sandbox::ExecutionReport;
 use crate::schema::{ReactionEntry, VizierRequest, VizierResponse, VizierResponseContent, VizierSession};
 
@@ -49,35 +46,26 @@ pub enum SessionHistoryContent {
     Command(String),
 }
 
-/// Convert rig Messages to SessionHistoryContent entries.
-/// - Message::User with ToolResult → ToolResult entries
-/// - Message::Assistant with ToolCall → ToolCall entries
-/// - Message::Assistant with Text only (no tool calls) → Response entry (final)
-/// - Message::Assistant with Text + ToolCall → AssistantMessage entry (intermediate)
-/// - Message::System and user Text messages → skipped (caller handles those)
+/// Convert model messages to SessionHistoryContent entries (one-to-one, contract S4).
+/// - `Message::ToolResult` → ToolResult entry
+/// - `Message::Assistant` with tool calls → AssistantMessage (its narration, if any), then a
+///   ToolCall entry per call
+/// - `Message::Assistant` with text only → Response entry (final)
+/// - System and user messages → skipped (the caller records the request itself)
+/// - Reasoning is never persisted.
 pub fn messages_to_history_entries(messages: &[Message]) -> Vec<SessionHistoryContent> {
     let mut entries = Vec::new();
 
     for msg in messages {
         match msg {
-            Message::System { .. } => {}
-            Message::User { content } => {
-                let all_tool_results = content
-                    .iter()
-                    .all(|c| matches!(c, UserContent::ToolResult(_)));
-
-                if all_tool_results {
-                    for item in content.iter() {
-                        if let UserContent::ToolResult(tr) = item {
-                            entries.push(SessionHistoryContent::ToolResult {
-                                call_id: tr.id.clone(),
-                                content: tool_result_content_to_text(&tr.content),
-                            });
-                        }
-                    }
-                }
+            Message::System(_) | Message::User(_) => {}
+            Message::ToolResult { call_id, content } => {
+                entries.push(SessionHistoryContent::ToolResult {
+                    call_id: call_id.clone(),
+                    content: parts_text(content),
+                });
             }
-            Message::Assistant { content, .. } => {
+            Message::Assistant(content) => {
                 // Collected before anything is pushed, because the narration entry has to
                 // land *before* the tool calls it accompanies: `history_entries_to_messages`
                 // merges narration into the assistant message its tool calls flush as, and
@@ -85,15 +73,20 @@ pub fn messages_to_history_entries(messages: &[Message]) -> Vec<SessionHistoryCo
                 let mut text_parts = Vec::new();
                 let mut calls = Vec::new();
 
-                for item in content.iter() {
+                for item in content {
                     match item {
-                        AssistantContent::Text(text) => text_parts.push(text.to_string()),
-                        AssistantContent::ToolCall(tc) => calls.push(SessionHistoryContent::ToolCall {
-                            call_id: tc.id.clone(),
-                            name: tc.function.name.clone(),
-                            arguments: tc.function.arguments.clone(),
+                        AssistantPart::Text(text) => text_parts.push(text.clone()),
+                        AssistantPart::ToolCall {
+                            id,
+                            name,
+                            arguments,
+                            ..
+                        } => calls.push(SessionHistoryContent::ToolCall {
+                            call_id: id.clone(),
+                            name: name.clone(),
+                            arguments: arguments.clone(),
                         }),
-                        _ => {}
+                        AssistantPart::Reasoning { .. } => {}
                     }
                 }
 
@@ -126,39 +119,40 @@ pub fn messages_to_history_entries(messages: &[Message]) -> Vec<SessionHistoryCo
     entries
 }
 
-/// Convert SessionHistory entries back to rig Messages.
-/// Groups consecutive ToolCall entries into a single Message::Assistant.
-/// Groups consecutive ToolResult entries into a single Message::User.
+/// Convert SessionHistory entries back to model messages. Consecutive ToolCall entries (with
+/// the narration before them) become one assistant message; each ToolResult is its own
+/// `Message::ToolResult`, and dialects group them as their wire format needs.
 pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
     let mut messages = Vec::new();
     let mut pending_text: Option<String> = None;
-    let mut pending_tool_calls: Vec<ToolCall> = Vec::new();
-    let mut pending_tool_results: Vec<rig_core::message::ToolResult> = Vec::new();
+    let mut pending_tool_calls: Vec<AssistantPart> = Vec::new();
 
     for entry in entries {
         match &entry.content {
             SessionHistoryContent::Request(req) => {
                 flush_pending_tool_calls(&mut pending_text, &mut pending_tool_calls, &mut messages);
-                flush_pending_tool_results(&mut pending_tool_results, &mut messages);
 
-                if let Some(text) = req.to_prompt().ok() {
-                    if !text.is_empty() {
-                        messages.push(Message::user(text));
-                    }
+                if let Ok(text) = req.to_prompt()
+                    && !text.is_empty()
+                {
+                    messages.push(Message::User(vec![Part::Text(text)]));
                 }
             }
             SessionHistoryContent::Response(res) => {
                 flush_pending_tool_calls(&mut pending_text, &mut pending_tool_calls, &mut messages);
-                flush_pending_tool_results(&mut pending_tool_results, &mut messages);
 
                 match &res.content {
                     VizierResponseContent::Message { content, .. } => {
                         if !content.is_empty() {
-                            messages.push(Message::assistant(content.clone()));
+                            messages.push(Message::assistant_text(content.clone()));
                         }
                     }
                     VizierResponseContent::Error { kind, message } => {
-                        messages.push(Message::user(format!("[Error: {}] {}", kind.as_str(), message)));
+                        messages.push(Message::User(vec![Part::Text(format!(
+                            "[Error: {}] {}",
+                            kind.as_str(),
+                            message
+                        ))]));
                     }
                     _ => {}
                 }
@@ -170,7 +164,6 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
                 // assistant messages or a message between a tool call and its result, both
                 // of which providers reject (FR-012).
                 flush_pending_tool_calls(&mut pending_text, &mut pending_tool_calls, &mut messages);
-                flush_pending_tool_results(&mut pending_tool_results, &mut messages);
 
                 if !text.is_empty() {
                     pending_text = Some(text.clone());
@@ -181,23 +174,16 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
                 name,
                 arguments,
             } => {
-                pending_tool_calls.push(ToolCall {
+                pending_tool_calls.push(AssistantPart::ToolCall {
                     id: call_id.clone(),
-                    call_id: None,
-                    function: ToolFunction {
-                        name: name.clone(),
-                        arguments: arguments.clone(),
-                    },
-                    signature: None,
-                    additional_params: None,
+                    name: name.clone(),
+                    arguments: arguments.clone(),
+                    provider_data: None,
                 });
             }
             SessionHistoryContent::ToolResult { call_id, content } => {
-                pending_tool_results.push(rig_core::message::ToolResult {
-                    id: call_id.clone(),
-                    call_id: None,
-                    content: OneOrMany::one(ToolResultContent::text(content.clone())),
-                });
+                flush_pending_tool_calls(&mut pending_text, &mut pending_tool_calls, &mut messages);
+                messages.push(Message::tool_result(call_id.clone(), content.clone()));
             }
             SessionHistoryContent::Checkpoint(_) => {
                 // Skip checkpoint entries - they are metadata, not conversation messages
@@ -209,7 +195,6 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
     }
 
     flush_pending_tool_calls(&mut pending_text, &mut pending_tool_calls, &mut messages);
-    flush_pending_tool_results(&mut pending_tool_results, &mut messages);
 
     repair_tool_pairing(messages)
 }
@@ -218,38 +203,25 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
 /// their own tool calls (`seal_tool_calls`) can hold calls whose results were never stored.
 const NO_RESULT_RECORDED: &str = "[no result recorded: the turn ended before this tool returned]";
 
-fn placeholder_result(call: &ToolCall, text: &str) -> UserContent {
-    UserContent::ToolResult(rig_core::message::ToolResult {
-        id: call.id.clone(),
-        call_id: call.call_id.clone(),
-        content: OneOrMany::one(ToolResultContent::text(text)),
-    })
-}
-
-fn tool_calls_of(message: &Message) -> Vec<ToolCall> {
-    let Message::Assistant { content, .. } = message else {
+/// The ids of the tool calls an assistant message makes.
+pub fn tool_call_ids(message: &Message) -> Vec<String> {
+    let Message::Assistant(content) = message else {
         return vec![];
     };
     content
         .iter()
         .filter_map(|item| match item {
-            AssistantContent::ToolCall(call) => Some(call.clone()),
+            AssistantPart::ToolCall { id, .. } => Some(id.clone()),
             _ => None,
         })
         .collect()
 }
 
-fn tool_result_ids(message: &Message) -> Vec<String> {
-    let Message::User { content } = message else {
-        return vec![];
-    };
-    content
-        .iter()
-        .filter_map(|item| match item {
-            UserContent::ToolResult(result) => Some(result.id.clone()),
-            _ => None,
-        })
-        .collect()
+fn result_id(message: &Message) -> Option<&str> {
+    match message {
+        Message::ToolResult { call_id, .. } => Some(call_id),
+        _ => None,
+    }
 }
 
 /// Answers every tool call of the last assistant message that has no result yet.
@@ -258,32 +230,30 @@ fn tool_result_ids(message: &Message) -> Vec<String> {
 /// no `tool_result` after it, which every later request replays and the provider rejects, so
 /// the session can never continue. `completed` holds the results that came back before the
 /// failure; each call still unanswered after them gets `reason` as its result.
-pub fn seal_tool_calls(history: &mut Vec<Message>, completed: Vec<UserContent>, reason: &str) {
+pub fn seal_tool_calls(history: &mut Vec<Message>, completed: Vec<Message>, reason: &str) {
     let Some(index) = history
         .iter()
-        .rposition(|message| matches!(message, Message::Assistant { .. }))
+        .rposition(|message| matches!(message, Message::Assistant(_)))
     else {
         return;
     };
 
     let mut answered: Vec<String> = history[index + 1..]
         .iter()
-        .flat_map(tool_result_ids)
+        .filter_map(result_id)
+        .map(str::to_string)
         .collect();
-    answered.extend(completed.iter().filter_map(|item| match item {
-        UserContent::ToolResult(result) => Some(result.id.clone()),
-        _ => None,
-    }));
+    answered.extend(completed.iter().filter_map(result_id).map(str::to_string));
 
-    let mut content = completed;
-    for call in tool_calls_of(&history[index]) {
-        if !answered.contains(&call.id) {
-            content.push(placeholder_result(&call, &format!("[tool did not return: {reason}]")));
+    let calls = tool_call_ids(&history[index]);
+    history.extend(completed);
+    for id in calls {
+        if !answered.contains(&id) {
+            history.push(Message::tool_result(
+                id,
+                format!("[tool did not return: {reason}]"),
+            ));
         }
-    }
-
-    if let Ok(content) = OneOrMany::many(content) {
-        history.push(Message::User { content });
     }
 }
 
@@ -294,60 +264,34 @@ pub fn seal_tool_calls(history: &mut Vec<Message>, completed: Vec<UserContent>, 
 /// This repairs the replay only; the stored entries are left as they are.
 fn repair_tool_pairing(messages: Vec<Message>) -> Vec<Message> {
     let mut repaired = Vec::with_capacity(messages.len());
-    let mut expected: Vec<ToolCall> = vec![];
+    let mut expected: Vec<String> = vec![];
 
     for message in messages {
-        let Message::User { content } = &message else {
-            repaired.extend(unanswered_message(&mut expected));
-            expected = tool_calls_of(&message);
-            repaired.push(message);
-            continue;
-        };
-
-        let mut kept: Vec<UserContent> = vec![];
-        for item in content.iter() {
-            match item {
-                UserContent::ToolResult(result) => {
-                    if let Some(position) = expected.iter().position(|call| call.id == result.id) {
-                        expected.remove(position);
-                        kept.push(item.clone());
-                    }
-                }
-                other => kept.push(other.clone()),
+        if let Some(id) = result_id(&message) {
+            if let Some(position) = expected.iter().position(|call| call == id) {
+                expected.remove(position);
+                repaired.push(message);
             }
+            continue;
         }
-        // Missing results go with the ones that did come back, ahead of anything else the
-        // message carries: a tool result has to lead the message that follows its call.
-        let (results, others): (Vec<UserContent>, Vec<UserContent>) = kept
-            .into_iter()
-            .partition(|item| matches!(item, UserContent::ToolResult(_)));
-        let mut content: Vec<UserContent> = results;
-        content.extend(
+        // Missing results go right after the ones that did come back, ahead of anything else:
+        // a tool result has to follow its call.
+        repaired.extend(
             expected
                 .drain(..)
-                .map(|call| placeholder_result(&call, NO_RESULT_RECORDED)),
+                .map(|id| Message::tool_result(id, NO_RESULT_RECORDED)),
         );
-        content.extend(others);
-
-        if let Ok(content) = OneOrMany::many(content) {
-            repaired.push(Message::User { content });
-        }
+        expected = tool_call_ids(&message);
+        repaired.push(message);
     }
 
-    repaired.extend(unanswered_message(&mut expected));
+    repaired.extend(
+        expected
+            .drain(..)
+            .map(|id| Message::tool_result(id, NO_RESULT_RECORDED)),
+    );
 
     repaired
-}
-
-/// A tool-result message answering each of `expected`, or nothing when it is empty.
-fn unanswered_message(expected: &mut Vec<ToolCall>) -> Option<Message> {
-    let placeholders: Vec<UserContent> = expected
-        .drain(..)
-        .map(|call| placeholder_result(&call, NO_RESULT_RECORDED))
-        .collect();
-    OneOrMany::many(placeholders)
-        .ok()
-        .map(|content| Message::User { content })
 }
 
 /// One assistant message out of the narration and the tool calls that came with it.
@@ -357,57 +301,31 @@ fn unanswered_message(expected: &mut Vec<ToolCall>) -> Option<Message> {
 /// nothing recorded is silently dropped.
 fn flush_pending_tool_calls(
     text: &mut Option<String>,
-    calls: &mut Vec<ToolCall>,
+    calls: &mut Vec<AssistantPart>,
     messages: &mut Vec<Message>,
 ) {
     let text = text.take();
     if calls.is_empty() {
         if let Some(text) = text {
-            messages.push(Message::assistant(text));
+            messages.push(Message::assistant_text(text));
         }
         return;
     }
 
-    let mut content: Vec<AssistantContent> = Vec::with_capacity(calls.len() + 1);
-    content.extend(text.map(AssistantContent::text));
-    content.extend(calls.drain(..).map(AssistantContent::ToolCall));
-
-    match OneOrMany::many(content) {
-        Ok(content) => messages.push(Message::Assistant { id: None, content }),
-        // Unreachable: `calls` is non-empty, so `content` is too. Dropping the turn is
-        // still better than a panic in the middle of rebuilding an agent's context.
-        Err(err) => tracing::error!("could not rebuild an assistant message from history: {err}"),
-    }
+    let mut content: Vec<AssistantPart> = Vec::with_capacity(calls.len() + 1);
+    content.extend(text.map(AssistantPart::Text));
+    content.append(calls);
+    messages.push(Message::Assistant(content));
 }
 
-fn flush_pending_tool_results(
-    results: &mut Vec<rig_core::message::ToolResult>,
-    messages: &mut Vec<Message>,
-) {
-    if !results.is_empty() {
-        let content: Vec<UserContent> = results
-            .drain(..)
-            .map(UserContent::ToolResult)
-            .collect();
-        messages.push(Message::User {
-            content: OneOrMany::many(content).unwrap(),
-        });
-    }
-}
-
-fn tool_result_content_to_text(content: &OneOrMany<ToolResultContent>) -> String {
+fn parts_text(content: &[Part]) -> String {
     content
         .iter()
-        .filter_map(|c| {
-            if let ToolResultContent::Text(text) = c {
-                Some(text.text.as_str())
-            } else {
-                None
-            }
-        })
+        .filter_map(Part::text)
         .collect::<Vec<_>>()
         .join("\n")
 }
+
 /// A message as the provider should receive it, leaving the record kept in storage
 /// (and shown in the WebUI) untouched.
 ///
@@ -416,17 +334,32 @@ fn tool_result_content_to_text(content: &OneOrMany<ToolResultContent>) -> String
 /// tool result is built, because that same value is what gets persisted: the agent
 /// loop hands `full_history` to storage and the output of this function to the model.
 pub fn message_for_model(message: &Message) -> Message {
-    let Message::User { content } = message else {
+    let Message::ToolResult { call_id, content } = message else {
         return message.clone();
     };
-    if !content.iter().any(is_narrowable) {
+    // A cheap pre-check, so an ordinary tool result is never parsed as JSON.
+    if !content
+        .iter()
+        .any(|p| p.text().is_some_and(|t| t.contains("\"tool_calls\"")))
+    {
         return message.clone();
     }
 
-    let narrowed: Vec<UserContent> = content.iter().map(narrow_tool_result).collect();
-    match OneOrMany::many(narrowed) {
-        Ok(content) => Message::User { content },
-        Err(_) => message.clone(),
+    let narrowed = content
+        .iter()
+        .map(|part| match part {
+            Part::Text(text) => serde_json::from_str(text)
+                .ok()
+                .as_ref()
+                .and_then(ExecutionReport::model_view)
+                .and_then(|view| serde_json::to_string(&view).ok())
+                .map_or_else(|| part.clone(), Part::Text),
+            other => other.clone(),
+        })
+        .collect();
+    Message::ToolResult {
+        call_id: call_id.clone(),
+        content: narrowed,
     }
 }
 
@@ -435,60 +368,14 @@ pub fn messages_for_model(messages: &[Message]) -> Vec<Message> {
     messages.iter().map(message_for_model).collect()
 }
 
-/// A cheap pre-check, so an ordinary tool result is never parsed as JSON.
-fn is_narrowable(content: &UserContent) -> bool {
-    let UserContent::ToolResult(result) = content else {
-        return false;
-    };
-    result.content.iter().any(|part| match part {
-        ToolResultContent::Text(text) => text.text.contains("\"tool_calls\""),
-        _ => false,
-    })
-}
-
-fn narrow_tool_result(content: &UserContent) -> UserContent {
-    let UserContent::ToolResult(result) = content else {
-        return content.clone();
-    };
-
-    let narrowed: Vec<ToolResultContent> = result
-        .content
-        .iter()
-        .map(|part| match part {
-            ToolResultContent::Text(text) => serde_json::from_str(&text.text)
-                .ok()
-                .as_ref()
-                .and_then(ExecutionReport::model_view)
-                .and_then(|view| serde_json::to_string(&view).ok())
-                .map_or_else(|| part.clone(), ToolResultContent::text),
-            _ => part.clone(),
-        })
-        .collect();
-
-    match OneOrMany::many(narrowed) {
-        Ok(content) => UserContent::ToolResult(rig_core::message::ToolResult {
-            id: result.id.clone(),
-            call_id: result.call_id.clone(),
-            content,
-        }),
-        Err(_) => content.clone(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use rig_core::message::ToolResultContent;
     use serde_json::json;
 
     use super::*;
 
     fn tool_result(id: &str, text: &str) -> Message {
-        Message::User {
-            content: OneOrMany::one(UserContent::tool_result(
-                id.to_string(),
-                OneOrMany::one(ToolResultContent::text(text)),
-            )),
-        }
+        Message::tool_result(id, text)
     }
 
     fn report_json() -> String {
@@ -509,13 +396,10 @@ mod tests {
     }
 
     fn first_tool_result_text(message: &Message) -> String {
-        let Message::User { content } = message else {
-            panic!("expected a user message");
-        };
-        let UserContent::ToolResult(result) = content.first() else {
+        let Message::ToolResult { content, .. } = message else {
             panic!("expected a tool result");
         };
-        tool_result_content_to_text(&result.content)
+        parts_text(content)
     }
 
     #[test]
@@ -551,24 +435,18 @@ mod tests {
     }
 
     #[test]
-    fn non_user_messages_and_ids_are_preserved() {
-        let assistant = Message::assistant("hello");
-        assert!(matches!(message_for_model(&assistant), Message::Assistant { .. }));
+    fn non_tool_messages_and_ids_are_preserved() {
+        let assistant = Message::assistant_text("hello");
+        assert_eq!(message_for_model(&assistant), assistant);
 
         let narrowed = message_for_model(&tool_result("call-7", &report_json()));
-        let Message::User { content } = &narrowed else {
-            panic!("expected a user message");
-        };
-        let UserContent::ToolResult(result) = content.first() else {
-            panic!("expected a tool result");
-        };
-        assert_eq!(result.id, "call-7");
+        assert_eq!(result_id(&narrowed), Some("call-7"));
     }
 
     #[test]
     fn messages_for_model_maps_a_whole_history() {
         let history = vec![
-            Message::user("what changed?"),
+            Message::user_text("what changed?").unwrap(),
             tool_result("call-1", &report_json()),
         ];
         let narrowed = messages_for_model(&history);
@@ -583,24 +461,20 @@ mod tests {
     // provider accepts. See `specs/010-webui-reasoning-display/contracts/history-api.md` §3.
     // ---------------------------------------------------------------------------------
 
-    fn narrated_turn() -> Message {
-        Message::Assistant {
-            id: None,
-            content: OneOrMany::many(vec![
-                AssistantContent::text("Let me check the archives."),
-                AssistantContent::ToolCall(ToolCall {
-                    id: "call-1".to_string(),
-                    call_id: None,
-                    function: ToolFunction {
-                        name: "memory_search".to_string(),
-                        arguments: json!({ "query": "rust releases" }),
-                    },
-                    signature: None,
-                    additional_params: None,
-                }),
-            ])
-            .unwrap(),
+    fn call_part(id: &str) -> AssistantPart {
+        AssistantPart::ToolCall {
+            id: id.to_string(),
+            name: "memory_search".to_string(),
+            arguments: json!({ "query": "rust releases" }),
+            provider_data: None,
         }
+    }
+
+    fn narrated_turn() -> Message {
+        Message::Assistant(vec![
+            AssistantPart::Text("Let me check the archives.".to_string()),
+            call_part("call-1"),
+        ])
     }
 
     fn entry(content: SessionHistoryContent) -> SessionHistory {
@@ -641,6 +515,23 @@ mod tests {
         assert_eq!(kinds(&entries), vec!["AssistantMessage", "ToolCall"]);
     }
 
+    #[test]
+    fn tool_results_and_reasoning_map_one_to_one() {
+        let entries = messages_to_history_entries(&[
+            Message::Assistant(vec![
+                AssistantPart::Reasoning {
+                    text: "hidden".into(),
+                    provider_data: None,
+                },
+                call_part("a"),
+                call_part("b"),
+            ]),
+            tool_result("a", "one"),
+            tool_result("b", "two"),
+        ]);
+        assert_eq!(kinds(&entries), vec!["ToolCall", "ToolCall", "ToolResult", "ToolResult"]);
+    }
+
     /// H14, H15, H16.
     #[test]
     fn a_narrated_tool_turn_replays_as_one_assistant_message() {
@@ -662,60 +553,28 @@ mod tests {
         let messages = history_entries_to_messages(&history);
 
         // H14: exactly one assistant message, text first, then its tool call.
-        assert_eq!(messages.len(), 2, "expected one assistant then one user");
-        let Message::Assistant { content, .. } = &messages[0] else {
+        assert_eq!(messages.len(), 2, "expected one assistant message then its result");
+        let Message::Assistant(blocks) = &messages[0] else {
             panic!("expected an assistant message first");
         };
-        let blocks: Vec<&AssistantContent> = content.iter().collect();
         assert_eq!(blocks.len(), 2);
-        let AssistantContent::Text(text) = blocks[0] else {
-            panic!("expected narration as the leading block");
-        };
-        assert_eq!(text.text, "Let me check the archives.");
-        assert!(matches!(blocks[1], AssistantContent::ToolCall(_)));
+        assert_eq!(
+            blocks[0],
+            AssistantPart::Text("Let me check the archives.".to_string()),
+            "narration leads"
+        );
+        assert!(matches!(blocks[1], AssistantPart::ToolCall { .. }));
 
         // H15: no two consecutive assistant messages.
         for pair in messages.windows(2) {
             assert!(
-                !matches!(
-                    (&pair[0], &pair[1]),
-                    (Message::Assistant { .. }, Message::Assistant { .. })
-                ),
+                !matches!((&pair[0], &pair[1]), (Message::Assistant(_), Message::Assistant(_))),
                 "two consecutive assistant messages were emitted"
             );
         }
 
-        // H16: every tool result is immediately preceded by the assistant message
-        // carrying its tool call.
-        for (index, message) in messages.iter().enumerate() {
-            let Message::User { content } = message else {
-                continue;
-            };
-            let ids: Vec<String> = content
-                .iter()
-                .filter_map(|item| match item {
-                    UserContent::ToolResult(result) => Some(result.id.clone()),
-                    _ => None,
-                })
-                .collect();
-            if ids.is_empty() {
-                continue;
-            }
-            let Some(Message::Assistant { content, .. }) = index.checked_sub(1).map(|i| &messages[i])
-            else {
-                panic!("a tool result is not preceded by an assistant message");
-            };
-            let called: Vec<String> = content
-                .iter()
-                .filter_map(|item| match item {
-                    AssistantContent::ToolCall(call) => Some(call.id.clone()),
-                    _ => None,
-                })
-                .collect();
-            for id in ids {
-                assert!(called.contains(&id), "tool result {id} is not adjacent to its call");
-            }
-        }
+        // H16: every tool result follows the assistant message carrying its call.
+        assert_paired(&messages);
     }
 
     /// H17, FR-013. The regression guard: the change has to be invisible for every
@@ -746,17 +605,13 @@ mod tests {
         let messages = history_entries_to_messages(&history);
 
         assert_eq!(messages.len(), 3);
-        let Message::Assistant { content, .. } = &messages[0] else {
+        let Message::Assistant(blocks) = &messages[0] else {
             panic!("expected the tool call as an assistant message");
         };
-        let blocks: Vec<&AssistantContent> = content.iter().collect();
         assert_eq!(blocks.len(), 1, "no empty text block is prepended");
-        assert!(matches!(blocks[0], AssistantContent::ToolCall(_)));
-        assert!(matches!(messages[1], Message::User { .. }));
-        let Message::Assistant { content, .. } = &messages[2] else {
-            panic!("expected the final response as an assistant message");
-        };
-        assert!(matches!(content.first(), AssistantContent::Text(_)));
+        assert!(matches!(blocks[0], AssistantPart::ToolCall { .. }));
+        assert!(matches!(messages[1], Message::ToolResult { .. }));
+        assert_eq!(messages[2], Message::assistant_text("Two releases."));
     }
 
     // ---------------------------------------------------------------------------------
@@ -792,63 +647,38 @@ mod tests {
     }
 
     fn calls_message(ids: &[&str]) -> Message {
-        Message::Assistant {
-            id: None,
-            content: OneOrMany::many(
-                ids.iter()
-                    .map(|id| {
-                        AssistantContent::ToolCall(ToolCall {
-                            id: id.to_string(),
-                            call_id: None,
-                            function: ToolFunction {
-                                name: "memory_search".to_string(),
-                                arguments: json!({}),
-                            },
-                            signature: None,
-                            additional_params: None,
-                        })
-                    })
-                    .collect::<Vec<_>>(),
-            )
-            .unwrap(),
-        }
+        Message::Assistant(ids.iter().map(|id| call_part(id)).collect())
     }
 
-    /// `(id, text)` for every tool result in a user message.
-    fn results(message: &Message) -> Vec<(String, String)> {
-        let Message::User { content } = message else {
-            panic!("expected a user message, got {message:?}");
-        };
-        content
+    /// `(id, text)` for the run of tool results starting at `index`.
+    fn results(messages: &[Message], index: usize) -> Vec<(String, String)> {
+        messages[index..]
             .iter()
-            .filter_map(|item| match item {
-                UserContent::ToolResult(result) => {
-                    Some((result.id.clone(), tool_result_content_to_text(&result.content)))
+            .map_while(|m| match m {
+                Message::ToolResult { call_id, content } => {
+                    Some((call_id.clone(), parts_text(content)))
                 }
                 _ => None,
             })
             .collect()
     }
 
-    /// Every tool call is answered by the message right after it, and every tool result
-    /// answers a call in the message right before it.
+    /// Every tool call is answered by the results right after it, and every tool result
+    /// answers a call in the assistant message right before its run.
     fn assert_paired(messages: &[Message]) {
         for (index, message) in messages.iter().enumerate() {
-            let calls: Vec<String> = tool_calls_of(message).into_iter().map(|c| c.id).collect();
-            let answered = messages.get(index + 1).map(tool_result_ids).unwrap_or_default();
-            for id in &calls {
-                assert!(answered.contains(id), "tool call {id} has no result after it");
+            let answered: Vec<String> = results(messages, index + 1).into_iter().map(|(id, _)| id).collect();
+            for id in tool_call_ids(message) {
+                assert!(answered.contains(&id), "tool call {id} has no result after it");
             }
-
-            let previous = index
-                .checked_sub(1)
-                .map(|i| tool_calls_of(&messages[i]))
-                .unwrap_or_default();
-            for id in tool_result_ids(message) {
-                assert!(
-                    previous.iter().any(|call| call.id == id),
-                    "tool result {id} answers no call before it"
-                );
+            if let Some(id) = result_id(message) {
+                let owner = messages[..index]
+                    .iter()
+                    .rev()
+                    .find(|m| result_id(m).is_none())
+                    .map(tool_call_ids)
+                    .unwrap_or_default();
+                assert!(owner.iter().any(|c| c == id), "tool result {id} answers no call before it");
             }
         }
     }
@@ -859,7 +689,7 @@ mod tests {
 
         assert_paired(&messages);
         assert_eq!(messages.len(), 2);
-        assert_eq!(results(&messages[1]), vec![("a".to_string(), NO_RESULT_RECORDED.to_string())]);
+        assert_eq!(results(&messages, 1), vec![("a".to_string(), NO_RESULT_RECORDED.to_string())]);
     }
 
     #[test]
@@ -867,15 +697,12 @@ mod tests {
         let messages = history_entries_to_messages(&[call_entry("a"), error_entry()]);
 
         assert_paired(&messages);
-        let Message::User { content } = &messages[1] else {
-            panic!("expected a user message after the call");
-        };
         assert!(
-            matches!(content.first(), UserContent::ToolResult(_)),
-            "the tool result has to lead the message"
+            matches!(messages[1], Message::ToolResult { .. }),
+            "the tool result has to follow its call"
         );
         assert!(
-            content.iter().any(|c| matches!(c, UserContent::Text(t) if t.text.starts_with("[Error"))),
+            matches!(&messages[2], Message::User(parts) if parts[0].text().is_some_and(|t| t.starts_with("[Error"))),
             "the error is still replayed"
         );
     }
@@ -891,7 +718,7 @@ mod tests {
 
         assert_paired(&messages);
         assert_eq!(
-            results(&messages[1]),
+            results(&messages, 1),
             vec![
                 ("a".to_string(), "two hits".to_string()),
                 ("b".to_string(), NO_RESULT_RECORDED.to_string()),
@@ -918,17 +745,14 @@ mod tests {
 
     #[test]
     fn sealing_answers_only_the_calls_that_did_not_return() {
-        let mut history = vec![Message::user("find it"), calls_message(&["a", "b", "c"])];
-        let completed = vec![UserContent::tool_result(
-            "a",
-            OneOrMany::one(ToolResultContent::text("two hits")),
-        )];
+        let mut history = vec![Message::user_text("find it").unwrap(), calls_message(&["a", "b", "c"])];
+        let completed = vec![tool_result("a", "two hits")];
 
         seal_tool_calls(&mut history, completed, "timed out after 60s");
 
         assert_paired(&history);
         assert_eq!(
-            results(&history[2]),
+            results(&history, 2),
             vec![
                 ("a".to_string(), "two hits".to_string()),
                 ("b".to_string(), "[tool did not return: timed out after 60s]".to_string()),
@@ -943,7 +767,7 @@ mod tests {
         seal_tool_calls(&mut history, vec![], "depth limit");
         assert_eq!(history.len(), 2);
 
-        let mut history = vec![Message::user("hi"), Message::assistant("hello")];
+        let mut history = vec![Message::user_text("hi").unwrap(), Message::assistant_text("hello")];
         seal_tool_calls(&mut history, vec![], "depth limit");
         assert_eq!(history.len(), 2);
     }

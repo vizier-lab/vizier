@@ -6,12 +6,12 @@ use rusqlite::OptionalExtension;
 
 use crate::{
     agents::background::BackgroundJobs,
-    config::{VizierConfig, provider::ProviderVariant, storage::StorageConfig},
+    config::{VizierConfig, storage::StorageConfig},
     constant::CORE_MD,
     file_manager::FileManager,
     indexer::{VizierIndexer, noop::NoopIndexer},
     schema::{
-        AgentToolsConfig, ProviderEntry, ProviderEntryConfig, RevisionOrigin, RevisionTrigger,
+        AgentToolsConfig, RevisionOrigin, RevisionTrigger,
         VizierAttachment,
     },
     storage::{
@@ -24,7 +24,6 @@ use crate::{
         fs::FileSystemStorage,
         global_config::GlobalConfigStorage,
         memory_bundle::BundleMemoryStore,
-        provider::ProviderStorage,
         session::SessionStorage,
         session_file::SessionFileStorage,
         sqlite::SqliteStorage,
@@ -112,10 +111,13 @@ impl VizierDependencies {
         Self::migrate_memory_to_bundles(&config, document_store.clone(), conn.clone()).await?;
         Self::migrate_filesystem_backend_to_sqlite(&config, conn.clone()).await?;
 
+        let catalogue = crate::catalogue::Catalogue::new(crate::catalogue::seed::load_seed());
+        crate::provider_migration::migrate_provider_ids_v1(&mut conn.lock(), &catalogue.snapshot())?;
+        Self::warn_about_yaml_providers(&config, &catalogue);
+
         let storage = VizierStorage::new(SqliteStorage::new(conn.clone(), document_store));
 
         Self::migrate_users(&storage).await?;
-        Self::migrate_providers(&config, &storage).await?;
         Self::migrate_agent_tools(&storage).await?;
         Self::migrate_agent_cores(&storage).await?;
         Self::migrate_task_requester(conn.clone()).await?;
@@ -142,7 +144,7 @@ impl VizierDependencies {
             file_manager,
             background_jobs,
             http: crate::llm::http::client(),
-            catalogue: crate::catalogue::Catalogue::new(crate::catalogue::seed::load_seed()),
+            catalogue,
         })
     }
 
@@ -453,11 +455,15 @@ impl VizierDependencies {
             }
         }
 
-        // Providers
-        if let Ok(providers) = fs.list_providers().await {
-            for p in providers {
-                if let Err(e) = sql.upsert_provider(&p).await {
-                    tracing::error!("failed to migrate provider {:?}: {}", p.variant, e);
+        // Providers: copied as they are; `migrate_provider_ids_v1` rewrites them next.
+        if let Ok(rows) = fs.legacy_provider_rows() {
+            let c = conn.lock();
+            for (variant, data) in rows {
+                if let Err(e) = c.execute(
+                    "INSERT OR REPLACE INTO provider_config (variant, data) VALUES (?1, ?2)",
+                    rusqlite::params![variant, data],
+                ) {
+                    tracing::error!("failed to migrate provider {variant}: {e}");
                 }
             }
         }
@@ -591,88 +597,32 @@ impl VizierDependencies {
         Ok(())
     }
 
-    async fn migrate_providers(config: &VizierConfig, storage: &VizierStorage) -> Result<()> {
-        if !storage.list_providers().await?.is_empty() {
-            return Ok(());
-        }
-
-        tracing::info!("migrating providers from YAML config to storage");
-
-        let providers = &config.providers;
-        let entries: Vec<ProviderEntry> = [
-            providers.ollama.as_ref().map(|c| ProviderEntry {
-                variant: ProviderVariant::ollama,
-                config: ProviderEntryConfig::Ollama {
-                    base_url: c.base_url.clone(),
-                },
-            }),
-            providers.openai.as_ref().map(|c| ProviderEntry {
-                variant: ProviderVariant::openai,
-                config: ProviderEntryConfig::Openai {
-                    api_key: c.api_key.clone(),
-                },
-            }),
-            providers.anthropic.as_ref().map(|c| ProviderEntry {
-                variant: ProviderVariant::anthropic,
-                config: ProviderEntryConfig::Anthropic {
-                    api_key: c.api_key.clone(),
-                },
-            }),
-            providers.deepseek.as_ref().map(|c| ProviderEntry {
-                variant: ProviderVariant::deepseek,
-                config: ProviderEntryConfig::Deepseek {
-                    api_key: c.api_key.clone(),
-                },
-            }),
-            providers.openrouter.as_ref().map(|c| ProviderEntry {
-                variant: ProviderVariant::openrouter,
-                config: ProviderEntryConfig::Openrouter {
-                    api_key: c.api_key.clone(),
-                },
-            }),
-            providers.gemini.as_ref().map(|c| ProviderEntry {
-                variant: ProviderVariant::gemini,
-                config: ProviderEntryConfig::Gemini {
-                    api_key: c.api_key.clone(),
-                },
-            }),
-            providers.mimo.as_ref().map(|c| ProviderEntry {
-                variant: ProviderVariant::mimo,
-                config: ProviderEntryConfig::Mimo {
-                    api_key: c.api_key.clone(),
-                },
-            }),
-            providers.llama_cpp.as_ref().map(|c| ProviderEntry {
-                variant: ProviderVariant::llama_cpp,
-                config: ProviderEntryConfig::LlamaCpp {
-                    base_url: c.base_url.clone(),
-                },
-            }),
-            providers.elevenlabs.as_ref().map(|c| ProviderEntry {
-                variant: ProviderVariant::elevenlabs,
-                config: ProviderEntryConfig::Elevenlabs {
-                    api_key: c.api_key.clone(),
-                },
-            }),
-            providers.custom.as_ref().map(|c| ProviderEntry {
-                variant: ProviderVariant::custom,
-                config: ProviderEntryConfig::Custom {
-                    api_key: c.api_key.clone(),
-                    base_url: c.base_url.clone(),
-                },
-            }),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-
-        for entry in entries {
-            if let Err(e) = storage.upsert_provider(&entry).await {
-                tracing::warn!("failed to migrate provider {:?}: {}", entry.variant, e);
+    /// FR-028: `providers` in the config file is no longer read. Each leftover key gets one
+    /// warning naming the env var that replaces it.
+    fn warn_about_yaml_providers(config: &VizierConfig, catalogue: &crate::catalogue::Catalogue) {
+        let Some(serde_yaml::Value::Mapping(map)) = &config.providers else {
+            return;
+        };
+        let data = catalogue.snapshot();
+        for key in map.keys().filter_map(|k| k.as_str()) {
+            let env = crate::config::provider::ProviderId::parse(key).ok().and_then(|id| {
+                crate::catalogue::builtin::builtin(&id)
+                    .and_then(|b| b.env.first().map(|e| e.to_string()))
+                    .or_else(|| {
+                        data.providers.get(&id).and_then(|p| {
+                            p.env.iter().find(|e| e.contains("KEY") || e.contains("TOKEN")).cloned()
+                        })
+                    })
+            });
+            match env {
+                Some(var) => tracing::warn!(
+                    "providers.{key} is ignored; set {var} or add it in Settings › Providers"
+                ),
+                None => tracing::warn!(
+                    "providers.{key} is ignored; add it in Settings › Providers"
+                ),
             }
         }
-
-        Ok(())
     }
 
     pub async fn run(&self) -> Result<()> {

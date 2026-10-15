@@ -11,7 +11,6 @@ pub mod tools;
 
 use crate::{
     config::{
-        provider::{LlamaCppProviderConfig, OllamaProviderConfig, ProviderConfig},
         storage::StorageConfig,
     },
     constant,
@@ -81,7 +80,10 @@ impl Default for ChunkLimits {
 pub struct VizierConfig {
     #[serde(skip)]
     pub workspace: String,
-    pub providers: ProviderConfig,
+    /// Removed in spec 015 (FR-028): providers are configured in Settings › Providers or
+    /// through their environment variables. A leftover section is read only to warn about it.
+    #[serde(default, skip_serializing)]
+    pub providers: Option<serde_yaml::Value>,
     pub storage: StorageConfig,
     pub channels: ChannelsConfig,
     #[serde(default = "default_worker_threads")]
@@ -224,37 +226,7 @@ impl Default for VizierConfig {
         VizierConfig {
             workspace: String::new(),
             storage: StorageConfig::Sqlite,
-            providers: ProviderConfig {
-                ollama: Some(OllamaProviderConfig::default()),
-                deepseek: None,
-                openrouter: None,
-                anthropic: None,
-                openai: None,
-                gemini: None,
-                mimo: None,
-                llama_cpp: Some(LlamaCppProviderConfig::default()),
-                elevenlabs: None,
-                groq: None,
-                mistral: None,
-                xai: None,
-                perplexity: None,
-                moonshot: None,
-                zai: None,
-                minimax: None,
-                together: None,
-                cohere: None,
-                huggingface: None,
-                hyperbolic: None,
-                voyageai: None,
-                galadriel: None,
-                mira: None,
-                chatgpt: None,
-                copilot: None,
-                azure: None,
-                custom: None,
-                opencode_zen: None,
-                opencode_go: None,
-            },
+            providers: None,
             channels: ChannelsConfig {
                 http: Some(default_http_channel()),
             },

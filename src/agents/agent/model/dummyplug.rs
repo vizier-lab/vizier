@@ -9,19 +9,13 @@
 //!
 //! See `specs/008-dummyplug-provider/` for the full chat protocol.
 
-use anyhow::Result;
 use rand::RngExt;
-use rig_core::{
-    OneOrMany,
-    completion::{ToolDefinition, Usage},
-    message::{
-        AssistantContent, Message, ToolCall, ToolFunction, ToolResult, ToolResultContent,
-        UserContent,
-    },
-};
 use serde_json::{Value, json};
 
-use super::VizierModelTrait;
+use crate::llm::{
+    AssistantPart, CompletionModel, CompletionRequest, CompletionResponse, LlmError, Message,
+    Part, ToolDefinition, Usage,
+};
 use crate::{
     agents::agent::system_prompt::context::CONTEXT_HEADER,
     schema::AgentConfig,
@@ -41,47 +35,55 @@ impl DummyplugModel {
 }
 
 #[async_trait::async_trait]
-impl VizierModelTrait for DummyplugModel {
+impl CompletionModel for DummyplugModel {
     /// Dispatch rules, first match wins (research R5). User input errors are replies, never `Err`.
-    async fn completion(
-        &self,
-        message: Message,
-        history: Vec<Message>,
-        tools: Vec<ToolDefinition>,
-    ) -> Result<(Option<String>, OneOrMany<AssistantContent>, Usage)> {
-        let results = tool_results(&message);
+    async fn complete(&self, req: CompletionRequest) -> Result<CompletionResponse, LlmError> {
+        let messages = &req.messages;
+        let tools = &req.tools;
+        // The tool results a turn ends with, answering the assistant message before them.
+        let first_result = messages
+            .iter()
+            .rposition(|m| !matches!(m, Message::ToolResult { .. }))
+            .map_or(0, |i| i + 1);
+        let results = &messages[first_result..];
+        let message = messages.last().cloned().unwrap_or(Message::User(vec![]));
+
         let reply = if !results.is_empty() {
             tracing::debug!("dummyplug: echoing {} tool result(s)", results.len());
-            AssistantContent::text(reply_tool_results(&results, &history))
+            AssistantPart::Text(reply_tool_results(results, &messages[..first_result]))
         } else {
             let text = command_text(&message);
             if text.eq_ignore_ascii_case("tools") {
                 tracing::debug!("dummyplug: listing {} tool(s)", tools.len());
-                AssistantContent::text(reply_tool_list(&tools))
+                AssistantPart::Text(reply_tool_list(tools))
             } else if text.eq_ignore_ascii_case("context") {
                 tracing::debug!("dummyplug: echoing the context block");
-                AssistantContent::text(reply_context(&message))
+                AssistantPart::Text(reply_context(&message))
             } else if let Some(tool) = tools.iter().find(|t| t.name == text) {
                 tracing::debug!("dummyplug: sample request for {}", tool.name);
-                AssistantContent::text(reply_tool_sample(tool))
+                AssistantPart::Text(reply_tool_sample(tool))
             } else if text.starts_with('{') {
-                match parse_tool_request(&text, &tools) {
+                match parse_tool_request(&text, tools) {
                     Ok(call) => {
-                        tracing::debug!("dummyplug: calling tool {}", call.function.name);
-                        AssistantContent::ToolCall(call)
+                        tracing::debug!("dummyplug: calling a tool");
+                        call
                     }
                     Err(err) => {
                         tracing::debug!("dummyplug: rejected tool request");
-                        AssistantContent::text(err)
+                        AssistantPart::Text(err)
                     }
                 }
             } else {
                 tracing::debug!("dummyplug: lorem ipsum");
-                AssistantContent::text(lorem_ipsum())
+                AssistantPart::Text(lorem_ipsum())
             }
         };
 
-        Ok((None, OneOrMany::one(reply), Usage::new()))
+        Ok(CompletionResponse {
+            id: None,
+            content: vec![reply],
+            usage: Usage::new(),
+        })
     }
 
     fn context_window(&self) -> Option<u64> {
@@ -92,13 +94,13 @@ impl VizierModelTrait for DummyplugModel {
 /// The user's plain text: the channel's frontmatter, the attachments trailer and one surrounding
 /// code fence stripped, then trimmed (research R4).
 fn command_text(message: &Message) -> String {
-    let Message::User { content } = message else {
+    let Message::User(content) = message else {
         return String::new();
     };
     let text = content
         .iter()
         .filter_map(|c| match c {
-            UserContent::Text(t) if !t.text().starts_with(CONTEXT_HEADER) => Some(t.text()),
+            Part::Text(t) if !t.starts_with(CONTEXT_HEADER) => Some(t.as_str()),
             _ => None,
         })
         .collect::<Vec<_>>()
@@ -117,15 +119,13 @@ fn command_text(message: &Message) -> String {
 
 /// §6: the per-request context block exactly as the agent received it this turn.
 fn reply_context(message: &Message) -> String {
-    let Message::User { content } = message else {
+    let Message::User(content) = message else {
         return "(no context block)".to_string();
     };
     content
         .iter()
         .find_map(|c| match c {
-            UserContent::Text(t) if t.text().starts_with(CONTEXT_HEADER) => {
-                Some(t.text().to_string())
-            }
+            Part::Text(t) if t.starts_with(CONTEXT_HEADER) => Some(t.clone()),
             _ => None,
         })
         .unwrap_or_else(|| "(no context block)".to_string())
@@ -143,53 +143,43 @@ fn strip_fence(text: &str) -> &str {
     }
 }
 
-fn tool_results(message: &Message) -> Vec<&ToolResult> {
-    let Message::User { content } = message else {
-        return vec![];
-    };
-    content
-        .iter()
-        .filter_map(|c| match c {
-            UserContent::ToolResult(result) => Some(result),
-            _ => None,
-        })
-        .collect()
-}
-
 /// Echo each tool result, named by the matching call in the last assistant message (R8).
-fn reply_tool_results(results: &[&ToolResult], history: &[Message]) -> String {
-    let calls = history
+fn reply_tool_results(results: &[Message], history: &[Message]) -> String {
+    let calls: Vec<(&str, &str)> = history
         .iter()
         .rev()
         .find_map(|m| match m {
-            Message::Assistant { content, .. } => Some(content),
+            Message::Assistant(content) => Some(content),
             _ => None,
         })
         .map(|content| {
             content
                 .iter()
                 .filter_map(|c| match c {
-                    AssistantContent::ToolCall(call) => Some(call),
+                    AssistantPart::ToolCall { id, name, .. } => Some((id.as_str(), name.as_str())),
                     _ => None,
                 })
-                .collect::<Vec<_>>()
+                .collect()
         })
         .unwrap_or_default();
 
     results
         .iter()
-        .map(|result| {
+        .filter_map(|result| match result {
+            Message::ToolResult { call_id, content } => Some((call_id, content)),
+            _ => None,
+        })
+        .map(|(call_id, content)| {
             let name = calls
                 .iter()
-                .find(|call| call.id == result.id)
-                .map(|call| call.function.name.as_str())
-                .unwrap_or(&result.id);
-            let text = result
-                .content
+                .find(|(id, _)| id == call_id)
+                .map(|(_, name)| *name)
+                .unwrap_or(call_id);
+            let text = content
                 .iter()
                 .map(|c| match c {
-                    ToolResultContent::Text(t) => t.text().to_string(),
-                    ToolResultContent::Image(_) => "[image]".to_string(),
+                    Part::Text(t) => t.clone(),
+                    Part::Attachment { .. } => "[image]".to_string(),
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
@@ -282,7 +272,7 @@ fn reply_tool_sample(tool: &ToolDefinition) -> String {
 const REQUEST_SHAPE: &str = "Expected: `{\"tool\": \"<tool name>\", \"arguments\": { ... }}`";
 
 /// Contract §3. `Err` holds the user-facing reply.
-fn parse_tool_request(text: &str, tools: &[ToolDefinition]) -> Result<ToolCall, String> {
+fn parse_tool_request(text: &str, tools: &[ToolDefinition]) -> Result<AssistantPart, String> {
     let value = serde_json::from_str::<Value>(text)
         .map_err(|e| format!("Could not parse tool request: {e}\n\n{REQUEST_SHAPE}"))?;
     let invalid = |reason: &str| format!("Invalid tool request: {reason}\n\n{REQUEST_SHAPE}");
@@ -306,15 +296,11 @@ fn parse_tool_request(text: &str, tools: &[ToolDefinition]) -> Result<ToolCall, 
         ));
     }
 
-    Ok(ToolCall {
+    Ok(AssistantPart::ToolCall {
         id: format!("dummyplug-{}", uuid::Uuid::new_v4()),
-        call_id: None,
-        function: ToolFunction {
-            name: name.clone(),
-            arguments,
-        },
-        signature: None,
-        additional_params: None,
+        name: name.clone(),
+        arguments,
+        provider_data: None,
     })
 }
 
@@ -421,7 +407,7 @@ mod tests {
             shared_to: vec![],
             system_prompt: None,
             description: None,
-            provider: crate::config::provider::ProviderVariant::dummyplug,
+            provider: crate::config::provider::ProviderId::DUMMYPLUG,
             model: "dummyplug".into(),
             thinking_depth: 5,
             checkpoint_threshold: 0.8,
@@ -462,17 +448,25 @@ mod tests {
         assert!(texts.iter().any(|t| t != &texts[0]));
     }
 
+    fn request(messages: Vec<Message>, tools: Vec<ToolDefinition>) -> CompletionRequest {
+        CompletionRequest {
+            messages,
+            tools,
+            ..Default::default()
+        }
+    }
+
     #[tokio::test]
     async fn prose_gets_one_text_reply_and_zero_usage() {
         let model = DummyplugModel::new(&agent_config(None));
-        let (id, content, usage) = model
-            .completion(Message::user("hello"), vec![], vec![])
+        let r = model
+            .complete(request(vec![Message::user_text("hello").unwrap()], vec![]))
             .await
             .unwrap();
-        assert!(id.is_none());
-        assert_eq!(content.len(), 1);
-        assert!(matches!(content.first(), AssistantContent::Text(_)));
-        assert_eq!(usage, Usage::new());
+        assert!(r.id.is_none());
+        assert_eq!(r.content.len(), 1);
+        assert!(matches!(r.content[0], AssistantPart::Text(_)));
+        assert_eq!(r.usage, Usage::new());
     }
 
     #[test]
@@ -527,25 +521,33 @@ mod tests {
         message: Message,
         history: Vec<Message>,
         tools: Vec<ToolDefinition>,
-    ) -> AssistantContent {
-        let (_, content, _) = DummyplugModel::new(&agent_config(None))
-            .completion(message, history, tools)
+    ) -> AssistantPart {
+        let mut messages = history;
+        messages.push(message);
+        let mut r = DummyplugModel::new(&agent_config(None))
+            .complete(request(messages, tools))
             .await
             .unwrap();
-        assert_eq!(content.len(), 1);
-        content.first()
+        assert_eq!(r.content.len(), 1);
+        r.content.remove(0)
     }
 
     async fn reply_text(message: Message, tools: Vec<ToolDefinition>) -> String {
         match reply(message, vec![], tools).await {
-            AssistantContent::Text(t) => t.text().to_string(),
+            AssistantPart::Text(t) => t,
             other => panic!("expected text, got {other:?}"),
         }
     }
 
-    async fn reply_call(message: Message, tools: Vec<ToolDefinition>) -> ToolCall {
+    /// `(id, name, arguments)` of the tool call the reply makes.
+    async fn reply_call(message: Message, tools: Vec<ToolDefinition>) -> (String, String, Value) {
         match reply(message, vec![], tools).await {
-            AssistantContent::ToolCall(call) => call,
+            AssistantPart::ToolCall {
+                id,
+                name,
+                arguments,
+                ..
+            } => (id, name, arguments),
             other => panic!("expected a tool call, got {other:?}"),
         }
     }
@@ -565,7 +567,7 @@ mod tests {
 
     #[test]
     fn command_text_falls_back_to_the_whole_text_without_frontmatter() {
-        assert_eq!(command_text(&Message::user("  hi  ")), "hi");
+        assert_eq!(command_text(&Message::user_text("  hi  ").unwrap()), "hi");
     }
 
     #[test]
@@ -579,7 +581,7 @@ mod tests {
         .to_prompt()
         .unwrap()
             + "\n\n# Attached Files\n- a.png (image/png)\nthe following files added to your session files.";
-        assert_eq!(command_text(&Message::user(message)), "tools");
+        assert_eq!(command_text(&Message::user_text(message).unwrap()), "tools");
     }
 
     #[test]
@@ -612,21 +614,20 @@ mod tests {
 
     #[tokio::test]
     async fn valid_request_becomes_a_tool_call() {
-        let call = reply_call(
+        let (id, name, arguments) = reply_call(
             user_message(r#"{"tool": "echo", "arguments": {"text": "hi"}, "extra": 1}"#),
             vec![echo_tool()],
         )
         .await;
-        assert_eq!(call.function.name, "echo");
-        assert_eq!(call.function.arguments, json!({"text": "hi"}));
-        assert!(call.id.starts_with("dummyplug-"));
-        assert_eq!(call.call_id, None);
+        assert_eq!(name, "echo");
+        assert_eq!(arguments, json!({"text": "hi"}));
+        assert!(id.starts_with("dummyplug-"));
     }
 
     #[tokio::test]
     async fn omitted_arguments_default_to_an_empty_object() {
-        let call = reply_call(user_message(r#"{"tool": "echo"}"#), vec![echo_tool()]).await;
-        assert_eq!(call.function.arguments, json!({}));
+        let (_, _, arguments) = reply_call(user_message(r#"{"tool": "echo"}"#), vec![echo_tool()]).await;
+        assert_eq!(arguments, json!({}));
     }
 
     #[tokio::test]
@@ -649,38 +650,23 @@ mod tests {
 
         // `[1,2]` doesn't start with `{`, so it's prose; either way, no tool call.
         let array = reply(user_message("[1,2]"), vec![], vec![echo_tool()]).await;
-        assert!(matches!(array, AssistantContent::Text(_)));
+        assert!(matches!(array, AssistantPart::Text(_)));
     }
 
     #[tokio::test]
     async fn tool_results_are_echoed_never_called_again() {
-        let call = ToolCall {
-            id: "call-1".into(),
-            call_id: None,
-            function: ToolFunction {
-                name: "echo".into(),
-                arguments: json!({"text": "hi"}),
-            },
-            signature: None,
-            additional_params: None,
-        };
         let history = vec![
             user_message(r#"{"tool": "echo"}"#),
-            Message::Assistant {
-                id: None,
-                content: OneOrMany::one(AssistantContent::ToolCall(call)),
-            },
+            Message::Assistant(vec![AssistantPart::ToolCall {
+                id: "call-1".into(),
+                name: "echo".into(),
+                arguments: json!({"text": "hi"}),
+                provider_data: None,
+            }]),
         ];
-        let result = Message::User {
-            content: OneOrMany::one(UserContent::tool_result(
-                "call-1",
-                OneOrMany::one(ToolResultContent::text("hi back")),
-            )),
-        };
+        let result = Message::tool_result("call-1", "hi back");
         match reply(result, history, vec![echo_tool()]).await {
-            AssistantContent::Text(t) => {
-                assert_eq!(t.text(), "**Tool result** (`echo`):\nhi back")
-            }
+            AssistantPart::Text(t) => assert_eq!(t, "**Tool result** (`echo`):\nhi back"),
             other => panic!("expected text, got {other:?}"),
         }
     }
@@ -773,11 +759,11 @@ mod tests {
         ];
         for t in &tools {
             let sample = reply_text(user_message(&t.name), tools.clone()).await;
-            let call = reply_call(user_message(fenced_json(&sample)), tools.clone()).await;
-            assert_eq!(call.function.name, t.name);
+            let (_, name, arguments) = reply_call(user_message(fenced_json(&sample)), tools.clone()).await;
+            assert_eq!(name, t.name);
             // The arguments also still conform to the tool's input type.
             if t.name == "write_like" {
-                serde_json::from_value::<WriteLike>(call.function.arguments).unwrap();
+                serde_json::from_value::<WriteLike>(arguments).unwrap();
             }
         }
     }

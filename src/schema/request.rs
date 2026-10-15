@@ -4,10 +4,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use base64::Engine;
 use chrono::{DateTime, Utc};
-use rig_core::{
-    OneOrMany,
-    message::{DocumentMediaType, ImageMediaType, Message, MimeType, UserContent},
-};
+use crate::llm::types::{Message, Part};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -104,52 +101,25 @@ pub struct VizierAttachment {
 }
 
 impl VizierAttachment {
-    pub fn to_user_content(&self, workspace: &str) -> Result<UserContent> {
-        let attachment = self.clone();
-        let mime_type = get_mime_type(&attachment.filename);
-        let content = if mime_type.starts_with("image/") {
-            let media_type = ImageMediaType::from_mime_type(&mime_type).ok_or_else(|| {
-                VizierError(format!("Unsupported image MIME type: {}", mime_type))
-            })?;
-            match &attachment.content {
-                VizierAttachmentContent::Bytes(bytes) => {
-                    let base64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-
-                    UserContent::image_base64(base64, Some(media_type), None)
-                }
-                VizierAttachmentContent::Url(url) => {
-                    UserContent::image_url(url, Some(media_type), None)
-                }
-                VizierAttachmentContent::Base64(base64) => {
-                    UserContent::image_base64(base64, Some(media_type), None)
-                }
-                VizierAttachmentContent::Local(path) => {
-                    let bytes = Self::resolve_local_bytes(workspace, path)?;
-                    let base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                    UserContent::image_base64(base64, Some(media_type), None)
-                }
-            }
-        } else {
-            let media_type = DocumentMediaType::from_mime_type(&mime_type).ok_or_else(|| {
-                VizierError(format!("Unsupported image MIME type: {}", mime_type))
-            })?;
-
-            match &attachment.content {
-                VizierAttachmentContent::Bytes(bytes) => {
-                    UserContent::document_raw(bytes.clone(), Some(media_type))
-                }
-                VizierAttachmentContent::Url(url) => {
-                    UserContent::document_url(url.clone(), Some(media_type))
-                }
-                VizierAttachmentContent::Local(path) => {
-                    let bytes = Self::resolve_local_bytes(workspace, path)?;
-                    UserContent::document_raw(bytes, Some(media_type))
-                }
-                _ => unimplemented!(),
+    /// The attachment as a message part. Whether the model gets it, or a note saying it was
+    /// attached, is decided by capability in `llm::prepare` (FR-013).
+    pub fn to_part(&self, workspace: &str) -> Result<Part> {
+        let mime = get_mime_type(&self.filename);
+        let data = match &self.content {
+            VizierAttachmentContent::Bytes(bytes) => bytes.clone(),
+            VizierAttachmentContent::Base64(b64) => base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .map_err(|e| VizierError(format!("attachment {}: {e}", self.filename)))?,
+            VizierAttachmentContent::Local(path) => Self::resolve_local_bytes(workspace, path)?,
+            VizierAttachmentContent::Url(url) => {
+                return Ok(Part::Text(format!("[attachment {}: {url}]", self.filename)));
             }
         };
-
-        Ok(content)
+        Ok(Part::Attachment {
+            mime,
+            data,
+            name: Some(self.filename.clone()),
+        })
     }
 
     pub fn resolve_local_bytes(workspace: &str, path: &str) -> Result<Vec<u8>> {
@@ -270,20 +240,14 @@ impl VizierRequest {
     }
 
     pub fn to_message(&self, workspace: &str) -> Result<Message> {
-        let mut contents = vec![UserContent::Text(
+        let mut contents = vec![Part::Text(
             self.to_prompt()
-                .map_err(|err| VizierError(err.to_string()))?
-                .into(),
+                .map_err(|err| VizierError(err.to_string()))?,
         )];
         for attachment in self.attachments.iter() {
-            contents.push(attachment.to_user_content(workspace)?);
+            contents.push(attachment.to_part(workspace)?);
         }
-
-        let message = Message::User {
-            content: OneOrMany::many(contents).unwrap(),
-        };
-
-        Ok(message)
+        Ok(Message::User(contents))
     }
 }
 

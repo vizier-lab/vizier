@@ -1,8 +1,5 @@
 use chrono::{Local, Utc};
-use rig_core::{
-    OneOrMany,
-    message::{Message, UserContent},
-};
+use crate::llm::types::{Message, Part};
 
 use crate::{
     agents::agent::system_prompt::reactions::render_reaction_section,
@@ -109,12 +106,10 @@ pub fn context_md(
 /// unchanged.
 pub fn with_context(message: Message, context: String) -> Message {
     match message {
-        Message::User { content } => {
-            let mut contents = OneOrMany::one(UserContent::text(context));
-            for item in content {
-                contents.push(item);
-            }
-            Message::User { content: contents }
+        Message::User(content) => {
+            let mut contents = vec![Part::Text(context)];
+            contents.extend(content);
+            Message::User(contents)
         }
         other => other,
     }
@@ -131,25 +126,25 @@ mod tests {
     /// the cost of getting it wrong much larger than it used to be.
     #[test]
     fn context_is_prepended_to_the_user_message_and_never_to_a_system_message() {
-        let user = with_context(Message::user("what are our deploy windows?"), "# Context\nX".into());
+        let user = with_context(
+            Message::user_text("what are our deploy windows?").unwrap(),
+            "# Context\nX".into(),
+        );
         match user {
-            Message::User { content } => {
-                let first = content.first();
-                match first {
-                    UserContent::Text(text) => assert!(
-                        text.text.starts_with("# Context"),
-                        "context comes first in the user message"
-                    ),
-                    other => panic!("expected text first, got {other:?}"),
-                }
-            }
+            Message::User(content) => match content.first() {
+                Some(Part::Text(text)) => assert!(
+                    text.starts_with("# Context"),
+                    "context comes first in the user message"
+                ),
+                other => panic!("expected text first, got {other:?}"),
+            },
             other => panic!("a user message must stay a user message: {other:?}"),
         }
 
         // A system message is returned untouched, which is what keeps the cacheable prefix stable.
         let system = with_context(Message::system("you are an agent"), "# Context\nX".into());
         match system {
-            Message::User { .. } => panic!("a system message must not become a user message"),
+            Message::User(_) => panic!("a system message must not become a user message"),
             other => {
                 let rendered = format!("{other:?}");
                 assert!(
@@ -191,10 +186,10 @@ mod tests {
         assert!(time < reactions && reactions < memories, "{rendered}");
         assert!(rendered.contains("These are reactions, not messages"));
 
-        let user = with_context(Message::user("hi"), rendered);
+        let user = with_context(Message::user_text("hi").unwrap(), rendered);
         match user {
-            Message::User { content } => match content.first() {
-                UserContent::Text(text) => assert!(text.text.contains("## Reactions")),
+            Message::User(content) => match content.first() {
+                Some(Part::Text(text)) => assert!(text.contains("## Reactions")),
                 other => panic!("expected text first, got {other:?}"),
             },
             other => panic!("a user message must stay a user message: {other:?}"),

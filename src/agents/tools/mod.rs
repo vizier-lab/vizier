@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use rig_core::completion::ToolDefinition;
+use crate::llm::types::ToolDefinition;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 

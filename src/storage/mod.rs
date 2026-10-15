@@ -3,15 +3,15 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::{
-    config::provider::ProviderVariant,
+    config::provider::ProviderId,
     schema::{
-        AgentConfig, CoreRevision, GlobalConfigEntry, PaginatedCoreRevisions, ProviderEntry,
+        AgentConfig, CoreRevision, CustomProvider, GlobalConfigEntry, PaginatedCoreRevisions, ProviderEntry,
         RevisionDiff, RevisionOrigin, RollbackResponse, SessionFileRecord, VizierSession,
     },
     storage::{
         agent::AgentStorage, background_job::BackgroundJobStorage, dream::DreamStorage, dream_journal::DreamJournalStorage,
         global_config::GlobalConfigStorage, history::HistoryStorage, memory::MemoryStorage,
-        provider::ProviderStorage, reaction::ReactionStorage, session::SessionStorage, session_file::SessionFileStorage,
+        provider::{CustomProviderStorage, ProviderStorage}, reaction::ReactionStorage, session::SessionStorage, session_file::SessionFileStorage,
         state::StateStorage, task::TaskStorage, task_run::TaskRunStorage,
         user::UserStorage,
     },
@@ -53,6 +53,7 @@ where
         + UserStorage
         + AgentStorage
         + ProviderStorage
+        + CustomProviderStorage
         + GlobalConfigStorage
         + DreamJournalStorage
         + DreamStorage
@@ -265,16 +266,35 @@ impl ProviderStorage for VizierStorage {
         self.0.list_providers().await
     }
 
-    async fn get_provider(&self, variant: &ProviderVariant) -> Result<Option<ProviderEntry>> {
-        self.0.get_provider(variant).await
+    async fn get_provider(&self, id: &ProviderId) -> Result<Option<ProviderEntry>> {
+        self.0.get_provider(id).await
     }
 
     async fn upsert_provider(&self, entry: &ProviderEntry) -> Result<()> {
         self.0.upsert_provider(entry).await
     }
 
-    async fn delete_provider(&self, variant: &ProviderVariant) -> Result<()> {
-        self.0.delete_provider(variant).await
+    async fn delete_provider(&self, id: &ProviderId) -> Result<()> {
+        self.0.delete_provider(id).await
+    }
+}
+
+#[async_trait::async_trait]
+impl CustomProviderStorage for VizierStorage {
+    async fn list_custom_providers(&self) -> Result<Vec<CustomProvider>> {
+        self.0.list_custom_providers().await
+    }
+
+    async fn get_custom_provider(&self, id: &ProviderId) -> Result<Option<CustomProvider>> {
+        self.0.get_custom_provider(id).await
+    }
+
+    async fn upsert_custom_provider(&self, provider: &CustomProvider) -> Result<()> {
+        self.0.upsert_custom_provider(provider).await
+    }
+
+    async fn delete_custom_provider(&self, id: &ProviderId) -> Result<()> {
+        self.0.delete_custom_provider(id).await
     }
 }
 

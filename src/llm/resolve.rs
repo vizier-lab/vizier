@@ -405,6 +405,46 @@ fn resolve_custom(
     resolved
 }
 
+/// The env vars a provider's credentials may come from: the catalogue's, or a built-in's.
+pub fn provider_env(catalogue: &Catalogue, provider: &ProviderId) -> Vec<String> {
+    catalogue
+        .provider(provider)
+        .map(|p| p.env)
+        .or_else(|| builtin::builtin(provider).map(|b| b.env.iter().map(|e| e.to_string()).collect()))
+        .unwrap_or_default()
+}
+
+/// [`resolve_with`] after looking up this provider's custom definition and credentials.
+pub async fn resolve(
+    deps: &crate::dependencies::VizierDependencies,
+    provider: &ProviderId,
+    model: &str,
+    overrides: &ModelOverrides,
+) -> crate::Result<ResolvedModel> {
+    use crate::storage::provider::CustomProviderStorage;
+
+    let custom = deps
+        .storage
+        .get_custom_provider(provider)
+        .await
+        .map_err(|e| VizierError(e.to_string()))?;
+    let env = provider_env(&deps.catalogue, provider);
+    let credentials = crate::provider_keys::resolve_credentials(&deps.storage, provider, &env)
+        .await
+        .map(|(c, _)| c);
+    resolve_with(
+        &ResolveContext {
+            catalogue: &deps.catalogue,
+            custom: custom.as_ref(),
+            credentials,
+            http: deps.http.clone(),
+        },
+        provider,
+        model,
+        overrides,
+    )
+}
+
 #[cfg(test)]
 mod resolve_tests {
     use super::*;

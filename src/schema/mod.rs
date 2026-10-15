@@ -41,7 +41,7 @@ pub use metrics::{
     AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage, DailyChannelTypeUsage,
     DailyUsage, UsageSummary,
 };
-pub use provider::{ProviderEntry, ProviderEntryConfig};
+pub use provider::{CustomModel, CustomProtocol, CustomProvider, ProviderCredentials, ProviderEntry};
 pub use request::{
     PlatformMessageId, ReactionAction, ReactionEntry, VizierAttachment,
     VizierAttachmentContent, VizierRequest, VizierRequestContent,

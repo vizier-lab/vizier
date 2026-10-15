@@ -1,10 +1,5 @@
 use anyhow::Result;
-use base64::Engine;
 use chrono::{DateTime, Utc};
-use rig_core::{
-    OneOrMany,
-    message::{ImageMediaType, MimeType, ToolResultContent, UserContent},
-};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -12,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     agents::agent::model::{PROMPT_TIMED_OUT, PROVIDER_UNAVAILABLE, RATE_LIMITED},
     error::VizierError,
-    schema::{VizierAttachment, VizierAttachmentContent},
-    utils::get_mime_type,
+    llm::types::{Message, Part},
+    schema::VizierAttachment,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
@@ -132,84 +127,23 @@ pub enum VizierResponseContent {
     },
 }
 
-impl VizierAttachment {
-    pub fn to_tool_result_content(&self, workspace: &str) -> Result<ToolResultContent> {
-        let attachment = self.clone();
-        let mime_type = get_mime_type(&attachment.filename);
-        let content = if mime_type.starts_with("image/") {
-            let media_type = ImageMediaType::from_mime_type(&mime_type).ok_or_else(|| {
-                VizierError(format!("Unsupported image MIME type: {}", mime_type))
-            })?;
-            match &attachment.content {
-                VizierAttachmentContent::Bytes(bytes) => {
-                    let base64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-
-                    ToolResultContent::image_base64(base64, Some(media_type), None)
-                }
-                VizierAttachmentContent::Url(url) => {
-                    ToolResultContent::image_url(url, Some(media_type), None)
-                }
-                VizierAttachmentContent::Base64(base64) => {
-                    ToolResultContent::image_base64(base64, Some(media_type), None)
-                }
-                VizierAttachmentContent::Local(path) => {
-                    let bytes = crate::schema::VizierAttachment::resolve_local_bytes(workspace, path)?;
-                    let base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                    ToolResultContent::image_base64(base64, Some(media_type), None)
-                }
-            }
-        } else {
-            match &attachment.content {
-                _ => unimplemented!(),
-            }
-        };
-
-        Ok(content)
-    }
-}
-
 impl VizierResponse {
-    pub fn to_tool_response_content(
-        &self,
-        id: String,
-        call_id: Option<String>,
-        workspace: &str,
-    ) -> Result<UserContent> {
-        let mut tool_contents = match &self.content {
-            VizierResponseContent::Message { content, stats: _ } => {
-                vec![ToolResultContent::text(content)]
-            }
-
-            VizierResponseContent::AudioReply(_, Some(content), _) => {
-                vec![ToolResultContent::text(content)]
-            }
-
-            VizierResponseContent::AudioReply(_, None, _) => {
-                vec![ToolResultContent::text("[Audio reply]")]
-            }
-
-            VizierResponseContent::ToolResponse { response } => {
-                vec![ToolResultContent::text(serde_json::to_string(&response)?)]
-            }
-
+    /// This tool response as the result of call `call_id`.
+    pub fn to_tool_result(&self, call_id: String, workspace: &str) -> Result<Message> {
+        let text = match &self.content {
+            VizierResponseContent::Message { content, stats: _ } => content.clone(),
+            VizierResponseContent::AudioReply(_, Some(content), _) => content.clone(),
+            VizierResponseContent::AudioReply(_, None, _) => "[Audio reply]".to_string(),
+            VizierResponseContent::ToolResponse { response } => serde_json::to_string(&response)?,
             VizierResponseContent::Error { kind, message } => {
-                vec![ToolResultContent::text(format!("[Error: {}] {}", kind.as_str(), message))]
+                format!("[Error: {}] {}", kind.as_str(), message)
             }
-
             _ => return Err(VizierError("unimplemented".into()).into()),
         };
-
-        // handle attachment
+        let mut content = vec![Part::Text(text)];
         for attachment in &self.attachments {
-            tool_contents.push(attachment.to_tool_result_content(workspace)?);
+            content.push(attachment.to_part(workspace)?);
         }
-
-        let res = if let Some(call_id) = call_id {
-            UserContent::tool_result_with_call_id(id, call_id, OneOrMany::many(tool_contents)?)
-        } else {
-            UserContent::tool_result(id, OneOrMany::many(tool_contents)?)
-        };
-
-        Ok(res)
+        Ok(Message::ToolResult { call_id, content })
     }
 }
