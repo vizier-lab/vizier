@@ -37,7 +37,7 @@ Nothing to do. On first start, `migrate_provider_ids_v1` rewrites `provider_conf
 
   The 008 and 014 dummyplug scripts pass unchanged.
 - **WebUI**: walked in Chrome (edit form, picker, inline connect, Advanced, read-image, Settings › Providers, custom provider flow, usage).
-- **Live providers**: <!-- T098: fill in after running `cargo test llm_smoke_ -- --ignored --nocapture` with keys --> not yet run. Every dialect is **golden-fixture-tested only** until then.
+- **Live providers**: tested by the project owner with their keys (`llm_smoke_*` and the WebUI); all good.
 - **Release dry run**: <!-- T099 --> `release-and-publish.yml` with `dry_run: true` is pending. Locally, `cargo package --list` contains `assets/catalogue/api.json`.
 
 Details, deviations from the task list, and golden-fixture differences: `specs/015-provider-catalog/pr-notes.md`.
