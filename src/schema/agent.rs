@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::config::ChunkLimits;
-use crate::config::provider::ProviderVariant;
+use crate::config::provider::ProviderId;
 use crate::config::shell::ShellConfig;
 use crate::config::tools::mcp::McpClientConfig;
 
@@ -20,7 +20,7 @@ pub struct AgentConfig {
     pub shared_to: Vec<String>,
     pub system_prompt: Option<String>,
     pub description: Option<String>,
-    pub provider: ProviderVariant,
+    pub provider: ProviderId,
     pub model: String,
     pub thinking_depth: usize,
     #[serde(default = "default_checkpoint_threshold")]
@@ -44,7 +44,7 @@ pub struct AgentConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dream_schedule: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dream_provider: Option<ProviderVariant>,
+    pub dream_provider: Option<ProviderId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dream_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -222,10 +222,6 @@ pub struct ToolConfig<Settings> {
 pub struct EmbeddingConfig {
     pub provider: EmbeddingProvider,
     pub model: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api_key: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base_url: Option<String>,
 }
 
 #[derive(
@@ -247,6 +243,22 @@ pub enum EmbeddingProvider {
 }
 
 impl EmbeddingProvider {
+    /// Whose saved credentials this feature uses (data-model §8).
+    pub fn credentials(&self) -> Option<ProviderId> {
+        Some(match self {
+            Self::Local => return None,
+            Self::Openrouter => ProviderId::OPENROUTER,
+            Self::Ollama => ProviderId::OLLAMA,
+            Self::Openai => ProviderId::OPENAI,
+            Self::Gemini => ProviderId::GOOGLE,
+            Self::Voyageai => ProviderId::VOYAGEAI,
+            Self::Mistral => ProviderId::MISTRAL,
+            Self::Together => ProviderId::TOGETHERAI,
+            Self::Cohere => ProviderId::COHERE,
+            Self::Copilot => ProviderId::GITHUB_COPILOT,
+        })
+    }
+
     pub fn display_name(&self) -> &'static str {
         match self {
             Self::Local => "local",
@@ -305,6 +317,18 @@ pub enum TtsProvider {
 }
 
 impl TtsProvider {
+    /// Whose saved credentials this feature uses (data-model §8).
+    pub fn credentials(&self) -> Option<ProviderId> {
+        Some(match self {
+            Self::Openai => ProviderId::OPENAI,
+            Self::Openrouter => ProviderId::OPENROUTER,
+            Self::Elevenlabs => ProviderId::ELEVENLABS,
+            Self::Xai => ProviderId::XAI,
+            Self::Hyperbolic => ProviderId::HYPERBOLIC,
+            Self::Kokoro => return None,
+        })
+    }
+
     pub fn default_voice(&self) -> &str {
         match self {
             Self::Openai | Self::Openrouter => "alloy",
@@ -341,6 +365,19 @@ pub enum SttProvider {
 }
 
 impl SttProvider {
+    /// Whose saved credentials this feature uses (data-model §8).
+    pub fn credentials(&self) -> Option<ProviderId> {
+        Some(match self {
+            Self::Openai => ProviderId::OPENAI,
+            Self::Elevenlabs => ProviderId::ELEVENLABS,
+            Self::Groq => ProviderId::GROQ,
+            Self::Mistral => ProviderId::MISTRAL,
+            Self::Huggingface => ProviderId::HUGGINGFACE,
+            Self::Gemini => ProviderId::GOOGLE,
+            Self::Whisper => return None,
+        })
+    }
+
     pub fn default_model(&self) -> &str {
         match self {
             Self::Openai => "whisper-1",
@@ -367,7 +404,7 @@ pub struct SttToolSettings {
 #[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]
 #[serde(default)]
 pub struct ReadImageToolSettings {
-    pub provider: Option<ProviderVariant>,
+    pub provider: Option<ProviderId>,
     pub model: Option<String>,
 }
 
@@ -382,6 +419,16 @@ pub enum ImageGenProvider {
 }
 
 impl ImageGenProvider {
+    /// Whose saved credentials this feature uses (data-model §8).
+    pub fn credentials(&self) -> Option<ProviderId> {
+        Some(match self {
+            Self::Openai => ProviderId::OPENAI,
+            Self::Xai => ProviderId::XAI,
+            Self::Huggingface => ProviderId::HUGGINGFACE,
+            Self::Hyperbolic => ProviderId::HYPERBOLIC,
+        })
+    }
+
     pub fn default_model(&self) -> &str {
         match self {
             Self::Openai => "dall-e-3",

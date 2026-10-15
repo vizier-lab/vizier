@@ -233,39 +233,3 @@ mod provider_id_tests {
         }
     }
 }
-
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, utoipa::ToSchema)]
-#[allow(non_camel_case_types)]
-pub enum ProviderVariant {
-    deepseek,
-    openrouter,
-    ollama,
-    gemini,
-    openai,
-    anthropic,
-    mimo,
-    llama_cpp,
-    elevenlabs,
-    groq,
-    mistral,
-    xai,
-    perplexity,
-    moonshot,
-    zai,
-    minimax,
-    together,
-    cohere,
-    huggingface,
-    hyperbolic,
-    voyageai,
-    galadriel,
-    mira,
-    chatgpt,
-    copilot,
-    azure,
-    custom,
-    opencode_zen,
-    opencode_go,
-    dummyplug,
-}

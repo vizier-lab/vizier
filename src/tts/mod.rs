@@ -1,15 +1,11 @@
 pub mod elevenlabs;
-pub mod hyperbolic;
 pub mod kokoro;
-pub mod openai;
-pub mod openrouter;
-pub mod xai;
 
 use std::sync::Arc;
 
-use crate::config::provider::ProviderVariant;
+use crate::dependencies::VizierDependencies;
+use crate::llm::media::{self, hyperbolic::HyperbolicTts, openai_shaped::{OpenAiTts, XaiTts}};
 use crate::schema::agent::{TtsProvider, TtsToolSettings};
-use crate::storage::VizierStorage;
 use crate::{Result, VizierError};
 
 #[async_trait::async_trait]
@@ -22,79 +18,40 @@ pub struct VizierTts(Arc<dyn VizierTtsModel>);
 impl VizierTts {
     pub async fn new(
         settings: &TtsToolSettings,
-        storage: &Arc<VizierStorage>,
-        _workspace: &str,
+        deps: &VizierDependencies,
+        workspace: &str,
     ) -> Result<Self> {
-        let model: Arc<dyn VizierTtsModel> = match &settings.provider {
-            TtsProvider::Openai => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::openai,
-                    "OPENAI_API_KEY",
-                )
-                .await?;
-                let model = settings.model.clone().unwrap_or_else(|| "tts-1".into());
-                Arc::new(openai::OpenAiTtsModel::new(resolved.api_key, model))
+        let provider = &settings.provider;
+        let model = settings.model.clone().unwrap_or_else(|| {
+            match provider {
+                TtsProvider::Openai => "tts-1",
+                TtsProvider::Openrouter => "openai/gpt-4o-mini-tts-2025-12-15",
+                TtsProvider::Elevenlabs => "eleven_multilingual_v2",
+                TtsProvider::Xai => "grok-2-tts",
+                TtsProvider::Hyperbolic => "Melo-TTS",
+                TtsProvider::Kokoro => "kokoro-en-v0_19",
             }
-            TtsProvider::Openrouter => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::openrouter,
-                    "OPENROUTER_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| "openai/gpt-4o-mini-tts-2025-12-15".into());
-                Arc::new(openrouter::OpenRouterTtsModel::new(resolved.api_key, model))
+            .into()
+        });
+        let model: Arc<dyn VizierTtsModel> = match (provider, provider.credentials()) {
+            (TtsProvider::Kokoro, _) => Arc::new(kokoro::KokoroTtsModel::new(model, workspace)),
+            (TtsProvider::Elevenlabs, Some(id)) => Arc::new(elevenlabs::ElevenLabsTtsModel::new(
+                media::api_key(deps, &id).await?,
+                model,
+            )),
+            (TtsProvider::Xai, Some(id)) => Arc::new(XaiTts(media::endpoint(deps, &id, model).await?)),
+            (TtsProvider::Hyperbolic, Some(id)) => {
+                Arc::new(HyperbolicTts(media::endpoint(deps, &id, model).await?))
             }
-            TtsProvider::Elevenlabs => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::elevenlabs,
-                    "ELEVENLABS_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| "eleven_multilingual_v2".into());
-                Arc::new(elevenlabs::ElevenLabsTtsModel::new(resolved.api_key, model))
-            }
-            TtsProvider::Xai => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::xai,
-                    "XAI_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| "grok-2-tts".into());
-                Arc::new(xai::XaiTtsModel::new(resolved.api_key, model))
-            }
-            TtsProvider::Hyperbolic => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::hyperbolic,
-                    "HYPERBOLIC_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| "Melo-TTS".into());
-                Arc::new(hyperbolic::HyperbolicTtsModel::new(resolved.api_key, model))
-            }
-            TtsProvider::Kokoro => {
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| "kokoro-en-v0_19".into());
-                Arc::new(kokoro::KokoroTtsModel::new(model, _workspace))
-            }
+            (TtsProvider::Openrouter, Some(id)) => Arc::new(OpenAiTts {
+                endpoint: media::endpoint(deps, &id, model).await?,
+                response_format: Some("mp3"),
+            }),
+            (_, Some(id)) => Arc::new(OpenAiTts {
+                endpoint: media::endpoint(deps, &id, model).await?,
+                response_format: None,
+            }),
+            (_, None) => unreachable!("only kokoro needs no credentials"),
         };
 
         Ok(Self(model))

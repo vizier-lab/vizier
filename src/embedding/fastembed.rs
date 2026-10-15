@@ -1,146 +1,55 @@
-/// originally from yoinked from https://github.com/0xPlaygrounds/rig/blob/main/rig-integrations/rig-fastembed/src/lib.rs
-use std::{path::PathBuf, sync::Arc};
+//! Local embeddings with fastembed (no network after the model download).
+
+use std::sync::Arc;
 
 use parking_lot::Mutex;
 
 pub use fastembed::EmbeddingModel as FastembedModel;
-use fastembed::TextEmbedding;
-use rig_core::embeddings::{self, EmbeddingError};
-
-use fastembed::TextInitOptions;
-use rig_core::{Embed, embeddings::EmbeddingsBuilder};
+use fastembed::{TextEmbedding, TextInitOptions};
 
 use crate::{embedding::VizierEmbeddingModel, utils::build_path};
 
 #[derive(Clone)]
-pub struct Client;
-
-impl Default for Client {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Client {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn embedding_model(
-        &self,
-        model: &FastembedModel,
-        workspace: Option<String>,
-    ) -> EmbeddingModel {
-        let model_info = TextEmbedding::get_model_info(model).unwrap();
-        let ndims = model_info.dim;
-
-        EmbeddingModel::new(
-            model,
-            match workspace {
-                None => None,
-                Some(workspace) => {
-                    let path =
-                        // The Hugging Face model code (e.g. `Qdrant/all-MiniLM-L6-v2-onnx`) is what
-                    // fastembed < 5 rendered as `Display`; keep using it so existing caches load.
-                    build_path(&workspace, &[".runtime", "embeddings", &model_info.model_code]);
-                    Some(path)
-                }
-            },
-            ndims,
-        )
-    }
-
-    pub fn embeddings<D: Embed>(
-        &self,
-        model: &fastembed::EmbeddingModel,
-    ) -> EmbeddingsBuilder<EmbeddingModel, D> {
-        EmbeddingsBuilder::new(self.embedding_model(model, None))
-    }
-}
-
-#[derive(Clone)]
-pub struct EmbeddingModel {
+pub struct LocalEmbedder {
     embedder: Arc<Mutex<TextEmbedding>>,
-    pub model: FastembedModel,
-    ndims: usize,
 }
 
-impl EmbeddingModel {
-    pub fn new(
-        model: &fastembed::EmbeddingModel,
-        cache_dir: Option<PathBuf>,
-        ndims: usize,
-    ) -> Self {
-        let mut opts = TextInitOptions::new(model.to_owned()).with_show_download_progress(true);
-
-        if let Some(cache_dir) = cache_dir {
-            opts = opts.with_cache_dir(cache_dir);
-        }
-
-        let embedder = Arc::new(Mutex::new(TextEmbedding::try_new(opts).unwrap()));
-
-        Self {
-            embedder,
-            model: model.to_owned(),
-            ndims,
-        }
+impl LocalEmbedder {
+    /// The model is cached under `{workspace}/.runtime/embeddings/<model code>`: the Hugging
+    /// Face code (e.g. `Qdrant/all-MiniLM-L6-v2-onnx`) is what fastembed < 5 rendered as
+    /// `Display`, so existing caches keep loading.
+    pub fn new(model: &FastembedModel, workspace: &str) -> anyhow::Result<Self> {
+        let info = TextEmbedding::get_model_info(model)
+            .map_err(|e| anyhow::anyhow!("unknown local embedding model: {e}"))?;
+        let cache = build_path(workspace, &[".runtime", "embeddings", &info.model_code]);
+        let opts = TextInitOptions::new(model.to_owned())
+            .with_show_download_progress(true)
+            .with_cache_dir(cache);
+        let embedder = TextEmbedding::try_new(opts)
+            .map_err(|e| anyhow::anyhow!("cannot load the local embedding model: {e}"))?;
+        Ok(Self {
+            embedder: Arc::new(Mutex::new(embedder)),
+        })
     }
 }
 
 #[async_trait::async_trait]
-impl VizierEmbeddingModel for EmbeddingModel {
+impl VizierEmbeddingModel for LocalEmbedder {
     async fn embed_text(&self, text: &str) -> anyhow::Result<Vec<f64>> {
-        Ok(<Self as embeddings::EmbeddingModel>::embed_text(self, text)
-            .await?
-            .vec)
+        let mut all = self.embed_texts(vec![text.to_string()]).await?;
+        all.pop()
+            .ok_or_else(|| anyhow::anyhow!("local embeddings: no vector returned"))
     }
 
     async fn embed_texts(&self, documents: Vec<String>) -> anyhow::Result<Vec<Vec<f64>>> {
-        Ok(
-            <Self as embeddings::EmbeddingModel>::embed_texts(self, documents)
-                .await?
-                .iter()
-                .map(|item| item.vec.clone())
-                .collect::<Vec<_>>(),
-        )
-    }
-}
-
-impl embeddings::EmbeddingModel for EmbeddingModel {
-    const MAX_DOCUMENTS: usize = 1024;
-
-    type Client = Client;
-
-    /// **PANICS**: FastEmbed models cannot be created via this method, which will panic
-    fn make(_: &Self::Client, _: impl Into<String>, _: Option<usize>) -> Self {
-        panic!("Cannot create a fastembed model via `EmbeddingModel::make`")
-    }
-
-    fn ndims(&self) -> usize {
-        self.ndims
-    }
-
-    async fn embed_texts(
-        &self,
-        documents: impl IntoIterator<Item = String>,
-    ) -> Result<Vec<embeddings::Embedding>, EmbeddingError> {
-        let documents_as_strings: Vec<String> = documents.into_iter().collect();
-
-        let documents_as_vec = self
+        let vectors = self
             .embedder
             .lock()
-            .embed(documents_as_strings.clone(), None)
-            .map_err(|err| EmbeddingError::ProviderError(err.to_string()))?;
-
-        let docs = documents_as_strings
+            .embed(documents, None)
+            .map_err(|e| anyhow::anyhow!("local embeddings: {e}"))?;
+        Ok(vectors
             .into_iter()
-            .zip(documents_as_vec)
-            .map(|(document, embedding)| embeddings::Embedding {
-                document,
-                vec: embedding.into_iter().map(|f| f as f64).collect(),
-            })
-            .collect::<Vec<embeddings::Embedding>>();
-
-        Ok(docs)
+            .map(|v| v.into_iter().map(|f| f as f64).collect())
+            .collect())
     }
 }

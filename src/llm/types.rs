@@ -194,18 +194,10 @@ mod tests {
             description: "Search memory".into(),
             parameters: json!({"type": "object", "properties": {"q": {"type": "string"}}}),
         };
-        let rig = rig_core::completion::ToolDefinition {
-            name: "memory_search".into(),
-            description: "Search memory".into(),
-            parameters: json!({"type": "object", "properties": {"q": {"type": "string"}}}),
-        };
-        assert_eq!(
-            serde_json::to_value(&ours).unwrap(),
-            serde_json::to_value(&rig).unwrap()
-        );
+        // The exact string rig 0.39's ToolDefinition serialised to (field order included).
         assert_eq!(
             serde_json::to_string(&ours).unwrap(),
-            serde_json::to_string(&rig).unwrap()
+            r#"{"name":"memory_search","description":"Search memory","parameters":{"properties":{"q":{"type":"string"}},"type":"object"}}"#
         );
     }
 

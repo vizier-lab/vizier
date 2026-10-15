@@ -42,7 +42,6 @@ fn main() -> Result<()> {
     if std::env::var("RUST_LOG").is_err() {
         let filter = EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new("vizier=debug"))
-            .add_directive("rig=error".parse().unwrap())
             .add_directive("twilight_gateway=error".parse().unwrap())
             .add_directive("twilight_http=error".parse().unwrap())
             .add_directive("sqlx=error".parse().unwrap())

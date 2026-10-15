@@ -1,14 +1,14 @@
-pub mod huggingface;
-pub mod hyperbolic;
-pub mod openai;
-pub mod xai;
-
 use std::sync::Arc;
 
-use crate::config::provider::ProviderVariant;
+use crate::dependencies::VizierDependencies;
+use crate::llm::media::{
+    self,
+    huggingface::HuggingFaceImages,
+    hyperbolic::HyperbolicImages,
+    openai_shaped::{ImageSizing, OpenAiImages},
+};
 use crate::schema::agent::{ImageGenProvider, ImageGenToolSettings};
-use crate::storage::VizierStorage;
-use crate::{Result, VizierError};
+use crate::Result;
 
 #[async_trait::async_trait]
 pub trait VizierImageGenModel: Send + Sync {
@@ -18,63 +18,27 @@ pub trait VizierImageGenModel: Send + Sync {
 pub struct VizierImageGen(Arc<dyn VizierImageGenModel>);
 
 impl VizierImageGen {
-    pub async fn new(
-        settings: &ImageGenToolSettings,
-        storage: &Arc<VizierStorage>,
-    ) -> Result<Self> {
-        let model: Arc<dyn VizierImageGenModel> = match &settings.provider {
-            ImageGenProvider::Openai => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::openai,
-                    "OPENAI_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| ImageGenProvider::Openai.default_model().into());
-                Arc::new(openai::OpenAiImageGenModel::new(resolved.api_key, model))
-            }
-            ImageGenProvider::Xai => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::xai,
-                    "XAI_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| ImageGenProvider::Xai.default_model().into());
-                Arc::new(xai::XaiImageGenModel::new(resolved.api_key, model))
-            }
-            ImageGenProvider::Huggingface => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::huggingface,
-                    "HUGGINGFACE_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| ImageGenProvider::Huggingface.default_model().into());
-                Arc::new(huggingface::HuggingfaceImageGenModel::new(resolved.api_key, model))
-            }
-            ImageGenProvider::Hyperbolic => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::hyperbolic,
-                    "HYPERBOLIC_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| ImageGenProvider::Hyperbolic.default_model().into());
-                Arc::new(hyperbolic::HyperbolicImageGenModel::new(resolved.api_key, model))
-            }
+    pub async fn new(settings: &ImageGenToolSettings, deps: &VizierDependencies) -> Result<Self> {
+        let provider = &settings.provider;
+        let model = settings
+            .model
+            .clone()
+            .unwrap_or_else(|| provider.default_model().into());
+        let Some(id) = provider.credentials() else {
+            unreachable!("every image provider has credentials");
+        };
+        let endpoint = media::endpoint(deps, &id, model).await?;
+        let model: Arc<dyn VizierImageGenModel> = match provider {
+            ImageGenProvider::Openai => Arc::new(OpenAiImages {
+                endpoint,
+                sizing: ImageSizing::Size,
+            }),
+            ImageGenProvider::Xai => Arc::new(OpenAiImages {
+                endpoint,
+                sizing: ImageSizing::AspectRatio("1:1"),
+            }),
+            ImageGenProvider::Huggingface => Arc::new(HuggingFaceImages(endpoint)),
+            ImageGenProvider::Hyperbolic => Arc::new(HyperbolicImages(endpoint)),
         };
 
         Ok(Self(model))

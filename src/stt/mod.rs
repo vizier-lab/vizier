@@ -1,16 +1,11 @@
 pub mod elevenlabs;
-pub mod gemini;
-pub mod groq;
-pub mod huggingface;
-pub mod mistral;
-pub mod openai;
 pub mod whisper;
 
 use std::sync::Arc;
 
-use crate::config::provider::ProviderVariant;
+use crate::dependencies::VizierDependencies;
+use crate::llm::media::{self, gemini::GeminiStt, huggingface::HuggingFaceStt, openai_shaped::OpenAiStt};
 use crate::schema::agent::{SttProvider, SttToolSettings};
-use crate::storage::VizierStorage;
 use crate::Result;
 
 #[async_trait::async_trait]
@@ -28,95 +23,28 @@ pub struct VizierStt(Arc<dyn VizierSttModel>);
 impl VizierStt {
     pub async fn new(
         settings: &SttToolSettings,
-        storage: &Arc<VizierStorage>,
-        _workspace: &str,
+        deps: &VizierDependencies,
+        workspace: &str,
     ) -> Result<Self> {
-        let model: Arc<dyn VizierSttModel> = match &settings.provider {
-            SttProvider::Openai => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::openai,
-                    "OPENAI_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| SttProvider::Openai.default_model().into());
-                Arc::new(openai::OpenAiSttModel::new(resolved.api_key, model))
+        let provider = &settings.provider;
+        let model = settings
+            .model
+            .clone()
+            .unwrap_or_else(|| provider.default_model().into());
+        let model: Arc<dyn VizierSttModel> = match (provider, provider.credentials()) {
+            (SttProvider::Whisper, _) => Arc::new(whisper::WhisperSttModel::new(model, workspace)),
+            (SttProvider::Elevenlabs, Some(id)) => Arc::new(elevenlabs::ElevenLabsSttModel::new(
+                media::api_key(deps, &id).await?,
+                model,
+            )),
+            (SttProvider::Gemini, Some(id)) => {
+                Arc::new(GeminiStt(media::endpoint(deps, &id, model).await?))
             }
-            SttProvider::Elevenlabs => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::elevenlabs,
-                    "ELEVENLABS_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| SttProvider::Elevenlabs.default_model().into());
-                Arc::new(elevenlabs::ElevenLabsSttModel::new(resolved.api_key, model))
+            (SttProvider::Huggingface, Some(id)) => {
+                Arc::new(HuggingFaceStt(media::endpoint(deps, &id, model).await?))
             }
-            SttProvider::Groq => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::groq,
-                    "GROQ_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| SttProvider::Groq.default_model().into());
-                Arc::new(groq::GroqSttModel::new(resolved.api_key, model))
-            }
-            SttProvider::Mistral => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::mistral,
-                    "MISTRAL_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| SttProvider::Mistral.default_model().into());
-                Arc::new(mistral::MistralSttModel::new(resolved.api_key, model))
-            }
-            SttProvider::Huggingface => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::huggingface,
-                    "HUGGINGFACE_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| SttProvider::Huggingface.default_model().into());
-                Arc::new(huggingface::HuggingfaceSttModel::new(resolved.api_key, model))
-            }
-            SttProvider::Gemini => {
-                let resolved = crate::provider_keys::resolve_provider_key(
-                    storage,
-                    ProviderVariant::gemini,
-                    "GEMINI_API_KEY",
-                )
-                .await?;
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| SttProvider::Gemini.default_model().into());
-                Arc::new(gemini::GeminiSttModel::new(resolved.api_key, model))
-            }
-            SttProvider::Whisper => {
-                let model = settings
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| SttProvider::Whisper.default_model().into());
-                Arc::new(whisper::WhisperSttModel::new(model, _workspace))
-            }
+            (_, Some(id)) => Arc::new(OpenAiStt(media::endpoint(deps, &id, model).await?)),
+            (_, None) => unreachable!("only whisper needs no credentials"),
         };
 
         Ok(Self(model))

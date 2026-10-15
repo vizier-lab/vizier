@@ -2,15 +2,12 @@ use std::sync::Arc;
 
 use base64::Engine;
 use chrono::Utc;
-use rig_core::{
-    OneOrMany,
-    message::{ImageMediaType, Message, MimeType, UserContent},
-};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::agent::model::{VizierModel, VizierModelTrait},
+    agents::agent::model::VizierModel,
+    llm::types::{CompletionRequest, Message, Part},
     agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::VizierError,
     file_manager::FileManager,
@@ -97,8 +94,6 @@ impl VizierTool for ReadImageFile {
         let b64 = base64::engine::general_purpose::STANDARD.encode(&content);
 
         if let Some(vision) = &self.vision {
-            let media_type =
-                ImageMediaType::from_mime_type(&file.mime_type).unwrap_or(ImageMediaType::PNG);
             let prompt = args
                 .prompt
                 .as_deref()
@@ -107,27 +102,23 @@ impl VizierTool for ReadImageFile {
                 .unwrap_or(DEFAULT_VISION_PROMPT)
                 .to_string();
 
-            let message = Message::User {
-                content: OneOrMany::many(vec![
-                    UserContent::Text(prompt.into()),
-                    UserContent::image_base64(b64, Some(media_type), None),
-                ])
-                .unwrap(),
-            };
+            let message = Message::User(vec![
+                Part::Text(prompt),
+                Part::Attachment {
+                    mime: file.mime_type.clone(),
+                    data: content,
+                    name: Some(file.filename.clone()),
+                },
+            ]);
 
-            let (_, choices, _) = vision
-                .completion(message, vec![], vec![])
-                .await
-                .map_err(|e| VizierError(e.to_string()))?;
-
-            let text = choices
-                .iter()
-                .filter_map(|c| match c {
-                    rig_core::message::AssistantContent::Text(t) => Some(t.text.clone()),
-                    _ => None,
+            let text = vision
+                .complete(CompletionRequest {
+                    messages: vec![message],
+                    ..Default::default()
                 })
-                .collect::<Vec<_>>()
-                .join("\n");
+                .await
+                .map_err(|e| VizierError(e.to_string()))?
+                .text();
             return Ok(VizierResponse {
                 timestamp: Utc::now(),
                 content: VizierResponseContent::ToolResponse {

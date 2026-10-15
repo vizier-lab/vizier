@@ -1,7 +1,7 @@
 use axum::{
     Router,
     extract::{Path, State},
-    routing::{delete, get, put},
+    routing::get,
 };
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -14,84 +14,44 @@ use crate::{
         },
         state::HTTPState,
     },
-    config::provider::ProviderVariant,
-    schema::{ProviderEntry, ProviderEntryConfig},
+    config::provider::ProviderId,
+    schema::{ProviderCredentials, ProviderEntry},
     storage::provider::ProviderStorage,
 };
 
 pub fn providers() -> Router<HTTPState> {
     Router::new().route("/", get(list_providers)).route(
-        "/{variant}",
+        "/{id}",
         get(get_provider)
             .put(upsert_provider)
             .delete(delete_provider),
     )
 }
 
+/// A provider's saved credentials, without the secrets.
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ProviderResponse {
-    pub variant: ProviderVariant,
+    pub id: ProviderId,
+    /// The same id, under the field name pre-015 clients read.
+    pub variant: ProviderId,
     pub has_api_key: bool,
+    pub endpoint: Option<String>,
     pub base_url: Option<String>,
-    pub enabled: Option<bool>,
+    pub has_access_token: bool,
+    pub account_id: Option<String>,
 }
 
 fn provider_to_response(entry: &ProviderEntry) -> ProviderResponse {
-    let (has_api_key, base_url, enabled) = match &entry.config {
-        ProviderEntryConfig::Ollama { base_url } => (false, Some(base_url.clone()), None),
-        ProviderEntryConfig::Openai { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Anthropic { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Deepseek { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Openrouter { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Gemini { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Mimo { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::LlamaCpp { base_url } => (false, Some(base_url.clone()), None),
-        ProviderEntryConfig::Elevenlabs { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Groq { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Mistral { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Xai { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Perplexity { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Moonshot { api_key, base_url } => {
-            (!api_key.is_empty(), base_url.clone(), None)
-        }
-        ProviderEntryConfig::Zai { api_key, base_url } => {
-            (!api_key.is_empty(), base_url.clone(), None)
-        }
-        ProviderEntryConfig::Minimax { api_key, base_url } => {
-            (!api_key.is_empty(), base_url.clone(), None)
-        }
-        ProviderEntryConfig::Together { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Cohere { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Huggingface { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Hyperbolic { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Voyageai { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Galadriel { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Mira { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Copilot { api_key } => (!api_key.is_empty(), None, None),
-        ProviderEntryConfig::Chatgpt {
-            access_token,
-            account_id: _,
-            base_url,
-        } => (!access_token.is_empty(), base_url.clone(), None),
-        ProviderEntryConfig::Azure { endpoint, api_key } => {
-            (!api_key.is_empty(), Some(endpoint.clone()), None)
-        }
-        ProviderEntryConfig::Custom { api_key, base_url } => {
-            (!api_key.is_empty(), Some(base_url.clone()), None)
-        }
-        ProviderEntryConfig::OpencodeZen { api_key, base_url } => {
-            (!api_key.is_empty(), base_url.clone(), None)
-        }
-        ProviderEntryConfig::OpencodeGo { api_key, base_url } => {
-            (!api_key.is_empty(), base_url.clone(), None)
-        }
-    };
-
+    let c = &entry.credentials;
+    let set = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.is_empty());
     ProviderResponse {
-        variant: entry.variant.clone(),
-        has_api_key,
-        base_url,
-        enabled,
+        id: entry.id.clone(),
+        variant: entry.id.clone(),
+        has_api_key: set(&c.api_key),
+        endpoint: c.endpoint.clone(),
+        base_url: c.base_url.clone(),
+        has_access_token: set(&c.access_token),
+        account_id: c.account_id.clone(),
     }
 }
 
@@ -99,7 +59,7 @@ fn provider_to_response(entry: &ProviderEntry) -> ProviderResponse {
     get,
     path = "/providers",
     responses(
-        (status = 200, description = "List of providers", body = APIResponse<Vec<ProviderResponse>>)
+        (status = 200, description = "Providers with saved credentials", body = APIResponse<Vec<ProviderResponse>>)
     )
 )]
 async fn list_providers(
@@ -107,7 +67,11 @@ async fn list_providers(
 ) -> models::response::Response<Vec<ProviderResponse>> {
     match state.storage.list_providers().await {
         Ok(entries) => {
-            let res: Vec<ProviderResponse> = entries.iter().map(provider_to_response).collect();
+            let res: Vec<ProviderResponse> = entries
+                .iter()
+                .filter(|e| e.id != ProviderId::DUMMYPLUG)
+                .map(provider_to_response)
+                .collect();
             api_response(StatusCode::OK, res)
         }
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
@@ -116,9 +80,9 @@ async fn list_providers(
 
 #[utoipa::path(
     get,
-    path = "/providers/{variant}",
+    path = "/providers/{id}",
     params(
-        ("variant" = String, Path, description = "Provider variant")
+        ("id" = String, Path, description = "Provider id (legacy names are accepted)")
     ),
     responses(
         (status = 200, description = "Provider details", body = APIResponse<ProviderResponse>),
@@ -126,31 +90,46 @@ async fn list_providers(
     )
 )]
 async fn get_provider(
-    Path(variant): Path<ProviderVariant>,
+    Path(id): Path<String>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<ProviderResponse> {
-    match state.storage.get_provider(&variant).await {
+    let Ok(id) = ProviderId::parse(&id) else {
+        return err_response(StatusCode::BAD_REQUEST, "invalid provider id".into());
+    };
+    if id == ProviderId::DUMMYPLUG {
+        return err_response(StatusCode::NOT_FOUND, "provider not found".into());
+    }
+    match state.storage.get_provider(&id).await {
         Ok(Some(entry)) => api_response(StatusCode::OK, provider_to_response(&entry)),
         Ok(None) => err_response(StatusCode::NOT_FOUND, "provider not found".into()),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
     }
 }
 
+/// Credentials to save. An omitted field keeps the stored value; an empty string clears it.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpsertProviderRequest {
     pub api_key: Option<String>,
+    pub endpoint: Option<String>,
     pub base_url: Option<String>,
-    pub enabled: Option<bool>,
     pub access_token: Option<String>,
     pub account_id: Option<String>,
-    pub endpoint: Option<String>,
+}
+
+/// Apply `update` over `stored`: `None` keeps, `""` clears, a value replaces.
+fn apply(stored: Option<String>, update: Option<String>) -> Option<String> {
+    match update {
+        None => stored,
+        Some(v) if v.is_empty() => None,
+        Some(v) => Some(v),
+    }
 }
 
 #[utoipa::path(
     put,
-    path = "/providers/{variant}",
+    path = "/providers/{id}",
     params(
-        ("variant" = String, Path, description = "Provider variant")
+        ("id" = String, Path, description = "Provider id (legacy names are accepted)")
     ),
     request_body = UpsertProviderRequest,
     responses(
@@ -159,136 +138,34 @@ pub struct UpsertProviderRequest {
     )
 )]
 async fn upsert_provider(
-    Path(variant): Path<ProviderVariant>,
+    Path(id): Path<String>,
     State(state): State<HTTPState>,
     axum::Json(body): axum::Json<UpsertProviderRequest>,
 ) -> models::response::Response<ProviderResponse> {
-    let config = match variant {
-        ProviderVariant::ollama => ProviderEntryConfig::Ollama {
-            base_url: body
-                .base_url
-                .unwrap_or_else(|| "http://localhost:11434".into()),
-        },
-        ProviderVariant::openai => ProviderEntryConfig::Openai {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::anthropic => ProviderEntryConfig::Anthropic {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::deepseek => ProviderEntryConfig::Deepseek {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::openrouter => ProviderEntryConfig::Openrouter {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::gemini => ProviderEntryConfig::Gemini {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::mimo => ProviderEntryConfig::Mimo {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::llama_cpp => ProviderEntryConfig::LlamaCpp {
-            base_url: body
-                .base_url
-                .unwrap_or_else(|| "http://localhost:8080".into()),
-        },
-        ProviderVariant::elevenlabs => ProviderEntryConfig::Elevenlabs {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::groq => ProviderEntryConfig::Groq {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::mistral => ProviderEntryConfig::Mistral {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::xai => ProviderEntryConfig::Xai {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::perplexity => ProviderEntryConfig::Perplexity {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::moonshot => ProviderEntryConfig::Moonshot {
-            api_key: body.api_key.unwrap_or_default(),
-            base_url: body.base_url.filter(|s| !s.is_empty()),
-        },
-        ProviderVariant::zai => ProviderEntryConfig::Zai {
-            api_key: body.api_key.unwrap_or_default(),
-            base_url: body.base_url.filter(|s| !s.is_empty()),
-        },
-        ProviderVariant::minimax => ProviderEntryConfig::Minimax {
-            api_key: body.api_key.unwrap_or_default(),
-            base_url: body.base_url.filter(|s| !s.is_empty()),
-        },
-        ProviderVariant::together => ProviderEntryConfig::Together {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::cohere => ProviderEntryConfig::Cohere {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::huggingface => ProviderEntryConfig::Huggingface {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::hyperbolic => ProviderEntryConfig::Hyperbolic {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::voyageai => ProviderEntryConfig::Voyageai {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::galadriel => ProviderEntryConfig::Galadriel {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::mira => ProviderEntryConfig::Mira {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::copilot => ProviderEntryConfig::Copilot {
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::chatgpt => ProviderEntryConfig::Chatgpt {
-            access_token: body.access_token.unwrap_or_default(),
-            account_id: body.account_id.unwrap_or_default(),
-            base_url: body.base_url.filter(|s| !s.is_empty()),
-        },
-        ProviderVariant::azure => ProviderEntryConfig::Azure {
-            endpoint: body
-                .endpoint
-                .or(body.base_url.clone())
-                .unwrap_or_default(),
-            api_key: body.api_key.unwrap_or_default(),
-        },
-        ProviderVariant::custom => match body
-            .base_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            Some(base_url) => ProviderEntryConfig::Custom {
-                api_key: body.api_key.unwrap_or_default(),
-                base_url: base_url.to_string(),
-            },
-            None => {
-                return err_response(
-                    StatusCode::BAD_REQUEST,
-                    "base_url is required for custom provider".into(),
-                );
-            }
-        },
-        ProviderVariant::opencode_zen => ProviderEntryConfig::OpencodeZen {
-            api_key: body.api_key.unwrap_or_default(),
-            base_url: body.base_url.filter(|s| !s.is_empty()),
-        },
-        ProviderVariant::opencode_go => ProviderEntryConfig::OpencodeGo {
-            api_key: body.api_key.unwrap_or_default(),
-            base_url: body.base_url.filter(|s| !s.is_empty()),
-        },
-        ProviderVariant::dummyplug => {
-            return err_response(
-                StatusCode::BAD_REQUEST,
-                "dummyplug requires no configuration".into(),
-            );
-        }
+    let Ok(id) = ProviderId::parse(&id) else {
+        return err_response(StatusCode::BAD_REQUEST, "invalid provider id".into());
     };
+    if id == ProviderId::DUMMYPLUG {
+        return err_response(
+            StatusCode::BAD_REQUEST,
+            "dummyplug requires no configuration".into(),
+        );
+    }
 
-    let entry = ProviderEntry { variant, config };
+    let stored = match state.storage.get_provider(&id).await {
+        Ok(entry) => entry.map(|e| e.credentials).unwrap_or_default(),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
+    };
+    let entry = ProviderEntry {
+        id,
+        credentials: ProviderCredentials {
+            api_key: apply(stored.api_key, body.api_key),
+            endpoint: apply(stored.endpoint, body.endpoint),
+            base_url: apply(stored.base_url, body.base_url),
+            access_token: apply(stored.access_token, body.access_token),
+            account_id: apply(stored.account_id, body.account_id),
+        },
+    };
 
     match state.storage.upsert_provider(&entry).await {
         Ok(()) => api_response(StatusCode::OK, provider_to_response(&entry)),
@@ -298,9 +175,9 @@ async fn upsert_provider(
 
 #[utoipa::path(
     delete,
-    path = "/providers/{variant}",
+    path = "/providers/{id}",
     params(
-        ("variant" = String, Path, description = "Provider variant")
+        ("id" = String, Path, description = "Provider id (legacy names are accepted)")
     ),
     responses(
         (status = 200, description = "Provider deleted", body = APIResponse<String>),
@@ -308,10 +185,13 @@ async fn upsert_provider(
     )
 )]
 async fn delete_provider(
-    Path(variant): Path<ProviderVariant>,
+    Path(id): Path<String>,
     State(state): State<HTTPState>,
 ) -> models::response::Response<String> {
-    match state.storage.delete_provider(&variant).await {
+    let Ok(id) = ProviderId::parse(&id) else {
+        return err_response(StatusCode::BAD_REQUEST, "invalid provider id".into());
+    };
+    match state.storage.delete_provider(&id).await {
         Ok(()) => api_response(StatusCode::OK, "deleted".into()),
         Err(e) => err_response(StatusCode::BAD_REQUEST, e.to_string().into()),
     }

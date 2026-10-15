@@ -5,11 +5,6 @@ use tokio::sync::Mutex;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use rig_core::{
-    OneOrMany,
-    completion::ToolDefinition,
-    message::{AssistantContent, Message, UserContent},
-};
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, timeout};
 
@@ -17,7 +12,7 @@ use crate::{
     VizierError,
     agents::{
         agent::{
-            model::{ToolUse, VizierModel, VizierModelTrait},
+            model::VizierModel,
             system_prompt::{
                 boot::boot_md,
                 context::{context_md, with_context},
@@ -32,7 +27,8 @@ use crate::{
         skill::VizierSkills,
         tools::{ToolContext, VizierTools},
     },
-    config::{VizierConfig, provider::ProviderVariant},
+    config::{VizierConfig, provider::ProviderId},
+    llm::types::{AssistantPart, CompletionRequest, Message, Part, ToolChoice, ToolDefinition},
     dependencies::VizierDependencies,
     image_generation::VizierImageGen,
     indexer::VizierIndexer,
@@ -103,7 +99,7 @@ impl VizierAgent {
 
         // Create STT instance if enabled (shared between auto-transcription and stt_transcribe tool)
         let stt = if agent_config.tools.stt.enabled {
-            match VizierStt::new(&agent_config.tools.stt.settings, &deps.storage, &workspace).await
+            match VizierStt::new(&agent_config.tools.stt.settings, &deps, &workspace).await
             {
                 Ok(instance) => Some(Arc::new(instance)),
                 Err(e) => {
@@ -117,7 +113,7 @@ impl VizierAgent {
 
         // Create TTS instance if enabled (shared between audio reply and tts_generate tool)
         let tts = if agent_config.tools.tts.enabled {
-            match VizierTts::new(&agent_config.tools.tts.settings, &deps.storage, &deps.config.workspace).await
+            match VizierTts::new(&agent_config.tools.tts.settings, &deps, &deps.config.workspace).await
             {
                 Ok(instance) => Some(Arc::new(instance)),
                 Err(e) => {
@@ -131,7 +127,7 @@ impl VizierAgent {
 
         // Create image generation instance if enabled (used by image_generate tool)
         let image_gen = if agent_config.tools.image_gen.enabled {
-            match VizierImageGen::new(&agent_config.tools.image_gen.settings, &deps.storage).await {
+            match VizierImageGen::new(&agent_config.tools.image_gen.settings, &deps).await {
                 Ok(instance) => Some(Arc::new(instance)),
                 Err(e) => {
                     tracing::error!(
@@ -621,17 +617,15 @@ impl VizierAgent {
 
             // The model gets the narrowed view; `full_history` keeps the full record,
             // which is what storage and the WebUI are served from.
-            let (message_id, choices, usage) = self
+            let response = self
                 .model
-                .completion_until(
-                    message_for_model(&message),
-                    messages_for_model(&history),
-                    tools.clone(),
-                    if wrapping_up { ToolUse::Off } else { ToolUse::Allowed },
+                .complete_until(
+                    completion_request(&history, &message, &tools, wrapping_up),
                     Some(start + prompt_timeout),
                 )
                 .await
                 .map_err(|e| fail_turn(e, full_history.clone(), Some(message.clone()), vec![]))?;
+            let (choices, usage) = (response.content, response.usage);
             let choices = if wrapping_up {
                 answer_without_tool_calls(choices)
             } else {
@@ -649,14 +643,8 @@ impl VizierAgent {
             history.push(message.clone());
             full_history.push(message.clone());
 
-            history.push(Message::Assistant {
-                id: message_id.clone(),
-                content: choices.clone(),
-            });
-            full_history.push(Message::Assistant {
-                id: message_id.clone(),
-                content: choices.clone(),
-            });
+            history.push(Message::Assistant(choices.clone()));
+            full_history.push(Message::Assistant(choices.clone()));
 
             if turn_depth == 1 {
                 input_tokens = usage.input_tokens;
@@ -673,13 +661,13 @@ impl VizierAgent {
 
             let (tool_calls, others): (Vec<_>, Vec<_>) = choices
                 .iter()
-                .partition(|choice| matches!(choice, AssistantContent::ToolCall(_)));
+                .partition(|choice| matches!(choice, AssistantPart::ToolCall { .. }));
 
             if tool_calls.is_empty() {
                 output = others
                     .iter()
                     .filter_map(|item| {
-                        if let AssistantContent::Text(text) = item {
+                        if let AssistantPart::Text(text) = item {
                             Some(text.to_string())
                         } else {
                             None
@@ -702,19 +690,19 @@ impl VizierAgent {
                 break;
             }
 
-            let mut tool_responses = vec![];
-            let mut pending_images: Vec<UserContent> = vec![];
-            for call in tool_calls.iter().filter_map(|item| {
-                if let AssistantContent::ToolCall(call) = item {
-                    Some(call)
+            let mut tool_responses: Vec<Message> = vec![];
+            let mut pending_images: Vec<Part> = vec![];
+            for (call_id, call_name, call_arguments) in tool_calls.iter().filter_map(|item| {
+                if let AssistantPart::ToolCall { id, name, arguments, .. } = item {
+                    Some((id, name, arguments))
                 } else {
                     None
                 }
             }) {
-                let args = serde_json::to_string(&call.function.arguments).map_err(|e| {
+                let args = serde_json::to_string(call_arguments).map_err(|e| {
                     fail_turn(e.into(), full_history.clone(), None, tool_responses.clone())
                 })?;
-                let (mut function_name, mut args) = (call.function.name.clone(), args);
+                let (mut function_name, mut args) = (call_name.clone(), args);
                 if let Some(hooks) = hooks.clone() {
                     (function_name, args) = hooks
                         .on_tool_call(function_name, args)
@@ -805,11 +793,7 @@ impl VizierAgent {
                         vec![]
                     };
                 let response_content = tool_res
-                    .to_tool_response_content(
-                        call.id.clone(),
-                        call.call_id.clone(),
-                        &self.global_workspace,
-                    )
+                    .to_tool_result(call_id.clone(), &self.global_workspace)
                     .map_err(|e| {
                         fail_turn(e, full_history.clone(), None, tool_responses.clone())
                     })?;
@@ -817,7 +801,7 @@ impl VizierAgent {
                 for attachment in &image_attachments {
                     pending_images.push(
                         attachment
-                            .to_user_content(&self.global_workspace)
+                            .to_part(&self.global_workspace)
                             .map_err(|e| {
                                 fail_turn(e, full_history.clone(), None, tool_responses.clone())
                             })?,
@@ -825,39 +809,37 @@ impl VizierAgent {
                 }
             }
 
-            // Push tool response message to history
-            let tool_message = Message::User {
-                content: OneOrMany::many(tool_responses).map_err(|_| {
-                    fail_turn(
-                        anyhow::anyhow!("tool calls produced no responses"),
-                        full_history.clone(),
-                        None,
-                        vec![],
-                    )
-                })?,
-            };
+            if tool_responses.is_empty() {
+                return Err(fail_turn(
+                    anyhow::anyhow!("tool calls produced no responses"),
+                    full_history,
+                    None,
+                    vec![],
+                ));
+            }
 
             if pending_images.is_empty() {
-                message = tool_message
+                // Every result but the last joins the history now; the last is the message
+                // the next completion carries.
+                message = tool_responses.pop().expect("checked non-empty");
+                history.extend(tool_responses.iter().cloned());
+                full_history.extend(tool_responses);
             } else {
-                history.push(tool_message.clone());
-                full_history.push(tool_message.clone());
+                history.extend(tool_responses.iter().cloned());
+                full_history.extend(tool_responses);
 
-                // Push each image as a separate user message
-                for img_content in pending_images {
-                    let img_msg = Message::User {
-                        content: OneOrMany::one(img_content),
-                    };
+                // Each image as a separate user message: most providers drop images from
+                // tool results.
+                for img in pending_images {
+                    let img_msg = Message::User(vec![img]);
                     history.push(img_msg.clone());
                     full_history.push(img_msg);
                 }
 
                 // Continue loop with next model call
-                message = Message::User {
-                    content: OneOrMany::one(rig_core::message::UserContent::Text(
-                        "[Images loaded into context. Continue processing.]".into(),
-                    )),
-                };
+                message = Message::User(vec![Part::Text(
+                    "[Images loaded into context. Continue processing.]".into(),
+                )]);
             }
 
             // Only now, with every tool call of the reply answered: checkpointing between the
@@ -955,7 +937,7 @@ impl VizierAgent {
 
         let in_progress = history
             .iter()
-            .rposition(|m| matches!(m, Message::Assistant { .. }))
+            .rposition(|m| matches!(m, Message::Assistant(_)))
             .map(|at| history.split_off(at))
             .unwrap_or_default();
 
@@ -1179,31 +1161,19 @@ impl VizierAgent {
                     message = with_wrap_up_note(message, max_turn_depth);
                 }
 
-                let (message_id, choices, usage) = if wrapping_up {
-                    let (id, choices, usage) = model
-                        .answer_only(
-                            message_for_model(&message),
-                            messages_for_model(&history),
-                            tools.clone(),
-                        )
-                        .await?;
-                    (id, answer_without_tool_calls(choices), usage)
+                let response = model
+                    .complete(completion_request(&history, &message, &tools, wrapping_up))
+                    .await?;
+                let usage = response.usage;
+                let choices = if wrapping_up {
+                    answer_without_tool_calls(response.content)
                 } else {
-                    model
-                        .completion(
-                            message_for_model(&message),
-                            messages_for_model(&history),
-                            tools.clone(),
-                        )
-                        .await?
+                    response.content
                 };
 
                 history.push(message);
 
-                history.push(Message::Assistant {
-                    id: message_id.clone(),
-                    content: choices.clone(),
-                });
+                history.push(Message::Assistant(choices.clone()));
 
                 if turn_depth == 1 {
                     input_tokens = usage.input_tokens;
@@ -1220,13 +1190,13 @@ impl VizierAgent {
 
                 let (tool_calls, others): (Vec<_>, Vec<_>) = choices
                     .iter()
-                    .partition(|choice| matches!(choice, AssistantContent::ToolCall(_)));
+                    .partition(|choice| matches!(choice, AssistantPart::ToolCall { .. }));
 
                 if tool_calls.is_empty() {
                     output = others
                         .iter()
                         .filter_map(|item| {
-                            if let AssistantContent::Text(text) = item {
+                            if let AssistantPart::Text(text) = item {
                                 Some(text.to_string())
                             } else {
                                 None
@@ -1239,19 +1209,17 @@ impl VizierAgent {
                     break;
                 }
 
-                let mut tool_responses = vec![];
-                let mut pending_attachments: Vec<UserContent> = vec![];
-                for call in tool_calls.iter().filter_map(|item| {
-                    if let AssistantContent::ToolCall(call) = item {
-                        Some(call)
+                let mut tool_responses: Vec<Message> = vec![];
+                let mut pending_attachments: Vec<Part> = vec![];
+                for (call_id, call_name, call_arguments) in tool_calls.iter().filter_map(|item| {
+                    if let AssistantPart::ToolCall { id, name, arguments, .. } = item {
+                        Some((id, name, arguments))
                     } else {
                         None
                     }
                 }) {
-                    let (mut function_name, mut args) = (
-                        call.function.name.clone(),
-                        serde_json::to_string(&call.function.arguments)?,
-                    );
+                    let (mut function_name, mut args) =
+                        (call_name.clone(), serde_json::to_string(call_arguments)?);
                     if let Some(hooks) = hooks.clone() {
                         (function_name, args) = hooks.on_tool_call(function_name, args).await?;
                     }
@@ -1333,47 +1301,36 @@ impl VizierAgent {
                     // (most providers drop images from tool results)
                     if function_name == "read_image_file" && !tool_res.attachments.is_empty() {
                         let image_attachments: Vec<_> = tool_res.attachments.drain(..).collect();
-                        tool_responses.push(tool_res.to_tool_response_content(
-                            call.id.clone(),
-                            call.call_id.clone(),
-                            &self.global_workspace,
-                        )?);
+                        tool_responses
+                            .push(tool_res.to_tool_result(call_id.clone(), &self.global_workspace)?);
                         for attachment in &image_attachments {
-                            pending_attachments
-                                .push(attachment.to_user_content(&self.global_workspace)?);
+                            pending_attachments.push(attachment.to_part(&self.global_workspace)?);
                         }
                     } else {
-                        tool_responses.push(tool_res.to_tool_response_content(
-                            call.id.clone(),
-                            call.call_id.clone(),
-                            &self.global_workspace,
-                        )?);
+                        tool_responses
+                            .push(tool_res.to_tool_result(call_id.clone(), &self.global_workspace)?);
                     }
                 }
 
-                let tool_message = Message::User {
-                    content: OneOrMany::many(tool_responses)
-                        .map_err(|_| anyhow::anyhow!("tool calls produced no responses"))?,
-                };
+                if tool_responses.is_empty() {
+                    anyhow::bail!("tool calls produced no responses");
+                }
 
                 if pending_attachments.is_empty() {
-                    message = tool_message;
+                    message = tool_responses.pop().expect("checked non-empty");
+                    history.extend(tool_responses);
                 } else {
-                    history.push(tool_message);
+                    history.extend(tool_responses);
 
                     // Push each image as a separate user message
-                    for img_content in pending_attachments {
-                        history.push(Message::User {
-                            content: OneOrMany::one(img_content),
-                        });
+                    for img in pending_attachments {
+                        history.push(Message::User(vec![img]));
                     }
 
                     // Continue loop with next model call
-                    message = Message::User {
-                        content: OneOrMany::one(rig_core::message::UserContent::Text(
-                            "[Attachment(s) loaded into context. Continue processing.]".into(),
-                        )),
-                    };
+                    message = Message::User(vec![Part::Text(
+                        "[Attachment(s) loaded into context. Continue processing.]".into(),
+                    )]);
                 }
             }
 
@@ -1409,11 +1366,30 @@ impl VizierAgent {
 /// `note` appended to a user message, after what the person sent.
 fn with_note(message: Message, note: String) -> Message {
     match message {
-        Message::User { mut content } => {
-            content.push(UserContent::text(note));
-            Message::User { content }
+        Message::User(mut content) => {
+            content.push(Part::Text(note));
+            Message::User(content)
         }
         other => other,
+    }
+}
+
+/// One completion: the history and the message about to be sent, as the model sees them. A
+/// wrap-up asks for text only (`tool_choice: none`); tools stay defined, since providers reject
+/// a history holding tool calls when no tools are.
+fn completion_request(
+    history: &[Message],
+    message: &Message,
+    tools: &[ToolDefinition],
+    answer_only: bool,
+) -> CompletionRequest {
+    let mut messages = messages_for_model(history);
+    messages.push(message_for_model(message));
+    CompletionRequest {
+        messages,
+        tools: tools.to_vec(),
+        tool_choice: answer_only.then_some(ToolChoice::None),
+        max_tokens: None,
     }
 }
 
@@ -1433,13 +1409,13 @@ fn with_wrap_up_note(message: Message, thinking_depth: usize) -> Message {
          unverified, so the user can ask you to continue.]"
     );
     match message {
-        Message::User { content } => {
-            let mut content: Vec<UserContent> = content.into_iter().collect();
-            content.push(UserContent::text(note));
-            Message::User {
-                content: OneOrMany::many(content)
-                    .unwrap_or_else(|_| OneOrMany::one(UserContent::text(""))),
-            }
+        Message::User(mut content) => {
+            content.push(Part::Text(note));
+            Message::User(content)
+        }
+        Message::ToolResult { call_id, mut content } => {
+            content.push(Part::Text(note));
+            Message::ToolResult { call_id, content }
         }
         other => other,
     }
@@ -1449,20 +1425,18 @@ fn with_wrap_up_note(message: Message, thinking_depth: usize) -> Message {
 /// A call would never get a result, and a call without one breaks the next request on
 /// providers that check the pairing (#63). Some providers ignore `tool_choice: none`, so a
 /// reply may be nothing but calls; it then says the turn ran out of steps.
-fn answer_without_tool_calls(
-    choices: OneOrMany<AssistantContent>,
-) -> OneOrMany<AssistantContent> {
-    let mut kept: Vec<AssistantContent> = choices
+fn answer_without_tool_calls(choices: Vec<AssistantPart>) -> Vec<AssistantPart> {
+    let mut kept: Vec<AssistantPart> = choices
         .into_iter()
-        .filter(|choice| !matches!(choice, AssistantContent::ToolCall(_)))
+        .filter(|choice| !matches!(choice, AssistantPart::ToolCall { .. }))
         .collect();
     let has_text = kept
         .iter()
-        .any(|choice| matches!(choice, AssistantContent::Text(text) if !text.text.trim().is_empty()));
+        .any(|choice| matches!(choice, AssistantPart::Text(text) if !text.trim().is_empty()));
     if !has_text {
-        kept.push(AssistantContent::text(DEPTH_EXHAUSTED_FALLBACK));
+        kept.push(AssistantPart::Text(DEPTH_EXHAUSTED_FALLBACK.into()));
     }
-    OneOrMany::many(kept).unwrap_or_else(|_| OneOrMany::one(AssistantContent::text(DEPTH_EXHAUSTED_FALLBACK)))
+    kept
 }
 
 fn tool_timeout_response(function_name: &str, limit: std::time::Duration) -> VizierResponse {
@@ -1483,7 +1457,7 @@ fn fail_turn(
     err: anyhow::Error,
     mut full_history: Vec<Message>,
     unsent: Option<Message>,
-    completed: Vec<UserContent>,
+    completed: Vec<Message>,
 ) -> (anyhow::Error, Vec<Message>) {
     full_history.extend(unsent);
     seal_tool_calls(&mut full_history, completed, &err.to_string());
@@ -1504,12 +1478,12 @@ pub async fn generate_handover_with_model(
     let mut summary_history = messages_for_model(history);
 
     if let Some(list) = reactions {
-        summary_history.push(Message::user(format!(
+        summary_history.push(Message::user_text(format!(
             "Reactions people gave to your messages in this conversation (feedback, not messages):\n{list}"
-        )));
+        ))?);
     }
 
-    summary_history.push(Message::user(
+    summary_history.push(Message::user_text(
         "Analyze this conversation and extract key context for continuation. Include:\n\
          1. **Key Facts**: Important information, data, or discoveries\n\
          2. **Decisions Made**: Any choices, directions, or conclusions reached\n\
@@ -1519,20 +1493,21 @@ pub async fn generate_handover_with_model(
          6. **Feedback**: Reactions people gave to your messages and what they suggest about \
          what worked and what did not. Omit this item if there were no reactions.\n\n\
          Format as a concise structured summary. Be factual and precise.",
-    ));
+    )?);
+    summary_history.push(Message::user_text("Extract conversation context for checkpoint.")?);
 
-    let (_message_id, choices, _usage) = model
-        .completion(
-            Message::user("Extract conversation context for checkpoint."),
-            summary_history,
-            vec![],
-        )
+    let response = model
+        .complete(CompletionRequest {
+            messages: summary_history,
+            ..Default::default()
+        })
         .await?;
 
-    let output = choices
+    let output = response
+        .content
         .iter()
         .filter_map(|item| {
-            if let AssistantContent::Text(text) = item {
+            if let AssistantPart::Text(text) = item {
                 Some(text.to_string())
             } else {
                 None
@@ -1570,20 +1545,21 @@ fn note_stored_files(response: &mut serde_json::Value, stored_files: &[String]) 
 #[cfg(test)]
 mod wrap_up_tests {
     use super::*;
-    use rig_core::message::{ToolCall, ToolFunction};
 
-    fn call() -> AssistantContent {
-        AssistantContent::ToolCall(ToolCall::new(
-            "call-1".into(),
-            ToolFunction::new("shell_exec".into(), serde_json::json!({"commands": "ls"})),
-        ))
+    fn call() -> AssistantPart {
+        AssistantPart::ToolCall {
+            id: "call-1".into(),
+            name: "shell_exec".into(),
+            arguments: serde_json::json!({"commands": "ls"}),
+            provider_data: None,
+        }
     }
 
-    fn texts(choices: &OneOrMany<AssistantContent>) -> Vec<String> {
+    fn texts(choices: &[AssistantPart]) -> Vec<String> {
         choices
             .iter()
             .filter_map(|c| match c {
-                AssistantContent::Text(t) => Some(t.text.clone()),
+                AssistantPart::Text(t) => Some(t.clone()),
                 _ => None,
             })
             .collect()
@@ -1591,39 +1567,47 @@ mod wrap_up_tests {
 
     #[test]
     fn the_note_follows_the_tool_results_in_the_same_message() {
-        let results = Message::User {
-            content: OneOrMany::one(UserContent::tool_result(
-                "call-1",
-                OneOrMany::one(rig_core::message::ToolResultContent::text("done")),
-            )),
+        let results = Message::tool_result("call-1", "done");
+        let Message::ToolResult { call_id, content } = with_wrap_up_note(results, 3) else {
+            panic!("still a tool result");
         };
-        let Message::User { content } = with_wrap_up_note(results, 3) else {
-            panic!("still a user message");
-        };
-        let content: Vec<_> = content.into_iter().collect();
+        assert_eq!(call_id, "call-1");
         assert_eq!(content.len(), 2);
-        assert!(matches!(content[0], UserContent::ToolResult(_)), "results stay first");
-        let UserContent::Text(note) = &content[1] else { panic!("the note is text") };
-        assert!(note.text.contains("all 3 tool steps"), "{}", note.text);
+        assert_eq!(content[0], Part::Text("done".into()), "results stay first");
+        assert!(content[1].text().unwrap().contains("all 3 tool steps"));
     }
 
     /// #48: a provider that ignores `tool_choice: none` may still call a tool; the call is
     /// dropped (it would never get a result, #63) and the text kept.
     #[test]
     fn a_wrap_up_keeps_its_text_and_drops_tool_calls() {
-        let choices = OneOrMany::many(vec![AssistantContent::text("Here's what I found."), call()])
-            .unwrap();
-        let kept = answer_without_tool_calls(choices);
-        assert!(!kept.iter().any(|c| matches!(c, AssistantContent::ToolCall(_))));
+        let kept = answer_without_tool_calls(vec![AssistantPart::Text("Here's what I found.".into()), call()]);
+        assert!(!kept.iter().any(|c| matches!(c, AssistantPart::ToolCall { .. })));
         assert_eq!(texts(&kept), vec!["Here's what I found."]);
     }
 
     #[test]
     fn a_wrap_up_with_nothing_to_say_says_it_ran_out_of_steps() {
-        let kept = answer_without_tool_calls(OneOrMany::one(call()));
+        let kept = answer_without_tool_calls(vec![call()]);
         assert_eq!(texts(&kept), vec![DEPTH_EXHAUSTED_FALLBACK]);
 
-        let blank = answer_without_tool_calls(OneOrMany::one(AssistantContent::text("  ")));
+        let blank = answer_without_tool_calls(vec![AssistantPart::Text("  ".into())]);
         assert!(texts(&blank).contains(&DEPTH_EXHAUSTED_FALLBACK.to_string()));
+    }
+
+    #[test]
+    fn a_wrap_up_request_asks_for_text_only_and_keeps_the_tools() {
+        let tool = ToolDefinition {
+            name: "t".into(),
+            description: "d".into(),
+            parameters: serde_json::json!({}),
+        };
+        let history = vec![Message::system("s")];
+        let message = Message::user_text("hi").unwrap();
+        let req = completion_request(&history, &message, std::slice::from_ref(&tool), true);
+        assert_eq!(req.tool_choice, Some(ToolChoice::None));
+        assert_eq!(req.tools, vec![tool.clone()]);
+        assert_eq!(req.messages.len(), 2);
+        assert_eq!(completion_request(&history, &message, &[tool], false).tool_choice, None);
     }
 }

@@ -19,13 +19,13 @@ use crate::agents::agent::VizierAgent;
 use crate::agents::memory_ops;
 use crate::agents::process::agent_process;
 use crate::channels::readers::ChannelHealthHandle;
-use crate::config::provider::ProviderVariant;
+use crate::config::provider::ProviderId;
 use crate::dependencies::VizierDependencies;
 use crate::embedding::VizierEmbedder;
 use crate::indexer::VizierIndexer;
 use crate::indexer::sqlite::SqliteIndexer;
 use crate::schema::{
-    AgentConfig, AgentHealthStatus, AgentId, AgentRunState, ErrorKind, ProviderEntryConfig,
+    AgentConfig, AgentHealthStatus, AgentId, AgentRunState, ErrorKind,
     VizierResponse, VizierResponseContent,
 };
 use crate::storage::memory::MemoryStorage;
@@ -58,11 +58,16 @@ impl BuiltAgent {
         agent_id: &AgentId,
         config: &AgentConfig,
     ) -> Result<Self> {
-        if config.provider == ProviderVariant::ollama
-            && let Ok(Some(provider)) = deps.storage.get_provider(&ProviderVariant::ollama).await
-            && let ProviderEntryConfig::Ollama { base_url } = &provider.config
-        {
-            crate::utils::ollama::ollama_pull_model(base_url, &config.model).await?;
+        if config.provider == ProviderId::OLLAMA {
+            // The `ollama` built-in's base URL: saved, `OLLAMA_BASE_URL`, or the default.
+            let resolved = crate::llm::resolve::resolve(
+                deps,
+                &ProviderId::OLLAMA,
+                &config.model,
+                &Default::default(),
+            )
+            .await?;
+            crate::utils::ollama::ollama_pull_model(&resolved.base_url, &config.model).await?;
         }
 
         let indexer = build_indexer(deps, config).await?;
@@ -83,7 +88,7 @@ async fn build_indexer(
     let conn = deps.sqlite_conn.clone();
 
     let embedder = Arc::new(
-        VizierEmbedder::from_agent_settings(emb_settings, &deps.storage, &deps.config.workspace)
+        VizierEmbedder::from_agent_settings(emb_settings, deps, &deps.config.workspace)
             .await?,
     );
     let sqlite_idx = SqliteIndexer::new(conn, embedder).await?;

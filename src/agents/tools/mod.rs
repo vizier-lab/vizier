@@ -40,7 +40,6 @@ scheduler::{
         webui::{ListWebuiTopics, SendWebuiMessage},
         workspace::{ReadCore, WriteCore},
     },
-    config::provider::ProviderVariant,
     dependencies::VizierDependencies,
     error::VizierError,
     indexer::VizierIndexer,

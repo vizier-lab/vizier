@@ -5,7 +5,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use anyhow::Result;
 use chrono::Utc;
-use rig_core::message::Message;
+use crate::llm::types::Message;
 use tokio::sync::watch;
 use tokio::task::{AbortHandle, Id as TaskId, JoinHandle, JoinSet};
 
@@ -447,7 +447,7 @@ async fn refresh_session_detail(
         background_depth: 0,
     };
     let Ok((title, _, _, _)) = agent
-        .prompt(Message::user(prompt), vec![], 0, None, false, &ctx)
+        .prompt(Message::User(vec![crate::llm::types::Part::Text(prompt)]), vec![], 0, None, false, &ctx)
         .await
     else {
         return;

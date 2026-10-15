@@ -16,8 +16,6 @@ pub mod sse;
 pub mod types;
 
 #[cfg(test)]
-mod golden_capture;
-#[cfg(test)]
 mod transport_tests;
 
 pub use dialect::DialectKind;

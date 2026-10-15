@@ -270,18 +270,18 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 ### Storage and migration
 
-- [ ] T034 [US1] In `src/schema/provider.rs`:
+- [X] T034 [US1] In `src/schema/provider.rs`:
   - Replace the 29-variant `ProviderEntryConfig` with `pub struct ProviderCredentials { api_key, endpoint, base_url, access_token, account_id }`, all `Option<String>`.
   - Change `ProviderEntry` to `{ id: ProviderId, credentials: ProviderCredentials }`.
   - Keep a private `LegacyProviderEntryConfig` (the old tagged enum, copied verbatim) used **only** by the migration in T037.
   - Add `CustomProvider`, `CustomProtocol { OpenAiCompatible, Anthropic }` and `CustomModel`, per data-model.md §5.
-- [ ] T035 [US1] In `src/storage/provider.rs` and `src/storage/sqlite/provider.rs`:
+- [X] T035 [US1] In `src/storage/provider.rs` and `src/storage/sqlite/provider.rs`:
   - Re-key `ProviderStorage` by `&ProviderId`, reading and writing `ProviderCredentials` JSON in `provider_config(variant, data)`.
   - Add `trait CustomProviderStorage { list_custom_providers, get_custom_provider, upsert_custom_provider, delete_custom_provider }`, backed by a new table `custom_provider(id TEXT PRIMARY KEY, data TEXT NOT NULL)`, created in the schema init in `src/storage/sqlite/mod.rs`.
   - Compose `CustomProviderStorage` into `VizierStorageProvider` and forward it in `VizierStorage`, in `src/storage/mod.rs`.
   - Update the read-only `src/storage/fs/provider.rs` legacy reader so it still compiles. It returns legacy rows for the migration only (depends on T034).
-- [ ] T036 [US1] Collapse `src/provider_keys.rs` into `async fn resolve_credentials(storage, &ProviderId, catalogue_env: &[String]) -> Option<(ProviderCredentials, CredentialOrigin)>`, where `CredentialOrigin` is `Saved` or `Env(name)`. The order is the saved row, then each catalogue env var, then the legacy env vars from contract `provider-id-migration.md`. Keep the ChatGPT/Azure/local-provider special fields. Delete the per-variant `resolve_*` functions once T029's resolve uses this (depends on T035).
-- [ ] T037 [US1] Add `migrate_provider_ids_v1` to `src/dependencies.rs`. It is idempotent, guarded by the `global_config` key `migration.provider_ids_v1`, and implements contract `provider-id-migration.md` exactly:
+- [X] T036 [US1] Collapse `src/provider_keys.rs` into `async fn resolve_credentials(storage, &ProviderId, catalogue_env: &[String]) -> Option<(ProviderCredentials, CredentialOrigin)>`, where `CredentialOrigin` is `Saved` or `Env(name)`. The order is the saved row, then each catalogue env var, then the legacy env vars from contract `provider-id-migration.md`. Keep the ChatGPT/Azure/local-provider special fields. Delete the per-variant `resolve_*` functions once T029's resolve uses this (depends on T035).
+- [X] T037 [US1] Add `migrate_provider_ids_v1` to `src/dependencies.rs`. It is idempotent, guarded by the `global_config` key `migration.provider_ids_v1`, and implements contract `provider-id-migration.md` exactly:
   - read legacy `provider_config` rows through `LegacyProviderEntryConfig`;
   - map names, applying the base-URL rule against catalogue `api` values;
   - write `ProviderCredentials` rows under the new ids;
@@ -291,7 +291,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - log each change at `info` (`warn` for custom-provider creation).
 
   Run it in the startup migration sequence after storage opens, before agents load. Unit tests use an in-memory SQLite database seeded with legacy rows covering every row of the name map plus both footnotes (depends on T035, T036, T027).
-- [ ] T038 [US1] Retire YAML providers (FR-028), per contract `provider-id-migration.md` § YAML:
+- [X] T038 [US1] Retire YAML providers (FR-028), per contract `provider-id-migration.md` § YAML:
   - In `src/config/mod.rs`, remove `VizierConfig.providers`, but keep a `#[serde(default)] providers: Option<serde_yaml::Value>` captured only to detect leftovers. Remove `ProviderConfig` and its `*ProviderConfig` structs from `src/config/provider.rs`.
   - Delete `migrate_providers` from `src/dependencies.rs`.
   - At startup, when the captured value is a non-empty map, `warn!` once per key, naming the catalogue env var(s) for that provider and "Settings › Providers".
@@ -300,33 +300,33 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 ### Call-site cutover
 
-- [ ] T039 [US1] Move the message types onto `crate::llm::types` in `src/schema/request.rs`, `src/schema/response.rs` and `src/agents/agent/system_prompt/context.rs`:
+- [X] T039 [US1] Move the message types onto `crate::llm::types` in `src/schema/request.rs`, `src/schema/response.rs` and `src/agents/agent/system_prompt/context.rs`:
   - `VizierRequest::to_message` builds `Message::User(vec![Part::Text(prompt), Part::Attachment{mime, data, name}…])`, and attachment reading keeps its existing file-loading code.
   - `VizierResponse` tool-result conversion produces `Message::ToolResult`.
   - `with_context` operates on `Message::System`.
   - Remove `OneOrMany` and the rig `use` lines.
-- [ ] T040 [US1] Rewrite `src/schema/history.rs` conversions for the one-to-one mapping (contract S4):
+- [X] T040 [US1] Rewrite `src/schema/history.rs` conversions for the one-to-one mapping (contract S4):
   - `messages_to_history_entries`: `Assistant` parts become `AssistantMessage`/`Response`/`ToolCall` entries, with the same narration-before-calls ordering rule (FR-011 of spec 010); `Message::ToolResult` becomes `ToolResult`; `Reasoning` is skipped.
   - `history_entries_to_messages`: consecutive `ToolCall` entries plus the pending narration become one `Assistant` message; each `ToolResult` becomes one `Message::ToolResult`.
   - Delete the grouping and ungrouping of tool results inside user messages, and port the module's existing unit tests (depends on T039).
-- [ ] T041 [US1] Switch `ToolDefinition` to `crate::llm::types::ToolDefinition` in `src/agents/tools/mod.rs`, `src/agents/mcp/mod.rs` and `src/sandbox/docs.rs`. Run the 014 unit tests: the `ToolFunctionDoc` output must be unchanged.
-- [ ] T042 [US1] Replace `src/agents/agent/model/mod.rs`:
+- [X] T041 [US1] Switch `ToolDefinition` to `crate::llm::types::ToolDefinition` in `src/agents/tools/mod.rs`, `src/agents/mcp/mod.rs` and `src/sandbox/docs.rs`. Run the 014 unit tests: the `ToolFunctionDoc` output must be unchanged.
+- [X] T042 [US1] Replace `src/agents/agent/model/mod.rs`:
   - `VizierModel` becomes a thin `Clone` wrapper around `Arc<dyn llm::CompletionModel>`.
   - `VizierModel::new(agent_id, deps, &AgentConfig)` = `llm::resolve(deps, &config.provider, &config.model, &ModelOverrides{context_window, max_tokens})`, then `llm::build(resolved, deps.http.clone(), config.completion_retry.clone())`. Dummyplug is special-cased only by being the built-in whose builder returns `DummyplugModel`.
   - `new_with_override` does the same with an overridden provider and model.
   - Expose `complete(req)` and `complete_until(req, deadline)`.
   - Delete `fetch_context_window_from_api`, `VizierModelBuilder`, `VizierModelImpl`, `resolve_provider` and both 25-arm matches.
   - **Delete** `src/agents/agent/model/provider.rs` (depends on T030, T036).
-- [ ] T043 [US1] Port `src/agents/agent/model/dummyplug.rs` to `impl llm::CompletionModel for DummyplugModel`, reading tool results from `Message::ToolResult` and replying with `AssistantPart`. The dispatch rules and the reply text must stay byte-identical (`specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`), and its unit tests are ported unchanged (depends on T042).
-- [ ] T044 [US1] Update `src/agents/agent/mod.rs` and `src/agents/process.rs`:
+- [X] T043 [US1] Port `src/agents/agent/model/dummyplug.rs` to `impl llm::CompletionModel for DummyplugModel`, reading tool results from `Message::ToolResult` and replying with `AssistantPart`. The dispatch rules and the reply text must stay byte-identical (`specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`), and its unit tests are ported unchanged (depends on T042).
+- [X] T044 [US1] Update `src/agents/agent/mod.rs` and `src/agents/process.rs`:
   - Build `CompletionRequest { messages: system + history + new message, tools, tool_choice, max_tokens: None }`.
   - Call `model.complete_until(req, deadline)`; the "answer only" path sets `tool_choice: Some(ToolChoice::None)` (contract S7).
   - Read `CompletionResponse.content`/`usage`/`id` in place of the old tuple.
   - Iterate `AssistantPart::ToolCall { id, name, arguments }`, and append `Message::ToolResult { call_id, content }`.
   - Keep `Reasoning` parts in the turn's in-memory message list, so they round-trip within the turn.
   - Port the `mod.rs` unit test at about line 1573 (depends on T040–T043).
-- [ ] T045 [US1] Update `src/agents/tools/read_image/mod.rs` to build its single-turn vision request as `CompletionRequest` with a `Part::Attachment`, and to read the text from `AssistantPart::Text`. Update `src/agents/tools/mod.rs`'s `build_read_image_vision` to use `VizierModel::new_with_override` with `ProviderId` (depends on T042).
-- [ ] T046 [US1] Rewrite the media factories to build `src/llm/media` clients, and delete their per-provider rig adapter files:
+- [X] T045 [US1] Update `src/agents/tools/read_image/mod.rs` to build its single-turn vision request as `CompletionRequest` with a `Part::Attachment`, and to read the text from `AssistantPart::Text`. Update `src/agents/tools/mod.rs`'s `build_read_image_vision` to use `VizierModel::new_with_override` with `ProviderId` (depends on T042).
+- [X] T046 [US1] Rewrite the media factories to build `src/llm/media` clients, and delete their per-provider rig adapter files:
   - **`src/embedding/mod.rs`**: delete `cohere.rs`, `copilot.rs`, `gemini.rs`, `mistral.rs`, `ollama.rs`, `openai.rs`, `openrouter.rs`, `together.rs` and `voyageai.rs`.
   - **`src/stt/mod.rs`**: delete `openai.rs`, `groq.rs`, `mistral.rs`, `gemini.rs` and `huggingface.rs`.
   - **`src/tts/mod.rs`**: delete `openai.rs`, `openrouter.rs`, `xai.rs` and `hyperbolic.rs`.
@@ -335,11 +335,11 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   Each factory resolves credentials through `fn credentials(&self) -> ProviderId` on its enum (`SttProvider`, `TtsProvider`, `ImageGenProvider`, `EmbeddingProvider` in `src/schema/agent.rs`), implemented exactly as the data-model.md §8 table, and `provider_keys::resolve_credentials`. Base URLs come from the catalogue or the R3 table for that provider id.
 
   Port `src/embedding/fastembed.rs` to implement `VizierEmbeddingModel` directly, dropping the rig `EmbeddingModel` impl. Remove the `expect("failed to create … client")` calls. `elevenlabs.rs`, `whisper.rs` and `kokoro.rs` are unchanged (depends on T022, T023, T036).
-- [ ] T047 [US1] Remove `EmbeddingConfig.api_key` and `base_url` from `src/schema/agent.rs`, and any reader. There is none today, so stored keys are simply ignored by serde (data-model.md §7).
-- [ ] T048 [US1] Update `src/agents/supervisor.rs`:
+- [X] T047 [US1] Remove `EmbeddingConfig.api_key` and `base_url` from `src/schema/agent.rs`, and any reader. There is none today, so stored keys are simply ignored by serde (data-model.md §7).
+- [X] T048 [US1] Update `src/agents/supervisor.rs`:
   - Ollama model pull before build uses the `ollama` built-in's resolved `base_url`, from `ProviderCredentials` or `OLLAMA_BASE_URL`.
   - A `resolve` failure with "not available" becomes the agent's `last_error`, through the existing `Failed` path (Story 1, scenario 4).
-- [ ] T049 [US1] Replace every remaining `ProviderVariant` use with `ProviderId`, in:
+- [X] T049 [US1] Replace every remaining `ProviderVariant` use with `ProviderId`, in:
   - `src/schema/agent.rs` (`provider`, `dream_provider`, `ReadImageToolSettings.provider`);
   - `src/agents/tools/mod.rs`;
   - `src/channels/http/api/v1/agents/mod.rs`;
@@ -349,9 +349,9 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 ### Retry, errors and rig removal
 
-- [ ] T050 [US1] Delete `src/agents/agent/model/retry.rs`. Its logic lives in `llm::model::RetryingModel` (T014). Keep re-exports of `PROMPT_TIMED_OUT`, `RATE_LIMITED` and `PROVIDER_UNAVAILABLE` from `src/agents/agent/model/mod.rs`, so `ErrorKind::classify` and its callers are unchanged (depends on T044).
-- [ ] T051 [US1] Delete `src/llm/golden_capture.rs` (T031). The committed fixtures and `golden_tests.rs` stay as regression tests with no rig involved (depends on T032).
-- [ ] T052 [US1] Remove `rig-core` from `Cargo.toml` and the `rig` log directive from `src/main.rs`. Then confirm:
+- [X] T050 [US1] Delete `src/agents/agent/model/retry.rs`. Its logic lives in `llm::model::RetryingModel` (T014). Keep re-exports of `PROMPT_TIMED_OUT`, `RATE_LIMITED` and `PROVIDER_UNAVAILABLE` from `src/agents/agent/model/mod.rs`, so `ErrorKind::classify` and its callers are unchanged (depends on T044).
+- [X] T051 [US1] Delete `src/llm/golden_capture.rs` (T031). The committed fixtures and `golden_tests.rs` stay as regression tests with no rig involved (depends on T032).
+- [X] T052 [US1] Remove `rig-core` from `Cargo.toml` and the `rig` log directive from `src/main.rs`. Then confirm:
   - `cargo tree | grep -c rig-core` prints `0`;
   - `grep -rn "rig_core\|rig::" src` is empty;
   - `cargo build`, `cargo test` and `cargo clippy` pass;

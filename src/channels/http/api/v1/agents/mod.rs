@@ -145,7 +145,7 @@ pub struct AgentDetail {
     pub agent_id: String,
     pub name: String,
     pub description: Option<String>,
-    pub provider: crate::config::provider::ProviderVariant,
+    pub provider: crate::config::provider::ProviderId,
     pub model: String,
     pub system_prompt: Option<String>,
     pub thinking_depth: usize,
@@ -162,7 +162,7 @@ pub struct AgentDetail {
     pub prompt_timeout: String,
     pub dream_enabled: bool,
     pub dream_schedule: Option<String>,
-    pub dream_provider: Option<crate::config::provider::ProviderVariant>,
+    pub dream_provider: Option<crate::config::provider::ProviderId>,
     pub dream_model: Option<String>,
     pub discord_token: Option<String>,
     pub telegram_token: Option<String>,
@@ -295,7 +295,7 @@ pub struct CreateAgentRequest {
     pub agent_id: String,
     pub name: String,
     pub description: Option<String>,
-    pub provider: crate::config::provider::ProviderVariant,
+    pub provider: crate::config::provider::ProviderId,
     pub model: String,
     #[serde(default)]
     pub system_prompt: Option<String>,
@@ -316,7 +316,7 @@ pub struct CreateAgentRequest {
     #[serde(default)]
     pub dream_schedule: Option<String>,
     #[serde(default)]
-    pub dream_provider: Option<crate::config::provider::ProviderVariant>,
+    pub dream_provider: Option<crate::config::provider::ProviderId>,
     #[serde(default)]
     pub dream_model: Option<String>,
     #[serde(default)]
@@ -468,8 +468,6 @@ impl CreateAgentRequest {
             embedding: Some(self.embedding.unwrap_or(EmbeddingConfig {
                 provider: EmbeddingProvider::Local,
                 model: "all_mini_lml6_v2".into(),
-                api_key: None,
-                base_url: None,
             })),
             indexer: Some(
                 self.indexer

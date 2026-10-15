@@ -50,3 +50,15 @@ Each is a named normaliser in `src/llm/dialect/golden_tests.rs` or noted in
 | Responses | leading system → `instructions`, later → developer messages; `store: false`; function calls carry only `call_id` | contract S5/S8; with nothing stored an item id can't be resolved (rig's replay of vizier history also failed with "call_id is required") |
 | Hugging Face | requests go to `/hf-inference/models/{model}` | rig dropped the inference route segment |
 | all | `null` and absent fields are equivalent | |
+
+## Cutover (T052)
+
+- `cargo tree | grep -c rig-core`: 0; `grep -rn "rig_core\|rig::" src`: empty.
+- `cargo tree -e normal | wc -l`: 1989 → 1912.
+- `cargo test`: 383 passed (the two ignored capture tests were deleted with `golden_capture.rs`).
+- `cargo clippy`: 0 errors.
+- Migration markers live in the `state` table (`migration.provider_ids_v1`, plus
+  `migration.provider_ids_v1.map` for `migrated_from`), like vizier's other migrations, rather
+  than in `global_config`, whose rows are typed.
+- The provider-id migration also matches a saved base URL by host when no catalogue `api` is
+  equal (`api.minimax.cn/v1` → `minimax-cn`), as the contract's examples need.
