@@ -410,14 +410,14 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - Port every settings-only field and behaviour from `webui/app/routes/agent-settings.tsx` into `AgentForm`, after a field-by-field comparison of the two files' Config, Prompt and Tools tabs.
   - Reduce `agent-settings.tsx` to loading the agent, rendering `<AgentForm mode="edit" … extraTabs={[Sharing, Danger]}>`, and keeping its existing Sharing and Danger Zone sections as the extra tabs.
   - Verify with `npm run typecheck` and a manual walk through every setting on `/agents/<id>/settings`, saving and reloading.
-- [ ] T062 [P] [US2] Add `webui/app/components/ProviderLogo.tsx`: `<img src="/api/v1/catalogue/logos/{id}.svg" alt={name}>` at a fixed box size. `onError` falls back to an initials badge of the same size. A dark-theme `filter: invert(1)` applies to logos marked as `currentColor`, with a prop for the 10 full-colour ones, read from `/catalogue/providers` `logo` metadata.
-- [ ] T063 [US2] Add the catalogue API calls and types to `webui/app/services/vizier.tsx` and `webui/app/interfaces/types.ts`, matching contract `http-api.md`: `getCatalogue`, `listCatalogueProviders`, `listCatalogueModels(id, all)` and `getCatalogueModel`. Change the `provider` type on agent requests from the `ChatProvider` union to `string`.
-- [ ] T064 [US2] Add `webui/app/components/ProviderModelPicker.tsx`, a provider dropdown plus a model dropdown:
+- [X] T062 [P] [US2] Add `webui/app/components/ProviderLogo.tsx`: `<img src="/api/v1/catalogue/logos/{id}.svg" alt={name}>` at a fixed box size. `onError` falls back to an initials badge of the same size. A dark-theme `filter: invert(1)` applies to logos marked as `currentColor`, with a prop for the 10 full-colour ones, read from `/catalogue/providers` `logo` metadata.
+- [X] T063 [US2] Add the catalogue API calls and types to `webui/app/services/vizier.tsx` and `webui/app/interfaces/types.ts`, matching contract `http-api.md`: `getCatalogue`, `listCatalogueProviders`, `listCatalogueModels(id, all)` and `getCatalogueModel`. Change the `provider` type on agent requests from the `ChatProvider` union to `string`.
+- [X] T064 [US2] Add `webui/app/components/ProviderModelPicker.tsx`, a provider dropdown plus a model dropdown:
   - **Providers**: searchable by name and id; grouped CONNECTED / CUSTOM / ALL PROVIDERS; each row shows the logo and connection state.
   - **Models**: searchable; fetched with `all=false`, plus a "Show all models" toggle; each row shows the lab logo, context, a 🔧👁💭 capability row and price; deprecated models are badged; filtering is client-side with a virtualised list, so OpenRouter's 380+ models filter within 2s (SC-008); a model id that isn't listed can be typed in (FR-011).
   - **Below the selector**: the selected model's card (limits, capabilities, price, knowledge).
   - **Props**: `value {provider, model}`, `onChange`, `filter?: {toolCallOnly?, imageInputOnly?}`, `preselectDefault?: boolean`.
-- [ ] T065 [US2] Use `ProviderModelPicker` for the main model in `AgentForm.tsx`, and for the dream model (with `filter.toolCallOnly`) and the read-image vision model (with `filter.imageInputOnly`). Delete `CHAT_PROVIDERS`, `CHAT_PROVIDER_MODELS`, `CHAT_PROVIDER_DEFAULT_MODELS` and `chatProviderLabel` from `webui/app/interfaces/types.ts`, plus all their imports. The TTS, STT, image-generation and embedding curated lists stay.
+- [X] T065 [US2] Use `ProviderModelPicker` for the main model in `AgentForm.tsx`, and for the dream model (with `filter.toolCallOnly`) and the read-image vision model (with `filter.imageInputOnly`). Delete `CHAT_PROVIDERS`, `CHAT_PROVIDER_MODELS`, `CHAT_PROVIDER_DEFAULT_MODELS` and `chatProviderLabel` from `webui/app/interfaces/types.ts`, plus all their imports. The TTS, STT, image-generation and embedding curated lists stay.
 
 **Checkpoint**: one form, with catalogue-driven pickers that work offline.
 
@@ -440,11 +440,11 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   Mount it under `/providers/custom` with `settings:providers` (depends on T035).
 - [X] T067 [US6] Wire custom providers into `src/llm/resolve.rs`: look up `CustomProviderStorage` first. The dialect is `OpenAiChat` for `OpenAiCompatible` and `Anthropic` for `Anthropic`; the base URL and headers come from the record, with `StaticKey` Bearer (OpenAI) or `x-api-key` (Anthropic) when a key is set. Model data follows FR-024: the custom row's fields, then `catalogue.find_model_by_id(model, prefer_dialect)`, then name detection. Add a unit test for the fill-in.
 - [X] T068 [US6] Handle catalogue id collisions in `src/catalogue/mod.rs` `providers()`: a catalogue provider whose id equals a custom provider's id is hidden, and the custom provider wins (spec edge case).
-- [ ] T069 [P] [US6] Add `webui/app/components/providers/CustomProviderForm.tsx`, the two-step form from the agreed mockup:
+- [X] T069 [P] [US6] Add `webui/app/components/providers/CustomProviderForm.tsx`, the two-step form from the agreed mockup:
   - **Step 1, connection**: name; id, auto-slugged and editable until first save; a protocol radio card for OpenAI-compatible or Anthropic; base URL with an "Requests go to …" hint; API key; "Extra headers" expander; and a "Test connection" button calling `POST /providers/custom/test`.
   - **Step 2, models**: "Fetch from server", and an editable table with columns id, context, output, tools, vision and reasoning. Fields filled from the catalogue are marked ⓒ. A warning appears for rows with tool calling unknown or false.
   - **Edit mode**: the id is read-only, and the key and header values show as `•••• [Replace]`.
-- [ ] T070 [US6] Add the custom-provider API calls to `webui/app/services/vizier.tsx`, and render custom providers in the CUSTOM group of `ProviderModelPicker.tsx`, each with a "custom" badge.
+- [X] T070 [US6] Add the custom-provider API calls to `webui/app/services/vizier.tsx`, and render custom providers in the CUSTOM group of `ProviderModelPicker.tsx`, each with a "custom" badge.
 - [X] T071 [US6] Run quickstart.md §4 against `stub_llm.py` (both protocols, id clash, immutable id, edited-row survival, secret masking, delete warning, the FR-027 base-URL refusal), then the deferred §3 from T058. Record the results in the PR.
 
 **Checkpoint**: self-hosted and proxy endpoints work, with no code change and no file editing (SC-009).
@@ -465,15 +465,15 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - **`DELETE /providers/{id}`** returns 409 with the affected agents unless `?confirm=true`.
   - **`POST /providers/{id}/test`** makes one model-listing call, or a 1-token Anthropic completion.
   - The dummyplug rules stay as they are.
-- [ ] T073 [P] [US5] Add `webui/app/components/providers/ConnectedList.tsx`. Each row shows the logo, name, id, source badge (`Saved key` / `From env NAME` / `migrated from …`), model count, "Used by: chat (3 agents) · TTS (1) …" and reachability for local and custom providers. Its actions are View models, Edit and ⋯ (Re-fetch for custom providers, Duplicate, Delete). Delete opens `DeleteWarning.tsx`, which lists the affected agents.
-- [ ] T074 [P] [US5] Add `webui/app/components/providers/AddProvider.tsx` and `ConnectForm.tsx`:
+- [X] T073 [P] [US5] Add `webui/app/components/providers/ConnectedList.tsx`. Each row shows the logo, name, id, source badge (`Saved key` / `From env NAME` / `migrated from …`), model count, "Used by: chat (3 agents) · TTS (1) …" and reachability for local and custom providers. Its actions are View models, Edit and ⋯ (Re-fetch for custom providers, Duplicate, Delete). Delete opens `DeleteWarning.tsx`, which lists the affected agents.
+- [X] T074 [P] [US5] Add `webui/app/components/providers/AddProvider.tsx` and `ConnectForm.tsx`:
   - a search box over `/catalogue/providers?connected=false`, with All / Chat / Media & embeddings / Local filters;
   - Popular first, then A–Z;
   - "+ Custom provider" opens `CustomProviderForm`;
   - a no-match search offers "Create custom provider …";
   - `ConnectForm` asks only for the provider's `fields`, shows the env-var alternative and the catalogue endpoint, and has Test and Save.
-- [ ] T075 [P] [US5] Add `webui/app/components/providers/ModelsDrawer.tsx`: a read-only list of a provider's models (all of them, with deprecated ones marked), using the same row component as the picker.
-- [ ] T076 [US5] Replace the providers section of `webui/app/routes/settingsRoot.tsx` with a header showing the catalogue status line and a "Refresh now" button (wired in US4), then `ConnectedList` and `AddProvider`. Delete the hard-coded `ALL_VARIANTS` list and the per-variant form code (depends on T073–T075).
+- [X] T075 [P] [US5] Add `webui/app/components/providers/ModelsDrawer.tsx`: a read-only list of a provider's models (all of them, with deprecated ones marked), using the same row component as the picker.
+- [X] T076 [US5] Replace the providers section of `webui/app/routes/settingsRoot.tsx` with a header showing the catalogue status line and a "Refresh now" button (wired in US4), then `ConnectedList` and `AddProvider`. Delete the hard-coded `ALL_VARIANTS` list and the per-variant form code (depends on T073–T075).
 
 **Checkpoint**: any catalogue provider can be connected from the UI. Keys found in env vars and usage are visible.
 
@@ -485,20 +485,20 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 **Independent Test**: quickstart.md §7, "Defaults", "Read-image", "Inline connect" and "Review" bullets.
 
-- [ ] T077 [US7] In `webui/app/components/AgentForm.tsx`, move Context window and Max output into an "Advanced" collapsible section, empty by default, with placeholders `"<value> · from catalogue"` taken from the selected model. Move Thinking depth, Prompt timeout and Silent-read chance into the same section. Next to Checkpoint threshold, show `≈ <threshold% × effective context> tokens`.
-- [ ] T078 [US7] In `ProviderModelPicker.tsx` and `AgentForm.tsx` (create mode), when a provider is selected and the model is empty, preselect the model marked `default: true` by `/catalogue/providers/{id}/models` (FR-031).
-- [ ] T079 [US7] In `AgentForm.tsx`'s Tools › Read image section, follow FR-033:
+- [X] T077 [US7] In `webui/app/components/AgentForm.tsx`, move Context window and Max output into an "Advanced" collapsible section, empty by default, with placeholders `"<value> · from catalogue"` taken from the selected model. Move Thinking depth, Prompt timeout and Silent-read chance into the same section. Next to Checkpoint threshold, show `≈ <threshold% × effective context> tokens`.
+- [X] T078 [US7] In `ProviderModelPicker.tsx` and `AgentForm.tsx` (create mode), when a provider is selected and the model is empty, preselect the model marked `default: true` by `/catalogue/providers/{id}/models` (FR-031).
+- [X] T079 [US7] In `AgentForm.tsx`'s Tools › Read image section, follow FR-033:
   - main model with `caps.image_input !== false`: show "✓ <model> can see images. They are sent to it directly", and no picker;
   - `image_input === false`: show a warning and the picker with `filter.imageInputOnly`;
   - an existing explicit vision model: show it as an override with a "Remove" button.
 
   In the TTS, STT and image-generation sections, show "✓ uses your <Provider> key" or a "Connect <Provider>" link, through `credentials()` mapped on the client.
-- [ ] T080 [US7] Add inline connect to `ProviderModelPicker.tsx` (FR-034):
+- [X] T080 [US7] Add inline connect to `ProviderModelPicker.tsx` (FR-034):
   - **With `settings:providers`**: choosing a provider whose `connection.status` is `missing` opens `ConnectForm` inline, which saves with `PUT /providers/{id}` and then re-fetches the provider list.
   - **Without it**: show "Ask an admin to connect <Provider>".
 
   Reuse `ConnectForm` from T074.
-- [ ] T081 [US7] Render the model card on the Review tab in `AgentForm.tsx` (create mode): limits with the checkpoint token count, capabilities, price, dream and read-image routing, and the agent's `warnings` (computed on the client from the catalogue model, using the same rules as T057) (FR-035).
+- [X] T081 [US7] Render the model card on the Review tab in `AgentForm.tsx` (create mode): limits with the checkpoint token count, capabilities, price, dream and read-image routing, and the agent's `warnings` (computed on the client from the catalogue model, using the same rules as T057) (FR-035).
 
 **Checkpoint**: creating an agent on a catalogue model needs no typed numbers and no vision-model choice for vision models (SC-010).
 
@@ -522,7 +522,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - Unit tests run against an axum server serving 200, 304, invalid bodies and timeouts.
 - [X] T085 [US4] Call `catalogue::refresh::maybe_refresh(&deps)` at the start of every handler in `src/channels/http/api/v1/catalogue.rs` and of `GET /providers` and `GET /providers/custom`. Never call it from agent, scheduler or dream code (add a doc comment on `maybe_refresh` stating this rule). Add `POST /catalogue/refresh` (`settings:providers`): 200 with the status, 502 on failure, and 409 when refresh is disabled.
 - [X] T086 [US4] Extend the logo handler in `catalogue.rs` to follow the contract's lookup order: the `catalogue_logo` row, then the seed, then `seed_no_logo`. Otherwise, when refresh is enabled, spawn a background fetch of `https://models.dev/logos/{id}.svg`, storing the svg, or NULL if it equals the fallback, and return 404 this time.
-- [ ] T087 [US4] Fill in `GET /catalogue`'s `source`, `fetched_at`, `checked_at` and `refresh.{enabled, ttl, in_progress, last_error, failed_at}`. In `settingsRoot.tsx`, show "Catalogue: models.dev · as of <fetched_at> (<source>)", with the last error if any, and wire the "Refresh now" button to `POST /catalogue/refresh`.
+- [X] T087 [US4] Fill in `GET /catalogue`'s `source`, `fetched_at`, `checked_at` and `refresh.{enabled, ttl, in_progress, last_error, failed_at}`. In `settingsRoot.tsx`, show "Catalogue: models.dev · as of <fetched_at> (<source>)", with the last error if any, and wire the "Refresh now" button to `POST /catalogue/refresh`.
 - [X] T088 [P] [US4] In `.github/workflows/release.yml`, job `prepare-release`, add a "Refresh model catalogue" step after "Update Cargo.toml versions" that runs `python3 -I scripts/catalogue_update.py --keep-on-failure`, and add `assets/catalogue` to the `git add` in "Commit version bump". In `.github/workflows/publish.yml`'s "Verify package" step, fail when `cargo package --allow-dirty --no-verify --list` lacks `assets/catalogue/api.json`.
 - [X] T089 [US4] Run quickstart.md §6: refresh off and offline; agents running with no request; a lazy check on read; 304 with `VIZIER_CATALOGUE_TTL=1s`; broken URL with backoff; offline restart from SQLite. Record the results in the PR.
 
@@ -538,7 +538,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 - [X] T090 [US8] Add `provider: Option<ProviderId>` and `model: Option<String>` (`serde(default)`) to `VizierResponseStats` in `src/schema/response.rs`, set in `VizierAgent::chat` (`src/agents/agent/mod.rs`) from the agent's resolved provider and model.
 - [X] T091 [US8] In `src/storage/sqlite/history.rs` `aggregate_usage` and `src/schema/metrics.rs`, add `estimated_cost_usd: Option<f64>` to the summary, each `by_day` entry and each `by_channel_type` entry. For each response with `provider`/`model`, look up the catalogue cost, or the custom model's (none for now), and compute `(input − cached) × input + cached × cache_read (or input) + cache_creation × cache_write (or input) + output × output`, divided by 1e6. A bucket with no priced responses stays `None`. Pass the catalogue snapshot to `aggregate_usage` from the usage handler in `src/channels/http/api/v1/agents/mod.rs`, and unit-test the arithmetic.
-- [ ] T092 [US8] In `webui/app/routes/usage.tsx`, show the estimated cost next to token totals, per day and per channel, labelled "est.", with `—` when it is `null`.
+- [X] T092 [US8] In `webui/app/routes/usage.tsx`, show the estimated cost next to token totals, per day and per channel, labelled "est.", with `—` when it is `null`.
 
 **Checkpoint**: all stories are done.
 

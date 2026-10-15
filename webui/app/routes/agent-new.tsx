@@ -10,7 +10,8 @@ export default function AgentNew() {
 
   const handleSubmit = async (form: CreateAgentRequest) => {
     try {
-      await createAgent(form)
+      const res = await createAgent(form)
+      for (const w of res.data?.warnings || []) addToast('warning', w.message)
       addToast('success', `Agent "${form.name}" created`)
       setTimeout(() => {
         window.location.href = `/${form.agent_id}/chat`

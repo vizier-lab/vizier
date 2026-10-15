@@ -3,7 +3,7 @@ import { useParams } from 'react-router'
 import { getAgentUsage } from '../services/vizier'
 import { useToastStore } from '../hooks/toastStore'
 import type { AgentUsageStats } from '../interfaces/types'
-import { UsageBarChart, ChannelTypeStackedChart, type UsageMetric, type DisplayMode } from '../components/UsageBarChart'
+import { UsageBarChart, ChannelTypeStackedChart, formatCost, type UsageMetric, type DisplayMode } from '../components/UsageBarChart'
 import CustomSelect from '../components/CustomSelect'
 import { FaChevronDown, FaChevronRight, FaCalendar } from 'react-icons/fa6'
 
@@ -130,6 +130,7 @@ export default function UsageDashboard() {
       total: day.total_tokens,
       input: day.input_tokens,
       output: day.output_tokens,
+      cost: day.estimated_cost_usd,
     }))
   }
 
@@ -324,7 +325,7 @@ export default function UsageDashboard() {
           <div className="flex gap-3 items-center"></div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 mt-2!">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8 mt-2!">
           <div style={{ background: 'var(--surface)', borderRadius: '8px', padding: '16px' }}>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
               Total Tokens
@@ -355,6 +356,17 @@ export default function UsageDashboard() {
             </div>
             <div style={{ fontSize: '24px', fontWeight: 600 }}>
               {formatNumber(usage.summary.total_requests)}
+            </div>
+          </div>
+          <div
+            style={{ background: 'var(--surface)', borderRadius: '8px', padding: '16px' }}
+            title="Estimated from token counts and the catalogue's prices for each reply's model. Replies on models without a known price aren't counted."
+          >
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              Estimated Cost
+            </div>
+            <div style={{ fontSize: '24px', fontWeight: 600 }}>
+              {formatCost(usage.summary.estimated_cost_usd)}
             </div>
           </div>
         </div>
@@ -440,6 +452,9 @@ export default function UsageDashboard() {
                       </span>
                       <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                         {data.total_requests} requests
+                      </span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        {formatCost(data.estimated_cost_usd)}
                       </span>
                       <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                         avg {formatDuration(data.total_tokens / data.total_requests)}/req

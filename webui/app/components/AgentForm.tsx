@@ -6,20 +6,19 @@ import Avatar from './avatar'
 import AvatarCropModal from './AvatarCropModal'
 import EmbeddingIndexerSection from './EmbeddingIndexerSection'
 import { uploadFile } from '../services/vizier'
+import ProviderModelPicker, { ModelCard } from './ProviderModelPicker'
+import MediaKeyHint from './MediaKeyHint'
+import { useCatalogueProviders, useModelInfo } from '../hooks/catalogueStore'
 import type {
+  AgentWarning,
   CreateAgentRequest,
   AgentDetail,
-  ChatProvider,
   EmbeddingToolSettings,
   IndexerConfig,
   McpServerConfig,
   ShellConfigData,
 } from '../interfaces/types'
 import {
-  CHAT_PROVIDERS,
-  chatProviderLabel,
-  CHAT_PROVIDER_DEFAULT_MODELS,
-  CHAT_PROVIDER_MODELS,
   TTS_PROVIDER_MODELS,
   TTS_PROVIDER_VOICES,
   STT_PROVIDER_MODELS,
@@ -84,12 +83,12 @@ const DEFAULT_FORM: CreateAgentRequest = {
   agent_id: '',
   name: '',
   description: '',
-  provider: 'ollama',
-  model: 'qwen3.5:4b',
+  provider: '',
+  model: '',
   system_prompt: defaultPrompt,
   thinking_depth: 100,
   checkpoint_threshold: 80,
-  max_tokens: 100000,
+  max_tokens: undefined,
   context_window: undefined,
   silent_read_initiative_chance: 0.0,
   tools: {
@@ -150,6 +149,51 @@ export default function AgentForm({
 
   // Dream model toggle (UI-only state)
   const [useSameModel, setUseSameModel] = useState(true)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  // Read-image uses a separate vision model (an existing agent's, or one the operator chose).
+  const [visionOverride, setVisionOverride] = useState(false)
+
+  const mainModel = useModelInfo(form.provider, form.model)
+  const catalogueContext = mainModel ? (mainModel.limit.input ?? mainModel.limit.context) : null
+  const effectiveContext = form.context_window || catalogueContext
+
+  const providers = useCatalogueProviders()
+  const providerOrigin = providers?.find((p) => p.id === form.provider)?.origin
+
+  // The same rules as the server's save warnings (`catalogue::agent_warnings`), for the
+  // Review step before anything is saved.
+  const clientWarnings: AgentWarning[] = []
+  if (form.model && mainModel !== undefined) {
+    if (mainModel?.caps.tool_call === false)
+      clientWarnings.push({
+        code: 'no_tool_calling',
+        message: `${form.model} can't call tools; the agent will only be able to answer in text`,
+      })
+    const explicitVision = visionOverride && !!form.tools?.read_image_settings?.provider && !!form.tools?.read_image_settings?.model
+    if (form.tools?.read_image && !explicitVision && mainModel?.caps.image_input === false)
+      clientWarnings.push({
+        code: 'no_image_input',
+        message: `${form.model} can't view images; configure a vision model for read-image`,
+      })
+    if (mainModel === null && providerOrigin === 'catalogue')
+      clientWarnings.push({
+        code: 'unknown_model',
+        message: `${form.model} isn't in the catalogue for ${form.provider}; it will be used as typed`,
+      })
+  }
+
+  const reviewRow = (label: string, value: ReactNode) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{label}</span>
+      <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', textAlign: 'right' }}>{value}</span>
+    </div>
+  )
+
+  const setReadImage = (next: { provider?: string; model?: string }) =>
+    setForm((prev) => ({
+      ...prev,
+      tools: { ...prev.tools, read_image_settings: next },
+    }))
 
   // MCP server form state
   const [mcpFormOpen, setMcpFormOpen] = useState(false)
@@ -165,7 +209,7 @@ export default function AgentForm({
   useEffect(() => {
     if (mode === 'edit' && initialData) {
       const d = initialData
-      setForm({
+      const loaded: CreateAgentRequest = {
         agent_id: d.agent_id,
         name: d.name,
         description: d.description || '',
@@ -210,9 +254,13 @@ export default function AgentForm({
           model: 'all_mini_lml6_v2',
         },
         indexer: d.indexer || { kind: 'sqlite' },
-      })
-      setUseSameModel(!d.dream_provider && !d.dream_model)
-      setBaseline(null)
+      }
+      const sameModel = !d.dream_provider && !d.dream_model
+      setForm(loaded)
+      setUseSameModel(sameModel)
+      setVisionOverride(!!d.read_image_settings?.provider)
+      setAdvancedOpen(d.context_window != null || d.max_tokens != null)
+      setBaseline(JSON.stringify({ form: loaded, useSameModel: sameModel }))
     }
   }, [mode, initialData, reloadKey])
 
@@ -220,10 +268,6 @@ export default function AgentForm({
     () => JSON.stringify({ form, useSameModel }),
     [form, useSameModel]
   )
-  // The first render after a load becomes the baseline, so normalising defaults isn't an edit.
-  useEffect(() => {
-    if (mode === 'edit' && initialData && baseline === null) setBaseline(snapshot)
-  }, [mode, initialData, baseline, snapshot])
   const dirty =
     mode === 'edit' && baseline !== null && (snapshot !== baseline || avatarBlob !== null)
 
@@ -331,7 +375,7 @@ export default function AgentForm({
   }
 
   const handleSubmit = async () => {
-    if (mode === 'create' && (!form.agent_id.trim() || !form.name.trim())) {
+    if (mode === 'create' && (!form.agent_id.trim() || !form.name.trim() || !form.provider || !form.model)) {
       return
     }
     if (mode === 'edit' && !form.name.trim()) {
@@ -627,63 +671,19 @@ export default function AgentForm({
                       }
                     />
                   </section>
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: '0.75rem',
-                    }}
-                  >
-                    <section
-                      style={{ ...fieldStyle, flex: 1 }}
-                    >
-                      <label style={labelStyle}>
-                        <TooltipLabel
-                          label="Provider"
-                          tooltip="The AI provider to use for completions."
-                        />
-                      </label>
-                      <select
-                        style={inputStyle}
-                        value={form.provider}
-                        onChange={(e) => {
-                          updateField(
-                            'provider',
-                            e.target.value
-                          )
-                          if (mode === 'create')
-                            updateField(
-                              'model',
-                              CHAT_PROVIDER_DEFAULT_MODELS[
-                                e.target.value as ChatProvider
-                              ] || ''
-                            )
-                        }}
-                      >
-                        {CHAT_PROVIDERS.map((p) => (
-                          <option key={p} value={p}>
-                            {chatProviderLabel(p)}
-                          </option>
-                        ))}
-                      </select>
-                    </section>
-                    <section
-                      style={{ ...fieldStyle, flex: 1 }}
-                    >
-                      <label style={labelStyle}>
-                        <TooltipLabel
-                          label="Model"
-                          tooltip="The model identifier for the selected provider."
-                        />
-                      </label>
-                      <ModelSelect
-                        options={CHAT_PROVIDER_MODELS[form.provider as ChatProvider] || []}
-                        value={form.model}
-                        onChange={(value) => updateField('model', value)}
-                        placeholder="Select or enter model"
-                        style={inputStyle}
+                  <section style={fieldStyle}>
+                    <label style={labelStyle}>
+                      <TooltipLabel
+                        label="Model *"
+                        tooltip="The provider and model that answer for this agent. Models that can't call tools are hidden unless you show all."
                       />
-                    </section>
-                  </div>
+                    </label>
+                    <ProviderModelPicker
+                      value={{ provider: form.provider, model: form.model }}
+                      onChange={(v) => setForm((prev) => ({ ...prev, provider: v.provider, model: v.model }))}
+                      preselectDefault={mode === 'create'}
+                    />
+                  </section>
                 </div>
               </div>
 
@@ -701,214 +701,156 @@ export default function AgentForm({
                 >
                   Model Parameters
                 </h4>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '1rem',
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: '0.75rem',
-                    }}
-                  >
-                    <section
-                      style={{ ...fieldStyle, flex: 1 }}
-                    >
-                      <label style={labelStyle}>
-                        <TooltipLabel
-                          label="Thinking Depth"
-                          tooltip="Maximum LLM reasoning turns per request. Set to 0 for unlimited."
-                        />
-                      </label>
-                      <input
-                        style={inputStyle}
-                        type="number"
-                        min={1}
-                        value={
-                          form.thinking_depth || 10
-                        }
-                        onChange={(e) =>
-                          updateField(
-                            'thinking_depth',
-                            parseInt(
-                              e.target.value
-                            ) || 10
-                          )
-                        }
-                      />
-                    </section>
-                    <section
-                      style={{ ...fieldStyle, flex: 1 }}
-                    >
-                      <label style={labelStyle}>
-                        <TooltipLabel
-                          label="Checkpoint Threshold"
-                          tooltip="Context window usage percentage to trigger a checkpoint (default: 80%)."
-                        />
-                      </label>
-                      <input
-                        style={inputStyle}
-                        type="number"
-                        min={10}
-                        max={100}
-                        value={form.checkpoint_threshold || 80}
-                        onChange={(e) =>
-                          updateField(
-                            'checkpoint_threshold',
-                            Math.min(100, Math.max(10, parseInt(e.target.value) || 80))
-                          )
-                        }
-                      />
-                    </section>
-                    <section
-                      style={{ ...fieldStyle, flex: 1 }}
-                    >
-                      <label style={labelStyle}>
-                        <TooltipLabel
-                          label="Max Tokens"
-                          tooltip="Maximum output tokens per LLM completion request."
-                        />
-                      </label>
-                      <input
-                        style={inputStyle}
-                        type="number"
-                        min={1}
-                        placeholder="No limit"
-                        value={form.max_tokens ?? ''}
-                        onChange={(e) =>
-                          updateField(
-                            'max_tokens',
-                            e.target.value
-                              ? parseInt(
-                                e.target.value
-                              )
-                              : undefined
-                          )
-                        }
-                      />
-                    </section>
-                    <section
-                      style={{ ...fieldStyle, flex: 1 }}
-                    >
-                      <label style={labelStyle}>
-                        <TooltipLabel
-                          label="Context Window"
-                          tooltip="Maximum context window size in tokens. Leave empty to auto-detect from provider."
-                        />
-                      </label>
-                      <input
-                        style={inputStyle}
-                        type="number"
-                        min={1}
-                        placeholder="Auto-detect"
-                        value={form.context_window ?? ''}
-                        onChange={(e) =>
-                          updateField(
-                            'context_window',
-                            e.target.value
-                              ? parseInt(
-                                e.target.value
-                              )
-                              : undefined
-                          )
-                        }
-                      />
-                    </section>
-                  </div>
-                  <section style={fieldStyle}>
-                    <label style={labelStyle}>
-                      <TooltipLabel
-                        label="Silent Read Chance"
-                        tooltip="Probability (0.0-1.0) that the agent proactively reads silent/channel messages."
-                      />
-                    </label>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.75rem',
-                      }}
-                    >
-                      <input
-                        style={{
-                          ...inputStyle,
-                          flex: 1,
-                        }}
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={
-                          form.silent_read_initiative_chance ??
-                          0.0
-                        }
-                        onChange={(e) =>
-                          updateField(
-                            'silent_read_initiative_chance',
-                            parseFloat(
-                              e.target.value
-                            )
-                          )
-                        }
-                      />
-                      <span
-                        style={{
-                          fontSize: '0.8rem',
-                          color: 'var(--text-secondary)',
-                          minWidth: '2.5rem',
-                          textAlign: 'right',
-                        }}
-                      >
-                        {(
-                          form.silent_read_initiative_chance ??
-                          0.0
-                        ).toFixed(2)}
-                      </span>
-                    </div>
-                  </section>
-                </div>
+                <section style={{ ...fieldStyle, maxWidth: '20rem' }}>
+                  <label style={labelStyle}>
+                    <TooltipLabel
+                      label="Checkpoint Threshold (%)"
+                      tooltip="Context window usage that triggers a checkpoint (default: 80%)."
+                    />
+                  </label>
+                  <input
+                    style={inputStyle}
+                    type="number"
+                    min={10}
+                    max={100}
+                    value={form.checkpoint_threshold || 80}
+                    onChange={(e) =>
+                      updateField(
+                        'checkpoint_threshold',
+                        Math.min(100, Math.max(10, parseInt(e.target.value) || 80))
+                      )
+                    }
+                  />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                    {effectiveContext
+                      ? `≈ ${Math.round((effectiveContext * (form.checkpoint_threshold || 80)) / 100).toLocaleString()} tokens of ${effectiveContext.toLocaleString()}`
+                      : 'Context window unknown for this model'}
+                  </span>
+                </section>
               </div>
 
-              {/* Timing */}
+              {/* Advanced: optional overrides and rarely changed settings (FR-032) */}
               <div>
-                <h4
+                <button
+                  type="button"
+                  onClick={() => setAdvancedOpen((o) => !o)}
                   style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    width: '100%',
                     fontSize: '0.85rem',
                     fontWeight: 600,
                     color: 'var(--text-primary)',
-                    marginBottom: '0.75rem',
                     paddingBottom: '0.5rem',
+                    marginBottom: advancedOpen ? '0.75rem' : 0,
                     borderBottom: '1px solid var(--border)',
+                    background: 'none',
+                    borderTop: 'none',
+                    borderLeft: 'none',
+                    borderRight: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'left',
                   }}
                 >
-                  Timing
-                </h4>
-                <div
-                  style={{ display: 'flex', gap: '0.75rem' }}
-                >
-                  <section style={{ ...fieldStyle, flex: 1 }}>
-                    <label style={labelStyle}>
-                      <TooltipLabel
-                        label="Prompt Timeout"
-                        tooltip="Maximum wall-clock duration for a single request."
-                      />
-                    </label>
-                    <input
-                      style={inputStyle}
-                      placeholder="60m"
-                      value={form.prompt_timeout || ''}
-                      onChange={(e) =>
-                        updateField(
-                          'prompt_timeout',
-                          e.target.value
-                        )
-                      }
-                    />
-                  </section>
-                </div>
+                  <span style={{ display: 'inline-block', transform: advancedOpen ? 'rotate(90deg)' : undefined, transition: 'transform 0.15s' }}>▸</span>
+                  Advanced
+                </button>
+                {advancedOpen && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      <section style={{ ...fieldStyle, flex: '1 1 10rem' }}>
+                        <label style={labelStyle}>
+                          <TooltipLabel
+                            label="Context Window"
+                            tooltip="Override the model's context window in tokens. Leave empty to use the catalogue's value."
+                          />
+                        </label>
+                        <input
+                          style={inputStyle}
+                          type="number"
+                          min={1}
+                          placeholder={catalogueContext ? `${catalogueContext.toLocaleString()} · from catalogue` : 'Auto-detect'}
+                          value={form.context_window ?? ''}
+                          onChange={(e) =>
+                            updateField('context_window', e.target.value ? parseInt(e.target.value) : undefined)
+                          }
+                        />
+                      </section>
+                      <section style={{ ...fieldStyle, flex: '1 1 10rem' }}>
+                        <label style={labelStyle}>
+                          <TooltipLabel
+                            label="Max Output"
+                            tooltip="Cap on output tokens per completion. Leave empty to use the model's own limit."
+                          />
+                        </label>
+                        <input
+                          style={inputStyle}
+                          type="number"
+                          min={1}
+                          placeholder={mainModel?.limit.output ? `${mainModel.limit.output.toLocaleString()} · from catalogue` : 'Model default'}
+                          value={form.max_tokens ?? ''}
+                          onChange={(e) =>
+                            updateField('max_tokens', e.target.value ? parseInt(e.target.value) : undefined)
+                          }
+                        />
+                      </section>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      <section style={{ ...fieldStyle, flex: '1 1 10rem' }}>
+                        <label style={labelStyle}>
+                          <TooltipLabel
+                            label="Thinking Depth"
+                            tooltip="Maximum LLM reasoning turns per request. Set to 0 for unlimited."
+                          />
+                        </label>
+                        <input
+                          style={inputStyle}
+                          type="number"
+                          min={1}
+                          value={form.thinking_depth || 10}
+                          onChange={(e) => updateField('thinking_depth', parseInt(e.target.value) || 10)}
+                        />
+                      </section>
+                      <section style={{ ...fieldStyle, flex: '1 1 10rem' }}>
+                        <label style={labelStyle}>
+                          <TooltipLabel
+                            label="Prompt Timeout"
+                            tooltip="Maximum wall-clock duration for a single request."
+                          />
+                        </label>
+                        <input
+                          style={inputStyle}
+                          placeholder="60m"
+                          value={form.prompt_timeout || ''}
+                          onChange={(e) => updateField('prompt_timeout', e.target.value)}
+                        />
+                      </section>
+                    </div>
+                    <section style={fieldStyle}>
+                      <label style={labelStyle}>
+                        <TooltipLabel
+                          label="Silent Read Chance"
+                          tooltip="Probability (0.0-1.0) that the agent proactively reads silent/channel messages."
+                        />
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <input
+                          style={{ ...inputStyle, flex: 1 }}
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={form.silent_read_initiative_chance ?? 0.0}
+                          onChange={(e) => updateField('silent_read_initiative_chance', parseFloat(e.target.value))}
+                        />
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', minWidth: '2.5rem', textAlign: 'right' }}>
+                          {(form.silent_read_initiative_chance ?? 0.0).toFixed(2)}
+                        </span>
+                      </div>
+                    </section>
+                  </div>
+                )}
               </div>
 
               {/* Dream Config */}
@@ -987,49 +929,24 @@ export default function AgentForm({
                         Use same model as main
                       </label>
                       {!useSameModel && (
-                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
-                          <section style={{ ...fieldStyle, flex: 1 }}>
-                            <label style={labelStyle}>
-                              <TooltipLabel
-                                label="Dream Provider *"
-                                tooltip="Provider to use for dreaming. Required when not using the main model."
-                              />
-                            </label>
-                            <select
-                              style={{
-                                ...inputStyle,
-                                borderColor: !form.dream_provider ? 'var(--error, #ef4444)' : undefined,
-                              }}
-                              value={form.dream_provider || ''}
-                              onChange={(e) =>
-                                updateField('dream_provider', e.target.value)
-                              }
-                            >
-                              <option value="" disabled>Select provider</option>
-                              {CHAT_PROVIDERS.map((p) => (
-                                <option key={p} value={p}>{chatProviderLabel(p)}</option>
-                              ))}
-                            </select>
-                          </section>
-                          <section style={{ ...fieldStyle, flex: 1 }}>
-                            <label style={labelStyle}>
-                              <TooltipLabel
-                                label="Dream Model *"
-                                tooltip="Model to use for dreaming. Required when not using the main model."
-                              />
-                            </label>
-                            <ModelSelect
-                              options={CHAT_PROVIDER_MODELS[form.dream_provider as ChatProvider] || []}
-                              value={form.dream_model || ''}
-                              onChange={(value) => updateField('dream_model', value)}
-                              placeholder="Select or enter model"
-                              style={{
-                                ...inputStyle,
-                                borderColor: !form.dream_model ? 'var(--error, #ef4444)' : undefined,
-                              }}
+                        <section style={fieldStyle}>
+                          <label style={labelStyle}>
+                            <TooltipLabel
+                              label="Dream model *"
+                              tooltip="Model to use for dreaming. It needs tool calling, so models without it are hidden."
                             />
-                          </section>
-                        </div>
+                          </label>
+                          <ProviderModelPicker
+                            value={{ provider: form.dream_provider || '', model: form.dream_model || '' }}
+                            onChange={(v) =>
+                              setForm((prev) => ({ ...prev, dream_provider: v.provider, dream_model: v.model }))
+                            }
+                            filter={{ toolCallOnly: true }}
+                            preselectDefault
+                            showCard={false}
+                            invalid
+                          />
+                        </section>
                       )}
                     </>
                   )}
@@ -1133,19 +1050,19 @@ export default function AgentForm({
                   <button
                     onClick={goToNextTab}
                     disabled={
-                      !form.agent_id.trim() || !form.name.trim()
+                      !form.agent_id.trim() || !form.name.trim() || !form.provider || !form.model
                     }
                     style={{
                       padding: '0.6rem 1.5rem',
                       borderRadius: '0.375rem',
                       border: 'none',
                       background:
-                        !form.agent_id.trim() || !form.name.trim()
+                        !form.agent_id.trim() || !form.name.trim() || !form.provider || !form.model
                           ? 'var(--border)'
                           : 'var(--accent-primary)',
                       color: '#fff',
                       cursor:
-                        !form.agent_id.trim() || !form.name.trim()
+                        !form.agent_id.trim() || !form.name.trim() || !form.provider || !form.model
                           ? 'not-allowed'
                           : 'pointer',
                       fontSize: '0.85rem',
@@ -1438,6 +1355,11 @@ export default function AgentForm({
                     Enable TTS
                   </label>
                   {form.tools?.tts && (
+                    <div style={{ paddingLeft: '1.5rem', marginBottom: '0.5rem' }}>
+                      <MediaKeyHint provider={form.tools?.tts_settings?.provider || 'openai'} />
+                    </div>
+                  )}
+                  {form.tools?.tts && (
                     <div
                       style={{
                         display: 'flex',
@@ -1634,6 +1556,11 @@ export default function AgentForm({
                     Enable STT
                   </label>
                   {form.tools?.stt && (
+                    <div style={{ paddingLeft: '1.5rem', marginBottom: '0.5rem' }}>
+                      <MediaKeyHint provider={form.tools?.stt_settings?.provider || 'openai'} />
+                    </div>
+                  )}
+                  {form.tools?.stt && (
                     <div
                       style={{
                         display: 'flex',
@@ -1748,7 +1675,7 @@ export default function AgentForm({
                 </div>
               </div>
 
-              {/* Read Image (vision model) */}
+              {/* Read Image: from the main model's capabilities (FR-033) */}
               <div>
                 <h4
                   style={{
@@ -1760,7 +1687,7 @@ export default function AgentForm({
                     borderBottom: '1px solid var(--border)',
                   }}
                 >
-                  Read Image (vision model)
+                  Read Image
                 </h4>
                 <div
                   style={{
@@ -1776,96 +1703,78 @@ export default function AgentForm({
                       gap: '0.4rem',
                       fontSize: '0.8rem',
                       cursor: 'pointer',
-                      marginBottom: form.tools?.read_image
-                        ? '0.75rem'
-                        : 0,
+                      marginBottom: form.tools?.read_image ? '0.75rem' : 0,
                     }}
                   >
                     <input
                       type="checkbox"
                       checked={form.tools?.read_image ?? false}
-                      onChange={(e) =>
-                        updateTool('read_image', e.target.checked)
-                      }
+                      onChange={(e) => updateTool('read_image', e.target.checked)}
                     />
-                    Use vision model for image reading
+                    Let the agent read images
                   </label>
                   {form.tools?.read_image && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '0.5rem',
-                        paddingLeft: '1.5rem',
-                      }}
-                    >
-                      <div>
-                        <label
-                          style={{
-                            display: 'block',
-                            marginBottom: '0.25rem',
-                            fontSize: '0.75rem',
-                            color: 'var(--text-secondary)',
-                          }}
-                        >
-                          Provider
-                        </label>
-                        <select
-                          style={inputStyle}
-                          value={
-                            form.tools?.read_image_settings?.provider ||
-                            ''
-                          }
-                          onChange={(e) =>
-                            setForm((prev) => ({
-                              ...prev,
-                              tools: {
-                                ...prev.tools!,
-                                read_image_settings: {
-                                  ...prev.tools?.read_image_settings,
-                                  provider:
-                                    e.target.value || undefined,
-                                },
-                              },
-                            }))
-                          }
-                        >
-                          <option value="">Select provider</option>
-                          {CHAT_PROVIDERS.map((p) => (
-                            <option key={p} value={p}>{chatProviderLabel(p)}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label
-                          style={{
-                            display: 'block',
-                            marginBottom: '0.25rem',
-                            fontSize: '0.75rem',
-                            color: 'var(--text-secondary)',
-                          }}
-                        >
-                          Model
-                        </label>
-                        <ModelSelect
-                          options={CHAT_PROVIDER_MODELS[(form.tools?.read_image_settings?.provider || '') as ChatProvider] || []}
-                          value={form.tools?.read_image_settings?.model || ''}
-                          onChange={(value) =>
-                            setForm((prev) => ({
-                              ...prev,
-                              tools: {
-                                ...prev.tools!,
-                                read_image_settings: {
-                                  ...prev.tools?.read_image_settings,
-                                  model: value || undefined,
-                                },
-                              },
-                            }))
-                          }
-                          placeholder="Select or enter model"
-                          style={inputStyle}
-                        />
-                      </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', paddingLeft: '1.5rem' }}>
+                      {visionOverride ? (
+                        <>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                            <span style={{ flex: 1 }}>
+                              Images are described by a separate vision model
+                              {mainModel?.caps.image_input !== false && ' (optional: the main model can see images itself)'}.
+                            </span>
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ fontSize: '0.75rem' }}
+                              onClick={() => {
+                                setVisionOverride(false)
+                                setReadImage({ provider: undefined, model: undefined })
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <ProviderModelPicker
+                            value={{
+                              provider: form.tools?.read_image_settings?.provider || '',
+                              model: form.tools?.read_image_settings?.model || '',
+                            }}
+                            onChange={(v) => setReadImage({ provider: v.provider || undefined, model: v.model || undefined })}
+                            filter={{ imageInputOnly: true }}
+                            preselectDefault
+                            showCard={false}
+                          />
+                        </>
+                      ) : mainModel?.caps.image_input === false ? (
+                        <>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--warning, #d97706)' }}>
+                            ⚠ {mainModel.name} can't see images. Choose a vision model to describe them, or images reach the
+                            agent only as a note.
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ alignSelf: 'flex-start', fontSize: '0.8rem' }}
+                            onClick={() => setVisionOverride(true)}
+                          >
+                            Choose a vision model
+                          </button>
+                        </>
+                      ) : (
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                          ✓ {mainModel?.name ?? (form.model || 'The main model')}{' '}
+                          {mainModel ? 'can see images.' : 'is not in the catalogue; it is assumed to see images.'}{' '}
+                          They are sent to it directly.
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ marginLeft: '0.5rem', fontSize: '0.75rem' }}
+                            onClick={() => setVisionOverride(true)}
+                          >
+                            Use a separate vision model
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1913,6 +1822,11 @@ export default function AgentForm({
                     />
                     Enable Image Generation
                   </label>
+                  {form.tools?.image_gen && (
+                    <div style={{ paddingLeft: '1.5rem', marginBottom: '0.5rem' }}>
+                      <MediaKeyHint provider={form.tools?.image_gen_settings?.provider || 'openai'} />
+                    </div>
+                  )}
                   {form.tools?.image_gen && (
                     <div
                       style={{
@@ -3104,42 +3018,35 @@ export default function AgentForm({
                   Model Configuration
                 </h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Provider</span>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontWeight: 500 }}>
-                      {form.provider}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Model</span>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontFamily: 'monospace' }}>
-                      {form.model}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Max Tokens</span>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
-                      {form.max_tokens}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Context Window</span>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
-                      {form.context_window ?? 'Auto-detect'}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Thinking Depth</span>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
-                      {form.thinking_depth}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Checkpoint Threshold</span>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
-                      {form.checkpoint_threshold}%
-                    </span>
-                  </div>
+                  {reviewRow('Model', <span style={{ fontFamily: 'monospace' }}>{form.provider} / {form.model}</span>)}
+                  {form.context_window != null && reviewRow('Context window (override)', form.context_window.toLocaleString())}
+                  {form.max_tokens != null && reviewRow('Max output (override)', form.max_tokens.toLocaleString())}
+                  {reviewRow('Thinking depth', form.thinking_depth)}
+                  {reviewRow('Checkpoint threshold', `${form.checkpoint_threshold}%`)}
+                  {form.dream_enabled &&
+                    reviewRow(
+                      'Dreaming',
+                      useSameModel ? 'main model' : `${form.dream_provider} / ${form.dream_model}`
+                    )}
+                  {form.tools?.read_image &&
+                    reviewRow(
+                      'Read image',
+                      visionOverride && form.tools?.read_image_settings?.provider
+                        ? `vision model ${form.tools.read_image_settings.provider} / ${form.tools.read_image_settings.model || '?'}`
+                        : 'sent to the main model'
+                    )}
+                  {mainModel ? (
+                    <ModelCard model={mainModel} checkpointThreshold={form.checkpoint_threshold || 80} />
+                  ) : (
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>
+                      No catalogue card for this model.
+                    </div>
+                  )}
+                  {clientWarnings.map((w) => (
+                    <div key={w.code} style={{ fontSize: '0.8rem', color: 'var(--warning, #d97706)' }}>
+                      ⚠ {w.message}
+                    </div>
+                  ))}
                 </div>
               </div>
 

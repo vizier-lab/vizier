@@ -147,133 +147,6 @@ export const EMBEDDING_PROVIDERS: EmbeddingProvider[] = [
   'copilot',
 ]
 
-export type ChatProvider =
-  | 'ollama'
-  | 'openai'
-  | 'anthropic'
-  | 'openrouter'
-  | 'gemini'
-  | 'deepseek'
-  | 'mimo'
-  | 'llama_cpp'
-  | 'groq'
-  | 'mistral'
-  | 'xai'
-  | 'perplexity'
-  | 'moonshot'
-  | 'zai'
-  | 'minimax'
-  | 'together'
-  | 'cohere'
-  | 'huggingface'
-  | 'hyperbolic'
-  | 'galadriel'
-  | 'mira'
-  | 'chatgpt'
-  | 'copilot'
-  | 'azure'
-  | 'custom'
-  | 'opencode_zen'
-  | 'opencode_go'
-  | 'dummyplug'
-
-export const CHAT_PROVIDERS: ChatProvider[] = [
-  'ollama',
-  'openai',
-  'anthropic',
-  'openrouter',
-  'gemini',
-  'deepseek',
-  'mimo',
-  'llama_cpp',
-  'groq',
-  'mistral',
-  'xai',
-  'perplexity',
-  'moonshot',
-  'zai',
-  'minimax',
-  'together',
-  'cohere',
-  'huggingface',
-  'hyperbolic',
-  'galadriel',
-  'mira',
-  'chatgpt',
-  'copilot',
-  'azure',
-  'custom',
-  'opencode_zen',
-  'opencode_go',
-  'dummyplug',
-]
-
-/** Display label for a chat provider; marks the offline test provider as such. */
-export const chatProviderLabel = (p: string): string =>
-  p === 'dummyplug' ? 'dummyplug (testing)' : p
-
-export const CHAT_PROVIDER_DEFAULT_MODELS: Record<ChatProvider, string> = {
-  ollama: 'qwen3.5:4b',
-  openai: 'gpt-4o-mini',
-  anthropic: 'claude-3-haiku-20240307',
-  openrouter: 'anthropic/claude-3-haiku',
-  gemini: 'gemini-2.0-flash',
-  deepseek: 'deepseek-chat',
-  mimo: 'mimo-v2.5-pro',
-  llama_cpp: 'google_gemma-4-E4B-it-Q4_K_M',
-  groq: 'llama-3.1-70b-versatile',
-  mistral: 'mistral-large-latest',
-  xai: 'grok-2-latest',
-  perplexity: 'llama-3.1-sonar-large-128k-online',
-  moonshot: 'moonshot-v1-128k',
-  zai: 'glm-4-plus',
-  minimax: 'MiniMax-Text-01',
-  together: 'meta-llama/Llama-3-70b-chat-hf',
-  cohere: 'command-r-plus',
-  huggingface: 'meta-llama/Llama-3-70b-chat-hf',
-  hyperbolic: 'meta-llama/Llama-3-70b-chat-hf',
-  galadriel: 'llama3.1:70b',
-  mira: 'mira-70b',
-  chatgpt: 'gpt-4o',
-  copilot: 'gpt-4o',
-  azure: 'gpt-4o',
-  custom: '',
-  opencode_zen: 'opencode/gpt-5.5',
-  opencode_go: 'opencode-go/kimi-k3',
-  dummyplug: 'dummyplug',
-}
-
-export const CHAT_PROVIDER_MODELS: Record<ChatProvider, string[]> = {
-  ollama: ['qwen3.5:4b', 'qwen3:8b', 'qwen3:14b', 'llama3.2:3b', 'llama3.2:1b', 'llama3.1:8b', 'llama3.1:70b', 'llama3.1:405b', 'mistral:7b', 'codellama:7b', 'phi4:14b', 'phi4-mini:3.8b', 'deepseek-r1:8b', 'deepseek-r1:14b', 'gemma3:4b', 'gemma3:12b', 'nemotron-mini:4b'],
-  openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o3', 'o3-mini', 'o4-mini', 'o4-mini-high', 'gpt-4.5-preview'],
-  anthropic: ['claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-opus-4-5', 'claude-3-5-sonnet-latest', 'claude-3-haiku-20240307', 'claude-3-5-haiku-latest'],
-  openrouter: ['anthropic/claude-sonnet-4-5', 'anthropic/claude-3-haiku', 'openai/gpt-4o-mini', 'openai/gpt-4o', 'google/gemini-2.0-flash', 'google/gemini-2.5-flash', 'google/gemma-4-E4B-it', 'meta-llama/llama-3.1-8b-instruct', 'meta-llama/llama-3.1-70b-instruct', 'mistralai/mistral-7b-instruct', 'qwen/qwen3-8b', 'deepseek/deepseek-r1', 'deepseek/deepseek-chat'],
-  gemini: ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-preview', 'gemini-2.5-pro'],
-  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-  mimo: ['mimo-v2.5-pro', 'mimo-v2.5'],
-  llama_cpp: [],
-  groq: ['llama-3.1-70b-versatile', 'llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'mixtral-8x7b-32768', 'gemma2-9b-it', 'deepseek-r1-distill-llama-70b', 'qwen-2.5-32b'],
-  mistral: ['mistral-large-latest', 'mistral-small-latest', 'mistral-medium-latest', 'codestral-latest', 'pixtral-large-latest', 'mistral-embed'],
-  xai: ['grok-2-latest', 'grok-2-vision-latest'],
-  perplexity: ['llama-3.1-sonar-large-128k-online', 'llama-3.1-sonar-small-128k-online', 'llama-3.1-sonar-huge-128k-online'],
-  moonshot: ['moonshot-v1-128k', 'moonshot-v1-32k', 'moonshot-v1-8k'],
-  zai: ['glm-4-plus', 'glm-4-air', 'glm-4-flash', 'glm-4-long'],
-  minimax: ['MiniMax-Text-01', 'MiniMax-Text-01-Latest', 'MiniMax-M1-0306'],
-  together: ['meta-llama/Llama-3-70b-chat-hf', 'meta-llama/Llama-3.3-70b-Instruct-Turbo', 'mistralai/Mixtral-8x7B-Instruct-v0.1', 'Qwen/Qwen3-8B', 'Qwen/Qwen3-30B'],
-  cohere: ['command-r-plus', 'command-r', 'command-light', 'command-nightly', 'command-r7b'],
-  huggingface: [],
-  hyperbolic: ['meta-llama/Llama-3-70b-chat-hf', 'meta-llama/Llama-3.1-8B-Instruct', 'google/gemma-4-E4B-it', 'Qwen/Qwen3-8B'],
-  galadriel: ['llama3.1:70b', 'llama3.1:8b', 'mistral:7b', 'qwen2:7b'],
-  mira: ['mira-70b', 'mira-8b'],
-  chatgpt: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'o3', 'o4-mini'],
-  copilot: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini'],
-  azure: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'o3-mini'],
-  custom: [],
-  opencode_zen: ['opencode/gpt-5.5'],
-  opencode_go: ['opencode-go/kimi-k3', 'opencode-go/deepseek-v4-flash'],
-  dummyplug: ['dummyplug'],
-}
-
 export const TTS_PROVIDER_MODELS: Record<TtsProvider, string[]> = {
   openai: ['tts-1', 'tts-1-hd'],
   openrouter: [],
@@ -486,20 +359,193 @@ export interface AgentDetail {
 // PROVIDERS
 // ============================================================================
 
-export interface ProviderResponse {
-  variant: string
-  has_api_key: boolean
-  base_url?: string
-  enabled?: boolean
+/** A credential field a provider's connect form asks for. */
+export type CredentialField = 'api_key' | 'endpoint' | 'base_url' | 'access_token' | 'account_id'
+
+export interface UsedBy {
+  chat: number
+  stt: number
+  tts: number
+  image_gen: number
+  embedding: number
 }
 
+/** A connected provider: saved credentials or a key found in the environment. */
+export interface ProviderResponse {
+  id: string
+  /** Same as `id`; the field name pre-catalogue clients read. */
+  variant: string
+  name: string
+  origin: ProviderOrigin
+  kind: ProviderKind
+  logo: string | null
+  model_count: number
+  fields: CredentialField[]
+  /** `saved`, `env:NAME`, or null for a local provider on its default address. */
+  source: string | null
+  has_api_key: boolean
+  endpoint?: string | null
+  base_url?: string | null
+  has_access_token: boolean
+  account_id?: string | null
+  migrated_from: string | null
+  used_by: UsedBy
+  reachable: boolean | null
+}
+
+/** Omitted keeps the stored value; an empty string clears it. */
 export interface UpsertProviderRequest {
   api_key?: string
   base_url?: string
-  enabled?: boolean
   access_token?: string
   account_id?: string
   endpoint?: string
+}
+
+export interface AffectedAgent {
+  id: string
+  name: string
+  features: string[]
+}
+
+export interface ProviderTestResult {
+  ok: boolean
+  model_count?: number
+  status?: number
+  error?: string
+}
+
+// ============================================================================
+// CATALOGUE
+// ============================================================================
+
+export type ProviderOrigin = 'catalogue' | 'builtin' | 'custom'
+export type ProviderKind = 'cloud' | 'local' | 'media'
+export type DialectKind = 'open_ai_chat' | 'open_ai_responses' | 'anthropic' | 'gemini' | 'ollama'
+
+export interface CatalogueStatus {
+  source: 'bundled' | 'cached'
+  fetched_at: string
+  checked_at: string | null
+  refresh: {
+    enabled: boolean
+    ttl: string
+    in_progress: boolean
+    last_error: string | null
+    failed_at: string | null
+  }
+  provider_count: number
+  model_count: number
+}
+
+export interface ProviderConnection {
+  status: 'connected' | 'missing' | 'unreachable'
+  /** `saved`, `env:NAME`, or null. Never a secret. */
+  source: string | null
+}
+
+export interface CatalogueProvider {
+  id: string
+  name: string
+  origin: ProviderOrigin
+  kind: ProviderKind
+  dialect: DialectKind | null
+  logo: string | null
+  logo_full_color: boolean
+  model_count: number
+  connection: ProviderConnection
+  env: string[]
+  fields: CredentialField[]
+  popular: boolean
+  /** Where requests go by default; may hold `${VAR}`. */
+  endpoint: string | null
+  doc: string | null
+}
+
+export interface ModelLimits {
+  context: number | null
+  input: number | null
+  output: number | null
+}
+
+export interface ModelCaps {
+  tool_call: boolean | null
+  reasoning: boolean | null
+  image_input: boolean | null
+  attachment: boolean | null
+}
+
+/** USD per million tokens. */
+export interface ModelCost {
+  input: number
+  output: number
+  cache_read: number | null
+  cache_write: number | null
+}
+
+export interface CatalogueModel {
+  id: string
+  name: string
+  default: boolean
+  logo: string | null
+  logo_full_color: boolean
+  limit: ModelLimits
+  caps: ModelCaps
+  cost: ModelCost | null
+  status: 'active' | 'beta' | 'alpha' | 'deprecated'
+  release_date: string | null
+  knowledge: string | null
+  /** `server`: a local provider's live model the catalogue doesn't have. */
+  origin?: string
+  /** Custom providers: fields filled in from the catalogue. */
+  filled_from_catalogue?: string[]
+}
+
+export interface AgentWarning {
+  code: 'no_tool_calling' | 'no_image_input' | 'unknown_model'
+  message: string
+}
+
+// ============================================================================
+// CUSTOM PROVIDERS
+// ============================================================================
+
+export type CustomProtocol = 'openai_compatible' | 'anthropic'
+
+export interface CustomModel {
+  id: string
+  context?: number | null
+  output?: number | null
+  tool_call?: boolean | null
+  image_input?: boolean | null
+  reasoning?: boolean | null
+  edited?: boolean
+}
+
+export interface CustomProviderResponse {
+  id: string
+  name: string
+  protocol: CustomProtocol
+  base_url: string
+  has_api_key: boolean
+  /** Header names only. */
+  headers: string[]
+  models: CustomModel[]
+  models_fetched_at: string | null
+  used_by: UsedBy
+  reachable: boolean | null
+}
+
+export interface CustomProviderBody {
+  id?: string
+  name: string
+  protocol: CustomProtocol
+  base_url: string
+  /** Omitted keeps the stored key; '' clears it. */
+  api_key?: string
+  /** An omitted header keeps its value; null removes it. */
+  headers?: Record<string, string | null>
+  models?: CustomModel[]
 }
 
 // ============================================================================
@@ -930,6 +976,8 @@ export interface UsageSummary {
   total_output_tokens: number
   total_requests: number
   avg_duration_ms: number
+  /** Null when no reply in range has a known price. */
+  estimated_cost_usd: number | null
 }
 
 export interface ChannelUsage {
@@ -954,6 +1002,7 @@ export interface ChannelTypeUsage {
   total_tokens: number
   total_requests: number
   channels: ChannelUsage[]
+  estimated_cost_usd: number | null
 }
 
 export interface DailyUsage {
@@ -962,6 +1011,7 @@ export interface DailyUsage {
   input_tokens: number
   output_tokens: number
   total_requests: number
+  estimated_cost_usd: number | null
 }
 
 export interface AgentUsageStats {

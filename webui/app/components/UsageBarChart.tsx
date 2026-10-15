@@ -18,9 +18,18 @@ interface UsageBarChartProps {
     total: number
     input: number
     output: number
+    /** Estimated USD; null when nothing that day had a known price. */
+    cost?: number | null
   }>
   metric: UsageMetric
   displayMode?: DisplayMode
+}
+
+/** `$1.23 est.`, or `—` when no price is known (never `$0`). */
+export function formatCost(usd: number | null | undefined): string {
+  if (usd == null) return '—'
+  if (usd > 0 && usd < 0.01) return '<$0.01 est.'
+  return `$${usd.toFixed(2)} est.`
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -41,6 +50,11 @@ const CustomTooltip = ({ active, payload, label }: any) => {
             {entry.name}: {entry.value?.toLocaleString() || 0}
           </p>
         ))}
+        {'cost' in (payload[0]?.payload ?? {}) && (
+          <p style={{ color: 'var(--text-secondary)' }}>
+            Cost: {formatCost(payload[0].payload.cost)}
+          </p>
+        )}
       </div>
     )
   }

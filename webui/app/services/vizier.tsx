@@ -249,19 +249,106 @@ export const updateAgentSharing = async (
 // PROVIDER ENDPOINTS
 // ============================================================================
 
+type Types = import('../interfaces/types').ProviderResponse
+
+/** Connected providers: saved, or a key found in the environment. */
 export const listProviders = async () => {
   const res = await apiClient.get('/providers')
+  return res.data as ApiResponse<Types[]>
+}
+
+export const upsertProvider = async (id: string, data: import('../interfaces/types').UpsertProviderRequest) => {
+  const res = await apiClient.put(`/providers/${id}`, data)
+  return res.data as ApiResponse<Types>
+}
+
+/** Without `confirm`, a provider agents use answers 409 with `data.agents`. */
+export const deleteProvider = async (id: string, confirm = false) => {
+  const res = await apiClient.delete(`/providers/${id}${confirm ? '?confirm=true' : ''}`)
   return res.data
 }
 
-export const upsertProvider = async (variant: string, data: import('../interfaces/types').UpsertProviderRequest) => {
-  const res = await apiClient.put(`/providers/${variant}`, data)
+/** One cheap call to the provider, with `data` laid over the saved credentials. */
+export const testProvider = async (id: string, data?: import('../interfaces/types').UpsertProviderRequest) => {
+  const res = await apiClient.post(`/providers/${id}/test`, data ?? null)
+  return res.data as ApiResponse<import('../interfaces/types').ProviderTestResult>
+}
+
+// ============================================================================
+// CUSTOM PROVIDER ENDPOINTS
+// ============================================================================
+
+export const listCustomProviders = async () => {
+  const res = await apiClient.get('/providers/custom')
+  return res.data as ApiResponse<import('../interfaces/types').CustomProviderResponse[]>
+}
+
+export const createCustomProvider = async (data: import('../interfaces/types').CustomProviderBody) => {
+  const res = await apiClient.post('/providers/custom', data)
+  return res.data as ApiResponse<import('../interfaces/types').CustomProviderResponse>
+}
+
+export const updateCustomProvider = async (id: string, data: import('../interfaces/types').CustomProviderBody) => {
+  const res = await apiClient.put(`/providers/custom/${id}`, data)
+  return res.data as ApiResponse<import('../interfaces/types').CustomProviderResponse>
+}
+
+export const deleteCustomProvider = async (id: string, confirm = false) => {
+  const res = await apiClient.delete(`/providers/custom/${id}${confirm ? '?confirm=true' : ''}`)
   return res.data
 }
 
-export const deleteProvider = async (variant: string) => {
-  const res = await apiClient.delete(`/providers/${variant}`)
-  return res.data
+export const fetchCustomProviderModels = async (id: string) => {
+  const res = await apiClient.post(`/providers/custom/${id}/fetch-models`)
+  return res.data as ApiResponse<import('../interfaces/types').CustomProviderResponse>
+}
+
+export const testCustomProvider = async (data: import('../interfaces/types').CustomProviderBody) => {
+  const res = await apiClient.post('/providers/custom/test', data)
+  return res.data as ApiResponse<import('../interfaces/types').ProviderTestResult>
+}
+
+// ============================================================================
+// CATALOGUE ENDPOINTS
+// ============================================================================
+
+export const getCatalogue = async () => {
+  const res = await apiClient.get('/catalogue')
+  return res.data as ApiResponse<import('../interfaces/types').CatalogueStatus>
+}
+
+export const refreshCatalogue = async () => {
+  const res = await apiClient.post('/catalogue/refresh')
+  return res.data as ApiResponse<import('../interfaces/types').CatalogueStatus>
+}
+
+export const listCatalogueProviders = async (params: {
+  q?: string
+  kind?: 'chat' | 'media' | 'local' | 'custom'
+  connected?: boolean
+} = {}) => {
+  const query = new URLSearchParams()
+  if (params.q) query.append('q', params.q)
+  if (params.kind) query.append('kind', params.kind)
+  if (params.connected !== undefined) query.append('connected', String(params.connected))
+  const res = await apiClient.get(`/catalogue/providers?${query}`)
+  return res.data as ApiResponse<import('../interfaces/types').CatalogueProvider[]>
+}
+
+/** `all=false`: tool-capable, current models, newest first; the first is the default. */
+export const listCatalogueModels = async (provider: string, all = false) => {
+  const res = await apiClient.get(`/catalogue/providers/${provider}/models?all=${all}`)
+  return res.data as ApiResponse<import('../interfaces/types').CatalogueModel[]>
+}
+
+/** Null for a model the catalogue doesn't list (any id can still be saved). */
+export const getCatalogueModel = async (provider: string, model: string) => {
+  try {
+    const res = await apiClient.get(`/catalogue/providers/${provider}/models/${model}`)
+    return (res.data as ApiResponse<import('../interfaces/types').CatalogueModel>).data ?? null
+  } catch {
+    return null
+  }
 }
 
 // ============================================================================

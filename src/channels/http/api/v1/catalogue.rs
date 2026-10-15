@@ -120,12 +120,18 @@ pub struct ProviderSummary {
     pub kind: ProviderKind,
     pub dialect: Option<DialectKind>,
     pub logo: Option<String>,
+    /// The logo has its own colours; don't invert it on a dark theme.
+    pub logo_full_color: bool,
     pub model_count: usize,
     pub connection: Connection,
     pub env: Vec<String>,
     pub fields: Vec<CredentialField>,
     /// One of the providers vizier supported before the catalogue.
     pub popular: bool,
+    /// Where requests go by default (may hold `${VAR}`); custom providers: their base URL.
+    pub endpoint: Option<String>,
+    /// The provider's documentation page.
+    pub doc: Option<String>,
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -144,6 +150,14 @@ const MEDIA_PROVIDERS: &[&str] = &[
 
 pub(crate) fn logo_url(id: &str) -> Option<String> {
     seed::seed_logo(id).map(|_| format!("/api/v1/catalogue/logos/{id}.svg"))
+}
+
+/// A logo drawn in its own colours. The others are drawn in `currentColor`, which an `<img>`
+/// renders black, so the WebUI inverts them on a dark theme.
+pub(crate) fn logo_full_color(id: &str) -> bool {
+    seed::seed_logo(id).is_some_and(|svg| {
+        !svg.windows(b"currentColor".len()).any(|w| w == b"currentColor")
+    })
 }
 
 /// Connection state for every listed provider, from one read of the saved rows plus the
@@ -198,15 +212,29 @@ pub(crate) async fn provider_summaries(state: &HTTPState) -> Vec<ProviderSummary
     let custom = state.storage.list_custom_providers().await.unwrap_or_default();
     let listings = state.catalogue.providers(&custom);
     let mut connections = connections(state, &listings).await;
+    let snapshot = state.catalogue.snapshot();
     let mut out: Vec<ProviderSummary> = listings
         .into_iter()
         .map(|p| {
+            let entry = snapshot.providers.get(&p.id);
+            let endpoint = custom
+                .iter()
+                .find(|c| c.id == p.id)
+                .map(|c| c.base_url.clone())
+                .or_else(|| entry.and_then(|e| e.api.clone()))
+                .or_else(|| crate::catalogue::data::default_base_url(&p.id).map(String::from))
+                .or_else(|| {
+                    crate::catalogue::builtin::builtin(&p.id)
+                        .and_then(|b| b.default_base_url.map(String::from))
+                });
+            let doc = entry.and_then(|e| e.doc.clone());
             let connection = connections.remove(&p.id).unwrap_or(Connection {
                 status: "missing".into(),
                 source: None,
             });
             ProviderSummary {
                 logo: logo_url(p.id.as_str()),
+                logo_full_color: logo_full_color(p.id.as_str()),
                 popular: POPULAR.contains(&p.id.as_str()),
                 name: if p.id == ProviderId::DUMMYPLUG {
                     "dummyplug (testing)".into()
@@ -221,6 +249,8 @@ pub(crate) async fn provider_summaries(state: &HTTPState) -> Vec<ProviderSummary
                 connection,
                 env: p.env,
                 fields: p.fields,
+                endpoint,
+                doc,
             }
         })
         .collect();
@@ -289,6 +319,7 @@ pub struct ModelSummary {
     pub name: String,
     pub default: bool,
     pub logo: Option<String>,
+    pub logo_full_color: bool,
     pub limit: Limits,
     pub caps: ModelCaps,
     pub cost: Option<Cost>,
@@ -304,15 +335,17 @@ pub struct ModelSummary {
 }
 
 fn summarize(provider: &str, m: &CatalogueModel) -> ModelSummary {
+    let logo_id = m
+        .lab
+        .as_deref()
+        .filter(|lab| logo_url(lab).is_some())
+        .unwrap_or(provider);
     ModelSummary {
         id: m.id.clone(),
         name: m.name.clone(),
         default: false,
-        logo: m
-            .lab
-            .as_deref()
-            .and_then(logo_url)
-            .or_else(|| logo_url(provider)),
+        logo: logo_url(logo_id),
+        logo_full_color: logo_full_color(logo_id),
         limit: m.limit.clone(),
         caps: ModelCaps {
             tool_call: m.caps.tool_call,
@@ -335,6 +368,7 @@ fn bare(provider: &str, id: &str, context: Option<u64>, origin: &str) -> ModelSu
         name: id.into(),
         default: false,
         logo: logo_url(provider),
+        logo_full_color: logo_full_color(provider),
         limit: Limits {
             context,
             ..Default::default()
@@ -385,6 +419,9 @@ pub(crate) fn custom_models(state: &HTTPState, custom: &CustomProvider) -> Vec<M
                 name: b.map(|m| m.name.clone()).unwrap_or_else(|| row.id.clone()),
                 default: false,
                 logo: b.and_then(|m| m.lab.as_deref()).and_then(logo_url),
+                logo_full_color: b
+                    .and_then(|m| m.lab.as_deref())
+                    .is_some_and(logo_full_color),
                 limit: Limits {
                     context,
                     input: None,
