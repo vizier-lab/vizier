@@ -204,21 +204,33 @@ Persisted history still drops reasoning, as it does today. Within a turn, `Assis
 
 ## R9. Where the catalogue lives, and how it refreshes
 
-**Decision**:
+**Decision**: Three layers, detailed in [contracts/catalogue-snapshot.md](contracts/catalogue-snapshot.md).
 
-- **Bundled**: `assets/catalogue/catalogue.zip` holds the trimmed `api.json` plus `logos/*.svg` and a `meta.json` (`fetched_at`, source URL, schema version). It is embedded with `include_bytes!` and read with the `zip` crate already in the dependency tree. It is produced by `just catalogue-update`, so no network is needed during `cargo build`.
-- **Refreshed copy**: written to `{workspace}/.runtime/catalogue/catalogue.zip` by writing a temporary file and renaming it over the old one. That makes it safe when two processes share a workspace. It is loaded at startup if it is valid and newer than the bundled snapshot.
-- **In memory**: `Catalogue` is held as `Arc<RwLock<Arc<CatalogueData>>>` on `VizierDependencies`, using `parking_lot`, which is already a dependency. Readers clone the inner `Arc`, so a refresh never blocks a turn. An agent keeps the data it was built with until its next build (edge case "refresh mid-turn").
-- **Refresher**: runs inside `VizierScheduler::run`, which already owns periodic work, so no sixth long-lived task. It runs every `catalogue.refresh_interval` (default 24 hours) when `catalogue.refresh` is on (default on, see R13), and on demand via `POST /catalogue/refresh` (admin only).
-- **Validation**: a response that fails to parse, has fewer than 50% of the current provider count, or is missing any provider that a stored agent uses is rejected. The previous copy stays (FR-003), and the error is surfaced in `GET /catalogue`.
+1. **Seed at build time, from a committed file.** `assets/catalogue/{meta.json, api.json.gz, logos/*.svg}` (about 650 KB) is embedded with `rust-embed`, the same way the WebUI is. `just catalogue-update` regenerates it, and the release workflow runs that before tagging. `cargo build` never accesses the network.
+2. **Cache in SQLite.** The single-row `catalogue_snapshot` table holds the gzipped trimmed JSON, plus `etag`, `fetched_at`, `checked_at`, `last_error` and `failed_at`. A `catalogue_logo` table holds logos. Writes happen in one transaction.
+3. **Memory.** At startup, the newer of the seed and the cache is parsed into `CatalogueData`, held as `Arc<RwLock<Arc<…>>>` (`parking_lot`). Every query reads memory.
+
+**Refresh is lazy and conditional (stale-while-revalidate).** A check starts only when a person reads the catalogue: a `/catalogue/*` endpoint, `GET /providers`, or the "Refresh now" button.
+
+- The check runs when the cached data is older than `catalogue.ttl` (default 24h), no check failed in the last hour, and no check is already running. It is one background task, and the caller is served at once from memory.
+- The request is `GET` with `If-None-Match`:
+  - a `304` only updates `checked_at`;
+  - a `200` is validated (same rules as before), saved and swapped in.
+- **Agent builds, turns, the scheduler and the dream cycle never trigger a check** (owner decision, 2026-10-15). A headless install never contacts models.dev.
+
+**Measured on 2026-10-15**: models.dev returns an `ETag`, and `If-None-Match` gets a `304` with no body. A full download is about 560 KB gzipped, so an unchanged catalogue costs one tiny request.
 
 **Rationale**:
-- Workspace files are where vizier already caches downloaded runtime assets (`.runtime/stt/whisper`).
-- SQLite would hold a 4 MB blob and gain nothing.
+- Lazy plus conditional is the least network use that still keeps the catalogue current for the people looking at it.
+- The DB cache keeps newer data visible offline and across restarts, which matches the user's direction.
+- The committed seed keeps builds offline and reproducible.
+- It removes the scheduler task and the workspace files.
 
 **Alternatives**:
-- *A `global_config` row*: workable, but logos are binary.
-- *Fetching at build time*: breaks offline and crates.io builds, and the constitution's build rules.
+- *Periodic refresh in `VizierScheduler`*: the previous design; it contacts models.dev even when nobody uses the catalogue.
+- *Fetching in `build.rs`*: breaks offline builds, `cargo install` from crates.io, network-less Docker builds and reproducible builds.
+- *Cache as workspace files*: workable, but the DB is already the place for cached state, and it is transactional.
+- *Normalised tables, one row per model*: about 8,900 row writes per refresh, and a schema migration whenever models.dev adds a field, with no query benefit, since all queries run in memory.
 
 ## R10. Custom providers and stored credentials
 
@@ -244,7 +256,7 @@ Credentials for catalogue and built-in providers stay in `provider_config`. The 
 
 ## R11. Logos
 
-**Decision**: Fetch every catalogue provider's SVG into the snapshot zip (about 1.3 MB raw, about 300 KB inside the zip) and serve them at `GET /api/v1/catalogue/logos/{id}.svg` with headers that stop any embedded script running:
+**Decision**: Bundle every catalogue provider's and lab's SVG in the build-time seed (about 1.3 MB raw). Logos for providers added after the build are fetched once, the first time they're requested, and cached in `catalogue_logo`. Serve them all at `GET /api/v1/catalogue/logos/{id}.svg` with headers that stop any embedded script running:
 
 - `Content-Type: image/svg+xml`
 - `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'`
@@ -273,7 +285,7 @@ The WebUI shows them only through `<img src>`, never inline in the page. A CSS `
 
 ## R13. Constitution, Principle III, and the default refresh
 
-**Decision**: Catalogue refresh is **on by default**. On 2026-10-15 the project owner ruled that this complies with Principle III, for four reasons:
+**Decision**: Catalogue refresh is **on by default and lazy**: it is triggered only when a person uses the catalogue, never by agents (R9). On 2026-10-15 the project owner ruled that this complies with Principle III, for four reasons:
 
 1. It fetches metadata only.
 2. The bundled snapshot is complete, so the refresh is never required.

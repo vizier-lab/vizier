@@ -119,11 +119,14 @@ Create custom provider `flaky` with headers `X-Stub-Status: 429` and `X-Stub-Ret
 | Step | Expect |
 |---|---|
 | started with `VIZIER_CATALOGUE_REFRESH=false` and outbound traffic blocked | no request to `models.dev` (check the network log); `POST /catalogue/refresh` returns `409` |
-| restart with refresh on, network available; `POST /catalogue/refresh` | `200`; `source: "refreshed"`, newer `fetched_at`; `{workspace}/.runtime/catalogue/catalogue.zip` exists |
-| set `catalogue.url` to `http://127.0.0.1:18080/broken` (the stub returns `{}`) and refresh | `502`; `refresh.last_error` set; `source` still `refreshed` with the previous `fetched_at`; pickers unchanged |
-| restart offline | `source: "refreshed"`, loaded from the workspace copy |
+| restart with refresh on and agents running, but no WebUI or API use for 2 minutes | still no request to `models.dev`: agents never trigger a check |
+| `GET /catalogue/providers` | answers at once, from the seed; one background request appears in the log; then `GET /catalogue` shows `source: "cached"` with a newer `fetched_at` and a `catalogue_snapshot` row in SQLite |
+| `GET /catalogue/providers` again right away | no request (inside the freshness window) |
+| set `VIZIER_CATALOGUE_TTL=1s`, restart, read twice | the second check is a conditional request; the log shows `304`; `checked_at` advances, and `fetched_at` doesn't |
+| set `catalogue.url` to `http://127.0.0.1:18080/broken` (the stub returns `{}`); `POST /catalogue/refresh` | `502`; `refresh.last_error` set; `source` still `cached` with the previous `fetched_at`; pickers unchanged; further reads within the hour make no request |
+| restart offline | `source: "cached"`, loaded from SQLite; models newer than the seed still listed |
 
-**Live-network step**: the second row needs internet access.
+**Live-network steps**: rows 3–5 need internet access.
 
 ## 7. WebUI (US2, US5, US7, FR-005a, FR-010a–c, FR-029–FR-035)
 

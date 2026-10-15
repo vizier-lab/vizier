@@ -104,19 +104,22 @@ When an agent runs, vizier knows its model's real context window and maximum out
 
 ### User Story 4 - Catalogue stays current without breaking offline installs (Priority: P2)
 
-A release ships with a snapshot of the catalogue, so vizier works fully offline and on first start. When the network is available, vizier periodically refreshes the catalogue from models.dev, so new models show up without upgrading vizier. An operator can see when the catalogue was last refreshed, trigger a refresh, or turn refreshing off entirely.
+A release ships with a snapshot of the catalogue, so vizier works fully offline and on first start. When someone uses the catalogue (opening a provider or model picker, or the providers page) and the cached copy is older than a day, vizier checks models.dev in the background. It keeps serving what it has, and saves any update to its database, so new models show up without upgrading vizier and stay visible offline. Nobody looking means no check: running agents never trigger one. An operator can see when the catalogue was last updated, trigger a refresh, or turn refreshing off entirely.
 
 **Why this priority**: A catalogue that only updates with releases recreates the staleness problem more slowly. But the bundled snapshot alone already delivers Stories 2–3, so this comes second.
 
 **Independent Test**:
 - Start vizier with no network: the provider and model pickers work from the bundled snapshot.
-- Start it with network and refresh enabled: after a refresh, the reported "catalogue as of" time advances and a model newer than the snapshot appears.
+- Start it with network and refresh enabled, then open the model picker: a background check runs, the reported "catalogue as of" time advances, and a model newer than the snapshot appears. Restart offline: that model is still shown, loaded from the database.
+- Leave a headless install running with agents but nobody using the WebUI: no request is made to models.dev.
 - Start it with refresh disabled: no request is made to models.dev.
 
 **Acceptance Scenarios**:
 
-1. **Given** no network access, **When** vizier starts, **Then** the catalogue comes from the most recent refreshed copy if one was saved, or otherwise from the bundled snapshot. Nothing fails.
-2. **Given** network access and refresh enabled, **When** the refresh interval elapses or an admin triggers a refresh, **Then** the catalogue is updated and saved, and its "as of" time is shown in settings.
+1. **Given** no network access, **When** vizier starts, **Then** the catalogue comes from whichever is newer, the copy cached in the database or the bundled snapshot. Nothing fails.
+2. **Given** network access, refresh enabled and a cached copy older than the freshness window, **When** someone opens a picker or the providers page, **Then** the response is served at once from the current copy, a single background check runs, and any update is saved to the database and used from then on. The "as of" time is shown in settings.
+2a. **Given** an admin presses "Refresh now", **When** the check completes, **Then** the catalogue is updated regardless of the freshness window.
+2b. **Given** agents starting, restarting or running, **When** nobody uses the WebUI or catalogue API, **Then** no request is made to models.dev.
 3. **Given** a refresh that fails or returns invalid data, **When** it completes, **Then** the previous catalogue stays in use and the failure is logged and shown in settings.
 4. **Given** refresh disabled in config, **When** vizier runs, **Then** it never contacts models.dev.
 5. **Given** a refresh that removes a model an agent uses, **When** the agent next runs, **Then** it keeps working with its last known limits, and the model is shown as "no longer in catalogue".
@@ -258,13 +261,13 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
   - status;
   - release date.
 - **FR-002**: Each release MUST bundle a snapshot of the catalogue, so provider and model selection works with no network access and on first start.
-- **FR-003**: The system MUST be able to refresh the catalogue from models.dev periodically and on an admin's request. It MUST save the refreshed copy so later restarts use it, and MUST keep using the previous copy when a refresh fails or returns invalid data.
-- **FR-004**: Catalogue refreshing MUST be possible to turn off in config, and the refresh interval MUST be configurable. When it is off, the system MUST make no request to models.dev.
+- **FR-003**: The system MUST refresh the catalogue from models.dev **lazily**: when a person reads the catalogue (through the WebUI or catalogue API) and the cached copy is older than the freshness window, it checks in the background without delaying the response. It MUST also refresh when an admin requests it. Agent builds and turns MUST NOT trigger a check. Checks MUST be conditional, so an unchanged catalogue is not downloaded again, and only one check runs at a time. After a failed check, no new automatic check is attempted for at least an hour. It MUST save the refreshed copy in its database so later restarts, including offline ones, use it, and MUST keep using the previous copy when a refresh fails or returns invalid data.
+- **FR-004**: Catalogue refreshing MUST be possible to turn off in config, and the freshness window MUST be configurable. When it is off, the system MUST make no request to models.dev.
 - **FR-005**: The system MUST expose the catalogue to the WebUI and the HTTP API:
   - list providers;
   - list a provider's models;
   - get one model's details;
-  - show when the catalogue was last refreshed and from where (bundled or refreshed).
+  - show when the catalogue was last updated and checked, and from where (bundled or cached).
 
 **Provider selection and credentials**
 
@@ -272,7 +275,7 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
   - **Provider logos**: a catalogue provider shows its own logo.
   - **Model logos**: a model shows its lab's logo, taken from the lab named in the model's canonical id (so a Claude model hosted on OpenRouter shows the Anthropic logo). If that lab has no logo, the model shows its hosting provider's logo.
   - **No logo**: providers and labs without a logo, built-in providers and custom providers show a generic icon or the provider's initials.
-  - **Bundled**: logos MUST ship with the bundled catalogue snapshot and refresh with it, so they display offline and viewing a page never contacts models.dev.
+  - **Bundled**: logos MUST ship with the bundled catalogue snapshot, so they display offline. A logo for a provider added after the build MAY be fetched the first time it is shown, and is then cached in the database. No logo is ever loaded by the browser from models.dev.
   - **Safe**: logos MUST be displayed in a way that cannot run scripts embedded in them.
   - **Themes**: logos MUST stay legible in both light and dark themes.
 - **FR-006**: Agents MUST identify their provider by catalogue provider id (or built-in provider id, FR-014) and their model by model id. Any provider whose protocol vizier supports MUST be selectable, not only a hard-coded list.
@@ -367,9 +370,9 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
 
 ### Key Entities
 
-- **Catalogue**: the set of known providers and models, with an "as of" time and a source (bundled snapshot or refreshed copy). One per vizier process, shared by all agents.
+- **Catalogue**: the set of known providers and models, with an "as of" time and a source (the bundled snapshot, or the copy cached in the database). One per vizier process, shared by all agents.
 - **Catalogue Provider**: id, display name, wire protocol, base URL, credential environment variables, documentation link, and whether vizier supports its protocol.
-- **Logo**: an image for a catalogue provider or model lab, keyed by its id. It is bundled and refreshed with the catalogue.
+- **Logo**: an image for a catalogue provider or model lab, keyed by its id. It is bundled with the snapshot, or fetched once and cached in the database.
 - **Catalogue Model**: belongs to one catalogue provider. Holds id, name, family, context and output limits, input and output kinds, capability flags (tool calling, reasoning, attachments, temperature), prices, status (for example deprecated), release date and knowledge cut-off.
 - **Built-in Provider**: a provider vizier supports that the catalogue does not list (local Ollama, llama.cpp, ChatGPT subscription, dummyplug). It has the same shape as a catalogue provider, but vizier maintains it.
 - **Custom Provider**: a provider an operator defines. It holds a name, id, protocol (OpenAI-compatible or Anthropic), base URL, optional key, optional headers, and its own list of model entries with optional limits and capabilities. It has the same shape as a catalogue provider, and refreshes never touch it.
@@ -385,7 +388,7 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
 - **SC-003**: For every chat provider vizier supported before, the model picker offers that provider's current models, with context window and capability data shown, for at least 90% of the listed models.
 - **SC-004**: The context window an agent uses matches the catalogue value for 100% of catalogue models, unless the agent explicitly overrides it.
 - **SC-005**: With no network access, a fresh install can create an agent on any supported catalogue provider, choosing from a model list. Nothing in provider or model selection depends on reaching models.dev.
-- **SC-006**: A model added to models.dev appears in the model picker within one refresh interval (default 24 hours), with no vizier upgrade.
+- **SC-006**: A model added to models.dev appears in the model picker on the first use after the cached copy passes the freshness window (default 24 hours), with no vizier upgrade. It stays visible after an offline restart.
 - **SC-007**: The rig library is fully removed from the build, and the existing agent-loop end-to-end checks (the 008/014 dummyplug quickstarts) pass unchanged.
 - **SC-008**: In the agent form, an operator can find a model by search among 380 or more models (OpenRouter) within 2 seconds of typing.
 - **SC-009**: An operator can connect a self-hosted OpenAI-compatible server and run an agent on it in under 2 minutes, without editing any file.
@@ -396,8 +399,8 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
 
 - **models.dev stays open** and keeps its current data shape, which is the one opencode depends on. Vizier pins to that shape and treats a refresh it can't read as a failed refresh, never as an empty catalogue.
 - **The protocol hint decides compatibility.** The catalogue's protocol hint (the SDK package each provider is used through) is a reliable enough guide to the wire protocol. Providers that need special handling (Azure deployments, Copilot's token exchange, ChatGPT's subscription backend, Anthropic caching) get it in vizier, keyed by provider id.
-- **Refresh defaults**: refresh is on, every 24 hours, and an admin can trigger one by hand. Deployments that must stay air-gapped turn it off in config. This keeps the constitution's rule that network use beyond the configured model provider is opt-out and never required for startup.
-- **The bundled snapshot is refreshed at release time.** It is a build input, so there is no network access during `cargo build`.
+- **Refresh defaults**: refresh is on, lazy, with a freshness window of 24 hours, and an admin can trigger one by hand. Only people using the WebUI or catalogue API trigger checks, so a headless install never contacts models.dev. Deployments that must stay air-gapped turn it off in config. The owner ruled on 2026-10-15 that this is consistent with Principle III (plan, R13).
+- **The bundled snapshot is seeded at build time from a file committed to the repo.** It is regenerated by `just catalogue-update`, which the release workflow runs before tagging. `cargo build` itself never accesses the network.
 - **Only admins** (the existing provider-management permission) can trigger a refresh or change refresh settings. Anyone who can edit agents can browse the catalogue.
 - **The catalogue is advisory.** It never blocks a request the operator configured explicitly.
 - **Streaming of model output** stays out of scope. Completions remain single request and response, as today.

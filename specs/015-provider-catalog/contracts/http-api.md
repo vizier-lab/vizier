@@ -13,11 +13,14 @@ Mounted at `/catalogue` with `require_auth` only. Agent editors need these to bu
 ### `GET /catalogue`
 
 ```json
-{ "source": "bundled" | "refreshed",
+{ "source": "bundled" | "cached",
   "fetched_at": "2026-10-15T09:12:00Z",
-  "refresh": { "enabled": true, "interval": "24h", "last_attempt": "…", "last_error": null | "…" },
+  "checked_at": "2026-10-16T08:00:00Z" | null,
+  "refresh": { "enabled": true, "ttl": "24h", "in_progress": false, "last_error": null | "…", "failed_at": null | "…" },
   "provider_count": 230, "model_count": 8870 }
 ```
+
+**Lazy check trigger**: every read endpoint under `/catalogue`, plus `GET /providers` and `GET /providers/custom`, may start the background check described in [catalogue-snapshot.md](catalogue-snapshot.md#lazy-refresh). It never delays the response. Agent endpoints never trigger it.
 
 ### `GET /catalogue/providers?q=&kind=chat|media|local|custom&connected=true`
 
@@ -71,7 +74,7 @@ This route needs no auth, because `<img>` tags send no token. Logos are public d
 
 ### `POST /catalogue/refresh` (requires `settings:providers`)
 
-Triggers a refresh now.
+Runs the check now, ignoring the freshness window and the 1-hour failure backoff, and waits for it (up to 30 seconds).
 
 - **On success**: returns the new `GET /catalogue` body.
 - **On failure**: `502`, with `message` holding the reason. The previous catalogue stays in use (FR-003).

@@ -13,7 +13,7 @@ Remove `rig-core` and replace it with an in-tree provider layer, `src/llm/`. It 
 - five wire **dialects**: OpenAI chat, OpenAI Responses, Anthropic, Gemini and Ollama;
 - curated media and embedding clients on the same transport.
 
-Which providers and models exist stops being a hand-written list. It comes from a **models.dev catalogue snapshot** bundled in the binary (about 350 KB, plus about 300 KB of logos) and refreshed in the background. Each catalogue provider's `npm` hint, together with per-model route overrides, picks its dialect. That makes about 210 of the 230 catalogue providers usable with no per-provider code. Only quirks that can't be expressed as data are implemented as trait impls: Copilot's token exchange, ChatGPT's account auth, and Azure's URL template.
+Which providers and models exist stops being a hand-written list. It comes from **models.dev**. A snapshot is seeded at build time from a file committed to the repo (about 350 KB, plus about 300 KB of logos) and embedded in the binary. At runtime vizier refreshes **lazily**: when someone uses the catalogue and the copy is over a day old, a conditional (ETag) request runs in the background, and the result is cached in SQLite, so it stays visible offline. Agents never trigger a fetch. Each catalogue provider's `npm` hint, together with per-model route overrides, picks its dialect. That makes about 210 of the 230 catalogue providers usable with no per-provider code. Only quirks that can't be expressed as data are implemented as trait impls: Copilot's token exchange, ChatGPT's account auth, and Azure's URL template.
 
 Around the catalogue:
 
@@ -37,7 +37,7 @@ Around the catalogue:
 - `provider_config`: re-keyed by `ProviderId`, holding a generic `ProviderCredentials`.
 - `custom_provider`: a new table.
 - `agent_config`: rewritten once.
-- Catalogue files under `{workspace}/.runtime/catalogue/`.
+- `catalogue_snapshot` and `catalogue_logo`: new tables caching the refreshed catalogue.
 
 **Testing**: `cargo test` covers:
 - dialect `encode`/`decode` against fixtures;
@@ -58,7 +58,7 @@ End to end: dummyplug agent steps plus the stdlib `fixtures/stub_llm.py` in [qui
 - The catalogue loads in under 200 ms at startup.
 - Picker endpoints answer from memory in under 50 ms.
 - An OpenRouter model search (380+ models) filters on the client in under 2 s (SC-008).
-- A refresh never blocks a turn, because readers clone an `Arc`.
+- A refresh never blocks a request or a turn: it is a single background task (stale-while-revalidate), and readers clone an `Arc`.
 
 **Constraints**:
 - Works fully offline from the bundled snapshot.
@@ -79,7 +79,7 @@ End to end: dummyplug agent steps plus the stdlib `fixtures/stub_llm.py` in [qui
 |---|---|
 | **I. Lean by Default** | ✅ The layer is deliberately not a port of rig's API: it covers only vizier's slice, with ten simplifications (contract S1–S10). Net removal: rig (a 43k-line dependency), about 50 near-identical provider match arms and builder impls, the 29-variant `ProviderEntryConfig`, the duplicate agent form, and the hard-coded WebUI model lists. No new crates: SSE is parsed by hand (R6), zip handling and the transport-test server are already dependencies. No streaming API and no speculative abstractions. Each trait has at least two real implementations: `CompletionModel` ×3, `Dialect` ×5, `CredentialSource` ×3. No duplicate media trait layer: the media clients implement the existing `Vizier*Model` traits (S9). |
 | **II. DRY via Trait-Based Extensibility** | ✅ Wire formats are pure `Dialect` impls behind one shared `HttpModel<D>`, so HTTP, auth and errors are written once (S1). Capability handling and system-message normalisation live in one `prepare` step (S6, S8). Providers are **data** (catalogue rows plus a small base-URL table). Adding a provider means a catalogue update, or a custom provider in the UI, with no code. Quirks are `CredentialSource` impls and endpoint rules, never `if provider == …` in dialect code (R5). Media providers stay curated enums with one `credentials()` mapping table (data-model §8); their media-specific dispatch is unchanged in this feature. |
-| **III. Self-Contained Runtime** | ✅ **The catalogue and logos are embedded**, so the binary works offline and on first start. **Background refresh is on by default.** The project owner ruled on 2026-10-15 that it complies (R13): it fetches metadata only, is never required, and degrades silently to local data, so local-first behaviour is unaffected. It can be turned off with `catalogue.refresh: false`. The Distribution constraint's literal wording ("MUST be gated behind explicit user configuration") reads more strictly than that ruling. A PATCH clarification to `constitution.md` is recommended as a follow-up so reviewers don't flag it again. Logos are served from the binary, so the WebUI makes no third-party requests. |
+| **III. Self-Contained Runtime** | ✅ **The catalogue and logos are embedded**, so the binary works offline and on first start. **Refresh is on by default, but lazy.** Only a person using the WebUI or catalogue API triggers it, never an agent, so a headless install never phones home (R9). The project owner ruled on 2026-10-15 that this complies (R13): it fetches metadata only, is never required, and degrades silently to local data, so local-first behaviour is unaffected. It can be turned off with `catalogue.refresh: false`. The Distribution constraint's literal wording ("MUST be gated behind explicit user configuration") reads more strictly than that ruling. A PATCH clarification to `constitution.md` is recommended as a follow-up so reviewers don't flag it again. Logos are served from the binary, so the WebUI makes no third-party requests. |
 | **IV. Portability** | ✅ Pure Rust over `reqwest`/rustls, and no OS-specific code. Catalogue files go through the existing workspace path helpers (`utils::build_path`). The update script is stdlib Python, used at release time only. |
 | **V. Unified Errors & Observability** | ✅ `LlmError` converts into `VizierError`, and the `ErrorKind` prefixes are kept. Migration, refresh and validation outcomes are logged with `tracing`, and keys are redacted from request debug logs. The `expect("failed to create … client")` calls in today's media constructors are removed. |
 | **Gate: dummyplug e2e** | ✅ The quickstart scripts upgrade, capabilities, custom providers, retry and refresh as dummyplug or stub-server steps, with no keys. The 008 and 014 dummyplug scripts must pass unchanged. Live-provider steps are marked (§8). |
@@ -105,7 +105,7 @@ specs/015-provider-catalog/
 │   ├── http-api.md              # /catalogue, /providers, /providers/custom, agent + usage deltas
 │   ├── provider-id-migration.md # legacy name → ProviderId map, base_url rule, YAML removal
 │   ├── provider-layer.md        # src/llm types, errors, traits, dialect table
-│   └── catalogue-snapshot.md    # zip layout, trimming, refresh validation, logo rendering
+│   └── catalogue-snapshot.md    # build-time seed, SQLite cache, lazy conditional refresh, logos
 ├── fixtures/
 │   └── stub_llm.py              # created in implementation (quickstart §Fixtures)
 ├── checklists/requirements.md
@@ -115,7 +115,7 @@ specs/015-provider-catalog/
 ### Source Code (repository root)
 
 ```text
-assets/catalogue/catalogue.zip            # NEW bundled snapshot (api.json + logos + meta.json)
+assets/catalogue/{meta.json,api.json.gz,logos/}   # NEW build-time seed, embedded with rust-embed
 scripts/catalogue_update.py               # NEW release-time snapshot builder (stdlib only)
 justfile                                  # + catalogue-update recipe
 
@@ -136,8 +136,9 @@ src/catalogue/                            # NEW
 ├── mod.rs                                # Catalogue handle (Arc<RwLock<Arc<CatalogueData>>>), queries for pickers
 ├── data.rs                               # CatalogueData/Provider/Model, parse + trim, dialect derivation (R2), base-URL table (R3)
 ├── builtin.rs                            # ollama, llama-cpp, chatgpt, dummyplug, elevenlabs, voyageai, hyperbolic
-├── snapshot.rs                           # zip read/write, bundled vs refreshed selection
-└── refresh.rs                            # fetch, validate, atomic write; driven by VizierScheduler
+├── seed.rs                               # rust-embed seed; newest-of(seed, cache) at startup
+├── cache.rs                              # catalogue_snapshot / catalogue_logo storage (in the sqlite backend)
+└── refresh.rs                            # lazy trigger (TTL, 1h failure backoff, single-flight), conditional GET, validate, swap
 
 src/config/provider.rs                    # ProviderVariant → ProviderId (+ legacy map); ProviderConfig (YAML) removed
 src/config/mod.rs                         # VizierConfig.providers removed; catalogue settings added
@@ -152,7 +153,6 @@ src/schema/{request,response,history}.rs, agents/process.rs, agents/agent/mod.rs
 src/agents/agent/system_prompt/context.rs, agents/tools/{mod,read_image/mod}.rs,
 src/agents/mcp/mod.rs, sandbox/docs.rs     # rig types → llm::types; FR-013 image note; FR-033 read-image rules
 src/embedding/, stt/, tts/, image_generation/  # ~30 per-provider rig adapter files DELETED; factories build src/llm/media clients; credentials() table
-src/scheduler/mod.rs                      # runs catalogue refresher
 src/schema/response.rs, storage/sqlite/history.rs, schema/metrics.rs   # stats provider/model; estimated_cost_usd
 src/channels/http/api/v1/catalogue.rs     # NEW /catalogue routes + logo serving
 src/channels/http/api/v1/providers/mod.rs # ProviderId routes, used_by, reachable, test, custom providers
@@ -188,12 +188,12 @@ webui/app/
 | # | Phase | Delivers | Key risks |
 |---|---|---|---|
 | 0 | **Research** ✅ | [research.md](research.md) | — |
-| 1 | **Build the provider layer** (new code only; rig untouched and nothing wired) | `src/llm/`: types, errors, HTTP, SSE, auth (`StaticKey`, `CopilotExchange`, `ChatGptAccount`), the five completion dialects, the media and embedding clients, and `resolve`. `src/catalogue/`: data, R2 dialect derivation, R3 base-URL table, built-ins, the snapshot plus `scripts/catalogue_update.py` and the bundled `catalogue.zip`. `ProviderId` with its legacy map. **Golden fixtures**: rig 0.39 is run once against a local capture server to record its request bodies and parsed responses for every dialect and media path, plus embedding vectors. These become committed fixtures that the new layer must match. Axum transport tests cover `Retry-After`, 5xx, timeouts, SSE and Copilot's refresh | Wire drift (cache control, schema sanitising, reasoning round-trip): the golden fixtures are the check |
+| 1 | **Build the provider layer** (new code only; rig untouched and nothing wired) | `src/llm/`: types, errors, HTTP, SSE, auth (`StaticKey`, `CopilotExchange`, `ChatGptAccount`), the five completion dialects, the media and embedding clients, and `resolve`. `src/catalogue/`: data, R2 dialect derivation, R3 base-URL table, built-ins, the seed plus `scripts/catalogue_update.py` and `assets/catalogue/`. `ProviderId` with its legacy map. **Golden fixtures**: rig 0.39 is run once against a local capture server to record its request bodies and parsed responses for every dialect and media path, plus embedding vectors. These become committed fixtures that the new layer must match. Axum transport tests cover `Retry-After`, 5xx, timeouts, SSE and Copilot's refresh | Wire drift (cache control, schema sanitising, reasoning round-trip): the golden fixtures are the check |
 | 2 | **Cutover: rig deleted** (one change) | Every call site moves to `llm::types` (schema, history, process, agent, context, tools, MCP, sandbox, read-image, dummyplug). `VizierModel::new` becomes resolve, dialect, retry. `retry.rs` moves to `LlmError` and honours `Retry-After`. Context and output limits follow R8. FR-013 image note and FR-033 read-image rules. Media and embedding wrappers use `credentials()`. `ProviderCredentials` and the `custom_provider` table. The startup migration (contract), YAML `providers` removed, onboarding updated. Deleted: `rig-core`, `model/provider.rs`, all rig adapters, the rig log directive. Dummyplug 008 and 014 scripts pass unchanged | A large diff: it is mechanical, but must land at once. Quickstart §1 (a real upgrade from `master`) and §3–§5 run before moving on |
 | 3 | **WebUI form merge** (`refactor:`) | `agent-settings.tsx` becomes `AgentForm mode="edit"` plus Sharing and Danger, with a sticky save bar. No behaviour change | Settings-only fields lost in the merge: walk every field, old against new |
 | 4 | **Catalogue and providers API** | `/catalogue` read API and logos; `/providers` (`used_by`, `reachable`, `test`); `/providers/custom` (CRUD, fetch, test); agent `warnings` | Secrets leaking through responses: the contract tests check every response |
 | 5 | **WebUI pickers and providers page** | `ProviderModelPicker`, `ProviderLogo`, the providers page (connected list, search and connect, env detection, `used_by`, delete warning, reachability), the two-step custom provider form, inline connect, the Advanced section, automatic read-image, the Review card. Hard-coded chat lists removed | Picker performance on OpenRouter: client-side filtering plus a virtualised list |
-| 6 | **Refresh and cost** | Refresher in `VizierScheduler`; `POST /catalogue/refresh`; stats `provider`/`model`; `estimated_cost_usd`; usage cost column; `CLAUDE.md` updated | Refresh validation too strict or too loose |
+| 6 | **Refresh and cost** | The `catalogue_snapshot`/`catalogue_logo` cache; lazy conditional refresh wired into the catalogue and provider read endpoints; lazy logo fetch; `POST /catalogue/refresh`; release workflow runs `just catalogue-update`; stats `provider`/`model`; `estimated_cost_usd`; usage cost column; `CLAUDE.md` updated | Refresh validation too strict or too loose |
 | 7 | **Verification** | The whole quickstart (§1–§7), and live smoke tests on the main five dialects (§8) | — |
 
 ## Complexity Tracking

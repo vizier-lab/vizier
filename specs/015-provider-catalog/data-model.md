@@ -27,8 +27,9 @@ Used in:
 
 ```rust
 struct CatalogueData {
-    source: CatalogueSource,        // Bundled | Refreshed
-    fetched_at: DateTime<Utc>,      // from meta.json
+    source: CatalogueSource,        // Bundled (build-time seed) | Cached (catalogue_snapshot row)
+    fetched_at: DateTime<Utc>,
+    checked_at: Option<DateTime<Utc>>,
     providers: BTreeMap<ProviderId, CatalogueProvider>,
     logos: HashMap<String, Bytes>,  // id → SVG; absent = no logo
 }
@@ -215,12 +216,28 @@ It is built by `llm::resolve(&deps, provider_id, model_id, &agent_overrides)`. T
 
 `AgentUsageStats` gains `estimated_cost_usd: Option<f64>` on its summary, on each day, and on each channel bucket. It is `None` when no response in the bucket has a known price (FR-021).
 
+## 9a. Catalogue cache (stored: `catalogue_snapshot`, `catalogue_logo`)
+
+The DDL is in [contracts/catalogue-snapshot.md](contracts/catalogue-snapshot.md#cache-sqlite).
+
+- `catalogue_snapshot` is a single row: `schema`, `source_url`, `etag`, `fetched_at`, `checked_at`, `last_error`, `failed_at`, and `data` (the gzipped trimmed JSON).
+- `catalogue_logo` holds `id`, `svg` (`NULL` means no logo exists) and `fetched_at`.
+
+**States**:
+
+```
+(no row) ──first successful 200──▶ Cached
+Cached ──304──▶ Cached (checked_at bumped)
+Cached ──200 + valid──▶ Cached (data, etag, fetched_at replaced)
+Cached ──error / invalid──▶ Cached (last_error, failed_at set; data unchanged)
+```
+
 ## 10. Catalogue settings (config file)
 
 | Key | Env var | Default | Notes |
 |---|---|---|---|
 | `vizier.catalogue.refresh` | `VIZIER_CATALOGUE_REFRESH` | `true` | R13 |
-| `vizier.catalogue.refresh_interval` | `VIZIER_CATALOGUE_REFRESH_INTERVAL` | `24h` | |
+| `vizier.catalogue.ttl` | `VIZIER_CATALOGUE_TTL` | `24h` | freshness window for the lazy check |
 | `vizier.catalogue.url` | — | `https://models.dev/api.json` | logos are fetched from the same origin |
 
 `vizier.providers` is **removed** (FR-028). A leftover key is ignored, with a startup warning.
