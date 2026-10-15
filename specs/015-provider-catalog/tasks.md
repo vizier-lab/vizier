@@ -405,7 +405,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 ### Agent form merge (FR-029; prerequisite for the picker)
 
-- [ ] T061 [US2] **Merge the forms**, as a `refactor:` commit with no behaviour change:
+- [X] T061 [US2] **Merge the forms**, as a `refactor:` commit with no behaviour change:
   - In `webui/app/components/AgentForm.tsx`, implement `mode="edit"` fully. Load `initialData`, keep Agent ID read-only in edit mode, replace the per-tab Save buttons with one sticky "Save changes" bar shown when there are unsaved edits, and accept `extraTabs: {key, label, icon, render}[]`.
   - Port every settings-only field and behaviour from `webui/app/routes/agent-settings.tsx` into `AgentForm`, after a field-by-field comparison of the two files' Config, Prompt and Tools tabs.
   - Reduce `agent-settings.tsx` to loading the agent, rendering `<AgentForm mode="edit" … extraTabs={[Sharing, Danger]}>`, and keeping its existing Sharing and Danger Zone sections as the extra tabs.

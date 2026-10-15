@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, type ReactNode } from 'react'
 import { FaGear, FaCode, FaScrewdriverWrench, FaCircleCheck } from 'react-icons/fa6'
 import TooltipLabel from './TooltipLabel'
 import MarkdownEditor from './MarkdownEditor'
@@ -30,6 +30,14 @@ import defaultPrompt from '../../../templates/agent.template.md?raw'
 
 type FormTab = 'config' | 'tools' | 'prompt' | 'review'
 
+/** A tab the edit page adds after the form's own (Sharing, Danger Zone). */
+export interface ExtraTab {
+  key: string
+  label: string
+  icon: typeof FaGear
+  render: () => ReactNode
+}
+
 const TABS: { key: FormTab; label: string; icon: typeof FaGear }[] = [
   { key: 'config', label: 'Config', icon: FaGear },
   { key: 'tools', label: 'Tools', icon: FaScrewdriverWrench },
@@ -43,6 +51,8 @@ interface AgentFormProps {
   initialData?: AgentDetail
   onSubmit: (form: CreateAgentRequest) => Promise<void>
   onCancel: () => void
+  /** Edit mode: tabs after Config, Tools and System Prompt. */
+  extraTabs?: ExtraTab[]
 }
 
 const inputStyle: React.CSSProperties = {
@@ -119,8 +129,17 @@ export default function AgentForm({
   initialData,
   onSubmit,
   onCancel,
+  extraTabs = [],
 }: AgentFormProps) {
-  const [activeTab, setActiveTab] = useState<FormTab>('config')
+  const [activeTab, setActiveTab] = useState<string>('config')
+  const tabs: { key: string; label: string; icon: typeof FaGear }[] =
+    mode === 'create'
+      ? TABS
+      : [...TABS.filter((t) => t.key !== 'review'), ...extraTabs]
+  const activeExtra = extraTabs.find((t) => t.key === activeTab)
+  // Edit mode: what was last loaded or saved, to tell whether there are unsaved edits.
+  const [baseline, setBaseline] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
   const [maxReachedTab, setMaxReachedTab] = useState<number>(0)
   const [submitting, setSubmitting] = useState(false)
   const [form, setForm] = useState<CreateAgentRequest>(DEFAULT_FORM)
@@ -156,6 +175,7 @@ export default function AgentForm({
         thinking_depth: d.thinking_depth,
         checkpoint_threshold: (d.checkpoint_threshold ?? 0.8) * 100,
         max_tokens: d.max_tokens,
+        context_window: d.context_window,
         silent_read_initiative_chance:
           d.silent_read_initiative_chance ?? 0.0,
         tools: {
@@ -192,8 +212,20 @@ export default function AgentForm({
         indexer: d.indexer || { kind: 'sqlite' },
       })
       setUseSameModel(!d.dream_provider && !d.dream_model)
+      setBaseline(null)
     }
-  }, [mode, initialData])
+  }, [mode, initialData, reloadKey])
+
+  const snapshot = useMemo(
+    () => JSON.stringify({ form, useSameModel }),
+    [form, useSameModel]
+  )
+  // The first render after a load becomes the baseline, so normalising defaults isn't an edit.
+  useEffect(() => {
+    if (mode === 'edit' && initialData && baseline === null) setBaseline(snapshot)
+  }, [mode, initialData, baseline, snapshot])
+  const dirty =
+    mode === 'edit' && baseline !== null && (snapshot !== baseline || avatarBlob !== null)
 
   const updateField = <K extends keyof CreateAgentRequest>(
     key: K,
@@ -332,6 +364,16 @@ export default function AgentForm({
         dream_provider: (!form.dream_enabled || useSameModel) ? null : form.dream_provider || null,
         dream_model: (!form.dream_enabled || useSameModel) ? null : form.dream_model || null,
       })
+      if (mode === 'edit') {
+        const saved = { ...form, avatar_url: avatarUrl }
+        setForm(saved)
+        setBaseline(JSON.stringify({ form: saved, useSameModel }))
+        setAvatarBlob(null)
+        if (avatarPreview) URL.revokeObjectURL(avatarPreview)
+        setAvatarPreview(null)
+      }
+    } catch {
+      // The caller reports the error; the edits stay so they can be saved again.
     } finally {
       setSubmitting(false)
     }
@@ -343,7 +385,7 @@ export default function AgentForm({
     <>
       {/* Mobile tab nav */}
       <div className="flex md:hidden border-b border-[var(--border)] px-4 gap-2 py-2 overflow-x-auto">
-        {TABS.map(({ key, label }, index) => {
+        {tabs.map(({ key, label }, index) => {
           const isDisabled = mode === 'create' && index > maxReachedTab
           return (
             <button
@@ -372,7 +414,7 @@ export default function AgentForm({
             flexShrink: 0,
           }}
         >
-          {TABS.map(({ key, label, icon: Icon }, index) => {
+          {tabs.map(({ key, label, icon: Icon }, index) => {
             const isDisabled = mode === 'create' && index > maxReachedTab
             return (
               <div
@@ -390,8 +432,10 @@ export default function AgentForm({
         {/* Content */}
         <div
           className="flex-1 overflow-auto"
-          style={{ padding: '24px', height: '100%' }}
+          style={{ padding: '24px', height: '100%', display: 'flex', flexDirection: 'column' }}
         >
+          <div style={{ flex: 1 }}>
+          {activeExtra?.render()}
           {/* ─── Config Tab ─── */}
           {activeTab === 'config' && (
             <div
@@ -628,7 +672,7 @@ export default function AgentForm({
                       <label style={labelStyle}>
                         <TooltipLabel
                           label="Model"
-                          tooltip="HuggingFace model ID (e.g., google/gemma-4-E4B-it, Qwen/Qwen3-4B)"
+                          tooltip="The model identifier for the selected provider."
                         />
                       </label>
                       <ModelSelect
@@ -1043,7 +1087,7 @@ export default function AgentForm({
                     <label style={labelStyle}>
                       <TooltipLabel
                         label="Telegram Bot Token"
-                        tooltip="Bot token from @BotFather."
+                        tooltip="Bot token from @BotFather. Reactions in private chats reach the agent automatically. In groups, the bot must be an administrator to receive them."
                       />
                     </label>
                     <input
@@ -1063,6 +1107,7 @@ export default function AgentForm({
               </div>
 
               {/* Actions */}
+              {mode === 'create' && (
               <div
                 style={{
                   display: 'flex',
@@ -1085,7 +1130,6 @@ export default function AgentForm({
                   Cancel
                 </button>
                 <div style={{ flex: 1 }} />
-                {mode === 'create' ? (
                   <button
                     onClick={goToNextTab}
                     disabled={
@@ -1110,29 +1154,8 @@ export default function AgentForm({
                   >
                     Next
                   </button>
-                ) : (
-                  <button
-                    onClick={handleSubmit}
-                    disabled={submitting || !form.name.trim()}
-                    style={{
-                      padding: '0.6rem 1.5rem',
-                      borderRadius: '0.375rem',
-                      border: 'none',
-                      background: submitting
-                        ? 'var(--border)'
-                        : 'var(--accent-primary)',
-                      color: '#fff',
-                      cursor: submitting
-                        ? 'not-allowed'
-                        : 'pointer',
-                      fontSize: '0.85rem',
-                      fontWeight: 500,
-                    }}
-                  >
-                    {submitting ? 'Saving...' : 'Save Changes'}
-                  </button>
-                )}
               </div>
+              )}
             </div>
           )}
 
@@ -2878,6 +2901,7 @@ export default function AgentForm({
               </div>
 
               {/* Actions */}
+              {mode === 'create' && (
               <div
                 style={{
                   display: 'flex',
@@ -2900,7 +2924,6 @@ export default function AgentForm({
                   Cancel
                 </button>
                 <div style={{ flex: 1 }} />
-                {mode === 'create' ? (
                   <button
                     onClick={goToNextTab}
                     style={{
@@ -2916,29 +2939,8 @@ export default function AgentForm({
                   >
                     Next
                   </button>
-                ) : (
-                  <button
-                    onClick={handleSubmit}
-                    disabled={submitting || !form.name.trim()}
-                    style={{
-                      padding: '0.6rem 1.5rem',
-                      borderRadius: '0.375rem',
-                      border: 'none',
-                      background: submitting
-                        ? 'var(--border)'
-                        : 'var(--accent-primary)',
-                      color: '#fff',
-                      cursor: submitting
-                        ? 'not-allowed'
-                        : 'pointer',
-                      fontSize: '0.85rem',
-                      fontWeight: 500,
-                    }}
-                  >
-                    {submitting ? 'Saving...' : 'Save Changes'}
-                  </button>
-                )}
               </div>
+              )}
             </div>
           )}
 
@@ -2980,6 +2982,7 @@ export default function AgentForm({
                   placeholder="You are a helpful assistant..."
                 />
               </div>
+              {mode === 'create' && (
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button
                   onClick={onCancel}
@@ -2996,7 +2999,6 @@ export default function AgentForm({
                   Cancel
                 </button>
                 <div style={{ flex: 1 }} />
-                {mode === 'create' ? (
                   <button
                     onClick={goToNextTab}
                     style={{
@@ -3012,29 +3014,8 @@ export default function AgentForm({
                   >
                     Next
                   </button>
-                ) : (
-                  <button
-                    onClick={handleSubmit}
-                    disabled={submitting || !form.name.trim()}
-                    style={{
-                      padding: '0.6rem 1.5rem',
-                      borderRadius: '0.375rem',
-                      border: 'none',
-                      background: submitting
-                        ? 'var(--border)'
-                        : 'var(--accent-primary)',
-                      color: '#fff',
-                      cursor: submitting
-                        ? 'not-allowed'
-                        : 'pointer',
-                      fontSize: '0.85rem',
-                      fontWeight: 500,
-                    }}
-                  >
-                    {submitting ? 'Saving...' : 'Save Changes'}
-                  </button>
-                )}
               </div>
+              )}
             </div>
           )}
 
@@ -3340,6 +3321,59 @@ export default function AgentForm({
                   )}
                 </button>
               </div>
+            </div>
+          )}
+          </div>
+
+          {/* Edit mode: one save for every tab, shown while there are unsaved edits. */}
+          {dirty && !activeExtra && (
+            <div
+              style={{
+                position: 'sticky',
+                bottom: 0,
+                marginTop: '1.5rem',
+                padding: '0.75rem 1rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                border: '1px solid var(--border)',
+                borderRadius: '0.5rem',
+                background: 'var(--surface)',
+                boxShadow: '0 -4px 12px rgba(0,0,0,0.08)',
+                maxWidth: '720px',
+              }}
+            >
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', flex: 1 }}>
+                You have unsaved changes
+              </span>
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setAvatarBlob(null)
+                  if (avatarPreview) URL.revokeObjectURL(avatarPreview)
+                  setAvatarPreview(null)
+                  setReloadKey((k) => k + 1)
+                }}
+                style={{ fontSize: '0.85rem' }}
+              >
+                Discard
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={submitting || !form.name.trim()}
+                style={{
+                  padding: '0.5rem 1.25rem',
+                  borderRadius: '0.375rem',
+                  border: 'none',
+                  background: submitting ? 'var(--border)' : 'var(--accent-primary)',
+                  color: '#fff',
+                  cursor: submitting ? 'not-allowed' : 'pointer',
+                  fontSize: '0.85rem',
+                  fontWeight: 500,
+                }}
+              >
+                {submitting ? 'Saving...' : 'Save changes'}
+              </button>
             </div>
           )}
         </div>
