@@ -394,14 +394,14 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 ### Catalogue read API
 
-- [ ] T059 [US2] Create `src/channels/http/api/v1/catalogue.rs` with `GET /catalogue`, `GET /catalogue/providers`, `GET /catalogue/providers/{id}/models` and `GET /catalogue/providers/{id}/models/{model}`, with the exact response shapes in contract `http-api.md` § Catalogue:
+- [X] T059 [US2] Create `src/channels/http/api/v1/catalogue.rs` with `GET /catalogue`, `GET /catalogue/providers`, `GET /catalogue/providers/{id}/models` and `GET /catalogue/providers/{id}/models/{model}`, with the exact response shapes in contract `http-api.md` § Catalogue:
   - `connection` from `resolve_credentials`: status and source label only, never a secret;
   - `fields` from the provider kind and built-in definition;
   - sort order: connected, then custom, then "popular" (the legacy-mapped ids), then A–Z;
   - for `kind: local` providers, the server's live models are merged in, with `origin: "server"`.
 
   Mount it in `src/channels/http/api/v1/mod.rs` under `require_auth` only, and add the utoipa annotations. The lazy refresh trigger is added in US4.
-- [ ] T060 [US2] Add `GET /catalogue/logos/{id}.svg` to `src/channels/http/api/v1/catalogue.rs`, **outside** `require_auth`. It serves the seed logo (`seed_logo`), or `404` for `seed_no_logo` and unknown ids, with exactly the headers in contract `catalogue-snapshot.md` § Logos (CSP, `nosniff`, `image/svg+xml`, `Cache-Control`). The DB-cached and lazily fetched logos come in US4.
+- [X] T060 [US2] Add `GET /catalogue/logos/{id}.svg` to `src/channels/http/api/v1/catalogue.rs`, **outside** `require_auth`. It serves the seed logo (`seed_logo`), or `404` for `seed_no_logo` and unknown ids, with exactly the headers in contract `catalogue-snapshot.md` § Logos (CSP, `nosniff`, `image/svg+xml`, `Cache-Control`). The DB-cached and lazily fetched logos come in US4.
 
 ### Agent form merge (FR-029; prerequisite for the picker)
 
@@ -510,9 +510,9 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 **Independent Test**: quickstart.md §6.
 
-- [ ] T082 [US4] Add the `catalogue_snapshot` and `catalogue_logo` tables, with the DDL from contract `catalogue-snapshot.md` § Cache, to the schema init in `src/storage/sqlite/mod.rs`. Add `trait CatalogueCacheStorage { get_snapshot, put_snapshot(tx), touch_checked, record_failure, get_logo, put_logo }` in `src/storage/catalogue.rs`, compose it into `VizierStorageProvider`, and forward it in `VizierStorage`.
-- [ ] T083 [US4] Create `src/catalogue/cache.rs`. At startup, in `src/dependencies.rs`, when the `catalogue_snapshot` row parses with `schema == 1` and its `fetched_at` is newer than the seed's, use it (`source: Cached`). A corrupt row logs a `warn` and the seed is used. Startup makes no network request.
-- [ ] T084 [US4] Create `src/catalogue/refresh.rs`, per contract `catalogue-snapshot.md` § Lazy refresh:
+- [X] T082 [US4] Add the `catalogue_snapshot` and `catalogue_logo` tables, with the DDL from contract `catalogue-snapshot.md` § Cache, to the schema init in `src/storage/sqlite/mod.rs`. Add `trait CatalogueCacheStorage { get_snapshot, put_snapshot(tx), touch_checked, record_failure, get_logo, put_logo }` in `src/storage/catalogue.rs`, compose it into `VizierStorageProvider`, and forward it in `VizierStorage`.
+- [X] T083 [US4] Create `src/catalogue/cache.rs`. At startup, in `src/dependencies.rs`, when the `catalogue_snapshot` row parses with `schema == 1` and its `fetched_at` is newer than the seed's, use it (`source: Cached`). A corrupt row logs a `warn` and the seed is used. Startup makes no network request.
+- [X] T084 [US4] Create `src/catalogue/refresh.rs`, per contract `catalogue-snapshot.md` § Lazy refresh:
   - `fn maybe_refresh(deps)` checks `catalogue.refresh`, the TTL against `checked_at`, the 1h `failed_at` backoff, and single-flight (an `AtomicBool`). It spawns one background task and returns at once.
   - `async fn refresh_now(deps) -> Result<CatalogueStatus>` waits up to 30s.
   - The task sends a GET with `If-None-Match` and `Accept-Encoding: gzip`, decompressing with `flate2`:
@@ -521,10 +521,10 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - Add the config keys `catalogue.refresh` (default `true`), `catalogue.ttl` (default `24h`) and `catalogue.url` to `src/config/mod.rs`, plus `VIZIER_CATALOGUE_REFRESH` and `VIZIER_CATALOGUE_TTL` in `docker-entrypoint.sh` and the `apply_overrides` CLI/env handling.
   - Unit tests run against an axum server serving 200, 304, invalid bodies and timeouts.
 - [ ] T085 [US4] Call `catalogue::refresh::maybe_refresh(&deps)` at the start of every handler in `src/channels/http/api/v1/catalogue.rs` and of `GET /providers` and `GET /providers/custom`. Never call it from agent, scheduler or dream code (add a doc comment on `maybe_refresh` stating this rule). Add `POST /catalogue/refresh` (`settings:providers`): 200 with the status, 502 on failure, and 409 when refresh is disabled.
-- [ ] T086 [US4] Extend the logo handler in `catalogue.rs` to follow the contract's lookup order: the `catalogue_logo` row, then the seed, then `seed_no_logo`. Otherwise, when refresh is enabled, spawn a background fetch of `https://models.dev/logos/{id}.svg`, storing the svg, or NULL if it equals the fallback, and return 404 this time.
+- [X] T086 [US4] Extend the logo handler in `catalogue.rs` to follow the contract's lookup order: the `catalogue_logo` row, then the seed, then `seed_no_logo`. Otherwise, when refresh is enabled, spawn a background fetch of `https://models.dev/logos/{id}.svg`, storing the svg, or NULL if it equals the fallback, and return 404 this time.
 - [ ] T087 [US4] Fill in `GET /catalogue`'s `source`, `fetched_at`, `checked_at` and `refresh.{enabled, ttl, in_progress, last_error, failed_at}`. In `settingsRoot.tsx`, show "Catalogue: models.dev · as of <fetched_at> (<source>)", with the last error if any, and wire the "Refresh now" button to `POST /catalogue/refresh`.
 - [ ] T088 [P] [US4] In `.github/workflows/release.yml`, job `prepare-release`, add a "Refresh model catalogue" step after "Update Cargo.toml versions" that runs `python3 -I scripts/catalogue_update.py --keep-on-failure`, and add `assets/catalogue` to the `git add` in "Commit version bump". In `.github/workflows/publish.yml`'s "Verify package" step, fail when `cargo package --allow-dirty --no-verify --list` lacks `assets/catalogue/api.json`.
-- [ ] T089 [US4] Run quickstart.md §6: refresh off and offline; agents running with no request; a lazy check on read; 304 with `VIZIER_CATALOGUE_TTL=1s`; broken URL with backoff; offline restart from SQLite. Record the results in the PR.
+- [X] T089 [US4] Run quickstart.md §6: refresh off and offline; agents running with no request; a lazy check on read; 304 with `VIZIER_CATALOGUE_TTL=1s`; broken URL with backoff; offline restart from SQLite. Record the results in the PR.
 
 **Checkpoint**: the catalogue stays current for people using it, stays visible offline, and a headless install never phones home.
 

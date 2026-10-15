@@ -8,9 +8,11 @@ WS = sys.argv[1]
 PORT = int(sys.argv[2])
 BASE = f"http://127.0.0.1:{PORT}/api/v1"
 LOG = open(os.path.join(WS, "vizier.log"), "a")
+# Scripts that test the catalogue refresh clear this; the others stay offline.
+EXTRA_ENV = {"VIZIER_CATALOGUE_REFRESH": "false"}
 
 def start():
-    env = dict(os.environ, VIZIER_DATA_DIR=WS, VIZIER_JWT_SECRET="e2e-secret", VIZIER_CATALOGUE_REFRESH="false", RUST_LOG="vizier=info")
+    env = dict(os.environ, VIZIER_DATA_DIR=WS, VIZIER_JWT_SECRET="e2e-secret", RUST_LOG="vizier=info", **EXTRA_ENV)
     for k in ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY"]:
         env.pop(k, None)
     p = subprocess.Popen([f"{ROOT}/target/debug/vizier", "run", "--port", str(PORT)], cwd=WS, env=env, stdout=LOG, stderr=LOG)

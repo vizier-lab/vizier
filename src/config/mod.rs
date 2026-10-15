@@ -88,6 +88,44 @@ pub struct VizierConfig {
     pub channels: ChannelsConfig,
     #[serde(default = "default_worker_threads")]
     pub worker_threads: usize,
+    /// The model catalogue's lazy refresh (spec 015, data-model §10).
+    #[serde(default)]
+    pub catalogue: CatalogueConfig,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CatalogueConfig {
+    /// Refresh from `url` when someone uses the catalogue and the copy is older than `ttl`.
+    /// Off for air-gapped installs; the bundled snapshot is always complete.
+    #[serde(default = "default_catalogue_refresh")]
+    pub refresh: bool,
+    #[serde(default = "default_catalogue_ttl")]
+    pub ttl: duration_string::DurationString,
+    /// Logos come from the same origin's `/logos/`.
+    #[serde(default = "default_catalogue_url")]
+    pub url: String,
+}
+
+fn default_catalogue_refresh() -> bool {
+    true
+}
+
+fn default_catalogue_ttl() -> duration_string::DurationString {
+    std::time::Duration::from_secs(24 * 3600).into()
+}
+
+fn default_catalogue_url() -> String {
+    "https://models.dev/api.json".into()
+}
+
+impl Default for CatalogueConfig {
+    fn default() -> Self {
+        Self {
+            refresh: default_catalogue_refresh(),
+            ttl: default_catalogue_ttl(),
+            url: default_catalogue_url(),
+        }
+    }
 }
 
 fn default_worker_threads() -> usize {
@@ -106,6 +144,8 @@ pub struct RunOverrides {
     pub storage: Option<StorageConfig>,
     pub workers: Option<usize>,
     pub ws_idle_timeout: Option<u64>,
+    pub catalogue_refresh: Option<bool>,
+    pub catalogue_ttl: Option<duration_string::DurationString>,
 }
 
 impl VizierConfig {
@@ -189,6 +229,12 @@ impl VizierConfig {
             let http = self.channels.http.get_or_insert_with(default_http_channel);
             http.ws_idle_timeout_secs = t;
         }
+        if let Some(r) = overrides.catalogue_refresh {
+            self.catalogue.refresh = r;
+        }
+        if let Some(t) = overrides.catalogue_ttl {
+            self.catalogue.ttl = t;
+        }
     }
 }
 
@@ -231,6 +277,7 @@ impl Default for VizierConfig {
                 http: Some(default_http_channel()),
             },
             worker_threads: 4,
+            catalogue: CatalogueConfig::default(),
         }
     }
 }

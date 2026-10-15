@@ -7,7 +7,9 @@ use parking_lot::RwLock;
 use serde::Serialize;
 
 pub mod builtin;
+pub mod cache;
 pub mod data;
+pub mod refresh;
 pub mod seed;
 
 use builtin::{BuiltinProvider, CredentialField, builtins};
@@ -48,7 +50,7 @@ pub const POPULAR: &[&str] = &[
 /// The shared catalogue. Readers clone the inner `Arc`, so a refresh's `swap` never makes them
 /// wait, and an agent keeps the data it was built with until its next build.
 #[derive(Clone)]
-pub struct Catalogue(Arc<RwLock<Arc<CatalogueData>>>);
+pub struct Catalogue(Arc<RwLock<Arc<CatalogueData>>>, Arc<refresh::RefreshState>);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -73,7 +75,11 @@ pub struct ProviderListing {
 
 impl Catalogue {
     pub fn new(data: CatalogueData) -> Self {
-        Self(Arc::new(RwLock::new(Arc::new(data))))
+        Self(Arc::new(RwLock::new(Arc::new(data))), Arc::default())
+    }
+
+    pub fn refresh_state(&self) -> &refresh::RefreshState {
+        &self.1
     }
 
     pub fn snapshot(&self) -> Arc<CatalogueData> {

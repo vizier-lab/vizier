@@ -11,6 +11,7 @@ use crate::utils::build_path;
 
 mod agent;
 mod background_job;
+mod catalogue;
 pub(crate) mod core_revision;
 mod dream_journal;
 mod global_config;
@@ -254,6 +255,24 @@ impl SqliteStorage {
             CREATE TABLE IF NOT EXISTS custom_provider (
                 id TEXT PRIMARY KEY,
                 data TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS catalogue_snapshot (
+                id          INTEGER PRIMARY KEY CHECK (id = 1),
+                schema      INTEGER NOT NULL,
+                source_url  TEXT NOT NULL,
+                etag        TEXT,
+                fetched_at  INTEGER NOT NULL,
+                checked_at  INTEGER NOT NULL,
+                last_error  TEXT,
+                failed_at   INTEGER,
+                data        BLOB NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS catalogue_logo (
+                id          TEXT PRIMARY KEY,
+                svg         BLOB,
+                fetched_at  INTEGER NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS global_config (

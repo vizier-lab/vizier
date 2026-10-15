@@ -104,3 +104,45 @@ a YAML `providers.openrouter`) and clearing the migration marker. 19/19 and 3/3 
   outer tool was `read_image_file` itself — so images loaded from a script were filed as session
   files and never shown to the model. `read_image_file` now hands its image to the turn through
   `ToolContext.loaded_images`, which the loop drains after each round, whichever way it was called.
+
+## Catalogue API and lazy refresh (T059, T060, T082–T084, T086, T089), with `fixtures/e2e/catalogue.py` — 27/27
+
+- §2 offline: `GET /catalogue` is `bundled` with 230 providers; `/catalogue/providers` lists every
+  pre-feature id under its new name plus `cerebras` and `fireworks-ai`, hides `amazon-bedrock`
+  and `google-vertex`, lists `dummyplug (testing)` as connected, shows a saved key only as
+  `{status: connected, source: saved}`; `?q=cereb` finds Cerebras; the Anthropic default list is
+  tool-capable, non-deprecated, newest first with the first marked `default`; `?all=true` adds
+  deprecated models; OpenRouter has ≥ 380; an unlisted model is `404 "not in catalogue"`; logos
+  are served without auth with `image/svg+xml`, CSP and `nosniff`; unknown logos 404.
+- §6: with refresh off, `POST /catalogue/refresh` is 409 and nothing is requested. With refresh
+  on, running and chatting agents make no request; a person's read answers at once and starts
+  one background request; then `source: cached` with an ETag row in `catalogue_snapshot`; a second
+  read within the TTL makes no request; with `ttl: 1s` the next check sends `If-None-Match` and a
+  304 advances `checked_at` only; a broken URL gives 502, sets `last_error`, keeps the cached data,
+  and further reads within the hour make no request; an offline restart loads the cache from SQLite.
+- The refresh is exercised end to end against a local ETag-aware catalogue server rather than
+  axum unit tests: `check()` needs the full `VizierDependencies`. `trim` and validation have unit tests.
+- `catalogue.refresh`/`catalogue.ttl` are also `--catalogue-refresh`/`--catalogue-ttl` flags and the
+  `VIZIER_CATALOGUE_REFRESH`/`VIZIER_CATALOGUE_TTL` env vars (read directly too, not only by the
+  Docker entrypoint).
+
+## Handoff: where the next session starts
+
+Done: Phases 1–4 (T001–T058), and from later phases T059, T060, T082–T084, T086, T089.
+
+Next, in order:
+- **T085**: `GET /providers/custom` must also call `catalogue::refresh::maybe_refresh` once the custom
+  providers API exists (`GET /catalogue/*`, `GET /providers` and `POST /catalogue/refresh` already
+  do). Mark T085 then.
+- **T061–T065 (US2 WebUI)**: form merge, `ProviderLogo`, catalogue API client, `ProviderModelPicker`,
+  replacing `CHAT_PROVIDERS*` in `webui/app/interfaces/types.ts`. The WebUI still uses the old
+  providers page and hard-coded lists; `GET /providers` keeps a `variant` field (same as `id`) until
+  T076 replaces that page.
+- **T066–T071 (US6)**: custom providers API and form. Custom providers already work end to end through
+  `resolve` (rows inserted straight into `custom_provider` in the e2e scripts).
+- **T072–T076 (US5)**, **T077–T081 (US7)**, **T087** (status line + Refresh button in Settings),
+  **T088** (release/publish workflows), **T090–T092 (US8 cost)**, **T093–T100 (polish)**.
+
+e2e scripts: `fixtures/e2e/{upgrade,retry,capabilities,catalogue}.py <scratch dir> <port>`, with
+`python3 -I specs/015-provider-catalog/fixtures/stub_llm.py --port 18080` running (capabilities.py
+uses 18081). Build first: they run `target/debug/vizier`.

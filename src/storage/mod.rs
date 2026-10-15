@@ -9,7 +9,8 @@ use crate::{
         RevisionDiff, RevisionOrigin, RollbackResponse, SessionFileRecord, VizierSession,
     },
     storage::{
-        agent::AgentStorage, background_job::BackgroundJobStorage, dream::DreamStorage, dream_journal::DreamJournalStorage,
+        agent::AgentStorage, background_job::BackgroundJobStorage,
+        catalogue::{CachedLogo, CatalogueCacheStorage, CatalogueSnapshotRow}, dream::DreamStorage, dream_journal::DreamJournalStorage,
         global_config::GlobalConfigStorage, history::HistoryStorage, memory::MemoryStorage,
         provider::{CustomProviderStorage, ProviderStorage}, reaction::ReactionStorage, session::SessionStorage, session_file::SessionFileStorage,
         state::StateStorage, task::TaskStorage, task_run::TaskRunStorage,
@@ -19,6 +20,7 @@ use crate::{
 
 pub mod agent;
 pub mod background_job;
+pub mod catalogue;
 pub mod chunk;
 pub mod diff;
 pub mod document;
@@ -54,6 +56,7 @@ where
         + AgentStorage
         + ProviderStorage
         + CustomProviderStorage
+        + CatalogueCacheStorage
         + GlobalConfigStorage
         + DreamJournalStorage
         + DreamStorage
@@ -276,6 +279,33 @@ impl ProviderStorage for VizierStorage {
 
     async fn delete_provider(&self, id: &ProviderId) -> Result<()> {
         self.0.delete_provider(id).await
+    }
+}
+
+#[async_trait::async_trait]
+impl CatalogueCacheStorage for VizierStorage {
+    async fn get_snapshot(&self) -> Result<Option<CatalogueSnapshotRow>> {
+        self.0.get_snapshot().await
+    }
+
+    async fn put_snapshot(&self, row: &CatalogueSnapshotRow) -> Result<()> {
+        self.0.put_snapshot(row).await
+    }
+
+    async fn touch_checked(&self, at: chrono::DateTime<chrono::Utc>) -> Result<()> {
+        self.0.touch_checked(at).await
+    }
+
+    async fn record_failure(&self, error: &str, at: chrono::DateTime<chrono::Utc>) -> Result<()> {
+        self.0.record_failure(error, at).await
+    }
+
+    async fn get_logo(&self, id: &str) -> Result<Option<CachedLogo>> {
+        self.0.get_logo(id).await
+    }
+
+    async fn put_logo(&self, id: &str, svg: Option<&[u8]>) -> Result<()> {
+        self.0.put_logo(id, svg).await
     }
 }
 

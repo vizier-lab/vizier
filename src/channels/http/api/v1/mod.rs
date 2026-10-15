@@ -13,6 +13,7 @@ use crate::channels::http::{
 
 pub mod agents;
 pub mod auth;
+pub mod catalogue;
 pub mod embedding;
 pub mod files;
 pub mod providers;
@@ -128,6 +129,8 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route("/files/{file_id}", get(files::download_file))
+        // The catalogue: readable by any signed-in user; logos are public.
+        .nest("/catalogue", catalogue::catalogue(state.clone()))
         // Protected routes
         .nest(
             "/agents",

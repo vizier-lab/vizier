@@ -130,6 +130,12 @@ impl VizierChannel for HTTPChannel {
         api::v1::providers::get_provider,
         api::v1::providers::upsert_provider,
         api::v1::providers::delete_provider,
+        api::v1::catalogue::catalogue_status,
+        api::v1::catalogue::list_providers,
+        api::v1::catalogue::list_models,
+        api::v1::catalogue::get_model,
+        api::v1::catalogue::logo,
+        api::v1::catalogue::refresh,
     ),
     components(
         schemas(

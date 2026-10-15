@@ -133,6 +133,10 @@ impl VizierDependencies {
             fm.run(file_transport).await;
         });
 
+        // The refreshed catalogue cached in SQLite, when it's newer than the seed. Never
+        // touches the network.
+        catalogue.swap(crate::catalogue::cache::newest(&storage, (*catalogue.snapshot()).clone()).await);
+
         let storage = Arc::new(storage);
         let background_jobs = BackgroundJobs::new(storage.clone(), transport.clone());
 

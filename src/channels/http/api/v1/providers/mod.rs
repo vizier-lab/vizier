@@ -65,6 +65,7 @@ fn provider_to_response(entry: &ProviderEntry) -> ProviderResponse {
 async fn list_providers(
     State(state): State<HTTPState>,
 ) -> models::response::Response<Vec<ProviderResponse>> {
+    crate::catalogue::refresh::maybe_refresh(&state.deps);
     match state.storage.list_providers().await {
         Ok(entries) => {
             let res: Vec<ProviderResponse> = entries

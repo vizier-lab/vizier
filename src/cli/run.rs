@@ -85,6 +85,20 @@ pub struct RunArgs {
         help = "websocket idle timeout in seconds"
     )]
     ws_idle_timeout: Option<u64>,
+
+    #[arg(
+        long,
+        value_name = "BOOL",
+        help = "refresh the model catalogue from models.dev when people use it (default true)"
+    )]
+    catalogue_refresh: Option<bool>,
+
+    #[arg(
+        long,
+        value_name = "DURATION",
+        help = "how long a catalogue check stays fresh, e.g. 24h"
+    )]
+    catalogue_ttl: Option<duration_string::DurationString>,
 }
 
 pub fn run_server(config: VizierConfig) -> Result<()> {
@@ -177,6 +191,17 @@ pub fn run(args: RunArgs) -> Result<()> {
         storage: args.storage.map(Into::into),
         workers: args.workers,
         ws_idle_timeout: args.ws_idle_timeout,
+        // The env vars work outside Docker too (the entrypoint maps them to these flags).
+        catalogue_refresh: args.catalogue_refresh.or_else(|| {
+            std::env::var("VIZIER_CATALOGUE_REFRESH")
+                .ok()
+                .and_then(|v| v.trim().to_ascii_lowercase().parse().ok())
+        }),
+        catalogue_ttl: args.catalogue_ttl.or_else(|| {
+            std::env::var("VIZIER_CATALOGUE_TTL")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+        }),
     };
     config.apply_overrides(&overrides);
 
