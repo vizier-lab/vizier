@@ -27,3 +27,6 @@ build:
 
 release:
   @cargo build --release
+
+catalogue-update:
+  python3 -I scripts/catalogue_update.py
