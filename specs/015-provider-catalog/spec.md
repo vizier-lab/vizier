@@ -74,7 +74,7 @@ An operator creating or editing an agent opens the provider picker. They see eve
 2. **Given** a selected provider, **When** the operator opens the model picker, **Then** it lists that provider's models with name, context window, maximum output, capability badges (tools, image input, reasoning) and price. Deprecated models are marked or hidden.
 3. **Given** a model id not in the catalogue, **When** the operator types it and saves, **Then** the agent is saved and runs. Values the catalogue would have supplied fall back to the agent's explicit settings or safe defaults.
 4. **Given** a catalogue provider that speaks a protocol vizier does not support, **When** the operator browses providers, **Then** it is not offered for selection.
-5. **Given** the dream model, read-image (vision) model and handover model pickers, **When** the operator opens them, **Then** they use the same catalogue-backed provider and model pickers.
+5. **Given** the dream model and read-image (vision) model pickers, **When** the operator opens them, **Then** they use the same catalogue-backed provider and model pickers.
 
 ---
 
@@ -281,7 +281,7 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
 - **FR-009**: Credentials MUST be resolved in this order: a value saved in provider settings first, then each environment variable the catalogue names for that provider, in order. The environment variable names vizier accepted before this change MUST keep working for the providers that had them.
 - **FR-010**: The providers settings MUST let an admin save credentials for any selectable provider, asking only for the fields that provider needs.
 - **FR-010a**: The providers settings MUST list as connected any provider whose credentials come from an environment variable, naming the variable but never showing its value.
-- **FR-010b**: Each connected provider MUST show which features use it and how many agents each: chat (including dream, read-image and handover), speech-to-text, text-to-speech, image generation and embeddings. Deleting a provider's credentials while agents use it MUST warn first, listing the affected agents.
+- **FR-010b**: Each connected provider MUST show which features use it and how many agents each: chat (including dream and read-image), speech-to-text, text-to-speech, image generation and embeddings. Deleting a provider's credentials while agents use it MUST warn first, listing the affected agents.
 - **FR-010c**: Local providers (Ollama, llama.cpp) and custom providers MUST show whether their server is reachable, and how many models it serves where it can list them. Checking this MUST NOT delay the page from loading.
 - **FR-011**: The model picker MUST accept a typed-in model id that isn't in the catalogue.
 
@@ -309,7 +309,7 @@ The usage view already counts tokens per agent. With prices from the catalogue, 
 
   Hyperbolic, Galadriel and Mira are **dropped as chat providers**, because none of them is in the catalogue. A saved agent on one of them is handled as in Story 1, scenario 3: it shows as failed, with a message naming the provider and asking the operator to pick a replacement. This is a breaking change. Hyperbolic stays available as a text-to-speech and image-generation provider.
 - **FR-015**: On first start after upgrading, the system MUST migrate saved agents (provider and dream provider) and saved provider credentials from old provider names to catalogue ids, exactly once, and log each change. The HTTP API MUST keep accepting old provider names and map them to catalogue ids.
-- **FR-016**: Speech-to-text, text-to-speech, image generation and embedding provider choices MUST keep working with their current providers and models. In this feature their pickers **stay curated** and are not driven by the catalogue. They move onto vizier's own provider layer (FR-017) without changing what they offer. The catalogue drives only chat-model selection: the main, dream, read-image and handover models.
+- **FR-016**: Speech-to-text, text-to-speech, image generation and embedding provider choices MUST keep working with their current providers and models. In this feature their pickers **stay curated** and are not driven by the catalogue. They move onto vizier's own provider layer (FR-017) without changing what they offer. The catalogue drives only chat-model selection: the main, dream and read-image models.
 - **FR-016a**: Credentials MUST be saved once per provider and shared by every feature that uses that provider. One saved OpenAI key (or `OPENAI_API_KEY`) MUST serve chat, speech-to-text, text-to-speech, image generation and embeddings alike, which is today's behaviour. Each curated media or embedding provider MUST refer to the same provider id as its chat counterpart (for example, Gemini speech-to-text and embeddings use the `google` credentials after migration, and Together embeddings use `togetherai`), so the FR-015 migration never makes an operator enter a key again. Providers used only for media or embeddings (ElevenLabs, Voyage AI, Hyperbolic) MUST still be able to save credentials in the providers settings, even though they are not chat providers.
 
 **rig removal**
