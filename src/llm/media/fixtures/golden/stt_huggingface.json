@@ -1,0 +1,16 @@
+{
+  "kind": "stt",
+  "model": "openai/whisper-large-v3",
+  "our_suffix": "/hf-inference/models",
+  "request": {
+    "body": {
+      "inputs": "T2dnUy1mYWtlLWF1ZGlvLWJ5dGVz"
+    },
+    "path": "/openai/whisper-large-v3"
+  },
+  "response": {
+    "body_b64": "eyJ0ZXh0IjoiaGVsbG8gd29ybGQifQ==",
+    "content_type": "application/json"
+  },
+  "rig_output": "hello world"
+}

@@ -1,0 +1,18 @@
+{
+  "kind": "tts",
+  "model": "grok-tts",
+  "our_suffix": "/v1",
+  "request": {
+    "body": {
+      "language": "en",
+      "text": "hi there",
+      "voice_id": "alloy"
+    },
+    "path": "/v1/tts"
+  },
+  "response": {
+    "body_b64": "eGFpLWF1ZGlvLWJ5dGVz",
+    "content_type": "audio/mpeg"
+  },
+  "rig_output": "eGFpLWF1ZGlvLWJ5dGVz"
+}

@@ -1,0 +1,18 @@
+{
+  "kind": "image",
+  "model": "gpt-image-1",
+  "our_suffix": "",
+  "request": {
+    "body": {
+      "model": "gpt-image-1",
+      "prompt": "a tomato",
+      "size": "1024x768"
+    },
+    "path": "/images/generations"
+  },
+  "response": {
+    "body_b64": "eyJjcmVhdGVkIjoxLCJkYXRhIjpbeyJiNjRfanNvbiI6ImlWQk9SdzBLR2dvQUFBQU5TVWhFVWdBQUFBRUFBQUFCQ0FZQUFBQWZGY1NKQUFBQURVbEVRVlI0Mm1QOHo4QlFEd0FFaFFHQWhLbU1JUUFBQUFCSlJVNUVya0pnZ2c9PSJ9XX0=",
+    "content_type": "application/json"
+  },
+  "rig_output": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+}

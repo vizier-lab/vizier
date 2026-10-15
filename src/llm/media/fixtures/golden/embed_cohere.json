@@ -1,0 +1,32 @@
+{
+  "kind": "embed",
+  "model": "embed-english-v3.0",
+  "our_suffix": "/v1",
+  "request": {
+    "body": {
+      "input_type": "search_document",
+      "model": "embed-english-v3.0",
+      "texts": [
+        "the garden",
+        "tomatoes grow in summer"
+      ]
+    },
+    "path": "/v1/embed"
+  },
+  "response": {
+    "body_b64": "eyJlbWJlZGRpbmdzIjpbWzAuMTI1LC0wLjUsMC4zMzMzMzMzMzMzMzMzMzNdLFsxZS03LDIuNSwtMy43NV1dLCJpZCI6ImUiLCJtZXRhIjp7ImFwaV92ZXJzaW9uIjp7InZlcnNpb24iOiIxIn0sImJpbGxlZF91bml0cyI6eyJpbnB1dF90b2tlbnMiOjJ9fSwidGV4dHMiOlsiYSIsImIiXX0=",
+    "content_type": "application/json"
+  },
+  "rig_output": [
+    [
+      0.125,
+      -0.5,
+      0.333333333333333
+    ],
+    [
+      1e-7,
+      2.5,
+      -3.75
+    ]
+  ]
+}

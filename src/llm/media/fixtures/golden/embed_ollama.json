@@ -1,0 +1,31 @@
+{
+  "kind": "embed",
+  "model": "nomic-embed-text",
+  "our_suffix": "",
+  "request": {
+    "body": {
+      "input": [
+        "the garden",
+        "tomatoes grow in summer"
+      ],
+      "model": "nomic-embed-text"
+    },
+    "path": "/api/embed"
+  },
+  "response": {
+    "body_b64": "eyJlbWJlZGRpbmdzIjpbWzAuMTI1LC0wLjUsMC4zMzMzMzMzMzMzMzMzMzNdLFsxZS03LDIuNSwtMy43NV1dLCJtb2RlbCI6Im5vbWljLWVtYmVkLXRleHQifQ==",
+    "content_type": "application/json"
+  },
+  "rig_output": [
+    [
+      0.125,
+      -0.5,
+      0.333333333333333
+    ],
+    [
+      1e-7,
+      2.5,
+      -3.75
+    ]
+  ]
+}

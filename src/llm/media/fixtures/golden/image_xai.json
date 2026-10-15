@@ -1,0 +1,19 @@
+{
+  "kind": "image",
+  "model": "grok-2-image",
+  "our_suffix": "/v1",
+  "request": {
+    "body": {
+      "aspect_ratio": "1:1",
+      "model": "grok-2-image",
+      "prompt": "a tomato",
+      "response_format": "b64_json"
+    },
+    "path": "/v1/images/generations"
+  },
+  "response": {
+    "body_b64": "eyJkYXRhIjpbeyJiNjRfanNvbiI6ImlWQk9SdzBLR2dvQUFBQU5TVWhFVWdBQUFBRUFBQUFCQ0FZQUFBQWZGY1NKQUFBQURVbEVRVlI0Mm1QOHo4QlFEd0FFaFFHQWhLbU1JUUFBQUFCSlJVNUVya0pnZ2c9PSJ9XX0=",
+    "content_type": "application/json"
+  },
+  "rig_output": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+}

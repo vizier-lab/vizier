@@ -1,0 +1,30 @@
+{
+  "kind": "stt",
+  "model": "whisper-1",
+  "our_suffix": "",
+  "request": {
+    "multipart": [
+      {
+        "filename": null,
+        "name": "model",
+        "value": "whisper-1"
+      },
+      {
+        "filename": "voice.ogg",
+        "name": "file",
+        "value": "OggS-fake-audio-bytes"
+      },
+      {
+        "filename": null,
+        "name": "language",
+        "value": "en"
+      }
+    ],
+    "path": "/audio/transcriptions"
+  },
+  "response": {
+    "body_b64": "eyJ0ZXh0IjoiaGVsbG8gd29ybGQifQ==",
+    "content_type": "application/json"
+  },
+  "rig_output": "hello world"
+}

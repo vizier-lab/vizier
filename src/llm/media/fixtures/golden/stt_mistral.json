@@ -1,0 +1,30 @@
+{
+  "kind": "stt",
+  "model": "voxtral-mini-latest",
+  "our_suffix": "/v1",
+  "request": {
+    "multipart": [
+      {
+        "filename": null,
+        "name": "model",
+        "value": "voxtral-mini-latest"
+      },
+      {
+        "filename": "voice.ogg",
+        "name": "file",
+        "value": "OggS-fake-audio-bytes"
+      },
+      {
+        "filename": null,
+        "name": "language",
+        "value": "en"
+      }
+    ],
+    "path": "/v1/audio/transcriptions"
+  },
+  "response": {
+    "body_b64": "eyJsYW5ndWFnZSI6ImVuIiwibW9kZWwiOiJ2b3h0cmFsIiwic2VnbWVudHMiOltdLCJ0ZXh0IjoiaGVsbG8gd29ybGQiLCJ1c2FnZSI6eyJjb21wbGV0aW9uX3Rva2VucyI6MSwicHJvbXB0X2F1ZGlvX3NlY29uZHMiOjEsInByb21wdF90b2tlbnMiOjEsInRvdGFsX3Rva2VucyI6Mn19",
+    "content_type": "application/json"
+  },
+  "rig_output": "hello world"
+}

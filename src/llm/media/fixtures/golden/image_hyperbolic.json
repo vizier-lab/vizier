@@ -1,0 +1,19 @@
+{
+  "kind": "image",
+  "model": "SDXL1.0-base",
+  "our_suffix": "/v1",
+  "request": {
+    "body": {
+      "height": 768,
+      "model_name": "SDXL1.0-base",
+      "prompt": "a tomato",
+      "width": 1024
+    },
+    "path": "/v1/image/generation"
+  },
+  "response": {
+    "body_b64": "eyJpbWFnZXMiOlt7ImltYWdlIjoiaVZCT1J3MEtHZ29BQUFBTlNVaEVVZ0FBQUFFQUFBQUJDQVlBQUFBZkZjU0pBQUFBRFVsRVFWUjQybVA4ejhCUUR3QUVoUUdBaEttTUlRQUFBQUJKUlU1RXJrSmdnZz09In1dfQ==",
+    "content_type": "application/json"
+  },
+  "rig_output": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+}

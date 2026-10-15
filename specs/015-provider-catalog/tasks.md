@@ -176,14 +176,14 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 ### Media clients (implementing vizier's existing traits directly)
 
-- [ ] T022 [P] Create `src/llm/media/openai_shaped.rs`: `OpenAiShaped { http, base_url, credential, model }`, implementing these existing traits:
+- [X] T022 [P] Create `src/llm/media/openai_shaped.rs`: `OpenAiShaped { http, base_url, credential, model }`, implementing these existing traits:
   - `crate::stt::VizierSttModel`: multipart `/audio/transcriptions` with `file`, `model` and optional `language`;
   - `crate::tts::VizierTtsModel`: `/audio/speech` with `{model, input, voice, speed}`, passed through the existing `tts::mp3_to_wav`;
   - `crate::image_generation::VizierImageGenModel`: `/images/generations` with `{model, prompt, size: "WxH"}`, decoding `b64_json` or fetching `url`, and returning `image/png`;
   - `crate::embedding::VizierEmbeddingModel`: `/embeddings` with `{model, input: [..]}`, returning `Vec<Vec<f64>>` in input order.
 
   Port request fields and defaults from the matching rig 0.39 modules for openai, groq, mistral, openrouter, xai, together, copilot and voyageai (depends on T010, T013).
-- [ ] T023 [P] Create these media clients, each implementing the existing `Vizier*Model` trait(s), ported from the corresponding rig 0.39 modules:
+- [X] T023 [P] Create these media clients, each implementing the existing `Vizier*Model` trait(s), ported from the corresponding rig 0.39 modules:
   - `src/llm/media/gemini.rs`: STT by sending inline audio to `generateContent` with a transcription prompt, as rig's gemini transcription does; embeddings via `batchEmbedContents`;
   - `src/llm/media/cohere.rs`: embeddings via `/v2/embed` (`input_type: search_document`, `embedding_types: ["float"]`), as rig does;
   - `src/llm/media/ollama.rs`: embeddings via `/api/embed`;
@@ -234,17 +234,17 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - **Capabilities and cost.**
 
   Credential lookup follows data-model §4 (saved, then catalogue `env[]`, then legacy env vars), using the existing `provider_keys.rs` functions for now. Unit tests cover: context-window order (explicit → `limit.input` → `limit.context` → none); max-output rules; route override; Azure expansion (depends on T013, T027, T028).
-- [ ] T030 Create `src/llm/mod.rs` with `pub fn build(resolved: ResolvedModel, http, retry: CompletionRetryConfig) -> Arc<dyn CompletionModel>`. It matches `DialectKind` once, as the module constructor does, to construct `HttpModel<D>`, wrapped in `RetryingModel`. Re-export the public types (depends on T014, T017–T021, T029).
+- [X] T030 Create `src/llm/mod.rs` with `pub fn build(resolved: ResolvedModel, http, retry: CompletionRetryConfig) -> Arc<dyn CompletionModel>`. It matches `DialectKind` once, as the module constructor does, to construct `HttpModel<D>`, wrapped in `RetryingModel`. Re-export the public types (depends on T014, T017–T021, T029).
 
 ### Golden fixtures from rig (rig still present)
 
-- [ ] T031 Add a temporary `#[cfg(test)] mod golden_capture` in `src/llm/golden_capture.rs`. Its single `#[ignore]` test starts an axum capture server on `127.0.0.1:0` that records request bodies and returns canned responses. It points the **rig 0.39** clients at that server through their `base_url` builders: openai Responses, OpenAI chat (`CompletionsClient`), anthropic, gemini, ollama, deepseek, the ChatGPT SSE path, and the rig media clients for each `OpenAiShaped`/gemini/cohere/ollama/hyperbolic/huggingface path. For every scenario in T017–T023 it writes these files to `src/llm/dialect/fixtures/golden/<dialect>/<scenario>.{request,response,parsed}.json`:
+- [X] T031 Add a temporary `#[cfg(test)] mod golden_capture` in `src/llm/golden_capture.rs`. Its single `#[ignore]` test starts an axum capture server on `127.0.0.1:0` that records request bodies and returns canned responses. It points the **rig 0.39** clients at that server through their `base_url` builders: openai Responses, OpenAI chat (`CompletionsClient`), anthropic, gemini, ollama, deepseek, the ChatGPT SSE path, and the rig media clients for each `OpenAiShaped`/gemini/cohere/ollama/hyperbolic/huggingface path. For every scenario in T017–T023 it writes these files to `src/llm/dialect/fixtures/golden/<dialect>/<scenario>.{request,response,parsed}.json`:
   - the request body rig sent;
   - the canned response;
   - rig's parsed result, normalised to `llm::types` JSON.
 
   For embeddings it also records the returned vectors. Run it once with `cargo test -- --ignored golden_capture` and commit the fixtures (depends on T017–T023).
-- [ ] T032 [P] Add `src/llm/dialect/golden_tests.rs`. It loads every fixture under `fixtures/golden/` and asserts that our `encode` produces a request body semantically equal (as JSON values) to rig's, after normalising documented intentional differences, which are listed in a comment with the reason for each (e.g. `store: false`). It also asserts that our `decode` of the canned response equals rig's parsed result. For media, it uses an axum server to replay the canned responses and compares our output, with vectors equal element-for-element (FR-020) (depends on T031).
+- [X] T032 [P] Add `src/llm/dialect/golden_tests.rs`. It loads every fixture under `fixtures/golden/` and asserts that our `encode` produces a request body semantically equal (as JSON values) to rig's, after normalising documented intentional differences, which are listed in a comment with the reason for each (e.g. `store: false`). It also asserts that our `decode` of the canned response equals rig's parsed result. For media, it uses an axum server to replay the canned responses and compares our output, with vectors equal element-for-element (FR-020) (depends on T031).
 - [ ] T033 [P] Add transport tests in `src/llm/transport_tests.rs` (`#[cfg(test)]`), using an axum server on `127.0.0.1:0`:
   - a 429 with `Retry-After: 2` makes `RetryingModel` wait at least 2s and then succeed;
   - 500, 503 and 529 are retried; 400 fails at once;

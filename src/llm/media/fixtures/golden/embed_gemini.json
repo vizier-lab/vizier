@@ -1,0 +1,50 @@
+{
+  "kind": "embed",
+  "model": "text-embedding-004",
+  "our_suffix": "/v1beta",
+  "request": {
+    "body": {
+      "requests": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "the garden"
+              }
+            ]
+          },
+          "model": "models/text-embedding-004",
+          "output_dimensionality": 768
+        },
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "tomatoes grow in summer"
+              }
+            ]
+          },
+          "model": "models/text-embedding-004",
+          "output_dimensionality": 768
+        }
+      ]
+    },
+    "path": "/v1beta/models/text-embedding-004:batchEmbedContents?key=test-key"
+  },
+  "response": {
+    "body_b64": "eyJlbWJlZGRpbmdzIjpbeyJ2YWx1ZXMiOlswLjEyNSwtMC41LDAuMzMzMzMzMzMzMzMzMzMzXX0seyJ2YWx1ZXMiOlsxZS03LDIuNSwtMy43NV19XX0=",
+    "content_type": "application/json"
+  },
+  "rig_output": [
+    [
+      0.125,
+      -0.5,
+      0.333333333333333
+    ],
+    [
+      1e-7,
+      2.5,
+      -3.75
+    ]
+  ]
+}

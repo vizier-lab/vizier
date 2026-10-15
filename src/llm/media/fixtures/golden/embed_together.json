@@ -1,0 +1,31 @@
+{
+  "kind": "embed",
+  "model": "togethercomputer/m2-bert-80M-8k-retrieval",
+  "our_suffix": "/v1",
+  "request": {
+    "body": {
+      "input": [
+        "the garden",
+        "tomatoes grow in summer"
+      ],
+      "model": "togethercomputer/m2-bert-80M-8k-retrieval"
+    },
+    "path": "/v1/embeddings"
+  },
+  "response": {
+    "body_b64": "eyJkYXRhIjpbeyJlbWJlZGRpbmciOlswLjEyNSwtMC41LDAuMzMzMzMzMzMzMzMzMzMzXSwiaW5kZXgiOjAsIm9iamVjdCI6ImVtYmVkZGluZyJ9LHsiZW1iZWRkaW5nIjpbMWUtNywyLjUsLTMuNzVdLCJpbmRleCI6MSwib2JqZWN0IjoiZW1iZWRkaW5nIn1dLCJpZCI6ImVtYi0xIiwibW9kZWwiOiJtIiwib2JqZWN0IjoibGlzdCIsInVzYWdlIjp7ImNvbXBsZXRpb25fdG9rZW5zIjowLCJwcm9tcHRfdG9rZW5zIjo0LCJ0b3RhbF90b2tlbnMiOjR9fQ==",
+    "content_type": "application/json"
+  },
+  "rig_output": [
+    [
+      0.125,
+      -0.5,
+      0.333333333333333
+    ],
+    [
+      1e-7,
+      2.5,
+      -3.75
+    ]
+  ]
+}

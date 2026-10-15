@@ -1,0 +1,19 @@
+{
+  "kind": "tts",
+  "model": "EN",
+  "our_suffix": "/v1",
+  "request": {
+    "body": {
+      "language": "EN",
+      "speaker": "EN-US",
+      "speed": 1.25,
+      "text": "hi there"
+    },
+    "path": "/v1/audio/generation"
+  },
+  "response": {
+    "body_b64": "eyJhdWRpbyI6ImFIbHdaWEppYjJ4cFl5MWhkV1JwYnc9PSJ9",
+    "content_type": "application/json"
+  },
+  "rig_output": "aHlwZXJib2xpYy1hdWRpbw=="
+}

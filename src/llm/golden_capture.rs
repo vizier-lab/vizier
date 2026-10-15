@@ -917,3 +917,238 @@ async fn golden_capture() {
         }
     }
 }
+
+// Media ----------------------------------------------------------------------------------------
+
+/// One media golden case. `our_suffix` is what our base URL adds to the server URL so that
+/// both clients reach the same full URL (rig's base URLs stop at the host for some providers;
+/// ours follow the AI SDK convention).
+pub(crate) struct MediaCase {
+    pub name: &'static str,
+    pub kind: &'static str,
+    pub model: &'static str,
+    pub our_suffix: &'static str,
+    pub response_type: &'static str,
+    pub response: Vec<u8>,
+}
+
+/// A silent MPEG-1 Layer III frame (128 kbps, 44.1 kHz): enough for `mp3_to_wav`.
+pub(crate) fn silent_mp3() -> Vec<u8> {
+    let mut frame = vec![0xFF, 0xFB, 0x90, 0x64];
+    frame.resize(417, 0);
+    frame.repeat(4)
+}
+
+pub(crate) fn media_cases() -> Vec<MediaCase> {
+    let j = |v: Value| v.to_string().into_bytes();
+    let b64png = base64::engine::general_purpose::STANDARD.encode(png());
+    let embed_openai = j(json!({"id": "emb-1", "object": "list", "model": "m", "data": [
+        {"object": "embedding", "index": 0, "embedding": [0.125, -0.5, 0.333333333333333]},
+        {"object": "embedding", "index": 1, "embedding": [1.0e-7, 2.5, -3.75]}
+    ], "usage": {"prompt_tokens": 4, "total_tokens": 4, "completion_tokens": 0}}));
+    let case = |name, kind, model, our_suffix, response_type, response| MediaCase {
+        name,
+        kind,
+        model,
+        our_suffix,
+        response_type,
+        response,
+    };
+    vec![
+        case("stt_openai", "stt", "whisper-1", "", "application/json", j(json!({"text": "hello world"}))),
+        case("stt_groq", "stt", "whisper-large-v3", "", "application/json", j(json!({"text": "hello world"}))),
+        case("stt_mistral", "stt", "voxtral-mini-latest", "/v1", "application/json", j(json!({"text": "hello world", "model": "voxtral", "language": "en", "segments": [], "usage": {"prompt_audio_seconds": 1, "prompt_tokens": 1, "total_tokens": 2, "completion_tokens": 1}}))),
+        case("stt_gemini", "stt", "gemini-2.5-flash", "/v1beta", "application/json", j(json!({
+            "responseId": "r", "candidates": [{"content": {"role": "model", "parts": [{"text": "hello world"}]}, "finishReason": "STOP"}],
+            "usageMetadata": {"promptTokenCount": 3, "totalTokenCount": 5}
+        }))),
+        case("stt_huggingface", "stt", "openai/whisper-large-v3", "/hf-inference/models", "application/json", j(json!({"text": "hello world"}))),
+        case("tts_openai", "tts", "tts-1", "", "audio/mpeg", silent_mp3()),
+        case("tts_openrouter", "tts", "openai/gpt-4o-mini-tts", "", "audio/mpeg", silent_mp3()),
+        case("tts_xai", "tts", "grok-tts", "/v1", "audio/mpeg", b"xai-audio-bytes".to_vec()),
+        case("tts_hyperbolic", "tts", "EN", "/v1", "application/json", j(json!({"audio": base64::engine::general_purpose::STANDARD.encode(b"hyperbolic-audio")}))),
+        case("image_openai_dalle", "image", "dall-e-3", "", "application/json", j(json!({"created": 1, "data": [{"b64_json": b64png}]}))),
+        case("image_openai_gpt", "image", "gpt-image-1", "", "application/json", j(json!({"created": 1, "data": [{"b64_json": b64png}]}))),
+        case("image_xai", "image", "grok-2-image", "/v1", "application/json", j(json!({"data": [{"b64_json": b64png}]}))),
+        case("image_hyperbolic", "image", "SDXL1.0-base", "/v1", "application/json", j(json!({"images": [{"image": b64png}]}))),
+        case("image_huggingface", "image", "stabilityai/stable-diffusion-xl-base-1.0", "/hf-inference/models", "image/png", png()),
+        case("embed_openai", "embed", "text-embedding-3-small", "", "application/json", embed_openai.clone()),
+        case("embed_openai_ada", "embed", "text-embedding-ada-002", "", "application/json", embed_openai.clone()),
+        case("embed_openrouter", "embed", "openai/text-embedding-3-small", "", "application/json", embed_openai.clone()),
+        case("embed_together", "embed", "togethercomputer/m2-bert-80M-8k-retrieval", "/v1", "application/json", embed_openai.clone()),
+        case("embed_mistral", "embed", "mistral-embed", "/v1", "application/json", embed_openai.clone()),
+        case("embed_voyageai", "embed", "voyage-3.5", "", "application/json", embed_openai.clone()),
+        case("embed_copilot", "embed", "text-embedding-3-small", "", "application/json", embed_openai.clone()),
+        case("embed_cohere", "embed", "embed-english-v3.0", "/v1", "application/json", j(json!({
+            "id": "e", "texts": ["a", "b"], "embeddings": [[0.125, -0.5, 0.333333333333333], [1.0e-7, 2.5, -3.75]],
+            "meta": {"api_version": {"version": "1"}, "billed_units": {"input_tokens": 2}}
+        }))),
+        case("embed_gemini", "embed", "text-embedding-004", "/v1beta", "application/json", j(json!({"embeddings": [
+            {"values": [0.125, -0.5, 0.333333333333333]}, {"values": [1.0e-7, 2.5, -3.75]}
+        ]}))),
+        case("embed_ollama", "embed", "nomic-embed-text", "", "application/json", j(json!({
+            "model": "nomic-embed-text", "embeddings": [[0.125, -0.5, 0.333333333333333], [1.0e-7, 2.5, -3.75]]
+        }))),
+    ]
+}
+
+pub(crate) const MEDIA_AUDIO: &[u8] = b"OggS-fake-audio-bytes";
+pub(crate) const MEDIA_FILENAME: &str = "voice.ogg";
+pub(crate) const MEDIA_DOCS: [&str; 2] = ["the garden", "tomatoes grow in summer"];
+
+/// The fields of a multipart body, as `(name, filename, value)`; file values are base64.
+pub(crate) fn multipart_fields(body: &[u8], content_type: &str) -> Value {
+    let boundary = content_type
+        .split("boundary=")
+        .nth(1)
+        .unwrap_or_default()
+        .trim_matches('"');
+    let text = String::from_utf8_lossy(body);
+    let mut fields = vec![];
+    for part in text.split(&format!("--{boundary}")) {
+        let Some((head, value)) = part.split_once("\r\n\r\n") else {
+            continue;
+        };
+        let name = head
+            .split("name=\"")
+            .nth(1)
+            .and_then(|s| s.split('"').next())
+            .unwrap_or_default();
+        let filename = head
+            .split("filename=\"")
+            .nth(1)
+            .and_then(|s| s.split('"').next());
+        let value = value.trim_end_matches("\r\n");
+        fields.push(json!({"name": name, "filename": filename, "value": value}));
+    }
+    Value::Array(fields)
+}
+
+#[derive(Default)]
+struct RawCapture {
+    response: (String, Vec<u8>),
+    seen: Vec<(String, Vec<u8>, String)>,
+}
+
+type RawShared = Arc<Mutex<RawCapture>>;
+
+async fn raw_handler(State(state): State<RawShared>, uri: Uri, headers: HeaderMap, body: Bytes) -> impl IntoResponse {
+    let mut s = state.lock().unwrap();
+    let ct = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    s.seen.push((uri.to_string(), body.to_vec(), ct));
+    let (content_type, body) = s.response.clone();
+    (StatusCode::OK, [("content-type", content_type)], body)
+}
+
+pub(crate) async fn raw_server() -> (String, Arc<Mutex<Vec<(String, Vec<u8>, String)>>>, Arc<Mutex<(String, Vec<u8>)>>) {
+    let state: RawShared = Arc::default();
+    let app = Router::new().fallback(raw_handler).with_state(state.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    // Thin views over the one state, so callers set the response and read what was seen.
+    let seen = Arc::new(Mutex::new(vec![]));
+    let response = Arc::new(Mutex::new((String::new(), vec![])));
+    let (s1, s2, st) = (seen.clone(), response.clone(), state.clone());
+    tokio::spawn(async move {
+        loop {
+            {
+                let mut inner = st.lock().unwrap();
+                inner.response = s2.lock().unwrap().clone();
+                let drained: Vec<_> = inner.seen.drain(..).collect();
+                s1.lock().unwrap().extend(drained);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+    });
+    (url, seen, response)
+}
+
+#[tokio::test]
+#[ignore = "records media fixtures from rig 0.39; run once with --ignored before removing rig"]
+async fn golden_capture_media() {
+    use rig_core::audio_generation::AudioGenerationModel as _;
+    use rig_core::embeddings::EmbeddingModel as _;
+    use rig_core::image_generation::ImageGenerationModel as _;
+    use rig_core::prelude::*;
+    use rig_core::providers as p;
+    use rig_core::transcription::TranscriptionRequestBuilder;
+
+    let (url, seen, response) = raw_server().await;
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/llm/media/fixtures/golden");
+    std::fs::create_dir_all(&dir).unwrap();
+
+    for c in media_cases() {
+        *response.lock().unwrap() = (c.response_type.to_string(), c.response.clone());
+        seen.lock().unwrap().clear();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        let docs: Vec<String> = MEDIA_DOCS.iter().map(|s| s.to_string()).collect();
+        let key = "test-key";
+        macro_rules! stt {
+            ($m:expr) => {
+                TranscriptionRequestBuilder::new($m)
+                    .data(MEDIA_AUDIO.to_vec())
+                    .filename(Some(MEDIA_FILENAME.to_string()))
+                    .language("en".to_string())
+            };
+        }
+        let output: Result<Value, String> = match c.name {
+            "stt_openai" => stt!(p::openai::Client::builder().api_key(key).base_url(&url).build().unwrap().transcription_model(c.model)).send().await.map(|r| json!(r.text)).map_err(|e| e.to_string()),
+            "stt_groq" => stt!(p::groq::Client::builder().api_key(key).base_url(&url).build().unwrap().transcription_model(c.model)).send().await.map(|r| json!(r.text)).map_err(|e| e.to_string()),
+            "stt_mistral" => stt!(p::mistral::Client::builder().api_key(key).base_url(&url).build().unwrap().transcription_model(c.model)).send().await.map(|r| json!(r.text)).map_err(|e| e.to_string()),
+            "stt_gemini" => stt!(p::gemini::Client::builder().api_key(key).base_url(&url).build().unwrap().transcription_model(c.model)).send().await.map(|r| json!(r.text)).map_err(|e| e.to_string()),
+            "stt_huggingface" => stt!(p::huggingface::Client::builder().api_key(key).base_url(&url).build().unwrap().transcription_model(c.model)).send().await.map(|r| json!(r.text)).map_err(|e| e.to_string()),
+            "tts_openai" => p::openai::Client::builder().api_key(key).base_url(&url).build().unwrap().audio_generation_model(c.model).audio_generation_request().text("hi there").voice("alloy").speed(1.25).send().await.map(|r| json!(base64::engine::general_purpose::STANDARD.encode(r.audio))).map_err(|e| e.to_string()),
+            "tts_openrouter" => p::openrouter::Client::builder().api_key(key).base_url(&url).build().unwrap().audio_generation_model(c.model).audio_generation_request().text("hi there").voice("alloy").speed(1.25).send().await.map(|r| json!(base64::engine::general_purpose::STANDARD.encode(r.audio))).map_err(|e| e.to_string()),
+            "tts_xai" => p::xai::Client::builder().api_key(key).base_url(&url).build().unwrap().audio_generation_model(c.model).audio_generation_request().text("hi there").voice("alloy").speed(1.25).send().await.map(|r| json!(base64::engine::general_purpose::STANDARD.encode(r.audio))).map_err(|e| e.to_string()),
+            "tts_hyperbolic" => p::hyperbolic::Client::builder().api_key(key).base_url(&url).build().unwrap().audio_generation_model(c.model).audio_generation_request().text("hi there").voice("EN-US").speed(1.25).send().await.map(|r| json!(base64::engine::general_purpose::STANDARD.encode(r.audio))).map_err(|e| e.to_string()),
+            "image_openai_dalle" | "image_openai_gpt" => p::openai::Client::builder().api_key(key).base_url(&url).build().unwrap().image_generation_model(c.model).image_generation_request().prompt("a tomato").width(1024).height(768).send().await.map(|r| json!(base64::engine::general_purpose::STANDARD.encode(r.image))).map_err(|e| e.to_string()),
+            "image_xai" => p::xai::Client::builder().api_key(key).base_url(&url).build().unwrap().image_generation_model(c.model).image_generation_request().prompt("a tomato").width(1024).height(768).send().await.map(|r| json!(base64::engine::general_purpose::STANDARD.encode(r.image))).map_err(|e| e.to_string()),
+            "image_hyperbolic" => p::hyperbolic::Client::builder().api_key(key).base_url(&url).build().unwrap().image_generation_model(c.model).image_generation_request().prompt("a tomato").width(1024).height(768).send().await.map(|r| json!(base64::engine::general_purpose::STANDARD.encode(r.image))).map_err(|e| e.to_string()),
+            "image_huggingface" => p::huggingface::Client::builder().api_key(key).base_url(&url).build().unwrap().image_generation_model(c.model).image_generation_request().prompt("a tomato").width(1024).height(768).send().await.map(|r| json!(base64::engine::general_purpose::STANDARD.encode(r.image))).map_err(|e| e.to_string()),
+            "embed_openai" | "embed_openai_ada" => p::openai::Client::builder().api_key(key).base_url(&url).build().unwrap().embedding_model(c.model).embed_texts(docs).await.map(|v| json!(v.into_iter().map(|e| e.vec).collect::<Vec<_>>())).map_err(|e| e.to_string()),
+            "embed_openrouter" => p::openrouter::Client::builder().api_key(key).base_url(&url).build().unwrap().embedding_model(c.model).embed_texts(docs).await.map(|v| json!(v.into_iter().map(|e| e.vec).collect::<Vec<_>>())).map_err(|e| e.to_string()),
+            "embed_together" => p::together::Client::builder().api_key(key).base_url(&url).build().unwrap().embedding_model(c.model).embed_texts(docs).await.map(|v| json!(v.into_iter().map(|e| e.vec).collect::<Vec<_>>())).map_err(|e| e.to_string()),
+            "embed_mistral" => p::mistral::Client::builder().api_key(key).base_url(&url).build().unwrap().embedding_model(c.model).embed_texts(docs).await.map(|v| json!(v.into_iter().map(|e| e.vec).collect::<Vec<_>>())).map_err(|e| e.to_string()),
+            "embed_voyageai" => p::voyageai::Client::builder().api_key(key).base_url(&url).build().unwrap().embedding_model(c.model).embed_texts(docs).await.map(|v| json!(v.into_iter().map(|e| e.vec).collect::<Vec<_>>())).map_err(|e| e.to_string()),
+            "embed_copilot" => p::copilot::Client::builder().api_key(p::copilot::CopilotAuth::ApiKey("tid=1;exp=9999999999".into())).base_url(&url).build().unwrap().embedding_model(c.model).embed_texts(docs).await.map(|v| json!(v.into_iter().map(|e| e.vec).collect::<Vec<_>>())).map_err(|e| e.to_string()),
+            "embed_cohere" => p::cohere::Client::builder().api_key(key).base_url(&url).build().unwrap().embedding_model(c.model, "search_document").embed_texts(docs).await.map(|v| json!(v.into_iter().map(|e| e.vec).collect::<Vec<_>>())).map_err(|e| e.to_string()),
+            "embed_gemini" => p::gemini::Client::builder().api_key(key).base_url(&url).build().unwrap().embedding_model(c.model).embed_texts(docs).await.map(|v| json!(v.into_iter().map(|e| e.vec).collect::<Vec<_>>())).map_err(|e| e.to_string()),
+            "embed_ollama" => p::ollama::Client::builder().api_key(rig_core::client::Nothing).base_url(&url).build().unwrap().embedding_model(c.model).embed_texts(docs).await.map(|v| json!(v.into_iter().map(|e| e.vec).collect::<Vec<_>>())).map_err(|e| e.to_string()),
+            other => panic!("no rig driver for {other}"),
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        let (path, body, ct) = seen
+            .lock()
+            .unwrap()
+            .last()
+            .cloned()
+            .unwrap_or_else(|| panic!("{}: rig sent nothing", c.name));
+        let request = if ct.starts_with("multipart/") {
+            json!({"path": path, "multipart": multipart_fields(&body, &ct)})
+        } else {
+            json!({"path": path, "body": serde_json::from_slice::<Value>(&body).unwrap_or(Value::Null)})
+        };
+        let fixture = json!({
+            "kind": c.kind,
+            "model": c.model,
+            "our_suffix": c.our_suffix,
+            "request": request,
+            "response": {"content_type": c.response_type,
+                         "body_b64": base64::engine::general_purpose::STANDARD.encode(&c.response)},
+            "rig_output": match output { Ok(v) => v, Err(e) => json!({"error": e}) },
+        });
+        std::fs::write(
+            dir.join(format!("{}.json", c.name)),
+            serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+        )
+        .unwrap();
+        println!("{}: {path}", c.name);
+    }
+}

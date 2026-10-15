@@ -1,0 +1,20 @@
+{
+  "kind": "image",
+  "model": "stabilityai/stable-diffusion-xl-base-1.0",
+  "our_suffix": "/hf-inference/models",
+  "request": {
+    "body": {
+      "inputs": "a tomato",
+      "parameters": {
+        "height": 768,
+        "width": 1024
+      }
+    },
+    "path": "/stabilityai/stable-diffusion-xl-base-1.0"
+  },
+  "response": {
+    "body_b64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "content_type": "image/png"
+  },
+  "rig_output": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+}

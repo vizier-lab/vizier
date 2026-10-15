@@ -1,0 +1,41 @@
+{
+  "kind": "stt",
+  "model": "gemini-2.5-flash",
+  "our_suffix": "/v1beta",
+  "request": {
+    "body": {
+      "contents": [
+        {
+          "parts": [
+            {
+              "inlineData": {
+                "data": "T2dnUy1mYWtlLWF1ZGlvLWJ5dGVz",
+                "mimeType": "audio/ogg"
+              },
+              "thought": false
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "generationConfig": {},
+      "safetySettings": null,
+      "systemInstruction": {
+        "parts": [
+          {
+            "text": "Translate the provided audio exactly. Do not add additional information.",
+            "thought": false
+          }
+        ],
+        "role": "model"
+      },
+      "toolConfig": null
+    },
+    "path": "/v1beta/models/gemini-2.5-flash:generateContent?key=test-key"
+  },
+  "response": {
+    "body_b64": "eyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJ0ZXh0IjoiaGVsbG8gd29ybGQifV0sInJvbGUiOiJtb2RlbCJ9LCJmaW5pc2hSZWFzb24iOiJTVE9QIn1dLCJyZXNwb25zZUlkIjoiciIsInVzYWdlTWV0YWRhdGEiOnsicHJvbXB0VG9rZW5Db3VudCI6MywidG90YWxUb2tlbkNvdW50Ijo1fX0=",
+    "content_type": "application/json"
+  },
+  "rig_output": "hello world"
+}
