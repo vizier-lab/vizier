@@ -1,0 +1,23 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "Here is what I found."
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "resp-1",
+  "usageMetadata": {
+    "candidatesTokenCount": 9,
+    "promptTokenCount": 120,
+    "totalTokenCount": 129
+  }
+}

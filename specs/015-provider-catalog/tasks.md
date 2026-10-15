@@ -80,7 +80,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 ### `src/llm` core types and transport
 
-- [ ] T008 Create the `src/llm/` module and add `mod llm;` in `src/main.rs`. In `src/llm/types.rs`, implement exactly the types in contract `provider-layer.md` § Types:
+- [X] T008 Create the `src/llm/` module and add `mod llm;` in `src/main.rs`. In `src/llm/types.rs`, implement exactly the types in contract `provider-layer.md` § Types:
   - `Message` with `System`, `User(Vec<Part>)`, `Assistant(Vec<AssistantPart>)` and `ToolResult { call_id, content: Vec<Part> }`. Its constructors (`Message::user_text`, `Message::user(parts)`, …) reject empty content with a `VizierError`.
   - `Part`: `Text`, `Attachment { mime, data: Vec<u8>, name }`.
   - `AssistantPart`: `Text`, `ToolCall { id, name, arguments, provider_data }`, `Reasoning { text, provider_data }`.
@@ -88,17 +88,17 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - `ToolChoice`, and `Usage` with the field names `input_tokens`, `output_tokens`, `total_tokens`, `cached_input_tokens`, `cache_creation_input_tokens`.
   - `CompletionRequest` and `CompletionResponse`.
   - A unit test that `serde_json::to_value(ToolDefinition)` equals the JSON rig produces for the same values.
-- [ ] T009 [P] Create `src/llm/error.rs`:
+- [X] T009 [P] Create `src/llm/error.rs`:
   - `LlmError` with `Http { status, retry_after, body }`, `Transport`, `Timeout`, `Decode`, `Config` and `Unsupported`.
   - `impl From<LlmError> for crate::VizierError`.
   - `fn parse_retry_after(&HeaderValue) -> Option<Duration>`, accepting delta-seconds or an HTTP date, with unit tests (depends on T008).
-- [ ] T010 [P] Create `src/llm/http.rs`. It holds a shared `reqwest::Client`, built once and held on `VizierDependencies` (field added in T012) with `connect_timeout` 10s, and these functions:
+- [X] T010 [P] Create `src/llm/http.rs`. It holds a shared `reqwest::Client`, built once and held on `VizierDependencies` (field added in T012) with `connect_timeout` 10s, and these functions:
   - `send_json(client, req: RequestBuilder) -> Result<(u16, HeaderMap, Bytes), LlmError>`, which maps non-2xx responses to `LlmError::Http` with `retry_after`, connect/reset/DNS/TLS failures to `Transport`, and timeouts to `Timeout`;
   - `send_multipart`, the same for multipart requests;
   - `redact(&str) -> String`, which hides `Bearer …`, `x-api-key`, `api-key`, `x-goog-api-key` and `key=` values for `tracing::debug!` request logs (depends on T009).
-- [ ] T011 [P] Create `src/llm/sse.rs`: `parse_sse_body(&str) -> Vec<(Option<String> event, String data)>`, which handles multi-line `data:` fields, comments and `[DONE]`, with unit tests. It is used only by the ChatGPT backend (research R6) (depends on T009).
+- [X] T011 [P] Create `src/llm/sse.rs`: `parse_sse_body(&str) -> Vec<(Option<String> event, String data)>`, which handles multi-line `data:` fields, comments and `[DONE]`, with unit tests. It is used only by the ChatGPT backend (research R6) (depends on T009).
 - [ ] T012 Add `pub http: reqwest::Client` to `VizierDependencies` in `src/dependencies.rs`, built with `llm::http::client()`. Nothing uses it yet (depends on T010).
-- [ ] T013 [P] Create `src/llm/auth.rs`, per contract `provider-layer.md` § Auth:
+- [X] T013 [P] Create `src/llm/auth.rs`, per contract `provider-layer.md` § Auth:
   - the `CredentialSource` trait (`authorize`, `invalidate`);
   - `StaticKey { style: Bearer | Header(&'static str) | Query(&'static str) | None, key }`;
   - `CopilotExchange`, ported from `~/.cargo/registry/src/*/rig-core-0.39.0/src/providers/copilot/auth/native.rs`. It GETs `https://api.github.com/copilot_internal/v2/token` with the GitHub token, caches the returned token until `expires_at` minus 60s behind a `tokio::sync::Mutex`, adds the editor headers rig sends, and `invalidate()` drops the cache;
@@ -106,31 +106,31 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 ### The completion seam, request preparation and dialects
 
-- [ ] T014 Create `src/llm/model.rs`, per contract `provider-layer.md` § The completion seam:
+- [X] T014 Create `src/llm/model.rs`, per contract `provider-layer.md` § The completion seam:
   - `trait CompletionModel { complete, list_models, context_window }`.
   - `ListedModel`.
   - `struct HttpModel<D: Dialect> { dialect, resolved: Arc<ResolvedModel>, http }`. Its `complete` runs `prepare`, then `D::encode`, `credential.authorize`, `send_json` to `base_url + D::path`, and `D::read_body`, then `D::decode`. On a 401 from a source whose `invalidate` cleared a cached token, it retries once.
   - `RetryingModel<M>`: **move** the retry logic from `src/agents/agent/model/retry.rs` into it. That covers backoff, `attempt_timeout`, the deadline, the `PROMPT_TIMED_OUT`/`RATE_LIMITED`/`PROVIDER_UNAVAILABLE` prefixes, and `complete_until(req, deadline)`. Classify on `LlmError` per the contract's table, apply `classify_text` only to `Decode`, and wait `max(backoff, retry_after)`, capped by the deadline.
   - Keep `retry.rs`'s unit tests, ported to the new module. Leave `retry.rs` in place until T060 (depends on T008, T010, T013).
-- [ ] T015 Create `src/llm/dialect/mod.rs`:
+- [X] T015 Create `src/llm/dialect/mod.rs`:
   - the `Dialect` trait (`path`, `encode`, `decode`, `read_body`, `list_models_path`, `decode_models`);
   - `enum DialectKind { OpenAiChat, OpenAiResponses, Anthropic, Gemini, Ollama }`;
   - `enum SystemStyle { Field, Inline, Instructions }`, with `fn system_style()` on `Dialect`;
   - `BodyKind { Json, Sse }`;
   - `PreparedRequest` (depends on T008).
-- [ ] T016 Create `src/llm/prepare.rs`, per contract `provider-layer.md` § Request preparation, with unit tests for each rule: `prepare(req, &ResolvedModel, SystemStyle) -> PreparedRequest`.
+- [X] T016 Create `src/llm/prepare.rs`, per contract `provider-layer.md` § Request preparation, with unit tests for each rule: `prepare(req, &ResolvedModel, SystemStyle) -> PreparedRequest`.
   - **Attachments**: images are kept unless `caps.image_input == Some(false)`. PDFs are kept only when the input modalities contain `pdf`. Audio is always replaced. A replaced attachment becomes `Part::Text("[image attached: <name>, but this model cannot view images]")`, or a similar note for a document or audio file.
   - **`normalize_system`**:
     - `Field`: leading `System` messages are joined with `\n\n` into `system`, and later ones become a user `Part::Text("<system>…</system>")`.
     - `Inline`: unchanged.
     - `Instructions`: leading messages go to `system`; later ones are kept for the Responses dialect to emit as developer messages (depends on T015).
-- [ ] T017 [P] Implement `src/llm/dialect/openai_chat.rs` (`OpenAiChat`, `SystemStyle::Inline`), per the contract's dialect table:
+- [X] T017 [P] Implement `src/llm/dialect/openai_chat.rs` (`OpenAiChat`, `SystemStyle::Inline`), per the contract's dialect table:
   - `encode`: messages to `role: system|user|assistant|tool`. Attachments become `image_url` data URLs, or `file` parts for PDFs. Each `ToolResult` is its own `role: tool` message with `tool_call_id`. Assistant `ToolCall`s become `tool_calls[{id, type: function, function: {name, arguments: <stringified>}}]`. `Reasoning` with `provider_data.reasoning_content` is sent back as `reasoning_content`. Also `tools[]`, `tool_choice: "auto"|"none"`, and `max_tokens` when set.
   - `decode`: `choices[0].message` to parts, including `reasoning_content` as `Reasoning`; `usage` including `prompt_tokens_details.cached_tokens`; an error object inside a 2xx is `LlmError::Decode`.
   - `list_models_path: "/models"`.
   - Port each field choice from `rig-core-0.39.0/src/providers/openai/completion/` and `…/deepseek.rs`.
   - Fixture tests in `src/llm/dialect/fixtures/openai_chat/` cover: text, a tool call, parallel tool calls, a tool result, an image, reasoning round-trip, `tool_choice none`, and cached usage (depends on T016).
-- [ ] T018 [P] Implement `src/llm/dialect/anthropic.rs` (`Anthropic`, `SystemStyle::Field`):
+- [X] T018 [P] Implement `src/llm/dialect/anthropic.rs` (`Anthropic`, `SystemStyle::Field`):
   - path `/v1/messages`, plus the `anthropic-version: 2023-06-01` header;
   - consecutive `ToolResult`s grouped into one `user` turn of `tool_result` blocks;
   - `tool_use` blocks;
@@ -141,7 +141,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - `list_models_path: "/v1/models"`.
 
   Port from `rig-core-0.39.0/src/providers/anthropic/completion.rs`. Fixture tests as in T017, plus a cache-control placement test (depends on T016).
-- [ ] T019 [P] Implement `src/llm/dialect/gemini.rs` (`Gemini`, `SystemStyle::Field`):
+- [X] T019 [P] Implement `src/llm/dialect/gemini.rs` (`Gemini`, `SystemStyle::Field`):
   - path `/models/{model}:generateContent`, with the key in the `x-goog-api-key` header (via `StaticKey::Header`);
   - `systemInstruction`, `contents[]` with roles `user`/`model`;
   - `functionDeclarations`, with parameters sanitised the way rig's `gemini` module does (strip `$schema`, `$ref`/`definitions` by inlining, `additionalProperties`, unsupported `format`s);
@@ -153,7 +153,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - `list_models_path: "/models"`, decoding `inputTokenLimit` as the context window.
 
   Port from `rig-core-0.39.0/src/providers/gemini/completion.rs`, and test schema sanitising with a fixture taken from a real MCP tool schema (depends on T016).
-- [ ] T020 [P] Implement `src/llm/dialect/ollama.rs` (`Ollama`, `SystemStyle::Inline`):
+- [X] T020 [P] Implement `src/llm/dialect/ollama.rs` (`Ollama`, `SystemStyle::Inline`):
   - path `/api/chat`, with `stream: false`;
   - `tools[]` / `tool_calls[]`, giving each call a synthesised id `call_<n>` when Ollama omits one, as rig does;
   - `role: tool` results;
@@ -164,7 +164,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - plus `fn show_context(base_url, model)`, which POSTs `/api/show` and reads `model_info.*.context_length`.
 
   Port from `rig-core-0.39.0/src/providers/ollama.rs` (depends on T016).
-- [ ] T021 [P] Implement `src/llm/dialect/openai_responses.rs` (`OpenAiResponses`, `SystemStyle::Instructions`):
+- [X] T021 [P] Implement `src/llm/dialect/openai_responses.rs` (`OpenAiResponses`, `SystemStyle::Instructions`):
   - path `/responses`, always `store: false`;
   - `instructions` from the leading system prompt; later system messages become `role: developer` input items;
   - input items: `message`, `function_call` (with `call_id` = `ToolCall.id`), `function_call_output`, and reasoning items carrying `encrypted_content` from `provider_data`, requested with `include: ["reasoning.encrypted_content"]`;
@@ -192,7 +192,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
 ### Catalogue core and provider ids
 
-- [ ] T024 Create `src/catalogue/data.rs` with the types from data-model.md §2: `CatalogueData`, `CatalogueProvider`, `CatalogueModel`, `Capabilities`, `Limits` (where `0` becomes `None`), `Cost`, `ModelStatus`, `RouteOverride`, `CatalogueSource { Bundled, Cached }` and `ProviderKind { Cloud, Local, Media }`. Implement:
+- [X] T024 Create `src/catalogue/data.rs` with the types from data-model.md §2: `CatalogueData`, `CatalogueProvider`, `CatalogueModel`, `Capabilities`, `Limits` (where `0` becomes `None`), `Cost`, `ModelStatus`, `RouteOverride`, `CatalogueSource { Bundled, Cached }` and `ProviderKind { Cloud, Local, Media }`. Implement:
   - `fn parse(json: &[u8]) -> Result<CatalogueData>`: skips (and `debug!`-logs) individual bad models and ignores unknown fields;
   - `fn dialect_for(provider, model) -> Option<(DialectKind, Option<String> api)>`: the research R2 mapping, including per-model `provider.{npm, api, shape}` overrides;
   - the research R3 default base-URL table;

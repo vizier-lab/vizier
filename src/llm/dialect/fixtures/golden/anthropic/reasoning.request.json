@@ -1,0 +1,131 @@
+{
+  "body": {
+    "cache_control": {
+      "type": "ephemeral"
+    },
+    "max_tokens": 64000,
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "What did I say about the garden?",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "content": [
+          {
+            "signature": "sig-history",
+            "thinking": "Plan: search first.",
+            "type": "thinking"
+          },
+          {
+            "text": "Let me check.",
+            "type": "text"
+          },
+          {
+            "id": "toolu_1",
+            "input": {
+              "query": "garden"
+            },
+            "name": "memory_search",
+            "type": "tool_use"
+          },
+          {
+            "id": "toolu_2",
+            "input": {
+              "code": "1+1",
+              "intent": "count"
+            },
+            "name": "execute_python",
+            "type": "tool_use"
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "content": [
+          {
+            "content": [
+              {
+                "text": "You planted tomatoes.",
+                "type": "text"
+              }
+            ],
+            "tool_use_id": "toolu_1",
+            "type": "tool_result"
+          },
+          {
+            "content": [
+              {
+                "text": "{\"ok\": true, \"value\": 2}",
+                "type": "text"
+              }
+            ],
+            "tool_use_id": "toolu_2",
+            "type": "tool_result"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "claude-sonnet-4-5",
+    "system": [
+      {
+        "text": "You are Vizier, a steward.",
+        "type": "text"
+      },
+      {
+        "text": "# CORE\nBe brief.",
+        "type": "text"
+      }
+    ],
+    "tools": [
+      {
+        "description": "Search your memory for passages.",
+        "input_schema": {
+          "properties": {
+            "limit": {
+              "description": "At most this many",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "query": {
+              "description": "What to look for",
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        },
+        "name": "memory_search"
+      },
+      {
+        "description": "Run a Python script in the sandbox.",
+        "input_schema": {
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "intent": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "intent",
+            "code"
+          ],
+          "type": "object"
+        },
+        "name": "execute_python"
+      }
+    ]
+  },
+  "path": "/v1/messages"
+}

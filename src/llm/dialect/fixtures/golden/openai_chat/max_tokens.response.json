@@ -1,0 +1,22 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": "Short.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1760000000,
+  "id": "chatcmpl-1",
+  "model": "gpt-4o",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 9,
+    "prompt_tokens": 120,
+    "total_tokens": 129
+  }
+}

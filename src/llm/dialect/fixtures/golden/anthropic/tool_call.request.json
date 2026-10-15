@@ -1,0 +1,75 @@
+{
+  "body": {
+    "cache_control": {
+      "type": "ephemeral"
+    },
+    "max_tokens": 64000,
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "Search for garden",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "claude-sonnet-4-5",
+    "system": [
+      {
+        "text": "You are Vizier, a steward.",
+        "type": "text"
+      },
+      {
+        "text": "# CORE\nBe brief.",
+        "type": "text"
+      }
+    ],
+    "tools": [
+      {
+        "description": "Search your memory for passages.",
+        "input_schema": {
+          "properties": {
+            "limit": {
+              "description": "At most this many",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "query": {
+              "description": "What to look for",
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        },
+        "name": "memory_search"
+      },
+      {
+        "description": "Run a Python script in the sandbox.",
+        "input_schema": {
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "intent": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "intent",
+            "code"
+          ],
+          "type": "object"
+        },
+        "name": "execute_python"
+      }
+    ]
+  },
+  "path": "/v1/messages"
+}

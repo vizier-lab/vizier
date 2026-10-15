@@ -1,0 +1,38 @@
+{
+  "body": {
+    "input": [
+      {
+        "content": [
+          {
+            "text": "You are Vizier, a steward.",
+            "type": "input_text"
+          }
+        ],
+        "role": "system",
+        "type": "message"
+      },
+      {
+        "content": [
+          {
+            "text": "# CORE\nBe brief.",
+            "type": "input_text"
+          }
+        ],
+        "role": "system",
+        "type": "message"
+      },
+      {
+        "content": [
+          {
+            "text": "Hello",
+            "type": "input_text"
+          }
+        ],
+        "role": "user",
+        "type": "message"
+      }
+    ],
+    "model": "gpt-5"
+  },
+  "path": "/responses"
+}

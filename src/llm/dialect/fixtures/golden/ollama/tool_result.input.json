@@ -1,0 +1,119 @@
+{
+  "request": {
+    "max_tokens": null,
+    "messages": [
+      {
+        "system": "You are Vizier, a steward."
+      },
+      {
+        "system": "# CORE\nBe brief."
+      },
+      {
+        "user": [
+          {
+            "text": "What did I say about the garden?"
+          }
+        ]
+      },
+      {
+        "assistant": [
+          {
+            "text": "Let me check."
+          },
+          {
+            "tool_call": {
+              "arguments": {
+                "query": "garden"
+              },
+              "id": "memory_search",
+              "name": "memory_search"
+            }
+          },
+          {
+            "tool_call": {
+              "arguments": {
+                "code": "1+1",
+                "intent": "count"
+              },
+              "id": "execute_python",
+              "name": "execute_python"
+            }
+          }
+        ]
+      },
+      {
+        "tool_result": {
+          "call_id": "memory_search",
+          "content": [
+            {
+              "text": "You planted tomatoes."
+            }
+          ]
+        }
+      },
+      {
+        "tool_result": {
+          "call_id": "execute_python",
+          "content": [
+            {
+              "text": "{\"ok\": true, \"value\": 2}"
+            }
+          ]
+        }
+      }
+    ],
+    "tool_choice": null,
+    "tools": [
+      {
+        "description": "Search your memory for passages.",
+        "name": "memory_search",
+        "parameters": {
+          "properties": {
+            "limit": {
+              "description": "At most this many",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "query": {
+              "description": "What to look for",
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Run a Python script in the sandbox.",
+        "name": "execute_python",
+        "parameters": {
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "intent": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "intent",
+            "code"
+          ],
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "settings": {
+    "base_url": "http://capture",
+    "default_instructions": null,
+    "max_output": null,
+    "model": "llama3.2",
+    "reasoning": false,
+    "stream_required": false
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "request": {
+    "max_tokens": null,
+    "messages": [
+      {
+        "system": "You are Vizier, a steward."
+      },
+      {
+        "system": "# CORE\nBe brief."
+      },
+      {
+        "user": [
+          {
+            "text": "Search for garden"
+          }
+        ]
+      }
+    ],
+    "tool_choice": null,
+    "tools": [
+      {
+        "description": "Search your memory for passages.",
+        "name": "memory_search",
+        "parameters": {
+          "properties": {
+            "limit": {
+              "description": "At most this many",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "query": {
+              "description": "What to look for",
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Run a Python script in the sandbox.",
+        "name": "execute_python",
+        "parameters": {
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "intent": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "intent",
+            "code"
+          ],
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "settings": {
+    "base_url": "http://capture",
+    "default_instructions": null,
+    "max_output": null,
+    "model": "gemini-2.5-flash",
+    "reasoning": false,
+    "stream_required": false
+  }
+}

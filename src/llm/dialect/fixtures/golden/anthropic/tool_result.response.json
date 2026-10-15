@@ -1,0 +1,18 @@
+{
+  "content": [
+    {
+      "text": "You planted tomatoes.",
+      "type": "text"
+    }
+  ],
+  "id": "msg_1",
+  "model": "claude-sonnet-4-5",
+  "role": "assistant",
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "input_tokens": 120,
+    "output_tokens": 9
+  }
+}

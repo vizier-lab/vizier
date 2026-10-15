@@ -1,0 +1,29 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "functionCall": {
+              "args": {
+                "query": "garden"
+              },
+              "name": "memory_search"
+            },
+            "thoughtSignature": "ts-reply"
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "resp-1",
+  "usageMetadata": {
+    "candidatesTokenCount": 9,
+    "promptTokenCount": 120,
+    "totalTokenCount": 129
+  }
+}

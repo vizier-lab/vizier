@@ -1,0 +1,33 @@
+{
+  "choices": [
+    {
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": null,
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"query\":\"garden\"}",
+              "name": "memory_search"
+            },
+            "id": "call_1",
+            "index": 0,
+            "type": "function"
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1760000000,
+  "id": "chatcmpl-1",
+  "model": "gpt-4o",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 9,
+    "prompt_tokens": 120,
+    "total_tokens": 129
+  }
+}

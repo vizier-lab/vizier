@@ -1,0 +1,39 @@
+{
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "What is in this picture?",
+            "thought": false
+          },
+          {
+            "inlineData": {
+              "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+              "mimeType": "image/png"
+            },
+            "thought": false
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "generationConfig": null,
+    "safetySettings": null,
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are Vizier, a steward.",
+          "thought": false
+        },
+        {
+          "text": "# CORE\nBe brief.",
+          "thought": false
+        }
+      ],
+      "role": "model"
+    },
+    "toolConfig": null
+  },
+  "path": "/models/gemini-2.5-flash:generateContent"
+}

@@ -1,0 +1,35 @@
+{
+  "content": [
+    {
+      "text": "On it.",
+      "type": "text"
+    },
+    {
+      "id": "toolu_1",
+      "input": {
+        "query": "garden"
+      },
+      "name": "memory_search",
+      "type": "tool_use"
+    },
+    {
+      "id": "toolu_2",
+      "input": {
+        "code": "1+1",
+        "intent": "count"
+      },
+      "name": "execute_python",
+      "type": "tool_use"
+    }
+  ],
+  "id": "msg_1",
+  "model": "claude-sonnet-4-5",
+  "role": "assistant",
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "input_tokens": 120,
+    "output_tokens": 9
+  }
+}

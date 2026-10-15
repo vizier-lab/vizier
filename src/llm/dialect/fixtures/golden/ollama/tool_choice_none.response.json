@@ -1,0 +1,12 @@
+{
+  "created_at": "2026-10-15T00:00:00Z",
+  "done": true,
+  "done_reason": "stop",
+  "eval_count": 9,
+  "message": {
+    "content": "Here is what I found.",
+    "role": "assistant"
+  },
+  "model": "llama3.2",
+  "prompt_eval_count": 120
+}

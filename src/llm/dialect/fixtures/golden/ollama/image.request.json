@@ -1,0 +1,28 @@
+{
+  "body": {
+    "messages": [
+      {
+        "content": "You are Vizier, a steward.",
+        "role": "system"
+      },
+      {
+        "content": "# CORE\nBe brief.",
+        "role": "system"
+      },
+      {
+        "content": "What is in this picture?",
+        "images": [
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "llama3.2",
+    "options": {
+      "temperature": null
+    },
+    "stream": false,
+    "think": false
+  },
+  "path": "/api/chat"
+}

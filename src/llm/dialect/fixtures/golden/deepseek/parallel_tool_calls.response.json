@@ -1,0 +1,44 @@
+{
+  "choices": [
+    {
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": "",
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"query\":\"garden\"}",
+              "name": "memory_search"
+            },
+            "id": "call_1",
+            "index": 0,
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"code\":\"1+1\",\"intent\":\"count\"}",
+              "name": "execute_python"
+            },
+            "id": "call_2",
+            "index": 1,
+            "type": "function"
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1760000000,
+  "id": "chatcmpl-1",
+  "model": "deepseek-reasoner",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 9,
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 120,
+    "prompt_tokens": 120,
+    "total_tokens": 129
+  }
+}

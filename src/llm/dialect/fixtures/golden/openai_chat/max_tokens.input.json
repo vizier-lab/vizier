@@ -1,0 +1,30 @@
+{
+  "request": {
+    "max_tokens": 512,
+    "messages": [
+      {
+        "system": "You are Vizier, a steward."
+      },
+      {
+        "system": "# CORE\nBe brief."
+      },
+      {
+        "user": [
+          {
+            "text": "Be short"
+          }
+        ]
+      }
+    ],
+    "tool_choice": null,
+    "tools": []
+  },
+  "settings": {
+    "base_url": "http://capture",
+    "default_instructions": null,
+    "max_output": null,
+    "model": "gpt-4o",
+    "reasoning": false,
+    "stream_required": false
+  }
+}

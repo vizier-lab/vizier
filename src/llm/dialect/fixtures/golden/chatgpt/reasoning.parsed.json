@@ -1,0 +1,30 @@
+{
+  "content": [
+    {
+      "reasoning": {
+        "provider_data": {
+          "encrypted_content": "enc-reply",
+          "id": "rs_reply",
+          "summary": [
+            {
+              "text": "The memory says tomatoes.",
+              "type": "summary_text"
+            }
+          ]
+        },
+        "text": "The memory says tomatoes."
+      }
+    },
+    {
+      "text": "Tomatoes."
+    }
+  ],
+  "id": "msg_1",
+  "usage": {
+    "cache_creation_input_tokens": 0,
+    "cached_input_tokens": 0,
+    "input_tokens": 120,
+    "output_tokens": 9,
+    "total_tokens": 129
+  }
+}

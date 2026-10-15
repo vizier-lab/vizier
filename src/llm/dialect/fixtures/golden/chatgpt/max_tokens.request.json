@@ -1,0 +1,24 @@
+{
+  "body": {
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "input": [
+      {
+        "content": [
+          {
+            "text": "Be short",
+            "type": "input_text"
+          }
+        ],
+        "role": "user",
+        "type": "message"
+      }
+    ],
+    "instructions": "You are ChatGPT, a helpful AI assistant.\n\nYou are Vizier, a steward.\n\n# CORE\nBe brief.",
+    "model": "gpt-5.4",
+    "store": false,
+    "stream": true
+  },
+  "path": "/responses"
+}

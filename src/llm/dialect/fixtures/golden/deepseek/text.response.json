@@ -1,0 +1,24 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": "Hello there.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1760000000,
+  "id": "chatcmpl-1",
+  "model": "deepseek-reasoner",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 9,
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 120,
+    "prompt_tokens": 120,
+    "total_tokens": 129
+  }
+}

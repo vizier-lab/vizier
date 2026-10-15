@@ -1,0 +1,25 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": "Cached hello.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1760000000,
+  "id": "chatcmpl-1",
+  "model": "gpt-4o",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 9,
+    "prompt_tokens": 120,
+    "prompt_tokens_details": {
+      "cached_tokens": 96
+    },
+    "total_tokens": 129
+  }
+}

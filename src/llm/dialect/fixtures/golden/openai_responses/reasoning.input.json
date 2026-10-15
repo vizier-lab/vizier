@@ -1,0 +1,134 @@
+{
+  "request": {
+    "max_tokens": null,
+    "messages": [
+      {
+        "system": "You are Vizier, a steward."
+      },
+      {
+        "system": "# CORE\nBe brief."
+      },
+      {
+        "user": [
+          {
+            "text": "What did I say about the garden?"
+          }
+        ]
+      },
+      {
+        "assistant": [
+          {
+            "reasoning": {
+              "provider_data": {
+                "encrypted_content": "enc-history",
+                "id": "rs_history",
+                "summary": [
+                  {
+                    "text": "Plan: search first.",
+                    "type": "summary_text"
+                  }
+                ]
+              },
+              "text": "Plan: search first."
+            }
+          },
+          {
+            "text": "Let me check."
+          },
+          {
+            "tool_call": {
+              "arguments": {
+                "query": "garden"
+              },
+              "id": "call_1",
+              "name": "memory_search"
+            }
+          },
+          {
+            "tool_call": {
+              "arguments": {
+                "code": "1+1",
+                "intent": "count"
+              },
+              "id": "call_2",
+              "name": "execute_python"
+            }
+          }
+        ]
+      },
+      {
+        "tool_result": {
+          "call_id": "call_1",
+          "content": [
+            {
+              "text": "You planted tomatoes."
+            }
+          ]
+        }
+      },
+      {
+        "tool_result": {
+          "call_id": "call_2",
+          "content": [
+            {
+              "text": "{\"ok\": true, \"value\": 2}"
+            }
+          ]
+        }
+      }
+    ],
+    "tool_choice": null,
+    "tools": [
+      {
+        "description": "Search your memory for passages.",
+        "name": "memory_search",
+        "parameters": {
+          "properties": {
+            "limit": {
+              "description": "At most this many",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "query": {
+              "description": "What to look for",
+              "type": "string"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "Run a Python script in the sandbox.",
+        "name": "execute_python",
+        "parameters": {
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "intent": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "intent",
+            "code"
+          ],
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "settings": {
+    "base_url": "http://capture",
+    "default_instructions": null,
+    "max_output": null,
+    "model": "gpt-5",
+    "reasoning": false,
+    "stream_required": false
+  }
+}

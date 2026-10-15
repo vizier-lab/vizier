@@ -1,0 +1,38 @@
+{
+  "body": {
+    "messages": [
+      {
+        "content": "You are Vizier, a steward.",
+        "role": "system"
+      },
+      {
+        "content": "# CORE\nBe brief.",
+        "role": "system"
+      },
+      {
+        "content": "Hi",
+        "role": "user"
+      },
+      {
+        "content": "Hello.",
+        "role": "assistant",
+        "tool_calls": []
+      },
+      {
+        "content": "Checkpoint: the user greeted you.",
+        "role": "system"
+      },
+      {
+        "content": "Continue",
+        "role": "user"
+      }
+    ],
+    "model": "llama3.2",
+    "options": {
+      "temperature": null
+    },
+    "stream": false,
+    "think": false
+  },
+  "path": "/api/chat"
+}

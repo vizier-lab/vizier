@@ -1,0 +1,80 @@
+{
+  "body": {
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "You are Vizier, a steward.",
+            "type": "text"
+          }
+        ],
+        "role": "system"
+      },
+      {
+        "content": [
+          {
+            "text": "# CORE\nBe brief.",
+            "type": "text"
+          }
+        ],
+        "role": "system"
+      },
+      {
+        "content": "Do both",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-4o",
+    "tools": [
+      {
+        "function": {
+          "description": "Search your memory for passages.",
+          "name": "memory_search",
+          "parameters": {
+            "properties": {
+              "limit": {
+                "description": "At most this many",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "query": {
+                "description": "What to look for",
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run a Python script in the sandbox.",
+          "name": "execute_python",
+          "parameters": {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "intent": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "intent",
+              "code"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "path": "/chat/completions"
+}

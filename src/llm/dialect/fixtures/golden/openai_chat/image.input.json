@@ -1,0 +1,37 @@
+{
+  "request": {
+    "max_tokens": null,
+    "messages": [
+      {
+        "system": "You are Vizier, a steward."
+      },
+      {
+        "system": "# CORE\nBe brief."
+      },
+      {
+        "user": [
+          {
+            "text": "What is in this picture?"
+          },
+          {
+            "attachment": {
+              "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+              "mime": "image/png",
+              "name": "dot.png"
+            }
+          }
+        ]
+      }
+    ],
+    "tool_choice": null,
+    "tools": []
+  },
+  "settings": {
+    "base_url": "http://capture",
+    "default_instructions": null,
+    "max_output": null,
+    "model": "gpt-4o",
+    "reasoning": false,
+    "stream_required": false
+  }
+}

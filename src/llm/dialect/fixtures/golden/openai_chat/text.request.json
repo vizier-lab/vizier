@@ -1,0 +1,30 @@
+{
+  "body": {
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "You are Vizier, a steward.",
+            "type": "text"
+          }
+        ],
+        "role": "system"
+      },
+      {
+        "content": [
+          {
+            "text": "# CORE\nBe brief.",
+            "type": "text"
+          }
+        ],
+        "role": "system"
+      },
+      {
+        "content": "Hello",
+        "role": "user"
+      }
+    ],
+    "model": "gpt-4o"
+  },
+  "path": "/chat/completions"
+}

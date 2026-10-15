@@ -1,0 +1,138 @@
+{
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "What did I say about the garden?",
+            "thought": false
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "parts": [
+          {
+            "text": "Let me check.",
+            "thought": false
+          },
+          {
+            "functionCall": {
+              "args": {
+                "query": "garden"
+              },
+              "name": "memory_search"
+            },
+            "thought": false,
+            "thoughtSignature": "ts-call"
+          },
+          {
+            "functionCall": {
+              "args": {
+                "code": "1+1",
+                "intent": "count"
+              },
+              "name": "execute_python"
+            },
+            "thought": false
+          }
+        ],
+        "role": "model"
+      },
+      {
+        "parts": [
+          {
+            "functionResponse": {
+              "name": "memory_search",
+              "response": {
+                "result": "You planted tomatoes."
+              }
+            },
+            "thought": false
+          },
+          {
+            "functionResponse": {
+              "name": "execute_python",
+              "response": {
+                "result": {
+                  "ok": true,
+                  "value": 2
+                }
+              }
+            },
+            "thought": false
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "generationConfig": null,
+    "safetySettings": null,
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are Vizier, a steward.",
+          "thought": false
+        },
+        {
+          "text": "# CORE\nBe brief.",
+          "thought": false
+        }
+      ],
+      "role": "model"
+    },
+    "toolConfig": {
+      "functionCallingConfig": {
+        "mode": "NONE"
+      }
+    },
+    "tools": [
+      {
+        "codeExecution": null,
+        "functionDeclarations": [
+          {
+            "description": "Search your memory for passages.",
+            "name": "memory_search",
+            "parameters": {
+              "properties": {
+                "limit": {
+                  "description": "At most this many",
+                  "nullable": true,
+                  "type": "integer"
+                },
+                "query": {
+                  "description": "What to look for",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "description": "Run a Python script in the sandbox.",
+            "name": "execute_python",
+            "parameters": {
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "intent": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "intent",
+                "code"
+              ],
+              "type": "object"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "path": "/models/gemini-2.5-flash:generateContent"
+}

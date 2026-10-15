@@ -135,7 +135,8 @@ impl Usage {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CompletionRequest {
     pub messages: Vec<Message>,
     pub tools: Vec<ToolDefinition>,

@@ -157,10 +157,9 @@ fn joined_text(parts: &[Part]) -> String {
 
 fn encode_message(message: &Message) -> Option<Value> {
     Some(match message {
-        Message::System(text) => json!({
-            "role": "system",
-            "content": [{"type": "text", "text": text}],
-        }),
+        // Plain strings for system and assistant text: every OpenAI-compatible server accepts
+        // them, and several (DeepSeek among them) accept nothing else.
+        Message::System(text) => json!({"role": "system", "content": text}),
         Message::User(parts) => {
             let content = match parts.as_slice() {
                 [Part::Text(text)] => json!(text),
@@ -174,7 +173,7 @@ fn encode_message(message: &Message) -> Option<Value> {
             let mut reasoning = String::new();
             for part in parts {
                 match part {
-                    AssistantPart::Text(text) => texts.push(json!({"type": "text", "text": text})),
+                    AssistantPart::Text(text) => texts.push(text.as_str()),
                     AssistantPart::ToolCall {
                         id,
                         name,
@@ -194,7 +193,7 @@ fn encode_message(message: &Message) -> Option<Value> {
             }
             let mut msg = json!({"role": "assistant"});
             if !texts.is_empty() {
-                msg["content"] = Value::Array(texts);
+                msg["content"] = json!(texts.concat());
             }
             // DeepSeek and other OpenAI-compatible reasoners need their hidden reasoning echoed
             // back on assistant tool-call turns.
@@ -253,9 +252,11 @@ fn decode_usage(usage: Option<&Value>) -> Usage {
         input_tokens: prompt,
         output_tokens: get("completion_tokens").unwrap_or(total.saturating_sub(prompt)),
         total_tokens: total,
+        // DeepSeek reports cache hits as `prompt_cache_hit_tokens`.
         cached_input_tokens: u
             .pointer("/prompt_tokens_details/cached_tokens")
             .and_then(Value::as_u64)
+            .or_else(|| get("prompt_cache_hit_tokens"))
             .unwrap_or(0),
         cache_creation_input_tokens: 0,
     }
@@ -298,7 +299,7 @@ mod tests {
             json!({
                 "model": "gpt-x",
                 "messages": [
-                    {"role": "system", "content": [{"type": "text", "text": "sys"}]},
+                    {"role": "system", "content": "sys"},
                     {"role": "user", "content": "hi"},
                 ],
                 "tools": [{"type": "function", "function": {"name": "t", "description": "d", "parameters": {"type": "object"}}}],
@@ -340,7 +341,7 @@ mod tests {
             json!({"type": "image_url", "image_url": {"url": "data:image/png;base64,AQID", "detail": "auto"}})
         );
         assert_eq!(msgs[1]["reasoning_content"], "think");
-        assert_eq!(msgs[1]["content"], json!([{"type": "text", "text": "calling"}]));
+        assert_eq!(msgs[1]["content"], "calling");
         assert_eq!(
             msgs[1]["tool_calls"][1],
             json!({"id": "c2", "type": "function", "function": {"name": "b", "arguments": "{\"q\":1}"}})

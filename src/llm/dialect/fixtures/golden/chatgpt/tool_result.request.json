@@ -1,0 +1,108 @@
+{
+  "body": {
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "input": [
+      {
+        "content": [
+          {
+            "text": "What did I say about the garden?",
+            "type": "input_text"
+          }
+        ],
+        "role": "user",
+        "type": "message"
+      },
+      {
+        "content": "Let me check.",
+        "role": "assistant",
+        "type": "message"
+      },
+      {
+        "arguments": "{\"query\":\"garden\"}",
+        "call_id": "call_1",
+        "id": "call_1",
+        "name": "memory_search",
+        "status": "completed",
+        "type": "function_call"
+      },
+      {
+        "arguments": "{\"code\":\"1+1\",\"intent\":\"count\"}",
+        "call_id": "call_2",
+        "id": "call_2",
+        "name": "execute_python",
+        "status": "completed",
+        "type": "function_call"
+      },
+      {
+        "call_id": "call_1",
+        "output": "You planted tomatoes.",
+        "status": "completed",
+        "type": "function_call_output"
+      },
+      {
+        "call_id": "call_2",
+        "output": "{\"ok\": true, \"value\": 2}",
+        "status": "completed",
+        "type": "function_call_output"
+      }
+    ],
+    "instructions": "You are ChatGPT, a helpful AI assistant.\n\nYou are Vizier, a steward.\n\n# CORE\nBe brief.",
+    "model": "gpt-5.4",
+    "store": false,
+    "stream": true,
+    "tools": [
+      {
+        "description": "Search your memory for passages.",
+        "name": "memory_search",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "description": "At most this many",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "query": {
+              "description": "What to look for",
+              "type": "string"
+            }
+          },
+          "required": [
+            "limit",
+            "query"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      },
+      {
+        "description": "Run a Python script in the sandbox.",
+        "name": "execute_python",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "intent": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "intent"
+          ],
+          "type": "object"
+        },
+        "strict": true,
+        "type": "function"
+      }
+    ]
+  },
+  "path": "/responses"
+}

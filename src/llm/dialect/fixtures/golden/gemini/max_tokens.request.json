@@ -1,0 +1,32 @@
+{
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "Be short",
+            "thought": false
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "generationConfig": null,
+    "safetySettings": null,
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are Vizier, a steward.",
+          "thought": false
+        },
+        {
+          "text": "# CORE\nBe brief.",
+          "thought": false
+        }
+      ],
+      "role": "model"
+    },
+    "toolConfig": null
+  },
+  "path": "/models/gemini-2.5-flash:generateContent"
+}

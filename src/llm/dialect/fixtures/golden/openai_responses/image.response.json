@@ -1,0 +1,38 @@
+{
+  "created_at": 1760000000,
+  "error": null,
+  "id": "resp_1",
+  "incomplete_details": null,
+  "instructions": null,
+  "max_output_tokens": null,
+  "model": "gpt-5",
+  "object": "response",
+  "output": [
+    {
+      "content": [
+        {
+          "annotations": [],
+          "text": "A single pixel.",
+          "type": "output_text"
+        }
+      ],
+      "id": "msg_1",
+      "role": "assistant",
+      "status": "completed",
+      "type": "message"
+    }
+  ],
+  "status": "completed",
+  "tools": [],
+  "usage": {
+    "input_tokens": 120,
+    "input_tokens_details": {
+      "cached_tokens": 0
+    },
+    "output_tokens": 9,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 129
+  }
+}

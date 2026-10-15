@@ -1,0 +1,39 @@
+{
+  "body": {
+    "cache_control": {
+      "type": "ephemeral"
+    },
+    "max_tokens": 64000,
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "What is in this picture?",
+            "type": "text"
+          },
+          {
+            "source": {
+              "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+              "media_type": "image/png",
+              "type": "base64"
+            },
+            "type": "image"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "claude-sonnet-4-5",
+    "system": [
+      {
+        "text": "You are Vizier, a steward.",
+        "type": "text"
+      },
+      {
+        "text": "# CORE\nBe brief.",
+        "type": "text"
+      }
+    ]
+  },
+  "path": "/v1/messages"
+}

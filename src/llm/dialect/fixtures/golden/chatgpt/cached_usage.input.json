@@ -1,0 +1,30 @@
+{
+  "request": {
+    "max_tokens": null,
+    "messages": [
+      {
+        "system": "You are Vizier, a steward."
+      },
+      {
+        "system": "# CORE\nBe brief."
+      },
+      {
+        "user": [
+          {
+            "text": "Hello again"
+          }
+        ]
+      }
+    ],
+    "tool_choice": null,
+    "tools": []
+  },
+  "settings": {
+    "base_url": "http://capture",
+    "default_instructions": "You are ChatGPT, a helpful AI assistant.",
+    "max_output": null,
+    "model": "gpt-5.4",
+    "reasoning": false,
+    "stream_required": true
+  }
+}

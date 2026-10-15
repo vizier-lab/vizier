@@ -1,0 +1,111 @@
+{
+  "body": {
+    "messages": [
+      {
+        "content": "You are Vizier, a steward.",
+        "role": "system"
+      },
+      {
+        "content": "# CORE\nBe brief.",
+        "role": "system"
+      },
+      {
+        "content": "What did I say about the garden?",
+        "role": "user"
+      },
+      {
+        "content": "Let me check.",
+        "role": "assistant",
+        "thinking": "Plan: search first.",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": {
+                "query": "garden"
+              },
+              "name": "memory_search"
+            },
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": {
+                "code": "1+1",
+                "intent": "count"
+              },
+              "name": "execute_python"
+            },
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "You planted tomatoes.",
+        "role": "tool",
+        "tool_name": "memory_search"
+      },
+      {
+        "content": "{\"ok\": true, \"value\": 2}",
+        "role": "tool",
+        "tool_name": "execute_python"
+      }
+    ],
+    "model": "llama3.2",
+    "options": {
+      "temperature": null
+    },
+    "stream": false,
+    "think": false,
+    "tools": [
+      {
+        "function": {
+          "description": "Search your memory for passages.",
+          "name": "memory_search",
+          "parameters": {
+            "properties": {
+              "limit": {
+                "description": "At most this many",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "query": {
+                "description": "What to look for",
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run a Python script in the sandbox.",
+          "name": "execute_python",
+          "parameters": {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "intent": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "intent",
+              "code"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "path": "/api/chat"
+}

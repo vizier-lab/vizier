@@ -1,0 +1,75 @@
+{
+  "body": {
+    "messages": [
+      {
+        "content": "You are Vizier, a steward.",
+        "role": "system"
+      },
+      {
+        "content": "# CORE\nBe brief.",
+        "role": "system"
+      },
+      {
+        "content": "Search for garden",
+        "role": "user"
+      }
+    ],
+    "model": "llama3.2",
+    "options": {
+      "temperature": null
+    },
+    "stream": false,
+    "think": false,
+    "tools": [
+      {
+        "function": {
+          "description": "Search your memory for passages.",
+          "name": "memory_search",
+          "parameters": {
+            "properties": {
+              "limit": {
+                "description": "At most this many",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "query": {
+                "description": "What to look for",
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run a Python script in the sandbox.",
+          "name": "execute_python",
+          "parameters": {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "intent": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "intent",
+              "code"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "path": "/api/chat"
+}

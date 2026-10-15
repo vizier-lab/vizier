@@ -1,0 +1,31 @@
+{
+  "body": {
+    "cache_control": {
+      "type": "ephemeral"
+    },
+    "max_tokens": 64000,
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "Hello again",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "claude-sonnet-4-5",
+    "system": [
+      {
+        "text": "You are Vizier, a steward.",
+        "type": "text"
+      },
+      {
+        "text": "# CORE\nBe brief.",
+        "type": "text"
+      }
+    ]
+  },
+  "path": "/v1/messages"
+}

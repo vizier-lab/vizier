@@ -1,0 +1,35 @@
+{
+  "body": {
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "input": [
+      {
+        "content": [
+          {
+            "text": "What is in this picture?",
+            "type": "input_text"
+          }
+        ],
+        "role": "user",
+        "type": "message"
+      },
+      {
+        "content": [
+          {
+            "detail": "auto",
+            "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+            "type": "input_image"
+          }
+        ],
+        "role": "user",
+        "type": "message"
+      }
+    ],
+    "instructions": "You are ChatGPT, a helpful AI assistant.\n\nYou are Vizier, a steward.\n\n# CORE\nBe brief.",
+    "model": "gpt-5.4",
+    "store": false,
+    "stream": true
+  },
+  "path": "/responses"
+}

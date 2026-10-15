@@ -1,0 +1,117 @@
+{
+  "body": {
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "You are Vizier, a steward.",
+            "type": "text"
+          }
+        ],
+        "role": "system"
+      },
+      {
+        "content": [
+          {
+            "text": "# CORE\nBe brief.",
+            "type": "text"
+          }
+        ],
+        "role": "system"
+      },
+      {
+        "content": "What did I say about the garden?",
+        "role": "user"
+      },
+      {
+        "content": [
+          {
+            "text": "Let me check.",
+            "type": "text"
+          }
+        ],
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"query\":\"garden\"}",
+              "name": "memory_search"
+            },
+            "id": "call_1",
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"code\":\"1+1\",\"intent\":\"count\"}",
+              "name": "execute_python"
+            },
+            "id": "call_2",
+            "type": "function"
+          }
+        ]
+      },
+      {
+        "content": "You planted tomatoes.",
+        "role": "tool",
+        "tool_call_id": "call_1"
+      },
+      {
+        "content": "{\"ok\": true, \"value\": 2}",
+        "role": "tool",
+        "tool_call_id": "call_2"
+      }
+    ],
+    "model": "gpt-4o",
+    "tools": [
+      {
+        "function": {
+          "description": "Search your memory for passages.",
+          "name": "memory_search",
+          "parameters": {
+            "properties": {
+              "limit": {
+                "description": "At most this many",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "query": {
+                "description": "What to look for",
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      },
+      {
+        "function": {
+          "description": "Run a Python script in the sandbox.",
+          "name": "execute_python",
+          "parameters": {
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "intent": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "intent",
+              "code"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "function"
+      }
+    ]
+  },
+  "path": "/chat/completions"
+}
