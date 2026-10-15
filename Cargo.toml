@@ -73,6 +73,7 @@ base64 = "0.23"
 sha2 = "0.11"
 tower-http = { version = "0.7.1", features = ["cors", "fs", "limit", "normalize-path"] }
 rust-embed = "8.11.0"
+flate2 = "1.1.10"
 mime_guess = "2.0.5"
 rusqlite = { version = "0.40", features = ["bundled"] }
 sqlite-vec = "0.1.9"

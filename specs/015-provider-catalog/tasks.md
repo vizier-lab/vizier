@@ -97,7 +97,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - `send_multipart`, the same for multipart requests;
   - `redact(&str) -> String`, which hides `Bearer …`, `x-api-key`, `api-key`, `x-goog-api-key` and `key=` values for `tracing::debug!` request logs (depends on T009).
 - [X] T011 [P] Create `src/llm/sse.rs`: `parse_sse_body(&str) -> Vec<(Option<String> event, String data)>`, which handles multi-line `data:` fields, comments and `[DONE]`, with unit tests. It is used only by the ChatGPT backend (research R6) (depends on T009).
-- [ ] T012 Add `pub http: reqwest::Client` to `VizierDependencies` in `src/dependencies.rs`, built with `llm::http::client()`. Nothing uses it yet (depends on T010).
+- [X] T012 Add `pub http: reqwest::Client` to `VizierDependencies` in `src/dependencies.rs`, built with `llm::http::client()`. Nothing uses it yet (depends on T010).
 - [X] T013 [P] Create `src/llm/auth.rs`, per contract `provider-layer.md` § Auth:
   - the `CredentialSource` trait (`authorize`, `invalidate`);
   - `StaticKey { style: Bearer | Header(&'static str) | Query(&'static str) | None, key }`;
@@ -199,14 +199,14 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - `ProviderKind::Local` when the `api` host is `localhost` or `127.0.0.1`.
 
   Unit tests against a small fixture JSON cover: an override wins; an unsupported provider gives `None`; a missing `api` uses the R3 table; `limit.input` is preferred (depends on T015).
-- [ ] T025 [P] Create `src/catalogue/builtin.rs`: the built-in providers from data-model.md §3 (`ollama`, `llama-cpp`, `chatgpt`, `dummyplug`, `elevenlabs`, `voyageai`, `hyperbolic`), each with its kind, dialect (or none), credential fields, env vars and defaults (depends on T024).
-- [ ] T026 Create `src/catalogue/seed.rs`, which embeds the seed: `include_bytes!(concat!(env!("OUT_DIR"), "/catalogue.json.gz"))`, plus a `rust_embed` folder for `assets/catalogue/meta.json` and `logos/`. Implement:
+- [X] T025 [P] Create `src/catalogue/builtin.rs`: the built-in providers from data-model.md §3 (`ollama`, `llama-cpp`, `chatgpt`, `dummyplug`, `elevenlabs`, `voyageai`, `hyperbolic`), each with its kind, dialect (or none), credential fields, env vars and defaults (depends on T024).
+- [X] T026 Create `src/catalogue/seed.rs`, which embeds the seed: `include_bytes!(concat!(env!("OUT_DIR"), "/catalogue.json.gz"))`, plus a `rust_embed` folder for `assets/catalogue/meta.json` and `logos/`. Implement:
   - `fn load_seed() -> CatalogueData`;
   - `fn seed_logo(id) -> Option<&'static [u8]>`;
   - `fn seed_no_logo(id) -> bool`.
 
   Add a unit test that the seed parses and has at least 200 providers (depends on T006, T024).
-- [ ] T027 Create `src/catalogue/mod.rs`, holding `pub struct Catalogue(Arc<parking_lot::RwLock<Arc<CatalogueData>>>)` with:
+- [X] T027 Create `src/catalogue/mod.rs`, holding `pub struct Catalogue(Arc<parking_lot::RwLock<Arc<CatalogueData>>>)` with:
   - `snapshot() -> Arc<CatalogueData>`;
   - `swap(new)`;
   - query helpers for later phases:
@@ -216,7 +216,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
     - `find_model_by_id(model_id, prefer_dialect)`, for custom fill-in (FR-024).
 
   Add `pub catalogue: Catalogue` to `VizierDependencies` in `src/dependencies.rs`, initialised from `load_seed()`. The DB cache comes in US4 (depends on T026).
-- [ ] T028 Replace `ProviderVariant` with `ProviderId` in `src/config/provider.rs`:
+- [X] T028 Replace `ProviderVariant` with `ProviderId` in `src/config/provider.rs`:
   - a `pub struct ProviderId(String)` newtype that validates `^[a-z0-9][a-z0-9._-]{0,63}$`;
   - `Serialize` as a plain string, and a `Deserialize` that maps legacy names through the full table in contract `provider-id-migration.md` § Name map (e.g. `gemini`→`google`, `opencode_zen`→`opencode`, `copilot`→`github-copilot`, `together`→`togetherai`, `mimo`→`xiaomi`, `moonshot`→`moonshotai`, `llama_cpp`→`llama-cpp`);
   - `galadriel` and `mira` are kept as given;
@@ -224,7 +224,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
   - `pub const fn` constants or `ProviderId::new_static` for the built-in ids used in code (`ProviderId::OLLAMA`, `DUMMYPLUG`, …).
 
   Keep a `type ProviderVariant = ProviderId;` alias **only** until T049, so the tree still compiles. Unit tests: every legacy name maps as in the contract, and invalid ids are refused (depends on T025).
-- [ ] T029 Create `src/llm/resolve.rs`: `ResolvedModel` per data-model.md §6, plus `stream_required: bool` and `system_style` coming from the dialect. Implement `async fn resolve(deps, &ProviderId, model_id, overrides: &ModelOverrides) -> Result<ResolvedModel, VizierError>`:
+- [X] T029 Create `src/llm/resolve.rs`: `ResolvedModel` per data-model.md §6, plus `stream_required: bool` and `system_style` coming from the dialect. Implement `async fn resolve(deps, &ProviderId, model_id, overrides: &ModelOverrides) -> Result<ResolvedModel, VizierError>`:
   - **Provider lookup**: custom provider (T035 storage, behind a trait method that returns `None` until then), then catalogue, then built-in. Anything else errors with `provider "<id>" is not available; pick another provider`.
   - **Model**: catalogue model, else the custom model with FR-024 fill-in. An unknown model id is allowed.
   - **Dialect and base URL**: from `dialect_for` or the built-in, with `${VAR}` expanded from env or saved credentials (Azure).
@@ -245,7 +245,7 @@ Each sits next to the code it checks. End-to-end checks are the quickstart's dum
 
   For embeddings it also records the returned vectors. Run it once with `cargo test -- --ignored golden_capture` and commit the fixtures (depends on T017–T023).
 - [X] T032 [P] Add `src/llm/dialect/golden_tests.rs`. It loads every fixture under `fixtures/golden/` and asserts that our `encode` produces a request body semantically equal (as JSON values) to rig's, after normalising documented intentional differences, which are listed in a comment with the reason for each (e.g. `store: false`). It also asserts that our `decode` of the canned response equals rig's parsed result. For media, it uses an axum server to replay the canned responses and compares our output, with vectors equal element-for-element (FR-020) (depends on T031).
-- [ ] T033 [P] Add transport tests in `src/llm/transport_tests.rs` (`#[cfg(test)]`), using an axum server on `127.0.0.1:0`:
+- [X] T033 [P] Add transport tests in `src/llm/transport_tests.rs` (`#[cfg(test)]`), using an axum server on `127.0.0.1:0`:
   - a 429 with `Retry-After: 2` makes `RetryingModel` wait at least 2s and then succeed;
   - 500, 503 and 529 are retried; 400 fails at once;
   - a refused connection (an unused port) gives `Transport`;

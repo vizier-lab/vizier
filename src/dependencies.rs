@@ -49,6 +49,10 @@ pub struct VizierDependencies {
     pub transport: VizierTransport,
     pub file_manager: FileManager,
     pub background_jobs: BackgroundJobs,
+    /// The one HTTP client every model provider request goes through (`llm::http`).
+    pub http: reqwest::Client,
+    /// The provider and model catalogue (spec 015).
+    pub catalogue: crate::catalogue::Catalogue,
 }
 
 /// Old (pre-bundle) memory frontmatter shape, kept only so `migrate_memory_to_bundles` can parse
@@ -137,6 +141,8 @@ impl VizierDependencies {
             transport,
             file_manager,
             background_jobs,
+            http: crate::llm::http::client(),
+            catalogue: crate::catalogue::Catalogue::new(crate::catalogue::seed::load_seed()),
         })
     }
 

@@ -115,7 +115,7 @@ fn unb64(s: &str) -> Vec<u8> {
 /// Our client for one fixture, run once; returns our output as JSON.
 async fn run_ours(name: &str, model: &str, base: String) -> Value {
     let http = reqwest::Client::new();
-    let bearer = StaticKey::new(KeyStyle::Bearer, Some("test-key".into()));
+    let bearer = StaticKey::shared(KeyStyle::Bearer, Some("test-key".into()));
     let ep = |credential| Endpoint {
         http: http.clone(),
         base_url: base.clone(),
@@ -138,7 +138,7 @@ async fn run_ours(name: &str, model: &str, base: String) -> Value {
     match name {
         "stt_openai" | "stt_groq" | "stt_mistral" => stt(Box::new(OpenAiStt(ep(bearer)))).await,
         "stt_gemini" => {
-            let key = StaticKey::new(KeyStyle::Header("x-goog-api-key"), Some("test-key".into()));
+            let key = StaticKey::shared(KeyStyle::Header("x-goog-api-key"), Some("test-key".into()));
             stt(Box::new(GeminiStt(ep(key)))).await
         }
         "stt_huggingface" => stt(Box::new(HuggingFaceStt(ep(bearer)))).await,
@@ -176,7 +176,7 @@ async fn run_ours(name: &str, model: &str, base: String) -> Value {
             embed(Box::new(CohereEmbeddings { endpoint: ep(bearer), input_type: "search_document" }), docs).await
         }
         "embed_gemini" => {
-            let key = StaticKey::new(KeyStyle::Header("x-goog-api-key"), Some("test-key".into()));
+            let key = StaticKey::shared(KeyStyle::Header("x-goog-api-key"), Some("test-key".into()));
             embed(Box::new(GeminiEmbeddings { endpoint: ep(key), dimensions: gemini_dimensions(model) }), docs).await
         }
         "embed_ollama" => embed(Box::new(OllamaEmbeddings(ep(StaticKey::none()))), docs).await,

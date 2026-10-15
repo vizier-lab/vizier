@@ -59,7 +59,7 @@ pub struct StaticKey {
 }
 
 impl StaticKey {
-    pub fn new(style: KeyStyle, key: Option<String>) -> Arc<dyn CredentialSource> {
+    pub fn shared(style: KeyStyle, key: Option<String>) -> Arc<dyn CredentialSource> {
         Arc::new(Self {
             style,
             key: key.filter(|k| !k.is_empty()),
@@ -67,7 +67,7 @@ impl StaticKey {
     }
 
     pub fn none() -> Arc<dyn CredentialSource> {
-        Self::new(KeyStyle::None, None)
+        Self::shared(KeyStyle::None, None)
     }
 }
 
