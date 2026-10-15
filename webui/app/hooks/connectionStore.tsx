@@ -39,6 +39,24 @@ export function subscribeReactionFrames(listener: (frame: ReactionFrame) => void
   }
 }
 
+/// Closes the current socket with every handler detached first, so a socket on its way out
+/// can neither deliver a late frame into the next session nor flip `connected` or schedule a
+/// reconnect over the socket that replaced it.
+function teardown() {
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout)
+    reconnectTimeout = null
+  }
+  if (ws) {
+    ws.onopen = null
+    ws.onmessage = null
+    ws.onclose = null
+    ws.onerror = null
+    ws.close()
+    ws = null
+  }
+}
+
 export const useConnectionStore = create<ConnectionState>()((set, get) => ({
   agentId: null,
   topicId: null,
@@ -49,23 +67,16 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
   connect: (agentId: string, topicId: string) => {
     const state = get()
 
-    // Already connected to the same session
-    if (state.agentId === agentId && state.topicId === topicId && ws?.readyState === WebSocket.OPEN) {
+    // Already connected, or connecting, to the same session
+    if (
+      state.agentId === agentId &&
+      state.topicId === topicId &&
+      (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING)
+    ) {
       return
     }
 
-    // Tear down existing connection
-    if (ws) {
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout)
-        reconnectTimeout = null
-      }
-      ws.onmessage = null
-      ws.onclose = null
-      ws.onerror = null
-      ws.close()
-      ws = null
-    }
+    teardown()
 
     set({ agentId, topicId, connected: false, lastMessage: null, messageCount: 0 })
 
@@ -74,9 +85,12 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
     if (!token) return
 
     const doConnect = () => {
-      ws = new WebSocket(url)
+      reconnectTimeout = null
+      const socket = new WebSocket(url)
+      ws = socket
 
-      ws.onopen = () => {
+      socket.onopen = () => {
+        if (ws !== socket) return
         console.log('Connection store: WebSocket connected')
         set({ connected: true })
         // (Re)connected: whatever happened to background jobs while the socket was down is
@@ -84,8 +98,12 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
         void useBackgroundJobStore.getState().load(agentId, topicId)
       }
 
-      ws.onclose = () => {
+      socket.onclose = () => {
+        // Only the live socket speaks for the connection; one already replaced has nothing
+        // to say about it.
+        if (ws !== socket) return
         console.log('Connection store: WebSocket disconnected')
+        ws = null
         set({ connected: false })
 
         // Auto-reconnect if we still have the same agent/topic
@@ -95,11 +113,12 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
         }
       }
 
-      ws.onerror = (e) => {
+      socket.onerror = (e) => {
         console.error('Connection store: WebSocket error', e)
       }
 
-      ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (ws !== socket) return
         try {
           const parsed = JSON.parse(event.data) as WebSocketResponse | WebSocketJobFrame
           // A job frame goes to the job store and never to `lastMessage`, so the chat's
@@ -128,14 +147,7 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
   },
 
   disconnect: () => {
-    if (reconnectTimeout) {
-      clearTimeout(reconnectTimeout)
-      reconnectTimeout = null
-    }
-    if (ws) {
-      ws.close()
-      ws = null
-    }
+    teardown()
     set({ agentId: null, topicId: null, connected: false, lastMessage: null })
   },
 

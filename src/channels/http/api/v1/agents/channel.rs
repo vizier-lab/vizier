@@ -33,7 +33,7 @@ use crate::{
         reaction::{ReactionStorage, Reactor},
         session::SessionStorage,
     },
-    transport::{SessionFrame, VizierTransport},
+    transport::{SessionEvent, SessionFrame, VizierTransport},
 };
 
 use super::user_can_view_agent;
@@ -417,9 +417,9 @@ pub async fn handle_socket(
         }
     });
 
-    // Background job changes and the frames of turns a background report woke. A turn the
-    // person started here still streams through its own per-message forwarder below and is
-    // never republished, so nothing arrives twice.
+    // Background job changes, reactions, and the frames of every turn on this session: the
+    // ones a background report woke and the ones a person started from any socket, this one
+    // included. A turn's frames are published only there, so nothing arrives twice.
     let mut session_events = transport.subscribe_session_events();
     let mut session_events_open = true;
 
@@ -505,14 +505,17 @@ pub async fn handle_socket(
                                 continue;
                             }
 
-                            let resp_tx = write_tx.clone();
+                            // The turn's frames go to every socket on the session, not to
+                            // this one: a person who leaves the page mid-turn and comes back
+                            // (or has it open in another tab) still sees the rest of it. This
+                            // socket receives them through `session_events` like the others.
+                            let transport = transport.clone();
                             tokio::spawn(async move {
                                 while let Ok(response) = response_rx.recv_async().await {
-                                    if let Ok(json) = serde_json::to_string(&response) {
-                                        if resp_tx.send(Message::Text(json.into())).await.is_err() {
-                                            break;
-                                        }
-                                    }
+                                    transport.publish_session_event(SessionEvent {
+                                        session: session.clone(),
+                                        frame: SessionFrame::Response(response),
+                                    });
                                 }
                             });
                         } else {

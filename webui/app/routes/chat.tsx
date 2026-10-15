@@ -94,6 +94,10 @@ const PLACEHOLDERS = [
   'Ready when you are...',
 ]
 
+// How long after the socket (or a send) changes the thinking state a poll is too stale to
+// overrule it.
+const THINKING_POLL_GRACE_MS = 2000
+
 const SLASH_COMMANDS = [
   { name: '/checkpoint', description: 'Save checkpoint with handover' },
   { name: '/lobotomy', description: 'Save checkpoint without handover' },
@@ -262,13 +266,14 @@ export default function Chat() {
   const [input, setInput] = useState('')
   const [clearKey, setClearKey] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [historyVersion] = useState(0)
+  // Bumped to re-read history without the loading skeleton: when a turn is seen to end
+  // without its closing frame having reached this page (see the thinking poll).
+  const [historyVersion, setHistoryVersion] = useState(0)
   // What the agent is doing in the turn that is streaming right now.
   const [liveTrail, setLiveTrail] = useState<TrailEvent[]>([])
   // The trail of every turn that has already closed in this session, keyed by the uid of
-  // the entry it ended at. `historyVersion` has no setter, so history never refetches after
-  // mount — a finished turn's trail has to come from the events already collected here,
-  // not from a reload.
+  // the entry it ended at. History is not re-read when a turn closes normally, so a finished
+  // turn's trail has to come from the events already collected here, not from a reload.
   const [closedTrails, setClosedTrails] = useState<Record<string, TrailEvent[]>>({})
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null)
   const [attachments, setAttachments] = useState<{ file: File; previewUrl: string | null }[]>([])
@@ -287,6 +292,16 @@ export default function Chat() {
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [reactions, setReactions] = useState<Record<string, ReactionEntry[]>>({})
   const [isThinking, setIsThinking] = useState(false)
+  // The latest thinking state for callbacks and effects that must not wait for a render, and
+  // when the socket (or this page) last changed it: see the thinking poll.
+  const isThinkingRef = useRef(false)
+  const thinkingChangedAtRef = useRef(0)
+  const setThinking = useCallback((value: boolean) => {
+    isThinkingRef.current = value
+    thinkingChangedAtRef.current = Date.now()
+    setIsThinking(value)
+  }, [])
+  const loadedTopicRef = useRef<string | null>(null)
   // The background piece whose own conversation is open in the side panel.
   const [openPiece, setOpenPiece] = useState<{ jobId: string; ordinal: number } | null>(null)
   const [pieceHistory, setPieceHistory] = useState<ChatMessage[] | null>(null)
@@ -312,7 +327,7 @@ export default function Chat() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const { user } = useUserStore()
+  const { user, loading: userLoading } = useUserStore()
 
   // Context window info from the last response's stats
   const lastResponseMsg = [...messages].reverse().find(m => m.content.Response)
@@ -360,11 +375,6 @@ export default function Chat() {
 
   const resolvedTopicId = topicId ?? 'General'
 
-  // Initialize currentTopicRef
-  useEffect(() => {
-    currentTopicRef.current = resolvedTopicId
-  }, [])
-
   // Pulse send button when input transitions from empty to non-empty
   useEffect(() => {
     if (input.trim() && !prevInputRef.current.trim()) {
@@ -402,7 +412,7 @@ export default function Chat() {
   }, [])
 
   useEffect(() => {
-    if (!connected || !agentId || !pendingMsgRef.current) return
+    if (!connected || !agentId || !topicId || !pendingMsgRef.current) return
     const msg = pendingMsgRef.current
     pendingMsgRef.current = null
 
@@ -431,24 +441,27 @@ export default function Chat() {
         },
       }
       setMessages((prev) => [...prev, userMessage])
+      setThinking(true)
 
       sendMessage(message)
     }, 50)
     return () => clearTimeout(timer)
-  }, [connected, agentId])
+  }, [connected, agentId, topicId])
 
   const [topicDetail, setTopicDetail] = useState<any | null>(null)
   const [agentNames, setAgentNames] = useState<Record<string, string>>({})
 
-  // Redirect to last topic (or General) if no topicId
+  // Redirect to last topic (or General) if no topicId. Waits for the user: redirecting
+  // before it loads lands on General, which the effect below would then save as the last
+  // topic in place of the real one.
   useEffect(() => {
-    if (agentId && !topicId) {
+    if (agentId && !topicId && !userLoading) {
       const lastTopic = user?.user_id
         ? localStorage.getItem(`vizier_last_topic_${user.user_id}_${agentId}`)
         : null
       navigate(`/${agentId}/chat/${lastTopic || 'General'}`, { replace: true })
     }
-  }, [agentId, topicId, navigate, user?.user_id])
+  }, [agentId, topicId, navigate, user?.user_id, userLoading])
 
   // Persist current topic per agent
   useEffect(() => {
@@ -457,27 +470,49 @@ export default function Chat() {
     }
   }, [agentId, topicId, user?.user_id])
 
-  // Load topic detail
+  // Load topic detail. Nothing topic-scoped loads until the URL names a topic, so the
+  // redirect above never fetches General on the way to another topic.
   useEffect(() => {
-    if (!agentId) return
+    if (!agentId || !topicId) return
+    let stale = false
     listTopics(agentId).then((topic) => {
+      if (stale) return
       const detail = topic.data.find(
-        (item: any) => item.topic_id === resolvedTopicId
+        (item: any) => item.topic_id === topicId
       )
       setTopicDetail(detail || null)
     })
-  }, [agentId, resolvedTopicId])
+    return () => {
+      stale = true
+    }
+  }, [agentId, topicId])
 
-  // Poll for thinking state
+  // Poll for thinking state: catches turns this page saw no frames for. The socket is
+  // fresher, so a poll issued within THINKING_POLL_GRACE_MS of the socket (or a send)
+  // changing the state is ignored: the server sends a turn's reply before it clears
+  // `is_thinking`, and marks it only once the turn starts.
   useEffect(() => {
-    if (!agentId || !resolvedTopicId) return
+    if (!agentId || !topicId) return
+    let stale = false
 
     const pollThinkingState = async () => {
+      const issuedAt = Date.now()
+      let thinking: boolean
       try {
-        const res = await getTopicDetail(agentId, resolvedTopicId)
-        setIsThinking(res.data?.is_thinking ?? false)
+        const res = await getTopicDetail(agentId, topicId)
+        thinking = res.data?.is_thinking ?? false
       } catch {
-        setIsThinking(false)
+        return
+      }
+      if (stale || issuedAt < thinkingChangedAtRef.current + THINKING_POLL_GRACE_MS) return
+      if (thinking === isThinkingRef.current) return
+      isThinkingRef.current = thinking
+      setIsThinking(thinking)
+      if (!thinking) {
+        // The turn ended and its reply never arrived here (the socket was down, or the
+        // page was elsewhere): history has it.
+        setLiveTrail([])
+        setHistoryVersion((v) => v + 1)
       }
     }
 
@@ -487,12 +522,18 @@ export default function Chat() {
     // Poll every 1000ms
     const interval = setInterval(pollThinkingState, 1000)
 
-    return () => clearInterval(interval)
-  }, [agentId, resolvedTopicId])
+    return () => {
+      stale = true
+      clearInterval(interval)
+    }
+  }, [agentId, topicId])
 
   // Clear inline events, attachments, and queued messages when topic changes
   useEffect(() => {
     currentTopicRef.current = resolvedTopicId
+    isThinkingRef.current = false
+    thinkingChangedAtRef.current = 0
+    setIsThinking(false)
     setLiveTrail([])
     setClosedTrails({})
     setAttachments([])
@@ -513,10 +554,10 @@ export default function Chat() {
   // Background jobs launched from this topic. The socket reloads them on every (re)connect
   // too; this covers opening a topic whose socket is already up.
   useEffect(() => {
-    if (!agentId || !resolvedTopicId) return
-    void useBackgroundJobStore.getState().load(agentId, resolvedTopicId)
+    if (!agentId || !topicId) return
+    void useBackgroundJobStore.getState().load(agentId, topicId)
     setOpenPiece(null)
-  }, [agentId, resolvedTopicId])
+  }, [agentId, topicId])
 
   // A job moving to `reporting` is the report being handed to the agent: show its entry
   // now rather than on the next reload. The snapshot carries prompts and states only; the
@@ -561,7 +602,7 @@ export default function Chat() {
             'background_report' in m.content.Request.content &&
             m.content.Request.content.background_report.job_id === job.id)
       )
-    if (isThinking) {
+    if (isThinkingRef.current) {
       setQueuedMessages((prev) => (seen(prev) ? prev : [...prev, entry]))
     } else {
       setMessages((prev) => (seen(prev) ? prev : [...prev, entry]))
@@ -610,17 +651,32 @@ export default function Chat() {
     target.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [])
 
-  // Load chat history
   useEffect(() => {
     if (!agentId) return
-
     getAgentDetail(agentId).then((data) => {
       setAgentDetail(data.data)
     })
+  }, [agentId])
+
+  // Load chat history. A response for a topic this page has since left is dropped, so a
+  // slow read can never paint one topic's messages under another.
+  useEffect(() => {
+    if (!agentId || !topicId) return
+    let stale = false
+
+    const key = `${agentId}/${topicId}`
+    if (loadedTopicRef.current !== key) {
+      // A new topic: the previous one's messages go now, not when this one arrives.
+      loadedTopicRef.current = key
+      setLoading(true)
+      setMessages([])
+      setReactions({})
+    }
 
     const loadHistory = async () => {
       try {
-        const response = await getTopicHistory(agentId, resolvedTopicId)
+        const response = await getTopicHistory(agentId, topicId)
+        if (stale) return
         const historyMessages = response.data || []
         setMessages(historyMessages)
 
@@ -633,15 +689,19 @@ export default function Chat() {
         }
         setReactions(reactionsMap)
       } catch (error) {
+        if (stale) return
         console.error('Failed to load chat history:', error)
         setMessages([])
       } finally {
-        setLoading(false)
+        if (!stale) setLoading(false)
       }
     }
 
     loadHistory()
-  }, [agentId, resolvedTopicId, historyVersion])
+    return () => {
+      stale = true
+    }
+  }, [agentId, topicId, historyVersion])
 
   useEffect(() => {
     listAgents().then((res) => {
@@ -821,17 +881,17 @@ export default function Chat() {
       case 'thinking_start':
         // A turn the person did not start — one a background report woke — announces
         // itself only through its frames.
-        setIsThinking(true)
+        setThinking(true)
         return
 
       case 'empty':
-        setIsThinking(false)
+        setThinking(false)
         clearLiveTrail()
         return
 
       case 'abort':
         // An aborted turn has no answer for a trail to belong to, so the trail goes.
-        setIsThinking(false)
+        setThinking(false)
         clearLiveTrail()
         setQueuedMessages([])
         return
@@ -846,7 +906,7 @@ export default function Chat() {
 
       if ('checkpoint' in content) {
         // Add checkpoint to messages
-        setIsThinking(false)
+        setThinking(false)
         closeTurn(`checkpoint-${timestamp}`)
         setMessages((prev) => {
           const newMessage: ChatMessage = {
@@ -869,7 +929,7 @@ export default function Chat() {
       }
 
       if ('message' in content) {
-        setIsThinking(false)
+        setThinking(false)
         const uid = wsResponse.history_uid ?? timestamp
         closeTurn(uid)
         setMessages((prev) => {
@@ -909,7 +969,7 @@ export default function Chat() {
       }
 
       if ('error' in content) {
-        setIsThinking(false)
+        setThinking(false)
         closeTurn(timestamp)
         setMessages((prev) => {
           if (
@@ -948,7 +1008,7 @@ export default function Chat() {
       }
 
       if ('audio_reply' in content) {
-        setIsThinking(false)
+        setThinking(false)
         const uid = wsResponse.history_uid ?? timestamp
         closeTurn(uid)
         setMessages((prev) => {
@@ -1343,10 +1403,11 @@ export default function Chat() {
       }
 
       // If agent is thinking, queue the message; otherwise add to messages
-      if (isThinking) {
+      if (isThinkingRef.current) {
         setQueuedMessages((prev) => [...prev, userMessage])
       } else {
         setMessages((prev) => [...prev, userMessage])
+        setThinking(true)
       }
       setInput('')
       currentInputRef.current = ''
@@ -1367,7 +1428,7 @@ export default function Chat() {
       sendMessage(message)
       setPlaceholderSeed(Math.random())
     },
-    [agentId, resolvedTopicId, connected, sendMessage, attachments, addToast, isThinking, recordingState, recordedBlob, recordedUrl]
+    [agentId, resolvedTopicId, connected, sendMessage, attachments, addToast, setThinking, recordingState, recordedBlob, recordedUrl]
   )
 
   const handleEditorChange = useCallback((value: string) => {

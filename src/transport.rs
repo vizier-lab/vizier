@@ -10,8 +10,10 @@ use crate::schema::{
 };
 
 /// How many session events a slow subscriber may fall behind before it starts losing them.
-/// A lagging WebSocket logs and carries on; the WebUI reconciles by re-reading the job list.
-const SESSION_EVENTS_CAPACITY: usize = 256;
+/// Every WebUI turn's frames go through here, so it is sized for several busy turns at once.
+/// A lagging WebSocket logs and carries on; the WebUI reconciles by re-reading the job list,
+/// and history once the turn ends.
+const SESSION_EVENTS_CAPACITY: usize = 1024;
 /// How long a health check waits for the agent manager.
 const HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
