@@ -17,6 +17,8 @@ pub mod types;
 
 #[cfg(test)]
 mod transport_tests;
+#[cfg(test)]
+mod smoke_tests;
 
 pub use dialect::DialectKind;
 pub use error::LlmError;

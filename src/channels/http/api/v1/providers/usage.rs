@@ -120,8 +120,8 @@ const REACHABLE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// `(checked or started at, last answer)`. An entry younger than the TTL is never re-checked,
 /// which also keeps one check per provider in flight.
-static REACHABLE: LazyLock<parking_lot::Mutex<HashMap<ProviderId, (Instant, Option<bool>)>>> =
-    LazyLock::new(Default::default);
+type ReachableCache = parking_lot::Mutex<HashMap<ProviderId, (Instant, Option<bool>)>>;
+static REACHABLE: LazyLock<ReachableCache> = LazyLock::new(Default::default);
 
 /// The last known reachability of a local or custom provider. Never waits: a stale or missing
 /// answer starts a background check and returns what is known now.

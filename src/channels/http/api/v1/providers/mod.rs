@@ -279,12 +279,12 @@ pub(crate) async fn upsert_provider(
     };
     let custom = state.storage.list_custom_providers().await.unwrap_or_default();
     if let Err((status, message)) = check_fields(&state, &id, &body.sent(), &custom) {
-        return err_response(status, message.into());
+        return err_response(status, message);
     }
 
     let stored = match state.storage.get_provider(&id).await {
         Ok(entry) => entry.map(|e| e.credentials).unwrap_or_default(),
-        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
     let entry = ProviderEntry {
         id: id.clone(),
@@ -302,7 +302,7 @@ pub(crate) async fn upsert_provider(
         state.storage.upsert_provider(&entry).await
     };
     if let Err(e) = saved {
-        return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into());
+        return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string());
     }
     restart_users(&state, &id).await;
     match connected(&state).await.into_iter().find(|p| p.id == id) {
@@ -402,7 +402,7 @@ pub(crate) async fn delete_provider(
         return conflict;
     }
     if let Err(e) = state.storage.delete_provider(&id).await {
-        return err_response(StatusCode::BAD_REQUEST, e.to_string().into());
+        return err_response(StatusCode::BAD_REQUEST, e.to_string());
     }
     restart_users(&state, &id).await;
     let env = crate::llm::resolve::provider_env(&state.catalogue, &id);
@@ -449,7 +449,7 @@ pub(crate) async fn test_provider(
     if custom.is_none() {
         let all = state.storage.list_custom_providers().await.unwrap_or_default();
         if let Err((status, message)) = check_fields(&state, &id, &body.sent(), &all) {
-            return err_response(status, message.into());
+            return err_response(status, message);
         }
     }
     let credentials = Some(body.into_credentials()).filter(|c| !c.is_empty());
