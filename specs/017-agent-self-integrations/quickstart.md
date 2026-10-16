@@ -39,10 +39,10 @@ Unit tests cover:
 | 2 | as `carol`: `PUT /agents/dp-a/integrations/grants {"mcp":true}` | — | `403`, `GET …/grants` still all off |
 | 3 | as `carol`: `PUT /agents/dp-a` with a changed description | — | `200`, grants unchanged |
 | 4 | as `carol`: `PUT /agents/dp-a` with `"self_management":{"mcp":true}` | — | `422 use_grants_endpoint` |
-| 5 | as `alice` on `dp-b` (not hers): `PUT …/dp-b/integrations/grants {"mcp":true}` | — | `403` |
+| 5 | as `alice` on `dp-b` (not hers, not visible to her): `PUT …/dp-b/integrations/grants {"mcp":true}` | — | `404` (she can't view the agent; a viewer without the permission gets `403`, step 2) |
 | 6 | as `alice`: `PUT /agents/dp-a/integrations/grants {"mcp":true}` | — | `200`, `mcp.on`, `granted_by: alice`; health shows no restart |
 | 7 | — | `dp-a`: `list_tool_functions {"category":"integrations"}` | the five tools; descriptions name only MCP servers |
-| 8 | Start a long turn on `dp-a` (`time.sleep(15)`) and switch `addon` on during it | — | the turn completes `ok: true` (FR-006) |
+| 8 | Start a long turn on `dp-a` (the sandbox has no `time.sleep`: a busy loop, e.g. `for i in range(3000000): x += i`) and switch `addon` on during it | — | the turn completes `ok: true`; health shows no restart (FR-006) |
 
 ## 2. MCP self-management (US2, FR-007–FR-012, FR-017, FR-019, SC-001, SC-003, SC-004)
 
@@ -99,7 +99,7 @@ The self-lockout warning (R7) is covered by a unit test (tasks T030): it is give
 | # | Action | Expect |
 |---|---|---|
 | 1 | `PUT /agents/dp-a/integrations/{iid}/attachment {attached:true}` | `410 attach_removed` |
-| 2 | Seed a legacy row (with SQL, insert a second `integration_attachment` for an existing MCP server onto `dp-b`) and restart | both agents keep its tools; on both pages the row shows `legacy_linked`; as `alice` it is read-only |
+| 2 | Seed a legacy row: with SQL on `{data}/.runtime/vizier.db`, insert a second `integration_attachment` for an existing MCP server onto `dp-b` | both agents keep its tools; on both pages the row shows `legacy_linked`; as `alice` it is read-only |
 | 3 | `dp-a` (grant on): `list_integrations {}` | the legacy row is absent |
 | 4 | as `admin`: `DELETE /agents/dp-a/integrations/{legacy}` | unlinked from `dp-a` only; an `unlinked` event; `dp-b` still has it |
 | 5 | Delete agent `dp-b` | its integrations, grants and events are gone |

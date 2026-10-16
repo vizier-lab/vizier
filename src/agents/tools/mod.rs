@@ -56,6 +56,7 @@ mod http_client;
 mod python;
 mod read_image;
 mod scheduler;
+pub mod self_integrations;
 mod session_files;
 mod shell;
 mod skill;
@@ -88,10 +89,11 @@ pub enum ToolCategory {
     Telegram,
     Webui,
     Shell,
+    Integrations,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 13] = [
+    pub const ALL: [ToolCategory; 14] = [
         Self::Memory,
         Self::Identity,
         Self::Scheduling,
@@ -105,6 +107,7 @@ impl ToolCategory {
         Self::Telegram,
         Self::Webui,
         Self::Shell,
+        Self::Integrations,
     ];
 
     pub fn name(self) -> &'static str {
@@ -122,6 +125,7 @@ impl ToolCategory {
             Self::Telegram => "telegram",
             Self::Webui => "webui",
             Self::Shell => "shell",
+            Self::Integrations => "integrations",
         }
     }
 
@@ -144,6 +148,7 @@ impl ToolCategory {
             Self::Telegram => "Send, read and react to Telegram messages",
             Self::Webui => "Message WebUI users and list their topics",
             Self::Shell => "Run shell commands",
+            Self::Integrations => "Manage your own MCP servers, addons and channel connections",
         }
     }
 }
@@ -217,7 +222,8 @@ impl VizierToolSet {
 pub struct ToolRouter {
     pub default_toolset: VizierToolSet,
     pub user_toolset: VizierToolSet,
-    /// Native tools contributed by attached channel connections.
+    /// Native tools contributed by the agent's channel connections, and its self-management
+    /// tools while any family is granted (specs/017-agent-self-integrations research R5).
     pub integration_toolset: VizierToolSet,
     /// Each attached addon's tools, listed under the addon id as their category.
     pub addons: BTreeMap<String, AddonTools>,
@@ -951,10 +957,14 @@ impl BaseTools {
 /// category list built over the result. Cheap (`Arc` clones and one category pass), so an
 /// integration change composes a new snapshot instead of restarting the agent.
 pub fn compose(base: &BaseTools, integrations: Arc<crate::integrations::IntegrationTools>) -> VizierTools {
+    let mut integration_toolset = integrations.native.clone();
+    integration_toolset
+        .tools
+        .extend(integrations.self_management.tools.clone());
     let router = ToolRouter {
         default_toolset: base.default_toolset.clone(),
         user_toolset: base.user_toolset.clone(),
-        integration_toolset: integrations.native.clone(),
+        integration_toolset,
         addons: integrations.addons.clone(),
         mcp: integrations.mcp.clone(),
         reserved: base.reserved.clone(),
@@ -1092,6 +1102,11 @@ mod tests {
             entry::<SendWebuiMessage>(),
             entry::<ListWebuiTopics>(),
             entry::<ShellExec>(),
+            entry::<self_integrations::ListIntegrationKinds>(),
+            entry::<self_integrations::ListIntegrations>(),
+            entry::<self_integrations::CreateIntegration>(),
+            entry::<self_integrations::UpdateIntegration>(),
+            entry::<self_integrations::DeleteIntegration>(),
             entry::<ThinkTool>(),
             entry::<ExecutePython>(),
             entry::<ListToolFunctions>(),
@@ -1156,6 +1171,11 @@ mod tests {
             ("webui_send_message", Webui),
             ("webui_list_topics", Webui),
             ("shell_exec", Shell),
+            ("list_integration_kinds", Integrations),
+            ("list_integrations", Integrations),
+            ("create_integration", Integrations),
+            ("update_integration", Integrations),
+            ("delete_integration", Integrations),
         ];
         // Listed under their addon's id rather than a built-in category (research R12).
         const ADDON: &[(&str, &str)] = &[
@@ -1205,6 +1225,35 @@ mod tests {
             assert!(name.starts_with(&format!("{addon}_")), "{name} is not namespaced");
             assert!(tools.iter().any(|(n, c)| n == name && c.is_none()));
         }
+    }
+
+    #[test]
+    fn self_management_tools_never_reach_the_dream_cycle() {
+        for name in [
+            "list_integration_kinds",
+            "list_integrations",
+            "create_integration",
+            "update_integration",
+            "delete_integration",
+        ] {
+            assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&name), "{name} is a dream tool");
+        }
+    }
+
+    #[test]
+    fn no_integrations_category_without_its_tools() {
+        let present = [ToolCategory::Memory, ToolCategory::Shell];
+        let names: Vec<String> = summarise_categories(present, [], &[], &[])
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        assert!(!names.iter().any(|n| n == "integrations"));
+        let names: Vec<String> =
+            summarise_categories([ToolCategory::Integrations], [], &[], &[])
+                .into_iter()
+                .map(|c| c.name)
+                .collect();
+        assert_eq!(names, ["integrations"]);
     }
 
     #[test]

@@ -2,10 +2,9 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import {
   createAgentIntegration,
-  deleteIntegration,
+  deleteAgentIntegration,
   listAgentIntegrations,
   listIntegrationKinds,
-  setIntegrationAttachment,
   updateIntegration,
 } from '../services/vizier'
 import type {
@@ -32,11 +31,10 @@ interface IntegrationStore {
   load: (agentId: string, family: IntegrationFamily) => Promise<void>
   /** Re-read the list quietly (statuses included), for polling and after a write. */
   refreshStatus: () => Promise<void>
-  attach: (integrationId: string) => Promise<void>
-  detach: (integrationId: string) => Promise<void>
   create: (req: CreateIntegrationRequest) => Promise<IntegrationItem>
   update: (integrationId: string, req: UpdateIntegrationRequest) => Promise<void>
-  remove: (integrationId: string, confirm?: boolean) => Promise<void>
+  /** Delete one of the agent's integrations (or unlink a legacy one from it). */
+  remove: (integrationId: string) => Promise<void>
 }
 
 const byStatus = (items: IntegrationItem[]) =>
@@ -88,20 +86,6 @@ export const useIntegrationStore = create<IntegrationStore>()((set, get) => ({
     }
   },
 
-  attach: async (integrationId) => {
-    const { agentId } = get()
-    if (!agentId) return
-    await setIntegrationAttachment(agentId, integrationId, true)
-    await get().refreshStatus()
-  },
-
-  detach: async (integrationId) => {
-    const { agentId } = get()
-    if (!agentId) return
-    await setIntegrationAttachment(agentId, integrationId, false)
-    await get().refreshStatus()
-  },
-
   create: async (req) => {
     const { agentId } = get()
     if (!agentId) throw new Error('no agent selected')
@@ -115,8 +99,10 @@ export const useIntegrationStore = create<IntegrationStore>()((set, get) => ({
     await get().refreshStatus()
   },
 
-  remove: async (integrationId, confirm = false) => {
-    await deleteIntegration(integrationId, confirm)
+  remove: async (integrationId) => {
+    const { agentId } = get()
+    if (!agentId) return
+    await deleteAgentIntegration(agentId, integrationId)
     await get().refreshStatus()
   },
 }))

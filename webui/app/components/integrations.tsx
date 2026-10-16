@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { FaTriangleExclamation } from 'react-icons/fa6'
-import { integrationIconUrl } from '../services/vizier'
-import type { IntegrationItem, IntegrationStatus } from '../interfaces/types'
+import { integrationIconUrl, listIntegrationEvents } from '../services/vizier'
+import type { IntegrationEvent, IntegrationItem, IntegrationStatus } from '../interfaces/types'
 
 /** Shared pieces of the Integrations pages (Channels, Addons, MCP). */
 
@@ -49,7 +49,7 @@ export function IntegrationsPage({
       <div className="main-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         {readOnly && (
           <div style={noticeStyle}>
-            You can see what is attached to this agent, but not change it.
+            You can see this agent's integrations, but not change them.
           </div>
         )}
         {children}
@@ -90,12 +90,10 @@ const STATUS_LOOK: Record<IntegrationStatus['state'], { label: string; color: st
   unknown: { label: 'Unknown', color: '#6b7280' },
 }
 
-/** The status this agent sees; an integration not attached to it is just "Not in use". */
+/** The status this agent sees of one of its integrations. */
 export function StatusBadge({ item, runningLabel }: { item: IntegrationItem; runningLabel?: string }) {
   const status = item.status
-  const look = !item.attached && status.state !== 'disabled'
-    ? { label: 'Not in use', color: '#6b7280' }
-    : status.state === 'running' && runningLabel
+  const look = status.state === 'running' && runningLabel
       ? { ...STATUS_LOOK.running, label: runningLabel }
       : STATUS_LOOK[status.state]
   const tools = status.state === 'running' && status.tools != null ? ` · ${status.tools} tools` : ''
@@ -116,17 +114,143 @@ export function statusError(item: IntegrationItem): string | undefined {
   return 'last_error' in item.status ? item.status.last_error : undefined
 }
 
-/** Before saving an integration other agents use too. */
-export function SharedEditWarning({ item }: { item: IntegrationItem }) {
-  if (item.also_used_by.length === 0 && !item.others) return null
-  const names = item.also_used_by.map((a) => a.name)
-  if (item.others) names.push(`${item.others} more`)
+/** A row left over from before integrations were per-agent, still linked to other agents. */
+export function LegacyLinkedNotice({ item }: { item: IntegrationItem }) {
+  const linked = item.legacy_linked
+  if (!linked) return null
+  const names = linked.agents.map((a) => a.name)
+  if (linked.others) names.push(`${linked.others} more`)
   return (
     <div style={{ ...noticeStyle, display: 'flex', gap: '0.5rem', alignItems: 'flex-start', borderColor: '#f59e0b' }}>
       <FaTriangleExclamation style={{ color: '#f59e0b', marginTop: 2, flexShrink: 0 }} />
       <span>
-        Also used by {names.join(', ')}. Saving applies to them too, from their next turn.
+        Also linked to {names.join(', ')}, left over from before integrations were per-agent.
+        {item.can_edit ? ' Deleting it here only unlinks this agent.' : ' Only someone who manages every agent’s integrations can change it.'}
       </span>
+    </div>
+  )
+}
+
+/** `<detail> · added by <name>`, with 🤖 when the agent made it itself. */
+export function CreatorLine({ item, detail }: { item: IntegrationItem; detail?: string }) {
+  const byAgent = item.creator != null && 'agent' in item.creator
+  const parts = [detail, item.creator_name ? `added by ${byAgent ? '🤖 ' : ''}${item.creator_name}` : undefined]
+    .filter(Boolean)
+  if (parts.length === 0) return null
+  return (
+    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{parts.join(' · ')}</span>
+  )
+}
+
+const ACTION_LABEL: Record<IntegrationEvent['action'], string> = {
+  created: 'created',
+  edited: 'edited',
+  enabled: 'enabled',
+  disabled: 'disabled',
+  deleted: 'deleted',
+  unlinked: 'unlinked from this agent',
+  grant_on: 'allowed the agent to manage this itself',
+  grant_off: 'stopped the agent managing this itself',
+}
+
+/** The channel a session slug (`agent__channel__…__topic`) came from, for an agent's change. */
+function sessionSource(session: string | null): string | undefined {
+  if (!session) return undefined
+  const channel = session.split('__')[1]
+  return channel ? `from ${channel}` : undefined
+}
+
+/** Who changed one integration, how and when, newest first. */
+export function ActivityTab({ agentId, integrationId }: { agentId: string; integrationId: string }) {
+  const [events, setEvents] = useState<IntegrationEvent[]>([])
+  const [next, setNext] = useState<string | undefined>()
+  const [loading, setLoading] = useState(false)
+
+  const load = async (before?: string) => {
+    setLoading(true)
+    try {
+      const res = await listIntegrationEvents(agentId, { integrationId, before })
+      setEvents((prev) => (before ? [...prev, ...res.data.items] : res.data.items))
+      setNext(res.data.next)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load().catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId, integrationId])
+
+  if (!loading && events.length === 0) {
+    return <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>No changes recorded yet.</div>
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+      {events.map((e) => {
+        const byAgent = 'agent' in e.actor
+        const source = byAgent ? sessionSource(e.session) : undefined
+        return (
+          <div
+            key={e.id}
+            style={{ display: 'flex', gap: '0.75rem', fontSize: '0.8rem', alignItems: 'baseline', flexWrap: 'wrap' }}
+          >
+            <span style={{ minWidth: 120, fontWeight: 500 }}>
+              {byAgent ? '🤖 ' : '👤 '}
+              {e.actor_name}
+            </span>
+            <span>
+              {ACTION_LABEL[e.action]}
+              {e.fields.length > 0 && <span style={{ color: 'var(--text-secondary)' }}> ({e.fields.join(', ')})</span>}
+            </span>
+            <span style={{ color: 'var(--text-secondary)', marginLeft: 'auto' }} title={e.session ?? undefined}>
+              {source ? `${source} · ` : ''}
+              {new Date(e.at).toLocaleString()}
+            </span>
+          </div>
+        )
+      })}
+      {next && (
+        <button type="button" className="btn btn-ghost" style={smallButton} disabled={loading} onClick={() => load(next)}>
+          Load more
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Settings | Activity tabs over an integration's editor. */
+export function DetailTabs({
+  agentId,
+  integrationId,
+  children,
+}: {
+  agentId: string
+  integrationId?: string
+  children: ReactNode
+}) {
+  const [tab, setTab] = useState<'settings' | 'activity'>('settings')
+  if (!integrationId) return <>{children}</>
+  const tabStyle = (active: boolean): CSSProperties => ({
+    padding: '0.35rem 0.75rem',
+    fontSize: '0.8rem',
+    border: 'none',
+    borderBottom: active ? '2px solid var(--accent-primary)' : '2px solid transparent',
+    background: 'none',
+    color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+    cursor: 'pointer',
+  })
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
+        <button type="button" style={tabStyle(tab === 'settings')} onClick={() => setTab('settings')}>
+          Settings
+        </button>
+        <button type="button" style={tabStyle(tab === 'activity')} onClick={() => setTab('activity')}>
+          Activity
+        </button>
+      </div>
+      {tab === 'settings' ? children : <ActivityTab agentId={agentId} integrationId={integrationId} />}
     </div>
   )
 }

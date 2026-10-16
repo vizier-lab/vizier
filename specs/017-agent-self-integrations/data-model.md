@@ -66,7 +66,7 @@ The event is written **in the same transaction** as the change it describes. Row
 
 | Method | Change |
 |---|---|
-| `save_integration(&Integration, attach_to, &EventDraft)` | Takes the event to record. On create (`attach_to = Some`) it refuses an integration that already exists. |
+| `save_integration(&Integration, attach_to, &[EventDraft])` | Takes the events to record (an edit and an enable/disable in one save are two rows). On create (`attach_to = Some`) it refuses an integration that already exists. |
 | `delete_integration(id, &EventDraft)` | Records `deleted`. |
 | `set_attachment` | Becomes `unlink(id, agent_id, &EventDraft)`: removes one link of a legacy integration. Attach is removed. |
 | `delete_agent_integrations(agent_id)` | Deletes integrations whose only link is the agent, unlinks it from legacy ones, and deletes its grants and events. |

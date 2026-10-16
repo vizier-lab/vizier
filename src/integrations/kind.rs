@@ -103,6 +103,11 @@ pub trait IntegrationKind: Send + Sync {
 
     fn listing(&self) -> KindListing;
 
+    /// The chat platform a channel kind connects to; `None` for everything else.
+    fn platform(&self) -> Option<ChannelPlatform> {
+        None
+    }
+
     /// A message for the person when `name`/`settings` can't be saved.
     fn validate(&self, name: &str, settings: &Value) -> Result<(), String>;
 

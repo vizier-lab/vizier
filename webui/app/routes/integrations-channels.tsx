@@ -1,7 +1,9 @@
 import { useState, type CSSProperties } from 'react'
 import { useParams } from 'react-router'
 import {
+  ActivityTab,
   ConfirmButton,
+  CreatorLine,
   IntegrationsPage,
   KindIcon,
   SecretInput,
@@ -38,7 +40,7 @@ export default function IntegrationsChannels() {
     >
       <div className="card-static" style={{ padding: 0 }}>
         {kinds.map((kind, i) => {
-          const connected = items.find((item) => item.kind === kind.id && item.attached)
+          const connected = items.find((item) => item.kind === kind.id)
           return (
             <div key={kind.id} style={{ ...rowStyle, borderTop: i === 0 ? 'none' : '1px solid var(--border)' }}>
               <div style={platformStyle}>
@@ -98,6 +100,7 @@ function ConnectedRow({
   const store = useIntegrationStore()
   const addToast = useToastStore((s) => s.addToast)
   const [token, setToken] = useState<string | undefined>(undefined)
+  const [history, setHistory] = useState(false)
   const error = statusError(item)
 
   const act = async (what: () => Promise<void>, done?: string, description?: string) => {
@@ -114,6 +117,7 @@ function ConnectedRow({
       <div style={lineStyle}>
         <span style={{ fontWeight: 500 }}>{item.name}</span>
         <StatusBadge item={item} runningLabel="Connected" />
+        <CreatorLine item={item} />
       </div>
       {error && (
         <div style={{ padding: '0.4rem 0.7rem', borderRadius: '0.375rem', background: 'rgba(239,68,68,0.08)', color: '#ef4444', fontSize: '0.8rem' }}>
@@ -154,10 +158,14 @@ function ConnectedRow({
             label="Delete"
             confirmLabel="Delete"
             prompt="Delete this connection?"
-            onConfirm={() => act(() => store.remove(item.id, true), `${item.name} deleted`)}
+            onConfirm={() => act(() => store.remove(item.id), `${item.name} deleted`)}
           />
         )}
+        <button className="btn btn-ghost" style={smallButton} onClick={() => setHistory((h) => !h)}>
+          {history ? 'Hide activity' : 'Activity'}
+        </button>
       </div>
+      {history && store.agentId && <ActivityTab agentId={store.agentId} integrationId={item.id} />}
     </div>
   )
 }

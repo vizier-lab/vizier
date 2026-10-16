@@ -48,7 +48,7 @@ Output: the new integration as `list_integrations` shows it, plus `"note": "avai
 
 ## `update_integration`
 
-Input: `{ "id": "…", "name"?: "…", "settings"?: {…}, "enabled"?: bool }`. Settings are merged with `merge_secrets`, so a redacted value sent back unchanged is kept.
+Input: `{ "id": "…", "name"?: "…", "settings"?: {…}, "enabled"?: bool }`. `settings` holds only the keys to change: they are laid over the stored settings (top-level keys; a nested value such as `env` is replaced whole), then through `merge_secrets`, so a redacted value sent back unchanged is kept.
 
 Output: the integration, plus `note`, plus `warning` when R7 applies.
 

@@ -24,6 +24,10 @@ impl IntegrationKind for DiscordKind {
         IntegrationFamily::Channel
     }
 
+    fn platform(&self) -> Option<ChannelPlatform> {
+        Some(ChannelPlatform::Discord)
+    }
+
     fn listing(&self) -> KindListing {
         KindListing {
             name: "Discord",

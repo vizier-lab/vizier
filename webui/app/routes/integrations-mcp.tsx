@@ -4,9 +4,11 @@ import { FaPlus, FaTrash } from 'react-icons/fa6'
 import SlideOver from '../components/SlideOver'
 import {
   ConfirmButton,
+  CreatorLine,
+  DetailTabs,
   IntegrationsPage,
+  LegacyLinkedNotice,
   SecretInput,
-  SharedEditWarning,
   StatusBadge,
   Switch,
   inputStyle,
@@ -97,9 +99,8 @@ export default function IntegrationsMcp() {
 
   const toggle = async (target: IntegrationItem, on: boolean) => {
     try {
-      if (on) await store.attach(target.id)
-      else await store.detach(target.id)
-      addToast('success', `${target.name} ${on ? 'attached' : 'detached'}`, 'Applies from the agent’s next turn.')
+      await store.update(target.id, { enabled: on })
+      addToast('success', `${target.name} ${on ? 'enabled' : 'disabled'}`, 'Applies from the agent’s next turn.')
     } catch (err) {
       conflictToast(err)
     }
@@ -113,7 +114,7 @@ export default function IntegrationsMcp() {
         addToast('success', `${form.name} added`, 'Applies from the agent’s next turn.')
       } else if (item) {
         await store.update(item.id, { name: form.name.trim(), settings: settingsFrom(form) })
-        addToast('success', `${form.name} saved`, 'Applies from the next turn of every agent using it.')
+        addToast('success', `${form.name} saved`, 'Applies from the agent’s next turn.')
       }
       setEditing(null)
     } catch (err) {
@@ -125,8 +126,8 @@ export default function IntegrationsMcp() {
 
   const remove = async (target: IntegrationItem) => {
     try {
-      await store.remove(target.id, true)
-      addToast('success', `${target.name} deleted`)
+      await store.remove(target.id)
+      addToast('success', target.legacy_linked ? `${target.name} unlinked from this agent` : `${target.name} deleted`)
       setEditing(null)
     } catch (err) {
       addToast('error', apiError(err).message)
@@ -154,7 +155,7 @@ export default function IntegrationsMcp() {
             <tr style={{ textAlign: 'left', color: 'var(--text-tertiary)', fontSize: '0.75rem' }}>
               <th style={th}>Server</th>
               <th style={th}>Status</th>
-              <th style={{ ...th, textAlign: 'right' }}>On for this agent</th>
+              <th style={{ ...th, textAlign: 'right' }}>Enabled</th>
             </tr>
           </thead>
           <tbody>
@@ -165,18 +166,22 @@ export default function IntegrationsMcp() {
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
                     {i.settings.transport === 'http' ? String(i.settings.uri ?? '') : String(i.settings.command ?? '')}
                   </div>
+                  <CreatorLine item={i} detail={i.settings.transport === 'http' ? 'http' : 'local'} />
+                  {i.legacy_linked && (
+                    <div style={{ fontSize: '0.72rem', color: '#f59e0b' }}>Also linked to other agents</div>
+                  )}
                 </td>
                 <td style={td}>
                   <StatusBadge item={i} runningLabel="Connected" />
-                  {i.attached && statusError(i) && (
+                  {statusError(i) && (
                     <div style={{ fontSize: '0.72rem', color: '#ef4444', marginTop: 2 }}>{statusError(i)}</div>
                   )}
                 </td>
                 <td style={{ ...td, textAlign: 'right' }}>
                   <Switch
-                    checked={i.attached}
-                    disabled={!i.can_attach}
-                    title={i.can_attach ? undefined : 'You can’t change this agent’s servers'}
+                    checked={i.enabled}
+                    disabled={!i.can_edit}
+                    title={i.can_edit ? undefined : 'You can’t change this server'}
                     onChange={(on) => toggle(i, on)}
                   />
                 </td>
@@ -198,9 +203,12 @@ export default function IntegrationsMcp() {
         onClose={() => setEditing(null)}
         title={editing === 'new' ? 'Add MCP server' : item?.name ?? ''}
       >
+        <DetailTabs agentId={agentId ?? ''} integrationId={item?.id}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {item && <SharedEditWarning item={item} />}
-          {readOnly && <div style={noticeStyle}>Only its creator or an integrations manager can edit this server.</div>}
+          {item && <LegacyLinkedNotice item={item} />}
+          {readOnly && !item?.legacy_linked && (
+            <div style={noticeStyle}>Only someone who manages this agent’s integrations can edit this server.</div>
+          )}
 
           <section>
             <label style={labelStyle}>Name</label>
@@ -286,7 +294,7 @@ export default function IntegrationsMcp() {
                 <ConfirmButton
                   label="Delete"
                   confirmLabel="Delete"
-                  prompt={item.attached || item.also_used_by.length || item.others ? 'It is in use. Delete anyway?' : 'Delete?'}
+                  prompt={item.legacy_linked ? 'Unlink from this agent?' : 'Delete?'}
                   onConfirm={() => remove(item)}
                 />
               )}
@@ -298,6 +306,7 @@ export default function IntegrationsMcp() {
             </div>
           )}
         </div>
+        </DetailTabs>
       </SlideOver>
     </IntegrationsPage>
   )

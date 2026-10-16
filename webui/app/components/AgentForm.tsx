@@ -5,6 +5,8 @@ import MarkdownEditor from './MarkdownEditor'
 import Avatar from './avatar'
 import AvatarCropModal from './AvatarCropModal'
 import EmbeddingIndexerSection from './EmbeddingIndexerSection'
+import SelfManagementSection, { useSelfManagementGrants } from './SelfManagementSection'
+import { useToastStore } from '../hooks/toastStore'
 import { uploadFile } from '../services/vizier'
 import ProviderModelPicker, { ModelCard } from './ProviderModelPicker'
 import MediaKeyHint from './MediaKeyHint'
@@ -119,6 +121,7 @@ const DEFAULT_FORM: CreateAgentRequest = {
 
 export default function AgentForm({
   mode,
+  agentId,
   initialData,
   onSubmit,
   onCancel,
@@ -133,6 +136,8 @@ export default function AgentForm({
   // Edit mode: what was last loaded or saved, to tell whether there are unsaved edits.
   const [baseline, setBaseline] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const selfManagement = useSelfManagementGrants(mode === 'edit' ? agentId : undefined)
+  const addToast = useToastStore((s) => s.addToast)
   const [maxReachedTab, setMaxReachedTab] = useState<number>(0)
   const [submitting, setSubmitting] = useState(false)
   const [form, setForm] = useState<CreateAgentRequest>(DEFAULT_FORM)
@@ -245,7 +250,9 @@ export default function AgentForm({
     [form, useSameModel]
   )
   const dirty =
-    mode === 'edit' && baseline !== null && (snapshot !== baseline || avatarBlob !== null)
+    mode === 'edit' &&
+    baseline !== null &&
+    (snapshot !== baseline || avatarBlob !== null || selfManagement.changed)
 
   const updateField = <K extends keyof CreateAgentRequest>(
     key: K,
@@ -313,6 +320,21 @@ export default function AgentForm({
     }
 
     setSubmitting(true)
+    // Only the self-management switches changed: save those alone. The agent save restarts the
+    // agent; a grant change must not (spec 017 FR-006).
+    if (mode === 'edit' && snapshot === baseline && !avatarBlob) {
+      try {
+        await selfManagement.save()
+      } catch (err) {
+        const message =
+          (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+          'Could not save self-management'
+        addToast('error', 'Self-management not saved', message)
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
     try {
       // Upload avatar if a new one was selected
       let avatarUrl = form.avatar_url
@@ -332,6 +354,18 @@ export default function AgentForm({
         dream_provider: (!form.dream_enabled || useSameModel) ? null : form.dream_provider || null,
         dream_model: (!form.dream_enabled || useSameModel) ? null : form.dream_model || null,
       })
+      if (mode === 'edit' && selfManagement.changed) {
+        // Saved apart from the config, so the agent isn't restarted for it; the config save
+        // above stands even if this is refused.
+        try {
+          await selfManagement.save()
+        } catch (err) {
+          const message =
+            (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+            'Could not save self-management'
+          addToast('error', 'Self-management not saved', message)
+        }
+      }
       if (mode === 'edit') {
         const saved = { ...form, avatar_url: avatarUrl }
         setForm(saved)
@@ -1031,6 +1065,15 @@ export default function AgentForm({
                   />
                 </section>
               </div>
+
+              {/* Self-management (spec 017): edit mode only, the agent must exist */}
+              {mode === 'edit' && (
+                <SelfManagementSection
+                  grants={selfManagement.grants}
+                  draft={selfManagement.draft}
+                  onChange={selfManagement.setDraft}
+                />
+              )}
 
               {/* TTS (Text-to-Speech) */}
               <div>
@@ -2561,6 +2604,7 @@ export default function AgentForm({
                   if (avatarPreview) URL.revokeObjectURL(avatarPreview)
                   setAvatarPreview(null)
                   setReloadKey((k) => k + 1)
+                  selfManagement.reset()
                 }}
                 style={{ fontSize: '0.85rem' }}
               >

@@ -35,7 +35,8 @@ pub use dream_journal::{DreamJournalEntry, DreamJournalEntryFrontMatter};
 pub use file::FileRecord;
 pub use global_config::{GlobalConfigEntry, GlobalConfigValue};
 pub use integration::{
-    Integration, IntegrationChanged, IntegrationFamily, IntegrationScope, IntegrationStatus,
+    EventAction, EventDraft, Integration, IntegrationChanged, IntegrationEvent, IntegrationFamily,
+    IntegrationGrant, IntegrationStatus,
 };
 pub use history::{
     SessionHistory, SessionHistoryContent, history_entries_to_messages, message_for_model,

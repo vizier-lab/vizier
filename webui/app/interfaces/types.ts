@@ -1188,7 +1188,7 @@ export interface HistoryVersion extends HistoryRow {
 }
 
 // ============================================================================
-// INTEGRATIONS (spec 016)
+// INTEGRATIONS (specs 016, 017)
 // ============================================================================
 
 export type IntegrationFamily = 'channel' | 'addon' | 'mcp'
@@ -1210,20 +1210,25 @@ export interface Integration {
   family: IntegrationFamily
   name: string
   enabled: boolean
-  scope: 'shared' | 'owned'
-  created_by: string | null
+  /** Who made it, a person or the agent itself. Informational only. */
+  creator: { user: string } | { agent: string } | null
+  /** The agent's name, or the user id. */
+  creator_name?: string | null
   settings: Record<string, unknown>
   missing?: string[]
 }
 
-/** One integration as an agent's Integrations page shows it. */
+export interface AgentRef {
+  agent_id: string
+  name: string
+}
+
+/** One of the agent's integrations as its Integrations page shows it. */
 export interface IntegrationItem extends Integration {
-  attached: boolean
-  also_used_by: { agent_id: string; name: string }[]
-  others?: number
+  /** Set only on a row left over from before integrations were per-agent (spec 017 FR-023). */
+  legacy_linked?: { agents: AgentRef[]; others: number }
   status: IntegrationStatus
   can_edit: boolean
-  can_attach: boolean
 }
 
 export interface IntegrationList {
@@ -1261,4 +1266,47 @@ export interface UpdateIntegrationRequest {
   name?: string
   settings?: Record<string, unknown>
   enabled?: boolean
+}
+
+export type GrantFamily = 'mcp' | 'addon' | 'channel'
+
+export interface GrantState {
+  on: boolean
+  granted_by?: string
+  granted_at?: string
+}
+
+/** Which integration families an agent may manage itself (spec 017). */
+export interface IntegrationGrants {
+  can_manage: boolean
+  grants: Record<GrantFamily, GrantState>
+}
+
+export type IntegrationEventAction =
+  | 'created'
+  | 'edited'
+  | 'enabled'
+  | 'disabled'
+  | 'deleted'
+  | 'unlinked'
+  | 'grant_on'
+  | 'grant_off'
+
+export interface IntegrationEvent {
+  id: string
+  agent_id: string
+  integration_id: string | null
+  integration_name: string
+  family: IntegrationFamily
+  actor: { user: string } | { agent: string }
+  actor_name: string
+  action: IntegrationEventAction
+  fields: string[]
+  session: string | null
+  at: string
+}
+
+export interface IntegrationEventPage {
+  items: IntegrationEvent[]
+  next?: string
 }

@@ -1,18 +1,19 @@
 //! The agent-scoped integrations routes (`specs/016-integrations-section/contracts/http-api.md`
-//! § Agent-scoped): what Integrations › Channels / Addons / MCP show for one agent, and
-//! creating and attaching integrations on it. Every write publishes `IntegrationChanged` after
-//! it commits; the response never waits for agents or readers to catch up.
+//! § Agent-scoped, as changed by `specs/017-agent-self-integrations/contracts/http-api.md`): what
+//! Integrations › Channels / Addons / MCP show for one agent, creating and deleting its
+//! integrations, its self-management grants and its change record. Every write goes through
+//! `integrations::service`, which publishes `IntegrationChanged` after it commits; the response
+//! never waits for agents or readers to catch up.
 
 use std::collections::HashMap;
-use std::time::Duration;
 
 use axum::{
     Extension, Json, Router,
     extract::{Path, Query, State},
     response::Response,
-    routing::{get, put},
+    routing::{delete, get, put},
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
@@ -21,28 +22,32 @@ use crate::{
         connections::status_of,
         http::{
             api::v1::integrations::{
-                FamilyQuery, IntegrationView, agents_by_id, fail, ok, plain, publish,
-                storage_error, view,
+                FamilyQuery, IntegrationView, agents_by_id, fail, ok, plain, requester_name,
+                service_error, storage_error, usernames, view,
             },
             auth::AuthenticatedUser,
             state::HTTPState,
         },
     },
-    integrations::access::{Caller, can_manage_on_agent, integration_access, scope_for_creator},
+    integrations::{
+        access::{Caller, can_manage_on_agent, integration_access},
+        service::{self, Actor, NewIntegration},
+    },
     schema::{
-        AgentCommand, AgentConfig, AgentId, Integration, IntegrationFamily, IntegrationStatus,
+        AgentConfig, AgentId, Integration, IntegrationEvent, IntegrationFamily,
+        IntegrationStatus, Requester,
     },
     storage::{agent::AgentStorage, integration::IntegrationStorage},
 };
 
 use super::user_can_view_agent;
 
-/// How long a page waits for the agent's own view of its integrations.
-const STATUS_TIMEOUT: Duration = Duration::from_secs(3);
-
 pub fn integrations() -> Router<HTTPState> {
     Router::new()
         .route("/", get(list).post(create))
+        .route("/grants", get(get_grants).put(set_grants))
+        .route("/events", get(list_events))
+        .route("/{integration_id}", delete(remove))
         .route("/{integration_id}/attachment", put(set_attachment))
 }
 
@@ -52,30 +57,30 @@ pub struct AgentRef {
     pub name: String,
 }
 
-/// One integration as the agent's page shows it.
+/// The other agents a legacy integration (FR-023) is still linked to.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct LegacyLinked {
+    /// Those the caller can see.
+    pub agents: Vec<AgentRef>,
+    /// How many more the caller can't.
+    pub others: usize,
+}
+
+/// One of the agent's integrations as its page shows it.
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct IntegrationItem {
     #[serde(flatten)]
     pub integration: IntegrationView,
-    pub attached: bool,
-    /// The other agents it is attached to that the caller can see.
-    pub also_used_by: Vec<AgentRef>,
-    /// How many more agents use it that the caller can't see.
-    #[serde(skip_serializing_if = "is_zero")]
-    pub others: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legacy_linked: Option<LegacyLinked>,
     pub status: IntegrationStatus,
     pub can_edit: bool,
-    pub can_attach: bool,
-}
-
-fn is_zero(n: &usize) -> bool {
-    *n == 0
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct IntegrationList {
     pub family: Option<IntegrationFamily>,
-    /// May add integrations to this agent, or attach and detach them.
+    /// May add integrations to this agent.
     pub can_manage: bool,
     pub items: Vec<IntegrationItem>,
 }
@@ -93,36 +98,15 @@ async fn viewable_agent(
     }
 }
 
-/// The agent's own view of its attached integrations, or nothing if it doesn't answer.
-async fn agent_statuses(state: &HTTPState, agent_id: &str) -> HashMap<String, IntegrationStatus> {
-    let (resp, rx) = tokio::sync::oneshot::channel();
-    let sent = state
-        .transport
-        .send_agent_command(AgentCommand::IntegrationStatus { agent_id: agent_id.to_string(), resp })
-        .await;
-    if sent.is_err() {
-        return HashMap::new();
-    }
-    tokio::time::timeout(STATUS_TIMEOUT, rx)
-        .await
-        .ok()
-        .and_then(|r| r.ok())
-        .unwrap_or_default()
-}
-
-/// What `agent_id` sees of one integration: its reader for a channel connection, otherwise
+/// What the agent sees of one integration: its reader for a channel connection, otherwise
 /// the agent's own answer.
 fn status(
     state: &HTTPState,
     integration: &Integration,
-    attached: bool,
     statuses: &HashMap<String, IntegrationStatus>,
 ) -> IntegrationStatus {
     if !integration.enabled {
         return IntegrationStatus::Disabled;
-    }
-    if !attached {
-        return IntegrationStatus::Unknown;
     }
     status_of(&state.deps.channel_board, &integration.id)
         .or_else(|| statuses.get(&integration.id).cloned())
@@ -133,35 +117,34 @@ struct ItemContext<'a> {
     state: &'a HTTPState,
     user: &'a AuthenticatedUser,
     agent_id: &'a str,
-    agent: &'a AgentConfig,
     agents: &'a HashMap<AgentId, AgentConfig>,
+    users: &'a HashMap<String, String>,
     statuses: &'a HashMap<String, IntegrationStatus>,
 }
 
 impl ItemContext<'_> {
     fn item(&self, integration: &Integration) -> IntegrationItem {
         let caller = Caller::from(self.user);
-        let access = integration_access(caller, integration, self.agent_id, self.agent);
-        let attached = integration.agents.iter().any(|a| a == self.agent_id);
-        let mut also_used_by = vec![];
-        let mut others = 0;
-        for agent_id in integration.agents.iter().filter(|a| *a != self.agent_id) {
-            match self.agents.get(agent_id) {
-                Some(config) if caller.manages_all() || user_can_view_agent(self.user, config) => {
-                    also_used_by.push(AgentRef { agent_id: agent_id.clone(), name: config.name.clone() })
+        let access =
+            integration_access(caller, integration, self.agents, |a| user_can_view_agent(self.user, a));
+        let legacy_linked = (integration.agents.len() > 1).then(|| {
+            let mut linked = LegacyLinked { agents: vec![], others: 0 };
+            for agent_id in integration.agents.iter().filter(|a| *a != self.agent_id) {
+                match self.agents.get(agent_id) {
+                    Some(config) if caller.manages_all() || user_can_view_agent(self.user, config) => {
+                        linked.agents.push(AgentRef { agent_id: agent_id.clone(), name: config.name.clone() })
+                    }
+                    _ => linked.others += 1,
                 }
-                _ => others += 1,
             }
-        }
+            linked
+        });
         let kind = self.state.deps.integration_kinds.get(&integration.kind);
         IntegrationItem {
-            integration: view(kind.as_deref(), integration),
-            attached,
-            also_used_by,
-            others,
-            status: status(self.state, integration, attached, self.statuses),
+            integration: view(kind.as_deref(), integration, self.agents, self.users),
+            legacy_linked,
+            status: status(self.state, integration, self.statuses),
             can_edit: access.edit,
-            can_attach: access.attach,
         }
     }
 }
@@ -171,7 +154,7 @@ impl ItemContext<'_> {
     path = "/agents/{agent_id}/integrations",
     params(("agent_id" = String, Path, description = "Agent ID"), FamilyQuery),
     responses(
-        (status = 200, description = "The integrations the caller can see, marked attached or not", body = crate::channels::http::models::response::APIResponse<IntegrationList>),
+        (status = 200, description = "The agent's integrations", body = crate::channels::http::models::response::APIResponse<IntegrationList>),
         (status = 404, description = "Agent not found or not visible")
     )
 )]
@@ -185,32 +168,31 @@ pub async fn list(
         Ok(agent) => agent,
         Err(r) => return r,
     };
-    let integrations = match state.storage.list_integrations().await {
+    let integrations = match state.storage.list_agent_integrations(&agent_id).await {
         Ok(integrations) => integrations,
         Err(e) => return storage_error(e),
     };
-    let caller = Caller::from(&user);
     let agents = agents_by_id(&state).await;
-    let statuses = agent_statuses(&state, &agent_id).await;
+    let statuses = service::agent_statuses(&state.deps, &agent_id).await;
+    let users = usernames(&state).await;
     let ctx = ItemContext {
         state: &state,
         user: &user,
         agent_id: &agent_id,
-        agent: &agent,
         agents: &agents,
+        users: &users,
         statuses: &statuses,
     };
     let items = integrations
         .iter()
         .filter(|i| query.family.is_none_or(|f| i.family == f))
-        .filter(|i| integration_access(caller, i, &agent_id, &agent).see)
         .map(|i| ctx.item(i))
         .collect();
     ok(
         StatusCode::OK,
         IntegrationList {
             family: query.family,
-            can_manage: can_manage_on_agent(caller, &agent),
+            can_manage: can_manage_on_agent(Caller::from(&user), &agent),
             items,
         },
     )
@@ -241,9 +223,9 @@ fn default_true() -> bool {
     params(("agent_id" = String, Path, description = "Agent ID")),
     request_body = CreateIntegration,
     responses(
-        (status = 201, description = "Created and attached to the agent", body = crate::channels::http::models::response::APIResponse<IntegrationItem>),
+        (status = 201, description = "Created on the agent", body = crate::channels::http::models::response::APIResponse<IntegrationItem>),
         (status = 403, description = "The caller may not add integrations to this agent"),
-        (status = 409, description = "name_in_use_on_agent, platform_in_use_on_agent or token_in_use"),
+        (status = 409, description = "name_in_use_on_agent, platform_in_use_on_agent, addon_installed or token_in_use"),
         (status = 422, description = "Settings the kind refuses")
     )
 )]
@@ -257,51 +239,22 @@ pub async fn create(
         Ok(agent) => agent,
         Err(r) => return r,
     };
-    let caller = Caller::from(&user);
-    let Some(scope) = scope_for_creator(caller).filter(|_| can_manage_on_agent(caller, &agent))
-    else {
-        return plain(StatusCode::FORBIDDEN, "you may not add integrations to this agent");
+    let actor = Actor::Person(Caller::from(&user));
+    let new = NewIntegration { kind: body.kind, name: body.name, settings: body.settings, enabled: body.enabled };
+    let integration = match service::create(&state.deps, &actor, &agent_id, &agent, new).await {
+        Ok(integration) => integration,
+        Err(e) => return service_error(e),
     };
-    let Some(kind) = state.deps.integration_kinds.get(&body.kind) else {
-        return plain(StatusCode::UNPROCESSABLE_ENTITY, format!("unknown kind '{}'", body.kind));
-    };
-    let name = body.name.trim().to_string();
-    if name.is_empty() {
-        return plain(StatusCode::UNPROCESSABLE_ENTITY, "a name is required");
-    }
-    if let Err(message) = kind.validate(&name, &body.settings) {
-        return plain(StatusCode::UNPROCESSABLE_ENTITY, message);
-    }
-
-    let now = Utc::now();
-    let mut integration = Integration {
-        id: uuid::Uuid::new_v4().to_string(),
-        kind: kind.id().to_string(),
-        family: kind.family(),
-        name,
-        settings: body.settings,
-        enabled: body.enabled,
-        scope,
-        created_by: Some(user.user_id.clone()),
-        agents: vec![],
-        created_at: now,
-        updated_at: now,
-    };
-    let affected = match state.storage.save_integration(&integration, Some(&agent_id)).await {
-        Ok(affected) => affected,
-        Err(e) => return storage_error(e),
-    };
-    publish(&state, &integration, affected);
-    integration.agents = vec![agent_id.clone()];
 
     let agents = agents_by_id(&state).await;
     let statuses = HashMap::new();
+    let users = usernames(&state).await;
     let ctx = ItemContext {
         state: &state,
         user: &user,
         agent_id: &agent_id,
-        agent: &agent,
         agents: &agents,
+        users: &users,
         statuses: &statuses,
     };
     let mut item = ctx.item(&integration);
@@ -312,16 +265,58 @@ pub async fn create(
     ok(StatusCode::CREATED, item)
 }
 
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct IntegrationRemoved {
+    /// `deleted`, or `unlinked` for a legacy integration still linked to other agents.
+    pub outcome: &'static str,
+    pub affected_agents: Vec<AgentId>,
+}
+
+/// Delete it, or unlink a legacy integration from this agent only (FR-023).
+async fn remove_from_agent(state: &HTTPState, user: &AuthenticatedUser, agent_id: &str, integration_id: &str) -> Response {
+    if let Err(r) = viewable_agent(state, user, agent_id).await {
+        return r;
+    }
+    let linked = match state.storage.get_integration(integration_id).await {
+        Ok(Some(integration)) => integration.agents.len(),
+        Ok(None) => return plain(StatusCode::NOT_FOUND, "integration not found"),
+        Err(e) => return storage_error(e),
+    };
+    let actor = Actor::Person(Caller::from(user));
+    let can_view = |a: &AgentConfig| user_can_view_agent(user, a);
+    match service::delete(&state.deps, &actor, integration_id, Some(agent_id), &can_view).await {
+        Ok(affected) => ok(
+            StatusCode::OK,
+            IntegrationRemoved { outcome: if linked > 1 { "unlinked" } else { "deleted" }, affected_agents: affected },
+        ),
+        Err(e) => service_error(e),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/agents/{agent_id}/integrations/{integration_id}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("integration_id" = String, Path, description = "Integration id")
+    ),
+    responses(
+        (status = 200, description = "Deleted, or unlinked from this agent if it is a legacy integration linked to several", body = crate::channels::http::models::response::APIResponse<IntegrationRemoved>),
+        (status = 403, description = "The caller may not change it"),
+        (status = 404, description = "Not one of this agent's integrations")
+    )
+)]
+pub async fn remove(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path((agent_id, integration_id)): Path<(String, String)>,
+) -> Response {
+    remove_from_agent(&state, &user, &agent_id, &integration_id).await
+}
+
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct AttachmentBody {
     pub attached: bool,
-}
-
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
-pub struct AttachmentSaved {
-    #[serde(flatten)]
-    pub item: IntegrationItem,
-    pub affected_agents: Vec<AgentId>,
 }
 
 #[utoipa::path(
@@ -333,9 +328,9 @@ pub struct AttachmentSaved {
     ),
     request_body = AttachmentBody,
     responses(
-        (status = 200, description = "Attached or detached", body = crate::channels::http::models::response::APIResponse<AttachmentSaved>),
-        (status = 403, description = "The caller may not attach it to this agent"),
-        (status = 409, description = "incomplete, name_in_use_on_agent or platform_in_use_on_agent")
+        (status = 200, description = "A legacy integration unlinked from this agent", body = crate::channels::http::models::response::APIResponse<IntegrationRemoved>),
+        (status = 409, description = "use_delete: it belongs to this agent alone"),
+        (status = 410, description = "attach_removed: integrations belong to one agent")
     )
 )]
 pub async fn set_attachment(
@@ -344,59 +339,223 @@ pub async fn set_attachment(
     Path((agent_id, integration_id)): Path<(String, String)>,
     Json(body): Json<AttachmentBody>,
 ) -> Response {
+    if body.attached {
+        return fail(
+            StatusCode::GONE,
+            "integrations belong to one agent; create one on this agent instead",
+            serde_json::json!({ "error": "attach_removed" }),
+        );
+    }
+    match state.storage.get_integration(&integration_id).await {
+        Ok(Some(integration)) if integration.agents.len() <= 1 => {
+            return fail(
+                StatusCode::CONFLICT,
+                "it belongs to this agent alone; delete it instead",
+                serde_json::json!({ "error": "use_delete" }),
+            );
+        }
+        Ok(_) => {}
+        Err(e) => return storage_error(e),
+    }
+    remove_from_agent(&state, &user, &agent_id, &integration_id).await
+}
+
+// ---------------------------------------------------------------------------------------------
+// Self-management grants (contracts/http-api.md § Grants)
+// ---------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Serialize, utoipa::ToSchema)]
+pub struct GrantState {
+    pub on: bool,
+    /// The username of whoever switched it on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub granted_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub granted_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct GrantStates {
+    pub mcp: GrantState,
+    pub addon: GrantState,
+    pub channel: GrantState,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct IntegrationGrants {
+    /// May switch these on or off.
+    pub can_manage: bool,
+    pub grants: GrantStates,
+}
+
+async fn grants_response(state: &HTTPState, user: &AuthenticatedUser, agent_id: &str, agent: &AgentConfig) -> Response {
+    let grants = match state.storage.list_grants(agent_id).await {
+        Ok(grants) => grants,
+        Err(e) => return storage_error(e),
+    };
+    let users = usernames(state).await;
+    let of = |family: IntegrationFamily| {
+        grants
+            .iter()
+            .find(|g| g.family == family)
+            .map(|g| GrantState {
+                on: true,
+                granted_by: Some(users.get(&g.granted_by).cloned().unwrap_or_else(|| g.granted_by.clone())),
+                granted_at: Some(g.granted_at),
+            })
+            .unwrap_or_default()
+    };
+    ok(
+        StatusCode::OK,
+        IntegrationGrants {
+            can_manage: can_manage_on_agent(Caller::from(user), agent),
+            grants: GrantStates {
+                mcp: of(IntegrationFamily::Mcp),
+                addon: of(IntegrationFamily::Addon),
+                channel: of(IntegrationFamily::Channel),
+            },
+        },
+    )
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/integrations/grants",
+    params(("agent_id" = String, Path, description = "Agent ID")),
+    responses(
+        (status = 200, description = "Which integration families the agent may manage itself", body = crate::channels::http::models::response::APIResponse<IntegrationGrants>),
+        (status = 404, description = "Agent not found or not visible")
+    )
+)]
+pub async fn get_grants(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(agent_id): Path<String>,
+) -> Response {
+    match viewable_agent(&state, &user, &agent_id).await {
+        Ok(agent) => grants_response(&state, &user, &agent_id, &agent).await,
+        Err(r) => r,
+    }
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct SetGrants {
+    pub mcp: Option<bool>,
+    pub addon: Option<bool>,
+    pub channel: Option<bool>,
+}
+
+#[utoipa::path(
+    put,
+    path = "/agents/{agent_id}/integrations/grants",
+    params(("agent_id" = String, Path, description = "Agent ID")),
+    request_body = SetGrants,
+    responses(
+        (status = 200, description = "Saved; applies from the agent's next turn, without a restart", body = crate::channels::http::models::response::APIResponse<IntegrationGrants>),
+        (status = 403, description = "The caller may not manage this agent's integrations"),
+        (status = 404, description = "Agent not found or not visible")
+    )
+)]
+pub async fn set_grants(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(agent_id): Path<String>,
+    Json(body): Json<SetGrants>,
+) -> Response {
     let agent = match viewable_agent(&state, &user, &agent_id).await {
         Ok(agent) => agent,
         Err(r) => return r,
     };
-    let integration = match state.storage.get_integration(&integration_id).await {
-        Ok(Some(integration)) => integration,
-        Ok(None) => return plain(StatusCode::NOT_FOUND, "integration not found"),
-        Err(e) => return storage_error(e),
-    };
-    let caller = Caller::from(&user);
-    let access = integration_access(caller, &integration, &agent_id, &agent);
-    if !access.see {
-        return plain(StatusCode::NOT_FOUND, "integration not found");
+    let changes: Vec<(IntegrationFamily, bool)> = [
+        (IntegrationFamily::Mcp, body.mcp),
+        (IntegrationFamily::Addon, body.addon),
+        (IntegrationFamily::Channel, body.channel),
+    ]
+    .into_iter()
+    .filter_map(|(family, on)| Some((family, on?)))
+    .collect();
+    if let Err(e) = service::set_grants(&state.deps, Caller::from(&user), &agent_id, &agent, &changes).await {
+        return service_error(e);
     }
-    if !access.attach {
-        return plain(StatusCode::FORBIDDEN, "you may not change this agent's integrations");
-    }
-    if body.attached {
-        let missing = state
-            .deps
-            .integration_kinds
-            .get(&integration.kind)
-            .map(|k| k.missing(&integration.settings))
-            .unwrap_or_default();
-        if !missing.is_empty() {
-            return fail(
-                StatusCode::CONFLICT,
-                format!("set {} first", missing.join(", ")),
-                serde_json::json!({ "error": "incomplete", "missing": missing }),
-            );
-        }
-    }
+    grants_response(&state, &user, &agent_id, &agent).await
+}
 
-    let affected = match state.storage.set_attachment(&integration_id, &agent_id, body.attached).await {
-        Ok(affected) => affected,
-        Err(e) => return storage_error(e),
-    };
-    publish(&state, &integration, affected.clone());
+// ---------------------------------------------------------------------------------------------
+// Change record (contracts/http-api.md § Events)
+// ---------------------------------------------------------------------------------------------
 
-    let integration = match state.storage.get_integration(&integration_id).await {
-        Ok(Some(integration)) => integration,
-        Ok(None) => return plain(StatusCode::NOT_FOUND, "integration not found"),
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct EventsQuery {
+    pub integration_id: Option<String>,
+    /// `at|id` from the previous page's `next`.
+    pub before: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct EventItem {
+    #[serde(flatten)]
+    pub event: IntegrationEvent,
+    /// The agent's name, or the username.
+    pub actor_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct EventPage {
+    pub items: Vec<EventItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/integrations/events",
+    params(("agent_id" = String, Path, description = "Agent ID"), EventsQuery),
+    responses(
+        (status = 200, description = "Changes to the agent's integrations and grants, newest first", body = crate::channels::http::models::response::APIResponse<EventPage>),
+        (status = 404, description = "Agent not found or not visible")
+    )
+)]
+pub async fn list_events(
+    State(state): State<HTTPState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(agent_id): Path<String>,
+    Query(query): Query<EventsQuery>,
+) -> Response {
+    if let Err(r) = viewable_agent(&state, &user, &agent_id).await {
+        return r;
+    }
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let before = match query.before.as_deref().map(parse_cursor) {
+        Some(Some(cursor)) => Some(cursor),
+        Some(None) => return plain(StatusCode::UNPROCESSABLE_ENTITY, "malformed cursor"),
+        None => None,
+    };
+    let events = match state
+        .storage
+        .list_events(&agent_id, query.integration_id.as_deref(), before, limit)
+        .await
+    {
+        Ok(events) => events,
         Err(e) => return storage_error(e),
     };
     let agents = agents_by_id(&state).await;
-    let statuses = HashMap::new();
-    let ctx = ItemContext {
-        state: &state,
-        user: &user,
-        agent_id: &agent_id,
-        agent: &agent,
-        agents: &agents,
-        statuses: &statuses,
-    };
-    ok(StatusCode::OK, AttachmentSaved { item: ctx.item(&integration), affected_agents: affected })
+    let users = usernames(&state).await;
+    let next = (events.len() == limit)
+        .then(|| events.last().map(|e| format!("{}|{}", e.at.to_rfc3339(), e.id)))
+        .flatten();
+    let items = events
+        .into_iter()
+        .map(|event| {
+            let actor_name = requester_name(&event.actor, &agents, &users);
+            EventItem { event, actor_name }
+        })
+        .collect();
+    ok(StatusCode::OK, EventPage { items, next })
+}
+
+fn parse_cursor(cursor: &str) -> Option<(DateTime<Utc>, String)> {
+    let (at, id) = cursor.split_once('|')?;
+    let at = DateTime::parse_from_rfc3339(at).ok()?.with_timezone(&Utc);
+    Some((at, id.to_string()))
 }

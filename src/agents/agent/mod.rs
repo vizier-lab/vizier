@@ -239,12 +239,20 @@ impl VizierAgent {
                 vec![]
             }
         };
-        IntegrationTools::build(
+        let mut layer = IntegrationTools::build(
             &deps.integration_kinds,
             &integrations,
             &tool_context(agent_id, deps),
             previous,
-        )
+        );
+        layer.self_management = match self_management_tools(agent_id, deps).await {
+            Ok(tools) => tools,
+            Err(e) => {
+                tracing::warn!(agent_id, "cannot read the agent's self-management grants: {e}");
+                Default::default()
+            }
+        };
+        layer
     }
 
     /// Re-read the agent's integrations and swap in tools composed from them, for the next
@@ -262,13 +270,24 @@ impl VizierAgent {
                 return;
             }
         };
+        let self_management = match self_management_tools(&self.agent_id, &self.deps).await {
+            Ok(tools) => tools,
+            Err(e) => {
+                tracing::warn!(
+                    agent_id = %self.agent_id,
+                    "grant refresh failed, keeping the current tools: {e}"
+                );
+                return;
+            }
+        };
         let current = self.tools.load_full();
-        let layer = IntegrationTools::build(
+        let mut layer = IntegrationTools::build(
             &self.deps.integration_kinds,
             &integrations,
             &tool_context(&self.agent_id, &self.deps),
             Some(&current.integrations),
         );
+        layer.self_management = self_management;
         self.tools.store(Arc::new(compose(&self.base, Arc::new(layer))));
         tracing::debug!(agent_id = %self.agent_id, "integration tools refreshed");
     }
@@ -1605,6 +1624,21 @@ pub fn read_md_file(workspace: String, file: String) -> String {
     let path = build_path(&workspace, &[&file]);
 
     fs::read_to_string(path).unwrap()
+}
+
+/// The agent's self-management tools for the families it is granted now (none without a grant).
+async fn self_management_tools(
+    agent_id: &AgentId,
+    deps: &VizierDependencies,
+) -> anyhow::Result<crate::agents::tools::VizierToolSet> {
+    let granted: Vec<_> = deps
+        .storage
+        .list_grants(agent_id)
+        .await?
+        .into_iter()
+        .map(|grant| grant.family)
+        .collect();
+    Ok(crate::agents::tools::self_integrations::toolset(agent_id, deps, &granted))
 }
 
 fn tool_context(agent_id: &AgentId, deps: &VizierDependencies) -> AgentToolContext {

@@ -393,7 +393,8 @@ pub fn init_task_run_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// The integration tables (`specs/016-integrations-section/data-model.md` §1–2), split out like
+/// The integration tables (`specs/016-integrations-section/data-model.md` §1–2, and
+/// `specs/017-agent-self-integrations/data-model.md` §3–4 for grants and events), split out like
 /// [`init_task_run_schema`] so the tests in `src/storage/sqlite/integration.rs` can stand them up
 /// against an in-memory connection.
 ///
@@ -422,8 +423,33 @@ pub fn init_integration_schema(conn: &Connection) -> Result<()> {
             PRIMARY KEY (integration_id, agent_id)
         );
         CREATE INDEX IF NOT EXISTS idx_integration_attachment_agent ON integration_attachment(agent_id);
+
+        CREATE TABLE IF NOT EXISTS integration_grant (
+            agent_id    TEXT NOT NULL,
+            family      TEXT NOT NULL,
+            granted_by  TEXT NOT NULL,
+            granted_at  TEXT NOT NULL,
+            PRIMARY KEY (agent_id, family)
+        );
+
+        CREATE TABLE IF NOT EXISTS integration_event (
+            id               TEXT PRIMARY KEY,
+            agent_id         TEXT NOT NULL,
+            integration_id   TEXT,
+            integration_name TEXT NOT NULL,
+            family           TEXT NOT NULL,
+            actor            TEXT NOT NULL,
+            action           TEXT NOT NULL,
+            fields           TEXT NOT NULL DEFAULT '[]',
+            session          TEXT,
+            at               TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_integration_event_agent ON integration_event(agent_id, at DESC);
+        CREATE INDEX IF NOT EXISTS idx_integration_event_integration ON integration_event(integration_id, at DESC);
         ",
     )?;
+    // specs/017-agent-self-integrations data-model §1: who made it, as a `Requester`.
+    add_column_if_missing(conn, "integration", "creator", "TEXT").map_err(|e| anyhow::anyhow!(e.0))?;
 
     Ok(())
 }

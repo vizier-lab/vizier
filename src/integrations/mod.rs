@@ -17,6 +17,7 @@ use crate::{
 pub mod access;
 pub mod kind;
 pub mod kinds;
+pub mod service;
 
 use kind::{AgentToolContext, Contribution, IntegrationKind};
 
@@ -111,6 +112,9 @@ pub struct IntegrationTools {
     pub native: VizierToolSet,
     pub addons: BTreeMap<String, AddonTools>,
     pub mcp: HashMap<String, Arc<McpServer>>,
+    /// The agent's self-management tools, present only while a family is granted
+    /// (specs/017-agent-self-integrations research R5). Rebuilt on every refresh; cheap.
+    pub self_management: VizierToolSet,
 }
 
 impl IntegrationTools {
@@ -224,7 +228,6 @@ mod tests {
     use super::*;
     use crate::{
         agents::tools::{BaseTools, compose},
-        schema::IntegrationScope,
         storage::{VizierStorage, document::LocalDocumentStore, sqlite::SqliteStorage},
     };
 
@@ -248,8 +251,7 @@ mod tests {
             name: name.into(),
             settings,
             enabled: true,
-            scope: IntegrationScope::Shared,
-            created_by: None,
+            creator: None,
             agents: vec!["dp-a".into()],
             created_at: Utc::now(),
             updated_at: Utc::now(),

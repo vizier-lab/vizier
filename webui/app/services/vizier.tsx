@@ -102,9 +102,37 @@ export const createAgentIntegration = async (agentId: string, data: import('../i
   return res.data as ApiResponse<import('../interfaces/types').IntegrationItem>
 }
 
-export const setIntegrationAttachment = async (agentId: string, integrationId: string, attached: boolean) => {
-  const res = await apiClient.put(`/agents/${agentId}/integrations/${integrationId}/attachment`, { attached })
-  return res.data as ApiResponse<import('../interfaces/types').IntegrationItem & { affected_agents: string[] }>
+/** Delete one of the agent's integrations, or unlink a legacy one from this agent only. */
+export const deleteAgentIntegration = async (agentId: string, integrationId: string) => {
+  const res = await apiClient.delete(`/agents/${agentId}/integrations/${integrationId}`)
+  return res.data as ApiResponse<{ outcome: 'deleted' | 'unlinked'; affected_agents: string[] }>
+}
+
+export const getIntegrationGrants = async (agentId: string) => {
+  const res = await apiClient.get(`/agents/${agentId}/integrations/grants`)
+  return res.data as ApiResponse<import('../interfaces/types').IntegrationGrants>
+}
+
+export const setIntegrationGrants = async (
+  agentId: string,
+  changes: Partial<Record<import('../interfaces/types').GrantFamily, boolean>>,
+) => {
+  const res = await apiClient.put(`/agents/${agentId}/integrations/grants`, changes)
+  return res.data as ApiResponse<import('../interfaces/types').IntegrationGrants>
+}
+
+export const listIntegrationEvents = async (
+  agentId: string,
+  opts: { integrationId?: string; before?: string; limit?: number } = {},
+) => {
+  const res = await apiClient.get(`/agents/${agentId}/integrations/events`, {
+    params: {
+      ...(opts.integrationId ? { integration_id: opts.integrationId } : {}),
+      ...(opts.before ? { before: opts.before } : {}),
+      ...(opts.limit ? { limit: opts.limit } : {}),
+    },
+  })
+  return res.data as ApiResponse<import('../interfaces/types').IntegrationEventPage>
 }
 
 export const updateIntegration = async (integrationId: string, data: import('../interfaces/types').UpdateIntegrationRequest) => {

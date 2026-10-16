@@ -455,6 +455,13 @@ fn moved_fields(body: &serde_json::Value) -> Vec<String> {
 /// fields, or `400` when it doesn't parse.
 fn parse_agent_body(body: serde_json::Value) -> Result<CreateAgentRequest, axum::response::Response> {
     use axum::response::IntoResponse;
+    if body.get("self_management").is_some() {
+        return Err(crate::channels::http::api::v1::integrations::fail(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "self-management is set through /agents/{id}/integrations/grants, by someone who manages the agent's integrations",
+            serde_json::json!({"error": "use_grants_endpoint"}),
+        ));
+    }
     let moved = moved_fields(&body);
     if !moved.is_empty() {
         return Err(crate::channels::http::api::v1::integrations::fail(

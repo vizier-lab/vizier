@@ -63,6 +63,15 @@ pub enum VizierChannelId {
 }
 
 impl VizierChannelId {
+    /// The chat platform a conversation is happening on, if it is a Discord or Telegram one.
+    pub fn platform(&self) -> Option<crate::schema::ChannelPlatform> {
+        match self {
+            Self::DiscordChanel(_) => Some(crate::schema::ChannelPlatform::Discord),
+            Self::TelegramChannel(_) => Some(crate::schema::ChannelPlatform::Telegram),
+            _ => None,
+        }
+    }
+
     pub fn to_slug(&self) -> String {
         match self {
             Self::DiscordChanel(id) => format!("discord__{}", id),

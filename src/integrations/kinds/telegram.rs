@@ -24,6 +24,10 @@ impl IntegrationKind for TelegramKind {
         IntegrationFamily::Channel
     }
 
+    fn platform(&self) -> Option<ChannelPlatform> {
+        Some(ChannelPlatform::Telegram)
+    }
+
     fn listing(&self) -> KindListing {
         KindListing {
             name: "Telegram",

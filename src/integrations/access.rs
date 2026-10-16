@@ -1,7 +1,14 @@
-//! Who may see, edit and attach an integration (research R6). Every handler asks here and
-//! nowhere else.
+//! Who may see and change an integration (specs/017-agent-self-integrations research R3). Every
+//! handler and agent tool asks here and nowhere else.
+//!
+//! Integrations belong to one agent each. Who may manage them follows only from which agents a
+//! person may manage: every agent with `all_agents:integrations:manage`, the agents they own
+//! with `owned_agents:integrations:manage`. Who created an integration grants nothing. Legacy
+//! rows linked to several agents (FR-023) are for all-agents managers only.
 
-use crate::schema::{AgentConfig, Integration, IntegrationFamily, IntegrationScope};
+use std::collections::HashMap;
+
+use crate::schema::{AgentConfig, AgentId, Integration, IntegrationFamily};
 
 pub const MANAGE_ALL: &str = "all_agents:integrations:manage";
 pub const MANAGE_OWNED: &str = "owned_agents:integrations:manage";
@@ -29,12 +36,12 @@ impl Caller<'_> {
         self.permissions.iter().any(|p| p == permission)
     }
 
-    /// May manage every integration on every agent.
+    /// May manage the integrations of every agent.
     pub fn manages_all(&self) -> bool {
         self.is_system || self.has(MANAGE_ALL)
     }
 
-    /// May manage their own integrations on the agents they own.
+    /// May manage the integrations of the agents they own.
     pub fn manages_owned(&self) -> bool {
         self.has(MANAGE_OWNED)
     }
@@ -48,59 +55,41 @@ impl Caller<'_> {
 pub struct Access {
     pub see: bool,
     pub edit: bool,
-    pub attach: bool,
 }
 
-/// What `caller` may do with `integration` on the page of agent `agent_id`. The caller is
-/// assumed able to view that agent (the endpoint checks that first).
-pub fn integration_access(
-    caller: Caller<'_>,
-    integration: &Integration,
-    agent_id: &str,
-    agent: &AgentConfig,
-) -> Access {
-    if caller.manages_all() {
-        return Access { see: true, edit: true, attach: true };
-    }
-    let mine = integration.created_by.as_deref() == Some(caller.user_id);
-    let usable = mine || integration.scope == IntegrationScope::Shared;
-    let owned = caller.manages_owned();
-    let attached_here = integration.agents.iter().any(|a| a == agent_id);
-    // A bot belongs to its agent: whoever manages that agent's integrations manages it.
-    let agents_bot = integration.family == IntegrationFamily::Channel
-        && attached_here
-        && can_manage_on_agent(caller, agent);
-    Access {
-        // Anyone who can view the agent sees what is attached to it, read-only.
-        see: (owned && usable) || attached_here,
-        edit: (owned && mine) || agents_bot,
-        attach: (owned && usable && caller.owns_agent(agent)) || agents_bot,
-    }
-}
-
-/// May add integrations to, or remove them from, this agent at all.
+/// May manage this agent's integrations, and so switch its self-management on or off.
 pub fn can_manage_on_agent(caller: Caller<'_>, agent: &AgentConfig) -> bool {
     caller.manages_all() || (caller.manages_owned() && caller.owns_agent(agent))
 }
 
-/// May edit or delete the integration. `owner` is the agent a channel connection belongs to,
-/// whose integration managers manage its bot whoever created it.
-pub fn can_edit(caller: Caller<'_>, integration: &Integration, owner: Option<&AgentConfig>) -> bool {
-    caller.manages_all()
-        || (caller.manages_owned() && integration.created_by.as_deref() == Some(caller.user_id))
-        || (integration.family == IntegrationFamily::Channel
-            && owner.is_some_and(|agent| can_manage_on_agent(caller, agent)))
+/// What `caller` may do with `integration`. `agents` resolves its linked agents; `can_view`
+/// says whether the caller may view an agent at all.
+pub fn integration_access(
+    caller: Caller<'_>,
+    integration: &Integration,
+    agents: &HashMap<AgentId, AgentConfig>,
+    can_view: impl Fn(&AgentConfig) -> bool,
+) -> Access {
+    if caller.manages_all() {
+        return Access { see: true, edit: true };
+    }
+    let edit = integration
+        .owner_agent()
+        .and_then(|id| agents.get(id))
+        .is_some_and(|agent| can_manage_on_agent(caller, agent));
+    let see = edit
+        || integration
+            .agents
+            .iter()
+            .any(|id| agents.get(id).is_some_and(&can_view));
+    Access { see, edit }
 }
 
-/// The scope a new integration gets from its creator, or `None` if they may not create one.
-pub fn scope_for_creator(caller: Caller<'_>) -> Option<IntegrationScope> {
-    if caller.manages_all() {
-        Some(IntegrationScope::Shared)
-    } else if caller.manages_owned() {
-        Some(IntegrationScope::Owned)
-    } else {
-        None
-    }
+/// May agent `agent_id` change `integration` itself: it is that agent's own (not a legacy row)
+/// and the agent's switch for its family is on.
+pub fn agent_may(agent_id: &str, integration: &Integration, granted: &[IntegrationFamily]) -> bool {
+    integration.owner_agent().is_some_and(|owner| owner == agent_id)
+        && granted.contains(&integration.family)
 }
 
 #[cfg(test)]
@@ -108,7 +97,6 @@ mod tests {
     use chrono::Utc;
 
     use super::*;
-    use crate::schema::IntegrationFamily;
 
     fn agent(owner: &str) -> AgentConfig {
         serde_json::from_value(serde_json::json!({
@@ -120,16 +108,20 @@ mod tests {
         .unwrap()
     }
 
-    fn integration(created_by: &str, scope: IntegrationScope, agents: &[&str]) -> Integration {
+    /// `dp-a` owned by alice, `dp-b` owned by bob.
+    fn agents() -> HashMap<AgentId, AgentConfig> {
+        HashMap::from([("dp-a".to_string(), agent("alice")), ("dp-b".to_string(), agent("bob"))])
+    }
+
+    fn integration(family: IntegrationFamily, agents: &[&str]) -> Integration {
         Integration {
             id: "i".into(),
             kind: "mcp".into(),
-            family: IntegrationFamily::Mcp,
+            family,
             name: "fs".into(),
             settings: serde_json::json!({}),
             enabled: true,
-            scope,
-            created_by: Some(created_by.into()),
+            creator: Some(crate::schema::Requester::User("bob".into())),
             agents: agents.iter().map(|a| a.to_string()).collect(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -140,83 +132,76 @@ mod tests {
         Caller { user_id, is_system: false, permissions }
     }
 
+    /// Views only the agents they own.
+    fn owner_view(user: &str) -> impl Fn(&AgentConfig) -> bool + '_ {
+        move |a: &AgentConfig| a.owner_id.as_deref() == Some(user)
+    }
+
     #[test]
-    fn all_scope_can_do_everything() {
+    fn all_agents_manager_does_everything_including_legacy_rows() {
         let perms = vec![MANAGE_ALL.to_string()];
-        let access = integration_access(
-            caller("admin", &perms),
-            &integration("alice", IntegrationScope::Owned, &[]),
-            "dp-a",
-            &agent("bob"),
+        let admin = caller("admin", &perms);
+        let legacy = integration(IntegrationFamily::Mcp, &["dp-a", "dp-b"]);
+        assert_eq!(
+            integration_access(admin, &legacy, &agents(), |_| false),
+            Access { see: true, edit: true }
         );
-        assert_eq!(access, Access { see: true, edit: true, attach: true });
-        assert_eq!(scope_for_creator(caller("admin", &perms)), Some(IntegrationScope::Shared));
         let system = Caller { user_id: "root", is_system: true, permissions: &[] };
         assert!(system.manages_all());
     }
 
     #[test]
-    fn owned_scope_on_own_and_someone_elses_agent() {
+    fn owned_manager_on_own_agent_whoever_created_it() {
         let perms = vec![MANAGE_OWNED.to_string()];
         let alice = caller("alice", &perms);
-        let mine = integration("alice", IntegrationScope::Owned, &[]);
-
-        let on_own = integration_access(alice, &mine, "dp-b", &agent("alice"));
-        assert_eq!(on_own, Access { see: true, edit: true, attach: true });
-
-        let on_other = integration_access(alice, &mine, "dp-a", &agent("admin"));
-        assert_eq!(on_other, Access { see: true, edit: true, attach: false });
+        // bob created it, but it is on alice's agent.
+        let on_mine = integration(IntegrationFamily::Mcp, &["dp-a"]);
+        assert_eq!(
+            integration_access(alice, &on_mine, &agents(), owner_view("alice")),
+            Access { see: true, edit: true }
+        );
         assert!(can_manage_on_agent(alice, &agent("alice")));
-        assert!(!can_manage_on_agent(alice, &agent("admin")));
-        assert_eq!(scope_for_creator(alice), Some(IntegrationScope::Owned));
+        assert!(!can_manage_on_agent(alice, &agent("bob")));
     }
 
     #[test]
-    fn shared_versus_another_owned_users_integration() {
-        let perms = vec![MANAGE_OWNED.to_string()];
-        let bob = caller("bob", &perms);
-
-        let shared = integration("admin", IntegrationScope::Shared, &[]);
-        assert_eq!(
-            integration_access(bob, &shared, "dp-c", &agent("bob")),
-            Access { see: true, edit: false, attach: true }
-        );
-
-        let alices = integration("alice", IntegrationScope::Owned, &[]);
-        assert_eq!(
-            integration_access(bob, &alices, "dp-c", &agent("bob")),
-            Access::default()
-        );
-        assert!(!can_edit(bob, &alices, None));
-    }
-
-    #[test]
-    fn an_agents_manager_manages_its_bot_whoever_created_it() {
+    fn owned_manager_on_someone_elses_agent() {
         let perms = vec![MANAGE_OWNED.to_string()];
         let alice = caller("alice", &perms);
-        let mut bot = integration("admin", IntegrationScope::Shared, &["dp-b"]);
-        bot.family = IntegrationFamily::Channel;
+        let on_bobs = integration(IntegrationFamily::Mcp, &["dp-b"]);
         assert_eq!(
-            integration_access(alice, &bot, "dp-b", &agent("alice")),
-            Access { see: true, edit: true, attach: true }
+            integration_access(alice, &on_bobs, &agents(), owner_view("alice")),
+            Access::default()
         );
-        assert!(can_edit(alice, &bot, Some(&agent("alice"))));
-        assert!(!can_edit(alice, &bot, Some(&agent("admin"))));
     }
 
     #[test]
-    fn a_viewer_sees_only_what_is_attached() {
-        let viewer = caller("carol", &[]);
-        let attached = integration("admin", IntegrationScope::Shared, &["dp-a"]);
+    fn owned_manager_only_sees_a_legacy_row() {
+        let perms = vec![MANAGE_OWNED.to_string()];
+        let alice = caller("alice", &perms);
+        let legacy = integration(IntegrationFamily::Addon, &["dp-a", "dp-b"]);
         assert_eq!(
-            integration_access(viewer, &attached, "dp-a", &agent("admin")),
-            Access { see: true, edit: false, attach: false }
+            integration_access(alice, &legacy, &agents(), owner_view("alice")),
+            Access { see: true, edit: false }
         );
-        let elsewhere = integration("admin", IntegrationScope::Shared, &["dp-b"]);
-        assert_eq!(
-            integration_access(viewer, &elsewhere, "dp-a", &agent("admin")),
-            Access::default()
-        );
-        assert_eq!(scope_for_creator(viewer), None);
+    }
+
+    #[test]
+    fn a_viewer_sees_but_does_not_edit() {
+        let carol = caller("carol", &[]);
+        let on_a = integration(IntegrationFamily::Channel, &["dp-a"]);
+        assert_eq!(integration_access(carol, &on_a, &agents(), |_| true), Access { see: true, edit: false });
+        assert_eq!(integration_access(carol, &on_a, &agents(), |_| false), Access::default());
+    }
+
+    #[test]
+    fn an_agent_changes_only_its_own_in_granted_families() {
+        let mcp = [IntegrationFamily::Mcp];
+        let own = integration(IntegrationFamily::Mcp, &["dp-a"]);
+        assert!(agent_may("dp-a", &own, &mcp));
+        assert!(!agent_may("dp-a", &own, &[IntegrationFamily::Addon]));
+        assert!(!agent_may("dp-b", &own, &mcp));
+        let legacy = integration(IntegrationFamily::Mcp, &["dp-a", "dp-b"]);
+        assert!(!agent_may("dp-a", &legacy, &mcp));
     }
 }

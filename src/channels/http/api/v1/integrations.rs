@@ -24,11 +24,16 @@ use crate::{
         state::HTTPState,
     },
     integrations::{
-        access::{Caller, can_edit},
+        access::{Caller, integration_access},
         kind::{IntegrationKind, KindField},
+        service::{self, Actor, IntegrationPatch, ServiceError},
     },
-    schema::{AgentConfig, AgentId, Integration, IntegrationChanged, IntegrationFamily, IntegrationScope},
-    storage::{agent::AgentStorage, integration::{IntegrationConflict, IntegrationStorage}},
+    schema::{AgentConfig, AgentId, Integration, IntegrationFamily, Requester},
+    storage::{
+        agent::AgentStorage,
+        integration::{IntegrationConflict, IntegrationStorage},
+        user::UserStorage,
+    },
 };
 
 use super::agents::user_can_view_agent;
@@ -108,13 +113,26 @@ pub(crate) fn storage_error(e: anyhow::Error) -> Response {
     }
 }
 
-/// Tell agents and readers, after the write committed.
-pub(crate) fn publish(state: &HTTPState, integration: &Integration, agents: Vec<AgentId>) {
-    state.transport.publish_integration_change(IntegrationChanged {
-        integration_id: integration.id.clone(),
-        family: integration.family,
-        agents,
-    });
+/// A service refusal as a response: 404/403/422, a rule conflict `409` with its code and the
+/// integration already holding what was asked for, anything else `500`.
+pub(crate) fn service_error(e: ServiceError) -> Response {
+    match e {
+        ServiceError::NotFound => plain(StatusCode::NOT_FOUND, "integration not found"),
+        ServiceError::Forbidden(message) => fail(
+            StatusCode::FORBIDDEN,
+            message,
+            serde_json::json!({
+                "error": "forbidden",
+                "required": [
+                    crate::integrations::access::MANAGE_ALL,
+                    format!("{} (own agents)", crate::integrations::access::MANAGE_OWNED),
+                ],
+            }),
+        ),
+        ServiceError::Invalid(message) => plain(StatusCode::UNPROCESSABLE_ENTITY, message),
+        ServiceError::Conflict(conflict) => storage_error(conflict.into()),
+        ServiceError::Storage(e) => storage_error(e),
+    }
 }
 
 /// An integration as every response shows it: settings redacted by its kind.
@@ -125,8 +143,10 @@ pub struct IntegrationView {
     pub family: IntegrationFamily,
     pub name: String,
     pub enabled: bool,
-    pub scope: IntegrationScope,
-    pub created_by: Option<String>,
+    /// Who made it: `{"user": …}` or `{"agent": …}`. Informational only.
+    pub creator: Option<Requester>,
+    /// The agent's name, or the username.
+    pub creator_name: Option<String>,
     #[schema(value_type = Object)]
     pub settings: serde_json::Value,
     /// Required settings that are missing; the integration contributes nothing until set.
@@ -134,28 +154,50 @@ pub struct IntegrationView {
     pub missing: Vec<String>,
 }
 
-pub(crate) fn view(kind: Option<&dyn IntegrationKind>, integration: &Integration) -> IntegrationView {
+/// Who a `Requester` is, as a person reads it: the agent's name, or the username.
+pub(crate) fn requester_name(
+    requester: &Requester,
+    agents: &HashMap<AgentId, AgentConfig>,
+    users: &HashMap<String, String>,
+) -> String {
+    match requester {
+        Requester::User(id) => users.get(id).cloned().unwrap_or_else(|| id.clone()),
+        Requester::Agent(id) => agents.get(id).map(|a| a.name.clone()).unwrap_or_else(|| id.clone()),
+    }
+}
+
+/// Usernames by user id.
+pub(crate) async fn usernames(state: &HTTPState) -> HashMap<String, String> {
+    state
+        .storage
+        .list_users()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|user| (user.user_id, user.username))
+        .collect()
+}
+
+pub(crate) fn view(
+    kind: Option<&dyn IntegrationKind>,
+    integration: &Integration,
+    agents: &HashMap<AgentId, AgentConfig>,
+    users: &HashMap<String, String>,
+) -> IntegrationView {
     IntegrationView {
         id: integration.id.clone(),
         kind: integration.kind.clone(),
         family: integration.family,
         name: integration.name.clone(),
         enabled: integration.enabled,
-        scope: integration.scope,
-        created_by: integration.created_by.clone(),
+        creator: integration.creator.clone(),
+        creator_name: integration.creator.as_ref().map(|creator| requester_name(creator, agents, users)),
         // An unknown kind's settings could hold anything; show none of them.
         settings: kind
             .map(|k| k.redact(&integration.settings))
             .unwrap_or(serde_json::json!({})),
         missing: kind.map(|k| k.missing(&integration.settings)).unwrap_or_default(),
     }
-}
-
-/// The agent a channel connection belongs to.
-fn channel_owner<'a>(integration: &Integration, agents: &'a HashMap<AgentId, AgentConfig>) -> Option<&'a AgentConfig> {
-    (integration.family == IntegrationFamily::Channel)
-        .then(|| integration.agents.first().and_then(|a| agents.get(a)))
-        .flatten()
 }
 
 /// Every stored agent, by id.
@@ -173,18 +215,6 @@ pub struct IntegrationDetail {
     pub integration: IntegrationView,
     /// The agents it is attached to that the caller can view.
     pub agents: Vec<AgentId>,
-}
-
-/// May see it: manages everything, created it, it is shared and they manage their own, or it
-/// is attached to an agent they can view.
-fn can_see(caller: Caller<'_>, user: &AuthenticatedUser, integration: &Integration, agents: &HashMap<AgentId, AgentConfig>) -> bool {
-    caller.manages_all()
-        || integration.created_by.as_deref() == Some(caller.user_id)
-        || (caller.manages_owned() && integration.scope == IntegrationScope::Shared)
-        || integration
-            .agents
-            .iter()
-            .any(|a| agents.get(a).is_some_and(|config| user_can_view_agent(user, config)))
 }
 
 async fn load(state: &HTTPState, id: &str) -> Result<Integration, Response> {
@@ -215,7 +245,7 @@ pub async fn get_integration(
     };
     let caller = Caller::from(&user);
     let agents = agents_by_id(&state).await;
-    if !can_see(caller, &user, &integration, &agents) {
+    if !integration_access(caller, &integration, &agents, |a| user_can_view_agent(&user, a)).see {
         return plain(StatusCode::NOT_FOUND, "integration not found");
     }
     let kind = state.deps.integration_kinds.get(&integration.kind);
@@ -230,7 +260,10 @@ pub async fn get_integration(
         .collect();
     ok(
         StatusCode::OK,
-        IntegrationDetail { integration: view(kind.as_deref(), &integration), agents: visible },
+        IntegrationDetail {
+            integration: view(kind.as_deref(), &integration, &agents, &usernames(&state).await),
+            agents: visible,
+        },
     )
 }
 
@@ -267,49 +300,22 @@ pub async fn update_integration(
     Path(id): Path<String>,
     Json(body): Json<UpdateIntegration>,
 ) -> Response {
-    let mut integration = match load(&state, &id).await {
-        Ok(i) => i,
-        Err(r) => return r,
-    };
-    let caller = Caller::from(&user);
-    let agents = agents_by_id(&state).await;
-    if !can_edit(caller, &integration, channel_owner(&integration, &agents)) {
-        return if can_see(caller, &user, &integration, &agents) {
-            plain(StatusCode::FORBIDDEN, "only its creator or an integrations manager may edit it")
-        } else {
-            plain(StatusCode::NOT_FOUND, "integration not found")
-        };
-    }
-    let Some(kind) = state.deps.integration_kinds.get(&integration.kind) else {
-        return plain(StatusCode::UNPROCESSABLE_ENTITY, format!("unknown kind '{}'", integration.kind));
-    };
-
-    if let Some(name) = body.name {
-        integration.name = name.trim().to_string();
-    }
-    if let Some(settings) = body.settings {
-        integration.settings = kind.merge_secrets(&integration.settings, settings);
-    }
-    if let Some(enabled) = body.enabled {
-        integration.enabled = enabled;
-    }
-    if let Err(message) = kind.validate(&integration.name, &integration.settings) {
-        return plain(StatusCode::UNPROCESSABLE_ENTITY, message);
-    }
-    integration.updated_at = chrono::Utc::now();
-
-    match state.storage.save_integration(&integration, None).await {
-        Ok(affected) => {
-            publish(&state, &integration, affected.clone());
+    let actor = Actor::Person(Caller::from(&user));
+    let patch = IntegrationPatch { name: body.name, settings: body.settings, enabled: body.enabled };
+    let can_view = |a: &AgentConfig| user_can_view_agent(&user, a);
+    match service::update(&state.deps, &actor, &id, patch, &can_view).await {
+        Ok((integration, affected)) => {
+            let kind = state.deps.integration_kinds.get(&integration.kind);
+            let agents = agents_by_id(&state).await;
             ok(
                 StatusCode::OK,
                 IntegrationSaved {
-                    integration: view(Some(kind.as_ref()), &integration),
+                    integration: view(kind.as_deref(), &integration, &agents, &usernames(&state).await),
                     affected_agents: affected,
                 },
             )
         }
-        Err(e) => storage_error(e),
+        Err(e) => service_error(e),
     }
 }
 
@@ -343,27 +349,31 @@ pub async fn delete_integration(
         Ok(i) => i,
         Err(r) => return r,
     };
-    let caller = Caller::from(&user);
     let agents = agents_by_id(&state).await;
-    if !can_edit(caller, &integration, channel_owner(&integration, &agents)) {
-        return plain(StatusCode::FORBIDDEN, "only its creator or an integrations manager may delete it");
+    let access = integration_access(Caller::from(&user), &integration, &agents, |a| {
+        user_can_view_agent(&user, a)
+    });
+    if !access.see {
+        return plain(StatusCode::NOT_FOUND, "integration not found");
+    }
+    if !access.edit {
+        return service_error(ServiceError::Forbidden("you may not delete this integration".into()));
     }
     if !integration.agents.is_empty() && !query.confirm {
         return fail(
             StatusCode::CONFLICT,
             format!(
-                "attached to {} agent(s); resend with ?confirm=true to delete anyway",
+                "in use by {} agent(s); resend with ?confirm=true to delete anyway",
                 integration.agents.len()
             ),
             serde_json::json!({ "error": "attached", "agents": integration.agents }),
         );
     }
-    match state.storage.delete_integration(&id).await {
-        Ok(affected) => {
-            publish(&state, &integration, affected.clone());
-            ok(StatusCode::OK, IntegrationDeleted { affected_agents: affected })
-        }
-        Err(e) => storage_error(e),
+    let actor = Actor::Person(Caller::from(&user));
+    let can_view = |a: &AgentConfig| user_can_view_agent(&user, a);
+    match service::delete(&state.deps, &actor, &id, None, &can_view).await {
+        Ok(affected) => ok(StatusCode::OK, IntegrationDeleted { affected_agents: affected }),
+        Err(e) => service_error(e),
     }
 }
 
