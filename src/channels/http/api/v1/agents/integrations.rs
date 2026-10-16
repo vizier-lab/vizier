@@ -121,11 +121,6 @@ fn status(
     if !integration.enabled {
         return IntegrationStatus::Disabled;
     }
-    // Only a channel connection is "unassigned"; anything else attached nowhere is just not
-    // in use.
-    if integration.agents.is_empty() && integration.family == IntegrationFamily::Channel {
-        return IntegrationStatus::Unassigned;
-    }
     if !attached {
         return IntegrationStatus::Unknown;
     }

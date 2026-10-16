@@ -3,7 +3,6 @@ import { useParams } from 'react-router'
 import { FaPlus, FaTrash } from 'react-icons/fa6'
 import SlideOver from '../components/SlideOver'
 import {
-  AlsoUsedBy,
   ConfirmButton,
   IntegrationsPage,
   SecretInput,
@@ -156,7 +155,6 @@ export default function IntegrationsMcp() {
             <tr style={{ textAlign: 'left', color: 'var(--text-tertiary)', fontSize: '0.75rem' }}>
               <th style={th}>Server</th>
               <th style={th}>Status</th>
-              <th style={th}>Also used by</th>
               <th style={{ ...th, textAlign: 'right' }}>On for this agent</th>
             </tr>
           </thead>
@@ -175,7 +173,6 @@ export default function IntegrationsMcp() {
                     <div style={{ fontSize: '0.72rem', color: '#ef4444', marginTop: 2 }}>{statusError(i)}</div>
                   )}
                 </td>
-                <td style={td}><AlsoUsedBy item={i} /></td>
                 <td style={{ ...td, textAlign: 'right' }}>
                   <Switch
                     checked={i.attached}
@@ -188,7 +185,7 @@ export default function IntegrationsMcp() {
             ))}
             {items.length === 0 && (
               <tr>
-                <td colSpan={4} style={{ ...td, textAlign: 'center', color: 'var(--text-tertiary)', padding: '2rem' }}>
+                <td colSpan={3} style={{ ...td, textAlign: 'center', color: 'var(--text-tertiary)', padding: '2rem' }}>
                   {loading ? 'Loading…' : 'No MCP servers yet.'}
                 </td>
               </tr>

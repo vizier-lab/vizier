@@ -75,7 +75,7 @@ All steps use dummyplug on `dp-a`/`dp-b`. Before the steps, note `GET /agents/he
 | 1 | Create a Telegram connection for `dp-a` with a real token | within 30 s it shows `running`; the bot answers `tools` with the four code-mode tools (dummyplug through Telegram) |
 | 2 | Replace its token with an invalid one | `failed` with Telegram's reason; `dp-a` still answers in the WebUI; health `state: running` |
 | 3 | Restore the token | `running` again within 30 s (SC-002) |
-| 4 | Move the connection to `dp-b` (`attachment` on `dp-b`) | the bot now answers as `dp-b`; `dp-a` unaffected |
+| 4 | `PUT /agents/dp-b/integrations/{tg}/attachment {attached:true}`, and `…/dp-a/…/attachment {attached:false}` | both `409 channel_belongs_to_agent`; then `DELETE /integrations/{tg}` and create it on `dp-b` with the same token: the bot answers as `dp-b`; `dp-a` unaffected |
 | 5 | `PUT /agents/dp-b` (change `thinking_depth`) | the bot keeps answering throughout; no reconnect in the log (G6) |
 | 6 | Create a second connection with the same token | `409 token_in_use` |
 | 7 | `dp-b`: `list_tool_functions {"category":"telegram"}` | three Telegram functions; `dp-a` has none |

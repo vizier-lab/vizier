@@ -37,7 +37,7 @@ With an agent selected, an operator opens **Integrations › MCP**. They add an 
 
 ### User Story 2 - Connect an agent to Discord or Telegram from the Channels menu (Priority: P1)
 
-With an agent selected, an operator opens **Integrations › Channels** and adds a Discord or Telegram bot connection (token) for that agent. The bot comes online for that agent without restarting the agent. Replacing the token, pausing the connection, or reassigning it to a different agent only restarts that connection.
+With an agent selected, an operator opens **Integrations › Channels** and adds a Discord or Telegram bot connection (token) for that agent. The bot comes online for that agent without restarting the agent. Replacing the token or pausing the connection only restarts that connection. A connection belongs to the agent it was created on: to serve another agent, it is deleted and the bot connected there.
 
 **Why this priority**: Channel tokens are the other piece of config people change most, and a bad token today makes the whole agent rebuild and can refuse the save. Separating them makes a channel problem a channel problem.
 
@@ -47,7 +47,7 @@ With an agent selected, an operator opens **Integrations › Channels** and adds
 
 1. **Given** a running agent with no channels, **When** the operator adds a Discord connection assigned to it, **Then** the bot comes online for that agent and the agent's ongoing WebUI conversations are not interrupted.
 2. **Given** a connection with a token the platform rejects, **When** it is saved, **Then** the connection is shown as failed with the platform's reason, and the agent itself stays running.
-3. **Given** a connection assigned to agent A, **When** the operator reassigns it to agent B, **Then** messages to that bot are answered by B from then on, and A keeps running.
+3. **Given** a connection on agent A, **When** the operator tries to attach it to agent B or detach it from A, **Then** it is refused; deleting it on A and connecting the same token on B makes B answer that bot, and A keeps running.
 4. **Given** a connection, **When** the operator disables it, **Then** the bot goes offline and stays saved, ready to be re-enabled.
 5. **Given** a channel connection, **When** the operator views it, **Then** they can see its status (connected, reconnecting, failed with reason, disabled) and which agent it serves.
 6. **Given** a Discord or Telegram connection assigned to an agent, **When** that agent takes a turn, **Then** it has that platform's messaging tools; an agent with no such connection does not.
@@ -87,10 +87,10 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 ### Edge Cases
 
 - **Integration deleted while attached**: the operator is shown the agents it is attached to and must confirm; after deletion those agents simply lose it from their next turn.
-- **Agent deleted**: its attachments are removed; integrations it used remain (a channel connection becomes unassigned and goes offline).
+- **Agent deleted**: its channel connections are deleted with it (their bots go offline); its attachments to MCP servers and addons are removed and those integrations remain.
 - **Two bots of the same platform on one agent**: refused. An agent has at most one Discord and one Telegram connection, so its `discord_*` / `telegram_*` tool names stay unambiguous.
 - **One bot token used twice**: a token already used by another channel connection is refused, since two readers on one bot would compete for its messages.
-- **Unassigned channel connection**: allowed (saved but offline), shown as unassigned.
+- **A channel connection without an agent**: cannot exist. A connection is created on an agent and lives until it, or its agent, is deleted.
 - **Change during a turn**: a turn always runs with the integration set it started with; changes apply from the next turn. A channel connection being restarted does not drop the agent's in-flight reply on other channels.
 - **Agent currently failed/retrying**: attaching or editing integrations is still allowed and is picked up when the agent is next running.
 - **Tool names are never prefixed with an agent or integration id.** An MCP server's tools are named `<server name>_<tool>` exactly as today, so the same server keeps the same tool names on every agent. Two different MCP servers may share a name across the install, but one agent cannot have two attached servers with the same name; attaching the second is refused with a clear message.
@@ -119,7 +119,7 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 
 **Integrations model**
 
-- **FR-003**: Integrations MUST be defined independently of agents and then attached to agents. MCP servers and addons MAY be attached to any number of agents; a channel connection MUST serve at most one agent at a time.
+- **FR-003**: Integrations MUST be defined independently of agents and then attached to agents. MCP servers and addons MAY be attached to any number of agents; a channel connection MUST belong to exactly one agent, the one it was created on, for as long as it exists.
 - **FR-004**: Each integration MUST show its current status and, when unhealthy, its last error, and MUST list the agents it is attached to.
 - **FR-005**: Managing integrations MUST be governed by two role permissions, following the existing `all_agents:*` / `owned_agents:*` scheme:
   - **`all_agents:integrations:manage`**: may view, create, edit, enable/disable and delete every integration, and attach or detach any integration to or from any agent.
@@ -131,7 +131,7 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 
 **Channels**
 
-- **FR-007**: Operators MUST be able to add, edit, enable/disable, reassign and delete Discord and Telegram connections from Integrations › Channels.
+- **FR-007**: Operators MUST be able to add, edit, enable/disable and delete Discord and Telegram connections from Integrations › Channels. A connection MUST NOT be detached from its agent or moved to another; deleting it is how it leaves the agent. Whoever may manage an agent's integrations MAY edit, enable/disable and delete that agent's connections, whoever created them.
 - **FR-008**: A connection's platform messaging tools (Discord / Telegram tools) MUST be available to the agent the connection is assigned to, and MUST NOT be configurable separately in the agent form.
 - **FR-009**: The same bot token MUST NOT be saved on two connections.
 - **FR-010**: A rejected token or failed connection MUST be reported on the connection and MUST NOT prevent the save, stop the agent, or block other connections.
@@ -169,11 +169,11 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 
 ### Key Entities
 
-- **Integration**: something outside vizier an agent can use. Has a kind (channel, addon, MCP server), a creator (determining owned vs shared scope), a name, its settings (secrets included), an enabled flag, and a status (healthy / degraded / failed with last error / disabled / unassigned).
-- **Channel connection**: a Discord or Telegram bot. Platform, token, assigned agent (zero or one), status. Brings its platform's messaging tools to its agent.
+- **Integration**: something outside vizier an agent can use. Has a kind (channel, addon, MCP server), a creator (determining owned vs shared scope), a name, its settings (secrets included), an enabled flag, and a status (healthy / degraded / failed with last error / disabled).
+- **Channel connection**: a Discord or Telegram bot. Platform, token, the agent it belongs to (exactly one), status. Brings its platform's messaging tools to its agent.
 - **Addon**: a first-party integration vizier ships. Initially Brave Search (API key, safesearch). Fixed catalogue; operators configure, they don't define new kinds.
 - **MCP server**: an operator-defined tool server (a local launch command with arguments and environment, or an HTTP URL — the options available today).
-- **Attachment**: the link between an integration and an agent (many-to-many for addons and MCP; one agent per channel connection).
+- **Attachment**: the link between an integration and an agent (many-to-many for addons and MCP; a channel connection has exactly one, made when it is created and removed only with the connection).
 
 ## Success Criteria *(mandatory)*
 
@@ -195,3 +195,4 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 - **Dream cycle**: an agent's dream cycle sees the same attached integrations it saw before, subject to its existing restricted tool list.
 - **"Turn" granularity** for live changes is acceptable; changes need not reach a turn already in progress.
 - The HTTP API gains endpoints for integrations; the old agent fields are retired from the agent API in the same release (breaking API change, flagged in the changelog).
+- **Channel connections are not reassignable** (decided 2026-10-16, after the first implementation): an agent has at most one bot per platform, so moving one is rare, and deleting it and pasting its token on the other agent is cheap. Dropping reassignment removes the "unassigned" state, and with it the take-over flow.

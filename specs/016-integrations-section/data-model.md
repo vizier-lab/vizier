@@ -33,8 +33,8 @@ Constraints:
 | `created_at` | TEXT NOT NULL | |
 
 - The primary key is `(integration_id, agent_id)`, plus an index on `agent_id`.
-- **One agent per channel:** an integration of the `channel` family may have at most one attachment. Attaching to a second agent within one transaction is a *move*: delete the old row, insert the new one. A channel connection with no attachment is *unassigned*.
-- `AgentStorage::delete_agent` also deletes the agent's attachments (edge case: agent deleted).
+- **A channel belongs to its agent:** an integration of the `channel` family has exactly one attachment, made when it is created. Detaching it, or attaching it to another agent, is refused (`channel_belongs_to_agent`).
+- `AgentStorage::delete_agent` deletes the agent's channel connections and its remaining attachments (`IntegrationStorage::delete_agent_integrations`; edge case: agent deleted).
 
 ## 3. Rust types (`src/schema/integration.rs`)
 
@@ -57,7 +57,6 @@ pub struct Integration {
 
 pub enum IntegrationStatus {
     Disabled,
-    Unassigned,                                           // channel with no agent
     Incomplete { missing: Vec<String> },                  // addon missing a required setting
     Connecting,
     Running,                                              // channel reader up / MCP connected / addon ready
@@ -76,8 +75,8 @@ async fn list_agent_integrations(&self, agent_id: &str) -> Result<Vec<Integratio
 async fn get_integration(&self, id: &str) -> Result<Option<Integration>>;
 async fn save_integration(&self, i: &Integration) -> Result<()>;          // upsert; enforces token uniqueness
 async fn delete_integration(&self, id: &str) -> Result<Vec<AgentId>>;    // returns the agents it was attached to
-async fn set_attachment(&self, id: &str, agent_id: &str, attached: bool) -> Result<Vec<AgentId>>; // returns the affected agents (a channel move returns both)
-async fn delete_agent_attachments(&self, agent_id: &str) -> Result<()>;
+async fn set_attachment(&self, id: &str, agent_id: &str, attached: bool) -> Result<Vec<AgentId>>; // returns the affected agents; refused for a channel
+async fn delete_agent_integrations(&self, agent_id: &str) -> Result<Vec<String>>; // deletes its channels, returns their ids
 ```
 
 ## 4. Settings per kind
@@ -115,11 +114,11 @@ Tool names and categories are unchanged except for the addon namespacing (resear
 **Channel connection** (computed by `ChannelConnections`):
 
 ```
-disabled ──enable──▶ (no agent) unassigned ──assign──▶ connecting ──ok──▶ running
+created ──▶ connecting ──ok──▶ running
 running ──run ends / error──▶ reconnecting ──backoff──▶ connecting
 connecting/running ──FatalChannelError──▶ failed ──token replaced──▶ connecting
-any ──disable──▶ disabled          any ──unassign──▶ unassigned
-running ──reassign to agent B──▶ connecting (as B)    token replaced ──▶ connecting
+any ──disable──▶ disabled ──enable──▶ connecting       token replaced ──▶ connecting
+any ──delete (or its agent deleted)──▶ gone
 ```
 
 **MCP server for one agent** (`McpServer::status`): `connecting → connected`, `connected → unreachable` (crash or hang) `→ connecting` (backoff), as today.

@@ -1,7 +1,7 @@
 //! Who may see, edit and attach an integration (research R6). Every handler asks here and
 //! nowhere else.
 
-use crate::schema::{AgentConfig, Integration, IntegrationScope};
+use crate::schema::{AgentConfig, Integration, IntegrationFamily, IntegrationScope};
 
 pub const MANAGE_ALL: &str = "all_agents:integrations:manage";
 pub const MANAGE_OWNED: &str = "owned_agents:integrations:manage";
@@ -65,11 +65,16 @@ pub fn integration_access(
     let mine = integration.created_by.as_deref() == Some(caller.user_id);
     let usable = mine || integration.scope == IntegrationScope::Shared;
     let owned = caller.manages_owned();
+    let attached_here = integration.agents.iter().any(|a| a == agent_id);
+    // A bot belongs to its agent: whoever manages that agent's integrations manages it.
+    let agents_bot = integration.family == IntegrationFamily::Channel
+        && attached_here
+        && can_manage_on_agent(caller, agent);
     Access {
         // Anyone who can view the agent sees what is attached to it, read-only.
-        see: (owned && usable) || integration.agents.iter().any(|a| a == agent_id),
-        edit: owned && mine,
-        attach: owned && usable && caller.owns_agent(agent),
+        see: (owned && usable) || attached_here,
+        edit: (owned && mine) || agents_bot,
+        attach: (owned && usable && caller.owns_agent(agent)) || agents_bot,
     }
 }
 
@@ -78,10 +83,13 @@ pub fn can_manage_on_agent(caller: Caller<'_>, agent: &AgentConfig) -> bool {
     caller.manages_all() || (caller.manages_owned() && caller.owns_agent(agent))
 }
 
-/// May edit or delete the integration, independent of any agent.
-pub fn can_edit(caller: Caller<'_>, integration: &Integration) -> bool {
+/// May edit or delete the integration. `owner` is the agent a channel connection belongs to,
+/// whose integration managers manage its bot whoever created it.
+pub fn can_edit(caller: Caller<'_>, integration: &Integration, owner: Option<&AgentConfig>) -> bool {
     caller.manages_all()
         || (caller.manages_owned() && integration.created_by.as_deref() == Some(caller.user_id))
+        || (integration.family == IntegrationFamily::Channel
+            && owner.is_some_and(|agent| can_manage_on_agent(caller, agent)))
 }
 
 /// The scope a new integration gets from its creator, or `None` if they may not create one.
@@ -179,7 +187,21 @@ mod tests {
             integration_access(bob, &alices, "dp-c", &agent("bob")),
             Access::default()
         );
-        assert!(!can_edit(bob, &alices));
+        assert!(!can_edit(bob, &alices, None));
+    }
+
+    #[test]
+    fn an_agents_manager_manages_its_bot_whoever_created_it() {
+        let perms = vec![MANAGE_OWNED.to_string()];
+        let alice = caller("alice", &perms);
+        let mut bot = integration("admin", IntegrationScope::Shared, &["dp-b"]);
+        bot.family = IntegrationFamily::Channel;
+        assert_eq!(
+            integration_access(alice, &bot, "dp-b", &agent("alice")),
+            Access { see: true, edit: true, attach: true }
+        );
+        assert!(can_edit(alice, &bot, Some(&agent("alice"))));
+        assert!(!can_edit(alice, &bot, Some(&agent("admin"))));
     }
 
     #[test]

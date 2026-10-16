@@ -45,7 +45,7 @@ keys when saved) and by `POST /agents` with `discord_token` + `tools.mcp_servers
 |---|---|
 | 1 | Telegram with a dummy token → `failed: telegram rejected the bot token`; `dp-a` stays `running` and answers in the API |
 | 2 | replacing the token restarts only that reader; still `failed` |
-| 4 | moving to `dp-b`: `affected_agents ["dp-a","dp-b"]`; health shows the reader under `dp-b` |
+| 4 | (first implementation, since revised) moving to `dp-b` worked. A connection now stays with its agent: attach elsewhere or detach → `409 channel_belongs_to_agent` (unit test `a_channel_stays_with_its_agent`) |
 | 5 | `PUT /agents/dp-b`: reader start count unchanged (3 → 3), no reconnect (G6) |
 | 6 | same token on another connection: `409 token_in_use`; second Telegram on the same agent: `409 platform_in_use_on_agent` |
 | 7 | `dp-b` lists the three `telegram_*` functions; `dp-a` none |
@@ -73,7 +73,7 @@ Users `alice` and `bob` with `owned_agents:view/edit`, `all_agents:create`,
 - Sidebar: Home … Dreams, then **Integrations** (Channels, Addons, MCP), then **Misc** (Usage, Config); headings collapse to dividers.
 - MCP: table with status (Unreachable + error), also-used-by and switches; the edit panel shows the shared-edit warning.
 - Addons: Brave tile with its embedded icon and *Installed*; the panel shows the configuration picker, redacted key with Replace, and "also installed on".
-- Channels: the failed Telegram card with its error, Replace token, Disable, Move to agent…, and a Connect card offering only Discord.
+- Channels: the failed Telegram card with its error, Since revised: one row per platform (connected Telegram with Replace token, Disable, Delete; Discord "Not connected" with a token field).
 - `/dp-a/settings` redirects to `/dp-a/config`, titled "Config"; no token, Brave or MCP sections remain.
 - `npm run typecheck` passes.
 

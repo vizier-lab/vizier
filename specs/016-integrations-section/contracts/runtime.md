@@ -52,7 +52,7 @@ Compared with the running readers:
 | Desired vs running | Action |
 |---|---|
 | desired, not running | start (`kind.reader(..)`) |
-| running, not desired (disabled / unassigned / deleted) | shutdown (`STOP_TIMEOUT`, then abort) |
+| running, not desired (disabled / deleted, or its agent deleted) | shutdown (`STOP_TIMEOUT`, then abort) |
 | running, but agent or token fingerprint changed | shutdown, then start |
 | running, unchanged | nothing (a `failed` reader stays failed until its token changes) |
 

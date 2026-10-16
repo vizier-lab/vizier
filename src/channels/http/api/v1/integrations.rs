@@ -151,6 +151,13 @@ pub(crate) fn view(kind: Option<&dyn IntegrationKind>, integration: &Integration
     }
 }
 
+/// The agent a channel connection belongs to.
+fn channel_owner<'a>(integration: &Integration, agents: &'a HashMap<AgentId, AgentConfig>) -> Option<&'a AgentConfig> {
+    (integration.family == IntegrationFamily::Channel)
+        .then(|| integration.agents.first().and_then(|a| agents.get(a)))
+        .flatten()
+}
+
 /// Every stored agent, by id.
 pub(crate) async fn agents_by_id(state: &HTTPState) -> HashMap<AgentId, AgentConfig> {
     state.storage.list_agents().await.unwrap_or_default().into_iter().collect()
@@ -265,8 +272,8 @@ pub async fn update_integration(
         Err(r) => return r,
     };
     let caller = Caller::from(&user);
-    if !can_edit(caller, &integration) {
-        let agents = agents_by_id(&state).await;
+    let agents = agents_by_id(&state).await;
+    if !can_edit(caller, &integration, channel_owner(&integration, &agents)) {
         return if can_see(caller, &user, &integration, &agents) {
             plain(StatusCode::FORBIDDEN, "only its creator or an integrations manager may edit it")
         } else {
@@ -337,7 +344,8 @@ pub async fn delete_integration(
         Err(r) => return r,
     };
     let caller = Caller::from(&user);
-    if !can_edit(caller, &integration) {
+    let agents = agents_by_id(&state).await;
+    if !can_edit(caller, &integration, channel_owner(&integration, &agents)) {
         return plain(StatusCode::FORBIDDEN, "only its creator or an integrations manager may delete it");
     }
     if !integration.agents.is_empty() && !query.confirm {

@@ -25,7 +25,7 @@ Settings · Theme · Logout                                   ← unchanged
 
 | Route | File | Notes |
 |---|---|---|
-| `:agentId/integrations/channels` | `routes/integrations-channels.tsx` | cards per connection attached to the agent, plus "Connect another bot" (new Discord, new Telegram, or take over an unassigned one) |
+| `:agentId/integrations/channels` | `routes/integrations-channels.tsx` | one row per platform: a connected bot (status, error, Replace token, Disable/Enable, Delete), or "Not connected" with a token field and Connect |
 | `:agentId/integrations/addons` | `routes/integrations-addons.tsx` | app-store tile grid from `GET /integrations/kinds?family=addon`; Installed / Get badge per tile; details panel with Install/Uninstall for this agent, shared settings and also-used-by |
 | `:agentId/integrations/mcp` | `routes/integrations-mcp.tsx` | table: server, status, also used by, On-for-agent switch; side edit panel; shared-edit warning |
 | `:agentId/config` | `routes/agent-settings.tsx` (renamed export) | `AgentForm` without the moved sections; page title "Config" |

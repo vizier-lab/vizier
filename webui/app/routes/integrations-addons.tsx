@@ -162,6 +162,7 @@ function AddonDetails({ kind, configs, canManage }: { kind: KindListing; configs
         await store.update(config.id, { name: name.trim() || config.name, settings: { ...config.settings, ...edits } })
       }
       if (install && !config.attached) await store.attach(config.id)
+      setEdits({})
     }, install ? `${kind.name} installed` : `${kind.name} saved`)
 
   return (
@@ -263,11 +264,6 @@ function AddonDetails({ kind, configs, canManage }: { kind: KindListing; configs
         </div>
       )}
 
-      {config && (config.also_used_by.length > 0 || (config.others ?? 0) > 0) && (
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          Also installed on {[...config.also_used_by.map((a) => a.name), ...(config.others ? [`${config.others} more`] : [])].join(', ')}.
-        </div>
-      )}
     </div>
   )
 }

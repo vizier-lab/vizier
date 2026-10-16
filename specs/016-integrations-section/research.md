@@ -70,12 +70,13 @@ Schema creation is split into `init_integration_schema` (the `init_task_run_sche
 - **Keying.** It keeps one supervised reader per *enabled, assigned* channel integration, keyed by integration id. Each one reuses the `supervise` loop and backoff from `channels/readers.rs`, which becomes the manager's internals.
 - **Reconciling.** `reconcile()` compares storage with the running readers:
   - it starts what's missing;
-  - it stops what's gone, disabled or unassigned;
+  - it stops what's gone or disabled (a connection is deleted with its agent);
   - it restarts a reader whose token or assigned agent changed.
 
   It runs at startup and on every channel `IntegrationChanged` event (R5).
 - **Routing.** Readers send to the agent id they were started for, through the existing per-agent request channel. An agent that is restarting or failed already queues or rejects requests (`AgentUnavailable`), so a reader never needs the agent instance.
 - **Health.** `ChannelHealth` is stored per integration in the manager. The agent `HealthCheck` reads the entries assigned to that agent, which keeps `AgentHealthStatus.channels` and `vizier agent ps` unchanged. The Channels page reads the same entries.
+- **Ownership** (revised after implementation): a connection belongs to the agent it was created on. It can't be detached or moved, and deleting the agent deletes it, so there is no "unassigned" connection. Moving a bot is delete and reconnect on the other agent; with one bot per platform per agent that is rare and cheap.
 - **Fatal errors.** A `FatalChannelError` marks the connection `failed` until its integration is edited. Today the fix is "update the agent"; now it's "replace the token".
 
 **Rationale**:

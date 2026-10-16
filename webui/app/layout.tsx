@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
-import { FaRobot, FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook, FaWandMagicSparkles, FaHouse, FaCloudMoon, FaBrain, FaTowerBroadcast, FaPuzzlePiece, FaPlug } from 'react-icons/fa6'
+import { FaRobot, FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook, FaWandMagicSparkles, FaHouse, FaCloudMoon, FaBrain, FaHashtag, FaPuzzlePiece, FaPlug } from 'react-icons/fa6'
 import Avatar from './components/avatar'
 import ToastContainer from './components/Toast'
 import { useConnectionStore } from './hooks/connectionStore'
@@ -278,7 +278,7 @@ export default function Layout() {
               ['dream', 'Dreams', FaCloudMoon],
             ]],
             ['Integrations', [
-              ['integrations/channels', 'Channels', FaTowerBroadcast],
+              ['integrations/channels', 'Channels', FaHashtag],
               ['integrations/addons', 'Addons', FaPuzzlePiece],
               ['integrations/mcp', 'MCP', FaPlug],
             ]],

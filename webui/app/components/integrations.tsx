@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { FaTriangleExclamation } from 'react-icons/fa6'
 import { integrationIconUrl } from '../services/vizier'
 import type { IntegrationItem, IntegrationStatus } from '../interfaces/types'
@@ -92,14 +92,13 @@ const STATUS_LOOK: Record<IntegrationStatus['state'], { label: string; color: st
   unreachable: { label: 'Unreachable', color: '#ef4444' },
   incomplete: { label: 'Needs setup', color: '#f59e0b' },
   disabled: { label: 'Disabled', color: '#6b7280' },
-  unassigned: { label: 'Unassigned', color: '#6b7280' },
   unknown: { label: 'Unknown', color: '#6b7280' },
 }
 
 /** The status this agent sees; an integration not attached to it is just "Not in use". */
 export function StatusBadge({ item, runningLabel }: { item: IntegrationItem; runningLabel?: string }) {
   const status = item.status
-  const look = !item.attached && status.state !== 'disabled' && status.state !== 'unassigned'
+  const look = !item.attached && status.state !== 'disabled'
     ? { label: 'Not in use', color: '#6b7280' }
     : status.state === 'running' && runningLabel
       ? { ...STATUS_LOOK.running, label: runningLabel }
@@ -120,15 +119,6 @@ export function StatusBadge({ item, runningLabel }: { item: IntegrationItem; run
 
 export function statusError(item: IntegrationItem): string | undefined {
   return 'last_error' in item.status ? item.status.last_error : undefined
-}
-
-export function AlsoUsedBy({ item }: { item: IntegrationItem }) {
-  if (item.also_used_by.length === 0 && !item.others) {
-    return <span style={{ color: 'var(--text-tertiary)', fontSize: '0.8rem' }}>—</span>
-  }
-  const names = item.also_used_by.map((a) => a.name)
-  if (item.others) names.push(`${item.others} other${item.others > 1 ? 's' : ''}`)
-  return <span style={{ fontSize: '0.8rem' }}>{names.join(', ')}</span>
 }
 
 /** Before saving an integration other agents use too. */
@@ -163,6 +153,11 @@ export function SecretInput({
 }) {
   const hasStored = typeof stored === 'string' && stored !== ''
   const [replacing, setReplacing] = useState(!hasStored)
+  // Once a replaced value is saved (the parent clears `value`) or a new one is stored, show the
+  // stored, redacted value again rather than an empty input.
+  useEffect(() => {
+    if (value === undefined) setReplacing(!hasStored)
+  }, [value, stored])
   if (!replacing) {
     return (
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>

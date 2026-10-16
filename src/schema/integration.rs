@@ -86,8 +86,6 @@ pub struct Integration {
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum IntegrationStatus {
     Disabled,
-    /// A channel connection with no agent.
-    Unassigned,
     /// A required setting is missing.
     Incomplete { missing: Vec<String> },
     Connecting,

@@ -52,7 +52,7 @@ description: "Task list for 016 Integrations Section"
   - call it from `init_schema`.
 - [X] T006 Implement `IntegrationStorage for SqliteStorage` in `src/storage/sqlite/integration.rs`. Inside the write transaction, enforce:
   - channel token uniqueness per kind (`token_in_use`);
-  - at most one attachment per channel integration (attach = move);
+  - exactly one attachment per channel integration, made at creation (detach or attach elsewhere → `channel_belongs_to_agent`; revised, see spec Assumptions);
   - one connection per platform per agent (`platform_in_use_on_agent`);
   - one attached configuration per addon kind per agent (attach replaces);
   - no two attached `mcp` integrations with the same `name` on one agent (`name_in_use_on_agent`).
@@ -62,7 +62,7 @@ description: "Task list for 016 Integrations Section"
 - [X] T008 [P] Unit tests in `src/storage/sqlite/integration.rs` (in-memory connection via `init_integration_schema`):
   - round-trip;
   - attachments and cascade on delete;
-  - channel move;
+  - a channel stays with its agent, and is deleted with it;
   - `token_in_use`, `platform_in_use_on_agent`, `name_in_use_on_agent`;
   - addon replace-on-attach;
   - duplicate MCP names allowed on different agents.
@@ -217,8 +217,8 @@ description: "Task list for 016 Integrations Section"
 - [X] T043 [P] [US2] Unit tests in `src/integrations/kinds/discord.rs` and `telegram.rs`: token redaction and merge. Also a `reconcile()` decision test in `src/channels/connections.rs`, using a fake reader through the `VizierChannel` trait: start, stop on disable/unassign, restart on token or agent change, leave an unchanged failed reader alone.
 - [X] T044 [US2] Build the Channels page in `webui/app/routes/integrations-channels.tsx`:
   - one card per connection attached to the agent: platform, bot name or handle when known, status, and the error box when failed;
-  - Replace token, Disable/Enable, "Move to agent…" (agent picker → attachment on the target agent), and Delete;
-  - a "Connect a bot" card offering only the platforms the agent doesn't have yet (new token, or take over an unassigned connection);
+  - Replace token, Disable/Enable and Delete;
+  - one row per platform; a platform without a bot shows a token field and Connect (revised: no move, unassign or take-over);
   - a toast on `token_in_use` / `platform_in_use_on_agent`.
 - [X] T045 [US2] Run quickstart.md §4: the offline variant always, the real-token steps when tokens are available. Record the results in `pr-notes.md`.
 

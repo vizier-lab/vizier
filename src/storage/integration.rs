@@ -16,6 +16,9 @@ pub enum IntegrationConflict {
     PlatformInUseOnAgent { integration_id: String, name: String },
     /// The agent already has an MCP server with this name attached.
     NameInUseOnAgent { integration_id: String, name: String },
+    /// A channel connection belongs to the agent it was created on: it can't be detached or
+    /// attached elsewhere, only deleted.
+    ChannelBelongsToAgent { integration_id: String, name: String },
 }
 
 impl IntegrationConflict {
@@ -24,6 +27,7 @@ impl IntegrationConflict {
             Self::TokenInUse { .. } => "token_in_use",
             Self::PlatformInUseOnAgent { .. } => "platform_in_use_on_agent",
             Self::NameInUseOnAgent { .. } => "name_in_use_on_agent",
+            Self::ChannelBelongsToAgent { .. } => "channel_belongs_to_agent",
         }
     }
 
@@ -32,7 +36,8 @@ impl IntegrationConflict {
         match self {
             Self::TokenInUse { integration_id, name }
             | Self::PlatformInUseOnAgent { integration_id, name }
-            | Self::NameInUseOnAgent { integration_id, name } => (integration_id, name),
+            | Self::NameInUseOnAgent { integration_id, name }
+            | Self::ChannelBelongsToAgent { integration_id, name } => (integration_id, name),
         }
     }
 }
@@ -48,6 +53,10 @@ impl std::fmt::Display for IntegrationConflict {
             Self::NameInUseOnAgent { .. } => {
                 write!(f, "the agent already has an MCP server named '{name}' attached")
             }
+            Self::ChannelBelongsToAgent { .. } => write!(
+                f,
+                "'{name}' belongs to the agent it was created on; delete it and connect the bot on the other agent instead"
+            ),
         }
     }
 }
@@ -75,9 +84,9 @@ pub trait IntegrationStorage {
     /// Returns the agents it was attached to.
     async fn delete_integration(&self, id: &str) -> Result<Vec<AgentId>>;
 
-    /// Attaching a channel connection moves it; attaching an addon configuration replaces any
-    /// other configuration of the same kind on that agent. Returns the affected agents (a move
-    /// returns both).
+    /// Attaching an addon configuration replaces any other configuration of the same kind on
+    /// that agent. A channel connection belongs to its agent for good: detaching it, or
+    /// attaching it to another agent, is refused. Returns the affected agents.
     async fn set_attachment(
         &self,
         id: &str,
@@ -85,7 +94,9 @@ pub trait IntegrationStorage {
         attached: bool,
     ) -> Result<Vec<AgentId>>;
 
-    async fn delete_agent_attachments(&self, agent_id: &str) -> Result<()>;
+    /// For a deleted agent: its channel connections are deleted with it, and its attachments
+    /// to everything else removed. Returns the deleted connections' ids.
+    async fn delete_agent_integrations(&self, agent_id: &str) -> Result<Vec<String>>;
 }
 
 #[async_trait::async_trait]
@@ -123,7 +134,7 @@ impl IntegrationStorage for VizierStorage {
         self.0.set_attachment(id, agent_id, attached).await
     }
 
-    async fn delete_agent_attachments(&self, agent_id: &str) -> Result<()> {
-        self.0.delete_agent_attachments(agent_id).await
+    async fn delete_agent_integrations(&self, agent_id: &str) -> Result<Vec<String>> {
+        self.0.delete_agent_integrations(agent_id).await
     }
 }

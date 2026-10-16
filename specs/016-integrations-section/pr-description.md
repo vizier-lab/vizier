@@ -17,7 +17,9 @@ Integrations › Channels / Addons / MCP. Changing one never restarts an agent.
   integration change swaps in a new one for the next turn and keeps MCP connections that didn't
   change.
 - **Channel readers** are process-wide (`ChannelConnections`), reconciled against storage. A bot
-  no longer reconnects when its agent is updated, and a bad token fails only that bot.
+  no longer reconnects when its agent is updated, and a bad token fails only that bot. A bot
+  belongs to the agent it was created on and is deleted with it; moving it means deleting it and
+  connecting the token on the other agent.
 - **HTTP.** `/agents/{id}/integrations` (list, create, attach/detach) and `/integrations/{id}`
   (edit, delete), `/integrations/kinds` and kind icons. Secrets are always redacted.
 - **WebUI.** Integrations pages (MCP table, Addons app-store grid, Channels cards); a Misc

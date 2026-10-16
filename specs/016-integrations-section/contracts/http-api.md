@@ -41,7 +41,7 @@ This returns what the page for that agent shows. `items` lists every integration
 
 Body `{ "attached": true | false }`.
 - Allowed when `can_attach` holds: all-scope, or owned-scope on an agent the caller owns and an integration that is theirs or `shared`.
-- **Channel family, `attached: true`** moves the connection to this agent, ending its previous assignment. It is refused with `409 platform_in_use_on_agent` when this agent already has a connection for that platform.
+- **Channel family**: a connection belongs to the agent it was created on. Detaching it, or attaching it to another agent, is refused with `409 channel_belongs_to_agent`; it leaves its agent only by `DELETE /integrations/{id}`.
 - **Addon, `attached: true`** replaces any other configuration of the same addon kind on this agent (one per agent); the response's `affected_agents` covers both.
 - **MCP, `attached: true`** is refused with `409 name_in_use_on_agent` when another attached MCP server on this agent has the same `name`.
 - **Addon, `attached: true`, settings incomplete** is refused with `409 {"error":"incomplete","missing":["api_key"]}`. The UI then shows the settings form first (spec FR-011a).
@@ -72,7 +72,7 @@ Returns the item, without the agent-relative fields. It needs see-access through
 ### `PUT /integrations/{id}`
 
 Body: any of `name`, `settings`, `enabled`.
-- Needs `can_edit`: all-scope, or `created_by == caller`.
+- Needs `can_edit`: all-scope, or `created_by == caller`, or, for a channel connection, permission to manage its agent's integrations.
 - Secrets that are left out, or sent back redacted, are kept (`merge_secrets`).
 - The response lists `affected_agents`. The UI shows these in the shared-edit warning **before** saving, using `also_used_by` from the GET.
 

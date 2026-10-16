@@ -1195,7 +1195,6 @@ export type IntegrationFamily = 'channel' | 'addon' | 'mcp'
 
 export type IntegrationStatus =
   | { state: 'disabled' }
-  | { state: 'unassigned' }
   | { state: 'incomplete'; missing: string[] }
   | { state: 'connecting' }
   | { state: 'running'; tools?: number }

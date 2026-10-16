@@ -125,10 +125,8 @@ fn check_mcp_name(conn: &Connection, integration: &Integration, agent_id: &str) 
     Ok(())
 }
 
-/// Attach under the family's rule. Returns the other agents the attachment affected (the
-/// previous agent of a moved channel connection).
-fn attach(conn: &Connection, integration: &Integration, agent_id: &str) -> Result<Vec<AgentId>> {
-    let mut affected = vec![];
+/// Attach under the family's rule.
+fn attach(conn: &Connection, integration: &Integration, agent_id: &str) -> Result<()> {
     match integration.family {
         IntegrationFamily::Channel => {
             if let Some((integration_id, name)) = attached_other(
@@ -142,15 +140,10 @@ fn attach(conn: &Connection, integration: &Integration, agent_id: &str) -> Resul
                     IntegrationConflict::PlatformInUseOnAgent { integration_id, name }.into()
                 );
             }
-            // One agent per connection: attaching elsewhere is a move.
-            affected = attached_agents(conn, &integration.id)?
-                .into_iter()
-                .filter(|a| a != agent_id)
-                .collect();
-            conn.execute(
-                "DELETE FROM integration_attachment WHERE integration_id = ?1 AND agent_id != ?2",
-                rusqlite::params![integration.id, agent_id],
-            )?;
+            // A connection belongs to the agent it was created on.
+            if attached_agents(conn, &integration.id)?.iter().any(|a| a != agent_id) {
+                return Err(channel_belongs(integration));
+            }
         }
         IntegrationFamily::Mcp => check_mcp_name(conn, integration, agent_id)?,
         // One configuration per addon per agent, or two would give the same tool names.
@@ -167,7 +160,33 @@ fn attach(conn: &Connection, integration: &Integration, agent_id: &str) -> Resul
          VALUES (?1, ?2, ?3)",
         rusqlite::params![integration.id, agent_id, Utc::now().to_rfc3339()],
     )?;
-    Ok(affected)
+    Ok(())
+}
+
+fn channel_belongs(integration: &Integration) -> anyhow::Error {
+    IntegrationConflict::ChannelBelongsToAgent {
+        integration_id: integration.id.clone(),
+        name: integration.name.clone(),
+    }
+    .into()
+}
+
+/// Delete `agent_id`'s channel connections and its remaining attachments; the ids deleted.
+/// Shared with `AgentStorage::delete_agent`, which already holds the connection.
+pub(crate) fn delete_agent_integrations(conn: &Connection, agent_id: &str) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT i.id FROM integration i JOIN integration_attachment a ON a.integration_id = i.id \
+         WHERE a.agent_id = ?1 AND i.family = 'channel'",
+    )?;
+    let channels = stmt
+        .query_map([agent_id], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    for id in &channels {
+        conn.execute("DELETE FROM integration_attachment WHERE integration_id = ?1", [id])?;
+        conn.execute("DELETE FROM integration WHERE id = ?1", [id])?;
+    }
+    conn.execute("DELETE FROM integration_attachment WHERE agent_id = ?1", [agent_id])?;
+    Ok(channels)
 }
 
 fn channel_token(settings: &serde_json::Value) -> Option<&str> {
@@ -255,13 +274,12 @@ impl IntegrationStorage for SqliteStorage {
             }
         }
 
-        let moved = match attach_to {
-            Some(agent_id) => attach(&tx, integration, agent_id)?,
-            None => vec![],
-        };
+        if let Some(agent_id) = attach_to {
+            attach(&tx, integration, agent_id)?;
+        }
         let after = attached_agents(&tx, &integration.id)?;
         tx.commit()?;
-        Ok(union([before, after, moved]))
+        Ok(union([before, after]))
     }
 
     async fn delete_integration(&self, id: &str) -> Result<Vec<AgentId>> {
@@ -283,24 +301,26 @@ impl IntegrationStorage for SqliteStorage {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
         let integration = get(&tx, id)?.ok_or_else(|| anyhow!("integration '{id}' not found"))?;
-        let moved = if attached {
-            attach(&tx, &integration, agent_id)?
+        if attached {
+            attach(&tx, &integration, agent_id)?;
+        } else if integration.family == IntegrationFamily::Channel {
+            return Err(channel_belongs(&integration));
         } else {
             tx.execute(
                 "DELETE FROM integration_attachment WHERE integration_id = ?1 AND agent_id = ?2",
                 rusqlite::params![id, agent_id],
             )?;
-            vec![]
-        };
+        }
         tx.commit()?;
-        Ok(union([vec![agent_id.to_string()], moved]))
+        Ok(vec![agent_id.to_string()])
     }
 
-    async fn delete_agent_attachments(&self, agent_id: &str) -> Result<()> {
-        self.conn
-            .lock()
-            .execute("DELETE FROM integration_attachment WHERE agent_id = ?1", [agent_id])?;
-        Ok(())
+    async fn delete_agent_integrations(&self, agent_id: &str) -> Result<Vec<String>> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let deleted = delete_agent_integrations(&tx, agent_id)?;
+        tx.commit()?;
+        Ok(deleted)
     }
 }
 
@@ -391,17 +411,29 @@ mod tests {
         assert!(s.get_integration("1").await.unwrap().is_none());
         assert!(s.list_agent_integrations("a").await.unwrap().is_empty());
 
-        s.save_integration(&mcp("2", "fs"), Some("a")).await.unwrap();
-        s.delete_agent_attachments("a").await.unwrap();
-        assert!(s.get_integration("2").await.unwrap().unwrap().agents.is_empty());
     }
 
     #[tokio::test]
-    async fn attaching_a_channel_moves_it() {
+    async fn a_deleted_agent_takes_its_bots_and_leaves_shared_integrations() {
+        let s = storage();
+        s.save_integration(&mcp("m", "fs"), Some("a")).await.unwrap();
+        s.save_integration(&bot("t", "telegram", "tok"), Some("a")).await.unwrap();
+        assert_eq!(s.delete_agent_integrations("a").await.unwrap(), ["t"]);
+        assert!(s.get_integration("t").await.unwrap().is_none());
+        assert!(s.get_integration("m").await.unwrap().unwrap().agents.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_channel_stays_with_its_agent() {
         let s = storage();
         s.save_integration(&bot("t", "telegram", "tok"), Some("a")).await.unwrap();
-        assert_eq!(s.set_attachment("t", "b", true).await.unwrap(), ["a", "b"]);
-        assert_eq!(s.get_integration("t").await.unwrap().unwrap().agents, ["b"]);
+        let moved = s.set_attachment("t", "b", true).await.unwrap_err();
+        assert_eq!(conflict(moved).code(), "channel_belongs_to_agent");
+        let detached = s.set_attachment("t", "a", false).await.unwrap_err();
+        assert_eq!(conflict(detached).code(), "channel_belongs_to_agent");
+        assert_eq!(s.get_integration("t").await.unwrap().unwrap().agents, ["a"]);
+        // Re-attaching to its own agent is a no-op.
+        s.set_attachment("t", "a", true).await.unwrap();
     }
 
     #[tokio::test]
