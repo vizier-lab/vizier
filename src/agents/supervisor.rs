@@ -18,7 +18,7 @@ use tokio::time::Instant;
 use crate::agents::agent::VizierAgent;
 use crate::agents::memory_ops;
 use crate::agents::process::agent_process;
-use crate::channels::readers::ChannelHealthHandle;
+use crate::channels::connections::{ChannelBoard, health_for};
 use crate::config::provider::ProviderId;
 use crate::dependencies::VizierDependencies;
 use crate::embedding::VizierEmbedder;
@@ -108,19 +108,21 @@ pub struct AgentStatus {
 
 pub type SharedStatus = Arc<RwLock<AgentStatus>>;
 
+/// The agent instance a supervisor is running right now, if any: what an integration refresh
+/// or status query reaches without going through the request queue.
+pub type CurrentAgent = Arc<RwLock<Option<Arc<VizierAgent>>>>;
+
 impl AgentStatus {
+    /// `channels` are the readers of the connections attached to the agent, which run
+    /// whatever state the agent is in (research R3).
     pub fn health(
         status: &SharedStatus,
-        channels: &ChannelHealthHandle,
+        board: &ChannelBoard,
         agent_id: &AgentId,
     ) -> AgentHealthStatus {
         let status = status.read().unwrap_or_else(|p| p.into_inner()).clone();
-        let channels = match status.state {
-            AgentRunState::Running => channels.read().unwrap_or_else(|p| p.into_inner()).clone(),
-            _ => Vec::new(),
-        };
         AgentHealthStatus {
-            channels,
+            channels: health_for(board, agent_id),
             agent_id: agent_id.clone(),
             alive: status.state == AgentRunState::Running,
             state: status.state,
@@ -144,7 +146,7 @@ pub struct Supervisor {
     pub recv: flume::Receiver<VizierRequestEnvelope>,
     pub shutdown_rx: watch::Receiver<bool>,
     pub status: SharedStatus,
-    pub channels: ChannelHealthHandle,
+    pub current: CurrentAgent,
 }
 
 impl Supervisor {
@@ -234,6 +236,14 @@ impl Supervisor {
         let BuiltAgent { agent, indexer } = built;
         let memory_ops = self.start_memory_ops(indexer.as_ref()).await;
 
+        *self.current.write().unwrap_or_else(|p| p.into_inner()) = Some(agent.clone());
+        // An integration saved while the agent was being built may not be in what it read;
+        // one refresh catches it up, reusing everything that didn't change.
+        tokio::spawn({
+            let agent = agent.clone();
+            async move { agent.refresh_integrations().await }
+        });
+
         // Its own task, so a panic in the request loop ends this run instead of the supervisor.
         // Aborted with the supervisor (a stop that timed out), rather than detached (#52).
         let mut process = AbortOnDrop(tokio::spawn(agent_process(
@@ -244,9 +254,9 @@ impl Supervisor {
             indexer,
             self.recv.clone(),
             self.shutdown_rx.clone(),
-            self.channels.clone(),
         )));
         let result = (&mut process.0).await;
+        *self.current.write().unwrap_or_else(|p| p.into_inner()) = None;
 
         if let Some(handle) = memory_ops {
             handle.abort();

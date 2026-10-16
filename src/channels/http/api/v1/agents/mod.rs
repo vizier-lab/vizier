@@ -15,10 +15,10 @@ use crate::{
         },
         state::HTTPState,
     },
-    config::{shell::ShellConfig, tools::mcp::McpClientConfig},
+    config::shell::ShellConfig,
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
-        AgentToolsConfig, AgentUsageStats, BraveSearchToolSettings, EmbeddingConfig,
+        AgentToolsConfig, AgentUsageStats, EmbeddingConfig,
         ImageGenToolSettings, IndexerConfig, ReadImageToolSettings, ToolConfig,
         TtsToolSettings,
         agent::{EmbeddingProvider, IndexerKind, SttToolSettings},
@@ -31,6 +31,7 @@ use crate::{
 pub mod channel;
 pub mod core;
 pub mod dream;
+pub mod integrations;
 pub mod jobs;
 pub mod memory;
 pub mod skills;
@@ -98,6 +99,7 @@ pub fn agents() -> Router<HTTPState> {
         .nest("/{agent_id}/skills", agent_skills())
         .nest("/{agent_id}/tasks", task())
         .nest("/{agent_id}/dream", dream())
+        .nest("/{agent_id}/integrations", integrations::integrations())
 }
 
 #[utoipa::path(
@@ -153,10 +155,6 @@ pub struct AgentDetail {
     pub max_tokens: Option<u64>,
     pub context_window: Option<u64>,
     pub shell: Option<ShellConfig>,
-    pub brave_search: bool,
-    pub brave_search_settings: Option<BraveSearchToolSettings>,
-    pub discord: bool,
-    pub telegram: bool,
     pub fetch: bool,
     pub http_client: bool,
     pub prompt_timeout: String,
@@ -164,10 +162,7 @@ pub struct AgentDetail {
     pub dream_schedule: Option<String>,
     pub dream_provider: Option<crate::config::provider::ProviderId>,
     pub dream_model: Option<String>,
-    pub discord_token: Option<String>,
-    pub telegram_token: Option<String>,
     pub tools_timeout: String,
-    pub mcp_servers: std::collections::HashMap<String, McpClientConfig>,
     pub avatar_url: Option<String>,
     pub silent_read_initiative_chance: f32,
     pub tts: bool,
@@ -218,16 +213,6 @@ async fn agent_detail(
                 max_tokens: config.max_tokens,
                 context_window: config.context_window,
                 shell: config.tools.shell,
-                brave_search: config.tools.brave_search.enabled,
-                brave_search_settings: if config.tools.brave_search.settings.api_key.is_some()
-                    || config.tools.brave_search.settings.safesearch.is_some()
-                {
-                    Some(config.tools.brave_search.settings.clone())
-                } else {
-                    None
-                },
-                discord: config.tools.discord.enabled,
-                telegram: config.tools.telegram.enabled,
                 fetch: config.tools.fetch.enabled,
                 http_client: config.tools.http_client.enabled,
                 prompt_timeout: config.prompt_timeout.to_string(),
@@ -235,10 +220,7 @@ async fn agent_detail(
                 dream_schedule: config.dream_schedule,
                 dream_provider: config.dream_provider,
                 dream_model: config.dream_model,
-                discord_token: config.discord_token,
-                telegram_token: config.telegram_token,
                 tools_timeout: config.tools.timeout.to_string(),
-                mcp_servers: config.tools.mcp_servers,
                 avatar_url: config.avatar_url,
                 silent_read_initiative_chance: config.silent_read_initiative_chance,
                 tts: config.tools.tts.enabled,
@@ -320,10 +302,6 @@ pub struct CreateAgentRequest {
     #[serde(default)]
     pub dream_model: Option<String>,
     #[serde(default)]
-    pub discord_token: Option<String>,
-    #[serde(default)]
-    pub telegram_token: Option<String>,
-    #[serde(default)]
     pub avatar_url: Option<String>,
     #[serde(default)]
     pub silent_read_initiative_chance: Option<f32>,
@@ -338,21 +316,11 @@ pub struct CreateAgentTools {
     #[serde(default)]
     pub shell: Option<ShellConfig>,
     #[serde(default)]
-    pub brave_search: Option<bool>,
-    #[serde(default)]
-    pub brave_search_settings: Option<BraveSearchToolSettings>,
-    #[serde(default)]
-    pub discord: Option<bool>,
-    #[serde(default)]
-    pub telegram: Option<bool>,
-    #[serde(default)]
     pub fetch: Option<bool>,
     #[serde(default)]
     pub http_client: Option<bool>,
     #[serde(default)]
     pub timeout: Option<String>,
-    #[serde(default)]
-    pub mcp_servers: Option<std::collections::HashMap<String, McpClientConfig>>,
     #[serde(default)]
     pub tts: Option<bool>,
     #[serde(default)]
@@ -375,14 +343,9 @@ impl CreateAgentRequest {
     fn into_config(self) -> AgentConfig {
         let tools = self.tools.unwrap_or(CreateAgentTools {
             shell: None,
-            brave_search: None,
-            brave_search_settings: None,
-            discord: None,
-            telegram: None,
             fetch: None,
             http_client: None,
             timeout: None,
-            mcp_servers: None,
             tts: None,
             tts_settings: None,
             stt: None,
@@ -411,18 +374,6 @@ impl CreateAgentRequest {
                 )
                 .unwrap_or(duration_string::DurationString::from_string("30m".into()).unwrap()),
                 shell: tools.shell,
-                brave_search: ToolConfig {
-                    enabled: tools.brave_search.unwrap_or(false),
-                    settings: tools.brave_search_settings.unwrap_or_default(),
-                },
-                discord: ToolConfig {
-                    enabled: tools.discord.unwrap_or(false),
-                    settings: (),
-                },
-                telegram: ToolConfig {
-                    enabled: tools.telegram.unwrap_or(false),
-                    settings: (),
-                },
                 fetch: ToolConfig {
                     enabled: tools.fetch.unwrap_or(false),
                     settings: (),
@@ -431,7 +382,6 @@ impl CreateAgentRequest {
                     enabled: tools.http_client.unwrap_or(false),
                     settings: (),
                 },
-                mcp_servers: tools.mcp_servers.unwrap_or_default(),
                 tts: ToolConfig {
                     enabled: tools.tts.unwrap_or(false),
                     settings: tools.tts_settings.unwrap_or_default(),
@@ -462,8 +412,6 @@ impl CreateAgentRequest {
             dream_schedule: self.dream_schedule,
             dream_provider: self.dream_provider,
             dream_model: self.dream_model,
-            discord_token: self.discord_token,
-            telegram_token: self.telegram_token,
             avatar_url: self.avatar_url,
             embedding: Some(self.embedding.unwrap_or(EmbeddingConfig {
                 provider: EmbeddingProvider::Local,
@@ -478,6 +426,48 @@ impl CreateAgentRequest {
             completion_retry: Default::default(),
         }
     }
+}
+
+/// Settings that moved to Integrations (spec 016, FR-021): a body that still carries any is
+/// refused rather than silently ignored.
+const MOVED_TO_INTEGRATIONS: &[&str] = &["discord_token", "telegram_token"];
+const TOOLS_MOVED_TO_INTEGRATIONS: &[&str] = &["discord", "telegram", "brave_search", "mcp_servers"];
+
+/// The moved fields `body` carries, as `tools.x` for those under `tools`.
+fn moved_fields(body: &serde_json::Value) -> Vec<String> {
+    let mut fields: Vec<String> = MOVED_TO_INTEGRATIONS
+        .iter()
+        .filter(|key| body.get(**key).is_some())
+        .map(|key| key.to_string())
+        .collect();
+    if let Some(tools) = body.get("tools") {
+        fields.extend(
+            TOOLS_MOVED_TO_INTEGRATIONS
+                .iter()
+                .filter(|key| tools.get(**key).is_some())
+                .map(|key| format!("tools.{key}")),
+        );
+    }
+    fields
+}
+
+/// The agent body, or the response refusing it: `422 moved_to_integrations` naming the moved
+/// fields, or `400` when it doesn't parse.
+fn parse_agent_body(body: serde_json::Value) -> Result<CreateAgentRequest, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let moved = moved_fields(&body);
+    if !moved.is_empty() {
+        return Err(crate::channels::http::api::v1::integrations::fail(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!(
+                "{} moved to Integrations; manage them under /agents/{{id}}/integrations",
+                moved.join(", ")
+            ),
+            serde_json::json!({"error": "moved_to_integrations", "fields": moved}),
+        ));
+    }
+    serde_json::from_value(body)
+        .map_err(|e| err_response::<String>(StatusCode::BAD_REQUEST, e.to_string()).into_response())
 }
 
 /// A saved agent, with anything about its model worth knowing (contract `http-api.md` §
@@ -513,13 +503,26 @@ async fn saved_with_warnings(
     request_body = CreateAgentRequest,
     responses(
         (status = 201, description = "Agent created", body = APIResponse<AgentSaved>),
-        (status = 400, description = "Bad request", body = APIResponse<String>)
+        (status = 400, description = "Bad request", body = APIResponse<String>),
+        (status = 422, description = "The body carries settings that moved to Integrations", body = APIResponse<String>)
     )
 )]
 async fn create_agent(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
-    Json(body): Json<CreateAgentRequest>,
+    Json(body): Json<serde_json::Value>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    match parse_agent_body(body) {
+        Ok(body) => create_agent_parsed(state, user, body).await.into_response(),
+        Err(refused) => refused,
+    }
+}
+
+async fn create_agent_parsed(
+    state: HTTPState,
+    user: crate::channels::http::auth::AuthenticatedUser,
+    body: CreateAgentRequest,
 ) -> models::response::Response<AgentSaved> {
     if let Some(emb) = &body.embedding {
         if emb.model.trim().is_empty() {
@@ -568,14 +571,28 @@ async fn create_agent(
     request_body = CreateAgentRequest,
     responses(
         (status = 200, description = "Agent updated", body = APIResponse<AgentSaved>),
-        (status = 404, description = "Agent not found", body = APIResponse<String>)
+        (status = 404, description = "Agent not found", body = APIResponse<String>),
+        (status = 422, description = "The body carries settings that moved to Integrations", body = APIResponse<String>)
     )
 )]
 async fn update_agent(
     Path(agent_id): Path<String>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
-    Json(body): Json<CreateAgentRequest>,
+    Json(body): Json<serde_json::Value>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    match parse_agent_body(body) {
+        Ok(body) => update_agent_parsed(agent_id, state, user, body).await.into_response(),
+        Err(refused) => refused,
+    }
+}
+
+async fn update_agent_parsed(
+    agent_id: String,
+    state: HTTPState,
+    user: crate::channels::http::auth::AuthenticatedUser,
+    body: CreateAgentRequest,
 ) -> models::response::Response<AgentSaved> {
     if let Some(emb) = &body.embedding {
         if emb.model.trim().is_empty() {

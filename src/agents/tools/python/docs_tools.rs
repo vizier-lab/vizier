@@ -118,7 +118,7 @@ impl VizierTool for ListToolFunctions {
             .router
             .mcp
             .keys()
-            .find(|server| mcp_category_name(server) == category);
+            .find(|server| mcp_category_name(server, &self.router.reserved) == category);
         if let (true, Some(server)) = (functions.is_empty(), server) {
             output["message"] = serde_json::json!(format!(
                 "No functions from the {server} MCP server right now; it may be unreachable. Try again later."

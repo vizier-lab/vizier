@@ -25,10 +25,16 @@ const permissionGroups = [
         ],
     },
     {
+        label: 'Integrations',
+        permissions: [
+            ['all_agents:integrations:manage', 'Manage integrations (all agents)'],
+            ['owned_agents:integrations:manage', 'Manage integrations (own agents)'],
+        ],
+    },
+    {
         label: 'Settings',
         permissions: [
             ['settings:providers', 'Manage Providers'],
-            ['agents:mcp_config', 'Configure Agent MCP'],
             ['agents:shell_config', 'Configure Agent Shell'],
             ['settings:password', 'Change Password'],
             ['settings:api_keys', 'Manage API Keys'],

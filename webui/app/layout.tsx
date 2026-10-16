@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
-import { FaRobot, FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook, FaWandMagicSparkles, FaHouse, FaCloudMoon, FaBrain } from 'react-icons/fa6'
+import { FaRobot, FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook, FaWandMagicSparkles, FaHouse, FaCloudMoon, FaBrain, FaTowerBroadcast, FaPuzzlePiece, FaPlug } from 'react-icons/fa6'
 import Avatar from './components/avatar'
 import ToastContainer from './components/Toast'
 import { useConnectionStore } from './hooks/connectionStore'
@@ -118,6 +118,10 @@ export default function Layout() {
 
   const getCurrentView = () => {
     if (location.pathname === '/') return 'home'
+    if (location.pathname.includes('/integrations/channels')) return 'integrations/channels'
+    if (location.pathname.includes('/integrations/addons')) return 'integrations/addons'
+    if (location.pathname.includes('/integrations/mcp')) return 'integrations/mcp'
+    if (location.pathname.includes('/config')) return 'config'
     if (location.pathname.includes('/core')) return 'core'
     if (location.pathname.includes('/memory')) return 'memory'
     if (location.pathname.includes('/tasks')) return 'tasks'
@@ -125,7 +129,6 @@ export default function Layout() {
     if (location.pathname.includes('/dream')) return 'dream'
     if (location.pathname.includes('/usage')) return 'usage'
     if (location.pathname === '/settings') return 'global-settings'
-    if (location.pathname.includes('/settings')) return 'settings'
     if (location.pathname.includes('/chat')) return 'chat'
     return null
   }
@@ -262,10 +265,10 @@ export default function Layout() {
           )}
         </div>
 
-        {/* Tools section */}
+        {/* Per-agent menus, then the agent's Integrations and Misc sections */}
         <div className="nav-content">
-          <div className="nav-section">
-            {([
+          {([
+            [null, [
               ['home', 'Home', FaHouse],
               ['chat', 'Chat', FaComment],
               ['core', 'Core', FaBrain],
@@ -273,30 +276,42 @@ export default function Layout() {
               ['tasks', 'Tasks', FaCircleCheck],
               ['skills', 'Skills', FaWandMagicSparkles],
               ['dream', 'Dreams', FaCloudMoon],
+            ]],
+            ['Integrations', [
+              ['integrations/channels', 'Channels', FaTowerBroadcast],
+              ['integrations/addons', 'Addons', FaPuzzlePiece],
+              ['integrations/mcp', 'MCP', FaPlug],
+            ]],
+            ['Misc', [
               ['usage', 'Usage', FaArrowTrendUp],
-              ['settings', 'Agent Config', FaRobot],
-            ] as const).map(([view, label, Icon]) => {
-              const isHome = view === 'home'
-              const isSettings = view === 'settings'
-              const canEditAgent = hasPermission('all_agents:edit') || currentAgent?.owner_id === user?.user_id
-              const isDisabled = !isHome && (!currentAgentId || (isSettings && !canEditAgent))
+              ['config', 'Config', FaRobot],
+            ]],
+          ] as const).map(([title, items]) => (
+            <div className="nav-section" key={title ?? 'agent'}>
+              {title && <div className="nav-section-title nav-section-heading">{title}</div>}
+              {items.map(([view, label, Icon]) => {
+                const isHome = view === 'home'
+                const isConfig = view === 'config'
+                const canEditAgent = hasPermission('all_agents:edit') || currentAgent?.owner_id === user?.user_id
+                const isDisabled = !isHome && (!currentAgentId || (isConfig && !canEditAgent))
 
-              return (
-                <div
-                  key={view}
-                  className={`nav-item ${currentView === view ? 'active' : ''}`}
-                  onClick={() => !isDisabled && handleNavClick(isHome ? '/' : `/${currentAgentId}/${view}`)}
-                  style={{
-                    ...(isDisabled ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}),
-                  }}
-                  title={isSettings && !canEditAgent ? 'Only the agent owner can edit config' : undefined}
-                >
-                  <Icon size={18} />
-                  <span>{label}</span>
-                </div>
-              )
-            })}
-          </div>
+                return (
+                  <div
+                    key={view}
+                    className={`nav-item ${currentView === view ? 'active' : ''}`}
+                    onClick={() => !isDisabled && handleNavClick(isHome ? '/' : `/${currentAgentId}/${view}`)}
+                    style={{
+                      ...(isDisabled ? { opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' } : {}),
+                    }}
+                    title={isConfig && !canEditAgent ? 'Only the agent owner can edit config' : collapsed ? label : undefined}
+                  >
+                    <Icon size={18} />
+                    <span>{label}</span>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
         </div>
 
         {/* Bottom: Toggle, Settings, Theme, Logout */}

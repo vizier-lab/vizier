@@ -16,6 +16,7 @@ pub(crate) mod core_revision;
 mod dream_journal;
 mod global_config;
 mod history;
+mod integration;
 mod memory;
 pub(crate) mod memory_revision;
 mod provider;
@@ -356,6 +357,7 @@ impl SqliteStorage {
         init_revision_schema(conn)?;
         init_task_run_schema(conn)?;
         init_background_job_schema(conn)?;
+        init_integration_schema(conn)?;
 
         Ok(())
     }
@@ -385,6 +387,41 @@ pub fn init_task_run_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_task_run_task ON task_run(agent_id, task_slug, ran_at DESC, id DESC);
         -- the startup sweep, and the overlap check
         CREATE INDEX IF NOT EXISTS idx_task_run_state ON task_run(state);
+        ",
+    )?;
+
+    Ok(())
+}
+
+/// The integration tables (`specs/016-integrations-section/data-model.md` §1–2), split out like
+/// [`init_task_run_schema`] so the tests in `src/storage/sqlite/integration.rs` can stand them up
+/// against an in-memory connection.
+///
+/// `name` is deliberately not unique: two MCP integrations may share one, and only an agent
+/// may not have both attached (research R12), which `IntegrationStorage` enforces.
+pub fn init_integration_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS integration (
+            id          TEXT PRIMARY KEY,
+            kind        TEXT NOT NULL,
+            family      TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            settings    TEXT NOT NULL,
+            enabled     INTEGER NOT NULL,
+            scope       TEXT NOT NULL,
+            created_by  TEXT,
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS integration_attachment (
+            integration_id TEXT NOT NULL REFERENCES integration(id) ON DELETE CASCADE,
+            agent_id       TEXT NOT NULL,
+            created_at     TEXT NOT NULL,
+            PRIMARY KEY (integration_id, agent_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_integration_attachment_agent ON integration_attachment(agent_id);
         ",
     )?;
 

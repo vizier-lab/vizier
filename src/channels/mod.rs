@@ -1,9 +1,14 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 
 use crate::{
-    channels::http::HTTPChannel, config::HTTPChannelConfig, dependencies::VizierDependencies,
+    channels::{connections::ChannelConnections, http::HTTPChannel},
+    config::HTTPChannelConfig,
+    dependencies::VizierDependencies,
 };
 
+pub mod connections;
 pub mod discord;
 pub mod http;
 pub mod reactions;
@@ -12,7 +17,7 @@ pub mod telegram;
 pub mod woken;
 
 /// A reader error that retrying won't fix, such as a revoked token: the reader is marked
-/// failed rather than restarted, until a config change (an agent update) starts it afresh.
+/// failed rather than restarted, until its connection's token is replaced.
 #[derive(Debug)]
 pub struct FatalChannelError(pub String);
 
@@ -42,15 +47,25 @@ impl VizierChannels {
         Ok(Self { http_config, deps })
     }
 
-    /// Runs the HTTP channel, returning only if it stops, so that `run_server` sees it stop
-    /// (#51). Without one configured this never returns.
+    /// Starts every channel connection's reader, then runs the HTTP channel, returning only
+    /// if it stops, so that `run_server` sees it stop (#51). Without one configured this never
+    /// returns.
     pub async fn run(&mut self) -> Result<()> {
-        let Some(http_config) = &self.http_config else {
-            futures::future::pending::<()>().await;
-            return Ok(());
+        let connections = Arc::new(ChannelConnections::new(self.deps.clone()));
+        connections.reconcile().await;
+        let watcher = tokio::spawn(connections.clone().watch());
+
+        let result = match &self.http_config {
+            None => futures::future::pending::<Result<()>>().await,
+            Some(http_config) => match HTTPChannel::new(http_config.clone(), self.deps.clone()) {
+                Ok(http) => http.run().await.map_err(Into::into),
+                Err(e) => Err(e),
+            },
         };
-        let http = HTTPChannel::new(http_config.clone(), self.deps.clone())?;
-        http.run().await?;
+
+        watcher.abort();
+        connections.shutdown_all().await;
+        result?;
         Err(anyhow::anyhow!("the http server stopped"))
     }
 }

@@ -18,7 +18,7 @@ export default function AgentNew() {
       }, 500)
     } catch {
       addToast('warning', 'Agent created but failed to start. Update settings and save to retry.')
-      window.location.href = `/${form.agent_id}/settings`
+      window.location.href = `/${form.agent_id}/config`
     }
   }
 

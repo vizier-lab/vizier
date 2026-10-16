@@ -104,6 +104,26 @@ impl McpServer {
         });
     }
 
+    /// This agent's connection to the server, read without connecting or waiting: a server
+    /// busy connecting or listing reports `Connecting`.
+    pub fn status(&self) -> crate::schema::IntegrationStatus {
+        use crate::schema::IntegrationStatus;
+        let Ok(state) = self.state.try_lock() else {
+            return IntegrationStatus::Connecting;
+        };
+        match (&state.client, &state.last_error) {
+            (Some(client), _) if !client.is_closed() && !client.is_transport_closed() => {
+                IntegrationStatus::Running {
+                    tools: state.tools.as_ref().map(|(tools, _)| tools.len()),
+                }
+            }
+            (_, Some(last_error)) => IntegrationStatus::Unreachable {
+                last_error: last_error.clone(),
+            },
+            _ => IntegrationStatus::Connecting,
+        }
+    }
+
     /// The server's tools, or none while it is unreachable. Never fails, and never holds a
     /// turn longer than `LIST_TIMEOUT` waiting for the server plus one listing: a server
     /// that isn't connected is reconnected in the background and its tools return on a later

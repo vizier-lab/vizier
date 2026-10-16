@@ -686,6 +686,17 @@ select:focus {
   display: none;
 }
 
+/* A section heading collapses to a divider rather than disappearing. */
+.nav-sidebar.collapsed .nav-section-heading {
+  display: block;
+  height: 1px;
+  padding: 0;
+  margin: 6px 10px 10px;
+  overflow: hidden;
+  font-size: 0;
+  background: var(--border);
+}
+
 .collapsed .nav-item {
   justify-content: center;
   padding: 10px;
@@ -879,7 +890,7 @@ select:focus {
 }
 
 .nav-section-title {
-  padding: 12px 14px;
+  padding: 4px 14px 8px;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;

@@ -87,8 +87,8 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "send_attachment" => "📎 Sending attachment:".to_string(),
         "fetch" => "🌐 Fetching:".to_string(),
         "http_client" => format!("🔗 HTTP {}:", args["method"].as_str().unwrap_or("GET")),
-        "web_search" => "🌐 Searching web:".to_string(),
-        "news_search" => "📰 Finding news:".to_string(),
+        "brave_search_web" => "🌐 Searching web:".to_string(),
+        "brave_search_news" => "📰 Finding news:".to_string(),
         "shell_exec" => "🖥️ Running shell:".to_string(),
         "tts_generate" => "🔊 Generating speech:".to_string(),
         "stt_transcribe" => "🎤 Transcribing:".to_string(),
@@ -198,7 +198,7 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
             "'{}'",
             args["url"].as_str().unwrap_or("?")
         ),
-        "web_search" | "news_search" => {
+        "brave_search_web" | "brave_search_news" => {
             format!("'{}'", args["query"].as_str().unwrap_or("?"))
         }
         "tts_generate" => {

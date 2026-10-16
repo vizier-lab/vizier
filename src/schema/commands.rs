@@ -141,6 +141,19 @@ pub enum AgentCommand {
     HealthCheck {
         resp: tokio::sync::oneshot::Sender<Vec<AgentHealthStatus>>,
     },
+    /// Rebuild the running agent's integration tools from storage, without a restart. A
+    /// no-op for an agent that isn't running: its next build reads storage.
+    RefreshIntegrations {
+        agent_id: String,
+    },
+    /// This agent's view of its attached integrations, by integration id. Empty while the
+    /// agent isn't running.
+    IntegrationStatus {
+        agent_id: String,
+        resp: tokio::sync::oneshot::Sender<
+            std::collections::HashMap<String, crate::schema::IntegrationStatus>,
+        >,
+    },
     /// Stop the agent and start it again from its stored config, e.g. after the credentials or
     /// custom provider it was built with changed. A build that fails leaves it `Failed`.
     Restart {

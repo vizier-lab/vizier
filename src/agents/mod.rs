@@ -4,15 +4,15 @@ use std::time::Duration;
 use tokio::sync::{oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
-use crate::agents::supervisor::{AgentStatus, BuiltAgent, SharedStatus, Supervisor};
-use crate::channels::readers::ChannelHealthHandle;
+use crate::agents::supervisor::{AgentStatus, BuiltAgent, CurrentAgent, SharedStatus, Supervisor};
 use crate::constant::CORE_MD;
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
     AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentId, AgentSummary,
-    RevisionOrigin, RevisionTrigger,
+    IntegrationChanged, RevisionOrigin, RevisionTrigger,
 };
 use crate::storage::agent::AgentStorage;
+use crate::storage::integration::IntegrationStorage;
 use crate::storage::user::UserStorage;
 use crate::transport::VizierRequestEnvelope;
 use crate::utils::agent_workspace;
@@ -37,7 +37,7 @@ struct AgentProcess {
     handle: JoinHandle<()>,
     shutdown: watch::Sender<bool>,
     status: SharedStatus,
-    channels: ChannelHealthHandle,
+    current: CurrentAgent,
     /// The agent's request channel, registered once and handed from one supervisor to the
     /// next across updates, so nothing sent during a swap is lost (#43).
     recv: flume::Receiver<VizierRequestEnvelope>,
@@ -111,9 +111,9 @@ impl VizierAgents {
     ) {
         let (shutdown, shutdown_rx) = watch::channel(false);
         let status = SharedStatus::default();
-        let channels = ChannelHealthHandle::default();
+        let current = CurrentAgent::default();
         let supervisor = Supervisor {
-            channels: channels.clone(),
+            current: current.clone(),
             agent_id: agent_id.clone(),
             deps: self.deps.clone(),
             config,
@@ -128,16 +128,34 @@ impl VizierAgents {
                 handle,
                 shutdown,
                 status,
-                channels,
+                current,
                 recv,
             },
         );
     }
 
     pub async fn run(&mut self) -> Result<()> {
+        let mut integration_changes = self.deps.transport.subscribe_integration_changes();
         loop {
             tokio::select! {
                 cmd = self.deps.transport.recv_agent_command() => self.handle_command(cmd?).await,
+                change = integration_changes.recv() => match change {
+                    Ok(change) => {
+                        for agent_id in &change.agents {
+                            self.refresh_integrations(agent_id);
+                        }
+                    }
+                    // Missed some: every running agent re-reads its integrations.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        let ids: Vec<AgentId> = self.processes.keys().cloned().collect();
+                        for agent_id in &ids {
+                            self.refresh_integrations(agent_id);
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        integration_changes = self.deps.transport.subscribe_integration_changes();
+                    }
+                },
                 Some(done) = self.builds.join_next(), if !self.builds.is_empty() => match done {
                     Ok(done) => self.finish_build(done).await,
                     // `start_build` catches a panicking build, so only an abort lands here.
@@ -175,10 +193,42 @@ impl VizierAgents {
                 let statuses: Vec<AgentHealthStatus> = self
                     .processes
                     .iter()
-                    .map(|(id, process)| AgentStatus::health(&process.status, &process.channels, id))
+                    .map(|(id, process)| {
+                        AgentStatus::health(&process.status, &self.deps.channel_board, id)
+                    })
                     .collect();
                 let _ = resp.send(statuses);
             }
+            AgentCommand::RefreshIntegrations { agent_id } => self.refresh_integrations(&agent_id),
+            AgentCommand::IntegrationStatus { agent_id, resp } => match self.current(&agent_id) {
+                // Off the command loop: it reads storage.
+                Some(agent) => {
+                    tokio::spawn(async move {
+                        let _ = resp.send(agent.integration_status().await);
+                    });
+                }
+                None => {
+                    let _ = resp.send(Default::default());
+                }
+            },
+        }
+    }
+
+    /// The agent's running instance, if it has one.
+    fn current(&self, agent_id: &str) -> Option<std::sync::Arc<agent::VizierAgent>> {
+        self.processes
+            .get(agent_id)?
+            .current
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    /// Rebuild a running agent's integration tools, as its own task so the command loop
+    /// never waits on it. An agent that isn't running reads storage when it is next built.
+    fn refresh_integrations(&self, agent_id: &str) {
+        if let Some(agent) = self.current(agent_id) {
+            tokio::spawn(async move { agent.refresh_integrations().await });
         }
     }
 
@@ -414,8 +464,22 @@ impl VizierAgents {
             return AgentCommandResult::Error(format!("agent '{}' not found", agent_id));
         }
 
+        // Read before the delete drops the attachments, so the bots it had can be stopped.
+        let attached = self
+            .deps
+            .storage
+            .list_agent_integrations(agent_id)
+            .await
+            .unwrap_or_default();
         if let Err(e) = self.deps.storage.delete_agent(agent_id).await {
             return AgentCommandResult::Error(format!("failed to delete agent: {}", e));
+        }
+        for integration in attached {
+            self.deps.transport.publish_integration_change(IntegrationChanged {
+                integration_id: integration.id,
+                family: integration.family,
+                agents: vec![agent_id.to_string()],
+            });
         }
 
         self.deps

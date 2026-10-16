@@ -182,11 +182,6 @@ export const IMAGE_GEN_PROVIDER_MODELS: Record<ImageGenProvider, string[]> = {
   hyperbolic: ['SDXL', 'FLUX.1-dev', 'FLUX.1-schnell'],
 }
 
-export interface BraveSearchToolSettings {
-  api_key?: string
-  safesearch?: boolean
-}
-
 export type TtsProvider =
   | 'openai'
   | 'openrouter'
@@ -233,13 +228,8 @@ export interface ImageGenToolSettings {
 export interface AgentToolsConfig {
   timeout: string
   shell: ShellConfigData | null
-  brave_search: AgentToolConfig
-  brave_search_settings?: BraveSearchToolSettings
-  discord: AgentToolConfig
-  telegram: AgentToolConfig
   fetch: AgentToolConfig
   http_client: AgentToolConfig
-  mcp_servers: Record<string, McpServerConfig>
   tts: AgentToolConfig
   tts_settings?: TtsToolSettings
   stt: AgentToolConfig
@@ -285,14 +275,9 @@ export interface CreateAgentRequest {
   silent_read_initiative_chance?: number
   tools?: {
     shell?: ShellConfigData | null
-    brave_search?: boolean
-    brave_search_settings?: BraveSearchToolSettings
-    discord?: boolean
-    telegram?: boolean
     fetch?: boolean
     http_client?: boolean
     timeout?: string
-    mcp_servers?: Record<string, McpServerConfig>
     tts?: boolean
     tts_settings?: TtsToolSettings
     stt?: boolean
@@ -307,8 +292,6 @@ export interface CreateAgentRequest {
   dream_schedule?: string
   dream_provider?: string | null
   dream_model?: string | null
-  discord_token?: string
-  telegram_token?: string
   avatar_url?: string
   embedding?: EmbeddingToolSettings
   indexer?: IndexerConfig
@@ -327,10 +310,6 @@ export interface AgentDetail {
   context_window?: number
   silent_read_initiative_chance?: number
   shell: ShellConfigData | null
-  brave_search: boolean
-  brave_search_settings?: BraveSearchToolSettings
-  discord: boolean
-  telegram: boolean
   fetch: boolean
   http_client: boolean
   prompt_timeout: string
@@ -338,10 +317,7 @@ export interface AgentDetail {
   dream_schedule: string | null
   dream_provider: string | null
   dream_model: string | null
-  discord_token?: string
-  telegram_token?: string
   tools_timeout: string
-  mcp_servers: Record<string, McpServerConfig>
   tts: boolean
   tts_settings?: TtsToolSettings
   stt: boolean
@@ -1025,19 +1001,11 @@ export interface AgentUsageStats {
 // GLOBAL CONFIG
 // ============================================================================
 
-export interface McpServerConfig {
-  host: 'local' | 'http'
-  command?: string
-  args?: string[]
-  env?: Record<string, string>
-  uri?: string
-}
-
 export interface GlobalConfigEntry {
   key: string
   value: {
-    type: 'McpServers' | 'Shell'
-    data: Record<string, McpServerConfig> | ShellConfigData
+    type: 'Shell'
+    data: ShellConfigData
   }
 }
 
@@ -1217,4 +1185,81 @@ export interface HistoryVersion extends HistoryRow {
   content: string | null
   title?: string | null
   tags?: string[]
+}
+
+// ============================================================================
+// INTEGRATIONS (spec 016)
+// ============================================================================
+
+export type IntegrationFamily = 'channel' | 'addon' | 'mcp'
+
+export type IntegrationStatus =
+  | { state: 'disabled' }
+  | { state: 'unassigned' }
+  | { state: 'incomplete'; missing: string[] }
+  | { state: 'connecting' }
+  | { state: 'running'; tools?: number }
+  | { state: 'reconnecting'; last_error: string; next_retry_at?: string }
+  | { state: 'failed'; last_error: string }
+  | { state: 'unreachable'; last_error: string }
+  | { state: 'unknown' }
+
+/** An integration as every response shows it; secrets come back as `••••<last 4>`. */
+export interface Integration {
+  id: string
+  kind: string
+  family: IntegrationFamily
+  name: string
+  enabled: boolean
+  scope: 'shared' | 'owned'
+  created_by: string | null
+  settings: Record<string, unknown>
+  missing?: string[]
+}
+
+/** One integration as an agent's Integrations page shows it. */
+export interface IntegrationItem extends Integration {
+  attached: boolean
+  also_used_by: { agent_id: string; name: string }[]
+  others?: number
+  status: IntegrationStatus
+  can_edit: boolean
+  can_attach: boolean
+}
+
+export interface IntegrationList {
+  family: IntegrationFamily | null
+  can_manage: boolean
+  items: IntegrationItem[]
+}
+
+export interface KindField {
+  key: string
+  label: string
+  type: 'secret' | 'string' | 'bool' | 'string_list' | 'secret_map' | 'select'
+  required?: boolean
+  default?: unknown
+  options?: string[]
+}
+
+export interface KindListing {
+  id: string
+  family: IntegrationFamily
+  name: string
+  description: string
+  icon: string
+  fields: KindField[]
+}
+
+export interface CreateIntegrationRequest {
+  kind: string
+  name: string
+  settings: Record<string, unknown>
+  enabled?: boolean
+}
+
+export interface UpdateIntegrationRequest {
+  name?: string
+  settings?: Record<string, unknown>
+  enabled?: boolean
 }

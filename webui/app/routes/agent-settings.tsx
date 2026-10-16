@@ -54,6 +54,10 @@ const labelStyle: React.CSSProperties = {
   color: 'var(--text-secondary)',
 }
 
+export function meta() {
+  return [{ title: 'Config - Vizier' }]
+}
+
 export default function AgentSettings() {
   const { agentId } = useParams()
   const navigate = useNavigate()
@@ -467,7 +471,7 @@ export default function AgentSettings() {
   return (
     <>
       <div className="main-header">
-        <h3 style={{ margin: 0 }}>Agent Config</h3>
+        <h3 style={{ margin: 0 }}>Config</h3>
       </div>
       <div className="main-body" style={{ padding: 0 }}>
         {detail ? (

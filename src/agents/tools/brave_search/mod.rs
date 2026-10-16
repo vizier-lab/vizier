@@ -7,6 +7,7 @@ use crate::{
     agents::tools::{ToolCategory, ToolContext, VizierTool},
     config::tools::BraveSearchConfig,
     error::{VizierError, throw_vizier_error},
+    integrations::IntegrationHealth,
 };
 
 mod request;
@@ -22,7 +23,7 @@ pub trait SearchType {
 
 pub struct WebOnlySearch;
 impl SearchType for WebOnlySearch {
-    const NAME: &'static str = "web_search";
+    const NAME: &'static str = "brave_search_web";
 
     fn result_filter() -> String {
         "web".into()
@@ -31,7 +32,7 @@ impl SearchType for WebOnlySearch {
 
 pub struct NewsOnlySearch;
 impl SearchType for NewsOnlySearch {
-    const NAME: &'static str = "news_search";
+    const NAME: &'static str = "brave_search_news";
 
     fn result_filter() -> String {
         "news".into()
@@ -42,19 +43,24 @@ impl SearchType for NewsOnlySearch {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// One of the Brave Search addon's tools (`brave_search_web`, `brave_search_news`).
+#[derive(Clone)]
 pub struct BraveSearch<T: SearchType> {
     _phantom: PhantomData<T>,
     api_key: String,
     safesearch: bool,
+    /// Where an auth failure is recorded, so the addon's status shows it, and cleared on the
+    /// next success (research R9).
+    health: Option<(IntegrationHealth, String)>,
 }
 
 impl<T: SearchType> BraveSearch<T> {
-    pub fn new(config: &BraveSearchConfig) -> Self {
+    pub fn new(config: &BraveSearchConfig, health: Option<(IntegrationHealth, String)>) -> Self {
         Self {
             _phantom: PhantomData,
             api_key: config.api_key.clone(),
             safesearch: config.safesearch,
+            health,
         }
     }
 }
@@ -77,8 +83,9 @@ where
 {
     type Input = BraveSearchArgs;
     type Output = response::BraveResponse;
+    /// Listed under the `brave_search` addon's category, not a built-in one.
     fn category() -> Option<ToolCategory> {
-        Some(ToolCategory::Web)
+        None
     }
 
     fn name() -> String {
@@ -114,8 +121,22 @@ where
         }
 
         let response = response.unwrap();
-        if response.status() != StatusCode::OK {
-            return throw_vizier_error("status error:", response.error_for_status().err().unwrap());
+        let status = response.status();
+        if status != StatusCode::OK {
+            let body = response.text().await.unwrap_or_default();
+            // Brave answers a bad key with 401/403, or with 422 and an `authentication` error.
+            let auth = status == StatusCode::UNAUTHORIZED
+                || status == StatusCode::FORBIDDEN
+                || body.contains("SUBSCRIPTION_TOKEN_INVALID")
+                || body.contains("\"authentication\"");
+            let error = format!("Brave Search answered {status}: {}", body.trim());
+            if auth && let Some((health, id)) = &self.health {
+                health.fail(id, format!("Brave Search rejected the API key ({status})"));
+            }
+            return Err(VizierError(error));
+        }
+        if let Some((health, id)) = &self.health {
+            health.clear(id);
         }
 
         let text = response.text().await;

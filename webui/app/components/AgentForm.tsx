@@ -15,7 +15,6 @@ import type {
   AgentDetail,
   EmbeddingToolSettings,
   IndexerConfig,
-  McpServerConfig,
   ShellConfigData,
 } from '../interfaces/types'
 import {
@@ -93,14 +92,9 @@ const DEFAULT_FORM: CreateAgentRequest = {
   silent_read_initiative_chance: 0.0,
   tools: {
     shell: null,
-    brave_search: false,
-    brave_search_settings: {},
-    discord: false,
-    telegram: false,
     fetch: false,
     http_client: false,
     timeout: '30m',
-    mcp_servers: {},
     tts: false,
     tts_settings: {},
     stt: false,
@@ -195,17 +189,6 @@ export default function AgentForm({
       tools: { ...prev.tools, read_image_settings: next },
     }))
 
-  // MCP server form state
-  const [mcpFormOpen, setMcpFormOpen] = useState(false)
-  const [mcpFormKey, setMcpFormKey] = useState<string | null>(null)
-  const [mcpForm, setMcpForm] = useState<{
-    name: string
-    config: McpServerConfig
-  }>({
-    name: '',
-    config: { host: 'local', command: '', args: [], env: {}, uri: '' },
-  })
-
   useEffect(() => {
     if (mode === 'edit' && initialData) {
       const d = initialData
@@ -224,14 +207,9 @@ export default function AgentForm({
           d.silent_read_initiative_chance ?? 0.0,
         tools: {
           shell: d.shell || null,
-          brave_search: d.brave_search,
-          brave_search_settings: d.brave_search_settings || {},
-          discord: d.discord,
-          telegram: d.telegram,
           fetch: d.fetch,
           http_client: d.http_client,
           timeout: d.tools_timeout || '30m',
-          mcp_servers: d.mcp_servers || {},
           tts: d.tts,
           tts_settings: d.tts_settings || {},
           stt: d.stt,
@@ -246,8 +224,6 @@ export default function AgentForm({
         dream_schedule: d.dream_schedule || '',
         dream_provider: d.dream_provider || '',
         dream_model: d.dream_model || '',
-        discord_token: d.discord_token || '',
-        telegram_token: d.telegram_token || '',
         avatar_url: d.avatar_url,
         embedding: d.embedding || {
           provider: 'local',
@@ -293,10 +269,6 @@ export default function AgentForm({
     setForm((prev) => ({ ...prev, tools: { ...prev.tools, shell: value } }))
   }
 
-  const updateMcpServers = (servers: Record<string, McpServerConfig>) => {
-    setForm((prev) => ({ ...prev, tools: { ...prev.tools, mcp_servers: servers } }))
-  }
-
   const goToNextTab = () => {
     const currentIndex = TABS.findIndex(t => t.key === activeTab)
     if (currentIndex < TABS.length - 1) {
@@ -304,54 +276,6 @@ export default function AgentForm({
       setActiveTab(TABS[nextIndex].key)
       setMaxReachedTab(prev => Math.max(prev, nextIndex))
     }
-  }
-
-  const openAddMcpForm = () => {
-    setMcpFormKey(null)
-    setMcpForm({
-      name: '',
-      config: { host: 'local', command: '', args: [], env: {}, uri: '' },
-    })
-    setMcpFormOpen(true)
-  }
-
-  const openEditMcpForm = (key: string) => {
-    const server = form.tools?.mcp_servers?.[key]
-    if (!server) return
-    setMcpFormKey(key)
-    setMcpForm({
-      name: key,
-      config: { ...server, args: server.args || [], env: server.env || {} },
-    })
-    setMcpFormOpen(true)
-  }
-
-  const handleSaveMcpServer = () => {
-    const name = mcpForm.name.trim()
-    if (!name) return
-    const config = { ...mcpForm.config }
-    if (config.host === 'local') {
-      delete config.uri
-    } else {
-      delete config.command
-      delete config.args
-    }
-    if (Object.keys(config.env || {}).length === 0) delete config.env
-    if (config.args && config.args.length === 0) delete config.args
-
-    const servers = { ...(form.tools?.mcp_servers || {}) }
-    if (mcpFormKey && mcpFormKey !== name) {
-      delete servers[mcpFormKey]
-    }
-    servers[name] = config
-    updateMcpServers(servers)
-    setMcpFormOpen(false)
-  }
-
-  const handleDeleteMcpServer = (key: string) => {
-    const servers = { ...(form.tools?.mcp_servers || {}) }
-    delete servers[key]
-    updateMcpServers(servers)
   }
 
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -963,66 +887,6 @@ export default function AgentForm({
                 fieldStyle={fieldStyle}
               />
 
-              {/* Channel Tokens */}
-              <div>
-                <h4
-                  style={{
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    color: 'var(--text-primary)',
-                    marginBottom: '0.75rem',
-                    paddingBottom: '0.5rem',
-                    borderBottom: '1px solid var(--border)',
-                  }}
-                >
-                  Channel Tokens
-                </h4>
-                <div
-                  style={{ display: 'flex', gap: '0.75rem' }}
-                >
-                  <section style={{ ...fieldStyle, flex: 1 }}>
-                    <label style={labelStyle}>
-                      <TooltipLabel
-                        label="Discord Bot Token"
-                        tooltip="Bot token from the Discord Developer Portal."
-                      />
-                    </label>
-                    <input
-                      style={inputStyle}
-                      type="password"
-                      placeholder="Optional"
-                      value={form.discord_token || ''}
-                      onChange={(e) =>
-                        updateField(
-                          'discord_token',
-                          e.target.value || undefined
-                        )
-                      }
-                    />
-                  </section>
-                  <section style={{ ...fieldStyle, flex: 1 }}>
-                    <label style={labelStyle}>
-                      <TooltipLabel
-                        label="Telegram Bot Token"
-                        tooltip="Bot token from @BotFather. Reactions in private chats reach the agent automatically. In groups, the bot must be an administrator to receive them."
-                      />
-                    </label>
-                    <input
-                      style={inputStyle}
-                      type="password"
-                      placeholder="Optional"
-                      value={form.telegram_token || ''}
-                      onChange={(e) =>
-                        updateField(
-                          'telegram_token',
-                          e.target.value || undefined
-                        )
-                      }
-                    />
-                  </section>
-                </div>
-              </div>
-
               {/* Actions */}
               {mode === 'create' && (
               <div
@@ -1109,8 +973,6 @@ export default function AgentForm({
                 >
                   {(
                     [
-                      ['discord', 'Discord'],
-                      ['telegram', 'Telegram'],
                       ['fetch', 'Fetch Webpage'],
                       ['http_client', 'HTTP Client'],
                     ] as const
@@ -1168,148 +1030,6 @@ export default function AgentForm({
                     }
                   />
                 </section>
-              </div>
-
-              {/* Brave Search */}
-              <div>
-                <h4
-                  style={{
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    color: 'var(--text-primary)',
-                    marginBottom: '0.75rem',
-                    paddingBottom: '0.5rem',
-                    borderBottom: '1px solid var(--border)',
-                  }}
-                >
-                  Brave Search
-                </h4>
-                <div
-                  style={{
-                    padding: '0.75rem',
-                    border: '1px solid var(--border)',
-                    borderRadius: '0.5rem',
-                  }}
-                >
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.4rem',
-                      fontSize: '0.8rem',
-                      cursor: 'pointer',
-                      marginBottom: form.tools?.brave_search
-                        ? '0.75rem'
-                        : 0,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={
-                        form.tools?.brave_search ?? false
-                      }
-                      onChange={(e) =>
-                        updateTool(
-                          'brave_search',
-                          e.target.checked
-                        )
-                      }
-                    />
-                    Enable Brave Search
-                  </label>
-                  {form.tools?.brave_search && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '0.5rem',
-                        paddingLeft: '1.5rem',
-                      }}
-                    >
-                      <div>
-                        <label
-                          style={{
-                            display: 'block',
-                            marginBottom:
-                              '0.25rem',
-                            fontSize: '0.75rem',
-                            color: 'var(--text-secondary)',
-                          }}
-                        >
-                          API Key (optional, falls
-                          back to global)
-                        </label>
-                        <input
-                          style={inputStyle}
-                          type="password"
-                          placeholder="Leave empty to use global config"
-                          value={
-                            form.tools
-                              ?.brave_search_settings
-                              ?.api_key || ''
-                          }
-                          onChange={(e) =>
-                            setForm((prev) => ({
-                              ...prev,
-                              tools: {
-                                ...prev.tools!,
-                                brave_search_settings:
-                                {
-                                  ...prev
-                                    .tools
-                                    ?.brave_search_settings,
-                                  api_key:
-                                    e
-                                      .target
-                                      .value ||
-                                    undefined,
-                                },
-                              },
-                            }))
-                          }
-                        />
-                      </div>
-                      <label
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.4rem',
-                          fontSize: '0.8rem',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={
-                            form.tools
-                              ?.brave_search_settings
-                              ?.safesearch ??
-                            true
-                          }
-                          onChange={(e) =>
-                            setForm((prev) => ({
-                              ...prev,
-                              tools: {
-                                ...prev.tools!,
-                                brave_search_settings:
-                                {
-                                  ...prev
-                                    .tools
-                                    ?.brave_search_settings,
-                                  safesearch:
-                                    e
-                                      .target
-                                      .checked,
-                                },
-                              },
-                            }))
-                          }
-                        />
-                        Safe Search
-                      </label>
-                    </div>
-                  )}
-                </div>
               </div>
 
               {/* TTS (Text-to-Speech) */}
@@ -2411,408 +2131,10 @@ export default function AgentForm({
                 </div>
               </div>
 
-              {/* MCP Servers */}
-              <div>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '0.75rem',
-                    paddingBottom: '0.5rem',
-                    borderBottom: '1px solid var(--border)',
-                  }}
-                >
-                  <h4
-                    style={{
-                      fontSize: '0.85rem',
-                      fontWeight: 600,
-                      color: 'var(--text-primary)',
-                      margin: 0,
-                    }}
-                  >
-                    MCP Servers
-                  </h4>
-                  <button
-                    className="btn btn-primary"
-                    onClick={openAddMcpForm}
-                    style={{
-                      fontSize: '0.8rem',
-                      padding: '4px 12px',
-                    }}
-                  >
-                    + Add Server
-                  </button>
-                </div>
-
-                {/* MCP server list */}
-                {Object.keys(form.tools?.mcp_servers || {})
-                  .length > 0 ? (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.5rem',
-                    }}
-                  >
-                    {Object.entries(
-                      form.tools?.mcp_servers || {}
-                    ).map(([name, config]) => (
-                      <div
-                        key={name}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '0.5rem 0.75rem',
-                          border: '1px solid var(--border)',
-                          borderRadius: '0.375rem',
-                          background: 'var(--surface)',
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '1rem',
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontSize: '0.85rem',
-                              fontWeight: 500,
-                              color: 'var(--text-primary)',
-                            }}
-                          >
-                            {name}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: '0.75rem',
-                              color: 'var(--text-tertiary)',
-                              background:
-                                'var(--background)',
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                            }}
-                          >
-                            {config.host}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: '0.75rem',
-                              color: 'var(--text-tertiary)',
-                              fontFamily: 'monospace',
-                            }}
-                          >
-                            {config.host === 'local'
-                              ? config.command
-                              : config.uri}
-                          </span>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            gap: '0.25rem',
-                          }}
-                        >
-                          <button
-                            className="btn btn-ghost"
-                            onClick={() =>
-                              openEditMcpForm(name)
-                            }
-                            style={{
-                              fontSize: '0.8rem',
-                              padding: '4px 8px',
-                            }}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="btn btn-ghost"
-                            onClick={() =>
-                              handleDeleteMcpServer(name)
-                            }
-                            style={{
-                              fontSize: '0.8rem',
-                              padding: '4px 8px',
-                              color: '#ef4444',
-                            }}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p
-                    style={{
-                      color: 'var(--text-tertiary)',
-                      fontSize: '0.85rem',
-                    }}
-                  >
-                    No MCP servers configured.
-                  </p>
-                )}
-
-                {/* Inline MCP form */}
-                {mcpFormOpen && (
-                  <div
-                    style={{
-                      marginTop: '1rem',
-                      padding: '1rem',
-                      border: '1px solid var(--border)',
-                      borderRadius: '0.5rem',
-                      background: 'var(--surface)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.75rem',
-                    }}
-                  >
-                    <section style={fieldStyle}>
-                      <label style={labelStyle}>Name</label>
-                      <input
-                        style={inputStyle}
-                        placeholder="server-name"
-                        value={mcpForm.name}
-                        onChange={(e) =>
-                          setMcpForm((prev) => ({
-                            ...prev,
-                            name: e.target.value,
-                          }))
-                        }
-                      />
-                    </section>
-
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: '1.5rem',
-                        fontSize: '0.8rem',
-                      }}
-                    >
-                      <label
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.4rem',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <input
-                          type="radio"
-                          name="mcp-type"
-                          checked={
-                            mcpForm.config.host === 'local'
-                          }
-                          onChange={() =>
-                            setMcpForm((prev) => ({
-                              ...prev,
-                              config: {
-                                ...prev.config,
-                                host: 'local',
-                                command: '',
-                                args: [],
-                                uri: undefined,
-                              },
-                            }))
-                          }
-                        />
-                        Local stdio
-                      </label>
-                      <label
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.4rem',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <input
-                          type="radio"
-                          name="mcp-type"
-                          checked={
-                            mcpForm.config.host === 'http'
-                          }
-                          onChange={() =>
-                            setMcpForm((prev) => ({
-                              ...prev,
-                              config: {
-                                ...prev.config,
-                                host: 'http',
-                                uri: '',
-                                command: undefined,
-                                args: undefined,
-                              },
-                            }))
-                          }
-                        />
-                        HTTP SSE
-                      </label>
-                    </div>
-
-                    {mcpForm.config.host === 'local' ? (
-                      <>
-                        <section style={fieldStyle}>
-                          <label style={labelStyle}>
-                            Command
-                          </label>
-                          <input
-                            style={inputStyle}
-                            placeholder="npx"
-                            value={
-                              mcpForm.config.command || ''
-                            }
-                            onChange={(e) =>
-                              setMcpForm((prev) => ({
-                                ...prev,
-                                config: {
-                                  ...prev.config,
-                                  command: e.target.value,
-                                },
-                              }))
-                            }
-                          />
-                        </section>
-                        <section style={fieldStyle}>
-                          <label style={labelStyle}>
-                            Args (space-separated)
-                          </label>
-                          <input
-                            style={inputStyle}
-                            placeholder="-y @modelcontextprotocol/server-everything"
-                            value={
-                              mcpForm.config.args?.join(
-                                ' '
-                              ) || ''
-                            }
-                            onChange={(e) =>
-                              setMcpForm((prev) => ({
-                                ...prev,
-                                config: {
-                                  ...prev.config,
-                                  args: e.target.value
-                                    .split(' ')
-                                    .filter(Boolean),
-                                },
-                              }))
-                            }
-                          />
-                        </section>
-                      </>
-                    ) : (
-                      <section style={fieldStyle}>
-                        <label style={labelStyle}>
-                          URI
-                        </label>
-                        <input
-                          style={inputStyle}
-                          placeholder="http://localhost:3000/sse"
-                          value={
-                            mcpForm.config.uri || ''
-                          }
-                          onChange={(e) =>
-                            setMcpForm((prev) => ({
-                              ...prev,
-                              config: {
-                                ...prev.config,
-                                uri: e.target.value,
-                              },
-                            }))
-                          }
-                        />
-                      </section>
-                    )}
-
-                    <section style={fieldStyle}>
-                      <label style={labelStyle}>
-                        Environment Variables
-                      </label>
-                      <textarea
-                        style={{
-                          ...inputStyle,
-                          minHeight: '60px',
-                          fontFamily: 'monospace',
-                          fontSize: '0.8rem',
-                          resize: 'vertical',
-                        }}
-                        placeholder="KEY=value (one per line)"
-                        value={Object.entries(
-                          mcpForm.config.env || {}
-                        )
-                          .map(([k, v]) => `${k}=${v}`)
-                          .join('\n')}
-                        onChange={(e) => {
-                          const env: Record<
-                            string,
-                            string
-                          > = {}
-                          e.target.value
-                            .split('\n')
-                            .forEach((line) => {
-                              const trimmed = line.trim()
-                              if (
-                                trimmed.includes('=')
-                              ) {
-                                const idx =
-                                  trimmed.indexOf('=')
-                                env[
-                                  trimmed.substring(
-                                    0,
-                                    idx
-                                  )
-                                ] = trimmed.substring(
-                                  idx + 1
-                                )
-                              }
-                            })
-                          setMcpForm((prev) => ({
-                            ...prev,
-                            config: {
-                              ...prev.config,
-                              env,
-                            },
-                          }))
-                        }}
-                      />
-                    </section>
-
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: '0.5rem',
-                        justifyContent: 'flex-end',
-                      }}
-                    >
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() =>
-                          setMcpFormOpen(false)
-                        }
-                        style={{
-                          fontSize: '0.8rem',
-                          padding: '6px 16px',
-                        }}
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        className="btn btn-primary"
-                        onClick={handleSaveMcpServer}
-                        style={{
-                          fontSize: '0.8rem',
-                          padding: '6px 16px',
-                        }}
-                      >
-                        {mcpFormKey
-                          ? 'Update'
-                          : 'Add'} Server
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)', margin: 0 }}>
+                Bots, addons such as Brave Search, and MCP servers are managed under
+                Integrations in the sidebar.
+              </p>
 
               {/* Actions */}
               {mode === 'create' && (
@@ -3072,21 +2394,6 @@ export default function AgentForm({
                   Enabled Tools
                 </h4>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  {form.tools?.brave_search && (
-                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
-                      Brave Search
-                    </span>
-                  )}
-                  {form.tools?.discord && (
-                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
-                      Discord
-                    </span>
-                  )}
-                  {form.tools?.telegram && (
-                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
-                      Telegram
-                    </span>
-                  )}
                   {form.tools?.fetch && (
                     <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
                       Fetch
@@ -3117,13 +2424,7 @@ export default function AgentForm({
                       Image Gen
                     </span>
                   )}
-                  {form.tools?.mcp_servers && Object.keys(form.tools.mcp_servers).length > 0 && (
-                    <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.25rem', background: 'var(--accent-primary)', color: '#fff', fontSize: '0.75rem' }}>
-                      MCP ({Object.keys(form.tools.mcp_servers).length})
-                    </span>
-                  )}
-                  {!form.tools?.brave_search && !form.tools?.discord &&
-                    !form.tools?.telegram && !form.tools?.fetch && !form.tools?.http_client &&
+                  {!form.tools?.fetch && !form.tools?.http_client &&
                     !form.tools?.tts && !form.tools?.stt &&
                     !form.tools?.read_image && !form.tools?.image_gen && (
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-tertiary)' }}>

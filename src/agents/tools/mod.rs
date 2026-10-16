@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -11,10 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     agents::mcp::McpServer,
     agents::tools::{
-        brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
         background_jobs::{CancelBackgroundJob, ListBackgroundJobs},
         consult::{ConsultAgent, DelegateAgent},
-        discord::new_discord_tools,
         dream_journal::ReadDreamJournal,
         fetch::FetchWebpage,
         http_client::HttpClient,
@@ -31,7 +29,6 @@ scheduler::{
             ReadSkillResource, UpdateSkill, UseSkill,
         },
         subtasks::SubtasksTool,
-        telegram::new_telegram_tools,
         think::ThinkTool,
         tts::TtsGenerate,
         stt::SttTranscribe,
@@ -50,9 +47,9 @@ scheduler::{
 };
 
 mod background_jobs;
-mod brave_search;
+pub mod brave_search;
 mod consult;
-mod discord;
+pub mod discord;
 mod dream_journal;
 mod fetch;
 mod http_client;
@@ -63,7 +60,7 @@ mod session_files;
 mod shell;
 mod skill;
 mod subtasks;
-mod telegram;
+pub mod telegram;
 mod think;
 pub mod tts;
 pub mod stt;
@@ -72,7 +69,7 @@ mod vector_memory;
 mod webui;
 mod workspace;
 
-type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
+pub type VizierToolDef = Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>;
 
 /// What a script-callable tool is for, so an agent can list one area at a time
 /// instead of every tool. Declaration order is display order.
@@ -167,19 +164,19 @@ pub struct ToolContext {
     pub loaded_images: Arc<Mutex<Vec<VizierAttachment>>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct VizierToolSet {
     pub tools: HashMap<String, Arc<Box<dyn VizierToolDyn + Send + Sync + 'static>>>,
 }
 
 impl VizierToolSet {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             tools: HashMap::new(),
         }
     }
 
-    fn tool<Tool: VizierToolDyn + Sync + Send + 'static>(mut self, tool: Tool) -> Self {
+    pub fn tool<Tool: VizierToolDyn + Sync + Send + 'static>(mut self, tool: Tool) -> Self {
         self.tools
             .insert(tool.tool_name(), Arc::new(Box::new(tool)));
 
@@ -215,12 +212,25 @@ impl VizierToolSet {
 }
 
 /// Name-based dispatch over the agent's script-callable tools: every native tool
-/// with a category, plus the MCP servers' tools.
+/// with a category, the addons' tools, plus the MCP servers' tools.
 #[derive(Clone)]
 pub struct ToolRouter {
     pub default_toolset: VizierToolSet,
     pub user_toolset: VizierToolSet,
+    /// Native tools contributed by attached channel connections.
+    pub integration_toolset: VizierToolSet,
+    /// Each attached addon's tools, listed under the addon id as their category.
+    pub addons: BTreeMap<String, AddonTools>,
     pub mcp: HashMap<String, Arc<McpServer>>,
+    /// Category names an MCP server may not take: every registered addon id, attached or not.
+    pub reserved: Arc<Vec<String>>,
+}
+
+/// One addon's tools and the description its category line carries.
+#[derive(Clone)]
+pub struct AddonTools {
+    pub description: String,
+    pub toolset: VizierToolSet,
 }
 
 /// What a catalogue name dispatches to.
@@ -252,9 +262,12 @@ pub struct VizierTools {
     pub router: ToolRouter,
     /// The only tools the model calls directly: `think`, `execute_python` and the docs tools.
     pub sandbox_toolset: VizierToolSet,
-    /// Fixed for the instance's lifetime, so the system prompt that lists them stays
-    /// byte-identical across turns.
+    /// Changes only when the composed tool set does, so the system prompt that lists them
+    /// stays byte-identical across turns in between.
     pub categories: Vec<CategorySummary>,
+    /// The integration layer this snapshot was composed from, kept for status and for the
+    /// next refresh to reuse unchanged MCP connections.
+    pub integrations: Arc<crate::integrations::IntegrationTools>,
 }
 
 #[async_trait::async_trait]
@@ -354,9 +367,11 @@ fn tool_output_to_response(output: &str) -> Result<VizierResponse> {
     })
 }
 
-/// An MCP server's category: its key, unless that is a built-in category's name.
-fn mcp_category_name(server: &str) -> String {
-    if ToolCategory::ALL.iter().any(|category| category.name() == server) {
+/// An MCP server's category: its key, unless that is a built-in category's or an addon's name.
+fn mcp_category_name(server: &str, reserved: &[String]) -> String {
+    if ToolCategory::ALL.iter().any(|category| category.name() == server)
+        || reserved.iter().any(|name| name == server)
+    {
         format!("{server}_mcp")
     } else {
         server.to_string()
@@ -387,16 +402,27 @@ fn assign_names(native: &[&str], mcp: &[(&str, &str)]) -> Vec<String> {
     names
 }
 
-/// Built-in categories in declaration order, then one per MCP server sorted by name.
+/// Built-in categories in declaration order, then one per addon and one per MCP server, each
+/// sorted by name.
 fn summarise_categories<'a>(
     present: impl IntoIterator<Item = ToolCategory>,
+    addons: impl IntoIterator<Item = (&'a String, &'a String)>,
     servers: impl IntoIterator<Item = &'a String>,
+    reserved: &[String],
 ) -> Vec<CategorySummary> {
     let present: BTreeSet<ToolCategory> = present.into_iter().collect();
+    let mut addons: Vec<CategorySummary> = addons
+        .into_iter()
+        .map(|(name, description)| CategorySummary {
+            name: name.clone(),
+            description: description.clone(),
+        })
+        .collect();
+    addons.sort_by(|a, b| a.name.cmp(&b.name));
     let mut mcp: Vec<CategorySummary> = servers
         .into_iter()
         .map(|server| CategorySummary {
-            name: mcp_category_name(server),
+            name: mcp_category_name(server, reserved),
             description: format!("Tools from the {server} MCP server"),
         })
         .collect();
@@ -408,25 +434,49 @@ fn summarise_categories<'a>(
             name: category.name().into(),
             description: category.description().into(),
         })
+        .chain(addons)
         .chain(mcp)
         .collect()
 }
 
-/// The agent's categories, from its registered tools and configured MCP servers — never
-/// live listings, so a server that is down keeps its line.
+/// The agent's categories, from its registered tools, attached addons and configured MCP
+/// servers — never live listings, so a server that is down keeps its line.
 fn category_summaries(router: &ToolRouter) -> Vec<CategorySummary> {
     summarise_categories(
         router.native_tools().filter_map(|tool| tool.category()),
+        router
+            .addons
+            .iter()
+            .filter(|(_, addon)| !addon.toolset.tools.is_empty())
+            .map(|(name, addon)| (name, &addon.description)),
         router.mcp.keys(),
+        &router.reserved,
     )
 }
 
 impl ToolRouter {
+    /// Native tools listed under their own category.
     fn native_tools(&self) -> impl Iterator<Item = &VizierToolDef> {
         self.default_toolset
             .tools
             .values()
             .chain(self.user_toolset.tools.values())
+            .chain(self.integration_toolset.tools.values())
+    }
+
+    /// Addon tools, each with the addon id it is listed under.
+    fn addon_tools(&self) -> impl Iterator<Item = (&String, &VizierToolDef)> {
+        self.addons
+            .iter()
+            .flat_map(|(id, addon)| addon.toolset.tools.values().map(move |tool| (id, tool)))
+    }
+
+    /// A native or addon tool by its own name.
+    fn get_native(&self, name: &str) -> Option<VizierToolDef> {
+        self.native_tools()
+            .chain(self.addon_tools().map(|(_, tool)| tool))
+            .find(|tool| tool.tool_name() == name)
+            .cloned()
     }
 
     /// Every script-callable function, sorted by category (system-prompt order) then name.
@@ -442,6 +492,12 @@ impl ToolRouter {
                 })
             })
             .collect();
+        entries.extend(self.addon_tools().map(|(addon, tool)| CatalogueEntry {
+            name: python_identifier(&tool.tool_name()),
+            category: addon.clone(),
+            target: ToolTarget::Native(tool.tool_name()),
+            definition: tool.tool_def(),
+        }));
 
         // Concurrently, so one slow server costs one listing timeout, not one per server. A
         // server that can't list leaves its tools out of this turn and never fails it (#53).
@@ -456,7 +512,11 @@ impl ToolRouter {
             .flat_map(|(key, tools)| tools.into_iter().map(move |tool| (key.clone(), tool)))
             .collect();
 
-        let native: Vec<String> = self.native_tools().map(|tool| tool.tool_name()).collect();
+        let native: Vec<String> = self
+            .native_tools()
+            .chain(self.addon_tools().map(|(_, tool)| tool))
+            .map(|tool| tool.tool_name())
+            .collect();
         let native: Vec<&str> = native.iter().map(String::as_str).collect();
         let pairs: Vec<(&str, &str)> = mcp
             .iter()
@@ -467,7 +527,7 @@ impl ToolRouter {
         entries.extend(mcp.into_iter().zip(names).map(|((server, definition), name)| {
             CatalogueEntry {
                 name,
-                category: mcp_category_name(&server),
+                category: mcp_category_name(&server, &self.reserved),
                 target: ToolTarget::Mcp {
                     server,
                     tool: definition.name.clone(),
@@ -476,12 +536,13 @@ impl ToolRouter {
             }
         }));
 
+        // Built-ins in declaration order, then addons, then MCP servers.
         let rank = |entry: &CatalogueEntry| match entry.target {
             ToolTarget::Native(_) => ToolCategory::ALL
                 .iter()
                 .position(|category| category.name() == entry.category)
                 .unwrap_or(ToolCategory::ALL.len()),
-            ToolTarget::Mcp { .. } => ToolCategory::ALL.len(),
+            ToolTarget::Mcp { .. } => ToolCategory::ALL.len() + 1,
         };
         entries.sort_by(|a, b| {
             (rank(a), &a.category, &a.name).cmp(&(rank(b), &b.category, &b.name))
@@ -495,12 +556,7 @@ impl ToolRouter {
         params: String,
         ctx: &ToolContext,
     ) -> Result<VizierResponse> {
-        if let Ok(tool) = self.default_toolset.get_tool(function_name.clone()) {
-            let output = tool.tool_call(params.clone(), ctx).await?;
-            return tool_output_to_response(&output);
-        }
-
-        if let Ok(tool) = self.user_toolset.get_tool(function_name.clone()) {
+        if let Some(tool) = self.get_native(&function_name) {
             let output = tool.tool_call(params.clone(), ctx).await?;
             return tool_output_to_response(&output);
         }
@@ -515,9 +571,8 @@ impl ToolRouter {
         match target {
             Some(ToolTarget::Native(tool)) => {
                 let tool = self
-                    .default_toolset
-                    .get_tool(tool.clone())
-                    .or_else(|_| self.user_toolset.get_tool(tool))?;
+                    .get_native(&tool)
+                    .ok_or_else(|| VizierError(format!("{tool} does not exists")))?;
                 let output = tool.tool_call(params, ctx).await?;
                 tool_output_to_response(&output)
             }
@@ -648,7 +703,18 @@ impl VizierTools {
     }
 }
 
-impl VizierTools {
+/// Everything about an agent's tools that is not an integration: built once per instance, and
+/// expensive (the shell container, STT/TTS clients, the indexer). Integration changes compose a
+/// new [`VizierTools`] over it without rebuilding it (research R2).
+pub struct BaseTools {
+    pub default_toolset: VizierToolSet,
+    pub user_toolset: VizierToolSet,
+    limits: crate::sandbox::SandboxLimits,
+    timeout: String,
+    reserved: Arc<Vec<String>>,
+}
+
+impl BaseTools {
     pub async fn new(
         agent_id: AgentId,
         deps: VizierDependencies,
@@ -752,30 +818,6 @@ impl VizierTools {
             }
         }
 
-        if agent_config.tools.discord.enabled {
-            if let Some(token) = &agent_config.discord_token {
-                let (send_message, react_message, get_message, guild_info, channel_info, member_info) =
-                    new_discord_tools(token.clone(), agent_id.clone(), deps.storage.clone());
-                default_toolset = default_toolset
-                    .tool(send_message)
-                    .tool(react_message)
-                    .tool(get_message)
-                    .tool(guild_info)
-                    .tool(channel_info)
-                    .tool(member_info);
-            }
-        }
-
-        if agent_config.tools.telegram.enabled {
-            if let Some(token) = &agent_config.telegram_token {
-                let (send_message, react_message, get_message) = new_telegram_tools(token.clone(), agent_id.clone(), deps.storage.clone());
-                default_toolset = default_toolset
-                    .tool(send_message)
-                    .tool(react_message)
-                    .tool(get_message);
-            }
-        }
-
         user_toolset = user_toolset
             .tool(SendWebuiMessage {
                 agent_id: agent_id.clone(),
@@ -785,20 +827,6 @@ impl VizierTools {
                 agent_id: agent_id.clone(),
                 storage: deps.storage.clone(),
             });
-
-        if agent_config.tools.brave_search.enabled {
-            let per_agent = &agent_config.tools.brave_search.settings;
-
-            if let (Some(key), Some(ss)) = (per_agent.api_key.as_ref(), per_agent.safesearch) {
-                let cfg = crate::config::tools::BraveSearchConfig {
-                    api_key: key.clone(),
-                    safesearch: ss,
-                };
-                user_toolset = user_toolset
-                    .tool(BraveSearch::<WebOnlySearch>::new(&cfg))
-                    .tool(BraveSearch::<NewsOnlySearch>::new(&cfg));
-            }
-        }
 
         if agent_config.tools.fetch.enabled {
             user_toolset = user_toolset.tool(FetchWebpage);
@@ -887,41 +915,63 @@ impl VizierTools {
             });
         }
 
-        // Connected in the background: a slow or broken server must not hold up the agent's
-        // start, and one that fails to connect is retried on later turns (#53).
-        let mut mcp = HashMap::new();
-        for (name, mcp_config) in &agent_config.tools.mcp_servers {
-            let server = McpServer::new(name.clone(), mcp_config.clone());
-            server.warm_up();
-            mcp.insert(name.clone(), server);
-        }
-
-        let router = ToolRouter {
-            default_toolset,
-            user_toolset,
-            mcp,
-        };
-        let categories = category_summaries(&router);
-
         let limits = crate::sandbox::SandboxLimits {
             timeout: *agent_config.tools.timeout,
             tools_enabled: true,
         };
-        let sandbox_toolset = VizierToolSet::new()
-            .tool(ThinkTool)
-            .tool(ExecutePython::new(
-                router.clone(),
-                limits,
-                &agent_config.tools.timeout.to_string(),
-            ))
-            .tool(ListToolFunctions::new(router.clone(), categories.clone()))
-            .tool(DescribeToolFunction::new(router.clone()));
 
         Ok(Self {
-            router,
-            sandbox_toolset,
-            categories,
+            default_toolset,
+            user_toolset,
+            limits,
+            timeout: agent_config.tools.timeout.to_string(),
+            reserved: Arc::new(deps.integration_kinds.addon_ids()),
         })
+    }
+}
+
+#[cfg(test)]
+impl BaseTools {
+    /// No tools at all, for tests of the integration layer.
+    pub fn empty_for_tests(reserved: Vec<String>) -> Self {
+        Self {
+            default_toolset: VizierToolSet::new(),
+            user_toolset: VizierToolSet::new(),
+            limits: crate::sandbox::SandboxLimits {
+                timeout: std::time::Duration::from_secs(30),
+                tools_enabled: true,
+            },
+            timeout: "30s".into(),
+            reserved: Arc::new(reserved),
+        }
+    }
+}
+
+/// The agent's tools: `base` plus the integration layer, with the sandbox tools and the
+/// category list built over the result. Cheap (`Arc` clones and one category pass), so an
+/// integration change composes a new snapshot instead of restarting the agent.
+pub fn compose(base: &BaseTools, integrations: Arc<crate::integrations::IntegrationTools>) -> VizierTools {
+    let router = ToolRouter {
+        default_toolset: base.default_toolset.clone(),
+        user_toolset: base.user_toolset.clone(),
+        integration_toolset: integrations.native.clone(),
+        addons: integrations.addons.clone(),
+        mcp: integrations.mcp.clone(),
+        reserved: base.reserved.clone(),
+    };
+    let categories = category_summaries(&router);
+
+    let sandbox_toolset = VizierToolSet::new()
+        .tool(ThinkTool)
+        .tool(ExecutePython::new(router.clone(), base.limits, &base.timeout))
+        .tool(ListToolFunctions::new(router.clone(), categories.clone()))
+        .tool(DescribeToolFunction::new(router.clone()));
+
+    VizierTools {
+        router,
+        sandbox_toolset,
+        categories,
+        integrations,
     }
 }
 
@@ -969,6 +1019,7 @@ async fn build_read_image_vision(
 mod tests {
     use super::*;
     use crate::agents::tools::{
+        brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
         discord::{
             GetDiscordChannelInfo, GetDiscordGuildInfo, GetDiscordMemberInfo, GetDiscordMessage,
             ReactDiscordMessage, SendDiscordMessage,
@@ -1088,8 +1139,6 @@ mod tests {
             ("read_document_file", Files),
             ("read_image_file", Files),
             ("send_attachment", Files),
-            ("web_search", Web),
-            ("news_search", Web),
             ("fetch", Web),
             ("http_client", Web),
             ("tts_generate", Audio),
@@ -1108,7 +1157,14 @@ mod tests {
             ("webui_list_topics", Webui),
             ("shell_exec", Shell),
         ];
+        // Listed under their addon's id rather than a built-in category (research R12).
+        const ADDON: &[(&str, &str)] = &[
+            ("brave_search_web", "brave_search"),
+            ("brave_search_news", "brave_search"),
+        ];
         const UNCATEGORISED: &[&str] = &[
+            "brave_search_web",
+            "brave_search_news",
             "think",
             "execute_python",
             "list_tool_functions",
@@ -1144,6 +1200,11 @@ mod tests {
                 "{category:?} has no tool"
             );
         }
+
+        for (name, addon) in ADDON {
+            assert!(name.starts_with(&format!("{addon}_")), "{name} is not namespaced");
+            assert!(tools.iter().any(|(n, c)| n == name && c.is_none()));
+        }
     }
 
     #[test]
@@ -1160,17 +1221,22 @@ mod tests {
         let servers: Vec<String> = ["memory", "github", "a"].iter().map(|s| s.to_string()).collect();
         // No Discord, Telegram, TTS, STT, image or shell tools registered.
         let present = [Webui, Memory, Agents, Identity, Memory, Skills, Files, Scheduling];
-        let summaries = summarise_categories(present, &servers);
+        let (addon, description) = ("brave_search".to_string(), "Search the web".to_string());
+        let summaries = summarise_categories(present, [(&addon, &description)], &servers, &[]);
         let names: Vec<&str> = summaries.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(
             names,
             [
-                "memory", "identity", "scheduling", "agents", "skills", "files", "webui", "a",
-                "github", "memory_mcp"
+                "memory", "identity", "scheduling", "agents", "skills", "files", "webui",
+                "brave_search", "a", "github", "memory_mcp"
             ]
         );
-        assert_eq!(summaries[9].description, "Tools from the memory MCP server");
-        assert_eq!(summaries, summarise_categories(present, &servers));
+        assert_eq!(summaries[7].description, "Search the web");
+        assert_eq!(summaries[10].description, "Tools from the memory MCP server");
+        assert_eq!(
+            summaries,
+            summarise_categories(present, [(&addon, &description)], &servers, &[])
+        );
     }
 
     #[test]
@@ -1204,8 +1270,18 @@ mod tests {
 
     #[test]
     fn a_server_named_like_a_built_in_category_gets_a_suffix() {
-        assert_eq!(mcp_category_name("memory"), "memory_mcp");
-        assert_eq!(mcp_category_name("discord"), "discord_mcp");
-        assert_eq!(mcp_category_name("github"), "github");
+        assert_eq!(mcp_category_name("memory", &[]), "memory_mcp");
+        assert_eq!(mcp_category_name("discord", &[]), "discord_mcp");
+        assert_eq!(mcp_category_name("github", &[]), "github");
+    }
+
+    #[test]
+    fn a_server_named_like_an_addon_gets_a_suffix_and_cannot_take_its_tools() {
+        let reserved = vec!["brave_search".to_string()];
+        assert_eq!(mcp_category_name("brave_search", &reserved), "brave_search_mcp");
+        assert_eq!(
+            assign_names(&["brave_search_web"], &[("brave_search", "web")]),
+            ["brave_search_web_2"]
+        );
     }
 }

@@ -11,7 +11,7 @@ use crate::{
     file_manager::FileManager,
     indexer::{VizierIndexer, noop::NoopIndexer},
     schema::{
-        AgentToolsConfig, RevisionOrigin, RevisionTrigger,
+        RevisionOrigin, RevisionTrigger,
         VizierAttachment,
     },
     storage::{
@@ -52,6 +52,13 @@ pub struct VizierDependencies {
     pub http: reqwest::Client,
     /// The provider and model catalogue (spec 015).
     pub catalogue: crate::catalogue::Catalogue,
+    /// Every integration kind (spec 016).
+    pub integration_kinds: Arc<crate::integrations::IntegrationKinds>,
+    /// Addon errors, written by addon tools and read for status.
+    pub integration_health: crate::integrations::IntegrationHealth,
+    /// Each channel connection's reader health, written by `ChannelConnections` and read by
+    /// agent health and integration status.
+    pub channel_board: crate::channels::connections::ChannelBoard,
 }
 
 /// Old (pre-bundle) memory frontmatter shape, kept only so `migrate_memory_to_bundles` can parse
@@ -118,7 +125,6 @@ impl VizierDependencies {
         let storage = VizierStorage::new(SqliteStorage::new(conn.clone(), document_store));
 
         Self::migrate_users(&storage).await?;
-        Self::migrate_agent_tools(&storage).await?;
         Self::migrate_agent_cores(&storage).await?;
         Self::migrate_task_requester(conn.clone()).await?;
         Self::interrupt_orphaned_task_runs(&storage).await?;
@@ -149,6 +155,9 @@ impl VizierDependencies {
             background_jobs,
             http: crate::llm::http::client(),
             catalogue,
+            integration_kinds: Arc::new(crate::integrations::IntegrationKinds::builtin()),
+            integration_health: Default::default(),
+            channel_board: Default::default(),
         })
     }
 
@@ -583,6 +592,21 @@ impl VizierDependencies {
             }
         };
 
+        // The system role holds every permission, including ones added since it was seeded
+        // (the integration permissions, spec 016). No other role is rewritten.
+        let missing: Vec<String> = AVAILABLE_PERMISSIONS
+            .iter()
+            .filter(|p| !system_role.permissions.iter().any(|have| have == *p))
+            .map(|p| p.to_string())
+            .collect();
+        if !missing.is_empty() {
+            let mut permissions = system_role.permissions.clone();
+            permissions.extend(missing);
+            storage
+                .update_role(&system_role.role_id, &system_role.name, permissions)
+                .await?;
+        }
+
         if storage.user_exists().await? {
             let users = storage.list_users().await?;
             for user in users {
@@ -631,72 +655,6 @@ impl VizierDependencies {
 
     pub async fn run(&self) -> Result<()> {
         self.transport.run().await?;
-
-        Ok(())
-    }
-
-    async fn migrate_agent_tools(storage: &VizierStorage) -> Result<()> {
-        use std::collections::HashMap;
-
-        let agents = storage.list_agents().await?;
-        if agents.is_empty() {
-            return Ok(());
-        }
-
-        let global_mcp = match storage.get_global_config("mcp_servers").await {
-            Ok(Some(entry)) => {
-                if let crate::schema::GlobalConfigValue::McpServers(servers) = entry.value {
-                    Some(servers)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
-        let global_shell = match storage.get_global_config("shell").await {
-            Ok(Some(entry)) => {
-                if let crate::schema::GlobalConfigValue::Shell(shell) = entry.value {
-                    Some(shell)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
-        let mut migrated = 0;
-        for (agent_id, mut agent_config) in agents {
-            let mut changed = false;
-
-            if agent_config.tools.mcp_servers.is_empty() {
-                if let Some(ref global_servers) = global_mcp {
-                    if !global_servers.is_empty() {
-                        agent_config.tools.mcp_servers = global_servers.clone();
-                        changed = true;
-                    }
-                }
-            }
-
-            if changed {
-                if let Err(e) = storage.update_agent(&agent_id, &agent_config).await {
-                    tracing::warn!(
-                        "failed to migrate tools for agent '{}': {}",
-                        agent_id,
-                        e
-                    );
-                } else {
-                    migrated += 1;
-                }
-            }
-        }
-
-        if migrated > 0 {
-            tracing::info!("migrated tools config for {} agents", migrated);
-        }
-
-        let _ = storage.delete_global_config("mcp_servers").await;
-        let _ = storage.delete_global_config("shell").await;
 
         Ok(())
     }

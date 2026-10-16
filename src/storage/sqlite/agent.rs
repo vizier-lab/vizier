@@ -101,6 +101,12 @@ impl AgentStorage for SqliteStorage {
         // History dies with the agent (FR-019): both revision tables are keyed by agent_id.
         core_revision::delete_agent(&conn, agent_id)?;
         memory_revision::delete_agent(&conn, agent_id)?;
+        // The agent's integration attachments (`IntegrationStorage::delete_agent_attachments`),
+        // inline because the connection lock is already held.
+        conn.execute(
+            "DELETE FROM integration_attachment WHERE agent_id = ?1",
+            rusqlite::params![agent_id],
+        )?;
         let deleted = conn.execute(
             "DELETE FROM agent_config WHERE agent_id = ?1",
             rusqlite::params![agent_id],

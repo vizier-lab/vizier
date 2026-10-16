@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use crate::config::ChunkLimits;
 use crate::config::provider::ProviderId;
 use crate::config::shell::ShellConfig;
-use crate::config::tools::mcp::McpClientConfig;
 
 pub type AgentConfigs = HashMap<String, AgentConfig>;
 
@@ -47,10 +46,6 @@ pub struct AgentConfig {
     pub dream_provider: Option<ProviderId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dream_model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub discord_token: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub telegram_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -191,17 +186,9 @@ pub struct AgentToolsConfig {
     #[serde(default)]
     pub shell: Option<ShellConfig>,
     #[serde(default)]
-    pub brave_search: ToolConfig<BraveSearchToolSettings>,
-    #[serde(default)]
-    pub discord: ToolConfig<()>,
-    #[serde(default)]
-    pub telegram: ToolConfig<()>,
-    #[serde(default)]
     pub fetch: ToolConfig<()>,
     #[serde(default)]
     pub http_client: ToolConfig<()>,
-    #[serde(default)]
-    pub mcp_servers: HashMap<String, McpClientConfig>,
     #[serde(default)]
     pub tts: ToolConfig<TtsToolSettings>,
     #[serde(default)]
@@ -296,12 +283,6 @@ impl IndexerKind {
             Self::Sqlite => "sqlite",
         }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]
-pub struct BraveSearchToolSettings {
-    pub api_key: Option<String>,
-    pub safesearch: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema)]
@@ -452,6 +433,29 @@ pub struct ImageGenToolSettings {
 #[cfg(test)]
 mod removed_python_config_tests {
     use super::*;
+
+    /// Integration settings moved off the agent (spec 016, research R7): a row saved before
+    /// still loads, and the moved keys are dropped when it is next saved.
+    #[test]
+    fn records_saved_with_the_moved_integration_fields_still_load() {
+        let config: AgentConfig = serde_json::from_value(serde_json::json!({
+            "name": "a", "system_prompt": null, "description": null, "provider": "dummyplug",
+            "model": "m", "thinking_depth": 1, "silent_read_initiative_chance": 0.0,
+            "prompt_timeout": "1m", "heartbeat_interval": "1m",
+            "discord_token": "x", "telegram_token": "y",
+            "tools": {
+                "timeout": "30s",
+                "discord": {"enabled": true, "settings": null},
+                "brave_search": {"enabled": true, "settings": {"api_key": "k"}},
+                "mcp_servers": {"fs": {"host": "http", "uri": "http://x"}}
+            }
+        }))
+        .unwrap();
+        let saved = serde_json::to_string(&config).unwrap();
+        for key in ["discord_token", "telegram_token", "brave_search", "mcp_servers", "\"discord\""] {
+            assert!(!saved.contains(key), "{key} survived: {saved}");
+        }
+    }
 
     #[test]
     fn records_saved_with_the_removed_python_switches_still_load() {

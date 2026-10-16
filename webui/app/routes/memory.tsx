@@ -572,7 +572,7 @@ export default function MemoryManagement() {
               is set up.
             </span>
             <Link
-              to={`/${agentId}/settings`}
+              to={`/${agentId}/config`}
               className="btn btn-primary"
               style={{ fontSize: '0.8rem', padding: '6px 12px' }}
             >

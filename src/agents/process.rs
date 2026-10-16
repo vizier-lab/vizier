@@ -18,7 +18,6 @@ use crate::{
         },
         tools::ToolContext,
     },
-    channels::readers::{ChannelHealthHandle, ChannelReaders},
     dependencies::VizierDependencies,
     indexer::VizierIndexer,
     schema::{
@@ -104,11 +103,7 @@ pub async fn agent_process(
     indexer: Option<crate::indexer::VizierIndexer>,
     recv: flume::Receiver<VizierRequestEnvelope>,
     mut shutdown_rx: watch::Receiver<bool>,
-    channel_health: ChannelHealthHandle,
 ) -> Result<()> {
-    // Each reader restarts itself with backoff and reports through `channel_health` (#50).
-    let agent_channels = ChannelReaders::start(&agent_id, &agent_config, &deps, channel_health);
-
     let mut turns = SessionTurns::default();
     let mut thinking_handles = HashMap::<VizierSession, Arc<JoinHandle<()>>>::new();
     let mut detail_tasks = JoinSet::new();
@@ -273,7 +268,6 @@ pub async fn agent_process(
         notify_turn_stopped(&session, response_tx, &mut thinking_handles, &deps.storage).await;
     }
     hand_on_queued(session_queues, &deps).await;
-    agent_channels.shutdown().await;
     Ok(())
 }
 

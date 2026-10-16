@@ -5,7 +5,7 @@ use anyhow::Result;
 use tokio::sync::RwLock;
 
 use crate::schema::{
-    AgentCommand, AgentHealthStatus, AgentId, BackgroundJobSnapshot, CommandRequest, CommandResponse, FileCommand,
+    AgentCommand, AgentHealthStatus, AgentId, BackgroundJobSnapshot, CommandRequest, CommandResponse, FileCommand, IntegrationChanged,
     MemoryOpEnvelope, ReactionEntry, VizierAttachment, VizierRequest, VizierResponse, VizierSession,
 };
 
@@ -14,6 +14,8 @@ use crate::schema::{
 /// A lagging WebSocket logs and carries on; the WebUI reconciles by re-reading the job list,
 /// and history once the turn ends.
 const SESSION_EVENTS_CAPACITY: usize = 1024;
+/// Integration changes are rare; a subscriber that still falls behind reconciles everything.
+const INTEGRATION_EVENTS_CAPACITY: usize = 64;
 /// How long a health check waits for the agent manager.
 const HEALTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -78,6 +80,8 @@ pub struct VizierTransport {
     file_command_channel: Arc<(flume::Sender<FileCommand>, flume::Receiver<FileCommand>)>,
 
     session_events: tokio::sync::broadcast::Sender<SessionEvent>,
+
+    integration_events: tokio::sync::broadcast::Sender<IntegrationChanged>,
 }
 
 impl VizierTransport {
@@ -99,6 +103,7 @@ impl VizierTransport {
             dream_command_channel,
             file_command_channel,
             session_events: tokio::sync::broadcast::channel(SESSION_EVENTS_CAPACITY).0,
+            integration_events: tokio::sync::broadcast::channel(INTEGRATION_EVENTS_CAPACITY).0,
         }
     }
 
@@ -110,6 +115,18 @@ impl VizierTransport {
 
     pub fn subscribe_session_events(&self) -> tokio::sync::broadcast::Receiver<SessionEvent> {
         self.session_events.subscribe()
+    }
+
+    /// Announce a committed integration write (contracts/runtime.md). Subscribers re-read
+    /// storage, so a lost event costs nothing once the next one, or a `Lagged`, arrives.
+    pub fn publish_integration_change(&self, ev: IntegrationChanged) {
+        let _ = self.integration_events.send(ev);
+    }
+
+    pub fn subscribe_integration_changes(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<IntegrationChanged> {
+        self.integration_events.subscribe()
     }
 
     pub async fn is_agent_registered(&self, agent_id: &AgentId) -> bool {

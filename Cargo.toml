@@ -17,6 +17,7 @@ include = [
   "/Readme.md",
   "/templates/**/*",
   "/assets/catalogue/**/*",
+  "/assets/integrations/**/*",
   # Pre-built webui files (run 'npm run build' in webui/ before publishing)
   "/webui/build/client/**/*",
 ]

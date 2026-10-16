@@ -89,6 +89,43 @@ export const deleteApiKey = async (keyId: string) => {
 }
 
 // ============================================================================
+// INTEGRATIONS ENDPOINTS (spec 016)
+// ============================================================================
+
+export const listAgentIntegrations = async (agentId: string, family: import('../interfaces/types').IntegrationFamily) => {
+  const res = await apiClient.get(`/agents/${agentId}/integrations`, { params: { family } })
+  return res.data as ApiResponse<import('../interfaces/types').IntegrationList>
+}
+
+export const createAgentIntegration = async (agentId: string, data: import('../interfaces/types').CreateIntegrationRequest) => {
+  const res = await apiClient.post(`/agents/${agentId}/integrations`, data)
+  return res.data as ApiResponse<import('../interfaces/types').IntegrationItem>
+}
+
+export const setIntegrationAttachment = async (agentId: string, integrationId: string, attached: boolean) => {
+  const res = await apiClient.put(`/agents/${agentId}/integrations/${integrationId}/attachment`, { attached })
+  return res.data as ApiResponse<import('../interfaces/types').IntegrationItem & { affected_agents: string[] }>
+}
+
+export const updateIntegration = async (integrationId: string, data: import('../interfaces/types').UpdateIntegrationRequest) => {
+  const res = await apiClient.put(`/integrations/${integrationId}`, data)
+  return res.data as ApiResponse<import('../interfaces/types').Integration & { affected_agents: string[] }>
+}
+
+export const deleteIntegration = async (integrationId: string, confirm = false) => {
+  const res = await apiClient.delete(`/integrations/${integrationId}`, { params: confirm ? { confirm: true } : {} })
+  return res.data as ApiResponse<{ affected_agents: string[] }>
+}
+
+export const listIntegrationKinds = async (family?: import('../interfaces/types').IntegrationFamily) => {
+  const res = await apiClient.get('/integrations/kinds', { params: family ? { family } : {} })
+  return res.data as ApiResponse<import('../interfaces/types').KindListing[]>
+}
+
+export const integrationIconUrl = (kindId: string) =>
+  `${api_protocol}://${base_url}/api/v1/integrations/kinds/${kindId}/icon`
+
+// ============================================================================
 // SETUP ENDPOINTS
 // ============================================================================
 

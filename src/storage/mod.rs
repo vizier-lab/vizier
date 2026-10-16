@@ -11,7 +11,8 @@ use crate::{
     storage::{
         agent::AgentStorage, background_job::BackgroundJobStorage,
         catalogue::{CachedLogo, CatalogueCacheStorage, CatalogueSnapshotRow}, dream::DreamStorage, dream_journal::DreamJournalStorage,
-        global_config::GlobalConfigStorage, history::HistoryStorage, memory::MemoryStorage,
+        global_config::GlobalConfigStorage, history::HistoryStorage, integration::IntegrationStorage,
+        memory::MemoryStorage,
         provider::{CustomProviderStorage, ProviderStorage}, reaction::ReactionStorage, session::SessionStorage, session_file::SessionFileStorage,
         state::StateStorage, task::TaskStorage, task_run::TaskRunStorage,
         user::UserStorage,
@@ -28,6 +29,7 @@ pub mod dream;
 pub mod dream_journal;
 pub mod global_config;
 pub mod history;
+pub mod integration;
 pub mod memory;
 pub mod memory_bundle;
 pub mod provider;
@@ -61,7 +63,8 @@ where
         + DreamJournalStorage
         + DreamStorage
         + SessionFileStorage
-        + ReactionStorage,
+        + ReactionStorage
+        + IntegrationStorage,
 {
 }
 

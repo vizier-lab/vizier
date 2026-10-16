@@ -1,5 +1,8 @@
+use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
+
+use arc_swap::ArcSwap;
 use tokio::sync::Mutex;
 
 use anyhow::Result;
@@ -25,15 +28,16 @@ use crate::{
         },
         hook::{VizierSessionHook, VizierSessionHooks},
         skill::VizierSkills,
-        tools::{ToolContext, VizierTools},
+        tools::{BaseTools, ToolContext, VizierTools, compose},
     },
     config::{VizierConfig, provider::ProviderId},
     llm::types::{AssistantPart, CompletionRequest, Message, Part, ToolChoice, ToolDefinition},
     dependencies::VizierDependencies,
     image_generation::VizierImageGen,
     indexer::VizierIndexer,
+    integrations::{IntegrationTools, agent_status, kind::AgentToolContext},
     schema::{
-        AgentConfig, ErrorKind, MemoryPassageResult, SessionHistory, SessionHistoryContent, Skill,
+        AgentConfig, AgentId, ErrorKind, IntegrationStatus, MemoryPassageResult, SessionHistory, SessionHistoryContent, Skill,
         VizierAttachment, VizierAttachmentContent, VizierRequest, VizierRequestContent,
         VizierResponse, VizierResponseContent, VizierResponseStats, VizierSession,
         history_entries_to_messages, message_for_model, messages_for_model,
@@ -43,6 +47,7 @@ use crate::{
         VizierStorage,
         agent::AgentStorage,
         history::HistoryStorage,
+        integration::IntegrationStorage,
         session_file::SessionFileStorage,
         user::{UserProfile, UserStorage},
     },
@@ -75,8 +80,16 @@ pub struct VizierAgent {
     pub transport: VizierTransport,
     pub indexer: Option<crate::indexer::VizierIndexer>,
 
+    agent_id: AgentId,
+    deps: VizierDependencies,
     model: VizierModel,
-    tools: VizierTools,
+    /// Built once per instance; integration changes never rebuild it.
+    base: Arc<BaseTools>,
+    /// The composed tools. A turn loads one snapshot at its start and keeps it to the end
+    /// (contracts/runtime.md G2); `refresh_integrations` swaps in a new one for the next turn.
+    tools: Arc<ArcSwap<VizierTools>>,
+    /// Serialises refreshes, so the last one to finish read the latest storage.
+    refresh_lock: Arc<Mutex<()>>,
     skills: VizierSkills,
     config: AgentConfig,
     core: String,
@@ -143,16 +156,20 @@ impl VizierAgent {
         };
 
         let model = VizierModel::new(agent_id.clone(), deps.clone(), agent_config).await?;
-        let tools = VizierTools::new(
-            agent_id.clone(),
-            deps.clone(),
-            agent_config,
-            indexer.clone(),
-            stt.clone(),
-            tts.clone(),
-            image_gen.clone(),
-        )
-        .await?;
+        let base = Arc::new(
+            BaseTools::new(
+                agent_id.clone(),
+                deps.clone(),
+                agent_config,
+                indexer.clone(),
+                stt.clone(),
+                tts.clone(),
+                image_gen.clone(),
+            )
+            .await?,
+        );
+        let integrations = Self::build_integrations(&agent_id, deps, None).await;
+        let tools = Arc::new(ArcSwap::from_pointee(compose(&base, Arc::new(integrations))));
         let skills = VizierSkills::new(agent_id.clone(), deps.clone(), indexer.clone()).await?;
 
         // Best-effort re-embed of every skill so vector-based recommendation stays fresh
@@ -186,8 +203,12 @@ impl VizierAgent {
             .unwrap_or_else(|| crate::constant::CORE_MD.to_string());
 
         Ok(Self {
+            agent_id,
+            deps: deps.clone(),
             model,
+            base,
             tools,
+            refresh_lock: Arc::new(Mutex::new(())),
             skills,
             config: agent_config.clone(),
             core,
@@ -201,6 +222,81 @@ impl VizierAgent {
             transport: deps.transport.clone(),
             indexer,
         })
+    }
+
+    /// The integration layer from the agent's attachments in storage, reusing what `previous`
+    /// already built for integrations that didn't change. A storage error yields no
+    /// integrations rather than failing the agent.
+    async fn build_integrations(
+        agent_id: &AgentId,
+        deps: &VizierDependencies,
+        previous: Option<&IntegrationTools>,
+    ) -> IntegrationTools {
+        let integrations = match deps.storage.list_agent_integrations(agent_id).await {
+            Ok(integrations) => integrations,
+            Err(e) => {
+                tracing::warn!(agent_id, "cannot read the agent's integrations: {e}");
+                vec![]
+            }
+        };
+        IntegrationTools::build(
+            &deps.integration_kinds,
+            &integrations,
+            &tool_context(agent_id, deps),
+            previous,
+        )
+    }
+
+    /// Re-read the agent's integrations and swap in tools composed from them, for the next
+    /// turn to pick up; turns already running keep their snapshot (contracts/runtime.md G1–G3).
+    /// A refresh that fails keeps the previous tools.
+    pub async fn refresh_integrations(&self) {
+        let _guard = self.refresh_lock.lock().await;
+        let integrations = match self.deps.storage.list_agent_integrations(&self.agent_id).await {
+            Ok(integrations) => integrations,
+            Err(e) => {
+                tracing::warn!(
+                    agent_id = %self.agent_id,
+                    "integration refresh failed, keeping the current tools: {e}"
+                );
+                return;
+            }
+        };
+        let current = self.tools.load_full();
+        let layer = IntegrationTools::build(
+            &self.deps.integration_kinds,
+            &integrations,
+            &tool_context(&self.agent_id, &self.deps),
+            Some(&current.integrations),
+        );
+        self.tools.store(Arc::new(compose(&self.base, Arc::new(layer))));
+        tracing::debug!(agent_id = %self.agent_id, "integration tools refreshed");
+    }
+
+    /// This agent's view of each integration attached to it (research R9).
+    pub async fn integration_status(&self) -> HashMap<String, IntegrationStatus> {
+        let snapshot = self.tools.load_full();
+        let integrations = self
+            .deps
+            .storage
+            .list_agent_integrations(&self.agent_id)
+            .await
+            .unwrap_or_default();
+        integrations
+            .iter()
+            .filter_map(|integration| {
+                let kind = self.deps.integration_kinds.get(&integration.kind)?;
+                Some((
+                    integration.id.clone(),
+                    agent_status(
+                        kind.as_ref(),
+                        integration,
+                        &snapshot.integrations,
+                        &self.deps.integration_health,
+                    ),
+                ))
+            })
+            .collect()
     }
 
     /// What this agent's model resolved to.
@@ -299,7 +395,11 @@ impl VizierAgent {
     /// framing. The question is answered through `VizierSession::is_scheduled_task()` and
     /// nowhere else — selecting on the request content kind would catch the dream cycle,
     /// which sends `Unattended` too and carries its own framing.
-    pub async fn prepare_system_prompts(&self, session: &VizierSession) -> Vec<Message> {
+    pub async fn prepare_system_prompts(
+        &self,
+        tools: &VizierTools,
+        session: &VizierSession,
+    ) -> Vec<Message> {
         init_workspace(self.workspace.clone());
 
         let boot = boot_md(
@@ -323,7 +423,7 @@ impl VizierAgent {
         res.insert(
             1,
             Message::system(sandbox_md(
-                &self.tools.categories,
+                &tools.categories,
                 &self.config.tools.timeout.to_string(),
             )),
         );
@@ -400,7 +500,9 @@ impl VizierAgent {
         let mut rng = StdRng::seed_from_u64(Utc::now().timestamp() as u64);
         let initiative_factor = rng.random_range(0_f32..=1_f32);
 
-        let mut history = self.prepare_system_prompts(&session).await;
+        // The one snapshot this turn uses, system prompt and every tool call alike (G2).
+        let tools = self.tools.load_full();
+        let mut history = self.prepare_system_prompts(&tools, &session).await;
 
         // Inject checkpoint handover as system context
         if let Some(handover) = checkpoint_handover {
@@ -465,7 +567,8 @@ impl VizierAgent {
         }
 
         let prompt_result = self
-            .prompt(
+            .prompt_with(
+                &tools,
                 with_context(message, context_md(&memory, &skills, digest.as_deref())),
                 history,
                 0,
@@ -562,8 +665,32 @@ impl VizierAgent {
         Ok(response)
     }
 
+    /// Run one prompt on the agent's current tools.
     pub async fn prompt(
         &self,
+        message: Message,
+        history: Vec<Message>,
+        turn_depth: usize,
+        hooks: Option<Arc<VizierSessionHooks>>,
+        is_subagent: bool,
+        ctx: &ToolContext,
+    ) -> std::result::Result<
+        (
+            String,
+            VizierResponseStats,
+            Vec<VizierAttachment>,
+            Vec<Message>,
+        ),
+        (anyhow::Error, Vec<Message>),
+    > {
+        let tools = self.tools.load_full();
+        self.prompt_with(&tools, message, history, turn_depth, hooks, is_subagent, ctx)
+            .await
+    }
+
+    async fn prompt_with(
+        &self,
+        snapshot: &Arc<VizierTools>,
         message: Message,
         history: Vec<Message>,
         turn_depth: usize,
@@ -583,8 +710,7 @@ impl VizierAgent {
         let mut full_history = history.clone();
         let mut turn_depth = turn_depth;
         let max_turn_depth = self.config.thinking_depth;
-        let tools = self
-            .tools
+        let tools = snapshot
             .tools()
             .await
             .map_err(|e| (e, full_history.clone()))?;
@@ -703,7 +829,7 @@ impl VizierAgent {
 
                 // A final answer leaves no tool call waiting, so the checkpoint is safe here,
                 // and it's what keeps the session's next turn small.
-                self.maybe_checkpoint(current_context_size, &mut history, &request, None, &hooks, ctx)
+                self.maybe_checkpoint(snapshot, current_context_size, &mut history, &request, None, &hooks, ctx)
                     .await;
                 break;
             }
@@ -730,7 +856,7 @@ impl VizierAgent {
                         })?;
                 }
 
-                let tool_server = self.tools.clone();
+                let tool_server = snapshot.clone();
                 let ctx_clone = ctx.clone();
                 let mut tool_res = match timeout(*self.config.tools.timeout, async {
                     tool_server
@@ -854,6 +980,7 @@ impl VizierAgent {
             // Only now, with every tool call of the reply answered: checkpointing between the
             // completion and its tool results dropped the calls the results answer (#63).
             self.maybe_checkpoint(
+                snapshot,
                 current_context_size,
                 &mut history,
                 &request,
@@ -900,6 +1027,7 @@ impl VizierAgent {
     /// on with its full context and tries again after the next completion (#47).
     async fn maybe_checkpoint(
         &self,
+        tools: &VizierTools,
         context_size: Option<u64>,
         history: &mut Vec<Message>,
         request: &Message,
@@ -953,7 +1081,7 @@ impl VizierAgent {
             .unwrap_or_default();
 
         history.clear();
-        history.extend(self.prepare_system_prompts(&ctx.session).await);
+        history.extend(self.prepare_system_prompts(tools, &ctx.session).await);
         if let Some(ref msg) = handover {
             history.push(Message::system(format!(
                 "# Conversation Context (Previous Checkpoint)\n\
@@ -1078,14 +1206,14 @@ impl VizierAgent {
             self.model.clone()
         };
 
+        let snapshot = self.tools.load_full();
         // Build dream tools
-        let tools = self
-            .tools
+        let tools = snapshot
             .dream_tools(self.config.name.clone(), deps.storage.clone())
             .await?;
 
         // Prepare system prompts (same as chat)
-        let mut history = self.prepare_system_prompts(&session).await;
+        let mut history = self.prepare_system_prompts(&snapshot, &session).await;
 
         // Extend with session history
         history.extend(history_entries_to_messages(&session_history));
@@ -1097,6 +1225,7 @@ impl VizierAgent {
 
         let (output, stats) = self
             .dream_prompt(
+                &snapshot,
                 &dream_model,
                 with_context(
                     req.to_message(&self.global_workspace)?,
@@ -1135,6 +1264,7 @@ impl VizierAgent {
 
     async fn dream_prompt(
         &self,
+        snapshot: &VizierTools,
         model: &VizierModel,
         message: Message,
         history: Vec<Message>,
@@ -1239,7 +1369,7 @@ impl VizierAgent {
                     // Use dream_call for dream tool dispatch
                     let ctx_clone = ctx.clone();
                     let mut tool_res = match timeout(*self.config.tools.timeout, async {
-                        self.tools
+                        snapshot
                             .dream_call(
                                 function_name.clone(),
                                 args,
@@ -1475,6 +1605,14 @@ pub fn read_md_file(workspace: String, file: String) -> String {
     let path = build_path(&workspace, &[&file]);
 
     fs::read_to_string(path).unwrap()
+}
+
+fn tool_context(agent_id: &AgentId, deps: &VizierDependencies) -> AgentToolContext {
+    AgentToolContext {
+        agent_id: agent_id.clone(),
+        storage: deps.storage.clone(),
+        health: deps.integration_health.clone(),
+    }
 }
 
 pub async fn generate_handover_with_model(

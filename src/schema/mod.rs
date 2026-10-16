@@ -5,6 +5,7 @@ pub mod dream_journal;
 mod file;
 mod global_config;
 mod history;
+pub mod integration;
 pub mod metrics;
 pub mod provider;
 mod request;
@@ -16,7 +17,7 @@ mod storage;
 mod task;
 
 pub use agent::{
-    AgentConfig, AgentToolsConfig, BraveSearchToolSettings, EmbeddingProvider,
+    AgentConfig, AgentToolsConfig, EmbeddingProvider,
     EmbeddingConfig, ImageGenProvider, ImageGenToolSettings, IndexerConfig, IndexerKind,
     ReadImageToolSettings, SttToolSettings, ToolConfig, TtsToolSettings,
 };
@@ -33,6 +34,9 @@ pub use background::{
 pub use dream_journal::{DreamJournalEntry, DreamJournalEntryFrontMatter};
 pub use file::FileRecord;
 pub use global_config::{GlobalConfigEntry, GlobalConfigValue};
+pub use integration::{
+    Integration, IntegrationChanged, IntegrationFamily, IntegrationScope, IntegrationStatus,
+};
 pub use history::{
     SessionHistory, SessionHistoryContent, history_entries_to_messages, message_for_model,
     messages_for_model, messages_to_history_entries, seal_tool_calls,

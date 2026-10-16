@@ -424,8 +424,6 @@ mod tests {
             dream_schedule: None,
             dream_provider: None,
             dream_model: None,
-            discord_token: None,
-            telegram_token: None,
             avatar_url: None,
             embedding: None,
             indexer: None,

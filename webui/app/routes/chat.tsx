@@ -140,9 +140,9 @@ export const formatToolChoice = (
     }
     case 'memory_delete':
       return `🗑️ Deleting memory '${args.slug as string}'`
-    case 'web_search':
+    case 'brave_search_web':
       return `🌐 Searching the web for '${args.query as string}'`
-    case 'news_search':
+    case 'brave_search_news':
       return `📰 Finding news about '${args.query as string}'`
     case 'shell_exec':
       return `🖥️ Running shell command:\n\`\`\`bash\n${args.commands as string}\n\`\`\``

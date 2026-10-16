@@ -21,6 +21,7 @@ mod embedding;
 mod error;
 mod file_manager;
 mod indexer;
+mod integrations;
 mod llm;
 mod sandbox;
 mod scheduler;
