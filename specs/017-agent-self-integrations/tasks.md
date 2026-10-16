@@ -208,10 +208,10 @@
 
 **Goal**: with the Channels grant on, the agent manages its Discord/Telegram connections, and is warned when a change would cut off the conversation it is in.
 
-**Independent test**: quickstart §4 (live Telegram token).
+**Independent test**: quickstart §4a (offline, fake token, dummyplug) plus the warning unit test in T030. §4b (a real Telegram token) is optional.
 
 - [ ] T029 [P] [US4] In `src/integrations/kind.rs`, add `fn platform(&self) -> Option<ChannelPlatform> { None }` to `IntegrationKind`. Override it in `src/integrations/kinds/discord.rs` (`Some(ChannelPlatform::Discord)`) and `src/integrations/kinds/telegram.rs` (`Some(ChannelPlatform::Telegram)`).
-- [ ] T030 [US4] In `src/agents/tools/self_integrations.rs`, when `update_integration` with `enabled: false` or `delete_integration` targets an integration whose `kind.platform()` equals the current session's channel platform (add a small `VizierSession`/`VizierChannelId` helper returning `Option<ChannelPlatform>` if none exists, in `src/schema/`), make the change and add `warning: "you will stop receiving messages on this connection; this reply may not be delivered"` to the output (research R7). Depends on T029.
+- [ ] T030 [US4] In `src/agents/tools/self_integrations.rs`, when `update_integration` with `enabled: false` or `delete_integration` targets an integration whose `kind.platform()` equals the current session's channel platform (add a small `VizierSession`/`VizierChannelId` helper returning `Option<ChannelPlatform>` if none exists, in `src/schema/`), make the change and add `warning: "you will stop receiving messages on this connection; this reply may not be delivered"` to the output (research R7). Put the decision in a pure function `lockout_warning(session_platform: Option<ChannelPlatform>, kind_platform: Option<ChannelPlatform>) -> Option<&'static str>`. Unit-test it in the same file: Telegram/Telegram warns; WebUI (`None`)/Telegram, Discord/Telegram and Telegram/`None` (an MCP server) don't. Depends on T029.
 - [ ] T031 [P] [US4] In `webui/app/routes/integrations-channels.tsx`, add **Settings | Activity** tabs to the connection editor, reusing `ActivityTab`.
 
 **Checkpoint**: all four stories work independently.
@@ -225,7 +225,7 @@
   - the Tools section: the `Integrations` category (14 variants), the five self-management tools contributed by the integration layer, and their absence from `DREAM_TOOL_NAMES`.
 - [ ] T033 [P] Grep for leftovers: `IntegrationScope`, `scope_for_creator`, `set_attachment`, `can_attach`, `also_used_by`, `SharedEditWarning` and `created_by` uses (other than the legacy read fallback) across `src/` and `webui/app/`, and remove or adapt each one.
 - [ ] T034 Run `cargo clippy`, `cargo test` and `cd webui && npm run typecheck`; fix everything.
-- [ ] T035 End-to-end with a `dummyplug` agent on a running binary (`just run`): walk quickstart.md §1, §2, §3, §5 and §6, and §4 if a Telegram token is available (marked live). Record any deviations under this task.
+- [ ] T035 End-to-end with a `dummyplug` agent on a running binary (`just run`): walk quickstart.md §1, §2, §3, §4a, §5 and §6, and §4b only if a real Telegram token is available (marked live). Record any deviations under this task.
 - [ ] T036 Prepare the commit as `feat: 017 agents manage their own integrations; integrations are per-agent [**breaking**]`. The body lists the breaking changes: attach removed (`410`), `scope` removed from API views, the Addons picker removed, uninstall now deletes the configuration.
 
 ---
@@ -283,5 +283,5 @@ T025 GET /agents/{id}/integrations/events
 ### Incremental delivery
 
 - Add US3 (addons), validate with quickstart §3.
-- Add US4 (channels), validate with quickstart §4 (live).
+- Add US4 (channels), validate with quickstart §4a offline; §4b is optional, with a real token.
 - Polish and commit as one breaking `feat`.

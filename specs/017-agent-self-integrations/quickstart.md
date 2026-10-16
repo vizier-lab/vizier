@@ -69,12 +69,30 @@ Unit tests cover:
 | 3 | — | the same create again | `addon_installed` with the existing id |
 | 4 | — | `delete_integration {id}` | the category is gone the next turn |
 
-## 4. Channels (US4) — needs a real Telegram bot token (live, marked)
+## 4. Channels (US4)
+
+### 4a. Offline, with a fake token (dummyplug, WebUI session)
+
+A rejected token is still saved; the connection just shows `failed` (016 FR-010), so none of these steps needs Telegram.
 
 | # | Action | Send to agent | Expect |
 |---|---|---|---|
-| 1 | grant `channel` | `dp-a` (via WebUI): `create_integration {kind:"telegram", name:"tg", settings:{token:"<real>"}}` | Integrations › Channels shows `running` within 30 s; the bot answers `tools` |
-| 2 | — | from the Telegram chat: `update_integration {id, enabled:false}` | the result carries `warning`; the bot stops answering; the WebUI shows it disabled |
+| 1 | grant `channel` on `dp-a` | `dp-a`: `create_integration {kind:"telegram", name:"tg", settings:{token:"123456:fake-token-for-tests"}}` | created; Integrations › Channels shows it, made by the agent, status `failed` (token rejected) within 30 s |
+| 2 | — | `dp-a`: `create_integration {kind:"telegram", name:"tg2", settings:{token:"999999:other-fake"}}` | `platform_in_use_on_agent` |
+| 3 | grant `channel` on `dp-b`; | `dp-b`: `create_integration {kind:"telegram", name:"tg", settings:{token:"123456:fake-token-for-tests"}}` | `token_in_use` |
+| 4 | — | `dp-a`: `update_integration {id, enabled:false}` | disabled; **no** `warning` (the session is WebUI, not Telegram) |
+| 5 | — | `dp-a`: `update_integration {id, settings:{token:"123456:another-fake"}}`, then `list_integrations {"family":"channel"}` | token shown redacted (`••••fake`) |
+| 6 | switch `channel` off | `dp-a`: `delete_integration {id}` | refused, `managing channel is not enabled…` |
+| 7 | switch `channel` on | `dp-a`: `delete_integration {id}` | deleted; events show `created`, `disabled`, `edited` (`fields:["token"]`), `deleted` by the agent |
+
+The self-lockout warning (R7) is covered by a unit test (tasks T030): it is given a Telegram session and a Telegram connection, and expects the warning; it is given a WebUI session, or a Discord connection, and expects none.
+
+### 4b. Live (optional, needs a real Telegram bot token, marked)
+
+| # | Action | Expect |
+|---|---|---|
+| 1 | `dp-a` creates a Telegram connection with the real token | `running` within 30 s; the bot answers `tools` |
+| 2 | From the Telegram chat: `update_integration {id, enabled:false}` | the result carries `warning`; the bot stops answering |
 
 ## 5. Per-agent model and legacy rows (FR-020–FR-023)
 
