@@ -115,7 +115,6 @@ function ConnectedRow({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
       <div style={lineStyle}>
-        <span style={{ fontWeight: 500 }}>{item.name}</span>
         <StatusBadge item={item} runningLabel="Connected" />
         <CreatorLine item={item} />
       </div>
