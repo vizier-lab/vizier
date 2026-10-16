@@ -142,6 +142,8 @@ A background *report* turn (spec 012) runs in the originating session and is cou
 
 **Rationale**: No live platform lookups, so the page works when a bot is down and adds no network calls on a person's read. Bounding lookups to the returned rows keeps them cheap.
 
+**Revised (2026-10-16)**: Discord and Telegram names *are* looked up live when the page loads, by request: through a new `IntegrationKind::conversation_names` hook (Discord: channel + guild; Telegram: chat title), using the agent's own enabled connection, for at most 25 places per report, in parallel, 3 s timeout each, cached in memory for 10 min (1 min after a failure). A conversation whose bot is gone or unreachable keeps its id.
+
 ## R10 — Conversation details: link and plain-language insight
 
 **Decision**: The details endpoint returns a `link`, or a `no_link_reason`, resolved server-side:

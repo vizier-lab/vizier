@@ -8,6 +8,7 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 
 use crate::{
     catalogue::{Catalogue, data::Cost},
+    integrations::{IntegrationKinds, kind::ConversationNames},
     config::provider::ProviderId,
     llm::DialectKind,
     schema::{
@@ -22,6 +23,7 @@ use crate::{
     storage::{
         VizierStorage,
         background_job::BackgroundJobStorage,
+        integration::IntegrationStorage,
         state::StateStorage,
         task::TaskStorage,
         usage::{UsageGroup, UsageGrouping, UsageQuery, UsageStorage},
@@ -200,6 +202,7 @@ fn tally<'g>(pricer: &mut Pricer, groups: impl IntoIterator<Item = &'g UsageGrou
 pub async fn build_report(
     storage: &VizierStorage,
     catalogue: &Catalogue,
+    kinds: &IntegrationKinds,
     q: UsageQuery,
 ) -> Result<UsageReport> {
     let mut pricer = Pricer::new(catalogue);
@@ -265,15 +268,28 @@ pub async fn build_report(
             .or_default()
             .add(&mut pricer, &g);
     }
+    // Every Discord channel and Telegram chat in range is one place, so the places name every
+    // conversation the costliest list can show. The costliest places are looked up first.
+    let mut ranked_places: Vec<_> = place_buckets.iter().collect();
+    ranked_places.sort_by(|a, b| by_cost_then_tokens((a.1.cost, a.1.tokens.total()), (b.1.cost, b.1.tokens.total())));
+    let names = NameBook::resolve(
+        storage,
+        kinds,
+        &q.agent_id,
+        ranked_places.iter().map(|(place, _)| place.as_str()),
+    )
+    .await;
+
     let mut by_place = Vec::with_capacity(place_buckets.len());
     for (place, t) in place_buckets {
-        let (label, detail) = place_label(storage, &q.agent_id, &place).await;
+        let (label, detail) = place_label(storage, &names, &q.agent_id, &place).await;
         by_place.push(t.row(place, label, detail, all.cost));
     }
     by_place.sort_by(|a, b| by_cost_then_tokens((a.cost_usd, a.tokens), (b.cost_usd, b.tokens)));
 
     let costliest = costliest(
         storage,
+        &names,
         &mut pricer,
         &q.agent_id,
         storage.usage_groups(&q, UsageGrouping::Conversation).await?,
@@ -378,6 +394,7 @@ fn by_model(
 
 async fn costliest(
     storage: &VizierStorage,
+    names: &NameBook,
     pricer: &mut Pricer<'_>,
     agent_id: &str,
     groups: Vec<UsageGroup>,
@@ -418,7 +435,7 @@ async fn costliest(
     let mut rows = Vec::with_capacity(ranked.len());
     for ((channel, topic), conv) in ranked {
         let exists = conversation_exists(storage, agent_id, &channel, topic.as_deref()).await;
-        let (label, detail) = conversation_label(storage, agent_id, &channel, topic.as_deref()).await;
+        let (label, detail) = conversation_label(storage, names, agent_id, &channel, topic.as_deref()).await;
         rows.push(ConversationRow {
             activity: top(&conv.by_activity).unwrap_or(UsageActivity::Other),
             model: top(&conv.by_model).unwrap_or_default(),
@@ -457,6 +474,7 @@ fn failed_share(t: &Tally) -> Option<f64> {
 pub async fn conversation_usage(
     storage: &VizierStorage,
     catalogue: &Catalogue,
+    kinds: &IntegrationKinds,
     q: UsageQuery,
     limit: usize,
 ) -> Result<ConversationUsage> {
@@ -495,7 +513,8 @@ pub async fn conversation_usage(
     calls.truncate(limit);
     let more = rows.total.saturating_sub(calls.len() as u64);
 
-    let (label, detail) = conversation_label(storage, &q.agent_id, &channel, topic.as_deref()).await;
+    let names = NameBook::resolve(storage, kinds, &q.agent_id, slug_place(&channel).as_deref()).await;
+    let (label, detail) = conversation_label(storage, &names, &q.agent_id, &channel, topic.as_deref()).await;
     let exists = conversation_exists(storage, &q.agent_id, &channel, topic.as_deref()).await;
     let (link, no_link_reason) = conversation_link(storage, &q.agent_id, &channel, topic.as_deref(), exists).await;
 
@@ -574,6 +593,120 @@ fn slug_kind(channel: &str) -> SlugKind<'_> {
     }
 }
 
+/// How many places one report looks up names for; the rest show their ids.
+const NAME_LOOKUPS: usize = 25;
+/// How long a platform may take to answer one lookup.
+const NAME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+/// How long a looked-up name is reused; a failed lookup is retried sooner.
+const NAME_TTL: std::time::Duration = std::time::Duration::from_secs(600);
+const NAME_FAILED_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+type NameCache = HashMap<(String, String), (std::time::Instant, Option<ConversationNames>)>;
+
+/// Names looked up on the platforms, shared across reports so reloading the page doesn't ask
+/// Discord or Telegram again. Keyed by integration and place.
+fn name_cache() -> &'static parking_lot::Mutex<NameCache> {
+    static CACHE: std::sync::OnceLock<parking_lot::Mutex<NameCache>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+/// The Discord and Telegram names one report shows, looked up live through the agent's own
+/// channel connection (`IntegrationKind::conversation_names`), in parallel, each bounded by
+/// [`NAME_TIMEOUT`] and cached. A conversation whose bot is gone, disabled or unreachable keeps
+/// its id.
+#[derive(Default)]
+struct NameBook(HashMap<String, ConversationNames>);
+
+impl NameBook {
+    async fn resolve<'p>(
+        storage: &VizierStorage,
+        kinds: &IntegrationKinds,
+        agent_id: &str,
+        places: impl IntoIterator<Item = &'p str>,
+    ) -> Self {
+        let wanted: Vec<&str> = places
+            .into_iter()
+            .filter(|p| p.starts_with("discord:") || p.starts_with("telegram:"))
+            .take(NAME_LOOKUPS)
+            .collect();
+        if wanted.is_empty() {
+            return Self::default();
+        }
+        let integrations = storage.list_agent_integrations(agent_id).await.unwrap_or_default();
+        // The agent's enabled connection for each platform, by the place prefix it names.
+        let connection = |prefix: &str| {
+            integrations.iter().filter(|i| i.enabled).find_map(|i| {
+                let kind = kinds.get(&i.kind)?;
+                (kind.platform()?.to_string() == prefix).then_some((i, kind))
+            })
+        };
+
+        let now = std::time::Instant::now();
+        let mut book = Self::default();
+        let mut lookups = Vec::new();
+        for place in wanted {
+            let Some((prefix, chat_id)) = place.split_once(':') else {
+                continue;
+            };
+            let Some((integration, kind)) = connection(prefix) else {
+                continue;
+            };
+            let key = (integration.id.clone(), place.to_string());
+            if let Some((at, cached)) = name_cache().lock().get(&key).cloned() {
+                let ttl = if cached.is_some() { NAME_TTL } else { NAME_FAILED_TTL };
+                if now.duration_since(at) < ttl {
+                    if let Some(names) = cached {
+                        book.0.insert(place.to_string(), names);
+                    }
+                    continue;
+                }
+            }
+            if let Some(lookup) = kind.conversation_names(integration, chat_id) {
+                lookups.push(async move {
+                    let found = tokio::time::timeout(NAME_TIMEOUT, lookup).await.ok().flatten();
+                    (key, found)
+                });
+            }
+        }
+
+        for (key, found) in futures::future::join_all(lookups).await {
+            name_cache().lock().insert(key.clone(), (std::time::Instant::now(), found.clone()));
+            if let Some(names) = found {
+                book.0.insert(key.1, names);
+            }
+        }
+        book
+    }
+
+    /// `Vizier HQ / #general`, `Family chat`, or `fallback()` when nothing was found.
+    fn label(&self, place: &str, fallback: impl FnOnce() -> String) -> String {
+        let parts: Vec<&str> = self
+            .0
+            .get(place)
+            .map(|n| [n.space.as_deref(), n.conversation.as_deref()].into_iter().flatten().collect())
+            .unwrap_or_default();
+        if parts.is_empty() { fallback() } else { parts.join(" / ") }
+    }
+}
+
+/// The place a Discord or Telegram channel slug is, for a name lookup.
+fn slug_place(channel: &str) -> Option<String> {
+    match slug_kind(channel) {
+        SlugKind::Discord(id) => Some(format!("discord:{id}")),
+        SlugKind::Telegram(id) => Some(format!("telegram:{id}")),
+        _ => None,
+    }
+}
+
+/// Appends ` / <topic title>` once the topic has a real title: a new topic is titled with its
+/// own id (or `DEFAULT`) until one is generated.
+fn with_topic(base: String, title: Option<String>, topic: Option<&str>) -> String {
+    match title {
+        Some(t) if Some(t.as_str()) != topic && t != "DEFAULT" => format!("{base} / {t}"),
+        _ => base,
+    }
+}
+
 /// Whether a conversation is still there to open. Dream turns keep no session history (the
 /// dream journal is their record), so a dream conversation always exists; a WebUI topic exists
 /// while its `session_detail` row does, which is what deleting the topic removes.
@@ -603,7 +736,12 @@ async fn task_title(storage: &VizierStorage, agent_id: &str, slug: &str) -> Stri
 }
 
 /// Names come from storage only — no platform lookups on a person's read (R9).
-async fn place_label(storage: &VizierStorage, agent_id: &str, place: &str) -> (String, Option<String>) {
+async fn place_label(
+    storage: &VizierStorage,
+    names: &NameBook,
+    agent_id: &str,
+    place: &str,
+) -> (String, Option<String>) {
     let (kind, rest) = place.split_once(':').unwrap_or((place, ""));
     match kind {
         "http" => {
@@ -615,8 +753,8 @@ async fn place_label(storage: &VizierStorage, agent_id: &str, place: &str) -> (S
                 .flatten();
             (title.unwrap_or_else(|| "WebUI topic".into()), Some("WebUI topic".into()))
         }
-        "discord" => (format!("Discord channel {rest}"), Some("Discord".into())),
-        "telegram" => (format!("Telegram chat {rest}"), Some("Telegram".into())),
+        "discord" => (names.label(place, || format!("Discord channel {rest}")), Some("Discord".into())),
+        "telegram" => (names.label(place, || format!("Telegram chat {rest}")), Some("Telegram".into())),
         "task" => (task_title(storage, agent_id, rest).await, Some("Scheduled task".into())),
         "dreams" => ("Dream cycle".into(), Some("Unattended reflection".into())),
         "background" => ("Background jobs".into(), Some("Subtasks, delegations and consults".into())),
@@ -626,6 +764,7 @@ async fn place_label(storage: &VizierStorage, agent_id: &str, place: &str) -> (S
 
 async fn conversation_label(
     storage: &VizierStorage,
+    names: &NameBook,
     agent_id: &str,
     channel: &str,
     topic: Option<&str>,
@@ -633,8 +772,15 @@ async fn conversation_label(
     let title = storage.session_title(agent_id, channel, topic).await.ok().flatten();
     match slug_kind(channel) {
         SlugKind::Http => (title.unwrap_or_else(|| "WebUI topic".into()), Some("WebUI topic".into())),
-        SlugKind::Discord(id) => (title.unwrap_or_else(|| format!("Discord channel {id}")), Some("Discord".into())),
-        SlugKind::Telegram(id) => (title.unwrap_or_else(|| format!("Telegram chat {id}")), Some("Telegram".into())),
+        // `Vizier HQ / #general / <topic>`: the live names, then the topic's title once it has one.
+        SlugKind::Discord(id) => (
+            with_topic(names.label(&format!("discord:{id}"), || format!("Discord channel {id}")), title, topic),
+            Some("Discord".into()),
+        ),
+        SlugKind::Telegram(id) => (
+            with_topic(names.label(&format!("telegram:{id}"), || format!("Telegram chat {id}")), title, topic),
+            Some("Telegram".into()),
+        ),
         SlugKind::Task(slug) => (task_title(storage, agent_id, slug).await, Some("Scheduled run".into())),
         SlugKind::Dream(stage) => (
             format!("Dream {}", if stage.is_empty() { "cycle" } else { stage }),
@@ -730,6 +876,34 @@ mod tests {
         assert!(matches!(slug_kind("SUBAGENT"), SlugKind::Background));
         assert!(matches!(slug_kind("inter_agent__[a__b]"), SlugKind::Background));
         assert!(matches!(slug_kind("SYSTEM"), SlugKind::System));
+    }
+
+    #[test]
+    fn discord_and_telegram_labels_read_space_conversation_topic() {
+        let mut book = NameBook::default();
+        book.0.insert(
+            "discord:1".into(),
+            ConversationNames { space: Some("Vizier HQ".into()), conversation: Some("#general".into()) },
+        );
+        book.0.insert(
+            "telegram:-5".into(),
+            ConversationNames { space: None, conversation: Some("Family chat".into()) },
+        );
+        let fallback = || "Discord channel 2".to_string();
+        assert_eq!(book.label("discord:1", fallback), "Vizier HQ / #general");
+        assert_eq!(book.label("telegram:-5", fallback), "Family chat");
+        assert_eq!(book.label("discord:2", fallback), "Discord channel 2", "not looked up");
+
+        let base = || book.label("discord:1", fallback);
+        assert_eq!(
+            with_topic(base(), Some("Trip planning".into()), Some("9f2c")),
+            "Vizier HQ / #general / Trip planning"
+        );
+        assert_eq!(with_topic(base(), Some("9f2c".into()), Some("9f2c")), "Vizier HQ / #general", "untitled topic");
+        assert_eq!(with_topic(base(), Some("DEFAULT".into()), None), "Vizier HQ / #general");
+        assert_eq!(with_topic(base(), None, None), "Vizier HQ / #general");
+        assert_eq!(slug_place("discord__42").as_deref(), Some("discord:42"));
+        assert_eq!(slug_place("http__u__webui"), None);
     }
 
     #[test]
@@ -831,7 +1005,7 @@ mod tests {
             s.record_usage(event(DAY, "discord__1", &provider, &model, 1_000_000)).await.unwrap();
             s.record_usage(event(5 * DAY, "discord__1", "custom-local", "qwen", 50_000)).await.unwrap();
 
-            let r = build_report(&s, &catalogue, q()).await.unwrap();
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q()).await.unwrap();
             assert_eq!(r.daily.len(), 7, "every date, empty ones too");
             assert_eq!(r.by_model.len(), 2);
             assert!(r.by_model[0].priced, "priced first");
@@ -854,7 +1028,7 @@ mod tests {
                 let channel = format!("discord__{i}");
                 s.record_usage(event(DAY, &channel, &provider, &model, 1000 * (i + 1))).await.unwrap();
             }
-            let r = build_report(&s, &catalogue, q()).await.unwrap();
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q()).await.unwrap();
             assert_eq!(r.costliest.len(), 10);
             assert_eq!(r.costliest[0].channel, "discord__11");
             assert!(!r.costliest[0].exists, "no history saved for it");
@@ -862,7 +1036,7 @@ mod tests {
 
             let mut conv = q();
             conv.conversation = Some(("discord__11".into(), None));
-            let d = conversation_usage(&s, &catalogue, conv, 20).await.unwrap();
+            let d = conversation_usage(&s, &catalogue, &IntegrationKinds::builtin(), conv, 20).await.unwrap();
             assert_eq!(d.calls.len(), 1);
             assert_eq!(d.no_link_reason, Some(NoLinkReason::Deleted));
             assert!(d.insight.is_none());
@@ -892,7 +1066,7 @@ mod tests {
 
             let mut filtered = q();
             filtered.activity = Some(UsageActivity::Dreams);
-            let r = build_report(&s, &catalogue, filtered).await.unwrap();
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), filtered).await.unwrap();
             assert!(r.by_activity.is_empty());
             assert_eq!(r.summary.calls, 1);
             assert!((r.summary.share_of_all.unwrap() - 0.25).abs() < 1e-9);
@@ -925,7 +1099,7 @@ mod tests {
                 conversation: None,
             };
             let started = std::time::Instant::now();
-            let r = build_report(&s, &catalogue, q).await.unwrap();
+            let r = build_report(&s, &catalogue, &IntegrationKinds::builtin(), q).await.unwrap();
             let took = started.elapsed();
             assert_eq!(r.summary.calls, 100_000);
             println!("90-day report over 100k events: {took:?}");

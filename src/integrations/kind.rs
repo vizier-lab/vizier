@@ -15,6 +15,19 @@ use crate::{
     storage::VizierStorage,
 };
 
+/// A conversation's readable names on its platform, ready to show: the server it is in
+/// (`Vizier HQ`; none for a DM or a Telegram chat) and the conversation itself (`#general`,
+/// `Direct message`, a Telegram chat's title).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConversationNames {
+    pub space: Option<String>,
+    pub conversation: Option<String>,
+}
+
+/// The live lookup [`IntegrationKind::conversation_names`] returns.
+pub type NamesFuture =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Option<ConversationNames>> + Send>>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum FieldType {
@@ -222,6 +235,13 @@ pub trait IntegrationKind: Send + Sync {
         _agent_id: &str,
         _deps: &VizierDependencies,
     ) -> Option<(ChannelPlatform, Reader)> {
+        None
+    }
+
+    /// The names of one of this connection's conversations (a Discord channel id, a Telegram
+    /// chat id), looked up live on the platform for the usage page (spec 018). `None` for
+    /// kinds without conversations; the future yields `None` when the lookup fails.
+    fn conversation_names(&self, _integration: &Integration, _chat_id: &str) -> Option<NamesFuture> {
         None
     }
 }

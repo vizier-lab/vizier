@@ -7,7 +7,10 @@ use crate::{
     channels::{readers::Reader, telegram::TelegramChannelReader},
     dependencies::VizierDependencies,
     integrations::{
-        kind::{AgentToolContext, Contribution, IntegrationKind, KindListing, string_setting},
+        kind::{
+            AgentToolContext, Contribution, ConversationNames, IntegrationKind, KindListing,
+            NamesFuture, string_setting,
+        },
         kinds::{token_fields, validate_token},
     },
     schema::{ChannelPlatform, Integration, IntegrationFamily},
@@ -62,6 +65,24 @@ impl IntegrationKind for TelegramKind {
         let token = string_setting(&integration.settings, "token")?;
         let reader = TelegramChannelReader::new(agent_id.into(), token.into(), deps.clone());
         Some((ChannelPlatform::Telegram, Arc::new(reader)))
+    }
+
+    fn conversation_names(&self, integration: &Integration, chat_id: &str) -> Option<NamesFuture> {
+        use teloxide::prelude::Requester;
+        let token = string_setting(&integration.settings, "token")?.to_string();
+        let chat_id = teloxide::types::ChatId(chat_id.parse().ok()?);
+        Some(Box::pin(async move {
+            let chat = teloxide::Bot::new(token).get_chat(chat_id).await.ok()?;
+            let conversation = chat
+                .title()
+                .or_else(|| chat.username())
+                .or_else(|| chat.first_name())
+                .map(str::to_string);
+            Some(ConversationNames {
+                space: None,
+                conversation,
+            })
+        }))
     }
 }
 

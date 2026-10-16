@@ -1,13 +1,17 @@
 use std::sync::Arc;
 
 use serde_json::Value;
+use twilight_model::id::{Id, marker::ChannelMarker};
 
 use crate::{
     agents::tools::{VizierToolSet, discord::new_discord_tools},
     channels::{discord::DiscordChannelReader, readers::Reader},
     dependencies::VizierDependencies,
     integrations::{
-        kind::{AgentToolContext, Contribution, IntegrationKind, KindListing, string_setting},
+        kind::{
+            AgentToolContext, Contribution, ConversationNames, IntegrationKind, KindListing,
+            NamesFuture, string_setting,
+        },
         kinds::{token_fields, validate_token},
     },
     schema::{ChannelPlatform, Integration, IntegrationFamily},
@@ -68,6 +72,25 @@ impl IntegrationKind for DiscordKind {
         let token = string_setting(&integration.settings, "token")?;
         let reader = DiscordChannelReader::new(agent_id.into(), token.into(), deps.clone());
         Some((ChannelPlatform::Discord, Arc::new(reader)))
+    }
+
+    fn conversation_names(&self, integration: &Integration, chat_id: &str) -> Option<NamesFuture> {
+        let token = string_setting(&integration.settings, "token")?.to_string();
+        let channel_id = Id::<ChannelMarker>::new_checked(chat_id.parse().ok()?)?;
+        Some(Box::pin(async move {
+            let http = twilight_http::Client::new(token);
+            let channel = http.channel(channel_id).await.ok()?.model().await.ok()?;
+            let space = match channel.guild_id {
+                Some(guild_id) => http.guild(guild_id).await.ok()?.model().await.ok().map(|g| g.name),
+                None => None,
+            };
+            let conversation = match (&channel.name, &channel.guild_id) {
+                (Some(name), Some(_)) => Some(format!("#{name}")),
+                (Some(name), None) => Some(name.clone()),
+                (None, _) => Some("Direct message".to_string()),
+            };
+            Some(ConversationNames { space, conversation })
+        }))
     }
 }
 

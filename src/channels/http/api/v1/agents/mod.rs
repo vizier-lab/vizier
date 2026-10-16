@@ -825,7 +825,7 @@ async fn agent_usage(
         Ok(q) => q,
         Err(refused) => return refused,
     };
-    match crate::usage::build_report(&state.storage, &state.catalogue, q).await {
+    match crate::usage::build_report(&state.storage, &state.catalogue, &state.deps.integration_kinds, q).await {
         Ok(report) => api_response(StatusCode::OK, report).into_response(),
         Err(e) => err_response::<String>(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
@@ -881,7 +881,7 @@ async fn agent_usage_conversation(
         Err(refused) => return refused,
     };
     q.conversation = Some((channel, params.topic.filter(|t| !t.is_empty())));
-    match crate::usage::conversation_usage(&state.storage, &state.catalogue, q, limit).await {
+    match crate::usage::conversation_usage(&state.storage, &state.catalogue, &state.deps.integration_kinds, q, limit).await {
         Ok(usage) => api_response(StatusCode::OK, usage).into_response(),
         Err(e) => err_response::<String>(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
