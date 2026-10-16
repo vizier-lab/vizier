@@ -18,7 +18,7 @@ This feature moves those connections out of the agent form into a dedicated **In
 
 ### User Story 1 - Manage MCP servers in one place and attach them to agents (Priority: P1)
 
-With an agent selected, an operator opens **Integrations › MCP**. They add an MCP server (name, command or URL, environment, headers), which this agent then uses. Then they switch to another agent and turn the same server on for it. Later they edit the server's environment (e.g. rotate a token) or detach it from one agent. The agents pick up the change on their next turn; a conversation in progress is not cut off.
+With an agent selected, an operator opens **Integrations › MCP**. They add an MCP server (name, then a launch command with arguments and environment, or a URL), which this agent then uses. Then they switch to another agent and turn the same server on for it. Later they edit the server's environment (e.g. rotate a token) or detach it from one agent. The agents pick up the change on their next turn; a conversation in progress is not cut off.
 
 **Why this priority**: MCP is the integration most often shared between agents and most often edited, and it is the one whose edits most often interrupt work today. It alone proves the full model: defined once, attached to many, changed live.
 
@@ -141,7 +141,7 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
   - A user with neither permission can still see, read-only, which integrations are attached to agents they can view. Without either permission the Integrations menus are hidden from the sidebar.
 - **FR-005b**: The `agents:mcp_config` permission MUST be retired. It is removed from the permissions that can be granted and from the role editor, and it is stripped from stored roles during the upgrade migration (FR-025). MCP servers are governed only by the two integration permissions.
 - **FR-005a**: Every integration MUST record who created it, so the owned scope can be enforced. When an integration is detached from or deleted from an agent, the operator MUST see which agents (and, for all-scope managers, whose agents) are affected.
-- **FR-006**: Secrets (bot tokens, API keys, secret-bearing MCP environment values and headers) MUST NOT be displayed in full after saving; operators MUST be able to replace them without retyping other fields.
+- **FR-006**: Secrets (bot tokens, API keys, MCP environment values) MUST NOT be displayed in full after saving; operators MUST be able to replace them without retyping other fields.
 
 **Channels**
 
@@ -198,7 +198,7 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 - **Integration**: something outside vizier an agent can use. Has a kind (channel, addon, MCP server), a creator (determining owned vs shared scope), a name, its settings (secrets included), an enabled flag, and a status (healthy / degraded / failed with last error / disabled / unassigned).
 - **Channel connection**: a Discord or Telegram bot. Platform, token, assigned agent (zero or one), status. Brings its platform's messaging tools to its agent.
 - **Addon**: a first-party integration vizier ships. Initially Brave Search (API key, safesearch). Fixed catalogue; operators configure, they don't define new kinds.
-- **MCP server**: an operator-defined tool server (launch command or URL, environment, headers, timeouts as today).
+- **MCP server**: an operator-defined tool server (a local launch command with arguments and environment, or an HTTP URL — the options available today).
 - **Attachment**: the link between an integration and an agent (many-to-many for addons and MCP; one agent per channel connection).
 
 ## Success Criteria *(mandatory)*
