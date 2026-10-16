@@ -154,5 +154,5 @@ React Router v7 + React 19 + TypeScript + Tailwind v4. State via Zustand-style s
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
-`specs/017-agent-self-integrations/plan.md`
+`specs/018-usage-accounting/plan.md`
 <!-- SPECKIT END -->
