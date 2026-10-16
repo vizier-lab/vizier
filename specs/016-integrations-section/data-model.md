@@ -18,7 +18,10 @@ One row per channel connection, addon configuration or MCP server.
 | `created_at` / `updated_at` | TEXT NOT NULL | RFC 3339 |
 
 Constraints:
-- `UNIQUE(kind, name)`.
+- `name` is **not** unique install-wide. Two MCP integrations may share a name, and tool names come only from it (research R12). Per-agent rules, enforced in `IntegrationStorage::set_attachment` / create inside the transaction:
+  - an agent may not have two attached `mcp` integrations with the same `name`;
+  - an agent may have at most one attached integration of each addon kind (attaching another replaces it);
+  - an agent may have at most one attached connection per channel platform.
 - Channel tokens are unique across integrations of the same kind (FR-009). This is checked in `IntegrationStorage::save` inside the write transaction, by comparing the stored token with the token being saved; an index can't express this over a JSON field.
 
 ## 2. `integration_attachment` (SQLite)
@@ -94,10 +97,10 @@ async fn delete_agent_attachments(&self, agent_id: &str) -> Result<()>;
 |---|---|---|---|
 | `discord` | the six Discord tools (`new_discord_tools`) | — | `DiscordChannelReader` |
 | `telegram` | the three Telegram tools | — | `TelegramChannelReader` |
-| `brave_search` | `BraveSearch<WebOnlySearch>`, `BraveSearch<NewsOnlySearch>` | — | — |
+| `brave_search` | `brave_search_web`, `brave_search_news` (category `brave_search`) | — | — |
 | `mcp` | — | one `McpServer` keyed by `name` | — |
 
-Tool names, categories and `DREAM_TOOL_NAMES` are unchanged. The tools simply move from `VizierTools::new` into each kind's `contribute`.
+Tool names and categories are unchanged except for the addon namespacing (research R12): Brave's `web_search` / `news_search` become `brave_search_web` / `brave_search_news` under category `brave_search`. `DREAM_TOOL_NAMES` doesn't include any integration tool and is unchanged. The tools simply move from `VizierTools::new` into each kind's `contribute`.
 
 ## 6. Runtime state (not persisted)
 

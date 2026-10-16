@@ -104,11 +104,13 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 
 - **Integration deleted while attached**: the operator is shown the agents it is attached to and must confirm; after deletion those agents simply lose it from their next turn.
 - **Agent deleted**: its attachments are removed; integrations it used remain (a channel connection becomes unassigned and goes offline).
+- **Two bots of the same platform on one agent**: refused. An agent has at most one Discord and one Telegram connection, so its `discord_*` / `telegram_*` tool names stay unambiguous.
 - **One bot token used twice**: a token already used by another channel connection is refused, since two readers on one bot would compete for its messages.
 - **Unassigned channel connection**: allowed (saved but offline), shown as unassigned.
 - **Change during a turn**: a turn always runs with the integration set it started with; changes apply from the next turn. A channel connection being restarted does not drop the agent's in-flight reply on other channels.
 - **Agent currently failed/retrying**: attaching or editing integrations is still allowed and is picked up when the agent is next running.
-- **MCP tool-name collisions** between two servers attached to one agent are resolved the same way as today (suffixes), and remain stable for an agent as long as its attached set does not change.
+- **Tool names are never prefixed with an agent or integration id.** An MCP server's tools are named `<server name>_<tool>` exactly as today, so the same server keeps the same tool names on every agent. Two different MCP servers may share a name across the install, but one agent cannot have two attached servers with the same name; attaching the second is refused with a clear message.
+- **An agent installs at most one configuration of each addon.** Installing a different configuration of the same addon (e.g. a second Brave key) replaces the first for that agent.
 - **Secrets**: tokens, API keys and secret-bearing MCP environment values are never shown back in full after saving.
 - **Isolation**: an MCP server attached to several agents still runs as a separate connection per agent; one agent's crash or hang of that server does not affect the others.
 - **Addon unconfigured but enabled for an agent** (e.g. key removed): agents no longer get the search tool and the Addons page flags the addon as incomplete.
@@ -161,6 +163,7 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
   Installing an addon that isn't set up yet MUST first ask for the settings it needs (for Brave Search, the API key). Uninstalling turns it off for this agent only.
 - **FR-011b**: Throughout the WebUI, "install" and "uninstall" mean turning an addon on or off for the selected agent. They MUST NOT download or run anything.
 - **FR-012**: Operators MUST be able to configure an addon once and choose which agents may use it.
+- **FR-012a**: Addon tools MUST be namespaced by their addon, the way MCP tools are by their server: named `<addon id>_<tool>` (Brave Search: `brave_search_web`, `brave_search_news`) and listed under a category named after the addon (`brave_search`). This renames today's `web_search` and `news_search` (breaking for scripts and skills that call them by name).
 - **FR-013**: The Addons menu MUST be able to take future first-party addons without changes to the agent configuration form.
 
 **MCP**

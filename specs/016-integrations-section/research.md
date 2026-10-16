@@ -154,7 +154,7 @@ Every subscriber rebuilds from storage (level-triggered), never from the event's
    - The old `tools.discord.enabled` / `tools.telegram.enabled` flags are dropped: a connection always brings its tools (FR-008). An agent that had a token but the tools off gains the tools; this is noted in the PR.
    - If two agents share a token (already broken today, since two readers compete), the first agent keeps it and the duplicate is skipped with a `warn!` naming both agents.
 2. **Brave Search** (enabled, with a key). Agents with identical `(api_key, safesearch)` share one addon configuration. Each distinct key becomes its own configuration (spec assumption: no agent switches keys).
-3. **MCP servers.** Identical definitions (canonical JSON equality of `name` plus `McpClientConfig`) merge into one integration attached to all of those agents. Same name with a different definition: the later ones are renamed `<name>-<agent name>`, which is logged. Tool names stay `<server>_<tool>`, so a renamed server changes its tool names. This is the only behaviour change, and it only happens on an existing collision.
+3. **MCP servers.** Identical definitions (canonical JSON equality of `name` plus `McpClientConfig`) merge into one integration attached to all of those agents. Same name with a different definition becomes a *separate* integration with the *same* name. Nothing is renamed, so every agent keeps its exact MCP tool names (R12).
 4. **Who created what.** `created_by` = the agent's `owner_id`; `scope = owned`. An integration merged across agents with different owners gets `scope = shared` and `created_by = NULL` (system).
 5. **Clean the agent config.** Strip the moved keys from each `agent_config` row in the same transaction.
 6. **Roles** (FR-025):
@@ -203,5 +203,27 @@ Everything happens in one SQLite transaction. It runs once; a second start finds
   - each kind's `validate` / `redact` / `merge_secrets`;
   - the migration (merge and no-merge cases, idempotency) against an in-memory connection;
   - `compose` reusing unchanged `McpServer` `Arc`s.
-- **End to end:** a dummyplug agent (constitution gate). In code mode the `tools` command lists only the four sandbox tools, so the checks run `list_tool_functions {"category": "web"}` / `{"category": "<mcp key>"}` through dummyplug's JSON path to see which integration tools the agent has on its *next* turn. The quickstart scripts this.
+- **End to end:** a dummyplug agent (constitution gate). In code mode the `tools` command lists only the four sandbox tools, so the checks run `list_tool_functions {"category": "brave_search"}` / `{"category": "<mcp key>"}` through dummyplug's JSON path to see which integration tools the agent has on its *next* turn. The quickstart scripts this.
 - **Live:** only the Discord/Telegram connection steps need real tokens, and they are marked as such.
+
+## R12 — Tool naming and namespacing
+
+**Decision**:
+
+- **No agent or integration-id prefixes, ever.** Tool names depend only on the tool, so a shared integration produces identical names on every agent. This also keeps prompts byte-identical across agents.
+- **MCP:** unchanged. Tools are `<server name>_<tool>` and the category is the server name (`<name>_mcp` when it clashes with a built-in category, *or now with an addon id*). Because tool names come from the server name:
+  - `integration.name` is **not** unique install-wide (drops `UNIQUE(kind, name)`);
+  - instead, an agent may not have two attached MCP integrations with the same name. The attachment and create endpoints refuse with `409 name_in_use_on_agent`, naming the integration already attached.
+  - This is what lets the migration keep every MCP name (R7).
+- **Addons:** namespaced like MCP. Each addon tool is named `<addon id>_<tool>`, and every tool an addon contributes is listed under one category named after the addon id, described by the addon's `KindListing`.
+  - Brave Search: `web_search` → `brave_search_web`, `news_search` → `brave_search_news`, category `web` → `brave_search`. The `web` category keeps fetch and the HTTP client.
+  - **Mechanism:** `Contribution` carries `addon: Option<&'static str>`. The router's catalogue lists those native tools under that category instead of `VizierTool::category()`. The Brave tool types return `None` from `category()`, like the direct tools, and `every_tool_is_in_its_category` lists them under their addon.
+  - A unit test asserts that every tool an addon kind contributes is named `<addon id>_…`.
+  - Addon ids are reserved category names, so an MCP server named `brave_search` gets category `brave_search_mcp`. Its tools can't take `brave_search_web`, because native names are reserved first in `assign_names`.
+- **One configuration per addon per agent:** an agent may have at most one configuration of a given addon kind attached, or two Brave keys would produce the same tool names. Attaching another configuration of the same kind replaces the first, in one transaction.
+- **Channels:** Discord and Telegram tools keep their names (`discord_*`, `telegram_*`) and categories; they are already namespaced by platform. An agent may have only one connection per platform, so the tool names can't collide. Attaching a second Discord bot to an agent that has one is refused with `409 platform_in_use_on_agent`.
+- **Breaking:** the Brave rename changes dispatch keys, like 014's renames. It is flagged `[**breaking**]` and listed in the PR notes. Skills or scripts that call `web_search` / `news_search` must be updated, because there is no alias (consistent with 014: retired names are not aliased).
+
+**Alternatives considered**:
+- Prefixing tools with the integration's id or the agent: unstable, unreadable, and it differs per agent.
+- Keeping the bare `web_search`: the user asked for addon namespacing, and bare names would collide as more search addons arrive.

@@ -41,7 +41,9 @@ This returns what the page for that agent shows. `items` lists every integration
 
 Body `{ "attached": true | false }`.
 - Allowed when `can_attach` holds: all-scope, or owned-scope on an agent the caller owns and an integration that is theirs or `shared`.
-- **Channel family, `attached: true`** moves the connection to this agent, ending its previous assignment.
+- **Channel family, `attached: true`** moves the connection to this agent, ending its previous assignment. It is refused with `409 platform_in_use_on_agent` when this agent already has a connection for that platform.
+- **Addon, `attached: true`** replaces any other configuration of the same addon kind on this agent (one per agent); the response's `affected_agents` covers both.
+- **MCP, `attached: true`** is refused with `409 name_in_use_on_agent` when another attached MCP server on this agent has the same `name`.
 - **Addon, `attached: true`, settings incomplete** is refused with `409 {"error":"incomplete","missing":["api_key"]}`. The UI then shows the settings form first (spec FR-011a).
 - **Response:** the updated item, plus `"affected_agents": [...]`.
 
@@ -56,7 +58,8 @@ The caller needs either integration permission, and owned-scope callers must own
 | Status | When |
 |---|---|
 | `201` | Returns the item |
-| `409 name_taken` | Another integration of this kind has the same `name` |
+| `409 name_in_use_on_agent` | `mcp` only: this agent already has an MCP server with that `name` attached (tool names would collide); the body names it |
+| `409 platform_in_use_on_agent` | channel only: this agent already has a connection for that platform |
 | `409 token_in_use` | The bot token is already used by another connection (FR-009) |
 | `422` | Settings fail the kind's `validate` |
 

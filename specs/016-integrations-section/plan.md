@@ -11,6 +11,7 @@ Discord/Telegram bots, the Brave Search addon and MCP servers move off `AgentCon
 - **Agents.** Each agent's tools are split into a fixed `BaseTools` and a swappable `IntegrationTools` layer, composed into an `ArcSwap<VizierTools>`. A turn takes one snapshot. An integration change rebuilds only that layer, reusing MCP connections that didn't change.
 - **Channel readers.** Readers leave the agent's process loop and become a process-wide `ChannelConnections` manager, reconciled against storage. A bot reconnects on its own, and an agent restart no longer touches it.
 - **One kind trait.** Every kind (Discord, Telegram, Brave Search, MCP) implements a single `IntegrationKind` trait, which also drives the Addons catalogue.
+- **Naming.** Tool names never carry an agent or integration prefix. MCP keeps `<server>_<tool>`. Addon tools are namespaced the same way (`brave_search_web`, `brave_search_news`, category `brave_search`).
 - **WebUI.**
   - The sidebar gains an agent-scoped **Integrations** section (Channels, Addons as an app-store grid, MCP).
   - A **Misc** section takes Usage and Config; Config is the former Agent Config, now built-in tools only.
@@ -162,7 +163,7 @@ webui/app/
    - Config trim;
    - the role editor.
 7. **Polish**: quickstart run end to end on dummyplug; `CLAUDE.md` architecture notes (tools, channels, storage, permissions); PR notes on behaviour changes.
-   - Behaviour changes: a token without the tools toggle now gets the tools; an MCP rename only on an existing collision.
+   - Behaviour changes: a token without the tools toggle now gets the tools; Brave tools renamed `web_search`/`news_search` → `brave_search_web`/`brave_search_news` (`[**breaking**]`). MCP tool names never change.
 
 US1 (MCP) is the MVP slice: phases 1–2 plus the MCP endpoints and page.
 

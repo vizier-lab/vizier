@@ -19,7 +19,7 @@ cd webui && npm run typecheck
 - **Agents.** Run `dp-a` and `dp-b` on the `dummyplug` provider. The dummyplug protocol is in `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`.
 - **MCP server.** `fs` runs `npx -y @modelcontextprotocol/server-filesystem /tmp`. It needs `node` but no network once cached. Use any local stdio MCP server if `node` isn't available.
 - **Reading an agent's tools** (code mode). Send `dp-*` the message `{"tool":"list_tool_functions","arguments":{"category":"<cat>"}}`:
-  - `<cat>` = `web` shows Brave;
+  - `<cat>` = `brave_search` shows the Brave addon (`brave_search_web`, `brave_search_news`);
   - `<cat>` = `fs` shows the MCP server;
   - `<cat>` = `discord` / `telegram` shows the bot tools.
 
@@ -42,11 +42,12 @@ Start this branch with `just run`.
 
 | Check | Expect |
 |---|---|
-| startup log | one `info` per migrated integration; a `warn` that `old-3`'s `fs` was renamed `fs-old-3` |
+| startup log | one `info` per migrated integration; no renames |
 | `GET /api/v1/agents/old-1/integrations?family=addon` | one Brave item, attached, `also_used_by` = `old-2`; `api_key` redacted `••••…` |
 | same for `old-3` | a *different* Brave item (its own key), not used by others |
 | `GET …/old-1/integrations?family=mcp` | `fs`, attached, `also_used_by` = `old-2` |
-| `GET …/old-3/integrations?family=mcp` | `fs-old-3`, attached |
+| `GET …/old-3/integrations?family=mcp` | a *different* integration also named `fs`, attached, not used by others |
+| `old-1` and `old-3`: `list_tool_functions {"category":"fs"}` | both list `fs_*` names, unchanged from before the upgrade |
 | `GET …/old-1/integrations?family=channel` | one Discord item, attached; status `failed` (dummy token rejected) **while `old-1` is `running`** in `GET /agents/health` |
 | `GET /api/v1/agents/old-1` | no `discord_token`, `tools.brave_search` or `tools.mcp_servers` |
 | roles | `agents:mcp_config` gone everywhere; the role that had it now has `owned_agents:integrations:manage` |
@@ -75,7 +76,9 @@ All steps use dummyplug on `dp-a`/`dp-b`. Before the steps, note `GET /agents/he
 | 1 | `GET /integrations/kinds?family=addon` | one item `brave_search` with `fields` |
 | 2 | As admin, `POST` a Brave item with `settings:{safesearch:true}` (no key) on `dp-b`, detach it, then `PUT /agents/dp-a/integrations/{it}/attachment {attached:true}` | `409 incomplete, missing ["api_key"]` |
 | 3 | `POST /agents/dp-a/integrations {kind:"brave_search", name:"brave", settings:{api_key:"dummy", safesearch:true}}` | `201` |
-| 4 | `dp-a`: `list_tool_functions {"category":"web"}` | Brave web and news search functions listed; `dp-b` doesn't have them |
+| 4 | `dp-a`: `list_tool_functions {"category":"brave_search"}` | `brave_search_web` and `brave_search_news`; `dp-b` doesn't have them; `{"category":"web"}` lists only fetch / HTTP client |
+| 4a | Create a second MCP integration named `fs` and attach it to `dp-a` (which already has `fs`) | `409 name_in_use_on_agent` |
+| 4b | Create a second Brave configuration and install it on `dp-a` | it replaces the first on `dp-a`; tool names unchanged |
 | 5 | `dp-a`: run the Brave web search via `execute_python` | the tool fails with an auth error *for that call only*; the item's status becomes `failed` with that error (needs network; marked) |
 | 6 | `PUT /integrations/{brave}` with only `{settings:{safesearch:false}}` | `api_key` kept (redaction round-trip) |
 
