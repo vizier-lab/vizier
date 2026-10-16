@@ -12,13 +12,13 @@
 
 Today everything that connects an agent to the outside world is part of that agent's configuration form: Discord and Telegram bot tokens ("Channel Tokens"), the Discord/Telegram tool toggles, Brave Search (toggle + API key + safesearch), and MCP servers. Every save of that form rebuilds the agent, and a rebuild aborts the agent's running turns (#52). Configuring the same MCP server or Brave key for three agents means entering it three times.
 
-This feature moves those connections out of the agent form into a dedicated **Integrations** area of the WebUI, with three menus — **Channels**, **Services**, **MCP** — and makes changing an integration take effect without restarting the agents that use it. The agent form keeps only the agent's built-in tools (fetch, HTTP client, text-to-speech, speech-to-text, read image, image generation, shell) and tool settings.
+This feature moves those connections out of the agent form into a dedicated **Integrations** section of the sidebar, scoped to the selected agent, with three menus — **Channels**, **Services**, **MCP** — moves the agent form itself into a new **Misc** section as **Config**, and makes changing an integration take effect without restarting the agents that use it. The agent form keeps only the agent's built-in tools (fetch, HTTP client, text-to-speech, speech-to-text, read image, image generation, shell) and tool settings.
 
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Manage MCP servers in one place and attach them to agents (Priority: P1)
 
-An operator opens **Integrations › MCP**, adds an MCP server once (name, command or URL, environment, headers), and chooses which agents may use it. Later they edit the server's environment (e.g. rotate a token) or detach it from one agent. The agents pick up the change on their next turn; a conversation in progress is not cut off.
+With an agent selected, an operator opens **Integrations › MCP**. They add an MCP server (name, command or URL, environment, headers), which this agent then uses. Then they switch to another agent and turn the same server on for it. Later they edit the server's environment (e.g. rotate a token) or detach it from one agent. The agents pick up the change on their next turn; a conversation in progress is not cut off.
 
 **Why this priority**: MCP is the integration most often shared between agents and most often edited, and it is the one whose edits most often interrupt work today. It alone proves the full model: defined once, attached to many, changed live.
 
@@ -30,13 +30,14 @@ An operator opens **Integrations › MCP**, adds an MCP server once (name, comma
 2. **Given** a server attached to agents A and B, **When** the operator detaches it from B, **Then** B's next turn no longer offers those tools and A is unaffected.
 3. **Given** agent A is in the middle of a turn, **When** the operator edits a server A uses, **Then** A's current turn finishes normally and the edit applies from A's next turn.
 4. **Given** a server that cannot connect, **When** an attached agent takes a turn, **Then** the turn proceeds without that server's tools and the MCP page shows that server as unreachable with the last error.
-5. **Given** an agent's configuration form, **When** the operator opens it, **Then** there is no MCP server editor there; instead it shows which MCP servers are attached, linking to Integrations › MCP.
+5. **Given** an agent's Config page, **When** the operator opens it, **Then** there is no MCP server editor there.
+6. **Given** agent A is selected, **When** the operator switches the sidebar to agent B while on Integrations › MCP, **Then** the page shows B's MCP servers.
 
 ---
 
 ### User Story 2 - Connect an agent to Discord or Telegram from the Channels menu (Priority: P1)
 
-An operator opens **Integrations › Channels**, adds a Discord or Telegram bot connection (token), and assigns it to an agent. The bot comes online for that agent without restarting the agent. Replacing the token, pausing the connection, or reassigning it to a different agent only restarts that connection.
+With an agent selected, an operator opens **Integrations › Channels** and adds a Discord or Telegram bot connection (token) for that agent. The bot comes online for that agent without restarting the agent. Replacing the token, pausing the connection, or reassigning it to a different agent only restarts that connection.
 
 **Why this priority**: Channel tokens are the other piece of config people change most, and a bad token today makes the whole agent rebuild and can refuse the save. Separating them makes a channel problem a channel problem.
 
@@ -55,7 +56,7 @@ An operator opens **Integrations › Channels**, adds a Discord or Telegram bot 
 
 ### User Story 3 - Configure Brave Search as a first-party service (Priority: P2)
 
-An operator opens **Integrations › Services**, sees the first-party services vizier offers (for now: Brave Search), enters the Brave API key and its options once, and chooses which agents may use it. Agents gain or lose web search on their next turn.
+With an agent selected, an operator opens **Integrations › Services** and sees the first-party services vizier offers (for now: Brave Search). They enter the Brave API key and its options once, and turn the service on for this agent. Doing the same for other agents reuses the saved key. Agents gain or lose web search on their next turn.
 
 **Why this priority**: Valuable and simple, but a single service today; the Services menu is mainly the home for future first-party integrations.
 
@@ -86,18 +87,18 @@ An operator upgrades vizier. Every agent's existing Discord/Telegram tokens, Bra
 
 ---
 
-### User Story 5 - Agent config shows only built-in tools (Priority: P3)
+### User Story 5 - Misc › Config shows only built-in tools (Priority: P3)
 
-An operator opens an agent's configuration and finds only that agent's own settings and built-in tools; a read-only summary shows which integrations the agent uses, each linking to where it is managed.
+An operator opens **Misc › Config** for the selected agent (formerly "Agent Config") and finds only that agent's own settings and built-in tools.
 
 **Why this priority**: The clean-up is the visible result of the change but has no value on its own.
 
-**Independent Test**: Open the config of an agent with all integration kinds attached; confirm no token, MCP or Brave editors are present and the summary links resolve.
+**Independent Test**: Open the config of an agent with all integration kinds attached; confirm no token, MCP or Brave editors are present.
 
 **Acceptance Scenarios**:
 
 1. **Given** any agent, **When** its configuration is opened, **Then** no channel tokens, Discord/Telegram tool toggles, Brave Search settings or MCP servers are editable there.
-2. **Given** an agent with integrations attached, **When** its configuration is opened, **Then** it lists them (kind, name, status) with links into the Integrations area.
+2. **Given** the sidebar, **When** an agent is selected, **Then** its Config page is under **Misc › Config**, not among the per-agent menus.
 
 ### Edge Cases
 
@@ -118,8 +119,17 @@ An operator opens an agent's configuration and finds only that agent's own setti
 
 **Navigation**
 
-- **FR-001**: The WebUI sidebar MUST have a separate **Integrations** section, distinct from the per-agent menu, containing three menus: **Channels**, **Services**, **MCP**.
-- **FR-002**: The Integrations section MUST be usable without an agent selected, since integrations are not owned by a single agent.
+- **FR-001**: The WebUI sidebar MUST have, in this order:
+  1. the existing per-agent menus;
+  2. a separate **Integrations** section with three menus: **Channels**, **Services**, **MCP**;
+  3. a **Misc** section below Integrations, holding **Config**. Config is the former "Agent Config" menu, renamed and moved.
+- **FR-002**: The Integrations menus MUST be scoped to the agent selected in the sidebar, like the other per-agent menus. Each one shows and edits the current agent's integrations, follows the agent switcher, and is disabled when no agent is selected.
+- **FR-002a**: Within an agent's scope, an operator MUST be able to:
+  - turn on, for this agent, any integration they can see that it doesn't use yet;
+  - turn off an integration it uses;
+  - create a new integration, which is then used by this agent.
+
+  The page MUST show which other agents also use a shared integration. Editing a shared integration's settings MUST warn that the change applies to those agents too.
 
 **Integrations model**
 
@@ -160,7 +170,7 @@ An operator opens an agent's configuration and finds only that agent's own setti
 **Agent config**
 
 - **FR-019**: The agent configuration form MUST no longer contain channel tokens, Discord/Telegram tool toggles, Brave Search settings or MCP servers. It MUST keep the agent's built-in tools and their settings (fetch, HTTP client, text-to-speech, speech-to-text, read image, image generation, shell, tool timeout).
-- **FR-020**: The agent configuration form MUST show a read-only summary of the agent's attached integrations, linking to where each is managed.
+- **FR-020**: The Config page MUST NOT duplicate integration settings. Because the Integrations menus are already scoped to the same agent, it does not need a summary of them.
 - **FR-021**: Agent create/update requests that still carry the moved fields MUST be rejected or ignored with a clear message pointing to Integrations; they MUST NOT silently overwrite integration state.
 
 **Migration**
@@ -193,7 +203,7 @@ An operator opens an agent's configuration and finds only that agent's own setti
 - **SC-003**: Adding one MCP server to 5 agents takes one definition and one attach step, instead of 5 separate entries.
 - **SC-004**: After upgrade, 100% of previously configured channel tokens, Brave Search settings and MCP servers appear under Integrations attached to the same agents, with no operator re-entry and no loss of capability.
 - **SC-005**: A broken integration (bad token, unreachable server, invalid key) never takes an agent offline; the agent keeps answering through its other channels.
-- **SC-006**: An operator can find where to configure a bot token, web search key or MCP server from the sidebar in one click from any page.
+- **SC-006**: From any page, an operator can reach the selected agent's bots, services or MCP servers in one sidebar click.
 
 ## Assumptions
 
