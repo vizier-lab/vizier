@@ -71,6 +71,9 @@ async fn abort_session_notify(
     storage: &VizierStorage,
     response_tx: &Option<flume::Sender<VizierResponse>>,
 ) {
+    // The aborted turn's own sender hears it too: Discord and Telegram send `/abort` with
+    // no sender of their own, and only the turn's renderer can say "thinking aborted".
+    let turn_tx = turns.response_tx(session);
     let had_in_flight = abort_session_silent(
         session,
         turns,
@@ -79,7 +82,7 @@ async fn abort_session_notify(
         storage,
     );
     if had_in_flight {
-        if let Some(tx) = response_tx {
+        for tx in [turn_tx.as_ref(), response_tx.as_ref()].into_iter().flatten() {
             let _ = tx
                 .send_async(VizierResponse {
                     timestamp: chrono::Utc::now(),
@@ -517,6 +520,12 @@ impl SessionTurns {
         let id = handle.id();
         self.spawned.insert(id, (session.clone(), response_tx));
         self.running.insert(session, (id, handle));
+    }
+
+    /// Where the session's running turn sends its response, if it has a turn and a sender.
+    fn response_tx(&self, session: &VizierSession) -> Option<flume::Sender<VizierResponse>> {
+        let (id, _) = self.running.get(session)?;
+        self.spawned.get(id)?.1.clone()
     }
 
     fn is_running(&self, session: &VizierSession) -> bool {
