@@ -107,14 +107,14 @@ export default function UsageConversationDrawer({ agentId, row, startDate, endDa
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>Model calls, most expensive first</h3>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
+                  <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
                     <thead>
                       <tr style={{ fontSize: '11px', color: 'var(--text-tertiary)', textAlign: 'left' }}>
-                        <th style={{ padding: '0 6px 6px 0', fontWeight: 500 }}>Time</th>
+                        <th style={{ padding: '0 6px 6px 0', fontWeight: 500, width: '92px' }}>Time</th>
                         <th style={{ padding: '0 6px 6px', fontWeight: 500 }}>Call</th>
-                        <th style={{ padding: '0 6px 6px', fontWeight: 500, textAlign: 'right' }}>Input</th>
-                        <th style={{ padding: '0 6px 6px', fontWeight: 500, textAlign: 'right' }}>Output</th>
-                        <th style={{ padding: '0 0 6px 6px', fontWeight: 500, textAlign: 'right' }}>Cost</th>
+                        <th style={{ padding: '0 6px 6px', fontWeight: 500, textAlign: 'right', width: '58px' }}>Input</th>
+                        <th style={{ padding: '0 6px 6px', fontWeight: 500, textAlign: 'right', width: '58px' }}>Output</th>
+                        <th style={{ padding: '0 0 6px 6px', fontWeight: 500, textAlign: 'right', width: '84px' }}>Cost</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -128,7 +128,10 @@ export default function UsageConversationDrawer({ agentId, row, startDate, endDa
                               {activityMeta(c.activity).label}
                               {c.round != null && ` · round ${c.round}`}
                             </div>
-                            <div style={{ fontSize: '11px', color: c.failed ? 'var(--color-error, #b42318)' : 'var(--text-tertiary)' }}>
+                            <div
+                              title={c.served_model ?? c.model}
+                              style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '11px', color: c.failed ? 'var(--color-error, #b42318)' : 'var(--text-tertiary)' }}
+                            >
                               {c.failed ? 'part of failed turn' : c.served_model ?? c.model}
                             </div>
                           </td>

@@ -81,7 +81,9 @@ export function UsageDailyChart({ daily, accountingSince }: Props) {
   const colors = useMemo(() => Object.fromEntries(present.map((a) => [a.id, resolveColor(a.color)])), [present])
 
   return (
-    <div>
+    // `relative` keeps the visually hidden table (absolutely positioned) inside this box; without
+    // it the table is placed against the page and gives the window a second scrollbar.
+    <div style={{ position: 'relative' }}>
       <div style={{ width: '100%', height: 240 }} aria-hidden="true">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>

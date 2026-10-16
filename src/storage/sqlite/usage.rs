@@ -455,6 +455,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_old_http_place_is_rewritten_with_its_channel_slug() {
+        let (s, _d) = setup();
+        let mut e = event("a", DAY, UsageActivity::Chat, "m", None);
+        e.channel = Some("http__alice__vizier-webui".into());
+        e.topic = Some("t1".into());
+        e.place = "http:alice:t1".into();
+        s.record_usage(e).await.unwrap();
+        s.record_usage(event("a", DAY, UsageActivity::Chat, "m", None)).await.unwrap();
+
+        crate::storage::sqlite::init_usage_schema(&s.conn.lock()).unwrap();
+
+        let places: Vec<String> = s
+            .usage_groups(&query("a"), UsageGrouping::Place)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter_map(|g| g.place)
+            .collect();
+        assert!(places.contains(&"http:http__alice__vizier-webui:t1".to_string()), "{places:?}");
+        assert!(places.contains(&"discord:1".to_string()), "other places untouched: {places:?}");
+    }
+
+    #[tokio::test]
     async fn legacy_rows_insert_in_one_batch() {
         let (s, _d) = setup();
         let mut e = event("a", DAY, UsageActivity::Chat, "", None);

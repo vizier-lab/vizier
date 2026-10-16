@@ -12,11 +12,7 @@ Reference layout: the mockup at https://claude.ai/artifact/SENVYMyyTnC9UBQbVFbdg
 
 1. **Header**: breadcrumb "Agents / ‹name›", title "Usage", and a period picker built as a segmented control of real `<button aria-pressed>`. "Custom" opens two date inputs.
 2. **Activity filter**: chips for All plus the seven activities, single choice (FR-021). Each chip has a colour dot from the activity palette below. **Other** is shown only when it has usage in range.
-3. **Partial-accounting notice** (FR-019), shown when `range.start < accounting_since`:
-   - with **no** activity filter;
-   - or with an activity filter of `dreams`, `compaction` or `vision`.
-
-   Its text says which things weren't recorded before the date. It is not dismissible.
+3. *(Removed 2026-10-16: the partial-accounting notice. Days before `accounting_since` are only faded in the chart, FR-019.)*
 4. **Headline card**:
    - `summary.cost_usd` (or "—" with "no known price" when it is null);
    - a change pill from `previous` (up = warning colour, down = success colour; hidden when `previous` is null);

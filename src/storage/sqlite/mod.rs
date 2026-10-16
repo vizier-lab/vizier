@@ -406,6 +406,16 @@ pub fn init_usage_schema(conn: &Connection) -> Result<()> {
         ",
     )?;
 
+    // An HTTP place was briefly `http:{user}:{topic}`, which loses which HTTP channel it was;
+    // it is `http:{channel slug}:{topic}`. Rewrites the earlier form, and matches nothing once
+    // every row has the current one.
+    conn.execute(
+        "UPDATE usage_event SET place = 'http:' || channel || ':' || COALESCE(topic, '') \
+         WHERE channel LIKE 'http\\_\\_%' ESCAPE '\\' \
+           AND place <> 'http:' || channel || ':' || COALESCE(topic, '')",
+        [],
+    )?;
+
     Ok(())
 }
 

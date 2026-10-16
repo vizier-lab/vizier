@@ -69,8 +69,13 @@ export default function SlideOver({ open, onClose, title, children, width = 'min
               borderBottom: '1px solid var(--border)',
               flexShrink: 0,
             }}>
-              <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{title}</h2>
-              <button className="btn btn-ghost" onClick={onClose} aria-label="Close" style={{ padding: '6px' }}>
+              <h2
+                title={title}
+                style={{ margin: 0, fontSize: '1.1rem', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              >
+                {title}
+              </h2>
+              <button className="btn btn-ghost" onClick={onClose} aria-label="Close" style={{ padding: '6px', flex: 'none' }}>
                 &#10005;
               </button>
             </div>

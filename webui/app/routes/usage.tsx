@@ -27,6 +27,9 @@ const card: CSSProperties = {
 
 const sectionTitle: CSSProperties = { margin: 0, fontSize: '16px', fontWeight: 600 }
 
+/** One line, cut with an ellipsis: long channel and topic names must not widen the tables. */
+const truncate: CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+
 const dateInput: CSSProperties = {
   border: '1px solid var(--border)',
   background: 'var(--surface)',
@@ -272,8 +275,10 @@ export default function UsagePage() {
   return (
     <>
       {header}
-      <div className="main-body" style={{ maxWidth: '1180px', margin: '0 auto', width: '100%', opacity: loading ? 0.6 : 1, transition: 'opacity 120ms' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      {/* The scrolling area stays full width (one scrollbar, at the window's edge); the width cap
+          is on the content inside it. */}
+      <div className="main-body" style={{ opacity: loading ? 0.6 : 1, transition: 'opacity 120ms' }}>
+        <div style={{ maxWidth: '1180px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Activity filter (FR-021) */}
           <div role="group" aria-label="Activity filter" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '13px', color: 'var(--text-secondary)', marginRight: '4px' }}>Activity</span>
@@ -306,20 +311,6 @@ export default function UsagePage() {
               )
             })}
           </div>
-
-          {showIncomplete && since && (
-            <Notice tone="warning">
-              {activity ? (
-                <>
-                  Before <strong>{dateLabel(since)}</strong>, {activityLabel?.toLowerCase()} calls weren't recorded, so the change against the previous period overstates growth.
-                </>
-              ) : (
-                <>
-                  Before <strong>{dateLabel(since)}</strong> only delivered replies were recorded. Dreams, compaction and failed turns are missing for those days, so the change against the previous period overstates growth.
-                </>
-              )}
-            </Notice>
-          )}
 
           {empty ? (
             <div style={{ ...card, textAlign: 'center', color: 'var(--text-tertiary)', padding: '48px 22px' }}>
@@ -424,25 +415,29 @@ export default function UsagePage() {
                   <Segmented label="Break down by" options={dims} value={by} onChange={(v) => setParam('by', v)} />
                 </div>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', minWidth: '640px', borderCollapse: 'collapse', fontVariantNumeric: 'tabular-nums' }}>
+                  <table style={{ width: '100%', minWidth: '640px', tableLayout: 'fixed', borderCollapse: 'collapse', fontVariantNumeric: 'tabular-nums' }}>
                     <thead>
                       <tr style={{ fontSize: '12px', color: 'var(--text-tertiary)', textAlign: 'left' }}>
                         <th style={{ padding: '0 4px 8px', fontWeight: 500 }}>{by === 'model' ? 'Model' : by === 'place' ? 'Channel' : 'Activity'}</th>
-                        <th style={{ padding: '0 4px 8px', fontWeight: 500, width: '28%' }}>Share of cost</th>
-                        <th style={{ padding: '0 4px 8px', fontWeight: 500, textAlign: 'right' }}>Cost</th>
-                        <th style={{ padding: '0 4px 8px', fontWeight: 500, textAlign: 'right' }}>Tokens</th>
-                        <th style={{ padding: '0 4px 8px', fontWeight: 500, textAlign: 'right' }}>Calls</th>
+                        <th style={{ padding: '0 4px 8px', fontWeight: 500, width: '26%' }}>Share of cost</th>
+                        <th style={{ padding: '0 4px 8px', fontWeight: 500, textAlign: 'right', width: '96px' }}>Cost</th>
+                        <th style={{ padding: '0 4px 8px', fontWeight: 500, textAlign: 'right', width: '80px' }}>Tokens</th>
+                        <th style={{ padding: '0 4px 8px', fontWeight: 500, textAlign: 'right', width: '70px' }}>Calls</th>
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map(({ row, color, detail }) => (
                         <tr key={row.key} style={{ borderTop: '1px solid var(--border)' }}>
                           <td style={{ padding: '12px 4px' }}>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', minWidth: 0 }}>
                               <span aria-hidden="true" style={{ flex: 'none', width: 10, height: 10, marginTop: 5, borderRadius: 2, background: color }} />
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
-                                <span style={{ fontWeight: 500 }}>{row.label}</span>
-                                {detail && <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{detail}</span>}
+                                <span title={row.label} style={{ ...truncate, fontWeight: 500 }}>{row.label}</span>
+                                {detail && (
+                                  <span title={detail} style={{ ...truncate, fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    {detail}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </td>
@@ -476,16 +471,16 @@ export default function UsagePage() {
                   <div style={{ padding: '24px 4px', color: 'var(--text-tertiary)', textAlign: 'center' }}>No conversations for this activity in the period.</div>
                 ) : (
                   <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', minWidth: '680px', borderCollapse: 'collapse', fontSize: '14px', fontVariantNumeric: 'tabular-nums' }}>
+                    <table style={{ width: '100%', minWidth: '680px', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: '14px', fontVariantNumeric: 'tabular-nums' }}>
                       <thead>
                         <tr style={{ fontSize: '12px', color: 'var(--text-tertiary)', textAlign: 'left' }}>
-                          <th style={{ padding: '0 4px 8px', fontWeight: 500 }}>#</th>
+                          <th style={{ padding: '0 4px 8px', fontWeight: 500, width: '32px' }}>#</th>
                           <th style={{ padding: '0 4px 8px', fontWeight: 500 }}>Conversation</th>
-                          <th style={{ padding: '0 4px 8px', fontWeight: 500 }}>Activity</th>
-                          <th style={{ padding: '0 4px 8px', fontWeight: 500 }}>Model</th>
-                          <th style={{ padding: '0 4px 8px', fontWeight: 500, textAlign: 'right' }}>Tokens</th>
-                          <th style={{ padding: '0 4px 8px', fontWeight: 500, textAlign: 'right' }}>Cost</th>
-                          <th style={{ padding: '0 4px 8px' }}>
+                          <th style={{ padding: '0 4px 8px', fontWeight: 500, width: '120px' }}>Activity</th>
+                          <th style={{ padding: '0 4px 8px', fontWeight: 500, width: '20%' }}>Model</th>
+                          <th style={{ padding: '0 4px 8px', fontWeight: 500, textAlign: 'right', width: '80px' }}>Tokens</th>
+                          <th style={{ padding: '0 4px 8px', fontWeight: 500, textAlign: 'right', width: '96px' }}>Cost</th>
+                          <th style={{ padding: '0 4px 8px', width: '100px' }}>
                             <span className="sr-only">Details</span>
                           </th>
                         </tr>
@@ -498,15 +493,15 @@ export default function UsagePage() {
                             <tr key={`${c.channel}/${c.topic ?? ''}`} style={{ borderTop: '1px solid var(--border)' }}>
                               <td style={{ padding: '11px 4px', color: 'var(--text-tertiary)' }}>{i + 1}</td>
                               <td style={{ padding: '11px 4px' }}>
-                                <div style={{ fontWeight: 500 }}>
-                                  {c.label}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, fontWeight: 500 }}>
+                                  <span title={c.label} style={{ ...truncate, minWidth: 0 }}>{c.label}</span>
                                   {failed && (
-                                    <span style={{ marginLeft: 8, fontSize: '11px', fontWeight: 600, borderRadius: 4, padding: '1px 6px', background: 'var(--color-error-bg)', color: 'var(--color-error-text)' }}>
+                                    <span style={{ flex: 'none', fontSize: '11px', fontWeight: 600, borderRadius: 4, padding: '1px 6px', background: 'var(--color-error-bg)', color: 'var(--color-error-text)' }}>
                                       Failed
                                     </span>
                                   )}
                                 </div>
-                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                <div style={{ ...truncate, fontSize: '12px', color: 'var(--text-secondary)' }}>
                                   {c.detail}
                                   {c.detail && ' · '}
                                   {dateLabel(c.last_at)}
@@ -519,7 +514,7 @@ export default function UsagePage() {
                                   {meta.label}
                                 </span>
                               </td>
-                              <td style={{ padding: '11px 4px', fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-secondary)' }}>{c.model}</td>
+                              <td title={c.model} style={{ ...truncate, padding: '11px 4px', fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-secondary)' }}>{c.model}</td>
                               <td style={{ padding: '11px 4px', textAlign: 'right', color: 'var(--text-secondary)' }}>{formatTokens(c.tokens)}</td>
                               <td style={{ padding: '11px 4px', textAlign: 'right', fontWeight: 500 }}>{formatCost(c.cost_usd)}</td>
                               <td style={{ padding: '11px 4px', textAlign: 'right' }}>
