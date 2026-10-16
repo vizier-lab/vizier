@@ -110,8 +110,13 @@ impl Dialect for Ollama {
             .and_then(Value::as_u64)
             .unwrap_or(0);
         let completion = body.get("eval_count").and_then(Value::as_u64).unwrap_or(0);
+        let finish_reason =
+            super::finish_reason(body.get("done_reason").and_then(Value::as_str), &content);
         Ok(CompletionResponse {
+            // Ollama gives no response id.
             id: None,
+            model: super::str_field(&body, "model"),
+            finish_reason,
             content,
             usage: Usage {
                 input_tokens: prompt,

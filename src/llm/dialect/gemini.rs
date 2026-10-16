@@ -138,8 +138,14 @@ impl Dialect for Gemini {
                 .and_then(Value::as_u64)
                 .unwrap_or(0)
         };
+        let finish_reason = super::finish_reason(
+            body.pointer("/candidates/0/finishReason").and_then(Value::as_str),
+            &content,
+        );
         Ok(CompletionResponse {
-            id: None,
+            id: super::str_field(&body, "responseId"),
+            model: super::str_field(&body, "modelVersion"),
+            finish_reason,
             content,
             usage: Usage {
                 input_tokens: get("promptTokenCount"),

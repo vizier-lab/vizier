@@ -224,9 +224,16 @@ fn normalise_rig(target: &str, mut body: Value, req: &CompletionRequest) -> Valu
 
 /// Parts order: we keep each provider's own order, except that reasoning is compared apart
 /// from its position (rig 0.39's DeepSeek client appended it last; it is never persisted).
+///
+/// The response's id, model and finish reason are not rig's: rig kept only the Responses
+/// API's message item id and nothing else, while we read what each provider reports, for
+/// telemetry. They are checked on their own by `every_golden_response_reports_its_metadata`.
 fn normalise_parsed(mut r: CompletionResponse) -> Value {
     r.content
         .sort_by_key(|p| !matches!(p, AssistantPart::Reasoning { .. }));
+    r.id = None;
+    r.model = None;
+    r.finish_reason = None;
     serde_json::to_value(r).unwrap()
 }
 
@@ -304,4 +311,49 @@ fn every_golden_response_decodes_like_rig() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+/// Every recorded reply gives its id and model where the provider has them, and a finish
+/// reason in the GenAI conventions' terms. None of the recordings was cut short, so each is
+/// `tool_call` or `stop`; the other values are `dialect::finish_reason`'s unit tests.
+#[test]
+fn every_golden_response_reports_its_metadata() {
+    let mut failures = vec![];
+    for (target, scenario) in golden_cases() {
+        let base = root().join(&target);
+        let input = read(&base.join(format!("{scenario}.input.json")));
+        let response = read(&base.join(format!("{scenario}.response.json")));
+        let (kind, dialect) = dialect_for(&target);
+        let m = model(&input["settings"], kind);
+
+        let body = match dialect.read_body(&m) {
+            BodyKind::Json => response,
+            BodyKind::Sse => dialect
+                .aggregate_sse(response["sse"].as_str().unwrap())
+                .unwrap(),
+        };
+        let field = |key: &str| body.get(key).and_then(Value::as_str).map(str::to_string);
+        let (id, model) = match target.as_str() {
+            "gemini" => (field("responseId"), field("modelVersion")),
+            "ollama" => (None, field("model")),
+            _ => (field("id"), field("model")),
+        };
+        let r = dialect.decode(body.clone()).unwrap();
+        let calls_a_tool = r
+            .content
+            .iter()
+            .any(|p| matches!(p, AssistantPart::ToolCall { .. }));
+        let finish = if calls_a_tool { "tool_call" } else { "stop" };
+
+        if id.is_none() && target != "ollama" {
+            failures.push(format!("{target}/{scenario}: the recording has no id"));
+        }
+        if r.id != id || r.model != model || r.finish_reason.as_deref() != Some(finish) {
+            failures.push(format!(
+                "{target}/{scenario}: got id {:?}, model {:?}, finish {:?}; expected {id:?}, {model:?}, {finish:?}",
+                r.id, r.model, r.finish_reason
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::time::Instant;
+use tracing::Instrument;
 
 use super::auth::RequestInfo;
 use super::dialect::{BodyKind, Dialect, PreparedRequest, join_url};
@@ -12,6 +13,7 @@ use super::error::LlmError;
 use super::http;
 use super::prepare::prepare;
 use super::resolve::ResolvedModel;
+use super::telemetry;
 use super::types::{CompletionRequest, CompletionResponse, Message, Part};
 use crate::VizierError;
 use crate::schema::agent::CompletionRetryConfig;
@@ -116,9 +118,9 @@ fn request_info(req: &PreparedRequest) -> RequestInfo {
     }
 }
 
-#[async_trait::async_trait]
-impl<D: Dialect> CompletionModel for HttpModel<D> {
-    async fn complete(&self, req: CompletionRequest) -> Result<CompletionResponse, LlmError> {
+impl<D: Dialect> HttpModel<D> {
+    /// One request to the provider, under the `chat` span [`CompletionModel::complete`] opens.
+    async fn complete_once(&self, req: CompletionRequest) -> Result<CompletionResponse, LlmError> {
         let prepared = self.prepare(req);
         let body = self.dialect.encode(&prepared, &self.resolved);
         let info = request_info(&prepared);
@@ -139,6 +141,20 @@ impl<D: Dialect> CompletionModel for HttpModel<D> {
             BodyKind::Sse => self.dialect.aggregate_sse(&response.text())?,
         };
         self.dialect.decode(value)
+    }
+}
+
+#[async_trait::async_trait]
+impl<D: Dialect> CompletionModel for HttpModel<D> {
+    async fn complete(&self, req: CompletionRequest) -> Result<CompletionResponse, LlmError> {
+        let span = telemetry::chat_span(&self.resolved, req.max_tokens.or(self.resolved.max_tokens));
+        if telemetry::capture_content() {
+            telemetry::record_input(&span, &req);
+        }
+        let started = std::time::Instant::now();
+        let result = self.complete_once(req).instrument(span.clone()).await;
+        telemetry::record(&span, &self.resolved, started.elapsed(), &result);
+        result
     }
 
     async fn list_models(&self) -> Result<Vec<ListedModel>, LlmError> {
@@ -396,6 +412,8 @@ mod tests {
                     id: None,
                     content: vec![AssistantPart::Text("ok".into())],
                     usage: Usage::new(),
+                    model: None,
+                    finish_reason: None,
                 }),
                 Some(Err(e)) => Err(e),
                 None => std::future::pending().await,

@@ -58,6 +58,22 @@ pub enum VizierRequestContent {
     BackgroundReport(BackgroundReport),
 }
 
+impl VizierRequestContent {
+    /// The variant's name, as it serialises.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Chat(_) => "chat",
+            Self::Prompt(_) => "prompt",
+            Self::SilentRead(_) => "silent_read",
+            Self::Unattended(_) => "unattended",
+            Self::Command(_) => "command",
+            Self::AudioChat(..) => "audio_chat",
+            Self::AudioPrompt(..) => "audio_prompt",
+            Self::BackgroundReport(_) => "background_report",
+        }
+    }
+}
+
 impl Default for VizierRequestContent {
     fn default() -> Self {
         Self::Prompt("".to_string())
@@ -175,6 +191,11 @@ pub struct VizierRequest {
     /// turn that launched the job and must still count as one level deeper.
     #[serde(default)]
     pub background_depth: u8,
+    /// The trace this request continues (`crate::telemetry`); in-process only.
+    #[serde(skip)]
+    #[schemars(skip)]
+    #[schema(ignore)]
+    pub trace: crate::telemetry::RequestTrace,
 }
 
 impl VizierRequest {

@@ -90,10 +90,16 @@ impl Dialect for OpenAiChat {
             ));
         }
 
+        let finish_reason = super::finish_reason(
+            body.pointer("/choices/0/finish_reason").and_then(Value::as_str),
+            &content,
+        );
         Ok(CompletionResponse {
-            id: None,
+            id: super::str_field(&body, "id"),
             content,
             usage: decode_usage(body.get("usage")),
+            model: super::str_field(&body, "model"),
+            finish_reason,
         })
     }
 

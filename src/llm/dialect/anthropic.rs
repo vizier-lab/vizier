@@ -162,8 +162,12 @@ impl Dialect for Anthropic {
             get("cache_read_input_tokens"),
             get("cache_creation_input_tokens"),
         );
+        let finish_reason =
+            super::finish_reason(body.get("stop_reason").and_then(Value::as_str), &content);
         Ok(CompletionResponse {
-            id: None,
+            id: super::str_field(&body, "id"),
+            model: super::str_field(&body, "model"),
+            finish_reason,
             content,
             usage: Usage {
                 input_tokens: input,

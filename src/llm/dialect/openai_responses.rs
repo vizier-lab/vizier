@@ -94,14 +94,10 @@ impl Dialect for OpenAiResponses {
             .cloned()
             .unwrap_or_default();
 
-        let mut id = None;
         let mut content = vec![];
         for item in &output {
             match item.get("type").and_then(Value::as_str) {
                 Some("message") => {
-                    if id.is_none() {
-                        id = item.get("id").and_then(Value::as_str).map(str::to_string);
-                    }
                     for part in item
                         .get("content")
                         .and_then(Value::as_array)
@@ -171,8 +167,18 @@ impl Dialect for OpenAiResponses {
                 .and_then(Value::as_u64)
                 .unwrap_or(0)
         };
+        // `incomplete` says why in `incomplete_details.reason` (`max_output_tokens`,
+        // `content_filter`); otherwise the status is the reason.
+        let finish_reason = super::finish_reason(
+            body.pointer("/incomplete_details/reason")
+                .and_then(Value::as_str)
+                .or_else(|| body.get("status").and_then(Value::as_str)),
+            &content,
+        );
         Ok(CompletionResponse {
-            id,
+            id: super::str_field(&body, "id"),
+            model: super::str_field(&body, "model"),
+            finish_reason,
             content,
             usage: Usage {
                 input_tokens: get("/input_tokens"),
@@ -562,7 +568,9 @@ data: [DONE]"#;
             .decode(aggregate_responses_sse(body).unwrap())
             .unwrap();
         assert_eq!(r.content, vec![AssistantPart::Text("hi".into())]);
-        assert_eq!(r.id.as_deref(), Some("msg_1"));
+        // The response's id, not its message item's.
+        assert_eq!(r.id.as_deref(), Some("resp_1"));
+        assert_eq!(r.finish_reason.as_deref(), Some("stop"));
 
         let empty_completed = "event: response.output_item.done\n\
             data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"c\",\"name\":\"f\",\"arguments\":\"{}\"}}\n\n\

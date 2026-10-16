@@ -83,6 +83,8 @@ impl CompletionModel for DummyplugModel {
             id: None,
             content: vec![reply],
             usage: Usage::new(),
+            model: None,
+            finish_reason: None,
         })
     }
 

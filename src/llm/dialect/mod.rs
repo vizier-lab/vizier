@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::error::LlmError;
 use super::model::ListedModel;
 use super::resolve::ResolvedModel;
-use super::types::{CompletionResponse, Message, ToolChoice, ToolDefinition};
+use super::types::{AssistantPart, CompletionResponse, Message, ToolChoice, ToolDefinition};
 
 pub mod anthropic;
 pub mod gemini;
@@ -94,6 +94,36 @@ pub trait Dialect: Send + Sync + 'static {
     }
 }
 
+/// A top-level string field of a response body, if present and non-empty.
+pub(crate) fn str_field(body: &serde_json::Value, key: &str) -> Option<String> {
+    body.get(key)
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// A provider's stop reason in the GenAI semantic conventions' terms: `stop`, `length`,
+/// `tool_call` or `content_filter`, and anything unrecognised lower-cased as it came. A reply
+/// that calls a tool is `tool_call` even where the provider says only that it stopped
+/// (Gemini, Ollama, the Responses API's `completed`).
+pub(crate) fn finish_reason(raw: Option<&str>, content: &[AssistantPart]) -> Option<String> {
+    let reason = match raw?.to_ascii_lowercase().as_str() {
+        "stop" | "end_turn" | "stop_sequence" | "completed" => "stop".to_string(),
+        "length" | "max_tokens" | "max_output_tokens" => "length".to_string(),
+        "tool_calls" | "tool_use" | "function_call" => "tool_call".to_string(),
+        "content_filter" | "safety" | "recitation" | "blocklist" | "prohibited_content"
+        | "spii" | "refusal" => "content_filter".to_string(),
+        other => other.to_string(),
+    };
+    let calls_a_tool = content
+        .iter()
+        .any(|p| matches!(p, AssistantPart::ToolCall { .. }));
+    Some(match reason.as_str() {
+        "stop" if calls_a_tool => "tool_call".to_string(),
+        _ => reason,
+    })
+}
+
 /// An error object inside a 2xx body (`{"error": {...}}` or `{"type": "error", ...}`), which
 /// some providers send instead of a status code.
 pub(crate) fn error_in_body(body: &serde_json::Value) -> Option<String> {
@@ -142,4 +172,49 @@ pub(crate) fn join_url(base: &str, path: &str) -> String {
         base.trim_end_matches('/'),
         path.trim_start_matches('/')
     )
+}
+
+#[cfg(test)]
+mod finish_reason_tests {
+    use super::*;
+
+    fn call() -> AssistantPart {
+        AssistantPart::ToolCall {
+            id: "c".into(),
+            name: "f".into(),
+            arguments: serde_json::json!({}),
+            provider_data: None,
+        }
+    }
+
+    #[test]
+    fn maps_each_provider_onto_the_conventions() {
+        let text = [AssistantPart::Text("hi".into())];
+        for (raw, expected) in [
+            ("stop", "stop"),                   // OpenAI, Ollama
+            ("end_turn", "stop"),               // Anthropic
+            ("STOP", "stop"),                   // Gemini
+            ("completed", "stop"),              // Responses
+            ("length", "length"),               // OpenAI, Ollama
+            ("max_tokens", "length"),           // Anthropic
+            ("MAX_TOKENS", "length"),           // Gemini
+            ("max_output_tokens", "length"),    // Responses
+            ("content_filter", "content_filter"),
+            ("SAFETY", "content_filter"),
+            ("refusal", "content_filter"),
+            ("pause_turn", "pause_turn"),       // unrecognised: kept, lower-cased
+        ] {
+            assert_eq!(finish_reason(Some(raw), &text).as_deref(), Some(expected), "{raw}");
+        }
+        assert_eq!(finish_reason(None, &text), None);
+    }
+
+    #[test]
+    fn a_reply_that_calls_a_tool_is_a_tool_call() {
+        for raw in ["tool_calls", "tool_use", "STOP", "stop", "completed"] {
+            assert_eq!(finish_reason(Some(raw), &[call()]).as_deref(), Some("tool_call"), "{raw}");
+        }
+        // Cut off while calling a tool is still cut off.
+        assert_eq!(finish_reason(Some("length"), &[call()]).as_deref(), Some("length"));
+    }
 }

@@ -119,6 +119,10 @@ similar = { version = "3", default-features = false, features = ["text"] }
 monty = "=1.0.0"
 monty-types = "=1.0.0"
 vizier-derive = { path = "vizier-derive", version = "0.13.0-rc.1" }
+opentelemetry = "0.33"
+opentelemetry_sdk = "0.33"
+tracing-opentelemetry = "0.34"
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"] }
 
 [build-dependencies]
 flate2 = "1.1.10"

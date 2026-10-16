@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, timeout};
+use tracing::Instrument;
 
 use crate::{
     VizierError,
@@ -28,7 +29,7 @@ use crate::{
         },
         hook::{VizierSessionHook, VizierSessionHooks},
         skill::VizierSkills,
-        tools::{BaseTools, ToolContext, VizierTools, compose},
+        tools::{BaseTools, ToolContext, VizierTools, compose, traced_tool_call},
     },
     config::{VizierConfig, provider::ProviderId},
     llm::types::{AssistantPart, CompletionRequest, Message, Part, ToolChoice, ToolDefinition},
@@ -477,6 +478,49 @@ impl VizierAgent {
         hooks: Option<Arc<VizierSessionHooks>>,
         checkpoint_handover: Option<String>,
     ) -> Result<VizierResponse> {
+        let span = self.invoke_agent_span(&req, &session, false);
+        self.chat_turn(req, session, session_history, memory, skills, hooks, checkpoint_handover)
+            .instrument(span)
+            .await
+    }
+
+    /// The `invoke_agent` span for one turn: a child of whatever sent the request (a tool
+    /// call, a background job), or a root for a person's message or a scheduled run.
+    fn invoke_agent_span(&self, req: &VizierRequest, session: &VizierSession, dream: bool) -> tracing::Span {
+        let span = tracing::info_span!(
+            "invoke_agent",
+            otel.name = %format!("invoke_agent {}", self.agent_id),
+            gen_ai.operation.name = "invoke_agent",
+            gen_ai.agent.id = %self.agent_id,
+            gen_ai.conversation.id = %session.to_slug(),
+            vizier.channel.type = tracing::field::Empty,
+            vizier.channel.id = tracing::field::Empty,
+            vizier.topic = session.2.as_deref(),
+            vizier.http.user = tracing::field::Empty,
+            vizier.task.slug = tracing::field::Empty,
+            vizier.inter_agent.participants = tracing::field::Empty,
+            vizier.dream.stage = tracing::field::Empty,
+            vizier.dream.source = tracing::field::Empty,
+            vizier.request.kind = req.content.kind(),
+            vizier.background_depth = req.background_depth,
+            vizier.queue.wait_ms = req.trace.queue_wait_ms(),
+            vizier.dream = dream,
+        );
+        record_channel(&span, &session.1);
+        req.trace.adopt(&span);
+        span
+    }
+
+    async fn chat_turn(
+        &self,
+        req: VizierRequest,
+        session: VizierSession,
+        session_history: Vec<SessionHistory>,
+        memory: Vec<MemoryPassageResult>,
+        skills: Vec<Skill>,
+        hooks: Option<Arc<VizierSessionHooks>>,
+        checkpoint_handover: Option<String>,
+    ) -> Result<VizierResponse> {
         let background_depth = req.background_depth;
         // Auto-transcribe AudioChat/AudioPrompt in-place
         let mut req = req;
@@ -877,7 +921,8 @@ impl VizierAgent {
 
                 let tool_server = snapshot.clone();
                 let ctx_clone = ctx.clone();
-                let mut tool_res = match timeout(*self.config.tools.timeout, async {
+                let traced_args = args.clone();
+                let mut tool_res = match traced_tool_call(&function_name, call_id, &traced_args, *self.config.tools.timeout, async {
                     tool_server
                         .call(function_name.clone(), args, &ctx_clone)
                         .await
@@ -1210,6 +1255,20 @@ impl VizierAgent {
         hooks: Option<Arc<VizierSessionHooks>>,
         deps: &VizierDependencies,
     ) -> Result<VizierResponse> {
+        let span = self.invoke_agent_span(&req, &session, true);
+        self.dream_turn(req, session, session_history, hooks, deps)
+            .instrument(span)
+            .await
+    }
+
+    async fn dream_turn(
+        &self,
+        req: VizierRequest,
+        session: VizierSession,
+        session_history: Vec<SessionHistory>,
+        hooks: Option<Arc<VizierSessionHooks>>,
+        deps: &VizierDependencies,
+    ) -> Result<VizierResponse> {
         // Use dream model if both provider and model are configured
         let dream_model = if let (Some(provider), Some(model)) = (
             self.config.dream_provider.as_ref(),
@@ -1387,7 +1446,8 @@ impl VizierAgent {
 
                     // Use dream_call for dream tool dispatch
                     let ctx_clone = ctx.clone();
-                    let mut tool_res = match timeout(*self.config.tools.timeout, async {
+                    let traced_args = args.clone();
+                    let mut tool_res = match traced_tool_call(&function_name, call_id, &traced_args, *self.config.tools.timeout, async {
                         snapshot
                             .dream_call(
                                 function_name.clone(),
@@ -1789,4 +1849,48 @@ mod wrap_up_tests {
         assert_eq!(req.messages.len(), 2);
         assert_eq!(completion_request(&history, &message, &[tool], false).tool_choice, None);
     }
+}
+
+/// `gen_ai.conversation.id` taken apart, so a trace can be found by any piece of it (the
+/// Discord channel, the HTTP user, the task) without matching the whole slug.
+fn record_channel(span: &tracing::Span, channel: &crate::schema::VizierChannelId) {
+    use crate::schema::{DreamStage, VizierChannelId};
+
+    let kind = match channel {
+        VizierChannelId::DiscordChanel(id) => {
+            span.record("vizier.channel.id", id.to_string());
+            "discord"
+        }
+        VizierChannelId::TelegramChannel(id) => {
+            span.record("vizier.channel.id", id.to_string());
+            "telegram"
+        }
+        VizierChannelId::HTTP(user, id) => {
+            span.record("vizier.http.user", user.as_str());
+            span.record("vizier.channel.id", id.as_str());
+            "http"
+        }
+        VizierChannelId::Task(slug, _) => {
+            span.record("vizier.task.slug", slug.as_str());
+            "task"
+        }
+        VizierChannelId::InterAgent(participants) => {
+            span.record("vizier.inter_agent.participants", participants.join(","));
+            "inter_agent"
+        }
+        VizierChannelId::System => "system",
+        VizierChannelId::Subagent => "subagent",
+        VizierChannelId::Dream(source, stage) => {
+            span.record(
+                "vizier.dream.stage",
+                match stage {
+                    DreamStage::Extraction => "extraction",
+                    DreamStage::Consolidation => "consolidation",
+                },
+            );
+            span.record("vizier.dream.source", source.to_slug());
+            "dream"
+        }
+    };
+    span.record("vizier.channel.type", kind);
 }

@@ -147,9 +147,18 @@ pub struct CompletionRequest {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompletionResponse {
+    /// The provider's id for this response, where it gives one (not Ollama).
     pub id: Option<String>,
     pub content: Vec<AssistantPart>,
     pub usage: Usage,
+    /// The model that answered, as the provider names it: often a dated version of the
+    /// requested alias.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Why generation stopped, in the GenAI conventions' terms (see
+    /// `dialect::finish_reason`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
 }
 
 impl CompletionResponse {

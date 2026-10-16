@@ -13,6 +13,7 @@ use chrono::Utc;
 use futures::{FutureExt, future::BoxFuture};
 use parking_lot::Mutex;
 use tokio::sync::watch;
+use tracing::Instrument;
 
 use crate::{
     agents::tools::ToolContext,
@@ -234,6 +235,17 @@ impl BackgroundJobs {
             .await
             .map_err(|err| VizierError(format!("failed to record background job: {err}")))?;
 
+        // Open until the job is reported or cancelled: its pieces' turns and the woken report
+        // turn are its children, so a delegation reads as one trace with the turn that made it.
+        let job_span = tracing::info_span!(
+            "background_job",
+            otel.name = %format!("background_job {}", kind.as_str()),
+            vizier.job.id = %job.id,
+            vizier.job.kind = kind.as_str(),
+            vizier.job.pieces = job.pieces.len(),
+            vizier.job.timeout_secs = timeout_secs,
+        );
+
         let mut receivers = Vec::with_capacity(job.pieces.len());
         for piece in job.pieces.iter_mut() {
             let (tx, rx) = flume::unbounded();
@@ -251,6 +263,7 @@ impl BackgroundJobs {
                     },
                     Some(tx),
                 )
+                .instrument(job_span.clone())
                 .await;
 
             match sent {
@@ -288,11 +301,14 @@ impl BackgroundJobs {
 
         let this = self.clone();
         let runner_job = job.clone();
-        tokio::spawn(async move {
-            let job_id = runner_job.id.clone();
-            this.run_job(runner_job, receivers, cancel_rx).await;
-            this.cancels.lock().remove(&job_id);
-        });
+        tokio::spawn(
+            async move {
+                let job_id = runner_job.id.clone();
+                this.run_job(runner_job, receivers, cancel_rx).await;
+                this.cancels.lock().remove(&job_id);
+            }
+            .instrument(job_span),
+        );
 
         tracing::info!(
             "launched background {} {} with {} piece(s) from {}",

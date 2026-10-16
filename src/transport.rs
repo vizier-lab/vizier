@@ -186,6 +186,8 @@ impl VizierTransport {
         req: VizierRequest,
         response_tx: Option<flume::Sender<VizierResponse>>,
     ) -> Result<()> {
+        let mut req = req;
+        req.trace.capture();
         let agent_id = &session.0;
         let channels = self.agent_channels.read().await;
         let tx = channels

@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::Instrument;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -214,6 +215,71 @@ impl VizierToolSet {
         tracing::trace!(function = %function_name, "tool call completed");
         Ok(serde_json::from_str(&output).map_err(|err| VizierError(err.to_string()))?)
     }
+}
+
+/// The GenAI `execute_tool` span. `call_id` is the model's tool call id: a call made from a
+/// script has none. Arguments and result are content, recorded only when the GenAI content
+/// capture is on (`crate::llm::telemetry::capture_content`).
+fn execute_tool_span(function_name: &str, args: &str, call_id: Option<&str>) -> tracing::Span {
+    let span = tracing::info_span!(
+        "execute_tool",
+        otel.name = %format!("execute_tool {function_name}"),
+        otel.status_code = tracing::field::Empty,
+        gen_ai.operation.name = "execute_tool",
+        gen_ai.tool.name = %function_name,
+        gen_ai.tool.type = "function",
+        gen_ai.tool.call.id = call_id,
+        gen_ai.tool.call.arguments = tracing::field::Empty,
+        gen_ai.tool.call.result = tracing::field::Empty,
+        error.type = tracing::field::Empty,
+    );
+    if crate::llm::telemetry::capture_content() {
+        span.record("gen_ai.tool.call.arguments", args);
+    }
+    span
+}
+
+fn record_tool_result(span: &tracing::Span, result: &Result<VizierResponse>) {
+    let capture = crate::llm::telemetry::capture_content();
+    match result {
+        Ok(response) => {
+            if capture {
+                // What the model is given back, without the response envelope.
+                let content = match &response.content {
+                    crate::schema::VizierResponseContent::ToolResponse { response } => response.to_string(),
+                    other => serde_json::to_string(other).unwrap_or_default(),
+                };
+                span.record("gen_ai.tool.call.result", content);
+            }
+        }
+        Err(err) => {
+            span.record("otel.status_code", "ERROR");
+            span.record("error.type", "tool_error");
+            if capture {
+                span.record("gen_ai.tool.call.result", err.to_string());
+            }
+        }
+    }
+}
+
+/// Run one tool call the model asked for under its `execute_tool` span, cut off at `limit`.
+pub async fn traced_tool_call(
+    function_name: &str,
+    call_id: &str,
+    args: &str,
+    limit: std::time::Duration,
+    call: impl std::future::Future<Output = Result<VizierResponse>>,
+) -> std::result::Result<Result<VizierResponse>, tokio::time::error::Elapsed> {
+    let span = execute_tool_span(function_name, args, Some(call_id));
+    let outcome = tokio::time::timeout(limit, call).instrument(span.clone()).await;
+    match &outcome {
+        Ok(result) => record_tool_result(&span, result),
+        Err(_) => {
+            span.record("otel.status_code", "ERROR");
+            span.record("error.type", "timeout");
+        }
+    }
+    outcome
 }
 
 /// Name-based dispatch over the agent's script-callable tools: every native tool
@@ -562,6 +628,18 @@ impl ToolRouter {
         params: String,
         ctx: &ToolContext,
     ) -> Result<VizierResponse> {
+        let span = execute_tool_span(&function_name, &params, None);
+        let result = self.dispatch(function_name, params, ctx).instrument(span.clone()).await;
+        record_tool_result(&span, &result);
+        result
+    }
+
+    async fn dispatch(
+        &self,
+        function_name: String,
+        params: String,
+        ctx: &ToolContext,
+    ) -> Result<VizierResponse> {
         if let Some(tool) = self.get_native(&function_name) {
             let output = tool.tool_call(params.clone(), ctx).await?;
             return tool_output_to_response(&output);
@@ -704,8 +782,9 @@ impl VizierTools {
             _ => {}
         }
 
-        // Delegate to default_toolset for memory, workspace, scheduler, skill tools
-        self.router.call(function_name, params, ctx).await
+        // Delegate to default_toolset for memory, workspace, scheduler, skill tools. The dream
+        // loop already opened this call's span, so the router's own is skipped.
+        self.router.dispatch(function_name, params, ctx).await
     }
 }
 

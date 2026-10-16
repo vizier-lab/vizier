@@ -13,6 +13,7 @@ pub mod model;
 pub mod prepare;
 pub mod resolve;
 pub mod sse;
+pub mod telemetry;
 pub mod types;
 
 #[cfg(test)]
