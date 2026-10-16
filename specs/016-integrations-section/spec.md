@@ -12,7 +12,7 @@
 
 Today everything that connects an agent to the outside world is part of that agent's configuration form: Discord and Telegram bot tokens ("Channel Tokens"), the Discord/Telegram tool toggles, Brave Search (toggle + API key + safesearch), and MCP servers. Every save of that form rebuilds the agent, and a rebuild aborts the agent's running turns (#52). Configuring the same MCP server or Brave key for three agents means entering it three times.
 
-This feature moves those connections out of the agent form into a dedicated **Integrations** section of the sidebar, scoped to the selected agent, with three menus — **Channels**, **Services**, **MCP** — moves the agent form itself into a new **Misc** section as **Config**, and makes changing an integration take effect without restarting the agents that use it. The agent form keeps only the agent's built-in tools (fetch, HTTP client, text-to-speech, speech-to-text, read image, image generation, shell) and tool settings.
+This feature moves those connections out of the agent form into a dedicated **Integrations** section of the sidebar, scoped to the selected agent, with three menus — **Channels**, **Addons**, **MCP** — moves the agent form itself into a new **Misc** section as **Config**, and makes changing an integration take effect without restarting the agents that use it. The agent form keeps only the agent's built-in tools (fetch, HTTP client, text-to-speech, speech-to-text, read image, image generation, shell) and tool settings.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -54,20 +54,20 @@ With an agent selected, an operator opens **Integrations › Channels** and adds
 
 ---
 
-### User Story 3 - Configure Brave Search as a first-party service (Priority: P2)
+### User Story 3 - Configure Brave Search as a first-party addon (Priority: P2)
 
-With an agent selected, an operator opens **Integrations › Services** and sees the first-party services vizier offers (for now: Brave Search). They enter the Brave API key and its options once, and turn the service on for this agent. Doing the same for other agents reuses the saved key. Agents gain or lose web search on their next turn.
+With an agent selected, an operator opens **Integrations › Addons** and sees the first-party addons vizier offers (for now: Brave Search). They enter the Brave API key and its options once, and turn the addon on for this agent. Doing the same for other agents reuses the saved key. Agents gain or lose web search on their next turn.
 
-**Why this priority**: Valuable and simple, but a single service today; the Services menu is mainly the home for future first-party integrations.
+**Why this priority**: Valuable and simple, but a single addon today; the Addons menu is mainly the home for future first-party integrations.
 
 **Independent Test**: Configure Brave Search for agent A only; confirm A can search on its next turn and agent B cannot; change the key; confirm A's next search uses the new key with no restart.
 
 **Acceptance Scenarios**:
 
-1. **Given** Brave Search is not configured, **When** the operator opens Services, **Then** Brave Search is listed as available but not set up, with what it does and what it needs.
-2. **Given** the operator enters a key and enables the service for agent A, **When** A takes its next turn, **Then** A can search the web; agents not enabled cannot.
+1. **Given** Brave Search is not configured, **When** the operator opens Addons, **Then** Brave Search appears as a tile marked not installed. Choosing **Install** asks for its API key and then installs it for the selected agent.
+2. **Given** the operator enters a key and enables the addon for agent A, **When** A takes its next turn, **Then** A can search the web; agents not enabled cannot.
 3. **Given** Brave Search is configured, **When** the operator changes the key or safesearch setting, **Then** the next search by any enabled agent uses the new setting, without a restart.
-4. **Given** the key is invalid, **When** an agent searches, **Then** the agent receives a clear failure for that search only, and the Services page shows the last error.
+4. **Given** the key is invalid, **When** an agent searches, **Then** the agent receives a clear failure for that search only, and the Addons page shows the last error.
 
 ---
 
@@ -111,7 +111,7 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 - **MCP tool-name collisions** between two servers attached to one agent are resolved the same way as today (suffixes), and remain stable for an agent as long as its attached set does not change.
 - **Secrets**: tokens, API keys and secret-bearing MCP environment values are never shown back in full after saving.
 - **Isolation**: an MCP server attached to several agents still runs as a separate connection per agent; one agent's crash or hang of that server does not affect the others.
-- **Service unconfigured but enabled for an agent** (e.g. key removed): agents no longer get the search tool and the Services page flags the service as incomplete.
+- **Addon unconfigured but enabled for an agent** (e.g. key removed): agents no longer get the search tool and the Addons page flags the addon as incomplete.
 
 ## Requirements *(mandatory)*
 
@@ -121,8 +121,8 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 
 - **FR-001**: The WebUI sidebar MUST have, in this order:
   1. the existing per-agent menus;
-  2. a separate **Integrations** section with three menus: **Channels**, **Services**, **MCP**;
-  3. a **Misc** section below Integrations, holding **Config**. Config is the former "Agent Config" menu, renamed and moved.
+  2. a separate **Integrations** section with three menus: **Channels**, **Addons**, **MCP**;
+  3. a **Misc** section below Integrations, holding **Usage** (moved out of the per-agent menus) and **Config**. Config is the former "Agent Config" menu, renamed and moved.
 - **FR-002**: The Integrations menus MUST be scoped to the agent selected in the sidebar, like the other per-agent menus. Each one shows and edits the current agent's integrations, follows the agent switcher, and is disabled when no agent is selected.
 - **FR-002a**: Within an agent's scope, an operator MUST be able to:
   - turn on, for this agent, any integration they can see that it doesn't use yet;
@@ -133,7 +133,7 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 
 **Integrations model**
 
-- **FR-003**: Integrations MUST be defined independently of agents and then attached to agents. MCP servers and services MAY be attached to any number of agents; a channel connection MUST serve at most one agent at a time.
+- **FR-003**: Integrations MUST be defined independently of agents and then attached to agents. MCP servers and addons MAY be attached to any number of agents; a channel connection MUST serve at most one agent at a time.
 - **FR-004**: Each integration MUST show its current status and, when unhealthy, its last error, and MUST list the agents it is attached to.
 - **FR-005**: Managing integrations MUST be governed by two role permissions, following the existing `all_agents:*` / `owned_agents:*` scheme:
   - **`all_agents:integrations:manage`**: may view, create, edit, enable/disable and delete every integration, and attach or detach any integration to or from any agent.
@@ -150,11 +150,18 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 - **FR-009**: The same bot token MUST NOT be saved on two connections.
 - **FR-010**: A rejected token or failed connection MUST be reported on the connection and MUST NOT prevent the save, stop the agent, or block other connections.
 
-**Services**
+**Addons**
 
-- **FR-011**: Integrations › Services MUST list every first-party service vizier offers, configured or not. Initially this is **Brave Search** (API key, safesearch).
-- **FR-012**: Operators MUST be able to configure a service once and choose which agents may use it.
-- **FR-013**: The Services menu MUST be able to take future first-party services without changes to the agent configuration form.
+- **FR-011**: Integrations › Addons MUST list every first-party addon vizier offers, configured or not. Initially this is **Brave Search** (API key, safesearch).
+- **FR-011a**: The Addons page MUST be laid out as an app-store catalogue:
+  - every addon is a tile with its icon, name and a one-line description;
+  - each tile shows whether the addon is **installed** (on) for the selected agent;
+  - selecting a tile opens its details: what it does, its install state for this agent, its shared settings, and which other agents use it.
+
+  Installing an addon that isn't set up yet MUST first ask for the settings it needs (for Brave Search, the API key). Uninstalling turns it off for this agent only.
+- **FR-011b**: Throughout the WebUI, "install" and "uninstall" mean turning an addon on or off for the selected agent. They MUST NOT download or run anything.
+- **FR-012**: Operators MUST be able to configure an addon once and choose which agents may use it.
+- **FR-013**: The Addons menu MUST be able to take future first-party addons without changes to the agent configuration form.
 
 **MCP**
 
@@ -164,7 +171,7 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 **Live changes — no restart**
 
 - **FR-016**: Creating, editing, attaching, detaching, enabling, disabling or deleting any integration MUST NOT restart, rebuild or interrupt any agent. Agents' running turns MUST NOT be aborted and queued requests MUST NOT be dropped because of an integration change.
-- **FR-017**: Changes to services and MCP servers MUST take effect from each affected agent's next turn. Changes to a channel connection MUST take effect as soon as that connection reconnects, which MUST happen without affecting the agent's other channels.
+- **FR-017**: Changes to addons and MCP servers MUST take effect from each affected agent's next turn. Changes to a channel connection MUST take effect as soon as that connection reconnects, which MUST happen without affecting the agent's other channels.
 - **FR-018**: A turn MUST use one consistent set of integrations from start to end.
 
 **Agent config**
@@ -188,11 +195,11 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 
 ### Key Entities
 
-- **Integration**: something outside vizier an agent can use. Has a kind (channel, service, MCP server), a creator (determining owned vs shared scope), a name, its settings (secrets included), an enabled flag, and a status (healthy / degraded / failed with last error / disabled / unassigned).
+- **Integration**: something outside vizier an agent can use. Has a kind (channel, addon, MCP server), a creator (determining owned vs shared scope), a name, its settings (secrets included), an enabled flag, and a status (healthy / degraded / failed with last error / disabled / unassigned).
 - **Channel connection**: a Discord or Telegram bot. Platform, token, assigned agent (zero or one), status. Brings its platform's messaging tools to its agent.
-- **Service**: a first-party integration vizier ships. Initially Brave Search (API key, safesearch). Fixed catalogue; operators configure, they don't define new kinds.
+- **Addon**: a first-party integration vizier ships. Initially Brave Search (API key, safesearch). Fixed catalogue; operators configure, they don't define new kinds.
 - **MCP server**: an operator-defined tool server (launch command or URL, environment, headers, timeouts as today).
-- **Attachment**: the link between an integration and an agent (many-to-many for services and MCP; one agent per channel connection).
+- **Attachment**: the link between an integration and an agent (many-to-many for addons and MCP; one agent per channel connection).
 
 ## Success Criteria *(mandatory)*
 
@@ -203,14 +210,14 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 - **SC-003**: Adding one MCP server to 5 agents takes one definition and one attach step, instead of 5 separate entries.
 - **SC-004**: After upgrade, 100% of previously configured channel tokens, Brave Search settings and MCP servers appear under Integrations attached to the same agents, with no operator re-entry and no loss of capability.
 - **SC-005**: A broken integration (bad token, unreachable server, invalid key) never takes an agent offline; the agent keeps answering through its other channels.
-- **SC-006**: From any page, an operator can reach the selected agent's bots, services or MCP servers in one sidebar click.
+- **SC-006**: From any page, an operator can reach the selected agent's bots, addons or MCP servers in one sidebar click.
 
 ## Assumptions
 
 - **Channels in scope are Discord and Telegram.** The WebUI/HTTP channel is always on and is not an integration; it is not listed under Channels.
 - **Built-in tools stay on the agent**: fetch, HTTP client, TTS, STT, read image, image generation and shell are not integrations even though some call external providers — those providers already have their own home in Settings › Providers.
 - **Per-agent isolation is preserved**: sharing an MCP definition between agents shares configuration, not a running connection (constitution: no global MCP singletons).
-- **Brave Search is a single service configuration** (one key for all agents enabled for it). Where the migration finds agents with different Brave keys, it keeps their keys distinct (e.g. as separate named Brave Search configurations) so nothing changes behaviour; how that is presented is a planning detail.
+- **Brave Search is a single addon configuration** (one key for all agents enabled for it). Where the migration finds agents with different Brave keys, it keeps their keys distinct (e.g. as separate named Brave Search configurations) so nothing changes behaviour; how that is presented is a planning detail.
 - **Dream cycle**: an agent's dream cycle sees the same attached integrations it saw before, subject to its existing restricted tool list.
 - **"Turn" granularity** for live changes is acceptable; changes need not reach a turn already in progress.
 - The HTTP API gains endpoints for integrations; the old agent fields are retired from the agent API in the same release (breaking API change, flagged in the changelog).
