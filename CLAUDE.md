@@ -17,6 +17,8 @@ just shutdown     # cargo run -- shutdown --config dev.vizier.yaml
 just build        # cd webui && npm run build
 just release      # cargo build --release
 just catalogue-update  # refresh assets/catalogue/ (models.dev seed + logos) — needs network
+just jaeger       # local Jaeger in Docker (UI :16686, OTLP :4318); jaeger-down removes it
+just run-otel     # just run, exporting traces to that Jaeger with content capture on (dev-otel: hot reload)
 just docker       # docker-compose down && docker-compose up -d
 
 cargo test        # run tests (very few exist today — see below)
@@ -117,6 +119,12 @@ Cron (`croner`) and one-time task execution, plus `scheduler/dream/` — a separ
 `Task.requester` (a `Requester` enum of `User(String)` / `Agent(AgentId)`) replaced the free-form `Task.user`: `POST`/`PUT /tasks` take it from the authenticated caller and ignore any `user` in the body, and the agent tools have it declare own-initiative versus a named person. A scheduled run's system prompt gains `system_prompt/scheduled_run.rs` and its frontmatter reads `sender: scheduler` with `task` and `requested_by`.
 
 **The one thing to get right here**: the scheduled-run framing is selected on `VizierSession::is_scheduled_task()` — the session's *channel* — never on the request content kind. `VizierRequestContent::Unattended` (renamed from `Task`, since two of its three construction sites are the dream cycle) is sent by the dream cycle too, which carries its own framing; branching on it double-frames every dream.
+
+### Telemetry (`src/telemetry.rs`, `src/llm/telemetry.rs`; docs: `docs/src/configuration/observability.md`)
+
+OpenTelemetry export is a `tracing-opentelemetry` layer next to the fmt layer, installed in `main.rs` only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (OTLP/HTTP; `OTEL_METRICS_EXPORTER=none` skips metrics). Spans therefore go through the same `EnvFilter` as logs. Span names follow the GenAI semantic conventions and are set through `otel.name`: `invoke_agent {agent}` (`VizierAgent::invoke_agent_span`, opened by `chat`/`dream_chat`), `chat {model}` (`llm/telemetry.rs`, around each `HttpModel` request, plus the `gen_ai.client.*` histograms), `execute_tool {tool}` (`tools/mod.rs`: `traced_tool_call` for the model's own calls, with the call id and the tool timeout; `ToolRouter::call` for calls made from scripts; `dream_call` uses the span-less `dispatch` because its loop already opened one), and `background_job {kind}` (`BackgroundJobs::launch`, kept open by instrumenting the runner, so pieces and the woken report turn are its children). Anything content-bearing (messages, system prompt, tool definitions, tool arguments/results) is recorded only when `llm::telemetry::capture_content()` is true (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`): keep new content attributes behind it. Non-convention attributes are namespaced `vizier.*`.
+
+**Trace propagation across the transport**: `VizierRequest.trace` (`telemetry::RequestTrace`, `#[serde(skip)]`, so never stored or accepted from clients) is filled by `VizierTransport::send_request` with the sender's current span context and the time it was queued; `invoke_agent_span` adopts it as parent and reports `vizier.queue.wait_ms`. So a request sent from inside a span (a tool call, a background job) continues that trace with no extra code, and one sent from a channel handler (no span) starts a new one. A new `VizierRequest` literal needs `trace: Default::default()` or `..Default::default()`.
 
 ### Config layering
 

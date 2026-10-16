@@ -103,11 +103,15 @@ just shutdown    # stop the dev instance
 just build       # build the WebUI (npm run build)
 just release     # cargo build --release
 just docker      # docker-compose down && up -d
+just jaeger      # local Jaeger for traces, UI at http://localhost:16686
+just run-otel    # `just run` exporting traces to it (also dev-otel; jaeger-down to stop)
 
 cargo test       # tests are sparse; most behavior is exercised by running the binary
 cargo clippy
 cd webui && npm run typecheck
 ```
+
+Tracing and metrics are exported over OpenTelemetry when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; see [Observability](docs/src/configuration/observability.md).
 
 > **Build gotcha:** `build.rs` runs `npm run build` in `webui/` on every `cargo build` if `webui/node_modules/` exists. If `node_modules/` is absent and `webui/build/client/` doesn't exist, the build panics — run `just install` first.
 

@@ -20,6 +20,7 @@
 - [2.9 MCP Servers](./configuration/mcp.md)
 - [2.10 Skills](./configuration/skills.md)
 - [2.11 Memory](./configuration/memory.md)
+- [2.12 Observability](./configuration/observability.md)
 
 # 3. API Integration
 

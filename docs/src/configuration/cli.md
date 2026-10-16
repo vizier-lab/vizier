@@ -41,6 +41,8 @@ vizier run --port 8080 --data-dir /srv/vizier --workers 8
 
 **Logging:** `tracing` with `RUST_LOG` (e.g. `RUST_LOG=vizier=debug`). Noisy dependencies (twilight, hyper, reqwest, bollard, rmcp, sqlite…) are quieted by default unless you name them explicitly.
 
+**Tracing:** set `OTEL_EXPORTER_OTLP_ENDPOINT` to export OpenTelemetry traces and metrics. See [Observability](./observability.md).
+
 ## `vizier shutdown`
 
 ```sh
@@ -110,6 +112,7 @@ The image (`blinfoldking/vizier`, also `ghcr.io/vizier-lab/vizier`) runs `vizier
 | `VIZIER_JWT_SECRET` | env read by the default config | `vizier-default-secret-change-me` — **change it** |
 | `VIZIER_EXTRA_ARGS` | appended verbatim | unset |
 | `RUST_LOG` | logging filter | unset |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` (and other `OTEL_*`) | read directly, see [Observability](./observability.md) | unset (export off) |
 
 Any extra arguments after `run` are appended last (they win). Any other first argument (`shutdown`, `agent ps`, `skill …`) is passed straight through with no env translation.
 
