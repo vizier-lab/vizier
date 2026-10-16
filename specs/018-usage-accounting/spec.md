@@ -66,6 +66,8 @@ An operator opens the usage page and, within a few seconds, can answer: how much
 3. **Given** the breakdown, **When** the operator switches it to "By model" or "By channel", **Then** the same ranked layout shows that dimension instead, without changing the rest of the page.
 4. **Given** the daily chart, **When** the operator looks at it, **Then** it shows cost per day stacked by activity, and it offers no display-mode or metric toggles.
 5. **Given** the channel breakdown, **When** a channel has a human-readable name (a Discord channel, a Telegram chat, a WebUI topic, a scheduled task), **Then** that name is shown instead of an internal identifier.
+6. **Given** usage across several activities, **When** the operator filters the page to one activity (e.g. Dreams), **Then** the headline, change figure, daily chart, breakdown and costliest list all show that activity only; the headline also shows its share of all spend; and the breakdown offers only Model and Channel.
+7. **Given** a filter on one activity, **When** the operator chooses "All", **Then** the page returns to its unfiltered state, keeping the chosen period and breakdown dimension.
 
 ---
 
@@ -79,9 +81,13 @@ An operator wants to find the single conversations or scheduled runs that cost t
 
 **Acceptance Scenarios**:
 
-1. **Given** usage across many conversations and task runs, **When** the operator views "Costliest conversations", **Then** the ten most expensive are listed by cost, each with its activity and model, and each links to that conversation or run.
-2. **Given** some calls that belonged to failed turns, **When** the operator views the page, **Then** the tokens and cost spent on failed turns are shown as one figure.
-3. **Given** calls with cached input, **When** the operator views the page, **Then** the share of input served from cache is shown, both overall and per model.
+1. **Given** usage across many conversations and task runs, **When** the operator views "Costliest conversations", **Then** the ten most expensive are listed by cost, each with its activity and model.
+2. **Given** a conversation in that list, **When** the operator asks for its details, **Then** a details view opens on the usage page itself, without leaving it, showing the conversation's cost, number of calls, share of input served from cache, cost spent on failed turns, and its model calls ordered by cost, each with time, activity and round, served model, input and output tokens, cost, and whether it was part of a failed turn.
+3. **Given** the details view of a conversation that has a page in the WebUI (a WebUI topic, a scheduled run, a dream cycle, a background job's launching topic), **When** the operator follows its link, **Then** that page opens at that conversation or run.
+4. **Given** the details view of a conversation with no WebUI page (Discord, Telegram) or one that was deleted, **When** it opens, **Then** it offers no link and says why, and its usage is still shown in full.
+5. **Given** a conversation whose cost is mostly failed turns (a runaway tool loop, repeated rate limiting), **When** its details open, **Then** the view states in one or two plain sentences what happened and how much of the cost bought nothing.
+6. **Given** some calls that belonged to failed turns, **When** the operator views the page, **Then** the tokens and cost spent on failed turns are shown as one figure.
+7. **Given** calls with cached input, **When** the operator views the page, **Then** the share of input served from cache is shown, both overall and per model.
 
 ---
 
@@ -97,6 +103,10 @@ An operator wants to find the single conversations or scheduled runs that cost t
 - **Custom providers with no prices**: their tokens are counted and appear in the "unpriced" note (Story 2, scenario 3).
 - **Very long periods** (90 days, a busy agent): the page remains responsive.
 - **Mixed models on one day**: daily figures add up across models; the by-model view splits them.
+- **Filter with no usage**: filtering to an activity that has no usage in the period shows the empty state for that activity, not the unfiltered page.
+- **Filter and partial accounting**: the partial-accounting notice (FR-019) shows under a filter only when that activity was among those not recorded before the upgrade (Dreams, Compaction, Vision, failed rounds).
+- **Conversation spanning activities**: one conversation can include chat, compaction and vision calls; in the costliest list it is ranked by its whole cost, or by that activity's share when the page is filtered, and its details list every call.
+- **Long conversations in details**: a conversation with hundreds of calls shows its most expensive calls first and the count of the rest, without loading them all at once.
 
 ## Requirements *(mandatory)*
 
@@ -126,7 +136,10 @@ An operator wants to find the single conversations or scheduled runs that cost t
 - **FR-014**: The page MUST show one ranked breakdown, switchable between **Activity**, **Model** and **Channel**, listing for each entry its cost, share of total cost, tokens and calls.
 - **FR-015**: The **Model** breakdown MUST show requested model with provider, and the served version(s) where they differ, plus the cache hit rate and failed-turn tokens for each model.
 - **FR-016**: The **Channel** breakdown MUST show human-readable names for channels and conversations where the system knows one, falling back to the identifier otherwise.
-- **FR-017**: The page MUST list the ten costliest conversations and scheduled runs in the period, each with its activity, model and cost, linking to the conversation or run when it still exists.
+- **FR-017**: The page MUST list the ten costliest conversations and scheduled runs in the period, each with its activity, model and cost, and a way to open its details (FR-022).
+- **FR-021**: The page MUST offer an activity filter (All, or one of the activities in FR-003) that scopes every part of the page — headline, change figure, daily chart, breakdown, costliest list, failed-turn and cache figures — to that activity. While filtered, the headline MUST also show the activity's share of all spend, and the breakdown MUST offer only Model and Channel.
+- **FR-022**: Opening a conversation's details MUST show, without leaving the usage page: its cost, calls, cache share and failed-turn cost; its model calls ordered by cost (time, activity and round, served model, input and output tokens, cost, failed or not), showing the most expensive first and a count of the rest; and, when most of its cost was spent on failed turns, a short plain-language statement of what happened.
+- **FR-023**: The details MUST link to the conversation where the WebUI has a page for it — a WebUI topic opens in chat, a scheduled run in its task's run history, a dream cycle in the dream journal, a background job in the topic that launched it — and otherwise MUST say why there is no link (Discord and Telegram conversations have no WebUI page; deleted conversations are gone).
 - **FR-018**: The page MUST show tokens and cost spent on failed turns, and the share of input tokens served from cache.
 - **FR-019**: The page MUST indicate when part of the period predates complete accounting (FR-007), so that the operator knows dreams, compaction and failed rounds are missing for that part.
 - **FR-020**: Access to an agent's usage MUST follow the existing rules for viewing that agent; this feature does not change who can see usage.
@@ -136,7 +149,8 @@ An operator wants to find the single conversations or scheduled runs that cost t
 - **Usage record**: one language-model call made for an agent. Attributes listed in FR-002. Belongs to one agent; optionally refers to one conversation.
 - **Activity**: the purpose of a call (FR-003). A fixed set, used for grouping and display.
 - **Model identity**: the provider plus the requested model id (used for pricing), and the served model version as the provider reports it (used for display and audit).
-- **Usage period summary**: what the page displays for a period: totals, comparison with the previous period, daily series by activity, ranked breakdowns, costliest conversations, failed-turn spend, cache hit rate, unpriced-token note.
+- **Usage period summary**: what the page displays for a period, optionally narrowed to one activity: totals, comparison with the previous period, daily series by activity, ranked breakdowns, costliest conversations, failed-turn spend, cache hit rate, unpriced-token note.
+- **Conversation usage detail**: one conversation's usage records in the period, with its totals, an explanation when failed turns dominate, and a link to its WebUI page where one exists.
 
 ## Success Criteria *(mandatory)*
 
@@ -144,8 +158,9 @@ An operator wants to find the single conversations or scheduled runs that cost t
 
 - **SC-001**: For a controlled run covering chat, background, scheduled, dream, compaction, failed-turn and vision calls, 100% of the model calls made appear in the agent's usage, each under the correct activity and model.
 - **SC-002**: An operator shown the usage page for the first time can state the period's cost, whether it rose or fell, and the largest activity driving it, within 10 seconds.
-- **SC-003**: An operator can identify the single most expensive conversation in the period, and open it, in no more than two interactions.
-- **SC-004**: The page has at most one chart and no display toggles beyond the period picker and the breakdown dimension switch (down from two charts and four toggles).
+- **SC-003**: An operator can identify the single most expensive conversation in the period and see which of its calls cost the most, in no more than two interactions.
+- **SC-008**: An operator can answer "how much did dreams cost this month, and which dream cycle cost most?" in no more than two interactions from the usage page.
+- **SC-004**: The page has at most one chart and no display toggles beyond the period picker, the activity filter and the breakdown dimension switch (down from two charts and four toggles).
 - **SC-005**: Recording usage adds no perceptible delay to agent replies (turn latency unchanged within measurement noise on the offline test provider).
 - **SC-006**: The page for a 90-day period on an agent with 100,000 recorded calls loads in under 2 seconds.
 - **SC-007**: After upgrading, an agent's usage for periods before the upgrade shows the same totals as before the upgrade.
@@ -160,3 +175,6 @@ An operator wants to find the single conversations or scheduled runs that cost t
 - Usage before the upgrade cannot be reconstructed for dreams, checkpoints, failed rounds or vision; only the reply-level figures already stored are carried over.
 - The provider connection test ("test this provider" in Settings) is not attributed to any agent and is not counted.
 - Existing access rules for viewing an agent govern its usage page.
+- The activity filter is single-choice (one activity or All); choosing several at once is out of scope.
+- Discord and Telegram conversations get no new WebUI page in this feature; their details view is the only place their usage is broken down per call.
+- The page's layout follows the mockup at https://claude.ai/artifact/SENVYMyyTnC9UBQbVFbdgN (sample data only).
