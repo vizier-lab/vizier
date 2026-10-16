@@ -63,9 +63,8 @@ Compared with the running readers:
 
 ## Startup order (`run.rs`)
 
-1. `VizierDependencies::new` runs the 016 migration (research R7), before anything reads integrations.
-2. `VizierAgents` builds agents. `BaseTools::new` then reads the integrations from storage when each instance is built, so there is no refresh step at startup.
-3. `VizierChannels::run` starts `ChannelConnections` with a full `reconcile()`.
+1. `VizierAgents` builds agents. `BaseTools::new` then reads the integrations from storage when each instance is built, so there is no refresh step at startup.
+2. `VizierChannels::run` starts `ChannelConnections` with a full `reconcile()`.
 
 ## Health
 

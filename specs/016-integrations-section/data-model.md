@@ -14,7 +14,7 @@ One row per channel connection, addon configuration or MCP server.
 | `settings` | TEXT NOT NULL | JSON, shape set by the kind (§4), secrets in clear like `provider_config` |
 | `enabled` | INTEGER NOT NULL | 1/0. A disabled integration contributes nothing and has no reader |
 | `scope` | TEXT NOT NULL | `shared` or `owned`; fixed at creation (research R6) |
-| `created_by` | TEXT NULL | user id; NULL = created by the system (migration of a cross-owner merge) |
+| `created_by` | TEXT NULL | user id; NULL only if the creating user was deleted |
 | `created_at` / `updated_at` | TEXT NOT NULL | RFC 3339 |
 
 Constraints:
@@ -134,8 +134,3 @@ running ──reassign to agent B──▶ connecting (as B)    token replaced �
 - **Removed:** `agents:mcp_config`.
 
 The access rules are in research R6.
-
-## 9. Migration bookkeeping
-
-- `state` key `migration:016-integrations` = completion timestamp.
-- The migration strips these keys from every `agent_config` row: `discord_token`, `telegram_token`, `tools.discord`, `tools.telegram`, `tools.brave_search` and `tools.mcp_servers`.

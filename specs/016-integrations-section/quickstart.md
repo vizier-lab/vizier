@@ -8,7 +8,7 @@
 just install
 cargo build
 cargo test     # integration storage round-trip + access helper, kind validate/redact/merge_secrets,
-               # 016 migration (merge / no-merge / duplicate token / idempotent), compose() reuses unchanged McpServer Arcs,
+               # compose() reuses unchanged McpServer Arcs,
                # every_tool_is_in_its_category (unchanged table)
 cargo clippy
 cd webui && npm run typecheck
@@ -26,32 +26,18 @@ cd webui && npm run typecheck
   Use `{"tool":"list_tool_functions","arguments":{}}` to list every category.
 - **Users.** `admin` is the system role. `alice` and `bob` have a role with `owned_agents:edit` and `owned_agents:integrations:manage`. `alice` owns `dp-b`; `bob` owns a third dummyplug agent, `dp-c`.
 
-## 1. Upgrade migration (US4, FR-022–FR-025, SC-004)
+## 1. Upgrade without migration (spec Assumptions, FR-021)
 
-**Setup**: on `master`, create these agents through the WebUI or API, then run `just shutdown` and check out this branch.
-
-| Agent | Old config |
-|---|---|
-| `old-1` | Brave on, key `K1`, safesearch on; MCP `fs` (above); Discord token `T1` (a dummy string is fine) |
-| `old-2` | Brave on, key `K1`, safesearch on; MCP `fs`, an identical definition |
-| `old-3` | Brave on, key `K2`; MCP `fs` with a **different** `args` |
-
-There must also be a role holding `agents:mcp_config` but no edit permission.
-
-Start this branch with `just run`.
+**Setup**: on `master`, create agent `old-1` with a Discord token, Brave Search on and an MCP server `fs`. Run `just shutdown` and switch to this branch, then `just run`.
 
 | Check | Expect |
 |---|---|
-| startup log | one `info` per migrated integration; no renames |
-| `GET /api/v1/agents/old-1/integrations?family=addon` | one Brave item, attached, `also_used_by` = `old-2`; `api_key` redacted `••••…` |
-| same for `old-3` | a *different* Brave item (its own key), not used by others |
-| `GET …/old-1/integrations?family=mcp` | `fs`, attached, `also_used_by` = `old-2` |
-| `GET …/old-3/integrations?family=mcp` | a *different* integration also named `fs`, attached, not used by others |
-| `old-1` and `old-3`: `list_tool_functions {"category":"fs"}` | both list `fs_*` names, unchanged from before the upgrade |
-| `GET …/old-1/integrations?family=channel` | one Discord item, attached; status `failed` (dummy token rejected) **while `old-1` is `running`** in `GET /agents/health` |
-| `GET /api/v1/agents/old-1` | no `discord_token`, `tools.brave_search` or `tools.mcp_servers` |
-| roles | `agents:mcp_config` gone everywhere; the role that had it now has `owned_agents:integrations:manage` |
-| restart again | no migration log lines and no duplicate integrations (FR-024) |
+| startup | no errors; `old-1` is `running` in `GET /api/v1/agents/health`; no Discord reader starts |
+| `GET /api/v1/agents/old-1/integrations?family=mcp` (and `channel`, `addon`) | nothing attached (settings were not carried over) |
+| `old-1`: `list_tool_functions {}` | no `fs`, `discord` or `brave_search` category |
+| `GET /api/v1/agents/old-1` | no `discord_token`, `tools.brave_search` or `tools.mcp_servers` in the response |
+| `PUT /api/v1/agents/old-1` with an unrelated change, then read the raw `agent_config` row | the old keys are gone |
+| roles | unchanged; superadmin can manage integrations; other roles can't until granted |
 
 ## 2. MCP live attach, edit and detach without a restart (US1, FR-014–FR-018, SC-001–SC-003)
 

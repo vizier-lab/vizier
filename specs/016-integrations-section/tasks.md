@@ -13,12 +13,11 @@ description: "Task list for 016 Integrations Section"
 - contracts: [http-api.md](contracts/http-api.md), [runtime.md](contracts/runtime.md), [webui.md](contracts/webui.md)
 - [quickstart.md](quickstart.md)
 
-**Tests**: Unit tests are included where plan.md and research R11 call for them (storage, access, kinds, migration, compose). End-to-end checks are the dummyplug steps in quickstart.md (constitution gate).
+**Tests**: Unit tests are included where plan.md and research R11 call for them (storage, access, kinds, compose). End-to-end checks are the dummyplug steps in quickstart.md (constitution gate).
 
 **Organization**: Tasks are grouped by user story.
-- **Execution order:** US1 → US2 → US4 → US3 → US5. US4 (P1 migration) runs after the two P1 runtime stories, since it migrates their data. It only needs the kinds from Foundational plus raw JSON, so it can also run earlier.
-- **Removing old fields:** each story deletes the `AgentConfig` fields it replaces. The US4 migration reads `agent_config` as raw JSON, so it doesn't depend on those fields still existing.
-- **Not shippable until US4 lands:** between US1 and US4, existing per-agent config is not loaded. Do not release a partial branch.
+- **Execution order:** US1 → US2 → US3 → US5 (US4, the upgrade migration, was dropped: no migration, spec Assumptions / research R7).
+- **Removing old fields:** each story deletes the `AgentConfig` fields it replaces. Stored rows that still carry them load fine, because unknown keys are ignored.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -31,7 +30,7 @@ description: "Task list for 016 Integrations Section"
 
 **Purpose**: Module skeletons and assets that everything else builds on.
 
-- [ ] T001 Create the module skeleton `src/integrations/{mod.rs,kind.rs,access.rs,migrate.rs,kinds/mod.rs}` and register `mod integrations;` in `src/main.rs` (or `src/lib.rs`, wherever top-level modules are declared)
+- [ ] T001 Create the module skeleton `src/integrations/{mod.rs,kind.rs,access.rs,kinds/mod.rs}` and register `mod integrations;` in `src/main.rs` (or `src/lib.rs`, wherever top-level modules are declared)
 - [ ] T002 [P] Add embedded icons `assets/integrations/{brave_search,discord,telegram,mcp}.svg`, and embed them through the same mechanism `build.rs` / `src/catalogue/` uses for catalogue logos (no runtime file reads, Principle III)
 
 ---
@@ -77,7 +76,7 @@ description: "Task list for 016 Integrations Section"
   - `AgentToolContext` (agent id, storage, file manager, current snapshot's MCP servers for reuse).
 - [ ] T010 In `src/integrations/mod.rs`, implement the `IntegrationKinds` registry (`builtin()` with the registration list, initially empty; `get(id)`, `by_family(f)`) plus shared redaction helpers (`mask_secret(&str) -> "••••<last4>"`, a `merge_secrets` default helper). Hold an `Arc<IntegrationKinds>` on `VizierDependencies` in `src/dependencies.rs`.
 - [ ] T011 [P] Implement `integration_access(user, integration, agent_config) -> Access { see, edit, attach }` in `src/integrations/access.rs` (research R6), plus `can_manage_on_agent(user, agent_config)` and `scope_for_creator(user)`
-- [ ] T012 Update `AVAILABLE_PERMISSIONS` in `src/storage/user.rs`: add `all_agents:integrations:manage` and `owned_agents:integrations:manage`, remove `agents:mcp_config`. Make the superadmin seed in `src/dependencies.rs` (`migrate_users`) include the new permissions.
+- [ ] T012 Update `AVAILABLE_PERMISSIONS` in `src/storage/user.rs`: add `all_agents:integrations:manage` and `owned_agents:integrations:manage`, remove `agents:mcp_config`. Make the superadmin seed in `src/dependencies.rs` (`migrate_users`) include the new permissions. Don't rewrite other stored roles (no migration).
 - [ ] T013 [P] Unit tests for `integration_access` in `src/integrations/access.rs`:
   - all-scope;
   - owned-scope on own and on someone else's agent;
@@ -172,7 +171,7 @@ description: "Task list for 016 Integrations Section"
   - the `dummyplug.rs` test fixture;
   - the `api/v1/agents/mod.rs` sanitising;
   - the agent `PUT` handling.
-- [ ] T033 [US1] Rewrite `migrate_agent_tools` in `src/dependencies.rs` (global `mcp_servers` → per-agent backfill) to work on the raw `agent_config` JSON, so it still runs before the 016 migration without the typed field
+- [ ] T033 [US1] Delete `migrate_agent_tools` and its call in `src/dependencies.rs`. Its only effect is copying the legacy global `mcp_servers` into the removed per-agent field (research R7). Also remove `GlobalConfigValue::McpServers` in `src/schema/` if nothing else reads it.
 - [ ] T034 [P] [US1] Unit tests for `McpKind` in `src/integrations/kinds/mcp.rs`: validate (bad name, missing command), redact masks env, merge keeps unchanged env values and replaces sent ones
 - [ ] T035 [US1] Build the MCP page in `webui/app/routes/integrations-mcp.tsx`, per contracts/webui.md and the mockup:
   - **Table:** server, status (Connected / Unreachable with error / Not in use), also used by, and an On-for-agent switch (attach/detach).
@@ -227,96 +226,66 @@ description: "Task list for 016 Integrations Section"
 
 ---
 
-## Phase 5: User Story 4 — Existing setups carry over (Priority: P1)
-
-**Goal**: The first start after the upgrade moves every per-agent token, Brave setting and MCP server into integrations, keeps tool names, and updates roles.
-
-**Independent Test**: quickstart.md §1 against a data directory written by `master`.
-
-- [ ] T046 [US4] Implement `integrations::migrate::run(conn)` in `src/integrations/migrate.rs`, per research R7 with the R12 naming:
-  - **Setup:** guarded by the `state` key `migration:016-integrations`; one SQLite transaction; reads each `agent_config` row as `serde_json::Value`.
-  - **Tokens:** each one becomes a channel integration attached to its agent. A duplicate token: the first agent keeps it, and a `warn!` names both agents.
-  - **Brave:** grouped by `(api_key, safesearch)`.
-  - **MCP:** identical `(name, config)` merged across agents; same name with a different config becomes a separate integration with the same name, never renamed.
-  - **Ownership:** `created_by` = the owner, `scope` = owned. A cross-owner merge is `shared` with `created_by` NULL.
-  - **Cleanup:** strip the moved keys from each row.
-  - **Roles:** update per FR-025 and remove `agents:mcp_config`.
-  - **Logging:** `info!` per integration created.
-- [ ] T047 [US4] Call `integrations::migrate::run` from `VizierDependencies::new` in `src/dependencies.rs`, after `migrate_agent_tools` and `migrate_users` and before any agent is spawned
-- [ ] T048 [P] [US4] Unit tests in `src/integrations/migrate.rs` (in-memory DB with `init_schema`):
-  - identical MCP merged and attached to both;
-  - different MCP with the same name → two integrations named `fs`;
-  - Brave grouped by key;
-  - duplicate token kept by the first agent;
-  - moved keys stripped;
-  - role permissions updated and `agents:mcp_config` removed;
-  - a second run is a no-op.
-- [ ] T049 [US4] Make `POST /agents` and `PUT /agents/{id}` in `src/channels/http/api/v1/agents/mod.rs` reject a raw body containing `discord_token`, `telegram_token`, `tools.discord`, `tools.telegram`, `tools.brave_search` or `tools.mcp_servers` with `422 {"error":"moved_to_integrations","fields":[...]}`. Inspect the raw JSON before typed deserialisation.
-- [ ] T050 [US4] Run quickstart.md §1 (create agents on `master`, switch branch, start, check, restart again). Record the results in `pr-notes.md`.
-
-**Checkpoint**: Upgrading is lossless; old clients get a clear 422.
-
----
-
-## Phase 6: User Story 3 — Brave Search as an addon (Priority: P2)
+## Phase 5: User Story 3 — Brave Search as an addon (Priority: P2)
 
 **Goal**: Brave Search is an installable addon with namespaced tools (`brave_search_web`, `brave_search_news`, category `brave_search`), presented as an app-store catalogue.
 
 **Independent Test**: quickstart.md §3 (dummyplug: install on `dp-a` → `list_tool_functions {"category":"brave_search"}` lists both tools, `dp-b` has none; an incomplete install returns 409; a key-preserving edit).
 
-- [ ] T051 [P] [US3] Rename the Brave tools in `src/agents/tools/brave_search/mod.rs`: `NAME` `web_search` → `brave_search_web`, `news_search` → `brave_search_news`; `category()` → `None`. Record auth failures (401/403) and successes in `IntegrationHealth`, via an optional integration id passed at construction.
-- [ ] T052 [P] [US3] Add `IntegrationHealth` (a `RwLock<HashMap<String, String>>` with `fail`, `clear`, `get`) on `VizierDependencies` in `src/dependencies.rs`
-- [ ] T053 [US3] Implement `BraveSearchKind` in `src/integrations/kinds/brave_search.rs`:
+- [ ] T046 [P] [US3] Rename the Brave tools in `src/agents/tools/brave_search/mod.rs`: `NAME` `web_search` → `brave_search_web`, `news_search` → `brave_search_news`; `category()` → `None`. Record auth failures (401/403) and successes in `IntegrationHealth`, via an optional integration id passed at construction.
+- [ ] T047 [P] [US3] Add `IntegrationHealth` (a `RwLock<HashMap<String, String>>` with `fail`, `clear`, `get`) on `VizierDependencies` in `src/dependencies.rs`
+- [ ] T048 [US3] Implement `BraveSearchKind` in `src/integrations/kinds/brave_search.rs`:
   - settings `{api_key, safesearch}`, with `api_key` required and secret;
   - `listing` = Brave Search, "Search the web", icon `brave_search`, fields;
   - `contribute` = both tools with `addon: Some("brave_search")`.
 
   Register it.
-- [ ] T054 [US3] Addon categories in `src/agents/tools/mod.rs`:
+- [ ] T049 [US3] Addon categories in `src/agents/tools/mod.rs`:
   - `compose` lists the addon toolsets' tools under the addon id as category, described by `KindListing.description`;
   - `mcp_category_name` also reserves addon ids (`brave_search` → `brave_search_mcp`);
   - `assign_names` reserves addon tool names with the native ones.
 
   Update `every_tool_is_in_its_category` / `every_tool()` and add tests: an MCP server named `brave_search` gets `brave_search_mcp`, and every addon tool is named `<addon id>_…`.
-- [ ] T055 [US3] Remove the Brave wiring from `BaseTools::new` and delete `tools.brave_search` from `AgentToolsConfig` in `src/schema/agent.rs`. Remove `BraveSearchConfig`'s per-agent use and keep the struct only if the kind uses it (`src/config/tools/mod.rs`).
-- [ ] T056 [P] [US3] Update the display labels for the renamed tools: `src/utils/mod.rs` (`web_search`/`news_search` → `brave_search_web`/`brave_search_news`) and `webui/app/routes/chat.tsx` (the `case 'web_search'` / `'news_search'` labels)
-- [ ] T057 [US3] Answer addon entries of `IntegrationStatus` in `src/agents/agent/mod.rs`: `Incomplete` from the kind's required fields, `Failed` from `IntegrationHealth`, otherwise `Running`
-- [ ] T058 [US3] Build the Addons page in `webui/app/routes/integrations-addons.tsx`, per the mockup:
+- [ ] T050 [US3] Remove the Brave wiring from `BaseTools::new` and delete `tools.brave_search` from `AgentToolsConfig` in `src/schema/agent.rs`. Remove `BraveSearchConfig`'s per-agent use and keep the struct only if the kind uses it (`src/config/tools/mod.rs`).
+- [ ] T051 [P] [US3] Update the display labels for the renamed tools: `src/utils/mod.rs` (`web_search`/`news_search` → `brave_search_web`/`brave_search_news`) and `webui/app/routes/chat.tsx` (the `case 'web_search'` / `'news_search'` labels)
+- [ ] T052 [US3] Answer addon entries of `IntegrationStatus` in `src/agents/agent/mod.rs`: `Incomplete` from the kind's required fields, `Failed` from `IntegrationHealth`, otherwise `Running`
+- [ ] T053 [US3] Build the Addons page in `webui/app/routes/integrations-addons.tsx`, per the mockup:
   - a search box;
   - a tile grid from `GET /integrations/kinds?family=addon` (icon from `/kinds/{id}/icon`, name, description, an Installed ✓ / Get badge for this agent);
   - a "more addons" placeholder tile;
   - a details panel: Install on <agent> / Uninstall from <agent>, description, shared settings (secret field with Replace, other fields from `fields`), and "also installed on".
 
   Install on an incomplete addon (409 `incomplete`) opens the settings form first, then creates or updates the integration and attaches it. When several configurations of one addon exist, show a configuration picker in the panel.
-- [ ] T059 [US3] Run quickstart.md §3 (steps 1–4, 4a, 4b, 6; step 5 needs network and is marked). Record the results in `pr-notes.md`.
+- [ ] T054 [US3] Run quickstart.md §3 (steps 1–4, 4a, 4b, 6; step 5 needs network and is marked). Record the results in `pr-notes.md`.
 
 **Checkpoint**: Addons catalogue works, with namespaced tools.
 
 ---
 
-## Phase 7: User Story 5 — Misc › Config shows built-in tools only (Priority: P3)
+## Phase 6: User Story 5 — Misc › Config shows built-in tools only (Priority: P3)
 
-**Goal**: The agent form no longer edits integrations and lives at Misc › Config.
+**Goal**: The agent form no longer edits integrations and lives at Misc › Config, and the agent API refuses the moved fields.
 
-**Independent Test**: quickstart.md §6: Config has no token, Brave or MCP sections; `/:agentId/settings` redirects; the sidebar order is right.
+**Independent Test**: quickstart.md §6: Config has no token, Brave or MCP sections; `/:agentId/settings` redirects; the sidebar order is right. quickstart.md §1 and §5's last row: the agent API returns 422 for moved fields.
 
-- [ ] T060 [US5] Remove these sections from `webui/app/components/AgentForm.tsx` and drop the related form state (`discord_token`, `telegram_token`, `tools.discord`/`telegram`/`brave_search`/`mcp_servers`, MCP form state):
+- [ ] T055 [US5] Remove these sections from `webui/app/components/AgentForm.tsx` and drop the related form state (`discord_token`, `telegram_token`, `tools.discord`/`telegram`/`brave_search`/`mcp_servers`, MCP form state):
   - "Channel Tokens";
   - the Discord/Telegram entries of "Enabled Tools";
   - "Brave Search";
   - "MCP Servers".
 
   Update the matching fields in `webui/app/interfaces/types.ts`.
-- [ ] T061 [US5] Retitle `webui/app/routes/agent-settings.tsx` as "Config" (header, document title); check the create-agent flow (`webui/app/routes/agent-new.tsx`) no longer sends the removed fields
-- [ ] T062 [US5] `cd webui && npm run typecheck`, then walk quickstart.md §6 in the browser. Record the results in `pr-notes.md`.
+- [ ] T056 [US5] Retitle `webui/app/routes/agent-settings.tsx` as "Config" (header, document title); check the create-agent flow (`webui/app/routes/agent-new.tsx`) no longer sends the removed fields
+- [ ] T057 [US5] Make `POST /agents` and `PUT /agents/{id}` in `src/channels/http/api/v1/agents/mod.rs` reject a raw body containing `discord_token`, `telegram_token`, `tools.discord`, `tools.telegram`, `tools.brave_search` or `tools.mcp_servers` with `422 {"error":"moved_to_integrations","fields":[...]}`. Inspect the raw JSON before typed deserialisation.
+- [ ] T058 [US5] `cd webui && npm run typecheck`, then walk quickstart.md §6 in the browser. Record the results in `pr-notes.md`.
 
 **Checkpoint**: All user stories are complete.
 
 ---
 
-## Phase 8: Polish & Cross-Cutting Concerns
+## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T063 [P] Update `CLAUDE.md` architecture notes:
+- [ ] T059 [P] Update `CLAUDE.md` architecture notes:
   - **Tools:** integration tools come from `IntegrationKind`, `BaseTools` + `compose` + `ArcSwap`; addon namespacing; Brave tool names.
   - **Channels:** `ChannelConnections` replaces per-agent readers.
   - **Storage:** `IntegrationStorage`, two tables.
@@ -324,16 +293,17 @@ description: "Task list for 016 Integrations Section"
   - **Permissions.**
 
   Also update the "Adding a new tool" note to cover addons.
-- [ ] T064 [P] Write `specs/016-integrations-section/pr-description.md`. List the `[**breaking**]` items:
+- [ ] T060 [P] Write `specs/016-integrations-section/pr-description.md`. List the `[**breaking**]` items:
   - the agent API rejects the moved fields;
   - Brave tools renamed with no alias;
-  - `agents:mcp_config` removed.
+  - `agents:mcp_config` removed;
+  - no upgrade migration: bots, Brave keys and MCP servers must be re-entered under Integrations, and roles other than superadmin need the new permissions granted.
 
   List the behaviour changes:
   - a token with its tools off now gets the tools;
   - an agent update no longer reconnects bots.
-- [ ] T065 `cargo clippy`, `cargo test`, `cd webui && npm run typecheck`. Fix everything.
-- [ ] T066 End-to-end check with dummyplug agents on a running binary (constitution e2e gate): walk all of quickstart.md §1–§6 in one session on a fresh build, plus a 014 regression (`tools` lists the 4 code-mode tools; `execute_python` `memory_list(limit=1)` → `ok: true`)
+- [ ] T061 `cargo clippy`, `cargo test`, `cd webui && npm run typecheck`. Fix everything.
+- [ ] T062 End-to-end check with dummyplug agents on a running binary (constitution e2e gate): walk all of quickstart.md §1–§6 in one session on a fresh build, plus a 014 regression (`tools` lists the 4 code-mode tools; `execute_python` `memory_list(limit=1)` → `ok: true`)
 
 ---
 
@@ -345,10 +315,9 @@ description: "Task list for 016 Integrations Section"
 - **Foundational (Phase 2)**: depends on Setup. Blocks all stories.
 - **US1 (Phase 3)**: Foundational only. This is the MVP.
 - **US2 (Phase 4)**: Foundational only. Independent of US1.
-- **US4 (Phase 5)**: Foundational. It writes rows for every kind id, which need only the kind *ids* and settings shapes, not their runtime wiring. Run it after US1–US2 so its quickstart can verify those families work. Its Brave rows are checked fully once US3 lands.
-- **US3 (Phase 6)**: Foundational only.
-- **US5 (Phase 7)**: after US1, US2 and US3, because their removals of `AgentConfig` fields change `types.ts`, and AgentForm must drop the same fields.
-- **Polish (Phase 8)**: after all stories.
+- **US3 (Phase 5)**: Foundational only.
+- **US5 (Phase 6)**: after US1, US2 and US3, because their removals of `AgentConfig` fields change `types.ts`, and AgentForm must drop the same fields.
+- **Polish (Phase 7)**: after all stories.
 
 ### Within stories
 
@@ -362,8 +331,8 @@ description: "Task list for 016 Integrations Section"
 - **Foundational:** T003, T004, T011 and T013 together; T008 after T006; T024, T025 and T028 (WebUI) alongside the Rust work.
 - **US1:** T029, T030 and T034 together.
 - **US2:** T037, T038 and T043 together.
-- **US3:** T051, T052 and T056 together.
-- **Across stories:** after Foundational, US1, US2 and US3 can proceed in parallel. They touch different kind files. Each edits `BaseTools::new` in `src/agents/tools/mod.rs`, so serialise those three removal tasks: T032, then T042, then T055.
+- **US3:** T046, T047 and T051 together.
+- **Across stories:** after Foundational, US1, US2 and US3 can proceed in parallel. They touch different kind files. Each edits `BaseTools::new` in `src/agents/tools/mod.rs`, so serialise those three removal tasks: T032, then T042, then T050.
 
 ## Parallel Example: User Story 1
 
@@ -384,12 +353,11 @@ Task: "T034 [P] [US1] Unit tests for McpKind in src/integrations/kinds/mcp.rs"  
 ### Incremental delivery
 
 1. US2: channels and `ChannelConnections` (the second runtime path, G6–G8).
-2. US4: migration. **Required before any release.** From here an upgrade is lossless.
-3. US3: Addons catalogue and namespaced Brave tools.
-4. US5: Config clean-up.
-5. Polish: docs, PR notes, full e2e.
+2. US3: Addons catalogue and namespaced Brave tools.
+3. US5: Config clean-up and the agent API's 422.
+4. Polish: docs, PR notes, full e2e.
 
 ### Notes
 
-- Commit per task or per logical group with conventional commits (`feat:`, `refactor:`, `doc:`). Mark the agent API, Brave rename and permission removal commits `[**breaking**]`.
+- Commit per task or per logical group with conventional commits (`feat:`, `refactor:`, `doc:`). Mark the agent API, Brave rename, permission removal and old-field removal commits `[**breaking**]`.
 - Never call `unwrap()` / `expect()` outside tests. Log with `tracing`.

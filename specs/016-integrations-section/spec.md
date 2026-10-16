@@ -71,22 +71,6 @@ With an agent selected, an operator opens **Integrations › Addons** and sees t
 
 ---
 
-### User Story 4 - Existing setups carry over without re-entry (Priority: P1)
-
-An operator upgrades vizier. Every agent's existing Discord/Telegram tokens, Brave Search settings and MCP servers appear under Integrations, attached to the same agents, and work exactly as before.
-
-**Why this priority**: Without this, the upgrade silently disconnects bots and drops tools.
-
-**Independent Test**: Start the new version against a data directory from the previous release with agents using each kind of integration; confirm every one appears under Integrations, attached to the right agent, and still works.
-
-**Acceptance Scenarios**:
-
-1. **Given** agents with channel tokens, Brave Search and MCP servers configured the old way, **When** vizier starts after the upgrade, **Then** each appears once under the matching Integrations menu, attached to the agent(s) it came from, and the agents behave as before.
-2. **Given** two agents with byte-identical MCP server definitions, **When** migrated, **Then** they become one MCP integration attached to both. Definitions that differ in any way stay separate.
-3. **Given** two agents with different Brave API keys, **When** migrated, **Then** no agent loses search and no agent starts using another agent's key.
-
----
-
 ### User Story 5 - Misc › Config shows only built-in tools (Priority: P3)
 
 An operator opens **Misc › Config** for the selected agent (formerly "Agent Config") and finds only that agent's own settings and built-in tools.
@@ -141,7 +125,7 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
   - **`all_agents:integrations:manage`**: may view, create, edit, enable/disable and delete every integration, and attach or detach any integration to or from any agent.
   - **`owned_agents:integrations:manage`**: may create integrations, and view, edit, enable/disable and delete the integrations they created. They may attach and detach integrations only on agents they own. What they may attach is their own integrations and the shared ones created by holders of `all_agents:integrations:manage`. They MUST NOT see, edit or attach integrations created by other owned-scope users.
   - A user with neither permission can still see, read-only, which integrations are attached to agents they can view. Without either permission the Integrations menus are hidden from the sidebar.
-- **FR-005b**: The `agents:mcp_config` permission MUST be retired. It is removed from the permissions that can be granted and from the role editor, and it is stripped from stored roles during the upgrade migration (FR-025). MCP servers are governed only by the two integration permissions.
+- **FR-005b**: The `agents:mcp_config` permission MUST be retired. It is removed from the permissions that can be granted and from the role editor; a stored role that still lists it is unaffected, the string simply grants nothing. MCP servers are governed only by the two integration permissions.
 - **FR-005a**: Every integration MUST record who created it, so the owned scope can be enforced. When an integration is detached from or deleted from an agent, the operator MUST see which agents (and, for all-scope managers, whose agents) are affected.
 - **FR-006**: Secrets (bot tokens, API keys, MCP environment values) MUST NOT be displayed in full after saving; operators MUST be able to replace them without retyping other fields.
 
@@ -183,19 +167,6 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 - **FR-020**: The Config page MUST NOT duplicate integration settings. Because the Integrations menus are already scoped to the same agent, it does not need a summary of them.
 - **FR-021**: Agent create/update requests that still carry the moved fields MUST be rejected or ignored with a clear message pointing to Integrations; they MUST NOT silently overwrite integration state.
 
-**Migration**
-
-- **FR-022**: On first start after upgrade, every existing per-agent channel token, Brave Search setting and MCP server MUST be migrated into Integrations and attached to the agent(s) it came from, so every agent keeps exactly the capabilities it had.
-- **FR-023**: Identical MCP definitions across agents MUST be merged into one integration; non-identical definitions, and different Brave keys, MUST NOT be merged.
-- **FR-024**: The migration MUST be one-time and idempotent: restarting again MUST NOT create duplicates.
-- **FR-025**: The migration MUST preserve who can manage what. Every role that could configure these integrations through the agent form before the upgrade MUST get the matching integration permission:
-  - roles with `all_agents:edit` gain `all_agents:integrations:manage`;
-  - roles with `owned_agents:edit` gain `owned_agents:integrations:manage`.
-
-  - roles with `agents:mcp_config` but neither edit permission gain `owned_agents:integrations:manage`.
-
-  Each migrated integration is recorded as created by the owner of the agent it came from. An integration merged across agents with different owners is recorded as created by an all-scope manager, which makes it shared.
-
 ### Key Entities
 
 - **Integration**: something outside vizier an agent can use. Has a kind (channel, addon, MCP server), a creator (determining owned vs shared scope), a name, its settings (secrets included), an enabled flag, and a status (healthy / degraded / failed with last error / disabled / unassigned).
@@ -211,7 +182,6 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 - **SC-001**: 100% of integration changes (create, edit, attach, detach, enable, disable, delete) complete with zero agent restarts and zero aborted turns.
 - **SC-002**: An integration change is in effect for an affected agent's next turn in 100% of cases; a channel connection change is reflected within 30 seconds.
 - **SC-003**: Adding one MCP server to 5 agents takes one definition and one attach step, instead of 5 separate entries.
-- **SC-004**: After upgrade, 100% of previously configured channel tokens, Brave Search settings and MCP servers appear under Integrations attached to the same agents, with no operator re-entry and no loss of capability.
 - **SC-005**: A broken integration (bad token, unreachable server, invalid key) never takes an agent offline; the agent keeps answering through its other channels.
 - **SC-006**: From any page, an operator can reach the selected agent's bots, addons or MCP servers in one sidebar click.
 
@@ -220,7 +190,8 @@ An operator opens **Misc › Config** for the selected agent (formerly "Agent Co
 - **Channels in scope are Discord and Telegram.** The WebUI/HTTP channel is always on and is not an integration; it is not listed under Channels.
 - **Built-in tools stay on the agent**: fetch, HTTP client, TTS, STT, read image, image generation and shell are not integrations even though some call external providers — those providers already have their own home in Settings › Providers.
 - **Per-agent isolation is preserved**: sharing an MCP definition between agents shares configuration, not a running connection (constitution: no global MCP singletons).
-- **Brave Search is a single addon configuration** (one key for all agents enabled for it). Where the migration finds agents with different Brave keys, it keeps their keys distinct (e.g. as separate named Brave Search configurations) so nothing changes behaviour; how that is presented is a planning detail.
+- **Brave Search is normally one addon configuration** (one key, shared by every agent it is installed on). An operator may create more than one (different keys); an agent installs at most one.
+- **No upgrade migration.** Existing per-agent Discord/Telegram tokens, Brave Search settings and MCP servers are not carried over: after upgrading, operators set them up again under Integrations. The old fields left in stored agent configs are ignored and dropped the next time the agent is saved. Existing roles are not changed: the superadmin has the new integration permissions, and an administrator grants them to other roles as needed.
 - **Dream cycle**: an agent's dream cycle sees the same attached integrations it saw before, subject to its existing restricted tool list.
 - **"Turn" granularity** for live changes is acceptable; changes need not reach a turn already in progress.
 - The HTTP API gains endpoints for integrations; the old agent fields are retired from the agent API in the same release (breaking API change, flagged in the changelog).

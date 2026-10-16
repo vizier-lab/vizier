@@ -146,29 +146,24 @@ Every subscriber rebuilds from storage (level-triggered), never from the event's
 
 **Rationale**: this matches spec FR-005, FR-005a and FR-005b and the agent-scoped view (FR-002). Fixing `scope` at creation avoids integrations silently becoming private or shared when someone's role changes.
 
-## R7 — Migration from per-agent config (FR-022–FR-025)
+## R7 — No migration
 
-**Decision**: a one-time, idempotent startup migration in `dependencies.rs`, guarded by a `state` key `migration:016-integrations`, that runs before agents are spawned. It reads each agent's raw `agent_config` JSON (`serde_json::Value`, because the typed struct no longer has the fields) and:
+**Decision**: no data migration. On upgrade, the per-agent fields (`discord_token`, `telegram_token`, `tools.discord`, `tools.telegram`, `tools.brave_search`, `tools.mcp_servers`) are no longer read.
 
-1. **Discord/Telegram tokens.** Each becomes one channel integration named after the bot's platform and the agent, attached to that agent and enabled.
-   - The old `tools.discord.enabled` / `tools.telegram.enabled` flags are dropped: a connection always brings its tools (FR-008). An agent that had a token but the tools off gains the tools; this is noted in the PR.
-   - If two agents share a token (already broken today, since two readers compete), the first agent keeps it and the duplicate is skipped with a `warn!` naming both agents.
-2. **Brave Search** (enabled, with a key). Agents with identical `(api_key, safesearch)` share one addon configuration. Each distinct key becomes its own configuration (spec assumption: no agent switches keys).
-3. **MCP servers.** Identical definitions (canonical JSON equality of `name` plus `McpClientConfig`) merge into one integration attached to all of those agents. Same name with a different definition becomes a *separate* integration with the *same* name. Nothing is renamed, so every agent keeps its exact MCP tool names (R12).
-4. **Who created what.** `created_by` = the agent's `owner_id`; `scope = owned`. An integration merged across agents with different owners gets `scope = shared` and `created_by = NULL` (system).
-5. **Clean the agent config.** Strip the moved keys from each `agent_config` row in the same transaction.
-6. **Roles** (FR-025):
-   - `all_agents:edit` gains `all_agents:integrations:manage`;
-   - `owned_agents:edit`, or a held `agents:mcp_config`, gains `owned_agents:integrations:manage`;
-   - `agents:mcp_config` is removed from every role.
+- Typed `AgentConfig` deserialisation ignores the unknown keys, as it already does (no `deny_unknown_fields`). The next save of the agent re-serialises without them, so they disappear on their own.
+- Operators set their bots, Brave key and MCP servers up again under Integrations.
+- Roles are not rewritten. The superadmin's seed includes the new permissions. Other roles get them from an administrator in the role editor. A stored role still listing `agents:mcp_config` is harmless: nothing checks that string.
+- The existing `migrate_agent_tools` startup step only copies the legacy global `mcp_servers` into the per-agent field this feature removes. It is deleted, together with the `delete_global_config("mcp_servers"/"shell")` cleanup it does.
 
-Everything happens in one SQLite transaction. It runs once; a second start finds the `state` key and skips.
+**Rationale**: the user's call: integrations are few and quick to re-enter, and a migration (merging, dedup, ownership inference, role rewriting) is a lot of one-off code for a one-time benefit (Principle I).
+
+**Alternatives considered**: an automatic migration that merges identical MCP definitions and rewrites roles. It was designed, then dropped as not needed.
 
 ## R8 — Removing fields from `AgentConfig` and the agent API (FR-019, FR-021)
 
 **Decision**: delete `discord_token`, `telegram_token`, `tools.discord`, `tools.telegram`, `tools.brave_search` and `tools.mcp_servers` from the Rust types.
 - `POST`/`PUT /agents` reject a body that still carries any of them with `422`, naming the field and pointing to `/agents/{id}/integrations` (FR-021: never silently overwrite).
-- `AgentConfig` deserialisation from storage ignores unknown keys, which it already does (no `deny_unknown_fields`). That is enough for rows written mid-upgrade.
+- `AgentConfig` deserialisation from storage ignores unknown keys, which it already does (no `deny_unknown_fields`), so rows written before the upgrade still load (R7).
 - This is a breaking API change and is flagged `[**breaking**]` in the commit.
 
 ## R9 — Live status for MCP servers and addons
@@ -201,7 +196,6 @@ Everything happens in one SQLite transaction. It runs once; a second start finds
 - **Unit tests** (`cargo test`):
   - storage round-trips and the access helper;
   - each kind's `validate` / `redact` / `merge_secrets`;
-  - the migration (merge and no-merge cases, idempotency) against an in-memory connection;
   - `compose` reusing unchanged `McpServer` `Arc`s.
 - **End to end:** a dummyplug agent (constitution gate). In code mode the `tools` command lists only the four sandbox tools, so the checks run `list_tool_functions {"category": "brave_search"}` / `{"category": "<mcp key>"}` through dummyplug's JSON path to see which integration tools the agent has on its *next* turn. The quickstart scripts this.
 - **Live:** only the Discord/Telegram connection steps need real tokens, and they are marked as such.
@@ -214,7 +208,6 @@ Everything happens in one SQLite transaction. It runs once; a second start finds
 - **MCP:** unchanged. Tools are `<server name>_<tool>` and the category is the server name (`<name>_mcp` when it clashes with a built-in category, *or now with an addon id*). Because tool names come from the server name:
   - `integration.name` is **not** unique install-wide (drops `UNIQUE(kind, name)`);
   - instead, an agent may not have two attached MCP integrations with the same name. The attachment and create endpoints refuse with `409 name_in_use_on_agent`, naming the integration already attached.
-  - This is what lets the migration keep every MCP name (R7).
 - **Addons:** namespaced like MCP. Each addon tool is named `<addon id>_<tool>`, and every tool an addon contributes is listed under one category named after the addon id, described by the addon's `KindListing`.
   - Brave Search: `web_search` → `brave_search_web`, `news_search` → `brave_search_news`, category `web` → `brave_search`. The `web` category keeps fetch and the HTTP client.
   - **Mechanism:** `Contribution` carries `addon: Option<&'static str>`. The router's catalogue lists those native tools under that category instead of `VizierTool::category()`. The Brave tool types return `None` from `category()`, like the direct tools, and `every_tool_is_in_its_category` lists them under their addon.

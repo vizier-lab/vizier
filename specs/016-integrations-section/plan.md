@@ -16,7 +16,7 @@ Discord/Telegram bots, the Brave Search addon and MCP servers move off `AgentCon
   - The sidebar gains an agent-scoped **Integrations** section (Channels, Addons as an app-store grid, MCP).
   - A **Misc** section takes Usage and Config; Config is the former Agent Config, now built-in tools only.
 - **Permissions.** Two permissions (`all_agents:integrations:manage`, `owned_agents:integrations:manage`) replace `agents:mcp_config`.
-- **Migration.** A one-time startup migration moves existing config and merges identical MCP definitions.
+- **No migration.** Upgrading doesn't carry the old per-agent settings over; operators re-enter them under Integrations (research R7).
 
 ## Technical Context
 
@@ -27,13 +27,12 @@ Discord/Telegram bots, the Brave Search addon and MCP servers move off `AgentCon
 - WebUI: React Router v7, Zustand-style stores, Tailwind v4.
 - **No new dependencies.**
 
-**Storage**: Embedded SQLite. Two new tables, `integration` and `integration_attachment`, behind a new `IntegrationStorage` trait in `VizierStorageProvider`. `agent_config` rows lose the moved keys in the migration.
+**Storage**: Embedded SQLite. Two new tables, `integration` and `integration_attachment`, behind a new `IntegrationStorage` trait in `VizierStorageProvider`. Old `agent_config` rows keep the moved keys until the agent is next saved; they are ignored (no migration).
 
 **Testing**: `cargo test` covers:
 - storage round-trips;
 - the access helper;
 - each kind's `validate` / `redact` / `merge_secrets`;
-- migration cases (merge, no-merge, duplicate token, idempotent);
 - `compose` reusing unchanged `McpServer`s.
 
 `cargo clippy` and `npm run typecheck` must also pass.
@@ -70,8 +69,8 @@ End-to-end: dummyplug agent steps in [quickstart.md](quickstart.md), as the cons
 | **II. DRY via trait-based extensibility (NON-NEGOTIABLE)** | Kind-specific behaviour (tools, reader, validation, redaction, catalogue listing) lives behind `IntegrationKind`, registered in `IntegrationKinds::builtin()`. Tool build, reader start, API redaction and the Addons catalogue don't `match` on kind. The existing Discord/Telegram/Brave/MCP wiring in `VizierTools::new` moves into the kinds rather than gaining a parallel copy. **Pass.** |
 | **III. Self-contained runtime** | SQLite tables only. Addon icons are embedded like catalogue logos. No startup network access. Brave and MCP stay opt-in. **Pass.** |
 | **IV. Portability** | No platform-specific code. Readers and the MCP transport are unchanged. **Pass.** |
-| **V. Unified errors and observability** | `crate::Result` throughout. A failed refresh keeps the previous snapshot and logs `warn!`. Migration decisions are logged with `info!`/`warn!`. **Pass.** |
-| Quality gates | clippy, test and typecheck; conventional commits, with the agent API change flagged `[**breaking**]`; migration exercised by running the binary (quickstart §1); dummyplug e2e (quickstart §2, §3, §5). **Pass.** |
+| **V. Unified errors and observability** | `crate::Result` throughout. A failed refresh keeps the previous snapshot and logs `warn!`. **Pass.** |
+| Quality gates | clippy, test and typecheck; conventional commits, with the agent API change flagged `[**breaking**]`; dummyplug e2e (quickstart §2, §3, §5). **Pass.** |
 
 **Post-design re-check (after Phase 1):** still passes. The design adds one trait and one manager, both with several real users, and no type-tag branching. Removing the `AgentConfig` fields shrinks the agent schema.
 
@@ -101,8 +100,7 @@ src/
 │   ├── mod.rs                       # IntegrationKinds registry, compose(), refresh helpers
 │   ├── kind.rs                      # IntegrationKind trait, IntegrationFamily, KindListing, Contribution
 │   ├── access.rs                    # integration_access(user, integration, agent) → Access (research R6)
-│   ├── kinds/{discord,telegram,brave_search,mcp}.rs   # one impl each; tool construction moved from agents/tools/mod.rs
-│   └── migrate.rs                   # 016 one-time migration (research R7), called from dependencies.rs
+│   └── kinds/{discord,telegram,brave_search,mcp}.rs   # one impl each; tool construction moved from agents/tools/mod.rs
 ├── schema/integration.rs            # NEW: Integration, IntegrationScope, IntegrationStatus, IntegrationChanged
 ├── storage/integration.rs           # NEW: IntegrationStorage trait
 ├── storage/sqlite/integration.rs    # NEW: impl + init_integration_schema
@@ -111,7 +109,7 @@ src/
 ├── schema/agent.rs                  # remove discord_token, telegram_token, tools.{discord,telegram,brave_search,mcp_servers}
 ├── schema/commands.rs               # AgentCommand::{RefreshIntegrations, IntegrationStatus}
 ├── transport.rs                     # IntegrationChanged broadcast (publish/subscribe)
-├── dependencies.rs                  # run integrations::migrate; IntegrationKinds + IntegrationHealth on deps
+├── dependencies.rs                  # IntegrationKinds + IntegrationHealth on deps; drop migrate_agent_tools
 ├── agents/tools/mod.rs              # VizierTools::new → BaseTools::new; compose(); integration tool wiring removed
 ├── agents/agent/mod.rs              # tools: ArcSwap<VizierTools>; load_full() per turn; refresh_integrations()
 ├── agents/mcp/mod.rs                # McpServer::status()
@@ -151,11 +149,7 @@ webui/app/
    - the `refresh_integrations` and `IntegrationChanged` plumbing;
    - `McpServer::status`.
 3. **Channel connections** (US2 backend): the `ChannelConnections` manager; remove readers from `agent_process`; health plumbing.
-4. **Migration and agent API** (US4):
-   - the 016 migration;
-   - the `AgentConfig` field removal;
-   - the 422 on moved fields;
-   - role updates.
+4. **Agent API**: reject the moved fields with 422 (FR-021).
 5. **HTTP API**: agent-scoped and integration-level endpoints, the kinds catalogue and icons.
 6. **WebUI**:
    - sidebar sections and routes;
