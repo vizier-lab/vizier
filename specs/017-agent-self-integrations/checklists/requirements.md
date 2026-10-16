@@ -31,5 +31,7 @@
 
 ## Notes
 
-- Q1 resolved: local and HTTP MCP servers both allowed (C). Q2 resolved: anything attached only to the agent; detach-only for integrations also attached elsewhere (C).
+- Model revised: each integration belongs to exactly one agent; permissions decide which agents a person manages; creator scope removed (FR-020–FR-022).
+- FR-023 resolved (C): no conversion; legacy multi-agent integrations are left as stored, all-agents managers only, invisible to agent tools.
+- Q1 resolved: local and HTTP MCP servers both allowed (C). Q2 superseded by the per-agent model: the agent manages all of its own integrations.
 - Permission names (`*:integrations:manage`) are the product's existing role vocabulary from 016, not implementation detail.

@@ -10,9 +10,11 @@
 
 ## Context
 
-Since 016, an agent's MCP servers, addons (Brave Search) and Discord/Telegram connections are **integrations**: defined once, attached to agents, and managed by people holding `all_agents:integrations:manage` or `owned_agents:integrations:manage`. An agent cannot change any of them itself. If someone asks an agent in conversation to "hook yourself up to this MCP server" or "turn on web search", a person has to leave the conversation and do it in the WebUI.
+An agent's MCP servers, addons (Brave Search) and Discord/Telegram connections are **integrations**. Each integration belongs to exactly one agent; nothing is shared between agents. Who may manage them is decided only by which agents a person may manage: `all_agents:integrations:manage` covers every agent's integrations, `owned_agents:integrations:manage` covers the integrations of the agents the person owns. Who created an integration grants nothing. An agent cannot change any of its integrations itself. If someone asks an agent in conversation to "hook yourself up to this MCP server" or "turn on web search", a person has to leave the conversation and do it in the WebUI.
 
 This feature adds three per-agent switches, one for each integration family (**MCP servers**, **Addons**, **Channels**), and a set of agent tools that let the agent view and change its own integrations of a family whose switch is on. Turning a switch on is a grant of integration authority to the agent, so only a person who could manage that agent's integrations themselves may turn it on.
+
+The current implementation (016) still lets an MCP server or addon configuration be attached to several agents, and still gives integrations a creator-based scope (`shared`/`owned`). This feature brings it in line with the per-agent model above (FR-020 to FR-023), which also keeps the agent's authority simple: an agent's integrations are its own, so changing one can never affect another agent.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -44,12 +46,12 @@ With the MCP switch on, a person tells the agent "connect yourself to the GitHub
 
 **Acceptance Scenarios**:
 
-1. **Given** agent A with the MCP switch on, **When** A adds an MCP server, **Then** it is created, attached to A only, marked as created by A, and its tools become available from A's next turn without restarting A or interrupting any turn.
-2. **Given** agent A with the MCP switch on, **When** A lists its MCP servers, **Then** it sees the servers attached to it with name, transport, enabled state and health, and secret values are shown redacted.
+1. **Given** agent A with the MCP switch on, **When** A adds an MCP server, **Then** it is created as A's, recorded as made by A, and its tools become available from A's next turn without restarting A or interrupting any turn.
+2. **Given** agent A with the MCP switch on, **When** A lists its MCP servers, **Then** it sees its servers with name, transport, enabled state and health, and secret values are shown redacted.
 3. **Given** agent A with the MCP switch off, **When** A calls any MCP self-management tool, **Then** the call fails with a message saying the capability is not enabled for this agent, and nothing changes.
-4. **Given** agent A with the MCP switch on, **When** A tries to add a server whose name is already used by another server attached to A, **Then** the call fails with the same rule violation a person would get.
-5. **Given** agent A with the MCP switch on, **When** A tries to change or delete an MCP server attached to A that a person created, **Then** the change is allowed if that server is attached to A and to no other agent.
-6. **Given** agent A with the MCP switch on and an MCP server attached to both A and agent B, **When** A tries to edit, disable or delete it, **Then** the call is refused because the change would affect B; **When** A detaches it from itself, **Then** it is detached from A only and B is unaffected.
+4. **Given** agent A with the MCP switch on, **When** A tries to add a server whose name is already used by another of A's servers, **Then** the call fails with the same rule violation a person would get.
+5. **Given** agent A with the MCP switch on, **When** A edits, disables or deletes one of its servers that a person added, **Then** the change is made; who added it does not matter.
+6. **Given** agent A with the MCP switch on, **When** A refers to an MCP server that is not one of its own, **Then** the call fails as if no such server existed.
 7. **Given** agent A with the MCP switch on, **When** A adds a local (command-launched) MCP server, **Then** it is accepted with the same options a person has, and the server's command runs on the vizier host.
 
 ---
@@ -65,7 +67,7 @@ With the Addons switch on, the agent can see the addon catalogue, install an add
 **Acceptance Scenarios**:
 
 1. **Given** agent A with the Addons switch on, **When** A lists addons, **Then** it sees every addon vizier offers and whether each is installed on A.
-2. **Given** agent A with the Addons switch on, **When** A installs an addon with valid settings, **Then** it is attached to A only, replacing any configuration of that addon A already had (the existing one-per-addon-per-agent rule).
+2. **Given** agent A with the Addons switch on, **When** A installs an addon with valid settings, **Then** it becomes A's configuration of that addon, replacing any configuration of it A already had (one configuration per addon per agent).
 3. **Given** agent A with the Addons switch off, **When** A calls an addon self-management tool, **Then** it is refused and nothing changes.
 
 ---
@@ -95,9 +97,8 @@ With the Channels switch on, the agent can see its Discord and Telegram connecti
 - **Secrets**: an agent never reads back a secret in full (bot tokens, API keys, MCP environment values), including ones it saved itself. It can replace them.
 - **Scheduled and dream runs**: self-management tools are not available in the dream cycle, so unattended reflection never changes integrations. In scheduled tasks they are available like any other tool when the switch is on.
 - **Delegated and subagent runs**: a subagent or a delegated agent acts under its own agent's switches, never the launching agent's.
-- **Agent deleted**: the integrations it created follow the existing rules (its channel connections are deleted with it; MCP servers and addon configurations it created remain and are manageable by all-scope managers).
+- **Agent deleted**: all of its integrations are deleted with it, whoever made them (a legacy integration still linked to other agents only loses this agent's link, FR-023).
 - **Local MCP servers**: a local MCP server runs a command on the vizier host. With the MCP switch on, an agent may add and edit local servers just as a person can, so enabling the MCP switch amounts to letting the agent run commands on the host. The switch's description in the configuration form MUST say so.
-- **Integration attached to several agents**: an agent may detach itself from it but may not edit, enable/disable or delete it. If it later becomes attached to that agent alone, the agent may manage it fully.
 
 ## Requirements *(mandatory)*
 
@@ -114,13 +115,12 @@ With the Channels switch on, the agent can see its Discord and Telegram connecti
 
 **Agent tools**
 
-- **FR-007**: For each family, the agent MUST have tools to list its integrations of that family (with status, enabled state and redacted settings), create one attached to itself, edit one, enable/disable one, and remove one from itself. For addons, listing MUST also show the addons it does not have yet. For MCP servers, it MUST be able to see the tools a server offers.
+- **FR-007**: For each family, the agent MUST have tools to list its integrations of that family (with status, enabled state and redacted settings), create one, edit one, enable/disable one, and delete one. For addons, listing MUST also show the addons it does not have yet. For MCP servers, it MUST be able to see the tools a server offers.
 - **FR-008**: Every self-management tool MUST check, at the time of the call, that the agent's switch for that family is on, and MUST refuse otherwise without changing anything.
-- **FR-009**: An agent MUST only ever change integrations on itself. It MUST NOT attach anything to, or detach anything from, another agent, and MUST NOT change an integration attached to any other agent.
-- **FR-010**: An agent MUST be able to edit, enable/disable and delete any integration of an enabled family that is attached to it and to no other agent, whoever created it. For an integration also attached to another agent, it MUST only be able to detach itself; any other change MUST be refused with a message naming why (the change would affect other agents). Whether an integration is attached elsewhere MUST be judged at the time of the call.
+- **FR-009**: An agent MUST only ever see and change its own integrations. Another agent's integrations MUST be invisible to it, and a reference to one MUST fail as if it did not exist.
+- **FR-010**: Within a family whose switch is on, an agent MUST be able to manage all of its integrations of that family, whoever made them, exactly as a person who manages its integrations can.
 - **FR-011**: Every rule enforced for people (one connection per platform per agent, a token used once, one configuration per addon per agent, unique MCP server names per agent, kind-specific validation) MUST be enforced identically for agents, and violations MUST be returned to the agent as readable errors.
-- **FR-012**: Integrations an agent creates MUST record the agent as their creator and MUST be visible in the Integrations menus to people who may see that agent's integrations, marked as created by the agent.
-- **FR-013**: Integrations an agent creates MUST be private to that agent: they MUST NOT appear as attachable to other agents unless a person with `all_agents:integrations:manage` makes them so.
+- **FR-012**: Integrations an agent creates MUST record the agent as their creator and MUST be shown in the Integrations menus, to people who may see that agent's integrations, as made by the agent. The record is informational and grants nothing.
 - **FR-014**: Secrets MUST never be returned to the agent in full.
 - **FR-015**: Self-management tools MUST be offered through the existing tool categories so that an agent with all switches off sees no difference in its tool list, and an agent with a switch on sees only that family's tools.
 - **FR-016**: Self-management tools MUST NOT be available to the dream cycle.
@@ -128,11 +128,18 @@ With the Channels switch on, the agent can see its Discord and Telegram connecti
 - **FR-018**: Every change an agent makes to an integration MUST be recorded with the agent as actor and the time, and MUST be visible to people who may manage that agent's integrations.
 - **FR-019**: MCP self-management MUST offer both transports (local command-launched and HTTP) with the same options a person has. The MCP switch in the configuration form MUST warn that enabling it lets the agent run commands on the vizier host.
 
+**Per-agent integrations** (aligning the 016 implementation)
+
+- **FR-020**: Every integration MUST belong to exactly one agent, set when it is created and never changed. Integrations MUST NOT be attached to, listed for, or reused by other agents. Deleting an agent MUST delete all of its integrations.
+- **FR-021**: A person MUST be able to manage an agent's integrations if and only if they hold `all_agents:integrations:manage`, or hold `owned_agents:integrations:manage` and own that agent. Who created an integration MUST NOT affect access. Anyone who can view an agent MUST still be able to see, read-only, its integrations.
+- **FR-022**: The creator-based scope (`shared`/`owned`) MUST be removed from integrations and from every access decision.
+- **FR-023**: There MUST be no automatic conversion of existing data (as in 016, no upgrade migration). An existing integration still linked to several agents, or to none, is left as stored and fixed by hand: it keeps working for each agent it is linked to; only `all_agents:integrations:manage` holders may edit or delete it; deleting it from one agent's page removes only that agent's link; and agents never see it in their self-management tools. New integrations can only ever be created for one agent.
+
 ### Key Entities
 
 - **Self-management settings**: three on/off values on an agent, one per integration family (MCP servers, addons, channel connections). Changed only by people allowed to manage that agent's integrations.
-- **Integration** (existing, from 016): gains the possibility of an agent as its creator, in addition to a person.
-- **Integration change record**: who (person or agent) changed which integration, how (created, edited, enabled, disabled, attached, detached, deleted), and when.
+- **Integration**: belongs to exactly one agent. Has a kind (MCP server, addon, channel connection), its settings, an enabled flag, a status, and a creator (a person or the agent itself) kept for the record only.
+- **Integration change record**: who (person or agent) changed which integration, how (created, edited, enabled, disabled, deleted), and when.
 
 ## Success Criteria *(mandatory)*
 
@@ -147,10 +154,9 @@ With the Channels switch on, the agent can see its Discord and Telegram connecti
 
 ## Assumptions
 
-- "Integration permission" means the 016 permissions: `all_agents:integrations:manage`, or `owned_agents:integrations:manage` on an agent the person owns. Owned-scope holders may grant switches only on agents they own.
+- "Integration permission" means `all_agents:integrations:manage` (any agent), or `owned_agents:integrations:manage` on an agent the person owns.
 - The switches are part of the agent's configuration (the Misc › Config page), not of the Integrations pages, because they describe the agent's capabilities.
 - No human approval step is required for each agent-made change: turning the switch on is the operator's consent. The change record (FR-018) is the oversight mechanism.
-- An agent never sees or attaches integrations it did not create unless they are already attached to it; it cannot browse other people's MCP servers or addon configurations, including shared-scope ones.
-- "Shared" in FR-010 means attached to more than one agent, not the shared *scope* (created by an all-scope manager). Scope does not affect what an agent may change on itself.
+- With integrations per agent, the WebUI's Integrations menus show only the selected agent's integrations; there is no picker of other agents' integrations to attach.
 - Channel self-management covers the existing platforms (Discord, Telegram) only.
 - The tools follow existing naming and category conventions (snake_case names, one category per family) and are reached through code mode like every other tool.
