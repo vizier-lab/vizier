@@ -43,6 +43,14 @@ pub trait BackgroundJobStorage {
 
     async fn get_background_job(&self, job_id: &str) -> Result<Option<BackgroundJob>>;
 
+    /// The job a piece belongs to, found by the piece's session: its executor and its fresh
+    /// topic, which is unique to the piece. The usage page links a piece back to its launcher.
+    async fn background_job_by_piece(
+        &self,
+        executor_agent: &str,
+        piece_topic: &str,
+    ) -> Result<Option<BackgroundJob>>;
+
     /// The tray read and the cancel cascade: in-flight jobs launched from `origin`, oldest first.
     async fn list_running_background_jobs(
         &self,
@@ -103,6 +111,14 @@ impl BackgroundJobStorage for VizierStorage {
 
     async fn get_background_job(&self, job_id: &str) -> Result<Option<BackgroundJob>> {
         self.0.get_background_job(job_id).await
+    }
+
+    async fn background_job_by_piece(
+        &self,
+        executor_agent: &str,
+        piece_topic: &str,
+    ) -> Result<Option<BackgroundJob>> {
+        self.0.background_job_by_piece(executor_agent, piece_topic).await
     }
 
     async fn list_running_background_jobs(

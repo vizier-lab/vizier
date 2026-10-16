@@ -18,7 +18,7 @@ use crate::{
     config::shell::ShellConfig,
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
-        AgentToolsConfig, AgentUsageStats, EmbeddingConfig,
+        AgentToolsConfig, EmbeddingConfig,
         ImageGenToolSettings, IndexerConfig, ReadImageToolSettings, ToolConfig,
         TtsToolSettings,
         agent::{EmbeddingProvider, IndexerKind, SttToolSettings},
@@ -87,6 +87,7 @@ pub fn agents() -> Router<HTTPState> {
             get(agent_detail).put(update_agent).delete(delete_agent),
         )
         .route("/{agent_id}/usage", get(agent_usage))
+        .route("/{agent_id}/usage/conversation", get(agent_usage_conversation))
         .route("/{agent_id}/ping", get(ping_agent))
         .route("/{agent_id}/chat", post(agent_chat))
         .route(
@@ -719,62 +720,170 @@ async fn delete_agent(
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
-pub struct UsageQuery {
+#[derive(Debug, Deserialize, Serialize, utoipa::IntoParams)]
+pub struct UsageParams {
+    /// RFC 3339. Default: `end_date` − 30 days.
+    pub start_date: Option<String>,
+    /// RFC 3339. Default: now.
+    pub end_date: Option<String>,
+    /// Narrows every figure to one activity (spec 018 FR-021).
+    pub activity: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, utoipa::IntoParams)]
+pub struct ConversationUsageParams {
+    /// A `channel` from the report's `costliest` (a session slug).
+    pub channel: Option<String>,
+    pub topic: Option<String>,
     pub start_date: Option<String>,
     pub end_date: Option<String>,
+    pub activity: Option<String>,
+    /// Calls to return, 1–100. Default 20.
+    pub limit: Option<usize>,
+}
+
+/// The longest range a usage read covers.
+const MAX_USAGE_RANGE_DAYS: i64 = 366;
+
+/// The storage query for a usage read, or the `400` refusing it. The refusal is a whole
+/// response, like `parse_agent_body`'s.
+#[allow(clippy::result_large_err)]
+fn usage_query(
+    agent_id: &str,
+    start_date: Option<&str>,
+    end_date: Option<&str>,
+    activity: Option<&str>,
+) -> Result<crate::storage::usage::UsageQuery, axum::response::Response> {
+    use crate::channels::http::api::v1::integrations::fail;
+    let parse = |s: &str| DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&Utc));
+    let bad_range = |message: &str| {
+        fail(StatusCode::BAD_REQUEST, message, serde_json::json!({"error": "invalid_range"}))
+    };
+
+    let end = match end_date {
+        Some(s) => parse(s).map_err(|_| bad_range("end_date is not RFC 3339"))?,
+        None => Utc::now(),
+    };
+    let start = match start_date {
+        Some(s) => parse(s).map_err(|_| bad_range("start_date is not RFC 3339"))?,
+        None => end - chrono::Duration::days(30),
+    };
+    if start > end {
+        return Err(bad_range("start_date is after end_date"));
+    }
+    if end - start > chrono::Duration::days(MAX_USAGE_RANGE_DAYS) {
+        return Err(bad_range("the range is longer than 366 days"));
+    }
+    let activity = match activity.filter(|a| !a.is_empty()) {
+        Some(a) => Some(a.parse::<crate::schema::usage::UsageActivity>().map_err(|_| {
+            fail(
+                StatusCode::BAD_REQUEST,
+                format!("unknown activity '{a}'"),
+                serde_json::json!({"error": "unknown_activity"}),
+            )
+        })?),
+        None => None,
+    };
+    Ok(crate::storage::usage::UsageQuery {
+        agent_id: agent_id.to_string(),
+        start,
+        end,
+        activity,
+        conversation: None,
+    })
 }
 
 #[utoipa::path(
     get,
     path = "/agents/{agent_id}/usage",
     params(
-        ("agent_id" = String, Path, description = "Agent ID")
+        ("agent_id" = String, Path, description = "Agent ID"),
+        UsageParams,
     ),
-    request_body = UsageQuery,
     responses(
-        (status = 200, description = "Agent usage statistics", body = APIResponse<AgentUsageStats>),
+        (status = 200, description = "Agent usage report", body = APIResponse<crate::schema::usage::UsageReport>),
+        (status = 400, description = "invalid_range or unknown_activity", body = APIResponse<String>),
         (status = 404, description = "Agent not found", body = APIResponse<String>),
         (status = 500, description = "Internal server error", body = APIResponse<String>)
     )
 )]
 async fn agent_usage(
     Path(agent_id): Path<String>,
-    Query(query): Query<UsageQuery>,
+    Query(params): Query<UsageParams>,
     State(state): State<HTTPState>,
-) -> models::response::Response<AgentUsageStats> {
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
     if !state.is_agent_exists(&agent_id).await {
-        return err_response(StatusCode::NOT_FOUND, "agent not found".into());
+        return err_response::<String>(StatusCode::NOT_FOUND, "agent not found".into()).into_response();
     }
-
-    let start_date = query.start_date.as_ref().and_then(|s| {
-        DateTime::parse_from_rfc3339(s)
-            .ok()
-            .map(|dt| dt.with_timezone(&Utc))
-    });
-
-    let end_date = query.end_date.as_ref().and_then(|s| {
-        DateTime::parse_from_rfc3339(s)
-            .ok()
-            .map(|dt| dt.with_timezone(&Utc))
-    });
-
-    let storage: &VizierStorage = &state.storage;
-    let catalogue = state.catalogue.clone();
-    // Custom providers have no prices yet; their replies count as unpriced.
-    let pricing = move |provider: &crate::config::provider::ProviderId, model: &str| {
-        let cost = catalogue.model(provider, model)?.cost?;
-        let outside = catalogue.provider(provider).and_then(|p| p.dialect)
-            == Some(crate::llm::DialectKind::Anthropic);
-        Some((cost, outside))
+    let q = match usage_query(
+        &agent_id,
+        params.start_date.as_deref(),
+        params.end_date.as_deref(),
+        params.activity.as_deref(),
+    ) {
+        Ok(q) => q,
+        Err(refused) => return refused,
     };
-    let usage_result = storage
-        .aggregate_usage(&agent_id, start_date, end_date, &pricing)
-        .await;
+    match crate::usage::build_report(&state.storage, &state.catalogue, q).await {
+        Ok(report) => api_response(StatusCode::OK, report).into_response(),
+        Err(e) => err_response::<String>(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
 
-    match usage_result {
-        Ok(stats) => api_response(StatusCode::OK, stats),
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/usage/conversation",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ConversationUsageParams,
+    ),
+    responses(
+        (status = 200, description = "One conversation's usage, calls most expensive first", body = APIResponse<crate::schema::usage::ConversationUsage>),
+        (status = 400, description = "missing_channel, invalid_limit, invalid_range or unknown_activity", body = APIResponse<String>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>),
+        (status = 500, description = "Internal server error", body = APIResponse<String>)
+    )
+)]
+async fn agent_usage_conversation(
+    Path(agent_id): Path<String>,
+    Query(params): Query<ConversationUsageParams>,
+    State(state): State<HTTPState>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    use crate::channels::http::api::v1::integrations::fail;
+    if !state.is_agent_exists(&agent_id).await {
+        return err_response::<String>(StatusCode::NOT_FOUND, "agent not found".into()).into_response();
+    }
+    let Some(channel) = params.channel.filter(|c| !c.is_empty()) else {
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "channel is required",
+            serde_json::json!({"error": "missing_channel"}),
+        );
+    };
+    let limit = params.limit.unwrap_or(20);
+    if !(1..=100).contains(&limit) {
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "limit must be between 1 and 100",
+            serde_json::json!({"error": "invalid_limit"}),
+        );
+    }
+    let mut q = match usage_query(
+        &agent_id,
+        params.start_date.as_deref(),
+        params.end_date.as_deref(),
+        params.activity.as_deref(),
+    ) {
+        Ok(q) => q,
+        Err(refused) => return refused,
+    };
+    q.conversation = Some((channel, params.topic.filter(|t| !t.is_empty())));
+    match crate::usage::conversation_usage(&state.storage, &state.catalogue, q, limit).await {
+        Ok(usage) => api_response(StatusCode::OK, usage).into_response(),
+        Err(e) => err_response::<String>(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 

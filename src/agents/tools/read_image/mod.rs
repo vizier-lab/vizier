@@ -112,10 +112,15 @@ impl VizierTool for ReadImageFile {
             ]);
 
             let text = vision
-                .complete(CompletionRequest {
-                    messages: vec![message],
-                    ..Default::default()
-                })
+                .complete(
+                    CompletionRequest {
+                        messages: vec![message],
+                        ..Default::default()
+                    },
+                    &crate::agents::agent::model::usage::UsageScope::vision(Some(
+                        ctx.session.clone(),
+                    )),
+                )
                 .await
                 .map_err(|e| VizierError(e.to_string()))?
                 .text();

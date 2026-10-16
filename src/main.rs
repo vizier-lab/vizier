@@ -30,6 +30,7 @@ mod schema;
 mod skill;
 mod storage;
 mod transport;
+mod usage;
 mod tts;
 mod stt;
 mod telemetry;

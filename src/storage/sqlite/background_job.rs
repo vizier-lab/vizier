@@ -240,6 +240,27 @@ impl BackgroundJobStorage for SqliteStorage {
         Ok(changed == 1)
     }
 
+    async fn background_job_by_piece(
+        &self,
+        executor_agent: &str,
+        piece_topic: &str,
+    ) -> Result<Option<BackgroundJob>> {
+        let job_id: Option<String> = {
+            let conn = self.conn.lock();
+            conn.query_row(
+                "SELECT job_id FROM background_piece WHERE executor_agent = ?1 AND session_topic = ?2 \
+                 LIMIT 1",
+                rusqlite::params![executor_agent, piece_topic],
+                |row| row.get(0),
+            )
+            .optional()?
+        };
+        match job_id {
+            Some(id) => self.get_background_job(&id).await,
+            None => Ok(None),
+        }
+    }
+
     async fn get_background_job(&self, job_id: &str) -> Result<Option<BackgroundJob>> {
         let conn = self.conn.lock();
         let sql = format!("SELECT {JOB_COLUMNS} FROM background_job WHERE id = ?1");

@@ -70,7 +70,7 @@ Each agent has:
 - **Tasks** — scheduled cron / one-time tasks
 - **Skills** — per-agent skill packages
 - **Dream** — an optional scheduled reflection cycle
-- **Usage** — token usage stats
+- **Usage** — what each agent spends on models, by activity, model and conversation
 
 See [Agent Configuration](../configuration/agents.md).
 

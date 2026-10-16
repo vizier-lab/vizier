@@ -6,9 +6,11 @@ interface SlideOverProps {
   onClose: () => void
   title: string
   children: ReactNode
+  /** CSS width of the panel. Default `min(800px, 90vw)`. */
+  width?: string
 }
 
-export default function SlideOver({ open, onClose, title, children }: SlideOverProps) {
+export default function SlideOver({ open, onClose, title, children, width = 'min(800px, 90vw)' }: SlideOverProps) {
   useEffect(() => {
     if (!open) return
     const handleEsc = (e: KeyboardEvent) => {
@@ -37,6 +39,9 @@ export default function SlideOver({ open, onClose, title, children }: SlideOverP
             }}
           />
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-label={title}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -46,7 +51,7 @@ export default function SlideOver({ open, onClose, title, children }: SlideOverP
               top: 0,
               right: 0,
               bottom: 0,
-              width: 'min(800px, 90vw)',
+              width,
               background: 'var(--background)',
               borderLeft: '1px solid var(--border)',
               boxShadow: 'var(--shadow-xl)',
@@ -65,7 +70,7 @@ export default function SlideOver({ open, onClose, title, children }: SlideOverP
               flexShrink: 0,
             }}>
               <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{title}</h2>
-              <button className="btn btn-ghost" onClick={onClose} style={{ padding: '6px' }}>
+              <button className="btn btn-ghost" onClick={onClose} aria-label="Close" style={{ padding: '6px' }}>
                 &#10005;
               </button>
             </div>

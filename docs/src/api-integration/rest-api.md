@@ -72,7 +72,8 @@ All agent routes require auth. Visibility: owner, users in `shared_to`, or `all_
 | `PUT` | `/agents/{id}` | Replace config (same body as create). Restarts the agent |
 | `DELETE` | `/agents/{id}?delete_workspace=true\|false` | Delete; optionally wipe `agents/{id}/` on disk |
 | `GET` | `/agents/{id}/ping` | Liveness of one agent |
-| `GET` | `/agents/{id}/usage?start_date&end_date` | Token usage |
+| `GET` | `/agents/{id}/usage?start_date&end_date&activity` | Usage report: cost, tokens, activities, models, costliest conversations (see [Agents › Usage](../configuration/agents.md#usage)) |
+| `GET` | `/agents/{id}/usage/conversation?channel&topic&…` | One conversation's model calls |
 | `GET` / `PATCH` | `/agents/{id}/sharing` | `{ "add": [user_id], "remove": [user_id] }` |
 | `GET` / `PUT` | `/agents/{id}/core` | `CORE.md` |
 | `GET` / `POST` | `/agents/{id}/core/history` | **Version history** of `CORE.md` (see below) |

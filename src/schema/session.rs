@@ -30,6 +30,25 @@ impl VizierSession {
         matches!(self.1, VizierChannelId::Task(..))
     }
 
+    /// The Channel-breakdown key of the usage page (`specs/018-usage-accounting/` R9): one per
+    /// Discord channel, Telegram chat and WebUI topic; every run of one task together; dreams and
+    /// background work each as one place.
+    pub fn usage_place(&self) -> String {
+        match &self.1 {
+            VizierChannelId::DiscordChanel(id) => format!("discord:{id}"),
+            VizierChannelId::TelegramChannel(id) => format!("telegram:{id}"),
+            // The whole slug: the same user talks through several HTTP channels (the WebUI, the
+            // REST API's `channel_id`), and the label lookup needs the exact one.
+            VizierChannelId::HTTP(..) => {
+                format!("http:{}:{}", self.1.to_slug(), self.2.as_deref().unwrap_or(""))
+            }
+            VizierChannelId::Task(slug, _) => format!("task:{slug}"),
+            VizierChannelId::Subagent | VizierChannelId::InterAgent(_) => "background".into(),
+            VizierChannelId::Dream(..) => "dreams".into(),
+            VizierChannelId::System => "system".into(),
+        }
+    }
+
     pub fn to_slug(&self) -> String {
         format!(
             "{}__{}__{}",
@@ -69,6 +88,19 @@ impl VizierChannelId {
             Self::DiscordChanel(_) => Some(crate::schema::ChannelPlatform::Discord),
             Self::TelegramChannel(_) => Some(crate::schema::ChannelPlatform::Telegram),
             _ => None,
+        }
+    }
+
+    /// What a turn in this conversation is, for usage accounting (`specs/018-usage-accounting/`
+    /// R4). Handovers and vision reads are classified by their purpose instead.
+    pub fn usage_activity(&self) -> crate::schema::usage::UsageActivity {
+        use crate::schema::usage::UsageActivity;
+        match self {
+            Self::DiscordChanel(_) | Self::TelegramChannel(_) | Self::HTTP(..) => UsageActivity::Chat,
+            Self::Task(..) => UsageActivity::Scheduled,
+            Self::Subagent | Self::InterAgent(_) => UsageActivity::Background,
+            Self::Dream(..) => UsageActivity::Dreams,
+            Self::System => UsageActivity::Other,
         }
     }
 
@@ -225,6 +257,46 @@ mod tests {
                 !VizierSession("agent-1".to_string(), channel.clone(), None).is_scheduled_task(),
                 "{channel:?} is not a scheduled task"
             );
+        }
+    }
+
+    #[test]
+    fn every_channel_has_a_usage_activity_and_place() {
+        use crate::schema::usage::UsageActivity as A;
+        let s = |channel, topic: Option<&str>| {
+            VizierSession("a".into(), channel, topic.map(str::to_string))
+        };
+        let cases = [
+            (s(VizierChannelId::DiscordChanel(7), None), A::Chat, "discord:7"),
+            (s(VizierChannelId::TelegramChannel(-5), None), A::Chat, "telegram:-5"),
+            (
+                s(VizierChannelId::HTTP("alice".into(), "webui".into()), Some("t1")),
+                A::Chat,
+                "http:http__alice__webui:t1",
+            ),
+            (task_session("brief", 1_700_000_000), A::Scheduled, "task:brief"),
+            (s(VizierChannelId::Subagent, None), A::Background, "background"),
+            (
+                s(VizierChannelId::InterAgent(vec!["a".into(), "b".into()]), None),
+                A::Background,
+                "background",
+            ),
+            (
+                s(
+                    VizierChannelId::Dream(
+                        Box::new(s(VizierChannelId::DiscordChanel(7), None)),
+                        DreamStage::Extraction,
+                    ),
+                    None,
+                ),
+                A::Dreams,
+                "dreams",
+            ),
+            (s(VizierChannelId::System, None), A::Other, "system"),
+        ];
+        for (session, activity, place) in cases {
+            assert_eq!(session.1.usage_activity(), activity, "{session:?}");
+            assert_eq!(session.usage_place(), place, "{session:?}");
         }
     }
 }

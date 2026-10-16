@@ -15,6 +15,7 @@ mod session;
 pub mod session_file;
 mod storage;
 mod task;
+pub mod usage;
 
 pub use agent::{
     AgentConfig, AgentToolsConfig, EmbeddingProvider,
@@ -41,10 +42,6 @@ pub use integration::{
 pub use history::{
     SessionHistory, SessionHistoryContent, history_entries_to_messages, message_for_model,
     messages_for_model, messages_to_history_entries, seal_tool_calls,
-};
-pub use metrics::{
-    AgentUsageStats, ChannelTypeUsage, ChannelTypeUsageDetail, ChannelUsage, DailyChannelTypeUsage,
-    DailyUsage, UsageSummary,
 };
 pub use provider::{CustomModel, CustomProtocol, CustomProvider, ProviderCredentials, ProviderEntry};
 pub use request::{

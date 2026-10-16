@@ -11,11 +11,15 @@ use crate::{
         self, CompletionModel, CompletionRequest, CompletionResponse, ContextSource, RetryingModel,
         resolve::ModelOverrides,
     },
-    schema::{AgentConfig, AgentId},
+    schema::{AgentConfig, AgentId, metrics::TokenCounts, usage::UsageEvent},
+    storage::{VizierStorage, usage::UsageStorage},
 };
+
+use usage::{TurnGuard, UsageScope};
 
 mod dummyplug;
 pub mod registry;
+pub mod usage;
 
 pub use crate::llm::model::{PROMPT_TIMED_OUT, PROVIDER_UNAVAILABLE, RATE_LIMITED};
 
@@ -32,10 +36,15 @@ pub struct ModelInfo {
 }
 
 /// An agent's completion model: `llm::resolve`, then `llm::build`, behind one cheap handle.
+///
+/// Every answered completion is recorded as a usage event for `agent_id` (`specs/018-usage-
+/// accounting/` R1): this is the one place chat, dream, handover and vision calls all pass.
 #[derive(Clone)]
 pub struct VizierModel {
     inner: Arc<dyn CompletionModel>,
     info: Arc<ModelInfo>,
+    agent_id: AgentId,
+    storage: Arc<VizierStorage>,
 }
 
 impl VizierModel {
@@ -47,26 +56,76 @@ impl VizierModel {
         &self.info
     }
 
-    pub async fn complete(&self, req: CompletionRequest) -> Result<CompletionResponse> {
-        self.complete_until(req, None).await
+    pub async fn complete(
+        &self,
+        req: CompletionRequest,
+        scope: &UsageScope,
+    ) -> Result<CompletionResponse> {
+        self.complete_until(req, None, scope).await
     }
 
     /// A completion, retried on transient failures, that gives up at `deadline`: the turn's
     /// `prompt_timeout`, which otherwise only applies between completions (#41).
+    ///
+    /// An answered call is recorded off the call's path (R2): a failed write is logged and never
+    /// delays or fails the call. `RetryingModel` returns only the answered attempt, so a retried
+    /// call is recorded once (FR-005); a call that errors is not recorded at all.
     pub async fn complete_until(
         &self,
         req: CompletionRequest,
         deadline: Option<Instant>,
+        scope: &UsageScope,
     ) -> Result<CompletionResponse> {
-        Ok(self.inner.complete_until(req, deadline).await?)
+        let started = Instant::now();
+        let response = self.inner.complete_until(req, deadline).await?;
+        self.record(scope, &response, started.elapsed());
+        Ok(response)
+    }
+
+    fn record(&self, scope: &UsageScope, response: &CompletionResponse, took: std::time::Duration) {
+        let session = scope.session.as_ref();
+        let event = UsageEvent {
+            agent_id: self.agent_id.clone(),
+            at: chrono::Utc::now(),
+            activity: scope.activity(),
+            channel: session.map(|s| s.1.to_slug()),
+            topic: session.and_then(|s| s.2.clone()),
+            place: session.map_or_else(|| "system".to_string(), |s| s.usage_place()),
+            turn_id: scope.turn.as_ref().map(|t| t.as_str().to_string()),
+            round: scope.round,
+            provider: self.info.provider.to_string(),
+            model: self.info.model.clone(),
+            served_model: response.model.clone(),
+            tokens: TokenCounts {
+                input: response.usage.input_tokens,
+                cached: response.usage.cached_input_tokens,
+                cache_write: response.usage.cache_creation_input_tokens,
+                output: response.usage.output_tokens,
+            },
+            duration_ms: took.as_millis() as u64,
+            legacy: false,
+        };
+        let storage = self.storage.clone();
+        tokio::spawn(async move {
+            let agent_id = event.agent_id.clone();
+            if let Err(e) = storage.record_usage(event).await {
+                tracing::warn!(agent_id = %agent_id, "failed to record model usage: {e}");
+            }
+        });
+    }
+
+    /// A guard for one turn's rounds; see [`TurnGuard`].
+    pub fn guard(&self) -> TurnGuard {
+        TurnGuard::new(self.agent_id.clone(), self.storage.clone())
     }
 
     pub async fn new(
-        _agent_id: AgentId,
+        agent_id: AgentId,
         deps: VizierDependencies,
         agent_config: &AgentConfig,
     ) -> Result<Self> {
         Self::build(
+            &agent_id,
             &deps,
             agent_config,
             agent_config.provider.clone(),
@@ -76,16 +135,18 @@ impl VizierModel {
     }
 
     pub async fn new_with_override(
+        agent_id: &AgentId,
         deps: &VizierDependencies,
         agent_config: &AgentConfig,
         model_override: Option<(ProviderId, String)>,
     ) -> Result<Self> {
         let (provider, model) = model_override
             .unwrap_or_else(|| (agent_config.provider.clone(), agent_config.model.clone()));
-        Self::build(deps, agent_config, provider, model).await
+        Self::build(agent_id, deps, agent_config, provider, model).await
     }
 
     async fn build(
+        agent_id: &AgentId,
         deps: &VizierDependencies,
         agent_config: &AgentConfig,
         provider: ProviderId,
@@ -113,6 +174,8 @@ impl VizierModel {
                     caps: Capabilities::default(),
                     cost: None,
                 }),
+                agent_id: agent_id.clone(),
+                storage: deps.storage.clone(),
             });
         }
 
@@ -149,6 +212,8 @@ impl VizierModel {
         Ok(Self {
             inner: llm::build(resolved, deps.http.clone(), retry),
             info: Arc::new(info),
+            agent_id: agent_id.clone(),
+            storage: deps.storage.clone(),
         })
     }
 }

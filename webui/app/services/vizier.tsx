@@ -263,13 +263,38 @@ export const getAgentDetail = async (agentId: string) => {
 export const getAgentUsage = async (
   agentId: string,
   startDate?: string,
-  endDate?: string
-) => {
+  endDate?: string,
+  activity?: import('../interfaces/types').UsageActivity | null
+): Promise<{ data: import('../interfaces/types').UsageReport }> => {
   const params = new URLSearchParams()
   if (startDate) params.append('start_date', startDate)
   if (endDate) params.append('end_date', endDate)
+  if (activity) params.append('activity', activity)
 
   const res = await apiClient.get(`/agents/${agentId}/usage?${params}`)
+  return res.data
+}
+
+export const getConversationUsage = async (
+  agentId: string,
+  query: {
+    channel: string
+    topic?: string | null
+    startDate?: string
+    endDate?: string
+    activity?: import('../interfaces/types').UsageActivity | null
+    limit?: number
+  }
+): Promise<{ data: import('../interfaces/types').ConversationUsage }> => {
+  const params = new URLSearchParams()
+  params.append('channel', query.channel)
+  if (query.topic) params.append('topic', query.topic)
+  if (query.startDate) params.append('start_date', query.startDate)
+  if (query.endDate) params.append('end_date', query.endDate)
+  if (query.activity) params.append('activity', query.activity)
+  if (query.limit) params.append('limit', String(query.limit))
+
+  const res = await apiClient.get(`/agents/${agentId}/usage/conversation?${params}`)
   return res.data
 }
 

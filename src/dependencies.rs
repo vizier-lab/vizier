@@ -11,7 +11,7 @@ use crate::{
     file_manager::FileManager,
     indexer::{VizierIndexer, noop::NoopIndexer},
     schema::{
-        RevisionOrigin, RevisionTrigger,
+        RevisionOrigin, RevisionTrigger, SessionHistory, SessionHistoryContent,
         VizierAttachment,
     },
     storage::{
@@ -129,6 +129,10 @@ impl VizierDependencies {
         Self::migrate_task_requester(conn.clone()).await?;
         Self::interrupt_orphaned_task_runs(&storage).await?;
         Self::interrupt_orphaned_background_jobs(&storage).await;
+        // Never blocks startup: it is retried on the next start until it has finished.
+        if let Err(e) = Self::migrate_reply_usage(&storage, conn.clone()).await {
+            tracing::error!("failed to carry reply usage over into usage accounting: {e}");
+        }
 
         let transport = VizierTransport::new();
         let file_manager = FileManager::new(config.workspace.clone());
@@ -159,6 +163,66 @@ impl VizierDependencies {
             integration_health: Default::default(),
             channel_board: Default::default(),
         })
+    }
+
+/// When complete usage accounting started, set once [`Self::migrate_reply_usage`] has finished.
+    pub const USAGE_ACCOUNTING_SINCE: &'static str = "usage.accounting_since";
+
+    /// Spec 018 (research R6): copy the usage every saved reply recorded into `usage_event`, so
+    /// totals from before the upgrade are unchanged. Runs once; the state key it sets is also
+    /// what tells the usage page where complete accounting starts.
+    async fn migrate_reply_usage(
+        storage: &VizierStorage,
+        conn: Arc<Mutex<rusqlite::Connection>>,
+    ) -> Result<()> {
+        use crate::storage::{state::StateStorage, usage::UsageStorage};
+
+        if storage
+            .get_state(Self::USAGE_ACCOUNTING_SINCE.to_string())
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+
+        // A run that failed partway left some batches in: start over, so none count twice.
+        conn.lock().execute("DELETE FROM usage_event WHERE legacy = 1", [])?;
+
+        let mut after: i64 = 0;
+        let mut carried = 0usize;
+        loop {
+            let batch: Vec<(i64, String)> = {
+                let conn = conn.lock();
+                let mut stmt = conn.prepare(
+                    "SELECT rowid, data FROM session_history \
+                     WHERE content_type = 'Response' AND rowid > ?1 ORDER BY rowid LIMIT 1000",
+                )?;
+                stmt.query_map([after], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .collect::<rusqlite::Result<_>>()?
+            };
+            let Some((last, _)) = batch.last() else {
+                break;
+            };
+            after = *last;
+            let events: Vec<_> = batch
+                .iter()
+                .filter_map(|(_, data)| serde_json::from_str::<SessionHistory>(data).ok())
+                .filter_map(|history| reply_usage_event(&history))
+                .collect();
+            carried += events.len();
+            storage.insert_legacy_usage(events).await?;
+        }
+
+        storage
+            .save_state(
+                Self::USAGE_ACCOUNTING_SINCE.to_string(),
+                serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+            )
+            .await?;
+        if carried > 0 {
+            tracing::info!(replies = carried, "carried reply usage over into usage accounting");
+        }
+        Ok(())
     }
 
     fn migration_done(conn: &rusqlite::Connection, marker: &str) -> Result<bool> {
@@ -842,5 +906,136 @@ impl VizierDependencies {
             ),
             Err(e) => tracing::warn!("failed to sweep open background jobs: {}", e),
         }
+    }
+}
+
+/// The usage event a saved reply carried, for [`VizierDependencies::migrate_reply_usage`]: its
+/// totals as one row, `legacy`, with no turn, round or served model (research R6).
+fn reply_usage_event(history: &SessionHistory) -> Option<crate::schema::usage::UsageEvent> {
+    use crate::schema::{VizierResponseContent, metrics::TokenCounts};
+
+    let SessionHistoryContent::Response(response) = &history.content else {
+        return None;
+    };
+    let stats = match &response.content {
+        VizierResponseContent::Message { stats, .. } => stats.as_ref(),
+        VizierResponseContent::AudioReply(_, _, stats) => stats.as_ref(),
+        _ => None,
+    }?;
+    let session = &history.vizier_session;
+    Some(crate::schema::usage::UsageEvent {
+        agent_id: session.0.clone(),
+        at: history.timestamp,
+        activity: session.1.usage_activity(),
+        channel: Some(session.1.to_slug()),
+        topic: session.2.clone(),
+        place: session.usage_place(),
+        turn_id: None,
+        round: None,
+        provider: stats.provider.as_ref().map(|p| p.to_string()).unwrap_or_default(),
+        model: stats.model.clone().unwrap_or_default(),
+        served_model: None,
+        tokens: TokenCounts::from(stats),
+        duration_ms: stats.duration.as_millis() as u64,
+        legacy: true,
+    })
+}
+
+#[cfg(test)]
+mod usage_migration_tests {
+    use super::*;
+    use crate::{
+        schema::{
+            VizierChannelId, VizierResponse, VizierResponseContent, VizierResponseStats,
+            VizierSession, usage::UsageActivity,
+        },
+        storage::{
+            document::LocalDocumentStore,
+            history::HistoryStorage,
+            sqlite::SqliteStorage,
+            usage::{UsageGrouping, UsageQuery, UsageStorage},
+        },
+    };
+
+    fn setup() -> (VizierStorage, Arc<Mutex<rusqlite::Connection>>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::storage::sqlite::init_history_schema(&conn).unwrap();
+        crate::storage::sqlite::init_reaction_schema(&conn).unwrap();
+        crate::storage::sqlite::init_usage_schema(&conn).unwrap();
+        conn.execute_batch("CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+            .unwrap();
+        let conn = Arc::new(Mutex::new(conn));
+        let storage = VizierStorage::new(SqliteStorage::new(
+            conn.clone(),
+            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        ));
+        (storage, conn, dir)
+    }
+
+    fn reply(input: u64, output: u64, model: Option<&str>) -> SessionHistoryContent {
+        SessionHistoryContent::Response(VizierResponse {
+            timestamp: chrono::Utc::now(),
+            content: VizierResponseContent::Message {
+                content: "hi".into(),
+                stats: Some(VizierResponseStats {
+                    total_input_tokens: input,
+                    total_cached_input_tokens: input / 2,
+                    total_output_tokens: output,
+                    total_tokens: input + output,
+                    provider: model.map(|_| "anthropic".parse().unwrap()),
+                    model: model.map(str::to_string),
+                    ..Default::default()
+                }),
+            },
+            ..Default::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn carried_over_replies_keep_their_totals_and_the_carry_over_runs_once() {
+        let (storage, conn, _d) = setup();
+        let discord = VizierSession("a".into(), VizierChannelId::DiscordChanel(1), None);
+        let task = VizierSession(
+            "a".into(),
+            VizierChannelId::Task("brief".into(), chrono::Utc::now()),
+            None,
+        );
+        storage.save_session_history(discord.clone(), reply(1000, 100, Some("sonnet"))).await.unwrap();
+        storage.save_session_history(discord, reply(500, 50, None)).await.unwrap();
+        storage.save_session_history(task.clone(), reply(200, 20, Some("sonnet"))).await.unwrap();
+        // Not a reply with stats: carries nothing.
+        storage
+            .save_session_history(task, SessionHistoryContent::Command("checkpoint".into()))
+            .await
+            .unwrap();
+
+        VizierDependencies::migrate_reply_usage(&storage, conn.clone()).await.unwrap();
+        VizierDependencies::migrate_reply_usage(&storage, conn.clone()).await.unwrap();
+
+        let q = UsageQuery {
+            agent_id: "a".into(),
+            start: chrono::DateTime::<chrono::Utc>::MIN_UTC,
+            end: chrono::Utc::now() + chrono::Duration::days(1),
+            activity: None,
+            conversation: None,
+        };
+        let groups = storage.usage_groups(&q, UsageGrouping::Activity).await.unwrap();
+        let sum = |a: UsageActivity| -> (u64, u64, u64) {
+            groups
+                .iter()
+                .filter(|g| g.activity == Some(a))
+                .fold((0, 0, 0), |(c, i, o), g| (c + g.calls, i + g.tokens.input, o + g.tokens.output))
+        };
+        assert_eq!(sum(UsageActivity::Chat), (2, 1500, 150), "no double count on the second run");
+        assert_eq!(sum(UsageActivity::Scheduled), (1, 200, 20));
+        assert!(groups.iter().any(|g| g.provider.is_empty() && g.model.is_empty()));
+        assert!(
+            storage
+                .get_state(VizierDependencies::USAGE_ACCOUNTING_SINCE.into())
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
 }

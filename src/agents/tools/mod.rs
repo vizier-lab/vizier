@@ -886,7 +886,7 @@ impl BaseTools {
             .tool(ReadImageFile {
                 storage: deps.storage.clone(),
                 file_manager: deps.file_manager.clone(),
-                vision: build_read_image_vision(&deps, agent_config).await,
+                vision: build_read_image_vision(&agent_id, &deps, agent_config).await,
             })
             .tool(SendAttachment {
                 storage: deps.storage.clone(),
@@ -1065,6 +1065,7 @@ pub fn compose(base: &BaseTools, integrations: Arc<crate::integrations::Integrat
 }
 
 async fn build_read_image_vision(
+    agent_id: &AgentId,
     deps: &VizierDependencies,
     agent_config: &crate::schema::AgentConfig,
 ) -> Option<crate::agents::agent::model::VizierModel> {
@@ -1084,6 +1085,7 @@ async fn build_read_image_vision(
     };
 
     match crate::agents::agent::model::VizierModel::new_with_override(
+        agent_id,
         deps,
         agent_config,
         Some((provider.clone(), model.clone())),

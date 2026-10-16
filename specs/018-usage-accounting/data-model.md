@@ -27,7 +27,7 @@ What a completion is for. Required on `VizierModel::complete` / `complete_until`
 |---|---|---|
 | `DiscordChanel(id)` | chat | `discord:{id}` |
 | `TelegramChannel(id)` | chat | `telegram:{id}` |
-| `HTTP(user, topic)` | chat | `http:{user}:{session topic}` |
+| `HTTP(user, id)` | chat | `http:{channel slug}:{session topic}` (the slug, because one user talks through several HTTP channels) |
 | `Task(slug, _)` | scheduled | `task:{slug}` |
 | `Subagent`, `InterAgent(_)` | background | `background` |
 | `Dream(_, _)` | dreams | `dreams` |

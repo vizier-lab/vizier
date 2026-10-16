@@ -16,7 +16,7 @@ use crate::{
     VizierError,
     agents::{
         agent::{
-            model::VizierModel,
+            model::{VizierModel, usage::UsageScope},
             system_prompt::{
                 boot::boot_md,
                 context::{context_md, with_context},
@@ -769,6 +769,9 @@ impl VizierAgent {
         ),
         (anyhow::Error, Vec<Message>),
     > {
+        // Every return but the answered one drops this, marking the turn's answered rounds as
+        // spent on a failed turn (spec 018 FR-004); an aborted task drops it too.
+        let guard = self.model.guard();
         let mut history = history.clone();
         let mut full_history = history.clone();
         let mut turn_depth = turn_depth;
@@ -829,6 +832,7 @@ impl VizierAgent {
                 .complete_until(
                     completion_request(&history, &message, &tools, wrapping_up),
                     Some(start + prompt_timeout),
+                    &UsageScope::turn(Some(ctx.session.clone()), guard.turn(), turn_depth as u32),
                 )
                 .await
                 .map_err(|e| fail_turn(e, full_history.clone(), Some(message.clone()), vec![]))?;
@@ -1057,6 +1061,7 @@ impl VizierAgent {
 
         let attachments = ctx.pending_attachments.lock().await.drain(..).collect();
 
+        guard.succeeded();
         Ok((
             output,
             VizierResponseStats {
@@ -1238,9 +1243,10 @@ impl VizierAgent {
         &self,
         history: &[Message],
         reactions: Option<&str>,
-        _ctx: &ToolContext,
+        ctx: &ToolContext,
     ) -> Result<Option<String>> {
-        generate_handover_with_model(&self.model, history, reactions).await
+        let scope = UsageScope::handover(Some(ctx.session.clone()));
+        generate_handover_with_model(&self.model, history, reactions, &scope).await
     }
 
     pub async fn recommend_skills(&self, query: &str) -> Result<Vec<Skill>> {
@@ -1275,6 +1281,7 @@ impl VizierAgent {
             self.config.dream_model.as_ref(),
         ) {
             VizierModel::new_with_override(
+                &self.agent_id,
                 deps,
                 &self.config,
                 Some((provider.clone(), model.clone())),
@@ -1351,7 +1358,10 @@ impl VizierAgent {
         deps: &VizierDependencies,
         ctx: &ToolContext,
     ) -> Result<(String, VizierResponseStats)> {
-        timeout(*self.config.prompt_timeout, async {
+        // As in `prompt_with`: a dream that errors or times out leaves its rounds failed.
+        let guard = model.guard();
+        let turn = guard.turn().clone();
+        let outcome = timeout(*self.config.prompt_timeout, async {
             let mut history = history.clone();
             let mut turn_depth = 0;
             let max_turn_depth = self.config.thinking_depth;
@@ -1382,7 +1392,10 @@ impl VizierAgent {
                 }
 
                 let response = model
-                    .complete(completion_request(&history, &message, &tools, wrapping_up))
+                    .complete(
+                        completion_request(&history, &message, &tools, wrapping_up),
+                        &UsageScope::turn(Some(ctx.session.clone()), &turn, turn_depth as u32),
+                    )
                     .await?;
                 let usage = response.usage;
                 let choices = if wrapping_up {
@@ -1568,7 +1581,11 @@ impl VizierAgent {
                 },
             ))
         })
-        .await?
+        .await?;
+        if outcome.is_ok() {
+            guard.succeeded();
+        }
+        outcome
     }
 }
 
@@ -1713,6 +1730,7 @@ pub async fn generate_handover_with_model(
     model: &VizierModel,
     history: &[Message],
     reactions: Option<&str>,
+    scope: &UsageScope,
 ) -> Result<Option<String>> {
     let mut summary_history = messages_for_model(history);
 
@@ -1736,10 +1754,13 @@ pub async fn generate_handover_with_model(
     summary_history.push(Message::user_text("Extract conversation context for checkpoint.")?);
 
     let response = model
-        .complete(CompletionRequest {
-            messages: summary_history,
-            ..Default::default()
-        })
+        .complete(
+            CompletionRequest {
+                messages: summary_history,
+                ..Default::default()
+            },
+            scope,
+        )
         .await?;
 
     let output = response

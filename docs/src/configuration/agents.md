@@ -139,7 +139,32 @@ A task's prompt runs as the agent in a dedicated `Task` session; the agent can r
 
 ## Usage
 
-`GET /api/v1/agents/{id}/usage?start_date=…&end_date=…` returns token usage aggregated from session history (also on the WebUI **Usage** page).
+Every model call an agent makes is recorded as it is answered, whether or not a reply is delivered: chat turns (each tool round on its own), scheduled runs, background jobs and consults, dream cycles, checkpoint summaries, and image reads on a vision model. Rounds of a turn that failed, timed out or was aborted still count, and are marked as spent on a failed turn. Each call records its provider, the model requested and the model version the provider says it served.
+
+Each call has one **activity**:
+
+| Activity | What it covers |
+|---|---|
+| Chat | Turns answering a person on Discord, Telegram, the WebUI or the HTTP API, including the turn a finished background job wakes |
+| Background | Subtasks (`paralel_subtasks`), delegations (`delegate_agent`) and consults (`consult_agent`), counted for the agent that ran them |
+| Scheduled | Scheduled task runs |
+| Dreams | Dream extraction and consolidation |
+| Compaction | Checkpoint summaries, automatic and `/checkpoint` |
+| Vision | `read_image_file` on the configured vision model |
+| Other | Anything else (none today) |
+
+Not counted: speech-to-text, text-to-speech, image generation, embeddings, and the provider **Test connection** check.
+
+Cost is estimated from the provider catalogue's prices. Models without a known price (custom providers, for now) are counted in tokens and reported as unpriced, never as `$0`.
+
+The WebUI **Usage** page shows the period's cost with its change against the previous period, an activity filter, a daily cost chart, a breakdown by activity, model or channel, the cache hit rate, what was spent on failed turns, and the ten costliest conversations with their calls one by one.
+
+When upgrading, the usage each saved reply already carried is copied over once, so totals from before the upgrade don't change. Dreams, checkpoints, failed rounds and vision reads were never recorded before then, so the page marks days before the upgrade as incomplete.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/agents/{id}/usage?start_date&end_date&activity` | The usage report (RFC 3339 dates, default the last 30 days, at most 366 days) |
+| `GET` | `/api/v1/agents/{id}/usage/conversation?channel&topic&start_date&end_date&activity&limit` | One conversation's calls, most expensive first, and a link to it in the WebUI |
 
 ## Health
 

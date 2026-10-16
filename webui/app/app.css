@@ -138,6 +138,15 @@
   --color-text-secondary: #4a4a48;
   --color-text-tertiary: #8a8a88;
   --color-text-muted: #c4c2bc;
+  --color-error: #b42318;
+  --color-error-bg: #fdecea;
+  --color-error-border: #f2c4bf;
+  --color-error-text: #6b1810;
+  --color-warning-bg: #fdf6e7;
+  --color-warning-border: #ecd9a8;
+  --color-warning-text: #5c4510;
+  --color-success-bg: #e3f4ec;
+  --color-success-text: #065f46;
 
   /* Accent color - Vizier Emerald Green */
   --accent-primary: #10B981;
@@ -192,6 +201,15 @@
   --color-text-secondary: #a1a1aa;
   --color-text-tertiary: #71717a;
   --color-text-muted: #3f3f46;
+  --color-error: #f87171;
+  --color-error-bg: #2a1414;
+  --color-error-border: #5c2626;
+  --color-error-text: #fecaca;
+  --color-warning-bg: #2a2212;
+  --color-warning-border: #5c4a1f;
+  --color-warning-text: #fde68a;
+  --color-success-bg: #10291f;
+  --color-success-text: #6ee7b7;
 
   --background: var(--color-bg-primary);
   --surface: var(--color-surface);

@@ -26,6 +26,7 @@ mod session_file;
 mod state;
 mod task;
 mod task_run;
+pub(crate) mod usage;
 mod user;
 
 #[derive(Clone)]
@@ -358,9 +359,54 @@ impl SqliteStorage {
         init_task_run_schema(conn)?;
         init_background_job_schema(conn)?;
         init_integration_schema(conn)?;
+        init_usage_schema(conn)?;
 
         Ok(())
     }
+}
+
+/// The usage accounting tables (`specs/018-usage-accounting/data-model.md` §2), split out like
+/// [`init_task_run_schema`] so the tests in `src/storage/sqlite/usage.rs` can stand them up
+/// against an in-memory connection. Rows are only ever inserted, and deleted with their agent.
+/// A turn is failed iff its `turn_id` is in `usage_failed_turn`: a separate keyed row, so the
+/// failure mark and the turn's last insert can land in either order (research R3).
+pub fn init_usage_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS usage_event (
+            id                          INTEGER PRIMARY KEY,
+            agent_id                    TEXT    NOT NULL,
+            at                          INTEGER NOT NULL,
+            activity                    TEXT    NOT NULL,
+            channel                     TEXT,
+            topic                       TEXT,
+            place                       TEXT    NOT NULL,
+            turn_id                     TEXT,
+            round                       INTEGER,
+            provider                    TEXT    NOT NULL DEFAULT '',
+            model                       TEXT    NOT NULL DEFAULT '',
+            served_model                TEXT,
+            input_tokens                INTEGER NOT NULL DEFAULT 0,
+            cached_input_tokens         INTEGER NOT NULL DEFAULT 0,
+            cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens               INTEGER NOT NULL DEFAULT 0,
+            duration_ms                 INTEGER NOT NULL DEFAULT 0,
+            legacy                      INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS usage_event_agent_at   ON usage_event (agent_id, at);
+        CREATE INDEX IF NOT EXISTS usage_event_agent_conv ON usage_event (agent_id, channel, topic);
+        CREATE INDEX IF NOT EXISTS usage_event_turn       ON usage_event (turn_id) WHERE turn_id IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS usage_failed_turn (
+            turn_id  TEXT    PRIMARY KEY,
+            agent_id TEXT    NOT NULL,
+            at       INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS usage_failed_turn_agent ON usage_failed_turn (agent_id);
+        ",
+    )?;
+
+    Ok(())
 }
 
 /// The `task_run` table (`specs/011-task-completion-reports/data-model.md`), split out of

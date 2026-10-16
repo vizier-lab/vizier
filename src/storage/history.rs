@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 
 use crate::{
-    schema::{AgentUsageStats, SessionHistory, SessionHistoryContent, VizierSession},
+    schema::{SessionHistory, SessionHistoryContent, VizierSession},
     storage::VizierStorage,
 };
 
@@ -27,14 +27,6 @@ pub trait HistoryStorage {
         before_seq: Option<i64>,
         limit: Option<usize>,
     ) -> Result<Vec<SessionHistory>>;
-
-    async fn aggregate_usage(
-        &self,
-        agent_id: &str,
-        start_date: Option<DateTime<Utc>>,
-        end_date: Option<DateTime<Utc>>,
-        pricing: crate::schema::metrics::Pricing<'_>,
-    ) -> Result<AgentUsageStats>;
 
     async fn list_session_by_time_window(
         &self,
@@ -93,16 +85,6 @@ impl HistoryStorage for VizierStorage {
         self.0
             .list_session_history(session, before, before_seq, limit)
             .await
-    }
-
-    async fn aggregate_usage(
-        &self,
-        agent_id: &str,
-        start_date: Option<DateTime<Utc>>,
-        end_date: Option<DateTime<Utc>>,
-        pricing: crate::schema::metrics::Pricing<'_>,
-    ) -> Result<AgentUsageStats> {
-        self.0.aggregate_usage(agent_id, start_date, end_date, pricing).await
     }
 
     async fn list_session_by_time_window(

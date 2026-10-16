@@ -101,6 +101,8 @@ impl AgentStorage for SqliteStorage {
         // History dies with the agent (FR-019): both revision tables are keyed by agent_id.
         core_revision::delete_agent(&conn, agent_id)?;
         memory_revision::delete_agent(&conn, agent_id)?;
+        // Usage dies with the agent, and only with it (spec 018 FR-008).
+        super::usage::delete_agent(&conn, agent_id)?;
         // Its bots go with it, and its attachments to shared integrations
         // (`IntegrationStorage::delete_agent_integrations`), on the connection already held.
         super::integration::delete_agent_integrations(&conn, agent_id)?;

@@ -946,55 +946,139 @@ export interface UpdateTaskRequest extends CreateTaskRequest { }
 // USAGE
 // ============================================================================
 
+/** What a model call was for (spec 018). */
+export type UsageActivity =
+  | 'chat'
+  | 'background'
+  | 'scheduled'
+  | 'dreams'
+  | 'compaction'
+  | 'vision'
+  | 'other'
+
+export interface FailedTotals {
+  /** Null when nothing failed is priced. */
+  cost_usd: number | null
+  tokens: number
+  turns: number
+}
+
 export interface UsageSummary {
-  total_tokens: number
-  total_input_tokens: number
-  total_output_tokens: number
-  total_requests: number
-  avg_duration_ms: number
-  /** Null when no reply in range has a known price. */
-  estimated_cost_usd: number | null
-}
-
-export interface ChannelUsage {
-  channel_id: string
-  total_tokens: number
-  total_requests: number
-}
-
-export interface ChannelTypeUsageDetail {
-  total_tokens: number
+  /** Null (never 0) when nothing in scope has a known price. */
+  cost_usd: number | null
+  tokens: number
   input_tokens: number
+  cached_input_tokens: number
+  cache_creation_input_tokens: number
   output_tokens: number
-  total_requests: number
+  calls: number
+  cache_hit_rate: number | null
+  failed: FailedTotals
+  /** Set only when the report is narrowed to one activity. */
+  share_of_all: number | null
 }
 
-export interface DailyChannelTypeUsage {
-  date: string
-  by_channel_type: Record<string, ChannelTypeUsageDetail>
+export interface PeriodTotals {
+  cost_usd: number | null
+  tokens: number
+  calls: number
 }
 
-export interface ChannelTypeUsage {
-  total_tokens: number
-  total_requests: number
-  channels: ChannelUsage[]
-  estimated_cost_usd: number | null
+export interface DayActivity {
+  cost_usd: number | null
+  tokens: number
+  calls: number
 }
 
 export interface DailyUsage {
   date: string
-  total_tokens: number
-  input_tokens: number
-  output_tokens: number
-  total_requests: number
-  estimated_cost_usd: number | null
+  by_activity: Partial<Record<UsageActivity, DayActivity>>
 }
 
-export interface AgentUsageStats {
+export interface BreakdownRow {
+  key: string
+  label: string
+  detail: string | null
+  cost_usd: number | null
+  /** Fraction of the report's cost; null when unpriced. */
+  share: number | null
+  tokens: number
+  calls: number
+}
+
+export interface ModelRow extends BreakdownRow {
+  provider: string
+  model: string
+  served_models: string[]
+  cache_hit_rate: number | null
+  failed_tokens: number
+  priced: boolean
+}
+
+export interface ConversationRow {
+  channel: string
+  topic: string | null
+  label: string
+  detail: string | null
+  activity: UsageActivity
+  model: string
+  tokens: number
+  cost_usd: number | null
+  failed_share: number | null
+  last_at: string
+  exists: boolean
+}
+
+export interface UnpricedNote {
+  tokens: number
+  models: string[]
+}
+
+export interface UsageReport {
+  range: { start: string; end: string }
+  /** When complete accounting started; earlier days lack dreams, compaction and failed rounds. */
+  accounting_since: string | null
+  activity: UsageActivity | null
   summary: UsageSummary
-  by_channel_type: Record<string, ChannelTypeUsage>
-  by_day: DailyUsage[]
-  by_day_and_channel_type: DailyChannelTypeUsage[]
+  previous: PeriodTotals | null
+  daily: DailyUsage[]
+  by_activity: BreakdownRow[]
+  by_model: ModelRow[]
+  by_place: BreakdownRow[]
+  costliest: ConversationRow[]
+  unpriced: UnpricedNote
+}
+
+export interface CallRow {
+  at: string
+  activity: UsageActivity
+  round: number | null
+  provider: string
+  model: string
+  served_model: string | null
+  input_tokens: number
+  cached_input_tokens: number
+  output_tokens: number
+  cost_usd: number | null
+  failed: boolean
+}
+
+export type UsageLinkKind = 'chat' | 'task_run' | 'dream' | 'topic'
+
+export interface UsageLink {
+  kind: UsageLinkKind
+  path: string
+}
+
+export interface ConversationUsage {
+  label: string
+  detail: string | null
+  summary: UsageSummary
+  insight: string | null
+  calls: CallRow[]
+  more: number
+  link: UsageLink | null
+  no_link_reason: 'no_web_page' | 'deleted' | null
 }
 
 // ============================================================================

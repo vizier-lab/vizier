@@ -15,7 +15,7 @@ use crate::{
         memory::MemoryStorage,
         provider::{CustomProviderStorage, ProviderStorage}, reaction::ReactionStorage, session::SessionStorage, session_file::SessionFileStorage,
         state::StateStorage, task::TaskStorage, task_run::TaskRunStorage,
-        user::UserStorage,
+        usage::UsageStorage, user::UserStorage,
     },
 };
 
@@ -40,6 +40,7 @@ pub mod session_file;
 pub mod state;
 pub mod task;
 pub mod task_run;
+pub mod usage;
 pub mod user;
 
 pub mod fs;
@@ -64,7 +65,8 @@ where
         + DreamStorage
         + SessionFileStorage
         + ReactionStorage
-        + IntegrationStorage,
+        + IntegrationStorage
+        + UsageStorage,
 {
 }
 
