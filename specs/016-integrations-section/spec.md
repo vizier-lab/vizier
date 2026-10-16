@@ -129,6 +129,7 @@ An operator opens an agent's configuration and finds only that agent's own setti
   - **`all_agents:integrations:manage`**: may view, create, edit, enable/disable and delete every integration, and attach or detach any integration to or from any agent.
   - **`owned_agents:integrations:manage`**: may create integrations, and view, edit, enable/disable and delete the integrations they created. They may attach and detach integrations only on agents they own. What they may attach is their own integrations and the shared ones created by holders of `all_agents:integrations:manage`. They MUST NOT see, edit or attach integrations created by other owned-scope users.
   - A user with neither permission can still see, read-only, which integrations are attached to agents they can view. Without either permission the Integrations menus are hidden from the sidebar.
+- **FR-005b**: The `agents:mcp_config` permission MUST be retired. It is removed from the permissions that can be granted and from the role editor, and it is stripped from stored roles during the upgrade migration (FR-025). MCP servers are governed only by the two integration permissions.
 - **FR-005a**: Every integration MUST record who created it, so the owned scope can be enforced. When an integration is detached from or deleted from an agent, the operator MUST see which agents (and, for all-scope managers, whose agents) are affected.
 - **FR-006**: Secrets (bot tokens, API keys, secret-bearing MCP environment values and headers) MUST NOT be displayed in full after saving; operators MUST be able to replace them without retyping other fields.
 
@@ -171,6 +172,8 @@ An operator opens an agent's configuration and finds only that agent's own setti
   - roles with `all_agents:edit` gain `all_agents:integrations:manage`;
   - roles with `owned_agents:edit` gain `owned_agents:integrations:manage`.
 
+  - roles with `agents:mcp_config` but neither edit permission gain `owned_agents:integrations:manage`.
+
   Each migrated integration is recorded as created by the owner of the agent it came from. An integration merged across agents with different owners is recorded as created by an all-scope manager, which makes it shared.
 
 ### Key Entities
@@ -199,6 +202,5 @@ An operator opens an agent's configuration and finds only that agent's own setti
 - **Per-agent isolation is preserved**: sharing an MCP definition between agents shares configuration, not a running connection (constitution: no global MCP singletons).
 - **Brave Search is a single service configuration** (one key for all agents enabled for it). Where the migration finds agents with different Brave keys, it keeps their keys distinct (e.g. as separate named Brave Search configurations) so nothing changes behaviour; how that is presented is a planning detail.
 - **Dream cycle**: an agent's dream cycle sees the same attached integrations it saw before, subject to its existing restricted tool list.
-- **`agents:mcp_config`**: once MCP leaves the agent form, this permission no longer guards MCP; MCP management is covered by the two integration permissions. Whether to retire it or keep it as an extra gate on MCP integrations is a planning decision. Either way, no role loses an ability it had before.
 - **"Turn" granularity** for live changes is acceptable; changes need not reach a turn already in progress.
 - The HTTP API gains endpoints for integrations; the old agent fields are retired from the agent API in the same release (breaking API change, flagged in the changelog).
