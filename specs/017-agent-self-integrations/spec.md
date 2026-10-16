@@ -122,7 +122,7 @@ With the Channels switch on, the agent can see its Discord and Telegram connecti
 - **FR-011**: Every rule enforced for people (one connection per platform per agent, a token used once, one configuration per addon per agent, unique MCP server names per agent, kind-specific validation) MUST be enforced identically for agents, and violations MUST be returned to the agent as readable errors.
 - **FR-012**: Integrations an agent creates MUST record the agent as their creator and MUST be shown in the Integrations menus, to people who may see that agent's integrations, as made by the agent. The record is informational and grants nothing.
 - **FR-014**: Secrets MUST never be returned to the agent in full.
-- **FR-015**: Self-management tools MUST be offered through the existing tool categories so that an agent with all switches off sees no difference in its tool list, and an agent with a switch on sees only that family's tools.
+- **FR-015**: Self-management tools MUST be offered through the existing tool categories so that an agent with all switches off sees no difference in its tool list, and an agent with any switch on sees only tools that act on the families switched on (calls on any other family are refused).
 - **FR-016**: Self-management tools MUST NOT be available to the dream cycle.
 - **FR-017**: Changes made by an agent MUST take effect exactly as the same change made by a person does: no agent restart, no aborted turn, new tools from the next turn, channel changes on reconnect.
 - **FR-018**: Every change an agent makes to an integration MUST be recorded with the agent as actor and the time, and MUST be visible to people who may manage that agent's integrations.
