@@ -33,9 +33,10 @@ A person asks an agent "show me last week's task runs as a chart". The agent wri
 1. **Given** a WebUI conversation, **When** the person sends a message, **Then** the request declares the WebUI's client tools and the agent can find `render_interactive_ui` by listing tool categories and functions, with the description and schema the WebUI supplied.
 2. **Given** the agent calls `render_interactive_ui` with a page, **When** the WebUI receives the call, **Then** it shows the page inside the agent's reply bubble for that turn straight away, while the turn is still running, followed by the turn's reply text in the same bubble, and answers the call with an identifier for the page and status `rendered`, and the agent's turn continues with that result.
 3. **Given** a rendered page, **When** the person reloads the topic or opens it in another tab, **Then** the page is shown again in the same reply bubble and position, without the agent being asked again.
-4. **Given** the turn fails or is aborted after the page was rendered, **When** the person looks at the conversation, **Then** the page is still shown.
-5. **Given** a rendered page, **When** the page's own script tries to read the person's login, cookies or the surrounding WebUI page, or to load anything from the network, **Then** it cannot.
-6. **Given** a page taller than the default frame, **When** it renders, **Then** the frame grows to fit it (up to a maximum height, after which it scrolls).
+4. **Given** a page rendered in browser 1, **When** the same person logs out, logs in on browser 2 (another browser or device) and opens the topic, **Then** browser 2 shows the same page in the same reply bubble, and it works there, even if browser 1 is closed.
+5. **Given** the turn fails or is aborted after the page was rendered, **When** the person looks at the conversation, **Then** the page is still shown.
+6. **Given** a rendered page, **When** the page's own script tries to read the person's login, cookies or the surrounding WebUI page, or to load anything from the network, **Then** it cannot.
+7. **Given** a page taller than the default frame, **When** it renders, **Then** the frame grows to fit it (up to a maximum height, after which it scrolls).
 
 ---
 
@@ -114,6 +115,26 @@ The person closes the tab while the agent is waiting on a client tool call. The 
 
 ---
 
+### User Story 6 - Pages remember their own state (Priority: P2)
+
+The agent renders a to-do checklist. The person ticks two items and types a note into the page. Later they reload the topic, or log in on another browser, and the page shows the two items ticked and the note filled in, rather than the blank page the agent first drew. If the topic is also open in another tab, that tab's copy of the page can update to match.
+
+**Why this priority**: Without it every reload resets interactive pages, which makes anything longer-lived than a single click (checklists, filters, forms filled over time) frustrating. The pages are still useful without it, so it follows the core stories.
+
+**Independent Test**: Render a page that saves a counter on each click; click three times, reload the topic in another browser, and confirm the page starts at three. With the test client, save state for a call and confirm it comes back with the history and is broadcast to a second connection.
+
+**Acceptance Scenarios**:
+
+1. **Given** a rendered page, **When** its script saves a state value, **Then** the value is stored on the server against the call that rendered the page, replacing any earlier value.
+2. **Given** a page with saved state, **When** any client the same person uses loads the topic, **Then** the page is drawn from its original HTML and given its latest saved state when it starts.
+3. **Given** a page that has never saved state, **When** it is drawn, **Then** it starts with no state, exactly as the agent rendered it.
+4. **Given** the same topic open in two tabs, **When** the page in one tab saves state, **Then** the page in the other tab is told the new state and may update itself; a page that does not listen simply keeps showing what it has.
+5. **Given** a page saving state, **When** it saves, **Then** no agent turn starts and the agent is not told; state the agent should know about must be sent as a client event.
+6. **Given** a state value larger than the size limit, or saves faster than the rate limit, **When** the page saves, **Then** the save is refused and the page is told why; the last accepted state is kept.
+7. **Given** a third-party client that drew a call of its own tool, **When** it saves state for that call, **Then** it is stored and returned the same way; saved state is not specific to `render_interactive_ui`.
+
+---
+
 ### Edge Cases
 
 - A client declares the same tool name twice in one request: the request is refused.
@@ -125,6 +146,9 @@ The person closes the tab while the agent is waiting on a client tool call. The 
 - The page HTML for `render_interactive_ui` is larger than its limit: the WebUI answers the call with an error so the agent can shorten it.
 - A saved call whose tool the current client does not recognise (made by another client, or a removed extension): shown as a collapsed "tool call" item with its name, not as an error.
 - A client event that references a call id that does not exist in this conversation: delivered without the reference, not refused.
+- State saved for a call id that does not exist in the conversation, is not a client tool call, or belongs to another person's topic: refused.
+- Two tabs save state for the same page at nearly the same time: the last save the server receives wins, and both tabs are told the result.
+- A topic is deleted: the saved state of its pages is deleted with it.
 - Several client tool calls in one script: each is sent and answered independently; answers may arrive in any order.
 - The connection drops and the person reconnects before the call times out: v1 does not let the new connection take over; the call fails with `client_disconnected`.
 
@@ -157,7 +181,15 @@ The person closes the tab while the agent is waiting on a client tool call. The 
 - **FR-015**: A call MUST fail with `client_disconnected` when the answering connection closes, with a timeout error when no answer arrives within the tool's limit (declared or default, capped at a maximum), and be cancelled (with the client told) when the turn is aborted. None of these may hang or fail the turn itself.
 - **FR-016**: Answers for unknown, finished or foreign calls MUST be ignored and the client told the call is not pending. Answers above a size limit MUST be refused.
 - **FR-017**: Each client tool call and its outcome (result, error, disconnect, timeout, cancellation) MUST be saved in the conversation history with its arguments, so any client can draw it again on reload.
-- **FR-018**: Saved client tool calls MUST be returned with the rest of the conversation history to clients loading a topic, in conversation order.
+- **FR-018**: Saved client tool calls MUST be returned with the rest of the conversation history to clients loading a topic, in conversation order, together with each call's latest saved state (FR-018a).
+
+**Saved state**
+
+- **FR-018a**: A client MUST be able to save a state value (any JSON value) for a client tool call in a conversation the person owns. Only the latest value is kept per call; there is no history of earlier values.
+- **FR-018b**: Saving state MUST NOT start a turn, appear as a message, or be shown to the agent.
+- **FR-018c**: After a save, vizier MUST tell every connection watching that conversation the call's new state, including the one that saved it (as confirmation).
+- **FR-018d**: State values MUST be limited in size and saves rate-limited per call; a refused save MUST leave the last accepted state unchanged and tell the client why.
+- **FR-018e**: A call's saved state MUST be deleted with its conversation, and with the agent.
 
 **Client events**
 
@@ -173,7 +205,8 @@ The person closes the tab while the agent is waiting on a client tool call. The 
 - **FR-025**: The WebUI MUST register `render_interactive_ui` through that same mechanism. It takes a title and a self-contained HTML page and answers each call immediately with a page id and status `rendered`.
 - **FR-026**: Pages MUST be security-sandboxed from the WebUI: they can run their own scripts and styles but cannot read the person's credentials, cookies or the surrounding page, and cannot load anything from the network (inline resources and data images only). The sandbox is about access, not appearance: visually the page is part of the reply (no separate panel or frame chrome).
 - **FR-026a**: A page MUST appear inside the agent's reply bubble for the turn that rendered it, in order with that turn's reply text, as soon as the agent calls the tool (while the turn is still running), not held back until the turn ends. A page stays visible even if the turn later fails or is aborted.
-- **FR-027**: Pages MUST be given a small built-in interface to send a client event (`text`, optional `data`) tied to the call that rendered them, and to report their content height so the frame fits it (up to a maximum).
+- **FR-027**: Pages MUST be given a small built-in interface to send a client event (`text`, optional `data`) tied to the call that rendered them, to report their content height so the frame fits it (up to a maximum), to read the state they start with, to save their state (FR-018a), and to be told when their state changes elsewhere (FR-018c).
+- **FR-027a**: Saving state from a page MUST NOT require the person to have interacted with it (unlike sending a client event), since it never starts a turn; it is subject only to the limits in FR-018d.
 - **FR-028**: The WebUI MUST forward a page's client events only after the person has interacted with that page, and at most one per second per page.
 - **FR-029**: The WebUI MUST draw saved calls of tools it recognises with their renderer, and show any other saved client tool call as a collapsed item naming the tool.
 - **FR-030**: The WebUI MUST answer a `render_interactive_ui` call with an error when the page exceeds its size limit.
@@ -191,6 +224,7 @@ The person closes the tab while the agent is waiting on a client tool call. The 
 - **Client tool call**: one call by the agent to a client tool during a turn; call id, final tool name, arguments, the connection it was sent to, and its outcome (result, error, disconnected, timed out, cancelled). Saved in the conversation history.
 - **Client event**: a message from a client into a conversation; text, optional data, optional source call id. Starts a turn as the sending person.
 - **Interactive page**: the HTML a `render_interactive_ui` call carries, with its page id and title; drawn by the WebUI from the saved call.
+- **Call state**: the latest state value a client saved for one client tool call; belongs to that call's conversation, overwritten on each save, deleted with the conversation.
 
 ## Success Criteria *(mandatory)*
 
@@ -203,10 +237,11 @@ The person closes the tab while the agent is waiting on a client tool call. The 
 - **SC-005**: When the answering connection closes, the waiting call fails within 5 seconds and the turn completes; no turn is ever left waiting longer than the tool's time limit.
 - **SC-006**: Conversations that declare no client tools, and every Discord, Telegram, scheduled, dream and background turn, behave identically to before the feature.
 - **SC-007**: For a client sending the same declaration on every message, the agent's standing instructions are identical from turn to turn.
+- **SC-008**: A page's saved state is restored on any browser the person logs in from, and reaches another open tab of the same topic within 1 second of being saved.
 
 ## Assumptions
 
-- Limits (adjustable during planning): at most 32 client tools and 16 categories per request; tool description up to 2 KB, category description up to 512 bytes, each schema up to 16 KB; default call time limit 60 s, maximum 600 s; answers up to 1 MB; `render_interactive_ui` pages up to 256 KB; client events limited to 10 per minute per conversation; page frames grow to at most about 80% of the viewport height.
+- Limits (adjustable during planning): at most 32 client tools and 16 categories per request; tool description up to 2 KB, category description up to 512 bytes, each schema up to 16 KB; default call time limit 60 s, maximum 600 s; answers up to 1 MB; `render_interactive_ui` pages up to 256 KB; client events limited to 10 per minute per conversation; saved state up to 64 KB per call and at most 2 saves per second per call (the WebUI coalesces faster saves from a page into the latest one); page frames grow to at most about 80% of the viewport height.
 - The person's existing WebSocket authentication is reused; no new permission is introduced. A person may only declare tools for, and send events into, conversations they could already message.
 - Only the person's own WebUI topics are involved; there is no shared viewing of another person's topic.
 - Client events count as the person's own messages for usage accounting, history and reactions.
