@@ -22,7 +22,7 @@ Client tools exist only for the turn a client asked for, over the socket that as
 
 ### User Story 1 - Agent shows data as an interactive page in the WebUI (Priority: P1)
 
-A person asks an agent "show me last week's task runs as a chart". The agent writes an HTML page with the chart and calls `render_interactive_ui`. The chart appears inline in the conversation, sized to its content. Reloading the topic, or opening it in a second tab, shows the same chart in the same place.
+A person asks an agent "show me last week's task runs as a chart". The agent writes an HTML page with the chart and calls `render_interactive_ui`. The chart appears inside the agent's reply bubble as soon as it is rendered, sized to its content and looking like part of the reply, and the agent's text reply follows in the same bubble. Reloading the topic, or opening it in a second tab, shows the same chart in the same place.
 
 **Why this priority**: It is the visible payoff of the whole feature and exercises the full round trip (declaration, offer to the agent, call to the client, answer back, persistence).
 
@@ -31,10 +31,11 @@ A person asks an agent "show me last week's task runs as a chart". The agent wri
 **Acceptance Scenarios**:
 
 1. **Given** a WebUI conversation, **When** the person sends a message, **Then** the request declares the WebUI's client tools and the agent can find `render_interactive_ui` by listing tool categories and functions, with the description and schema the WebUI supplied.
-2. **Given** the agent calls `render_interactive_ui` with a page, **When** the WebUI receives the call, **Then** it shows the page inline in the conversation and answers the call with an identifier for the page and status `rendered`, and the agent's turn continues with that result.
-3. **Given** a rendered page, **When** the person reloads the topic or opens it in another tab, **Then** the page is shown again in the same position in the conversation, without the agent being asked again.
-4. **Given** a rendered page, **When** the page's own script tries to read the person's login, cookies or the surrounding WebUI page, or to load anything from the network, **Then** it cannot.
-5. **Given** a page taller than the default frame, **When** it renders, **Then** the frame grows to fit it (up to a maximum height, after which it scrolls).
+2. **Given** the agent calls `render_interactive_ui` with a page, **When** the WebUI receives the call, **Then** it shows the page inside the agent's reply bubble for that turn straight away, while the turn is still running, followed by the turn's reply text in the same bubble, and answers the call with an identifier for the page and status `rendered`, and the agent's turn continues with that result.
+3. **Given** a rendered page, **When** the person reloads the topic or opens it in another tab, **Then** the page is shown again in the same reply bubble and position, without the agent being asked again.
+4. **Given** the turn fails or is aborted after the page was rendered, **When** the person looks at the conversation, **Then** the page is still shown.
+5. **Given** a rendered page, **When** the page's own script tries to read the person's login, cookies or the surrounding WebUI page, or to load anything from the network, **Then** it cannot.
+6. **Given** a page taller than the default frame, **When** it renders, **Then** the frame grows to fit it (up to a maximum height, after which it scrolls).
 
 ---
 
@@ -170,7 +171,8 @@ The person closes the tab while the agent is waiting on a client tool call. The 
 
 - **FR-024**: The WebUI MUST provide an extension mechanism to register a client tool with its definition, a handler for live calls, and a renderer for saved calls. Registered tools MUST be declared on every message the WebUI sends.
 - **FR-025**: The WebUI MUST register `render_interactive_ui` through that same mechanism. It takes a title and a self-contained HTML page and answers each call immediately with a page id and status `rendered`.
-- **FR-026**: Pages MUST be shown isolated from the WebUI: they can run their own scripts and styles but cannot read the person's credentials, cookies or the surrounding page, and cannot load anything from the network (inline resources and data images only).
+- **FR-026**: Pages MUST be security-sandboxed from the WebUI: they can run their own scripts and styles but cannot read the person's credentials, cookies or the surrounding page, and cannot load anything from the network (inline resources and data images only). The sandbox is about access, not appearance: visually the page is part of the reply (no separate panel or frame chrome).
+- **FR-026a**: A page MUST appear inside the agent's reply bubble for the turn that rendered it, in order with that turn's reply text, as soon as the agent calls the tool (while the turn is still running), not held back until the turn ends. A page stays visible even if the turn later fails or is aborted.
 - **FR-027**: Pages MUST be given a small built-in interface to send a client event (`text`, optional `data`) tied to the call that rendered them, and to report their content height so the frame fits it (up to a maximum).
 - **FR-028**: The WebUI MUST forward a page's client events only after the person has interacted with that page, and at most one per second per page.
 - **FR-029**: The WebUI MUST draw saved calls of tools it recognises with their renderer, and show any other saved client tool call as a collapsed item naming the tool.
