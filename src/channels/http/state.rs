@@ -21,6 +21,8 @@ pub struct HTTPState {
     pub client_events: Arc<crate::channels::http::rate_limit::RateLimiter>,
     /// Saved state per client tool call: 2 a second.
     pub client_state_saves: Arc<crate::channels::http::rate_limit::RateLimiter>,
+    /// Deferred client tool calls some socket is delivering now (research R18).
+    pub deferred_client_calls: Arc<crate::agents::client::DeferredClaims>,
 }
 
 impl HTTPState {

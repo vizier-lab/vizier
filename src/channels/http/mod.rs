@@ -64,6 +64,7 @@ impl VizierChannel for HTTPChannel {
                 2,
                 std::time::Duration::from_secs(1),
             )),
+            deferred_client_calls: Default::default(),
         };
 
         let mut app = Router::new()

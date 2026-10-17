@@ -10,11 +10,18 @@
 // interacted with it and at most once a second, saved state coalesced to one save per 500 ms.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { FaCompress, FaDownload, FaExpand, FaFilePdf } from 'react-icons/fa6'
 import type { ClientCallContext } from '../../lib/clientTools'
 import type { ClientCallView } from '../../interfaces/types'
-
-const CSP =
-  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:"
+import {
+  PALETTE_SOURCES,
+  PRINTED_MESSAGE,
+  fileName,
+  printDocument,
+  srcdoc,
+  standaloneDocument,
+} from '../../lib/pageDocument'
+import type { Palette, PageLook } from '../../lib/pageDocument'
 
 /** How long after the person was last in the frame it may still send. */
 const INTERACTION_WINDOW_MS = 10_000
@@ -22,46 +29,6 @@ const SEND_INTERVAL_MS = 1_000
 const STATE_COALESCE_MS = 500
 const INITIAL_HEIGHT = 120
 const MAX_HEIGHT_RATIO = 0.8
-
-// JSON that can sit inside a <script> element.
-const scriptJson = (value: unknown) =>
-  JSON.stringify(value ?? null).replace(/</g, '\\u003c')
-
-function bridge(initialState: unknown): string {
-  return `(function () {
-  var post = function (message) { parent.postMessage(message, '*') };
-  var listeners = [];
-  window.vizier = {
-    state: ${scriptJson(initialState)},
-    send: function (text, data) { post({ type: 'vizier:send', text: String(text), data: data }) },
-    saveState: function (value) { window.vizier.state = value; post({ type: 'vizier:state', value: value }) },
-    onState: function (cb) { if (typeof cb === 'function') listeners.push(cb) },
-  };
-  window.addEventListener('message', function (event) {
-    if (event.source !== parent || !event.data || event.data.type !== 'vizier:state') return;
-    window.vizier.state = event.data.value;
-    listeners.forEach(function (cb) { try { cb(event.data.value) } catch (err) { console.error(err) } });
-  });
-  var last = 0;
-  var report = function () {
-    var height = Math.ceil(document.documentElement.getBoundingClientRect().height);
-    if (height !== last) { last = height; post({ type: 'vizier:height', height: height }) }
-  };
-  new ResizeObserver(report).observe(document.documentElement);
-  window.addEventListener('load', report);
-})();`
-}
-
-/** Base styles so an unstyled page reads as part of the reply in either theme. */
-function baseStyle(dark: boolean): string {
-  return `:root{color-scheme:${dark ? 'dark' : 'light'};color:${dark ? '#e5e7eb' : '#111827'};font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.5}html,body{margin:0;background:transparent}`
-}
-
-function srcdoc(html: string, initialState: unknown, dark: boolean): string {
-  // Meta, style and bridge come first so the parser puts them in the head, ahead of the page;
-  // a page that is a full document merges into that head and body.
-  return `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${CSP}"><style>${baseStyle(dark)}</style><script>${bridge(initialState)}</script>${html}`
-}
 
 interface InteractivePageProps {
   call: ClientCallView
@@ -79,8 +46,16 @@ export function InteractivePage({ call, ctx }: InteractivePageProps) {
   // The state a page starts with is baked into its document once; later changes are posted
   // in, since rebuilding the document would reload the page.
   const initialState = useRef(call.state)
-  const dark = useMemo(() => document.documentElement.classList.contains('dark'), [])
-  const document_ = useMemo(() => srcdoc(html, initialState.current, dark), [html, dark])
+  // The WebUI's theme as the page is first drawn: its colours become the page's variables.
+  const look = useMemo<PageLook>(() => {
+    const style = getComputedStyle(document.documentElement)
+    const palette = Object.fromEntries(
+      Object.entries(PALETTE_SOURCES).map(([key, source]) => [key, style.getPropertyValue(source)])
+    ) as Palette
+    return { dark: document.documentElement.classList.contains('dark'), palette }
+  }, [])
+  const dark = look.dark
+  const document_ = useMemo(() => srcdoc(html, initialState.current, look), [html, look])
 
   const ctxRef = useRef(ctx)
   ctxRef.current = ctx
@@ -189,29 +164,151 @@ export function InteractivePage({ call, ctx }: InteractivePageProps) {
     postStateRef.current()
   }, [call.state])
 
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  // Expanded, the page covers the chat area (the messages and the input below them), leaving
+  // the app's sidebar and header in view. It is pinned over that area's rectangle rather than
+  // moved in the DOM, which would reload the page.
+  const [area, setArea] = useState<{ top: number; left: number; width: number; height: number } | null>(null)
+  const fullscreen = area !== null
+  const measure = () => {
+    const chat = wrapperRef.current?.closest('.main-body')
+    const rect = chat?.getBoundingClientRect()
+    return rect
+      ? { top: rect.top, left: rect.left, width: rect.width, height: window.innerHeight - rect.top }
+      : { top: 0, left: 0, width: window.innerWidth, height: window.innerHeight }
+  }
+  useEffect(() => {
+    if (!fullscreen) return
+    const onResize = () => setArea(measure())
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setArea(null)
+    }
+    window.addEventListener('resize', onResize)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [fullscreen])
+
+  const toggleFullscreen = () => setArea(fullscreen ? null : measure())
+
+  // Save as PDF goes through the browser's print dialog: the page cannot be captured from out
+  // here, since its frame is a different origin. It is printed from a short-lived hidden frame
+  // of its own, the only one allowed the dialog; the page's frame never is.
+  const saveAsPdf = () => {
+    const frame = document.createElement('iframe')
+    frame.setAttribute('sandbox', 'allow-scripts allow-modals')
+    frame.setAttribute('referrerpolicy', 'no-referrer')
+    frame.setAttribute('aria-hidden', 'true')
+    frame.title = `${title} (print)`
+    frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;height:600px;border:0'
+    let removed = false
+    const remove = () => {
+      if (removed) return
+      removed = true
+      window.removeEventListener('message', onPrinted)
+      frame.remove()
+    }
+    const onPrinted = (event: MessageEvent) => {
+      if (event.source === frame.contentWindow && event.data?.type === PRINTED_MESSAGE) remove()
+    }
+    window.addEventListener('message', onPrinted)
+    // A print dialog left open blocks that frame, not this page; the frame goes eventually.
+    setTimeout(remove, 10 * 60 * 1000)
+    frame.srcdoc = printDocument(html, title, call.state ?? null, look)
+    document.body.appendChild(frame)
+  }
+
+  const download = () => {
+    const blob = new Blob([standaloneDocument(html, title, call.state ?? null, look)], { type: 'text/html' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = fileName(title)
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 0)
+  }
+
+  const button =
+    'inline-flex h-7 w-7 items-center justify-center rounded border-0 bg-transparent cursor-pointer'
+
   return (
-    <iframe
-      ref={frameRef}
-      title={title}
-      sandbox="allow-scripts"
-      referrerPolicy="no-referrer"
-      srcDoc={document_}
-      // A state change that landed before the page loaded is posted once it has.
-      onLoad={() => {
-        frameHas.current = JSON.stringify(initialState.current ?? null)
-        postStateRef.current()
-      }}
-      style={{
-        display: 'block',
-        border: 0,
-        width: '100%',
-        height: `${Math.min(height, maxHeight)}px`,
-        background: 'transparent',
-        // The same scheme as the page's own, or the browser paints an opaque backdrop.
-        colorScheme: dark ? 'dark' : 'light',
-      }}
-      scrolling={height > maxHeight ? 'auto' : 'no'}
-    />
+    <div
+      ref={wrapperRef}
+      className="group relative"
+      style={
+        area
+          ? {
+              position: 'fixed',
+              ...area,
+              // Below the toasts (z-50), so a page's sends are announced over it.
+              zIndex: 40,
+              background: 'var(--background)',
+              padding: '16px',
+            }
+          : undefined
+      }
+    >
+      {/* Shown on hover or keyboard focus, so the page still reads as part of the reply. */}
+      <div
+        className="absolute right-1 top-1 z-10 flex gap-1 rounded opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+        style={{ background: 'var(--surface)', boxShadow: 'var(--shadow-sm)' }}
+      >
+        <button
+          type="button"
+          className={button}
+          style={{ color: 'var(--text-secondary)' }}
+          onClick={toggleFullscreen}
+          title={fullscreen ? 'Collapse' : 'Expand'}
+          aria-label={fullscreen ? 'Collapse the page' : 'Expand the page over the chat'}
+        >
+          {fullscreen ? <FaCompress size={12} /> : <FaExpand size={12} />}
+        </button>
+        <button
+          type="button"
+          className={button}
+          style={{ color: 'var(--text-secondary)' }}
+          onClick={download}
+          title="Download page"
+          aria-label="Download the page as an HTML file"
+        >
+          <FaDownload size={12} />
+        </button>
+        <button
+          type="button"
+          className={button}
+          style={{ color: 'var(--text-secondary)' }}
+          onClick={saveAsPdf}
+          title="Save as PDF"
+          aria-label="Save the page as a PDF (opens the print dialog)"
+        >
+          <FaFilePdf size={12} />
+        </button>
+      </div>
+      <iframe
+        ref={frameRef}
+        title={title}
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        srcDoc={document_}
+        // A state change that landed before the page loaded is posted once it has.
+        onLoad={() => {
+          frameHas.current = JSON.stringify(initialState.current ?? null)
+          postStateRef.current()
+        }}
+        style={{
+          display: 'block',
+          border: 0,
+          width: '100%',
+          height: fullscreen ? '100%' : `${Math.min(height, maxHeight)}px`,
+          background: 'transparent',
+          // The same scheme as the page's own, or the browser paints an opaque backdrop.
+          colorScheme: dark ? 'dark' : 'light',
+        }}
+        scrolling={fullscreen || height > maxHeight ? 'auto' : 'no'}
+      />
+    </div>
   )
 }
 

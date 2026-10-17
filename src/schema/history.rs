@@ -71,6 +71,9 @@ pub enum ClientCallOutcome {
     Timeout,
     Cancelled,
     Interrupted,
+    /// Waiting for a client to reconnect (a deferrable tool's call made while none was
+    /// connected). The one status that is not final.
+    Deferred,
 }
 
 impl ClientCallOutcome {
@@ -84,6 +87,7 @@ impl ClientCallOutcome {
             Self::Timeout => "timeout",
             Self::Cancelled => "cancelled",
             Self::Interrupted => "interrupted",
+            Self::Deferred => "deferred",
         }
     }
 
@@ -113,6 +117,7 @@ impl ClientCallOutcome {
             "disconnected" => Self::Disconnected,
             "timeout" => Self::Timeout,
             "cancelled" => Self::Cancelled,
+            "deferred" => Self::Deferred,
             _ => Self::Interrupted,
         }
     }

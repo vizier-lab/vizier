@@ -32,6 +32,10 @@ export interface ClientToolRegistration {
   handle(args: Record<string, unknown>, ctx: ClientCallContext): Promise<unknown> | unknown
   /** Draws a call: live, on reload, in other tabs and browsers. Optional. */
   render?: (call: ClientCallView, ctx: ClientCallContext) => ReactNode
+  /** Draw only once the call's turn has ended (answered, failed or aborted). */
+  renderAfterTurn?: boolean
+  /** Of this tool's calls in one turn, draw only the last. */
+  latestPerTurn?: boolean
 }
 
 const DEFAULT_CATEGORY = 'client'
@@ -89,4 +93,18 @@ export async function handleClientCall(
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) }
   }
+}
+
+/**
+ * The calls of one turn to draw, by their tools' display options (research R19): a
+ * `renderAfterTurn` tool's calls are left out while the turn is `running`, and of a
+ * `latestPerTurn` tool's calls only the last is kept.
+ */
+export function visibleClientCalls(calls: ClientCallView[], running: boolean): ClientCallView[] {
+  const shown = calls.filter((call) => !(running && findClientTool(call.category, call.tool)?.renderAfterTurn))
+  return shown.filter(
+    (call, at) =>
+      !findClientTool(call.category, call.tool)?.latestPerTurn ||
+      !shown.slice(at + 1).some((later) => later.category === call.category && later.tool === call.tool)
+  )
 }

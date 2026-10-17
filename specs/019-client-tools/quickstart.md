@@ -53,6 +53,12 @@ Declare `pick_color`. Send:
 3. Declare `timeout_secs: 2` and do not answer. **Expect**: `client_tool_cancelled` after about 2 s, the reply contains `timeout`, and the outcome is `timeout`.
 4. Send a `client_tool_result` for a made-up call id. **Expect**: `client_error` `not_pending`.
 
+## §4a Deferred calls (FR-015a, FR-015b)
+
+1. Declare `pick_color` with `deferrable: true` and run `try: r = palette_pick_color(prompt='x')\nexcept Exception as e: r = str(e)\nr`; close the socket on receiving the call. **Expect**: the turn's reply contains `deferred`, and the entry's outcome is `deferred`.
+2. Open a new connection on the topic. **Expect**: it receives the call with `answer: true, deferred: true`; answering `ok` makes the outcome `ok`.
+3. With a second connection B already open and not declaring anything, repeat step 1 on A. **Expect**: B receives the deferred call at once and can answer it.
+
 ## §5 Only the declaring connection answers (FR-013)
 
 Open a second connection B on the same topic. A declares and triggers a call. **Expect**: A gets `answer: true`, B gets the same call with `answer: false`, and B's `client_tool_result` gets `not_pending` while A's answer completes the call.
@@ -84,13 +90,14 @@ With dummyplug, send in the WebUI:
 {"tool":"execute_python","arguments":{"intent":"show a page","code":"ui_render_interactive_ui(title='Hello', html='<button onclick=\"vizier.send(\\'hello\\')\">say hello</button><button onclick=\"vizier.saveState((vizier.state||0)+1)\">count</button><script>vizier.onState(v=>document.title=v)</script>')"}}
 ```
 
-1. The page appears inside the reply bubble as soon as the call is made, before the tool-result echo, with no border.
+1. The page appears inside the reply bubble, above the tool-result echo, with no border, only once the turn has ended. Run a script that renders twice in one turn: only the second page is shown.
 2. Click **say hello**: a user bubble reading `hello` (marked "from a page") appears, and dummyplug answers with lorem ipsum.
 3. Click **count** three times, then reload. The page shows again with `vizier.state == 3`.
 4. Log out, log in on another browser, and open the topic. Same page, same state, and **say hello** still works.
 5. With the topic in two tabs, click **count** in one. The other tab's `onState` fires.
 6. Run the isolation list from `contracts/webui-extension-api.md` (SC-004) as page scripts. Each attempt fails.
 7. `/abort` a turn right after the call: the page stays, and the call shows as `cancelled`.
+8. Close the tab while a turn that renders a page is still running, then reopen the topic: the page is shown and its call is answered (`ok`).
 
 ## Cleanup
 

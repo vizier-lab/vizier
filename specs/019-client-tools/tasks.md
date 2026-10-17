@@ -245,6 +245,23 @@ description: "Task list for 019-client-tools"
 
 ---
 
+## Phase 10: Adjustments after the first hands-on test
+
+**Purpose**: the three changes from the 2026-10-17 clarification session (spec.md › Clarifications; research.md R18, R19).
+
+- [X] T055 Add `deferrable: bool` (`#[serde(default)]`) to `ClientToolDeclaration` in `src/agents/client/declare.rs`, and `ClientCallOutcome::Deferred` in `src/schema/history.rs` (status `deferred`, mapped both ways)
+- [X] T056 Add `defer_client_call(uid) -> bool` and `deferred_client_calls(session) -> Vec<String>` to `ClientCallStorage` (`src/storage/client_call.rs`, `src/storage/sqlite/client_call.rs`); let `finish_client_call` apply from `pending` or `deferred`; unit tests (deferred survives the sweep, finishes once, lists oldest first)
+- [X] T057 In `ClientTools::call` (`src/agents/client/mod.rs`), defer a deferrable call when the connection is closed or answers `Disconnected`: `defer_client_call`, publish `ClientCallOutcome` and `SessionFrame::ClientCallDeferred`, return `{"status": "deferred", call_id, message}`; prefix the description of deferrable tools; unit tests
+- [X] T058 In `handle_socket`, deliver deferred calls on connect and on `ClientCallDeferred`, claimed through a process-wide `DeferredClaims` on `HTTPState`, sent with `deferred: true`, awaited 60 s; `Disconnected` releases the claim and leaves the call deferred
+- [X] T059 WebUI: `deferred` outcome type and chip label; registration options `renderAfterTurn` / `latestPerTurn` applied in `chat.tsx`; `render_interactive_ui` sets `deferrable`, both options, its description, and draws an `error` outcome as the chip
+- [X] T060 Add quickstart §4a to `scripts/client-tools-e2e.mjs` and run it; walk §9 steps 1 and 8 in the browser
+- [X] T061 Regenerate `docs/src/api-integration/client-tools.md` from the contract and update `CLAUDE.md`'s client tools paragraph
+
+- [X] T062 Expand and download controls on `InteractivePage` (`webui/app/components/client/InteractivePage.tsx`, FR-026b): hover/focus toolbar, expand over the chat area (not browser full screen), standalone download built in `webui/app/lib/pageDocument.ts` (tested in `pageDocument.test.ts`) with the CSP, latest state and a no-op `vizier`
+- [X] T063 Announce each page send with an info toast (`handleClientEvent` in `webui/app/routes/chat.tsx`, FR-028a); expanded pages sit below toasts (z-index 40)
+- [X] T064 Save as PDF control on `InteractivePage`: `printDocument` in `webui/app/lib/pageDocument.ts` (tested), printed from a hidden `allow-scripts allow-modals` frame removed after the dialog closes; downloads and PDFs keep the theme and background the page was drawn with, and printing keeps backgrounds (`print-color-adjust: exact`)
+- [X] T065 Theme variables for pages (`PALETTE_KEYS`/`baseStyle` in `webui/app/lib/pageDocument.ts`, read in `InteractivePage`), themed default controls, and a one-line style guide in `render_interactive_ui`'s description (FR-026c)
+
 ## Dependencies & Execution Order
 
 ### Phase dependencies

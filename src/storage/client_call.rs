@@ -16,8 +16,8 @@ pub trait ClientCallStorage {
     /// Record a call as `pending`, when it is made.
     async fn open_client_call(&self, uid: &str, session: &VizierSession) -> Result<()>;
 
-    /// Record how a call ended. Only a `pending` call changes, so a late write never
-    /// overrides an outcome already recorded; returns whether this one applied.
+    /// Record how a call ended. Only a `pending` or `deferred` call changes, so a late write
+    /// never overrides an outcome already recorded; returns whether this one applied.
     async fn finish_client_call(&self, uid: &str, outcome: &ClientCallOutcome) -> Result<bool>;
 
     /// Replace the call's saved state, whatever its status.
@@ -26,6 +26,12 @@ pub trait ClientCallStorage {
     /// Startup sweep: a call cannot outlive the process awaiting it, so every `pending` one
     /// becomes `interrupted`.
     async fn interrupt_pending_client_calls(&self) -> Result<usize>;
+
+    /// `pending → deferred`: the call waits for a client to reconnect (research R18).
+    async fn defer_client_call(&self, uid: &str) -> Result<bool>;
+
+    /// The session's deferred calls, oldest first.
+    async fn deferred_client_calls(&self, session: &VizierSession) -> Result<Vec<String>>;
 }
 
 #[async_trait::async_trait]
@@ -44,5 +50,13 @@ impl ClientCallStorage for VizierStorage {
 
     async fn interrupt_pending_client_calls(&self) -> Result<usize> {
         self.0.interrupt_pending_client_calls().await
+    }
+
+    async fn defer_client_call(&self, uid: &str) -> Result<bool> {
+        self.0.defer_client_call(uid).await
+    }
+
+    async fn deferred_client_calls(&self, session: &VizierSession) -> Result<Vec<String>> {
+        self.0.deferred_client_calls(session).await
     }
 }

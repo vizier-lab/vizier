@@ -828,6 +828,8 @@ export interface ClientToolDeclaration {
   input_schema: JsonSchemaObject
   output_schema?: Record<string, unknown>
   timeout_secs?: number
+  // Keep a call made while no client is connected, and run it when one reconnects.
+  deferrable?: boolean
 }
 
 export interface ClientCategoryDeclaration {
@@ -843,6 +845,8 @@ export type ClientCallOutcome =
   | { status: 'timeout' }
   | { status: 'cancelled' }
   | { status: 'interrupted' }
+  // Waiting for a client to reconnect (deferrable tools only).
+  | { status: 'deferred' }
 
 export interface ClientToolCallEntry {
   name: string
@@ -874,6 +878,8 @@ export interface ClientToolCallFrame {
     arguments: Record<string, unknown>
     // True only on the connection that declared the tool, which alone may answer.
     answer: boolean
+    // A deferred call delivered now that a client is back.
+    deferred?: boolean
   }
 }
 

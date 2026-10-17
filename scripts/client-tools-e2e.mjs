@@ -270,6 +270,52 @@ current = '§4 error, disconnect, timeout, not pending'
   check('made-up id is not pending', np.client_error.call_id === 'made-up', np)
 }
 
+// §4a --------------------------------------------------------------------------------------
+current = '§4a deferred calls'
+{
+  const tryCode = "try:\n    r = palette_pick_color(prompt='later')\nexcept Exception as e:\n    r = str(e)\nr"
+  const outcomeOf = (entries, id) => entries.find((e) => e.uid === id)?.content.ClientToolCall.outcome?.status
+
+  // 1. The declaring socket goes away mid-call: the call is deferred, not failed.
+  const topic = fresh()
+  const D = connect(topic)
+  await D.opened
+  const call = await triggerCall(D, tryCode, [pickColor({ deferrable: true })])
+  D.close()
+  let entries = await historyUntil(topic, (es) => es.some((e) => entryKind(e) === 'Response'), 8000)
+  const response = entries.find((e) => entryKind(e) === 'Response')
+  check('script told the call is deferred', JSON.stringify(response).includes('deferred'), response)
+  check('saved as deferred', outcomeOf(entries, call.call_id) === 'deferred', entries.find((e) => e.uid === call.call_id))
+
+  // 2. The next connection receives it and answers it.
+  const E = connect(topic)
+  await E.opened
+  const delivered = (await E.next((f) => kind(f, 'client_tool_call') && f.client_tool_call.call_id === call.call_id, 5000))
+    .client_tool_call
+  check('delivered on connect', delivered.answer === true && delivered.deferred === true, delivered)
+  check('with its arguments', delivered.arguments.prompt === 'later', delivered)
+  E.send({ client_tool_result: { call_id: call.call_id, ok: { hex: '#123456' } } })
+  await E.next((f) => kind(f, 'client_tool_outcome') && f.client_tool_outcome.call_id === call.call_id, 5000)
+  entries = await history(topic)
+  check('answered after reconnecting', outcomeOf(entries, call.call_id) === 'ok', entries.find((e) => e.uid === call.call_id))
+  E.close()
+
+  // 3. Another tab already open gets it at once.
+  const other = fresh()
+  const A2 = connect(other)
+  const B2 = connect(other)
+  await Promise.all([A2.opened, B2.opened])
+  const c2 = await triggerCall(A2, tryCode, [pickColor({ deferrable: true })])
+  A2.close()
+  const atB = (await B2.next((f) => kind(f, 'client_tool_call') && f.client_tool_call.call_id === c2.call_id && f.client_tool_call.answer, 5000))
+    .client_tool_call
+  check('open tab receives it', atB.deferred === true, atB)
+  B2.send({ client_tool_result: { call_id: c2.call_id, ok: 1 } })
+  await B2.next((f) => kind(f, 'client_tool_outcome') && f.client_tool_outcome.call_id === c2.call_id && f.client_tool_outcome.outcome.status === 'ok', 5000)
+  check('open tab answers it', true)
+  B2.close()
+}
+
 // §5 ---------------------------------------------------------------------------------------
 current = '§5 only the declaring connection answers'
 const B = connect(main)

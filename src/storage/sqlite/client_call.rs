@@ -31,10 +31,11 @@ impl ClientCallStorage for SqliteStorage {
             .map(|detail| serde_json::to_string(&detail))
             .transpose()?;
         let conn = self.conn.lock();
-        // `status = 'pending'` is what makes an outcome final: a late write changes nothing.
+        // Only an open call changes, which is what makes an outcome final: a late write
+        // changes nothing.
         let changed = conn.execute(
             "UPDATE client_tool_call SET status = ?1, detail = ?2, finished_at = ?3
-             WHERE history_uid = ?4 AND status = 'pending'",
+             WHERE history_uid = ?4 AND status IN ('pending', 'deferred')",
             rusqlite::params![outcome.status(), detail, Utc::now().to_rfc3339(), uid],
         )?;
         Ok(changed > 0)
@@ -57,6 +58,31 @@ impl ClientCallStorage for SqliteStorage {
              WHERE status = 'pending'",
             rusqlite::params![Utc::now().to_rfc3339()],
         )?)
+    }
+
+    async fn defer_client_call(&self, uid: &str) -> Result<bool> {
+        let conn = self.conn.lock();
+        let changed = conn.execute(
+            "UPDATE client_tool_call SET status = 'deferred' WHERE history_uid = ?1 AND status = 'pending'",
+            [uid],
+        )?;
+        Ok(changed > 0)
+    }
+
+    async fn deferred_client_calls(&self, session: &VizierSession) -> Result<Vec<String>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT history_uid FROM client_tool_call
+             WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3 AND status = 'deferred'
+             ORDER BY created_at, rowid",
+        )?;
+        let uids = stmt
+            .query_map(
+                rusqlite::params![session.0, session.1.to_slug(), session.2],
+                |row| row.get(0),
+            )?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
+        Ok(uids)
     }
 }
 
@@ -127,6 +153,28 @@ mod tests {
         storage.finish_client_call("c1", &ClientCallOutcome::Cancelled).await.unwrap();
         storage.save_client_call_state("c1", &json!({ "n": 2 })).await.unwrap();
         assert_eq!(row(&storage, "c1"), ("cancelled".into(), None, Some(r#"{"n":2}"#.into())));
+    }
+
+    #[tokio::test]
+    async fn a_deferred_call_survives_the_sweep_and_finishes_once() {
+        let (storage, _dir) = setup();
+        storage.open_client_call("a", &session()).await.unwrap();
+        storage.open_client_call("b", &session()).await.unwrap();
+        assert!(storage.defer_client_call("a").await.unwrap());
+        assert!(storage.defer_client_call("b").await.unwrap());
+        // Only from pending.
+        assert!(!storage.defer_client_call("a").await.unwrap());
+        assert_eq!(storage.deferred_client_calls(&session()).await.unwrap(), ["a", "b"]);
+
+        assert_eq!(storage.interrupt_pending_client_calls().await.unwrap(), 0);
+        assert_eq!(row(&storage, "a").0, "deferred");
+
+        let ok = ClientCallOutcome::Ok { result: json!(1) };
+        assert!(storage.finish_client_call("a", &ok).await.unwrap());
+        assert!(!storage.finish_client_call("a", &ClientCallOutcome::Timeout).await.unwrap());
+        assert_eq!(storage.deferred_client_calls(&session()).await.unwrap(), ["b"]);
+        let other = VizierSession("agent-1".into(), VizierChannelId::HTTP("bob".into(), "webui".into()), Some("t".into()));
+        assert!(storage.deferred_client_calls(&other).await.unwrap().is_empty());
     }
 
     #[tokio::test]

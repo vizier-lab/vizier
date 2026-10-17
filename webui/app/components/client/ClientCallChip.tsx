@@ -12,6 +12,7 @@ const STATUS_LABEL: Record<string, string> = {
   timeout: 'timed out',
   cancelled: 'cancelled',
   interrupted: 'interrupted',
+  deferred: 'waiting for the client',
 }
 
 export function ClientCallChip({ call }: { call: ClientCallView }) {

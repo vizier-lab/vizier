@@ -62,7 +62,7 @@ import {
   groupHistory,
   outcomeDurationMs,
 } from '../lib/trail'
-import { findClientTool } from '../lib/clientTools'
+import { findClientTool, visibleClientCalls } from '../lib/clientTools'
 import type { ClientCallContext } from '../lib/clientTools'
 import { ClientCallChip } from '../components/client/ClientCallChip'
 import { CheckpointDivider } from '../components/CheckpointDivider'
@@ -785,13 +785,17 @@ export default function Chat() {
   const clientCalls = useMemo(() => {
     const byOutcome: Record<string, ClientCallView[]> = {}
     const atCall: Record<string, ClientCallView[]> = {}
-    for (const turn of turns) {
-      if (turn.clientCalls.length === 0) continue
-      if (turn.outcome) byOutcome[turn.outcome.uid] = turn.clientCalls
-      else atCall[turn.clientCalls[0].callId] = turn.clientCalls.map((call) => ({ ...call, live: true }))
-    }
+    turns.forEach((turn, at) => {
+      // Only the last turn can still be running; one with no outcome before it ended
+      // without one (aborted, interrupted).
+      const running = !turn.outcome && at === turns.length - 1 && isThinking
+      const calls = visibleClientCalls(turn.clientCalls, running)
+      if (calls.length === 0) return
+      if (turn.outcome) byOutcome[turn.outcome.uid] = calls
+      else atCall[calls[0].callId] = calls.map((call) => ({ ...call, live: running }))
+    })
     return { byOutcome, atCall }
-  }, [turns])
+  }, [turns, isThinking])
 
   // A turn closed in this session wins: its events are the ones the person just watched.
   const trailFor = (uid: string) =>
@@ -1537,6 +1541,9 @@ export default function Chat() {
         setThinking(true)
       }
       sendMessage(message)
+      // A page sends on the person's behalf, often while expanded over the conversation, so
+      // say what went out.
+      addToast('info', 'Sent from the page', text.length > 120 ? `${text.slice(0, 120)}…` : text)
     },
     [agentId, connected, resolvedTopicId, sendMessage, addToast, setThinking]
   )

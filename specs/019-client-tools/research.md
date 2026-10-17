@@ -169,7 +169,7 @@ The body is `text`, followed by a fenced JSON block of `data` when present.
 
 ## R11. Placing pages in the reply bubble
 
-**Decision**: The WebUI's `Turn` (`lib/trail.ts`) gains `clientCalls: ClientCallView[]`. `groupHistory` collects `ClientToolCall` entries of the open turn in order, rather than treating them as trail events, so they render whether or not the trail is expanded. A live helper `appendClientCall` adds them from `client_tool_call` frames, both the direct and the display copy. The bubble renders `turn.clientCalls` (each through its registered renderer, else the collapsed chip) above the turn's outcome text, and renders them for a turn with no outcome too (failed, aborted, or still running). That gives FR-026a and the reload, other-tab and other-browser scenarios from the same pure function, keeping spec 010's rule that live and reloaded turns come from one module.
+**Decision**: The WebUI's `Turn` (`lib/trail.ts`) gains `clientCalls: ClientCallView[]`. `groupHistory` collects `ClientToolCall` entries of the open turn in order, rather than treating them as trail events, so they render whether or not the trail is expanded. A live helper `appendClientCall` adds them from `client_tool_call` frames, both the direct and the display copy. The bubble renders `turn.clientCalls` (each through its registered renderer, else the collapsed chip) above the turn's outcome text, and renders them for a turn with no outcome too (failed, aborted, or still running). *Amended by R19: a renderer may ask to be drawn only once its turn has ended, and only for the turn's latest call.* That gives FR-026a and the reload, other-tab and other-browser scenarios from the same pure function, keeping spec 010's rule that live and reloaded turns come from one module.
 
 ## R12. The page sandbox
 
@@ -232,3 +232,21 @@ None of this is a migration or a compatibility shim, so nothing is added to #82.
 ## R17. Protocol versioning and documentation
 
 **Decision**: The contract in `contracts/client-tools-protocol.md` becomes `docs/src/api-integration/client-tools.md` (linked from `SUMMARY.md` and from the WebSocket section of `rest-api.md`, which also gains the `client_event` row). It is version 1. `client_tools_resolved.protocol` carries the number, so a client can detect a server speaking a different version. Additive changes (new optional fields, new frame kinds a client may ignore) keep version 1; anything else bumps it.
+
+## R18. Deferrable tools (added after the first hands-on test)
+
+**Decision**: `ClientToolDeclaration.deferrable` (default `false`). In `ClientTools::call`, when the connection is already closed (`register` returns `None`) or answers `Disconnected` and the tool is deferrable, the call is moved `pending → deferred` (`ClientCallStorage::defer_client_call`), `ClientCallOutcome::Deferred` is published, and the script gets `Ok({"status": "deferred", "call_id", "message"})` rather than an error. The description the agent reads is prefixed to say so.
+
+Delivery has two triggers, both handled by `handle_socket`: a socket opening (it lists the session's `deferred` calls, `deferred_client_calls(session)`) and `SessionFrame::ClientCallDeferred` (a call deferred while another tab is open). Either way the socket claims the call in a process-wide `DeferredClaims` set on `HTTPState` (so two tabs never both run it), registers it on its own `ClientConnection`, sends the call frame with `answer: true, deferred: true`, and awaits it under the default 60 s limit. Ok/error/timeout finish it (`finish_client_call` accepts `pending` or `deferred`); `Disconnected` releases the claim and leaves it `deferred`. The call's name and arguments are read back from its history entry, so nothing new is stored.
+
+`interrupt_pending_client_calls` sweeps only `pending`: a deferred call does not depend on the process that made it, so it survives a restart.
+
+**Rationale**: the user's scenario is a turn still running after the tab is closed. Scoping it to the declaring turn keeps FR-007 ("never stored") and US4 intact. At-least-once delivery (a mid-call drop can re-deliver) is accepted and documented: the call id lets a client recognise a repeat.
+
+**Alternatives considered**: delivering only to the next request that declares the tool (rejected by the user: nothing would happen until the person writes); remembering declarations for later client-less turns such as background reports (rejected by the user: reverses FR-007).
+
+## R19. When and how many pages a reply shows (added after the first hands-on test)
+
+**Decision**: `ClientToolRegistration` gains two display options: `renderAfterTurn` (draw only once the turn has ended: it has an outcome, or it is not the turn still running) and `latestPerTurn` (of this tool's calls in a turn, draw only the last). `render_interactive_ui` sets both, and its description tells the agent a reply shows one page and a later call replaces it. A failed `render_interactive_ui` call (`outcome.status == "error"`, e.g. over 256 KB) draws as the chip, not as a page.
+
+**Rationale**: the user found pages appearing mid-turn distracting and several pages per reply cluttered. Putting the rule in the registration keeps `chat.tsx` free of tool-specific branches (Principle II) and lets an extension choose the same behaviour.

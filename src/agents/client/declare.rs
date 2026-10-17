@@ -36,6 +36,10 @@ pub struct ClientToolDeclaration {
     pub output_schema: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_secs: Option<u64>,
+    /// A call made while the declaring connection is gone is kept and delivered when a client
+    /// next opens the conversation, instead of failing (research R18).
+    #[serde(default)]
+    pub deferrable: bool,
 }
 
 impl ClientToolDeclaration {
@@ -246,6 +250,7 @@ mod tests {
             input_schema: json!({ "type": "object" }),
             output_schema: None,
             timeout_secs: None,
+            deferrable: false,
         }
     }
 

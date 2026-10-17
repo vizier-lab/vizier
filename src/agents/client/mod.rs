@@ -90,6 +90,9 @@ pub struct ClientTools {
 }
 
 const DESCRIPTION_PREFIX: &str = "(Provided by the person's client.) ";
+const DEFERRABLE_PREFIX: &str = "(Provided by the person's client. If no client is connected, the call is kept and runs when one reconnects; you then get {\"status\": \"deferred\"} instead of a result.) ";
+/// How long a reconnected client has to answer a deferred call.
+const DEFERRED_ANSWER_LIMIT: Duration = Duration::from_secs(declare::DEFAULT_TIMEOUT_SECS);
 const CATEGORY_LABEL: &str = "(provided by the person's client)";
 const DEFAULT_CATEGORY_DESCRIPTION: &str = "Tools provided by the person's client";
 
@@ -142,7 +145,11 @@ impl ClientTools {
                 },
                 definition: ToolDefinition {
                     name: entry.name.clone(),
-                    description: format!("{DESCRIPTION_PREFIX}{}", entry.declaration.description),
+                    description: format!(
+                        "{}{}",
+                        if entry.declaration.deferrable { DEFERRABLE_PREFIX } else { DESCRIPTION_PREFIX },
+                        entry.declaration.description
+                    ),
                     parameters: entry.declaration.input_schema.clone(),
                 },
             })
@@ -318,6 +325,26 @@ impl ClientTools {
             }
         };
         pending.done = true;
+
+        // A deferrable tool's call outlives the connection that should have answered it: it
+        // waits for a client to reconnect (research R18), and the script is told so.
+        if outcome == ClientCallOutcome::Disconnected && entry.declaration.deferrable {
+            self.defer(&call_id).await;
+            let response = serde_json::json!({
+                "status": "deferred",
+                "call_id": call_id,
+                "message": "The person's client is not connected. This call will run the next time a client opens this conversation; its result will not be reported back to you.",
+            });
+            return (
+                Some(call_id),
+                Ok(VizierResponse {
+                    timestamp: Utc::now(),
+                    content: VizierResponseContent::ToolResponse { response },
+                    ..Default::default()
+                }),
+            );
+        }
+
         finish(&self.storage, &self.transport, &self.session, &call_id, &outcome).await;
 
         let result = match outcome {
@@ -337,6 +364,107 @@ impl ClientTools {
         };
         (Some(call_id), result)
     }
+}
+
+impl ClientTools {
+    async fn defer(&self, call_id: &str) {
+        if let Err(e) = self.storage.defer_client_call(call_id).await {
+            tracing::warn!(call_id, "failed to record client tool call as deferred: {e}");
+        }
+        for frame in [
+            SessionFrame::ClientCallOutcome {
+                call_id: call_id.to_string(),
+                outcome: ClientCallOutcome::Deferred,
+            },
+            // Any socket already open on the session (another tab) picks it up at once.
+            SessionFrame::ClientCallDeferred { call_id: call_id.to_string() },
+        ] {
+            self.transport.publish_session_event(SessionEvent {
+                session: self.session.clone(),
+                frame,
+            });
+        }
+    }
+}
+
+/// The deferred calls some connection is delivering right now, process-wide, so two sockets
+/// on one conversation never both run the same call.
+#[derive(Default)]
+pub struct DeferredClaims(std::sync::Mutex<std::collections::HashSet<String>>);
+
+/// Held while a connection delivers a call; releases the claim when dropped.
+pub struct DeferredClaim<'a> {
+    claims: &'a DeferredClaims,
+    call_id: String,
+}
+
+impl DeferredClaims {
+    pub fn claim(&self, call_id: &str) -> Option<DeferredClaim<'_>> {
+        let mut claimed = self.0.lock().ok()?;
+        claimed.insert(call_id.to_string()).then(|| DeferredClaim {
+            claims: self,
+            call_id: call_id.to_string(),
+        })
+    }
+}
+
+impl Drop for DeferredClaim<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut claimed) = self.claims.0.lock() {
+            claimed.remove(&self.call_id);
+        }
+    }
+}
+
+/// Deliver one deferred call to `connection` and record its answer (research R18). Does
+/// nothing if another connection is delivering it, or it is no longer a deferred call of
+/// `session`. A connection that closes before answering leaves it deferred for the next one.
+pub async fn deliver_deferred(
+    storage: &VizierStorage,
+    transport: &VizierTransport,
+    session: &VizierSession,
+    connection: &ClientConnection,
+    claims: &DeferredClaims,
+    call_id: &str,
+) {
+    use crate::storage::reaction::ReactionStorage;
+
+    let Some(_claim) = claims.claim(call_id) else {
+        return;
+    };
+    let entry = match storage.get_history_entry(call_id).await {
+        Ok(Some(entry)) if &entry.vizier_session == session => entry,
+        Ok(_) => return,
+        Err(e) => {
+            tracing::warn!(call_id, "failed to read deferred client tool call: {e}");
+            return;
+        }
+    };
+    let SessionHistoryContent::ClientToolCall { name, category, tool, arguments, outcome: Some(ClientCallOutcome::Deferred), .. } =
+        entry.content
+    else {
+        return;
+    };
+    let Some(answer) = connection.register(call_id) else {
+        return;
+    };
+
+    let call = ClientCallFrame { call_id: call_id.to_string(), name, category, tool, arguments };
+    let mut frame = call.wire(true);
+    frame["client_tool_call"]["deferred"] = serde_json::json!(true);
+    connection.send(frame);
+
+    let outcome = match tokio::time::timeout(DEFERRED_ANSWER_LIMIT, answer).await {
+        Ok(Ok(ClientAnswer::Ok(result))) => ClientCallOutcome::Ok { result },
+        Ok(Ok(ClientAnswer::Err(message))) => ClientCallOutcome::Error { message },
+        // Still deferred: the next connection gets it.
+        Ok(Ok(ClientAnswer::Disconnected)) | Ok(Err(_)) => return,
+        Err(_) => {
+            connection.cancel(call_id);
+            ClientCallOutcome::Timeout
+        }
+    };
+    finish(storage, transport, session, call_id, &outcome).await;
 }
 
 /// Record a call's outcome and tell every socket on the session.
@@ -433,6 +561,7 @@ impl ClientTools {
                 input_schema: serde_json::json!({ "type": "object" }),
                 output_schema: None,
                 timeout_secs: None,
+                deferrable: false,
             }],
             categories: vec![],
         };
@@ -468,6 +597,7 @@ mod tests {
             input_schema: json!({ "type": "object" }),
             output_schema: None,
             timeout_secs: None,
+            deferrable: false,
         }
     }
 
@@ -686,6 +816,69 @@ mod tests {
         tokio::time::sleep(SETTLE).await;
         assert_eq!(outcome_of(&s.storage, &id).await, Some(ClientCallOutcome::Cancelled));
         assert!(!s.connection.answer(&id, ClientAnswer::Ok(json!(1))));
+    }
+
+    fn deferrable(name: &str) -> ClientToolDeclaration {
+        ClientToolDeclaration { deferrable: true, ..declaration(name, None) }
+    }
+
+    #[tokio::test]
+    async fn a_deferrable_call_without_a_client_is_deferred_then_delivered() {
+        let s = setup(vec![deferrable("pick")], vec![]);
+        assert!(s.tools.catalogue()[0].definition.description.contains("deferred"));
+        let mut events = s.transport.subscribe_session_events();
+        s.connection.close();
+
+        let (call_id, result) = s.tools.call("client_pick", json!({ "prompt": "x" })).await;
+        let call_id = call_id.unwrap();
+        let response = result.unwrap();
+        assert!(matches!(response.content, VizierResponseContent::ToolResponse { ref response } if response["status"] == "deferred"));
+        assert_eq!(outcome_of(&s.storage, &call_id).await, Some(ClientCallOutcome::Deferred));
+        assert!(matches!(events.recv().await.unwrap().frame, SessionFrame::ClientCallOutcome { outcome: ClientCallOutcome::Deferred, .. }));
+        assert!(matches!(events.recv().await.unwrap().frame, SessionFrame::ClientCallDeferred { .. }));
+        assert_eq!(s.storage.deferred_client_calls(&session()).await.unwrap(), [call_id.clone()]);
+
+        // A connection that drops before answering leaves it deferred.
+        let claims = DeferredClaims::default();
+        let (dropped, mut dropped_rx) = ClientConnection::for_tests();
+        let delivery = {
+            let (storage, transport, dropped, call_id) = (s.storage.clone(), s.transport.clone(), dropped.clone(), call_id.clone());
+            let claims = Arc::new(claims);
+            let c = claims.clone();
+            (tokio::spawn(async move { deliver_deferred(&storage, &transport, &session(), &dropped, &c, &call_id).await }), claims)
+        };
+        let frame = next_call(&mut dropped_rx).await;
+        assert_eq!(frame["deferred"], true);
+        assert_eq!(frame["arguments"]["prompt"], "x");
+        // Claimed: a second connection does not get it meanwhile.
+        assert!(delivery.1.claim(&call_id).is_none());
+        dropped.close();
+        delivery.0.await.unwrap();
+        assert_eq!(outcome_of(&s.storage, &call_id).await, Some(ClientCallOutcome::Deferred));
+
+        // The next connection answers it.
+        let (next, mut next_rx) = ClientConnection::for_tests();
+        let task = {
+            let (storage, transport, next, call_id, claims) = (s.storage.clone(), s.transport.clone(), next.clone(), call_id.clone(), delivery.1.clone());
+            tokio::spawn(async move { deliver_deferred(&storage, &transport, &session(), &next, &claims, &call_id).await })
+        };
+        next_call(&mut next_rx).await;
+        assert!(next.answer(&call_id, ClientAnswer::Ok(json!({ "hex": "#fff" }))));
+        task.await.unwrap();
+        assert_eq!(outcome_of(&s.storage, &call_id).await, Some(ClientCallOutcome::Ok { result: json!({ "hex": "#fff" }) }));
+        assert!(s.storage.deferred_client_calls(&session()).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_deferrable_call_whose_client_drops_mid_call_is_deferred() {
+        let mut s = setup(vec![deferrable("pick")], vec![]);
+        let tools = s.tools.clone();
+        let call = tokio::spawn(async move { tools.call("client_pick", json!({})).await });
+        let id = next_call(&mut s.rx).await["call_id"].as_str().unwrap().to_string();
+        s.connection.close();
+        let (_, result) = call.await.unwrap();
+        assert!(matches!(result.unwrap().content, VizierResponseContent::ToolResponse { ref response } if response["status"] == "deferred"));
+        assert_eq!(outcome_of(&s.storage, &id).await, Some(ClientCallOutcome::Deferred));
     }
 
     #[tokio::test]

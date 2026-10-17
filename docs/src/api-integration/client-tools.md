@@ -48,6 +48,7 @@ Any request (`chat`, `audio_chat`, `client_event`) may carry:
 | `client_tools[].input_schema` | yes | a JSON Schema object with `"type": "object"`, at most 16 KB |
 | `client_tools[].output_schema` | no | a JSON Schema object, at most 16 KB |
 | `client_tools[].timeout_secs` | no | 1–600, default 60 |
+| `client_tools[].deferrable` | no | `true` to let the agent call the tool while no client is connected; see §4a. Default `false` |
 | `client_categories[].name` | yes | a category used by at least one tool (others are ignored) |
 | `client_categories[].description` | no | at most 512 bytes |
 
@@ -105,6 +106,7 @@ If the request was queued behind another turn, this frame arrives when its own t
 - Other connections watching the same conversation receive the same frame with `answer: false`, so they can display it. They MUST NOT answer.
 - `call_id` is stable. It is the id of the call's entry in the conversation history (§7), and the id used for saved state (§6) and client events (§5).
 - The arguments are not validated against your `input_schema`. Validate them, and answer with an error if they are wrong.
+- `deferred: true` marks a deferred call being delivered now (§4a). Answer it like any other.
 
 ## 4. Client → server: the answer
 
@@ -130,7 +132,7 @@ An oversized answer gets `code: "result_too_large"`, and the call stays pending.
 
 | Situation | What the agent's script sees | What the client receives |
 |-----------|------------------------------|--------------------------|
-| The declaring connection closes | `client_disconnected` error | — |
+| The declaring connection closes | `client_disconnected` error, or for a `deferrable` tool `{"status": "deferred"}` (§4a) | — |
 | No answer within the limit | `timeout` error | `client_tool_cancelled` |
 | The turn is aborted, or the script's own time runs out | (script ended) | `client_tool_cancelled` |
 
@@ -146,7 +148,19 @@ After every call ends, all connections on the conversation receive:
 { "client_tool_outcome": { "call_id": "6f1c0d6e-…", "outcome": { "status": "ok", "result": { "hex": "#3366ff" } } } }
 ```
 
-`status` is one of `ok`, `error`, `disconnected`, `timeout`, `cancelled`, `interrupted`.
+`status` is one of `ok`, `error`, `disconnected`, `timeout`, `cancelled`, `interrupted`, `deferred`.
+
+## 4a. Deferred calls
+
+A tool declared with `"deferrable": true` can still be called when the connection that declared it is gone: the person closed the tab while the turn was running, or the connection dropped before answering. Instead of failing, the call is **deferred**:
+
+- The agent's script receives `{"status": "deferred", "call_id": "…", "message": "…"}`: the call will run the next time a client opens this conversation, and its result will not be reported back to the agent.
+- Every connection on the conversation receives `client_tool_outcome` with `status: "deferred"`.
+- The call is delivered, as a `client_tool_call` with `"answer": true, "deferred": true`, to the first connection on that conversation: one already open (another tab), or the next one to connect. Only one connection receives it at a time. A connection that does not provide the tool should answer with an error.
+- If that connection closes before answering, the call stays deferred for the next one; deferred calls also survive a server restart. Delivery is therefore at-least-once: use the `call_id` to recognise a repeat.
+- A delivered call is answered within 60 s or recorded as `timeout`. Its outcome is broadcast and saved in history as usual.
+
+Deferral applies only within the turn whose request declared the tool; no later turn gets the tool.
 
 ## 5. Client → server: a client event
 
@@ -224,6 +238,7 @@ A client event appears as a `Request` entry whose `content` is `{ "client_event"
 | S → C | `client_tool_call` | §3 |
 | C → S | `client_tool_result` | §4 |
 | S → C | `client_tool_cancelled` | §4 |
+| S → C | `client_tool_call` with `deferred: true` | §4a |
 | S → C | `client_tool_outcome` | §4 |
 | C → S | request with `content.client_event` | §5 |
 | C ↔ S | `client_call_state` | §6 |

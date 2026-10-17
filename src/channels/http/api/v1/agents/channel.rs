@@ -25,7 +25,9 @@ use crate::{
         },
         reactions::{self, ApplyOutcome, ReactionChange, ReactionKind, ReactionTarget},
     },
-    agents::client::{ClientAnswer, ClientBinding, ClientConnection, declare},
+    agents::client::{
+        ClientAnswer, ClientBinding, ClientConnection, DeferredClaims, declare, deliver_deferred,
+    },
     schema::{
         ClientEvent, ReactionAction, SessionHistory, SessionHistoryContent, TopicId,
         VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent,
@@ -355,6 +357,7 @@ pub async fn chat(
     let limits = ClientLimits {
         events: state.client_events.clone(),
         state_saves: state.client_state_saves.clone(),
+        deferred: state.deferred_client_calls.clone(),
     };
     ws.on_upgrade(move |socket| handle_socket(socket, session, transport, state.storage.clone(), state.config.workspace.clone(), ws_idle_timeout_secs, limits))
 }
@@ -367,6 +370,38 @@ pub struct ClientLimits {
     pub events: std::sync::Arc<RateLimiter>,
     /// Saved state, keyed by call id.
     pub state_saves: std::sync::Arc<RateLimiter>,
+    /// Deferred calls being delivered by some socket right now.
+    pub deferred: std::sync::Arc<DeferredClaims>,
+}
+
+/// Deliver deferred calls to this socket in the background (research R18), so a slow answer
+/// never holds up the socket's own loop.
+fn spawn_delivery(
+    storage: &std::sync::Arc<crate::storage::VizierStorage>,
+    transport: &VizierTransport,
+    session: &VizierSession,
+    connection: &std::sync::Arc<ClientConnection>,
+    claims: &std::sync::Arc<DeferredClaims>,
+    call_ids: Option<Vec<String>>,
+) {
+    let (storage, transport, session, connection, claims) =
+        (storage.clone(), transport.clone(), session.clone(), connection.clone(), claims.clone());
+    tokio::spawn(async move {
+        let call_ids = match call_ids {
+            Some(ids) => ids,
+            None => match storage.deferred_client_calls(&session).await {
+                Ok(ids) => ids,
+                Err(e) => {
+                    tracing::warn!("failed to list deferred client tool calls: {e}");
+                    return;
+                }
+            },
+        };
+        futures::future::join_all(call_ids.iter().map(|call_id| {
+            deliver_deferred(&storage, &transport, &session, &connection, &claims, call_id)
+        }))
+        .await;
+    });
 }
 
 const MAX_RESULT_BYTES: usize = 1024 * 1024;
@@ -632,6 +667,9 @@ pub async fn handle_socket(
         }
     };
 
+    // Calls deferred while no client was here are this socket's to deliver first.
+    spawn_delivery(&storage, &transport, &curr_session, &connection, &limits.deferred, None);
+
     // Background job changes, reactions, and the frames of every turn on this session: the
     // ones a background report woke and the ones a person started from any socket, this one
     // included. A turn's frames are published only there, so nothing arrives twice.
@@ -672,6 +710,10 @@ pub async fn handle_socket(
                                 })
                                 .to_string(),
                             ),
+                            SessionFrame::ClientCallDeferred { call_id } => {
+                                spawn_delivery(&storage, &transport, &curr_session, &connection, &limits.deferred, Some(vec![call_id]));
+                                None
+                            }
                             SessionFrame::ClientCallState { call_id, state } => Some(
                                 serde_json::json!({
                                     "client_call_state": { "call_id": call_id, "state": state }

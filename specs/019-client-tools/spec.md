@@ -16,7 +16,17 @@ This feature lets a WebSocket client **declare its own tools on each request**. 
 
 The first tool built on it is the WebUI's own **`render_interactive_ui`**: the agent writes a small HTML page (a chart, a table, a set of buttons, a form) and the WebUI shows it inline in the conversation. Pages can **send messages back**: if the agent renders a "say hello" button, clicking it puts "hello" into the conversation as the person's message and the agent answers it. The same "client event" mechanism is generic, so any extension can start a turn this way.
 
-Client tools exist only for the turn a client asked for, over the socket that asked. Nothing remembers them: dreams, checkpoint handovers, scheduled tasks, background reports and agent-to-agent conversations never have client tools.
+Client tools exist only for the turn a client asked for, over the socket that asked. Nothing remembers them: dreams, checkpoint handovers, scheduled tasks, background reports and agent-to-agent conversations never have client tools. A client may mark a tool **deferrable**: if the socket that declared it is gone when the agent calls it, the call is kept and run the next time a client opens that conversation, and the agent is told so instead of being given a failure.
+
+## Clarifications
+
+### Session 2026-10-17 (after first hands-on test)
+
+- Q: Can a client tool be called after the declaring browser is closed? → A: Only if the declaration sets `deferrable: true`. The agent then gets `{"status": "deferred"}` (the call will run when a client next connects) instead of `client_disconnected`. Only within the turn whose request declared it; no declaration is stored.
+- Q: Which connection receives a deferred call? → A: The first socket on that conversation: one already open (another tab) or the next to connect. If it drops before answering, the call waits for the next one. Its result is recorded in history, not reported to the agent.
+- Q: When does an interactive page appear? → A: Only once its turn has ended (answered, failed or aborted). While the turn runs nothing is shown in its place. (Reverses the earlier "as soon as the agent calls the tool".)
+- Q: Can a page be viewed larger or kept? → A: Each page gets an expand button (covers the chat area, not the whole screen: sidebar and header stay visible) and a download button (standalone `.html` with the latest saved state, still offline).
+- Q: Several `render_interactive_ui` calls in one turn? → A: One page per reply bubble: only the turn's last page is shown; calling again replaces the earlier one.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -31,7 +41,8 @@ A person asks an agent "show me last week's task runs as a chart". The agent wri
 **Acceptance Scenarios**:
 
 1. **Given** a WebUI conversation, **When** the person sends a message, **Then** the request declares the WebUI's client tools and the agent can find `render_interactive_ui` by listing tool categories and functions, with the description and schema the WebUI supplied.
-2. **Given** the agent calls `render_interactive_ui` with a page, **When** the WebUI receives the call, **Then** it shows the page inside the agent's reply bubble for that turn straight away, while the turn is still running, followed by the turn's reply text in the same bubble, and answers the call with an identifier for the page and status `rendered`, and the agent's turn continues with that result.
+2. **Given** the agent calls `render_interactive_ui` with a page, **When** the WebUI receives the call, **Then** it answers the call with an identifier for the page and status `rendered`, the agent's turn continues with that result, and once the turn ends the page is shown inside the agent's reply bubble for that turn, above the turn's reply text. Nothing is shown in its place while the turn is still running.
+2a. **Given** the agent calls `render_interactive_ui` more than once in one turn, **When** the turn ends, **Then** only the last page is shown in the reply bubble; the earlier ones are replaced.
 3. **Given** a rendered page, **When** the person reloads the topic or opens it in another tab, **Then** the page is shown again in the same reply bubble and position, without the agent being asked again.
 4. **Given** a page rendered in browser 1, **When** the same person logs out, logs in on browser 2 (another browser or device) and opens the topic, **Then** browser 2 shows the same page in the same reply bubble, and it works there, even if browser 1 is closed.
 5. **Given** the turn fails or is aborted after the page was rendered, **When** the person looks at the conversation, **Then** the page is still shown.
@@ -112,6 +123,8 @@ The person closes the tab while the agent is waiting on a client tool call. The 
 2. **Given** a pending client tool call, **When** no answer arrives within the tool's time limit (the client's declared limit, or the default), **Then** the call fails with a timeout and the turn continues.
 3. **Given** an answer for a call that already timed out, was aborted, or belongs to another connection, **When** it arrives, **Then** it is ignored and the client is told the call is no longer pending.
 4. **Given** a turn waiting on a client tool call, **When** the person aborts the turn, **Then** the pending call is cancelled and the client is told so.
+5. **Given** a tool declared `deferrable`, **When** the agent calls it after the declaring connection has closed (or the connection closes before answering), **Then** the agent's script receives `{"status": "deferred"}` with a message that the call will run when the client next connects, the turn continues, and the call is saved as deferred.
+6. **Given** a deferred call, **When** a client opens that conversation (or one is already open in another tab), **Then** the call is sent to that connection to answer, and its outcome is saved; if that connection closes first, the call stays deferred for the next one. The agent is not told the later result.
 
 ---
 
@@ -150,7 +163,8 @@ The agent renders a to-do checklist. The person ticks two items and types a note
 - Two tabs save state for the same page at nearly the same time: the last save the server receives wins, and both tabs are told the result.
 - A topic is deleted: the saved state of its pages is deleted with it.
 - Several client tool calls in one script: each is sent and answered independently; answers may arrive in any order.
-- The connection drops and the person reconnects before the call times out: v1 does not let the new connection take over; the call fails with `client_disconnected`.
+- The connection drops and the person reconnects before the call times out: for a tool not declared `deferrable`, the call fails with `client_disconnected`; a `deferrable` one is deferred and delivered to the reconnected client (it may then run twice if the first client handled it before the drop, so a deferrable tool should tolerate a repeated call id).
+- A deferred call survives a server restart, and is delivered when a client next connects.
 
 ## Requirements *(mandatory)*
 
@@ -179,6 +193,8 @@ The agent renders a to-do checklist. The person ticks two items and types a note
 - **FR-013**: When the agent calls a client tool, vizier MUST send the call (a call id, the tool's final name, the arguments) to the connection that sent the request, and to no other connection for answering. Other connections watching the same conversation MAY receive it for display.
 - **FR-014**: The client MUST be able to answer a call with either a result or an error. The agent's script MUST receive a result as the tool's return value and an error as a catchable tool failure.
 - **FR-015**: A call MUST fail with `client_disconnected` when the answering connection closes, with a timeout error when no answer arrives within the tool's limit (declared or default, capped at a maximum), and be cancelled (with the client told) when the turn is aborted. None of these may hang or fail the turn itself.
+- **FR-015a**: A declaration MAY set `deferrable: true`. When such a tool is called while its declaring connection is closed, or that connection closes before answering, the call MUST NOT fail: it is saved as `deferred` and the agent's script receives a result saying it will run the next time a client connects.
+- **FR-015b**: A deferred call MUST be delivered to the first connection on its conversation (already open, or the next to connect), at most one connection at a time; it stays deferred if that connection closes without answering, and survives a server restart. Its outcome is saved and broadcast like any other, and is not reported to the agent.
 - **FR-016**: Answers for unknown, finished or foreign calls MUST be ignored and the client told the call is not pending. Answers above a size limit MUST be refused.
 - **FR-017**: Each client tool call and its outcome (result, error, disconnect, timeout, cancellation) MUST be saved in the conversation history with its arguments, so any client can draw it again on reload.
 - **FR-018**: Saved client tool calls MUST be returned with the rest of the conversation history to clients loading a topic, in conversation order, together with each call's latest saved state (FR-018a).
@@ -202,11 +218,15 @@ The agent renders a to-do checklist. The person ticks two items and types a note
 **WebUI**
 
 - **FR-024**: The WebUI MUST provide an extension mechanism to register a client tool with its definition, a handler for live calls, and a renderer for saved calls. Registered tools MUST be declared on every message the WebUI sends.
-- **FR-025**: The WebUI MUST register `render_interactive_ui` through that same mechanism. It takes a title and a self-contained HTML page and answers each call immediately with a page id and status `rendered`.
+- **FR-025**: The WebUI MUST register `render_interactive_ui` through that same mechanism, as `deferrable`. It takes a title and a self-contained HTML page and answers each call immediately with a page id and status `rendered`.
+- **FR-025a**: A reply bubble MUST show at most one interactive page: the last `render_interactive_ui` call of its turn. The tool's description MUST tell the agent this.
 - **FR-026**: Pages MUST be security-sandboxed from the WebUI: they can run their own scripts and styles but cannot read the person's credentials, cookies or the surrounding page, and cannot load anything from the network (inline resources and data images only). The sandbox is about access, not appearance: visually the page is part of the reply (no separate panel or frame chrome).
-- **FR-026a**: A page MUST appear inside the agent's reply bubble for the turn that rendered it, in order with that turn's reply text, as soon as the agent calls the tool (while the turn is still running), not held back until the turn ends. A page stays visible even if the turn later fails or is aborted.
+- **FR-026a**: A page MUST appear inside the agent's reply bubble for the turn that rendered it, above that turn's reply text, once the turn has ended (answered, failed or aborted); nothing is shown in its place while the turn is still running. The extension mechanism MUST let any registered tool choose this (draw after the turn ends, only the latest call per turn).
+- **FR-026b**: A drawn page MUST offer, without adding visible chrome until the person hovers or focuses it, a control to expand it over the chat area (the app's sidebar and header stay visible; the control again, or Esc, collapses it) a control to download it as a standalone HTML file, and a control to save it as a PDF (through the browser's print dialog; the page's own frame still cannot open dialogs). Downloads and PDFs keep the theme and background the page was drawn with. The download keeps the page's network restriction and its latest saved state, and its `vizier` interface does nothing outside the WebUI.
+- **FR-026c**: Pages MUST be given the WebUI's current theme colours as CSS variables (`--bg`, `--surface`, `--border`, `--text`, `--muted`, `--accent`, `--error`), with text, links, buttons and inputs themed by default, and `render_interactive_ui`'s description MUST give the agent a one-line style guide using them.
 - **FR-027**: Pages MUST be given a small built-in interface to send a client event (`text`, optional `data`) tied to the call that rendered them, to report their content height so the frame fits it (up to a maximum), to read the state they start with, to save their state (FR-018a), and to be told when their state changes elsewhere (FR-018c).
 - **FR-027a**: Saving state from a page MUST NOT require the person to have interacted with it (unlike sending a client event), since it never starts a turn; it is subject only to the limits in FR-018d.
+- **FR-028a**: Each client event a page sends MUST be announced with a short notification showing its text, visible above an expanded page.
 - **FR-028**: The WebUI MUST forward a page's client events only after the person has interacted with that page, and at most one per second per page.
 - **FR-029**: The WebUI MUST draw saved calls of tools it recognises with their renderer, and show any other saved client tool call as a collapsed item naming the tool.
 - **FR-030**: The WebUI MUST answer a `render_interactive_ui` call with an error when the page exceeds its size limit.
@@ -219,9 +239,9 @@ The agent renders a to-do checklist. The person ticks two items and types a note
 
 ### Key Entities
 
-- **Client tool definition**: declared by a client per request; name, description, input schema, optional output schema, optional category, optional time limit. Never stored outside the turn it was declared for.
+- **Client tool definition**: declared by a client per request; name, description, input schema, optional output schema, optional category, optional time limit, and whether it is deferrable. Never stored outside the turn it was declared for.
 - **Client category**: a name (client-chosen or `client`) and optional description; renamed on clashes with reserved names.
-- **Client tool call**: one call by the agent to a client tool during a turn; call id, final tool name, arguments, the connection it was sent to, and its outcome (result, error, disconnected, timed out, cancelled). Saved in the conversation history.
+- **Client tool call**: one call by the agent to a client tool during a turn; call id, final tool name, arguments, the connection it was sent to, and its outcome (result, error, disconnected, timed out, cancelled, or deferred until a client reconnects). Saved in the conversation history.
 - **Client event**: a message from a client into a conversation; text, optional data, optional source call id. Starts a turn as the sending person.
 - **Interactive page**: the HTML a `render_interactive_ui` call carries, with its page id and title; drawn by the WebUI from the saved call.
 - **Call state**: the latest state value a client saved for one client tool call; belongs to that call's conversation, overwritten on each save, deleted with the conversation.

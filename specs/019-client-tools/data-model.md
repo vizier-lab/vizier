@@ -14,6 +14,7 @@
 | `input_schema` | JSON object | `type` must be `"object"`; ≤ 16 KB serialised |
 | `output_schema` | JSON object? | ≤ 16 KB serialised |
 | `timeout_secs` | integer? | 1–600; default 60 |
+| `deferrable` | bool | default `false`; when `true`, a call made while the declaring connection is gone is deferred until a client reconnects (R18) |
 
 ### `ClientCategoryDeclaration`
 
@@ -91,6 +92,8 @@ enum ClientCallOutcome {
     Timeout,
     Cancelled,
     Interrupted,
+    /// Waiting for a client to reconnect (deferrable tools only); not final.
+    Deferred,
 }
 ```
 
@@ -120,7 +123,9 @@ CREATE INDEX IF NOT EXISTS idx_client_call_pending ON client_tool_call(status) W
 | `open_client_call(uid, session)` | insert `pending` at call time |
 | `finish_client_call(uid, outcome)` | set `status`, `detail`, `finished_at`; only from `pending` (a late write never overrides) |
 | `save_client_call_state(uid, state) -> Result<()>` | upsert `state` and `state_updated_at` |
-| `interrupt_pending_client_calls() -> usize` | startup sweep |
+| `interrupt_pending_client_calls() -> usize` | startup sweep (`pending` only; `deferred` survives) |
+| `defer_client_call(uid) -> bool` | `pending → deferred` |
+| `deferred_client_calls(session) -> Vec<uid>` | a session's deferred calls, oldest first, for delivery on connect |
 | `delete_session_client_calls(session)` / via `delete_agent` | cleanup |
 
 Filling on read is internal to `sqlite/history.rs` (`fill_client_calls`, next to `fill_reactions`), so no trait method is needed for it.
@@ -133,10 +138,12 @@ Filling on read is internal to `sqlite/history.rs` (`fill_client_calls`, next to
  pending ───┼───────────────► disconnected   (answering socket closed)
             ├───────────────► timeout        (no answer within the limit)
             ├───────────────► cancelled      (turn aborted / script dropped the call)
-            └───────────────► interrupted    (process restarted; startup sweep)
+            ├───────────────► interrupted    (process restarted; startup sweep)
+            └───────────────► deferred ──┬──► ok | error | timeout   (delivered to a reconnected client)
+                                         └──► (stays deferred: delivering socket dropped; survives restarts)
 ```
 
-All transitions start from `pending` and are final. State (`state` column) is independent of the status and may be saved in any status, including `pending`.
+Every transition but `pending → deferred` is final. `finish_client_call` applies from `pending` or `deferred`. State (`state` column) is independent of the status and may be saved in any status, including `pending`.
 
 ## Request content
 
@@ -159,6 +166,7 @@ pub struct ClientEvent {
 | `ClientToolCall { connection_id, call }` | `{"client_tool_call": {…, "answer": false}}` | every socket on the session except `connection_id` (the display copy) |
 | `ClientCallOutcome { call_id, outcome }` | `{"client_tool_outcome": {…}}` | every socket on the session |
 | `ClientCallState { call_id, state }` | `{"client_call_state": {…}}` | every socket on the session |
+| `ClientCallDeferred { call_id }` | — (not forwarded) | every socket on the session tries to claim and deliver the call |
 
 The direct frames (`client_tools_resolved`, `client_tool_call` with `answer: true`, `client_tool_cancelled`, `client_error`) go only through the connection's `outbound` and never through the broadcast. See `contracts/client-tools-protocol.md`.
 

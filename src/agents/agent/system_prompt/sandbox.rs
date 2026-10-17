@@ -84,6 +84,7 @@ mod tests {
             input_schema: serde_json::json!({ "type": "object" }),
             output_schema: None,
             timeout_secs: None,
+            deferrable: false,
         };
         let (connection, _rx) = ClientConnection::for_tests();
         let binding = ClientBinding {
