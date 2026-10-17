@@ -17,7 +17,7 @@ use crate::{
     storage::{
         VizierStorage,
         agent::AgentStorage,
-        background_job::BackgroundJobStorage, client_call::ClientCallStorage,
+        background_job::BackgroundJobStorage, client_call::ClientCallStorage, scratch::ScratchStorage,
         document::LocalDocumentStore,
         dream::DreamStorage,
         dream_journal::DreamJournalStorage,
@@ -130,6 +130,7 @@ impl VizierDependencies {
         Self::interrupt_orphaned_task_runs(&storage).await?;
         Self::interrupt_orphaned_background_jobs(&storage).await;
         Self::interrupt_orphaned_client_calls(&storage).await;
+        Self::clear_orphaned_scratch(&storage).await;
         crate::skill::builtin::seed_builtin_skills(&config.workspace, &storage).await;
         // Never blocks startup: it is retried on the next start until it has finished.
         if let Err(e) = Self::migrate_reply_usage(&storage, conn.clone()).await {
@@ -920,6 +921,17 @@ impl VizierDependencies {
                 swept
             ),
             Err(e) => tracing::warn!("failed to sweep pending client tool calls: {}", e),
+        }
+    }
+
+    /// Scratch files last only while their conversation has a turn running or queued, and
+    /// nothing can be running before agents start, so every row left is a leftover
+    /// (`specs/020-scratchpad-tools` research R5).
+    async fn clear_orphaned_scratch(storage: &VizierStorage) {
+        match storage.clear_all_scratch().await {
+            Ok(0) => {}
+            Ok(cleared) => tracing::info!("cleared {} scratch file(s) left by a previous process", cleared),
+            Err(e) => tracing::warn!("failed to clear leftover scratch files: {}", e),
         }
     }
 }

@@ -23,6 +23,7 @@ scheduler::{
     ScheduleOneTimeTask,
 },
         read_image::ReadImageFile,
+        scratchpad::{AppendTmp, ReadTmp, WriteTmp},
         session_files::{ListSessionFiles, ReadDocumentFile, SendAttachment},
         shell::ShellExec,
         skill::{
@@ -57,6 +58,7 @@ mod http_client;
 mod python;
 mod read_image;
 mod scheduler;
+mod scratchpad;
 pub mod self_integrations;
 mod session_files;
 mod shell;
@@ -83,6 +85,7 @@ pub enum ToolCategory {
     Agents,
     Skills,
     Files,
+    Scratchpad,
     Web,
     Audio,
     Media,
@@ -94,13 +97,14 @@ pub enum ToolCategory {
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 14] = [
+    pub const ALL: [ToolCategory; 15] = [
         Self::Memory,
         Self::Identity,
         Self::Scheduling,
         Self::Agents,
         Self::Skills,
         Self::Files,
+        Self::Scratchpad,
         Self::Web,
         Self::Audio,
         Self::Media,
@@ -119,6 +123,7 @@ impl ToolCategory {
             Self::Agents => "agents",
             Self::Skills => "skills",
             Self::Files => "files",
+            Self::Scratchpad => "scratchpad",
             Self::Web => "web",
             Self::Audio => "audio",
             Self::Media => "media",
@@ -140,6 +145,9 @@ impl ToolCategory {
             }
             Self::Skills => "Create, find and use reusable skills",
             Self::Files => "Read files attached to this conversation and send attachments",
+            Self::Scratchpad => {
+                "Temporary notes private to this conversation, deleted once it goes idle"
+            }
             Self::Web => "Search the web and news, fetch pages, make HTTP requests",
             Self::Audio => "Generate speech from text and transcribe audio",
             Self::Media => "Generate images",
@@ -786,6 +794,10 @@ impl VizierTools {
         "list_skills",
         "get_skill_details",
         "use_skill",
+        // Scratchpad (3): each dream stage is its own session, so its own scratchpad.
+        "write_tmp",
+        "append_tmp",
+        "read_tmp",
     ];
 
     pub async fn dream_tools(
@@ -944,6 +956,15 @@ impl BaseTools {
                 vision: build_read_image_vision(&agent_id, &deps, agent_config).await,
             })
             .tool(SendAttachment {
+                storage: deps.storage.clone(),
+            })
+            .tool(WriteTmp {
+                storage: deps.storage.clone(),
+            })
+            .tool(AppendTmp {
+                storage: deps.storage.clone(),
+            })
+            .tool(ReadTmp {
                 storage: deps.storage.clone(),
             });
 
@@ -1219,6 +1240,9 @@ mod tests {
             entry::<ReadDocumentFile>(),
             entry::<ReadImageFile>(),
             entry::<SendAttachment>(),
+            entry::<WriteTmp>(),
+            entry::<AppendTmp>(),
+            entry::<ReadTmp>(),
             entry::<BraveSearch<WebOnlySearch>>(),
             entry::<BraveSearch<NewsOnlySearch>>(),
             entry::<FetchWebpage>(),
@@ -1290,6 +1314,9 @@ mod tests {
             ("read_document_file", Files),
             ("read_image_file", Files),
             ("send_attachment", Files),
+            ("write_tmp", Scratchpad),
+            ("append_tmp", Scratchpad),
+            ("read_tmp", Scratchpad),
             ("fetch", Web),
             ("http_client", Web),
             ("tts_generate", Audio),
@@ -1373,6 +1400,13 @@ mod tests {
             "delete_integration",
         ] {
             assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&name), "{name} is a dream tool");
+        }
+    }
+
+    #[test]
+    fn scratchpad_tools_reach_the_dream_cycle() {
+        for name in [WriteTmp::name(), AppendTmp::name(), ReadTmp::name()] {
+            assert!(VizierTools::DREAM_TOOL_NAMES.contains(&name.as_str()), "{name} is not a dream tool");
         }
     }
 

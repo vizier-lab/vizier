@@ -16,8 +16,23 @@ Every agent gets these regardless of configuration:
 | `paralel_subtasks` | Run several sub-prompts in parallel (sub-agents of the same agent) |
 | `create_skill`, `update_skill`, `delete_skill`, `list_skills`, `get_skill_details`, `use_skill`, `read_skill_resource`, `execute_skill_resource` | Skills — see [Skills](./skills.md) |
 | `list_session_files`, `read_document_file`, `read_image_file`, `send_attachment` | Session files — uploaded/attached files; documents (txt/md/json/yaml/csv/html/pdf/docx/xlsx…) are extracted to text |
+| `write_tmp`, `append_tmp`, `read_tmp` | Scratchpad — temporary notes private to the conversation, see [below](#scratchpad) |
 | `webui_send_message`, `webui_list_topics` | Push messages into WebUI topics |
 | `memory_*` (8 tools) | Present whenever `embedding` + `indexer` are set (the API default) — see [Memory](./memory.md) |
+
+### Scratchpad
+
+The `scratchpad` category holds named plain-text files private to one conversation, for working notes, plans and output built up across tool calls:
+
+- `write_tmp(name, content)` creates a file or replaces its content.
+- `append_tmp(name, content)` adds to the end exactly as given (no separator), creating the file if absent.
+- `read_tmp(name)` returns the content, or `not_found` with the names that do exist.
+
+**Lifetime.** A conversation's scratch files last while it has a turn running or queued, so back-to-back messages share them. They are deleted once it goes idle, on `/abort`, when the agent stops with nothing queued, when the conversation or agent is deleted, and on server restart. Use memory for anything that must last.
+
+**Limits.** Names are 1–128 characters of letters, digits, `-`, `_` and `.`. Each file holds up to 1 MiB, and a conversation up to 64 files. A write over a limit is refused and changes nothing; refusals and missing files come back as results with a `status`, never as errors.
+
+Files live in the `scratch_file` SQLite table and are never written to memory, history or usage. The dream cycle gets the three tools too; each dream stage has its own scratchpad.
 
 ## Configurable tools (`tools`)
 
@@ -187,4 +202,4 @@ The sandbox tools are never part of the dream cycle's toolset.
 
 ## Dream-cycle tool subset
 
-During a [dream cycle](./agents.md#dream-cycle) the agent runs with a restricted toolset: the 8 `memory_*` tools, `READ_CORE`/`WRITE_CORE`, the 4 scheduler tools, `create_skill`/`update_skill`/`list_skills`/`get_skill_details`/`use_skill`, plus `read_dream_journal`/`write_dream_journal`.
+During a [dream cycle](./agents.md#dream-cycle) the agent runs with a restricted toolset: the 8 `memory_*` tools, `READ_CORE`/`WRITE_CORE`, the 4 scheduler tools, `create_skill`/`update_skill`/`list_skills`/`get_skill_details`/`use_skill`, `write_tmp`/`append_tmp`/`read_tmp`, plus `read_dream_journal`/`write_dream_journal`.

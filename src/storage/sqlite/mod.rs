@@ -22,6 +22,7 @@ mod memory;
 pub(crate) mod memory_revision;
 mod provider;
 mod reaction;
+mod scratch;
 mod session;
 mod session_file;
 mod state;
@@ -362,6 +363,7 @@ impl SqliteStorage {
         init_integration_schema(conn)?;
         init_usage_schema(conn)?;
         init_client_call_schema(conn)?;
+        init_scratch_schema(conn)?;
 
         Ok(())
     }
@@ -388,6 +390,29 @@ pub fn init_client_call_schema(conn: &Connection) -> Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_client_call_session ON client_tool_call(agent_id, channel, topic);
         CREATE INDEX IF NOT EXISTS idx_client_call_pending ON client_tool_call(status) WHERE status = 'pending';
+        ",
+    )?;
+    Ok(())
+}
+
+/// The `scratch_file` table (`specs/020-scratchpad-tools/data-model.md` §1): an agent's
+/// temporary notes, private to one conversation and cleared once it goes idle. `topic` is `''`
+/// for a session without one, so the upsert's `ON CONFLICT` sees one key (research R2). Split
+/// out so the tests in `src/storage/sqlite/scratch.rs` can stand it up against an in-memory
+/// connection.
+pub fn init_scratch_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS scratch_file (
+            agent_id   TEXT    NOT NULL,
+            channel    TEXT    NOT NULL,
+            topic      TEXT    NOT NULL DEFAULT '',
+            name       TEXT    NOT NULL,
+            content    TEXT    NOT NULL,
+            size       INTEGER NOT NULL,
+            updated_at TEXT    NOT NULL,
+            PRIMARY KEY (agent_id, channel, topic, name)
+        );
         ",
     )?;
     Ok(())

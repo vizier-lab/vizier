@@ -27,7 +27,7 @@ use crate::{
     },
     storage::{
         VizierStorage, dream_journal::DreamJournalStorage, history::HistoryStorage,
-        memory::MemoryStorage, session::SessionStorage,
+        memory::MemoryStorage, scratch::ScratchStorage, session::SessionStorage,
     },
     transport::{DreamCommand, VizierRequestEnvelope},
 };
@@ -81,6 +81,8 @@ async fn abort_session_notify(
         session_queues,
         storage,
     );
+    // The turn and its queue are gone, so a message sent straight after starts afresh.
+    clear_idle_scratch(storage, session).await;
     if had_in_flight {
         for tx in [turn_tx.as_ref(), response_tx.as_ref()].into_iter().flatten() {
             let _ = tx
@@ -236,6 +238,9 @@ pub async fn agent_process(
                 // An aborted turn, or one a newer turn has replaced: `/abort` already reset
                 // the session, and the queue belongs to whatever runs there now.
                 if !finished.current {
+                    if !session_is_busy(&turns, &session_queues, &finished.session) {
+                        clear_idle_scratch(&deps.storage, &finished.session).await;
+                    }
                     continue;
                 }
                 let session = finished.session;
@@ -259,6 +264,9 @@ pub async fn agent_process(
                     // Idle: nothing per-session needs keeping until it is next used (#49).
                     session_queues.remove(&session);
                     thinking_handles.remove(&session);
+                    // Awaited here, not spawned: no turn of the session can start between
+                    // "idle" and "cleared".
+                    clear_idle_scratch(&deps.storage, &session).await;
                 }
             }
             Some(_) = detail_tasks.join_next(), if !detail_tasks.is_empty() => {}
@@ -269,9 +277,21 @@ pub async fn agent_process(
     // on with the old config, tools and MCP clients (#52).
     for (session, response_tx) in turns.stop_all(TURN_STOP_TIMEOUT).await {
         notify_turn_stopped(&session, response_tx, &mut thinking_handles, &deps.storage).await;
+        // A session whose queue is handed on carries on in the next instance, scratch and all.
+        if session_queues.get(&session).is_none_or(|queue| queue.is_empty()) {
+            clear_idle_scratch(&deps.storage, &session).await;
+        }
     }
     hand_on_queued(session_queues, &deps).await;
     Ok(())
+}
+
+/// A session with nothing running or queued loses its scratch files (`specs/020-scratchpad-tools`
+/// research R4). A failure is logged: the leftovers go at the next idle or at startup.
+async fn clear_idle_scratch(storage: &VizierStorage, session: &VizierSession) {
+    if let Err(e) = storage.clear_scratch(session).await {
+        tracing::warn!(agent_id = %session.0, channel = ?session.1, "failed to clear scratch files: {e}");
+    }
 }
 
 /// How long a stopping agent waits for its aborted turns to end.
