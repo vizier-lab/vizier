@@ -9,7 +9,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { appendLiveEvent, groupHistory, liveEvent, trailSummary } from './trail.ts'
+import {
+  appendClientCall,
+  appendLiveEvent,
+  applyClientOutcome,
+  applyClientState,
+  groupHistory,
+  liveEvent,
+  trailSummary,
+} from './trail.ts'
 import type { ChatMessage, TrailEvent } from '../interfaces/types.ts'
 
 let nextUid = 0
@@ -316,4 +324,97 @@ test('a live launch result tags the most recent launching call', () => {
   )
   assert.equal(trail.length, 1)
   assert.equal(trail[0].kind === 'tool' && trail[0].jobId, 'b-91c2e0')
+})
+
+// ---------------------------------------------------------------------------------------------
+// Client tool calls (specs/019-client-tools R11)
+// ---------------------------------------------------------------------------------------------
+
+const session = { agent_id: 'a', channel: 'http__someone__webui', topic: 'General' }
+
+const clientCall = (uid: string, extra: Record<string, unknown> = {}): ChatMessage => ({
+  uid,
+  vizier_session: session,
+  content: {
+    ClientToolCall: {
+      name: 'ui_render_interactive_ui',
+      category: 'ui',
+      tool: 'render_interactive_ui',
+      arguments: { title: 'Hello', html: '<p>hi</p>' },
+      ...extra,
+    },
+  },
+})
+
+const callFrame = (call_id: string) => ({
+  call_id,
+  name: 'ui_render_interactive_ui',
+  category: 'ui',
+  tool: 'render_interactive_ui',
+  arguments: { title: 'Hello', html: '<p>hi</p>' },
+  answer: true,
+})
+
+test('a client call lands in its turn, between request and outcome', () => {
+  const turns = groupHistory([
+    request('show me'),
+    clientCall('call-1', { outcome: { status: 'ok', result: { status: 'rendered' } } }),
+    python('p1', { intent: 'draw', code: 'ui_render_interactive_ui()' }),
+    response('there it is'),
+    request('next'),
+    response('ok'),
+  ])
+  assert.equal(turns.length, 2)
+  assert.deepEqual(turns[0].clientCalls.map((c) => c.callId), ['call-1'])
+  assert.equal(turns[0].clientCalls[0].tool, 'render_interactive_ui')
+  assert.equal(turns[0].clientCalls[0].outcome?.status, 'ok')
+  // Not a trail event.
+  assert.deepEqual(kinds(turns[0].trail), ['python'])
+  assert.deepEqual(turns[1].clientCalls, [])
+})
+
+test('a turn that never finished keeps its calls', () => {
+  const turns = groupHistory([request('show me'), clientCall('call-1', { outcome: { status: 'cancelled' } })])
+  assert.equal(turns.length, 1)
+  assert.equal(turns[0].outcome, undefined)
+  assert.equal(turns[0].clientCalls[0].outcome?.status, 'cancelled')
+})
+
+test('live and reloaded turns give the same client calls', () => {
+  const req = request('show me')
+  let live: ChatMessage[] = [req]
+  live = appendClientCall(live, callFrame('call-1'), session)
+  // The display copy of the same call changes nothing.
+  live = appendClientCall(live, { ...callFrame('call-1'), answer: false }, session)
+  live = applyClientOutcome(live, { call_id: 'call-1', outcome: { status: 'ok', result: { ui_id: 'call-1' } } })
+  live = applyClientState(live, { call_id: 'call-1', state: { n: 3 } })
+  const reply = response('done')
+  live = [...live, reply]
+
+  const stored = [
+    req,
+    clientCall('call-1', { outcome: { status: 'ok', result: { ui_id: 'call-1' } }, state: { n: 3 } }),
+    reply,
+  ]
+  assert.deepEqual(groupHistory(live)[0].clientCalls, groupHistory(stored)[0].clientCalls)
+  assert.equal(groupHistory(live)[0].clientCalls[0].state && (groupHistory(live)[0].clientCalls[0].state as { n: number }).n, 3)
+})
+
+test('outcome and state updates apply by call id only', () => {
+  const messages = [clientCall('a'), clientCall('b')]
+  const next = applyClientState(messages, { call_id: 'b', state: 1 })
+  assert.equal(next[0], messages[0])
+  assert.equal(next[1].content.ClientToolCall?.state, 1)
+  assert.equal(applyClientOutcome(messages, { call_id: 'nope', outcome: { status: 'timeout' } }), messages)
+})
+
+test('a call with no open turn opens one', () => {
+  const turns = groupHistory([request('x'), response('y'), clientCall('c')])
+  assert.equal(turns.length, 2)
+  assert.deepEqual(turns[1].clientCalls.map((c) => c.callId), ['c'])
+})
+
+test('unknown entry kinds next to client calls still do not throw', () => {
+  const odd = { ...entry({}), content: { Mystery: 1 } as unknown as ChatMessage['content'] }
+  assert.doesNotThrow(() => groupHistory([request('x'), odd, clientCall('c'), response('y')]))
 })

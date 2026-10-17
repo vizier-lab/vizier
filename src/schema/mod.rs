@@ -40,13 +40,13 @@ pub use integration::{
     IntegrationGrant, IntegrationStatus,
 };
 pub use history::{
-    SessionHistory, SessionHistoryContent, history_entries_to_messages, message_for_model,
+    ClientCallOutcome, SessionHistory, SessionHistoryContent, history_entries_to_messages, message_for_model,
     messages_for_model, messages_to_history_entries, seal_tool_calls,
 };
 pub use provider::{CustomModel, CustomProtocol, CustomProvider, ProviderCredentials, ProviderEntry};
 pub use request::{
     PlatformMessageId, ReactionAction, ReactionEntry, VizierAttachment,
-    VizierAttachmentContent, VizierRequest, VizierRequestContent,
+    ClientEvent, VizierAttachmentContent, VizierRequest, VizierRequestContent,
 };
 pub use response::{ErrorKind, VizierResponse, VizierResponseContent, VizierResponseStats};
 pub use revision::{

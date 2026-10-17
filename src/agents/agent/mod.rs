@@ -29,7 +29,10 @@ use crate::{
         },
         hook::{VizierSessionHook, VizierSessionHooks},
         skill::VizierSkills,
-        tools::{BaseTools, ToolContext, VizierTools, compose, traced_tool_call},
+        tools::{
+            BaseTools, CategorySummary, ToolContext, VizierTools, compose, traced_tool_call,
+            turn_categories,
+        },
     },
     config::{VizierConfig, provider::ProviderId},
     llm::types::{AssistantPart, CompletionRequest, Message, Part, ToolChoice, ToolDefinition},
@@ -415,9 +418,12 @@ impl VizierAgent {
     /// framing. The question is answered through `VizierSession::is_scheduled_task()` and
     /// nowhere else — selecting on the request content kind would catch the dream cycle,
     /// which sends `Unattended` too and carries its own framing.
+    ///
+    /// `categories` are the turn's: the snapshot's own, followed by any the person's client
+    /// declared for this turn (`tools::turn_categories`).
     pub async fn prepare_system_prompts(
         &self,
-        tools: &VizierTools,
+        categories: &[CategorySummary],
         session: &VizierSession,
     ) -> Vec<Message> {
         init_workspace(self.workspace.clone());
@@ -443,7 +449,7 @@ impl VizierAgent {
         res.insert(
             1,
             Message::system(sandbox_md(
-                &tools.categories,
+                categories,
                 &self.config.tools.timeout.to_string(),
             )),
         );
@@ -565,7 +571,39 @@ impl VizierAgent {
 
         // The one snapshot this turn uses, system prompt and every tool call alike (G2).
         let tools = self.tools.load_full();
-        let mut history = self.prepare_system_prompts(&tools, &session).await;
+
+        // The tools the person's client declared for this turn, if its connection is still
+        // open now that the turn has started (specs/019-client-tools R4). They are named
+        // against this snapshot's catalogue, and the client is told the names before the
+        // model runs. Taken off the request so nothing downstream holds the connection.
+        let client = match req.client.take() {
+            Some(binding) if binding.connection.is_open() => {
+                let catalogue = tools.router.catalogue().await;
+                let client = crate::agents::client::ClientTools::resolve(
+                    &binding,
+                    &catalogue,
+                    &tools.router.client_reserved_categories(),
+                    session.clone(),
+                    self.storage.clone(),
+                    self.transport.clone(),
+                );
+                client.announce();
+                Some(client)
+            }
+            _ => None,
+        };
+        let ctx = ToolContext {
+            loaded_images: Default::default(),
+            session: session.clone(),
+            pending_attachments: Arc::new(Mutex::new(vec![])),
+            hooks: hooks.clone(),
+            background_depth,
+            client,
+        };
+
+        let mut history = self
+            .prepare_system_prompts(&turn_categories(&tools.categories, &ctx), &session)
+            .await;
 
         // Inject checkpoint handover as system context
         if let Some(handover) = checkpoint_handover {
@@ -637,13 +675,7 @@ impl VizierAgent {
                 0,
                 hooks.clone(),
                 false,
-                &ToolContext {
-                    loaded_images: Default::default(),
-                    session: session.clone(),
-                    pending_attachments: Arc::new(Mutex::new(vec![])),
-                    hooks: hooks.clone(),
-                    background_depth,
-                },
+                &ctx,
             )
             .await;
 
@@ -1150,7 +1182,10 @@ impl VizierAgent {
             .unwrap_or_default();
 
         history.clear();
-        history.extend(self.prepare_system_prompts(tools, &ctx.session).await);
+        history.extend(
+            self.prepare_system_prompts(&turn_categories(&tools.categories, ctx), &ctx.session)
+                .await,
+        );
         if let Some(ref msg) = handover {
             history.push(Message::system(format!(
                 "# Conversation Context (Previous Checkpoint)\n\
@@ -1199,31 +1234,14 @@ impl VizierAgent {
         session: &VizierSession,
         content: SessionHistoryContent,
     ) -> Option<String> {
-        const BUSY_RETRIES_MS: [u64; 2] = [100, 400];
-        let mut attempt = 0;
-        loop {
-            match self
-                .storage
-                .save_session_history(session.clone(), content.clone())
-                .await
-            {
-                Ok(uid) => return Some(uid),
-                Err(e) => {
-                    let busy = {
-                        let msg = e.to_string().to_lowercase();
-                        msg.contains("database is locked") || msg.contains("busy")
-                    };
-                    if busy && let Some(ms) = BUSY_RETRIES_MS.get(attempt) {
-                        attempt += 1;
-                        tokio::time::sleep(std::time::Duration::from_millis(*ms)).await;
-                        continue;
-                    }
-                    tracing::error!(
-                        agent_id = %session.0,
-                        "failed to save session history, the turn continues without it: {e}"
-                    );
-                    return None;
-                }
+        match crate::storage::history::save_with_busy_retry(&self.storage, session, content).await {
+            Ok(uid) => Some(uid),
+            Err(e) => {
+                tracing::error!(
+                    agent_id = %session.0,
+                    "failed to save session history, the turn continues without it: {e}"
+                );
+                None
             }
         }
     }
@@ -1298,7 +1316,7 @@ impl VizierAgent {
             .await?;
 
         // Prepare system prompts (same as chat)
-        let mut history = self.prepare_system_prompts(&snapshot, &session).await;
+        let mut history = self.prepare_system_prompts(&snapshot.categories, &session).await;
 
         // Extend with session history
         history.extend(history_entries_to_messages(&session_history));
@@ -1322,6 +1340,7 @@ impl VizierAgent {
                 deps,
                 &ToolContext {
                     loaded_images: Default::default(),
+                    client: None,
                     session,
                     pending_attachments: Arc::new(Mutex::new(vec![])),
                     hooks: hooks.clone(),

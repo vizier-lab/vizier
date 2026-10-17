@@ -25,4 +25,5 @@
 # 3. API Integration
 
 - [3.1 REST API](./api-integration/rest-api.md)
-- [3.2 Examples](./api-integration/examples.md)
+- [3.2 Client Tools](./api-integration/client-tools.md)
+- [3.3 Examples](./api-integration/examples.md)

@@ -17,7 +17,7 @@ use crate::{
     storage::{
         VizierStorage,
         agent::AgentStorage,
-        background_job::BackgroundJobStorage,
+        background_job::BackgroundJobStorage, client_call::ClientCallStorage,
         document::LocalDocumentStore,
         dream::DreamStorage,
         dream_journal::DreamJournalStorage,
@@ -129,6 +129,7 @@ impl VizierDependencies {
         Self::migrate_task_requester(conn.clone()).await?;
         Self::interrupt_orphaned_task_runs(&storage).await?;
         Self::interrupt_orphaned_background_jobs(&storage).await;
+        Self::interrupt_orphaned_client_calls(&storage).await;
         // Never blocks startup: it is retried on the next start until it has finished.
         if let Err(e) = Self::migrate_reply_usage(&storage, conn.clone()).await {
             tracing::error!("failed to carry reply usage over into usage accounting: {e}");
@@ -905,6 +906,19 @@ impl VizierDependencies {
                 swept
             ),
             Err(e) => tracing::warn!("failed to sweep open background jobs: {}", e),
+        }
+    }
+
+    /// A client tool call is awaited by the turn that made it, so one still `pending` at
+    /// startup died with the previous process (specs/019-client-tools R16).
+    async fn interrupt_orphaned_client_calls(storage: &VizierStorage) {
+        match storage.interrupt_pending_client_calls().await {
+            Ok(0) => {}
+            Ok(swept) => tracing::info!(
+                "marked {} client tool call(s) left pending by a previous process as interrupted",
+                swept
+            ),
+            Err(e) => tracing::warn!("failed to sweep pending client tool calls: {}", e),
         }
     }
 }

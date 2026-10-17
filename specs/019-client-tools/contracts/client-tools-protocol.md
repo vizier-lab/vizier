@@ -228,6 +228,22 @@ A client event appears as a `Request` entry whose `content` is `{ "client_event"
 | C → S | request with `content.client_event` | §5 |
 | C ↔ S | `client_call_state` | §6 |
 
+### `client_error` codes
+
+Every refusal goes to the sending connection only.
+
+| `code` | Sent when |
+|--------|-----------|
+| `invalid_client_tools` | A declaration breaks a rule (§1); carries `tool` and `rule` |
+| `not_pending` | An answer for a call not waiting on this connection (§4) |
+| `result_too_large` | An answer over 1 MB (§4) |
+| `invalid_client_event` | A client event's `text` is empty or over 4 KB, or its `data` over 64 KB (§5) |
+| `rate_limited` | Too many client events in the conversation (§5), or state saves for a call (§6) |
+| `not_found` | State for a call that is not a client tool call in this conversation (§6) |
+| `state_too_large` | State over 64 KB (§6) |
+| `state_not_saved` | The server could not store the state; try again (§6) |
+| `invalid_frame` | A `client_tool_result` or `client_call_state` without a `call_id`, or an answer with neither `ok` nor `error` |
+
 ## 9. Versioning
 
 This is version 1. `client_tools_resolved.protocol` carries it. Within version 1, the server may add optional fields and new frame kinds; clients ignore what they do not recognise. Any other change is a new version, announced in the changelog.

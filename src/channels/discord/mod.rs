@@ -396,6 +396,9 @@ If I am halucinating, feel free to `/lobotomy` me
                         session,
                         VizierRequest {
                             trace: Default::default(),
+                            client_tools: vec![],
+                            client_categories: vec![],
+                            client: None,
                             timestamp: Utc::now(),
                             user: agent_id.clone(),
                             content: VizierRequestContent::Command("abort".to_string()),
@@ -467,6 +470,9 @@ If I am halucinating, feel free to `/lobotomy` me
                 session,
                 VizierRequest {
                     trace: Default::default(),
+                    client_tools: vec![],
+                    client_categories: vec![],
+                    client: None,
                     timestamp: Utc::now(),
                     user: agent_id,
                     content: VizierRequestContent::Command(command.to_string()),

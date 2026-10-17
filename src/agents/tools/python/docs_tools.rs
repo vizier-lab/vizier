@@ -7,14 +7,15 @@ use serde::{Deserialize, Serialize};
 use crate::{
     agents::tools::{
         CatalogueEntry, CategorySummary, ToolCategory, ToolContext, ToolRouter, ToolTarget,
-        VizierTool, mcp_category_name,
+        VizierTool, mcp_category_name, turn_catalogue, turn_categories,
     },
     error::VizierError,
     sandbox::{ToolFunctionDoc, docs},
 };
 
-/// The full documentation of one catalogue entry, output schema included for native tools.
-pub(super) fn entry_doc(router: &ToolRouter, entry: &CatalogueEntry) -> ToolFunctionDoc {
+/// The full documentation of one catalogue entry, output schema included for native tools
+/// and for client tools that declared one.
+pub(super) fn entry_doc(router: &ToolRouter, ctx: &ToolContext, entry: &CatalogueEntry) -> ToolFunctionDoc {
     let output_schema = match &entry.target {
         ToolTarget::Native(tool) => router
             .default_toolset
@@ -23,6 +24,11 @@ pub(super) fn entry_doc(router: &ToolRouter, entry: &CatalogueEntry) -> ToolFunc
             .ok()
             .map(|tool| tool.output_schema()),
         ToolTarget::Mcp { .. } => None,
+        ToolTarget::Client { .. } => ctx
+            .client
+            .as_ref()
+            .and_then(|client| client.declaration(&entry.name))
+            .and_then(|declaration| declaration.output_schema.clone()),
     };
     docs::describe_as(
         entry.name.clone(),
@@ -71,8 +77,9 @@ impl VizierTool for ListToolFunctions {
         "List the functions this agent can call from an execute_python script. Pass a `category` from the system prompt's list to see only that category's functions, each {\"name\", \"summary\"}; leave it out to list every function with its category. Pass a name to describe_tool_function for parameters and examples.".into()
     }
 
-    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        let catalogue = self.router.catalogue().await;
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+        let catalogue = turn_catalogue(&self.router, ctx).await;
+        let categories = turn_categories(&self.categories, ctx);
 
         let Some(category) = args.category else {
             let functions: Vec<serde_json::Value> = catalogue
@@ -88,8 +95,8 @@ impl VizierTool for ListToolFunctions {
             return Ok(serde_json::json!({ "count": functions.len(), "functions": functions }));
         };
 
-        if !self.categories.iter().any(|known| known.name == category) {
-            let known: Vec<String> = self.categories.iter().map(|known| known.name.clone()).collect();
+        if !categories.iter().any(|known| known.name == category) {
+            let known: Vec<String> = categories.iter().map(|known| known.name.clone()).collect();
             return Ok(serde_json::json!({
                 "available": false,
                 "category": category,
@@ -162,11 +169,11 @@ impl VizierTool for DescribeToolFunction {
         "Show the parameters, return shape and a usage example for one function callable from execute_python.".into()
     }
 
-    async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        let catalogue = self.router.catalogue().await;
+    async fn call(&self, args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {
+        let catalogue = turn_catalogue(&self.router, ctx).await;
 
         Ok(match catalogue.iter().find(|entry| entry.name == args.name) {
-            Some(entry) => serde_json::to_value(entry_doc(&self.router, entry))
+            Some(entry) => serde_json::to_value(entry_doc(&self.router, ctx, entry))
                 .map_err(|err| VizierError(err.to_string()))?,
             None => {
                 let known: Vec<String> = catalogue.into_iter().map(|entry| entry.name).collect();

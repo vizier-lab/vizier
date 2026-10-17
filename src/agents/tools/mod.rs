@@ -168,6 +168,10 @@ pub struct ToolContext {
     /// directly, or from an `execute_python` script. The agent loop adds them to the
     /// conversation after the round's tool results (FR-033).
     pub loaded_images: Arc<Mutex<Vec<VizierAttachment>>>,
+    /// The tools the person's client offers for this turn (`specs/019-client-tools`): set
+    /// only for a chat turn whose request came over a WebSocket that declared some and is
+    /// still open, `None` everywhere else.
+    pub client: Option<Arc<crate::agents::client::ClientTools>>,
 }
 
 #[derive(Clone, Default)]
@@ -220,7 +224,7 @@ impl VizierToolSet {
 /// The GenAI `execute_tool` span. `call_id` is the model's tool call id: a call made from a
 /// script has none. Arguments and result are content, recorded only when the GenAI content
 /// capture is on (`crate::llm::telemetry::capture_content`).
-fn execute_tool_span(function_name: &str, args: &str, call_id: Option<&str>) -> tracing::Span {
+pub(crate) fn execute_tool_span(function_name: &str, args: &str, call_id: Option<&str>) -> tracing::Span {
     let span = tracing::info_span!(
         "execute_tool",
         otel.name = %format!("execute_tool {function_name}"),
@@ -239,7 +243,7 @@ fn execute_tool_span(function_name: &str, args: &str, call_id: Option<&str>) -> 
     span
 }
 
-fn record_tool_result(span: &tracing::Span, result: &Result<VizierResponse>) {
+pub(crate) fn record_tool_result(span: &tracing::Span, result: &Result<VizierResponse>) {
     let capture = crate::llm::telemetry::capture_content();
     match result {
         Ok(response) => {
@@ -298,6 +302,19 @@ pub struct ToolRouter {
     pub reserved: Arc<Vec<String>>,
 }
 
+impl ToolRouter {
+    /// Category names a client category may not take: the addon ids, the MCP server keys,
+    /// and the categories those servers are listed under.
+    pub fn client_reserved_categories(&self) -> Vec<String> {
+        let mut reserved: Vec<String> = self.reserved.iter().cloned().collect();
+        for server in self.mcp.keys() {
+            reserved.push(server.clone());
+            reserved.push(mcp_category_name(server, &self.reserved));
+        }
+        reserved
+    }
+}
+
 /// One addon's tools and the description its category line carries.
 #[derive(Clone)]
 pub struct AddonTools {
@@ -311,6 +328,9 @@ pub enum ToolTarget {
     Native(String),
     /// `tool` is the server's own name for it.
     Mcp { server: String, tool: String },
+    /// A tool the person's client declared for this turn, by the client's own names. Only
+    /// [`turn_catalogue`] produces it, and only `RouterBridge` dispatches it.
+    Client { category: String, tool: String },
 }
 
 /// One script-callable function: the single source for its name, category and dispatch.
@@ -439,22 +459,52 @@ fn tool_output_to_response(output: &str) -> Result<VizierResponse> {
     })
 }
 
+/// `name`, or `{name}_{suffix}` when it is a built-in category's name or in `reserved`: the
+/// one clash rule MCP servers and client categories share.
+fn reserved_category_name(name: &str, reserved: &[String], suffix: &str) -> String {
+    if ToolCategory::ALL.iter().any(|category| category.name() == name)
+        || reserved.iter().any(|taken| taken == name)
+    {
+        format!("{name}_{suffix}")
+    } else {
+        name.to_string()
+    }
+}
+
 /// An MCP server's category: its key, unless that is a built-in category's or an addon's name.
 fn mcp_category_name(server: &str, reserved: &[String]) -> String {
-    if ToolCategory::ALL.iter().any(|category| category.name() == server)
-        || reserved.iter().any(|name| name == server)
-    {
-        format!("{server}_mcp")
-    } else {
-        server.to_string()
+    reserved_category_name(server, reserved, "mcp")
+}
+
+/// A client category's name: as declared, unless that is a built-in category's name or in
+/// `reserved` (the addon ids, the agent's MCP server keys and their category names).
+pub fn client_category_name(category: &str, reserved: &[String]) -> String {
+    reserved_category_name(category, reserved, "client")
+}
+
+/// The functions a script in this turn can call: the router's, then the client's.
+pub async fn turn_catalogue(router: &ToolRouter, ctx: &ToolContext) -> Vec<CatalogueEntry> {
+    let mut entries = router.catalogue().await;
+    if let Some(client) = &ctx.client {
+        entries.extend(client.catalogue().iter().cloned());
     }
+    entries
+}
+
+/// The category lines of this turn: the agent's, then the client's in declaration order.
+pub fn turn_categories(base: &[CategorySummary], ctx: &ToolContext) -> Vec<CategorySummary> {
+    let mut categories = base.to_vec();
+    if let Some(client) = &ctx.client {
+        categories.extend(client.categories().iter().cloned());
+    }
+    categories
 }
 
 /// Names for MCP tools (`(server, tool)` pairs), aligned with `mcp`. Native names are
 /// reserved first, so an MCP tool can never take one; MCP tools are then named in
 /// `(server, tool)` order and a taken name gets `_2`, `_3`, …, so the result does not
 /// depend on the order servers connected in.
-fn assign_names(native: &[&str], mcp: &[(&str, &str)]) -> Vec<String> {
+pub(crate) fn assign_names(native: &[&str], mcp: &[(&str, &str)]) -> Vec<String> {
     let mut taken: HashSet<String> = native.iter().map(|name| python_identifier(name)).collect();
     let mut order: Vec<usize> = (0..mcp.len()).collect();
     order.sort_by_key(|&i| mcp[i]);
@@ -615,6 +665,7 @@ impl ToolRouter {
                 .position(|category| category.name() == entry.category)
                 .unwrap_or(ToolCategory::ALL.len()),
             ToolTarget::Mcp { .. } => ToolCategory::ALL.len() + 1,
+            ToolTarget::Client { .. } => ToolCategory::ALL.len() + 2,
         };
         entries.sort_by(|a, b| {
             (rank(a), &a.category, &a.name).cmp(&(rank(b), &b.category, &b.name))
@@ -666,6 +717,10 @@ impl ToolRouter {
                 .ok_or(VizierError("mcp not found".into()))?
                 .call(tool, serde_json::from_str(&params)?)
                 .await,
+            Some(ToolTarget::Client { .. }) => Err(VizierError(format!(
+                "{function_name} is provided by the person's client and is called from a script"
+            ))
+            .into()),
             None => Err(VizierError(format!("{} not found", function_name)).into()),
         }
     }
@@ -1413,5 +1468,74 @@ mod tests {
             assign_names(&["brave_search_web"], &[("brave_search", "web")]),
             ["brave_search_web_2"]
         );
+    }
+
+    #[test]
+    fn a_client_category_named_like_a_reserved_one_gets_a_suffix() {
+        let router_reserved = vec!["brave_search".to_string(), "github".to_string(), "memory_mcp".to_string()];
+        assert_eq!(client_category_name("memory", &router_reserved), "memory_client");
+        assert_eq!(client_category_name("github", &router_reserved), "github_client");
+        assert_eq!(client_category_name("brave_search", &router_reserved), "brave_search_client");
+        assert_eq!(client_category_name("memory_mcp", &router_reserved), "memory_mcp_client");
+        assert_eq!(client_category_name("palette", &router_reserved), "palette");
+        assert_eq!(client_category_name("client", &router_reserved), "client");
+        // MCP keeps its own suffix.
+        assert_eq!(mcp_category_name("memory", &[]), "memory_mcp");
+    }
+
+    fn ctx(client: Option<Arc<crate::agents::client::ClientTools>>) -> ToolContext {
+        ToolContext {
+            session: VizierSession("a".into(), crate::schema::VizierChannelId::System, None),
+            pending_attachments: Default::default(),
+            hooks: None,
+            background_depth: 0,
+            loaded_images: Default::default(),
+            client,
+        }
+    }
+
+    fn empty_router() -> ToolRouter {
+        ToolRouter {
+            default_toolset: VizierToolSet::new(),
+            user_toolset: VizierToolSet::new(),
+            integration_toolset: VizierToolSet::new(),
+            addons: BTreeMap::new(),
+            mcp: HashMap::new(),
+            reserved: Arc::new(vec![]),
+        }
+    }
+
+    /// With no client, a turn sees exactly what the agent has (FR-008, FR-033).
+    #[tokio::test]
+    async fn a_turn_without_a_client_sees_only_the_agents_tools() {
+        let router = empty_router();
+        let base = category_summaries(&router);
+        let names = |entries: Vec<CatalogueEntry>| entries.into_iter().map(|e| e.name).collect::<Vec<_>>();
+        assert_eq!(names(turn_catalogue(&router, &ctx(None)).await), names(router.catalogue().await));
+        assert_eq!(turn_categories(&base, &ctx(None)), base);
+
+        let list = python::ListToolFunctions::new(router.clone(), base.clone());
+        let out = list
+            .call(python::ListToolFunctionsInput { category: Some("palette".into()) }, &ctx(None))
+            .await
+            .unwrap();
+        assert_eq!(out["available"], false);
+        assert!(out.get("did_you_mean").is_some(), "{out}");
+    }
+
+    /// The client's functions and categories follow the agent's own.
+    #[tokio::test]
+    async fn a_turn_with_a_client_sees_its_tools_after_the_agents() {
+        let router = empty_router();
+        let base = category_summaries(&router);
+        let client = crate::agents::client::ClientTools::for_tests(&router.catalogue().await, &[], "palette", "pick_color");
+        let ctx = ctx(Some(client));
+        let catalogue = turn_catalogue(&router, &ctx).await;
+        let last = catalogue.last().unwrap();
+        assert_eq!(last.name, "palette_pick_color");
+        assert_eq!(last.target, ToolTarget::Client { category: "palette".into(), tool: "pick_color".into() });
+        let categories = turn_categories(&base, &ctx);
+        assert_eq!(&categories[..base.len()], &base[..]);
+        assert_eq!(categories.last().unwrap().name, "palette");
     }
 }

@@ -5,7 +5,8 @@ use uuid::Uuid;
 
 use crate::{
     schema::{
-        ReactionEntry, SessionHistory, SessionHistoryContent, VizierResponseContent, VizierSession,
+        ClientCallOutcome, ReactionEntry, SessionHistory, SessionHistoryContent, VizierResponseContent,
+        VizierSession,
     },
     storage::{history::HistoryStorage, sqlite::SqliteStorage},
 };
@@ -77,6 +78,58 @@ pub(super) fn fill_reactions(
     Ok(())
 }
 
+/// Fill each `ClientToolCall` entry's `outcome` and `state` from `client_tool_call`, their
+/// only home (`specs/019-client-tools` research R8). Costs nothing for a page without calls.
+pub(super) fn fill_client_calls(
+    conn: &rusqlite::Connection,
+    entries: &mut [SessionHistory],
+) -> rusqlite::Result<()> {
+    const CHUNK: usize = 500;
+    let uids: Vec<String> = entries
+        .iter()
+        .filter(|entry| matches!(entry.content, SessionHistoryContent::ClientToolCall { .. }))
+        .map(|entry| entry.uid.clone())
+        .collect();
+    if uids.is_empty() {
+        return Ok(());
+    }
+
+    let mut by_uid: HashMap<String, (String, Option<String>, Option<String>)> = HashMap::new();
+    for chunk in uids.chunks(CHUNK) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let sql = format!(
+            "SELECT history_uid, status, detail, state FROM client_tool_call \
+             WHERE history_uid IN ({placeholders})"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk.iter()), |row| {
+            Ok((row.get::<_, String>(0)?, (row.get(1)?, row.get(2)?, row.get(3)?)))
+        })?;
+        for row in rows {
+            let (uid, columns) = row?;
+            by_uid.insert(uid, columns);
+        }
+    }
+
+    let parse = |text: Option<String>| text.and_then(|text| serde_json::from_str(&text).ok());
+    for entry in entries.iter_mut() {
+        if let SessionHistoryContent::ClientToolCall { outcome, state, .. } = &mut entry.content {
+            match by_uid.remove(&entry.uid) {
+                Some((status, detail, saved)) => {
+                    *outcome = Some(ClientCallOutcome::from_columns(&status, parse(detail)));
+                    *state = parse(saved);
+                }
+                // A call whose row was never written (its save failed) has no outcome to show.
+                None => {
+                    *outcome = None;
+                    *state = None;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The sort key every in-Rust re-sort of history uses.
 ///
 /// Keying on `timestamp` alone is the actual ordering defect: `sort_by_key` is a **stable**
@@ -96,6 +149,7 @@ fn content_type_discriminant(content: &SessionHistoryContent) -> &'static str {
         SessionHistoryContent::ToolResult { .. } => "ToolResult",
         SessionHistoryContent::Checkpoint(_) => "Checkpoint",
         SessionHistoryContent::Command(_) => "Command",
+        SessionHistoryContent::ClientToolCall { .. } => "ClientToolCall",
     }
 }
 
@@ -210,6 +264,7 @@ impl HistoryStorage for SqliteStorage {
 
         list.sort_by_key(history_order_key);
         fill_reactions(&conn, &mut list)?;
+        fill_client_calls(&conn, &mut list)?;
         Ok(list)
     }
 
@@ -256,6 +311,7 @@ impl HistoryStorage for SqliteStorage {
 
         list.sort_by_key(history_order_key);
         fill_reactions(&conn, &mut list)?;
+        fill_client_calls(&conn, &mut list)?;
         Ok(list)
     }
 
@@ -380,6 +436,7 @@ impl HistoryStorage for SqliteStorage {
             .collect();
         drop(stmt);
         fill_reactions(&conn, &mut history)?;
+        fill_client_calls(&conn, &mut history)?;
 
         Ok((history, handover))
     }
@@ -444,6 +501,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         crate::storage::sqlite::init_history_schema(&conn).unwrap();
         crate::storage::sqlite::init_reaction_schema(&conn).unwrap();
+        crate::storage::sqlite::init_client_call_schema(&conn).unwrap();
         let storage = SqliteStorage::new(
             Arc::new(Mutex::new(conn)),
             Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
@@ -471,7 +529,7 @@ mod tests {
             expect_audio_reply: None,
             scheduled_task: None,
             background_depth: 0,
-            trace: Default::default(),
+            ..Default::default()
         })
     }
 
@@ -721,5 +779,50 @@ mod tests {
         assert_eq!(storage.count_session_requests(session()).await.unwrap(), 4);
         assert_eq!(storage.count_session_requests(other_topic).await.unwrap(), 1);
         assert_eq!(storage.count_session_requests(no_topic).await.unwrap(), 1);
+    }
+
+    /// A client tool call reads back with the outcome and state recorded after it was saved
+    /// (specs/019-client-tools R8), and neither is ever written into the blob.
+    #[tokio::test]
+    async fn a_client_tool_call_reads_back_with_its_outcome_and_state() {
+        use crate::storage::client_call::ClientCallStorage;
+
+        let (storage, _dir) = setup();
+        let uid = storage
+            .save_session_history(
+                session(),
+                SessionHistoryContent::ClientToolCall {
+                    name: "palette_pick_color".into(),
+                    category: "palette".into(),
+                    tool: "pick_color".into(),
+                    arguments: serde_json::json!({ "prompt": "header" }),
+                    outcome: None,
+                    state: None,
+                },
+            )
+            .await
+            .unwrap();
+        storage.open_client_call(&uid, &session()).await.unwrap();
+
+        async fn read(storage: &SqliteStorage, uid: &str) -> (Option<ClientCallOutcome>, Option<serde_json::Value>) {
+            let history = storage.list_session_history(session(), None, None, None).await.unwrap();
+            match history.into_iter().find(|e| e.uid == uid).unwrap().content {
+                SessionHistoryContent::ClientToolCall { outcome, state, .. } => (outcome, state),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        assert_eq!(read(&storage, &uid).await, (Some(ClientCallOutcome::Pending), None));
+
+        let ok = ClientCallOutcome::Ok { result: serde_json::json!({ "hex": "#3366ff" }) };
+        storage.finish_client_call(&uid, &ok).await.unwrap();
+        storage.save_client_call_state(&uid, &serde_json::json!({ "n": 3 })).await.unwrap();
+        assert_eq!(read(&storage, &uid).await, (Some(ok), Some(serde_json::json!({ "n": 3 }))));
+
+        let blob: String = storage
+            .conn
+            .lock()
+            .query_row("SELECT data FROM session_history WHERE uid = ?1", [&uid], |r| r.get(0))
+            .unwrap();
+        assert!(!blob.contains("outcome") && !blob.contains("\"state\""), "{blob}");
     }
 }

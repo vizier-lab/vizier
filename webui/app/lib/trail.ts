@@ -11,6 +11,10 @@
 
 import type {
   ChatMessage,
+  ClientCallStateFrame,
+  ClientCallView,
+  ClientToolCallFrame,
+  ClientToolOutcomeFrame,
   ExecutionReport,
   TrailEvent,
   Turn,
@@ -119,7 +123,7 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
   // An agent-initiated turn — a scheduled task, a dream cycle — has no request. Its trail
   // still belongs to a turn rather than being dropped.
   const newTurn = (key: string, request?: ChatMessage): Turn => {
-    const turn: Turn = { key, request, trail: [], live: false }
+    const turn: Turn = { key, request, trail: [], live: false, clientCalls: [] }
     turns.push(turn)
     return turn
   }
@@ -158,6 +162,14 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
       continue
     }
 
+    // A client tool call belongs to its turn's reply rather than its trail: it is drawn in
+    // the bubble whether or not the trail is open, and also when the turn never finished.
+    if (content.ClientToolCall) {
+      if (!open) open = newTurn(entry.uid)
+      open.clientCalls.push(clientCallView(entry))
+      continue
+    }
+
     // A report pairs with its call by `call_id`, which history always carries.
     if (content.ToolResult) {
       const launch = pendingLaunch.get(content.ToolResult.call_id)
@@ -191,6 +203,79 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
   }
 
   return turns
+}
+
+/** A stored (or live) `ClientToolCall` entry as a turn draws it. */
+export function clientCallView(entry: ChatMessage): ClientCallView {
+  const call = entry.content.ClientToolCall!
+  return {
+    callId: entry.uid,
+    name: call.name,
+    category: call.category,
+    tool: call.tool,
+    args: asArgs(call.arguments),
+    outcome: call.outcome,
+    state: call.state,
+    live: false,
+  }
+}
+
+// The live side of client tool calls. A call arrives as a frame and becomes the same
+// `ClientToolCall` entry history would hold, keyed by its call id, so `groupHistory` places
+// it in its turn exactly as it will after a reload (specs/019-client-tools R11).
+
+/** Adds a streamed call as a history entry; a second copy of the same call is ignored. */
+export function appendClientCall(
+  messages: ChatMessage[],
+  frame: ClientToolCallFrame['client_tool_call'],
+  session: ChatMessage['vizier_session']
+): ChatMessage[] {
+  if (messages.some((m) => m.uid === frame.call_id)) return messages
+  return [
+    ...messages,
+    {
+      uid: frame.call_id,
+      vizier_session: session,
+      content: {
+        ClientToolCall: {
+          name: frame.name,
+          category: frame.category,
+          tool: frame.tool,
+          arguments: asArgs(frame.arguments),
+          outcome: { status: 'pending' },
+        },
+      },
+    },
+  ]
+}
+
+function updateCall(
+  messages: ChatMessage[],
+  callId: string,
+  change: (call: NonNullable<ChatMessage['content']['ClientToolCall']>) => NonNullable<ChatMessage['content']['ClientToolCall']>
+): ChatMessage[] {
+  const at = messages.findIndex((m) => m.uid === callId && m.content.ClientToolCall)
+  if (at < 0) return messages
+  const next = messages.slice()
+  const message = next[at]
+  next[at] = { ...message, content: { ...message.content, ClientToolCall: change(message.content.ClientToolCall!) } }
+  return next
+}
+
+/** Records how a call ended. */
+export function applyClientOutcome(
+  messages: ChatMessage[],
+  frame: ClientToolOutcomeFrame['client_tool_outcome']
+): ChatMessage[] {
+  return updateCall(messages, frame.call_id, (call) => ({ ...call, outcome: frame.outcome }))
+}
+
+/** Records a call's newly saved state. */
+export function applyClientState(
+  messages: ChatMessage[],
+  frame: ClientCallStateFrame['client_call_state']
+): ChatMessage[] {
+  return updateCall(messages, frame.call_id, (call) => ({ ...call, state: frame.state }))
 }
 
 /**

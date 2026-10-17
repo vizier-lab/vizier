@@ -438,6 +438,9 @@ impl TelegramChannelReader {
                     session,
                     VizierRequest {
                         trace: Default::default(),
+                        client_tools: vec![],
+                        client_categories: vec![],
+                        client: None,
                         timestamp: Utc::now(),
                         user: user.clone(),
                         content: VizierRequestContent::Command("abort".to_string()),
@@ -462,6 +465,9 @@ impl TelegramChannelReader {
                     session,
                     VizierRequest {
                         trace: Default::default(),
+                        client_tools: vec![],
+                        client_categories: vec![],
+                        client: None,
                         timestamp: Utc::now(),
                         user: user.clone(),
                         content: VizierRequestContent::Command("checkpoint".to_string()),
@@ -526,6 +532,9 @@ impl TelegramChannelReader {
                     session,
                     VizierRequest {
                         trace: Default::default(),
+                        client_tools: vec![],
+                        client_categories: vec![],
+                        client: None,
                         timestamp: Utc::now(),
                         user: user.clone(),
                         content: VizierRequestContent::Command("lobotomy".to_string()),
@@ -603,6 +612,9 @@ impl TelegramChannelReader {
 
         let request = VizierRequest {
             trace: Default::default(),
+            client_tools: vec![],
+            client_categories: vec![],
+            client: None,
             timestamp: chrono::Utc::now(),
             user,
             content: request_content,

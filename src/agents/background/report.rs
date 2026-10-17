@@ -74,8 +74,15 @@ pub fn render_report(report: &BackgroundReport) -> String {
         out.push_str("\n\n");
         out.push_str(&sections);
     }
+    // No client asked for this turn, so it has no client tools, whatever earlier turns had
+    // (specs/019-client-tools FR-012).
+    out.push_str("\n\n");
+    out.push_str(CLIENT_TOOLS_UNAVAILABLE);
     out
 }
+
+/// The closing line of every report turn.
+pub const CLIENT_TOOLS_UNAVAILABLE: &str = "Client tools (such as pages shown in the WebUI) are not available in this turn. If a visual would help, offer it and show it when the person next writes.";
 
 /// `cancel_background_job`'s answer (`contracts/agent-tools.md`).
 pub fn render_cancel_result(
@@ -138,6 +145,7 @@ mod tests {
         };
 
         let text = render_report(&report);
+        assert!(text.ends_with(&format!("\n\n{CLIENT_TOOLS_UNAVAILABLE}")), "{text}");
         assert!(text.starts_with("# Background report: batch b-7f3a9c\n\nThis is not a message from a person."));
         let a = text.find("## 1. answered — Research topic A\nanswer A").unwrap();
         let c = text.find("## 2. timed out — Research topic C\nNo answer within 600s").unwrap();

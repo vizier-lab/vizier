@@ -1113,6 +1113,9 @@ async fn agent_chat(
 
     let request = VizierRequest {
         trace: Default::default(),
+        client_tools: vec![],
+        client_categories: vec![],
+        client: None,
         timestamp: Utc::now(),
         user: user.username.clone(),
         content: VizierRequestContent::Chat(body.content),

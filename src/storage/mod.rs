@@ -9,7 +9,7 @@ use crate::{
         RevisionDiff, RevisionOrigin, RollbackResponse, SessionFileRecord, VizierSession,
     },
     storage::{
-        agent::AgentStorage, background_job::BackgroundJobStorage,
+        agent::AgentStorage, background_job::BackgroundJobStorage, client_call::ClientCallStorage,
         catalogue::{CachedLogo, CatalogueCacheStorage, CatalogueSnapshotRow}, dream::DreamStorage, dream_journal::DreamJournalStorage,
         global_config::GlobalConfigStorage, history::HistoryStorage, integration::IntegrationStorage,
         memory::MemoryStorage,
@@ -23,6 +23,7 @@ pub mod agent;
 pub mod background_job;
 pub mod catalogue;
 pub mod chunk;
+pub mod client_call;
 pub mod diff;
 pub mod document;
 pub mod dream;
@@ -66,7 +67,8 @@ where
         + SessionFileStorage
         + ReactionStorage
         + IntegrationStorage
-        + UsageStorage,
+        + UsageStorage
+        + ClientCallStorage,
 {
 }
 

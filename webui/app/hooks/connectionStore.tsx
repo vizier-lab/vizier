@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { getChatWebSocketUrl } from '../services/vizier'
 import type {
+  ClientFrame,
+  ClientToolCallFrame,
   WebSocketJobFrame,
   WebSocketMessage,
   WebSocketReactionErrorFrame,
@@ -9,6 +11,9 @@ import type {
   WebSocketResponse,
 } from '../interfaces/types'
 import { useBackgroundJobStore } from './backgroundJobStore'
+import { useToastStore } from './toastStore'
+import { declaredClientTools, handleClientCall } from '../lib/clientTools'
+import { getCurrentUsername } from '../utils/auth'
 
 interface ConnectionState {
   agentId: string | null
@@ -19,6 +24,10 @@ interface ConnectionState {
   connect: (agentId: string, topicId: string) => void
   disconnect: () => void
   sendMessage: (msg: WebSocketMessage | WebSocketReactionMessage) => void
+  /** Start a turn from a client (protocol §5), e.g. a click in a page the agent drew. */
+  sendClientEvent: (text: string, data?: unknown, sourceCallId?: string) => void
+  /** Save a client tool call's state (protocol §6). */
+  saveClientState: (callId: string, state: unknown) => void
   clearLastMessage: () => void
 }
 
@@ -38,6 +47,33 @@ export function subscribeReactionFrames(listener: (frame: ReactionFrame) => void
     reactionListeners.delete(listener)
   }
 }
+
+// Client tool frames (specs/019-client-tools) go to listeners too, for the same reason.
+const clientListeners = new Set<(frame: ClientFrame) => void>()
+
+export function subscribeClientFrames(listener: (frame: ClientFrame) => void): () => void {
+  clientListeners.add(listener)
+  return () => {
+    clientListeners.delete(listener)
+  }
+}
+
+const CLIENT_FRAME_KEYS = [
+  'client_tool_call',
+  'client_tools_resolved',
+  'client_tool_outcome',
+  'client_call_state',
+  'client_tool_cancelled',
+  'client_error',
+] as const
+
+function isClientFrame(value: object): value is ClientFrame {
+  return CLIENT_FRAME_KEYS.some((key) => key in value)
+}
+
+// Calls the server stopped waiting for. A `handle` still running for one has its answer
+// dropped, since the server would only reply `not_pending`.
+const cancelledCalls = new Set<string>()
 
 /// Closes the current socket with every handler detached first, so a socket on its way out
 /// can neither deliver a late frame into the next session nor flip `connected` or schedule a
@@ -127,6 +163,11 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
             useBackgroundJobStore.getState().applySnapshot(parsed.background_job)
             return
           }
+          if (parsed && typeof parsed === 'object' && isClientFrame(parsed)) {
+            handleClientFrame(parsed, socket, agentId, topicId)
+            clientListeners.forEach((listener) => listener(parsed))
+            return
+          }
           if (parsed && typeof parsed === 'object' && ('reactions' in parsed || 'reaction_error' in parsed)) {
             const frame = parsed as unknown as ReactionFrame
             reactionListeners.forEach((listener) => listener(frame))
@@ -153,13 +194,95 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
 
   sendMessage: (msg: WebSocketMessage | WebSocketReactionMessage) => {
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(msg))
+      ws.send(JSON.stringify(withClientTools(msg)))
     } else {
       console.error('Connection store: WebSocket not open')
     }
+  },
+
+  sendClientEvent: (text: string, data?: unknown, sourceCallId?: string) => {
+    get().sendMessage(clientEventMessage(text, data, sourceCallId))
+  },
+
+  saveClientState: (callId: string, state: unknown) => {
+    sendRaw({ client_call_state: { call_id: callId, state } })
   },
 
   clearLastMessage: () => {
     set({ lastMessage: null })
   },
 }))
+
+/** A `client_event` request (protocol §5), as `sendClientEvent` sends it. */
+export function clientEventMessage(text: string, data?: unknown, sourceCallId?: string): WebSocketMessage {
+  return {
+    timestamp: new Date().toISOString(),
+    user: getCurrentUsername(),
+    content: {
+      client_event: {
+        text,
+        ...(data === undefined ? {} : { data }),
+        ...(sourceCallId ? { source_call_id: sourceCallId } : {}),
+      },
+    },
+    metadata: {},
+  }
+}
+
+/** Every request declares the registered client tools; reactions and commands declare none. */
+function withClientTools(msg: WebSocketMessage | WebSocketReactionMessage): object {
+  if (!('content' in msg) || 'command' in msg.content) return msg
+  const declared = declaredClientTools()
+  if (declared.client_tools.length === 0) return msg
+  return { ...msg, ...declared }
+}
+
+function sendRaw(frame: object): boolean {
+  if (ws?.readyState !== WebSocket.OPEN) {
+    console.error('Connection store: WebSocket not open')
+    return false
+  }
+  ws.send(JSON.stringify(frame))
+  return true
+}
+
+/** The connection's own part in a client frame: answering calls, tracking cancellations. */
+function handleClientFrame(frame: ClientFrame, socket: WebSocket, agentId: string, topicId: string) {
+  if ('client_tool_cancelled' in frame) {
+    cancelledCalls.add(frame.client_tool_cancelled.call_id)
+    return
+  }
+  if ('client_error' in frame) {
+    const { code, message, tool, rule } = frame.client_error
+    console.warn('Client tools:', code, tool ?? '', rule ?? '', message)
+    if (code === 'invalid_client_tools') {
+      useToastStore
+        .getState()
+        .addToast('error', 'A client tool was refused', `${tool ?? ''} ${message}`.trim())
+    }
+    return
+  }
+  if ('client_tool_call' in frame && frame.client_tool_call.answer) {
+    void answerClientCall(frame.client_tool_call, socket, agentId, topicId)
+  }
+}
+
+async function answerClientCall(
+  call: ClientToolCallFrame['client_tool_call'],
+  socket: WebSocket,
+  agentId: string,
+  topicId: string
+) {
+  const store = useConnectionStore.getState()
+  const answer = await handleClientCall(call, {
+    callId: call.call_id,
+    agentId,
+    topicId,
+    sendEvent: (text, data) => store.sendClientEvent(text, data, call.call_id),
+    saveState: (state) => store.saveClientState(call.call_id, state),
+  })
+  if (cancelledCalls.delete(call.call_id)) return
+  // Only the socket that was asked may answer; a replaced one has nothing pending.
+  if (ws !== socket || socket.readyState !== WebSocket.OPEN) return
+  socket.send(JSON.stringify({ client_tool_result: { call_id: call.call_id, ...answer } }))
+}

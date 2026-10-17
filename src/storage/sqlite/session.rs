@@ -157,6 +157,12 @@ impl SessionStorage for SqliteStorage {
              WHERE origin_agent = ?1 AND origin_channel = ?2 AND origin_topic IS ?3",
             rusqlite::params![agent_id, origin_channel, topic],
         )?;
+
+        // The topic's client tool calls, and the state its pages saved, go with it.
+        conn.execute(
+            "DELETE FROM client_tool_call WHERE agent_id = ?1 AND channel = ?2 AND topic IS ?3",
+            rusqlite::params![agent_id, channel.to_slug(), topic],
+        )?;
         Ok(())
     }
 }

@@ -18,6 +18,7 @@ use crate::transport::VizierRequestEnvelope;
 use crate::utils::agent_workspace;
 
 pub mod agent;
+pub mod client;
 pub mod background;
 pub mod hook;
 pub mod mcp;

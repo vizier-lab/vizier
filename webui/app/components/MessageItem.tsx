@@ -1,4 +1,5 @@
 import { memo, useState, useCallback, useRef } from 'react'
+import type { ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -8,6 +9,7 @@ import type {
   VizierResponseStats,
   ReactionEntry,
   TrailEvent,
+  ClientCallView,
 } from '../interfaces/types'
 import ActivityTrail from './ActivityTrail'
 import { base_url, api_protocol } from '~/services/vizier'
@@ -43,6 +45,12 @@ interface MessageItemProps {
   trail?: TrailEvent[]
   trailDurationMs?: number
   trailLabel?: (name: string, args: Record<string, unknown>) => string
+  // Shown beside the sender's name, e.g. that a message came from a page rather than typing.
+  senderNote?: string
+  // The client tool calls of the turn this answer closes (an interactive page, say), drawn
+  // inside the bubble above the answer, in order.
+  clientCalls?: ClientCallView[]
+  renderClientCall?: (call: ClientCallView) => ReactNode
 }
 
 function MessageItemComponent({
@@ -66,6 +74,9 @@ function MessageItemComponent({
   trail,
   trailDurationMs,
   trailLabel,
+  senderNote,
+  clientCalls,
+  renderClientCall,
 }: MessageItemProps) {
   const [showPicker, setShowPicker] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -157,6 +168,9 @@ function MessageItemComponent({
         }}>
           {senderName}
         </div>
+        {senderNote && (
+          <span style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{senderNote}</span>
+        )}
       </div>
       <div
         style={{
@@ -175,6 +189,13 @@ function MessageItemComponent({
             label={trailLabel}
             variant="inset"
           />
+        )}
+        {clientCalls && clientCalls.length > 0 && renderClientCall && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>
+            {clientCalls.map((call) => (
+              <div key={call.callId}>{renderClientCall(call)}</div>
+            ))}
+          </div>
         )}
         <div className="flex items-start justify-between">
           <div className='prose'>
@@ -378,5 +399,8 @@ export const MessageItem = memo(MessageItemComponent, (prevProps, nextProps) => 
   if (prevProps.reactions !== nextProps.reactions) return false
   if (prevProps.currentUserId !== nextProps.currentUserId) return false
   if (prevProps.audioReplySrc !== nextProps.audioReplySrc) return false
+  if (prevProps.senderNote !== nextProps.senderNote) return false
+  if (prevProps.clientCalls !== nextProps.clientCalls) return false
+  if (prevProps.renderClientCall !== nextProps.renderClientCall) return false
   return true
 })

@@ -622,6 +622,15 @@ export type VizierRequestContent =
   | { audio_prompt: [VizierAttachment, string | null] }
   // The outcome of background work this conversation started. Not a message from a person.
   | { background_report: BackgroundReport }
+  // A message a client sent on the person's behalf, e.g. a click in a page the agent drew.
+  // `text` is the person's bubble; `data` is for the agent only and is never shown.
+  | { client_event: ClientEventContent }
+
+export interface ClientEventContent {
+  text: string
+  data?: unknown
+  source_call_id?: string
+}
 
 // Reaction types
 export type ReactionAction = 'added' | 'removed'
@@ -744,6 +753,9 @@ export interface ChatMessage {
     ToolResult?: { call_id: string; content: string }
     Checkpoint?: string | { handover: string | null; timestamp: string }
     Command?: string
+    // A call the agent made to a tool this client (or another) declared. The entry's uid is
+    // the call id; `outcome` and `state` are filled in by the server on every read.
+    ClientToolCall?: ClientToolCallEntry
   }
   reactions?: ReactionEntry[]
   // False for a live reply that arrived without the server's history uid (an older server):
@@ -787,6 +799,8 @@ export interface Turn {
   anchorUid?: string
   // True while the turn is still streaming, which is when its trail renders expanded.
   live: boolean
+  // The client tool calls the turn made, in order. Drawn inside the turn's reply bubble.
+  clientCalls: ClientCallView[]
 }
 
 export interface WebSocketMessage {
@@ -796,7 +810,103 @@ export interface WebSocketMessage {
   metadata?: Record<string, unknown>
   attachments?: VizierAttachment[]
   expect_audio_reply?: boolean
+  // This client's tools for the turn this request starts (client tools protocol §1).
+  client_tools?: ClientToolDeclaration[]
+  client_categories?: ClientCategoryDeclaration[]
 }
+
+// ============================================================================
+// CLIENT TOOLS (specs/019-client-tools/contracts/client-tools-protocol.md)
+// ============================================================================
+
+export type JsonSchemaObject = { type: 'object'; [key: string]: unknown }
+
+export interface ClientToolDeclaration {
+  name: string
+  category?: string
+  description: string
+  input_schema: JsonSchemaObject
+  output_schema?: Record<string, unknown>
+  timeout_secs?: number
+}
+
+export interface ClientCategoryDeclaration {
+  name: string
+  description?: string
+}
+
+export type ClientCallOutcome =
+  | { status: 'pending' }
+  | { status: 'ok'; result: unknown }
+  | { status: 'error'; message: string }
+  | { status: 'disconnected' }
+  | { status: 'timeout' }
+  | { status: 'cancelled' }
+  | { status: 'interrupted' }
+
+export interface ClientToolCallEntry {
+  name: string
+  category: string
+  tool: string
+  arguments: Record<string, unknown>
+  outcome?: ClientCallOutcome
+  state?: unknown
+}
+
+/** One client tool call as a turn draws it, live or from history. */
+export interface ClientCallView {
+  callId: string
+  name: string
+  category: string
+  tool: string
+  args: Record<string, unknown>
+  outcome?: ClientCallOutcome
+  state?: unknown
+  live: boolean
+}
+
+export interface ClientToolCallFrame {
+  client_tool_call: {
+    call_id: string
+    name: string
+    category: string
+    tool: string
+    arguments: Record<string, unknown>
+    // True only on the connection that declared the tool, which alone may answer.
+    answer: boolean
+  }
+}
+
+export interface ClientToolsResolvedFrame {
+  client_tools_resolved: {
+    protocol: number
+    tools: { category: string; tool: string; category_name: string; name: string }[]
+  }
+}
+
+export interface ClientToolOutcomeFrame {
+  client_tool_outcome: { call_id: string; outcome: ClientCallOutcome }
+}
+
+export interface ClientCallStateFrame {
+  client_call_state: { call_id: string; state: unknown }
+}
+
+export interface ClientToolCancelledFrame {
+  client_tool_cancelled: { call_id: string }
+}
+
+export interface ClientErrorFrame {
+  client_error: { code: string; message: string; call_id?: string; tool?: string; rule?: string }
+}
+
+export type ClientFrame =
+  | ClientToolCallFrame
+  | ClientToolsResolvedFrame
+  | ClientToolOutcomeFrame
+  | ClientCallStateFrame
+  | ClientToolCancelledFrame
+  | ClientErrorFrame
 
 // WebSocketResponse matches backend VizierResponse struct
 export interface WebSocketResponse {

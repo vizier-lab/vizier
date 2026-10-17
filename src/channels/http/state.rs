@@ -17,6 +17,10 @@ pub struct HTTPState {
     pub catalogue: crate::catalogue::Catalogue,
     /// For the catalogue and providers APIs, which resolve models and reach providers.
     pub deps: crate::dependencies::VizierDependencies,
+    /// Client events per conversation (`specs/019-client-tools` R15): 10 a minute.
+    pub client_events: Arc<crate::channels::http::rate_limit::RateLimiter>,
+    /// Saved state per client tool call: 2 a second.
+    pub client_state_saves: Arc<crate::channels::http::rate_limit::RateLimiter>,
 }
 
 impl HTTPState {

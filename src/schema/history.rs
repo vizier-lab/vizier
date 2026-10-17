@@ -44,6 +44,78 @@ pub enum SessionHistoryContent {
     },
     Checkpoint(Option<String>),
     Command(String),
+    /// A call the agent made to a tool the person's client declared
+    /// (`specs/019-client-tools`), saved when it is made. The entry's uid is the call id.
+    /// `outcome` and `state` change after the insert, so they live in `client_tool_call`
+    /// and are filled in on every read, never written into the stored blob.
+    ClientToolCall {
+        name: String,
+        category: String,
+        tool: String,
+        arguments: serde_json::Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outcome: Option<ClientCallOutcome>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        state: Option<serde_json::Value>,
+    },
+}
+
+/// How a client tool call ended, or `Pending` while it is in flight.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema, utoipa::ToSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ClientCallOutcome {
+    Pending,
+    Ok { result: serde_json::Value },
+    Error { message: String },
+    Disconnected,
+    Timeout,
+    Cancelled,
+    Interrupted,
+}
+
+impl ClientCallOutcome {
+    /// The `client_tool_call.status` column's value.
+    pub fn status(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Ok { .. } => "ok",
+            Self::Error { .. } => "error",
+            Self::Disconnected => "disconnected",
+            Self::Timeout => "timeout",
+            Self::Cancelled => "cancelled",
+            Self::Interrupted => "interrupted",
+        }
+    }
+
+    /// The `client_tool_call.detail` column's value: the result or the error message.
+    pub fn detail(&self) -> Option<serde_json::Value> {
+        match self {
+            Self::Ok { result } => Some(result.clone()),
+            Self::Error { message } => Some(serde_json::Value::String(message.clone())),
+            _ => None,
+        }
+    }
+
+    /// Back from the two columns; an unknown status reads as interrupted.
+    pub fn from_columns(status: &str, detail: Option<serde_json::Value>) -> Self {
+        match status {
+            "pending" => Self::Pending,
+            "ok" => Self::Ok {
+                result: detail.unwrap_or(serde_json::Value::Null),
+            },
+            "error" => Self::Error {
+                message: match detail {
+                    Some(serde_json::Value::String(message)) => message,
+                    Some(other) => other.to_string(),
+                    None => String::new(),
+                },
+            },
+            "disconnected" => Self::Disconnected,
+            "timeout" => Self::Timeout,
+            "cancelled" => Self::Cancelled,
+            _ => Self::Interrupted,
+        }
+    }
 }
 
 /// Convert model messages to SessionHistoryContent entries (one-to-one, contract S4).
@@ -190,6 +262,11 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
             }
             SessionHistoryContent::Command(_) => {
                 // Skip command entries - they are for display only, not agent context
+            }
+            SessionHistoryContent::ClientToolCall { .. } => {
+                // Skipped without flushing anything: the turn's own `execute_python` report
+                // already tells the model what it called, and a page's HTML (up to 256 KB)
+                // must not be re-read on every later turn.
             }
         }
     }
@@ -503,6 +580,7 @@ mod tests {
                 SessionHistoryContent::ToolResult { .. } => "ToolResult",
                 SessionHistoryContent::Checkpoint(_) => "Checkpoint",
                 SessionHistoryContent::Command(_) => "Command",
+                SessionHistoryContent::ClientToolCall { .. } => "ClientToolCall",
             })
             .collect()
     }
@@ -770,5 +848,42 @@ mod tests {
         let mut history = vec![Message::user_text("hi").unwrap(), Message::assistant_text("hello")];
         seal_tool_calls(&mut history, vec![], "depth limit");
         assert_eq!(history.len(), 2);
+    }
+
+    /// A saved client tool call never reaches the model: a turn replays exactly as it did
+    /// without one, wherever in the turn the call sits (specs/019-client-tools R8).
+    #[test]
+    fn a_client_tool_call_replays_as_if_it_were_not_there() {
+        let request = entry(SessionHistoryContent::Request(VizierRequest {
+            user: "alice".into(),
+            content: crate::schema::VizierRequestContent::Chat("show me".into()),
+            metadata: json!({}),
+            ..Default::default()
+        }));
+        let call = entry(SessionHistoryContent::ClientToolCall {
+            name: "ui_render_interactive_ui".into(),
+            category: "ui".into(),
+            tool: "render_interactive_ui".into(),
+            arguments: json!({ "title": "t", "html": "<p>hi</p>" }),
+            outcome: Some(ClientCallOutcome::Ok { result: json!({ "status": "rendered" }) }),
+            state: Some(json!({ "n": 3 })),
+        });
+        let narration = entry(SessionHistoryContent::AssistantMessage("drawing it".into()));
+        let tool_call = call_entry("t1");
+        let result = entry(SessionHistoryContent::ToolResult {
+            call_id: "t1".into(),
+            content: "ok".into(),
+        });
+        let response = entry(SessionHistoryContent::Response(VizierResponse {
+            content: VizierResponseContent::Message { content: "done".into(), stats: None },
+            ..Default::default()
+        }));
+
+        let without = vec![request.clone(), narration.clone(), tool_call.clone(), result.clone(), response.clone()];
+        let with = vec![request, call.clone(), narration, tool_call, call, result, response];
+        assert_eq!(
+            format!("{:?}", history_entries_to_messages(&with)),
+            format!("{:?}", history_entries_to_messages(&without))
+        );
     }
 }

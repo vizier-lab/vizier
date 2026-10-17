@@ -56,6 +56,31 @@ pub enum VizierRequestContent {
     /// The outcome of background work this conversation started (`paralel_subtasks`,
     /// `delegate_agent`), delivered as a turn of its own. Not a message from a person.
     BackgroundReport(BackgroundReport),
+    /// A message a client sent on the person's behalf, such as a click inside a page the
+    /// agent drew (`specs/019-client-tools`). It starts a turn like `Chat`.
+    ClientEvent(ClientEvent),
+}
+
+/// What a client event carries: the text shown as the person's message, data only the
+/// agent sees, and the client tool call it came from.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq)]
+pub struct ClientEvent {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_call_id: Option<String>,
+}
+
+impl Display for ClientEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.text)?;
+        if let Some(data) = &self.data {
+            let data = serde_json::to_string(data).unwrap_or_default();
+            write!(f, "\n\n```json\n{data}\n```")?;
+        }
+        Ok(())
+    }
 }
 
 impl VizierRequestContent {
@@ -70,6 +95,7 @@ impl VizierRequestContent {
             Self::AudioChat(..) => "audio_chat",
             Self::AudioPrompt(..) => "audio_prompt",
             Self::BackgroundReport(_) => "background_report",
+            Self::ClientEvent(_) => "client_event",
         }
     }
 }
@@ -97,6 +123,7 @@ impl Display for VizierRequestContent {
                 None => write!(f, "Voice message ({})", att.filename),
             },
             Self::BackgroundReport(report) => write!(f, "{}", report),
+            Self::ClientEvent(event) => write!(f, "{}", event),
         }
     }
 }
@@ -196,6 +223,22 @@ pub struct VizierRequest {
     #[schemars(skip)]
     #[schema(ignore)]
     pub trace: crate::telemetry::RequestTrace,
+    /// Tools the sending client offers for this one turn (`specs/019-client-tools`). Read
+    /// off the WebSocket frame and moved into `client` once checked, so they never reach a
+    /// stored request.
+    #[serde(default, skip_serializing)]
+    #[schemars(skip)]
+    #[schema(ignore)]
+    pub client_tools: Vec<crate::agents::client::ClientToolDeclaration>,
+    #[serde(default, skip_serializing)]
+    #[schemars(skip)]
+    #[schema(ignore)]
+    pub client_categories: Vec<crate::agents::client::ClientCategoryDeclaration>,
+    /// The checked declarations and the connection that answers them; in-process only.
+    #[serde(skip)]
+    #[schemars(skip)]
+    #[schema(ignore)]
+    pub client: Option<crate::agents::client::ClientBinding>,
 }
 
 impl VizierRequest {
@@ -252,6 +295,19 @@ impl VizierRequest {
                 "job_kind": report.kind.as_str(),
                 "metadata": self.metadata,
             }))?);
+        }
+
+        // A client event is still the person's message (they clicked it), so `sender` stays
+        // theirs; `via` says it did not come from typing.
+        if let VizierRequestContent::ClientEvent(event) = &self.content {
+            let mut frontmatter = serde_json::Map::new();
+            frontmatter.insert("sender".into(), json!(self.user));
+            frontmatter.insert("via".into(), json!("client_event"));
+            if let Some(source) = &event.source_call_id {
+                frontmatter.insert("source_call".into(), json!(source));
+            }
+            frontmatter.insert("metadata".into(), self.metadata.clone());
+            return Ok(serde_yaml::to_string(&frontmatter)?);
         }
 
         Ok(serde_yaml::to_string(&json!({
@@ -377,5 +433,60 @@ mod tests {
         let frontmatter = req.generate_frontmatter().unwrap();
         assert!(frontmatter.contains("sender: agent-1"), "{frontmatter}");
         assert!(!frontmatter.contains("scheduler"), "{frontmatter}");
+    }
+
+    fn client_event(source: Option<&str>, data: Option<serde_json::Value>) -> VizierRequest {
+        VizierRequest {
+            timestamp: Utc::now(),
+            user: "alice".to_string(),
+            content: VizierRequestContent::ClientEvent(ClientEvent {
+                text: "Submitted filters".into(),
+                data,
+                source_call_id: source.map(str::to_string),
+            }),
+            metadata: serde_json::json!({}),
+            ..Default::default()
+        }
+    }
+
+    /// The person stays the sender of a client event; `via` and `source_call` say where it
+    /// came from (specs/019-client-tools R10).
+    #[test]
+    fn a_client_event_is_the_persons_message_via_the_client() {
+        let frontmatter = client_event(Some("call-1"), None).generate_frontmatter().unwrap();
+        assert!(frontmatter.contains("sender: alice"), "{frontmatter}");
+        assert!(frontmatter.contains("via: client_event"), "{frontmatter}");
+        assert!(frontmatter.contains("source_call: call-1"), "{frontmatter}");
+
+        let frontmatter = client_event(None, None).generate_frontmatter().unwrap();
+        assert!(!frontmatter.contains("source_call"), "{frontmatter}");
+    }
+
+    #[test]
+    fn a_client_event_reads_as_its_text_then_its_data() {
+        let req = client_event(None, Some(serde_json::json!({ "quarter": 3 })));
+        assert_eq!(req.content.to_string(), "Submitted filters\n\n```json\n{\"quarter\":3}\n```");
+        assert_eq!(req.content.kind(), "client_event");
+        assert_eq!(client_event(None, None).content.to_string(), "Submitted filters");
+    }
+
+    /// Declarations and the binding are never written out, so no stored request holds them.
+    #[test]
+    fn a_serialised_request_omits_the_client_fields() {
+        let req: VizierRequest = serde_json::from_value(serde_json::json!({
+            "timestamp": "2026-10-17T12:00:00Z",
+            "user": "alice",
+            "content": { "chat": "hi" },
+            "metadata": {},
+            "client_tools": [{ "name": "pick", "description": "d", "input_schema": { "type": "object" } }],
+            "client_categories": [{ "name": "client" }],
+        }))
+        .unwrap();
+        assert_eq!(req.client_tools.len(), 1);
+        assert_eq!(req.client_categories.len(), 1);
+        let out = serde_json::to_value(&req).unwrap();
+        for key in ["client_tools", "client_categories", "client"] {
+            assert!(out.get(key).is_none(), "{key} was serialised: {out}");
+        }
     }
 }

@@ -65,6 +65,34 @@ pub trait HistoryStorage {
     }
 }
 
+/// Save one entry, retrying twice (after 100 ms, then 400 ms) while SQLite reports the
+/// database busy; any other failure, or a third busy one, is returned.
+pub async fn save_with_busy_retry(
+    storage: &VizierStorage,
+    session: &VizierSession,
+    content: SessionHistoryContent,
+) -> Result<String> {
+    const BUSY_RETRIES_MS: [u64; 2] = [100, 400];
+    let mut attempt = 0;
+    loop {
+        match storage.save_session_history(session.clone(), content.clone()).await {
+            Ok(uid) => return Ok(uid),
+            Err(e) => {
+                let busy = {
+                    let msg = e.to_string().to_lowercase();
+                    msg.contains("database is locked") || msg.contains("busy")
+                };
+                if busy && let Some(ms) = BUSY_RETRIES_MS.get(attempt) {
+                    attempt += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(*ms)).await;
+                    continue;
+                }
+                return Err(e);
+            }
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl HistoryStorage for VizierStorage {
     async fn save_session_history(

@@ -20,16 +20,20 @@ use crate::{
                 self,
                 response::{APIResponse, api_response, err_response},
             },
+            rate_limit::RateLimiter,
             state::HTTPState,
         },
         reactions::{self, ApplyOutcome, ReactionChange, ReactionKind, ReactionTarget},
     },
+    agents::client::{ClientAnswer, ClientBinding, ClientConnection, declare},
     schema::{
-        ReactionAction, SessionHistory, TopicId, VizierAttachmentContent, VizierChannelId,
-        VizierRequest, VizierSession, VizierSessionDetail,
+        ClientEvent, ReactionAction, SessionHistory, SessionHistoryContent, TopicId,
+        VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent,
+        VizierSession, VizierSessionDetail,
     },
     storage::{
-        agent::AgentStorage, background_job::BackgroundJobStorage, history::HistoryStorage,
+        agent::AgentStorage, background_job::BackgroundJobStorage,
+        client_call::ClientCallStorage, history::HistoryStorage,
         reaction::{ReactionStorage, Reactor},
         session::SessionStorage,
     },
@@ -348,7 +352,207 @@ pub async fn chat(
         .map(|c| c.ws_idle_timeout_secs)
         .unwrap_or(300);
 
-    ws.on_upgrade(move |socket| handle_socket(socket, session, transport, state.storage.clone(), state.config.workspace.clone(), ws_idle_timeout_secs))
+    let limits = ClientLimits {
+        events: state.client_events.clone(),
+        state_saves: state.client_state_saves.clone(),
+    };
+    ws.on_upgrade(move |socket| handle_socket(socket, session, transport, state.storage.clone(), state.config.workspace.clone(), ws_idle_timeout_secs, limits))
+}
+
+/// The limits on what a client may send (`specs/019-client-tools` research R15), shared by
+/// every socket so they hold across a person's tabs.
+#[derive(Clone)]
+pub struct ClientLimits {
+    /// Client events, keyed by session slug.
+    pub events: std::sync::Arc<RateLimiter>,
+    /// Saved state, keyed by call id.
+    pub state_saves: std::sync::Arc<RateLimiter>,
+}
+
+const MAX_RESULT_BYTES: usize = 1024 * 1024;
+const MAX_STATE_BYTES: usize = 64 * 1024;
+const MAX_EVENT_TEXT_BYTES: usize = 4 * 1024;
+const MAX_EVENT_DATA_BYTES: usize = 64 * 1024;
+
+fn json_len(value: &serde_json::Value) -> usize {
+    serde_json::to_string(value).map(|s| s.len()).unwrap_or(usize::MAX)
+}
+
+/// A `client_error` frame for this socket only.
+fn client_error(code: &str, call_id: Option<&str>, message: impl Into<String>) -> serde_json::Value {
+    let mut error = serde_json::json!({ "code": code, "message": message.into() });
+    if let Some(call_id) = call_id {
+        error["call_id"] = serde_json::json!(call_id);
+    }
+    serde_json::json!({ "client_error": error })
+}
+
+/// Whether `uid` is a client tool call in `session`: the scope of saved state and of a client
+/// event's `source_call_id`, so a person cannot reach another's conversation by guessing ids.
+async fn is_client_call_in(
+    storage: &crate::storage::VizierStorage,
+    session: &VizierSession,
+    uid: &str,
+) -> anyhow::Result<bool> {
+    Ok(matches!(
+        storage.get_history_entry(uid).await?,
+        Some(entry) if &entry.vizier_session == session
+            && matches!(entry.content, SessionHistoryContent::ClientToolCall { .. })
+    ))
+}
+
+/// A `client_tool_result` (protocol §4): `Err` is the `client_error` frame to send back.
+fn client_tool_result(
+    connection: &ClientConnection,
+    payload: &serde_json::Value,
+) -> Result<(), serde_json::Value> {
+    let Some(call_id) = payload.get("call_id").and_then(|id| id.as_str()) else {
+        return Err(client_error("invalid_frame", None, "client_tool_result needs a call_id"));
+    };
+    let answer = if let Some(ok) = payload.get("ok") {
+        if json_len(ok) > MAX_RESULT_BYTES {
+            return Err(client_error(
+                "result_too_large",
+                Some(call_id),
+                format!("the result is larger than {MAX_RESULT_BYTES} bytes"),
+            ));
+        }
+        ClientAnswer::Ok(ok.clone())
+    } else if let Some(error) = payload.get("error") {
+        ClientAnswer::Err(match error {
+            serde_json::Value::String(message) => message.clone(),
+            other => other.to_string(),
+        })
+    } else {
+        return Err(client_error("invalid_frame", Some(call_id), "client_tool_result needs ok or error"));
+    };
+    if connection.answer(call_id, answer) {
+        Ok(())
+    } else {
+        Err(client_error(
+            "not_pending",
+            Some(call_id),
+            "this call is not waiting for an answer on this connection",
+        ))
+    }
+}
+
+/// A `client_call_state` save (protocol §6): stored, then echoed to every socket on the
+/// session. `Err` is the `client_error` frame to send back; the stored state is untouched.
+async fn client_call_state(
+    storage: &crate::storage::VizierStorage,
+    transport: &VizierTransport,
+    session: &VizierSession,
+    limits: &ClientLimits,
+    payload: &serde_json::Value,
+) -> Result<(), serde_json::Value> {
+    let Some(call_id) = payload.get("call_id").and_then(|id| id.as_str()) else {
+        return Err(client_error("invalid_frame", None, "client_call_state needs a call_id"));
+    };
+    let state = payload.get("state").cloned().unwrap_or(serde_json::Value::Null);
+
+    match is_client_call_in(storage, session, call_id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(client_error(
+                "not_found",
+                Some(call_id),
+                "no client tool call with this id in this conversation",
+            ));
+        }
+        Err(err) => {
+            tracing::warn!("failed to look up client tool call {call_id}: {err}");
+            return Err(client_error("state_not_saved", Some(call_id), "state not saved"));
+        }
+    }
+    if json_len(&state) > MAX_STATE_BYTES {
+        return Err(client_error(
+            "state_too_large",
+            Some(call_id),
+            format!("state is larger than {MAX_STATE_BYTES} bytes"),
+        ));
+    }
+    if !limits.state_saves.check(call_id) {
+        return Err(client_error(
+            "rate_limited",
+            Some(call_id),
+            "too many state saves for this call; try again shortly",
+        ));
+    }
+    if let Err(err) = storage.save_client_call_state(call_id, &state).await {
+        tracing::warn!("failed to save state of client tool call {call_id}: {err}");
+        return Err(client_error("state_not_saved", Some(call_id), "state not saved"));
+    }
+    transport.publish_session_event(SessionEvent {
+        session: session.clone(),
+        frame: SessionFrame::ClientCallState {
+            call_id: call_id.to_string(),
+            state,
+        },
+    });
+    Ok(())
+}
+
+/// Check a client event (protocol §5) and drop a `source_call_id` that is not a client tool
+/// call in this conversation. `Err` is the `client_error` frame refusing it.
+async fn check_client_event(
+    storage: &crate::storage::VizierStorage,
+    session: &VizierSession,
+    limits: &ClientLimits,
+    event: &mut ClientEvent,
+) -> Result<(), serde_json::Value> {
+    if event.text.trim().is_empty() || event.text.len() > MAX_EVENT_TEXT_BYTES {
+        return Err(client_error(
+            "invalid_client_event",
+            None,
+            format!("text must be 1 to {MAX_EVENT_TEXT_BYTES} bytes"),
+        ));
+    }
+    if event.data.as_ref().is_some_and(|data| json_len(data) > MAX_EVENT_DATA_BYTES) {
+        return Err(client_error(
+            "invalid_client_event",
+            None,
+            format!("data must be at most {MAX_EVENT_DATA_BYTES} bytes"),
+        ));
+    }
+    if !limits.events.check(&session.to_slug()) {
+        return Err(client_error(
+            "rate_limited",
+            None,
+            "too many client events in this conversation; try again shortly",
+        ));
+    }
+    if let Some(source) = &event.source_call_id
+        && !is_client_call_in(storage, session, source).await.unwrap_or(false)
+    {
+        event.source_call_id = None;
+    }
+    Ok(())
+}
+
+/// Move a request's checked declarations into its binding to `connection`. Only a request
+/// that starts a chat turn takes client tools; on any other they are dropped unread.
+fn bind_client_tools(
+    request: &mut VizierRequest,
+    connection: &std::sync::Arc<ClientConnection>,
+) -> Result<(), serde_json::Value> {
+    let tools = std::mem::take(&mut request.client_tools);
+    let categories = std::mem::take(&mut request.client_categories);
+    request.client = None;
+    let takes_tools = matches!(
+        request.content,
+        VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(..) | VizierRequestContent::ClientEvent(_)
+    );
+    if tools.is_empty() || !takes_tools {
+        return Ok(());
+    }
+    declare::validate(&tools, &categories).map_err(|err| err.frame())?;
+    request.client = Some(ClientBinding {
+        connection: connection.clone(),
+        tools,
+        categories,
+    });
+    Ok(())
 }
 
 /// A reaction from this socket, applied through the shared ingest path. The new set reaches
@@ -402,6 +606,7 @@ pub async fn handle_socket(
     storage: std::sync::Arc<crate::storage::VizierStorage>,
     workspace: String,
     ws_idle_timeout_secs: u64,
+    limits: ClientLimits,
 ) {
     let (mut writer, mut reader) = socket.split();
     let idle_timeout = Duration::from_secs(ws_idle_timeout_secs);
@@ -416,6 +621,16 @@ pub async fn handle_socket(
             }
         }
     });
+
+    // This socket's end of the client tool calls made to it. Closed when the socket ends,
+    // which fails every call still waiting on it with `client_disconnected`.
+    let connection = ClientConnection::new(write_tx.clone());
+    let send_frame = |frame: serde_json::Value| {
+        let write_tx = write_tx.clone();
+        async move {
+            let _ = write_tx.send(Message::Text(frame.to_string().into())).await;
+        }
+    };
 
     // Background job changes, reactions, and the frames of every turn on this session: the
     // ones a background report woke and the ones a person started from any socket, this one
@@ -437,17 +652,34 @@ pub async fn handle_socket(
                 match event {
                     Ok(ev) if ev.session == curr_session => {
                         let json = match ev.frame {
-                            SessionFrame::Response(response) => serde_json::to_string(&response),
+                            SessionFrame::Response(response) => serde_json::to_string(&response).ok(),
                             SessionFrame::Job(snapshot) => {
-                                serde_json::to_string(&serde_json::json!({ "background_job": snapshot }))
+                                Some(serde_json::json!({ "background_job": snapshot }).to_string())
                             }
-                            SessionFrame::Reactions { history_uid, reactions } => {
-                                serde_json::to_string(&serde_json::json!({
+                            SessionFrame::Reactions { history_uid, reactions } => Some(
+                                serde_json::json!({
                                     "reactions": { "message_uid": history_uid, "reactions": reactions }
-                                }))
-                            }
+                                })
+                                .to_string(),
+                            ),
+                            // The declaring socket already has the call itself, sent directly.
+                            SessionFrame::ClientToolCall { connection_id, call } => (connection_id
+                                != connection.id)
+                                .then(|| call.wire(false).to_string()),
+                            SessionFrame::ClientCallOutcome { call_id, outcome } => Some(
+                                serde_json::json!({
+                                    "client_tool_outcome": { "call_id": call_id, "outcome": outcome }
+                                })
+                                .to_string(),
+                            ),
+                            SessionFrame::ClientCallState { call_id, state } => Some(
+                                serde_json::json!({
+                                    "client_call_state": { "call_id": call_id, "state": state }
+                                })
+                                .to_string(),
+                            ),
                         };
-                        if let Ok(json) = json {
+                        if let Some(json) = json {
                             let _ = write_tx.send(Message::Text(json.into())).await;
                         }
                     }
@@ -466,8 +698,18 @@ pub async fn handle_socket(
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         let text_str = text.to_string();
-                        
-                        if let Ok(reaction_msg) = serde_json::from_str::<WebSocketReactionMessage>(&text_str) {
+                        let frame = serde_json::from_str::<serde_json::Value>(&text_str).ok();
+                        let client_frame = |key: &str| frame.as_ref().and_then(|f| f.get(key)).filter(|p| p.is_object());
+
+                        if let Some(payload) = client_frame("client_tool_result") {
+                            if let Err(error) = client_tool_result(&connection, payload) {
+                                send_frame(error).await;
+                            }
+                        } else if let Some(payload) = client_frame("client_call_state") {
+                            if let Err(error) = client_call_state(&storage, &transport, &curr_session, &limits, payload).await {
+                                send_frame(error).await;
+                            }
+                        } else if let Ok(reaction_msg) = serde_json::from_str::<WebSocketReactionMessage>(&text_str) {
                             let payload = reaction_msg.reaction;
                             if let Err(message) = webui_reaction(&storage, &transport, &curr_session, &payload).await {
                                 let frame = serde_json::json!({
@@ -480,6 +722,18 @@ pub async fn handle_socket(
                             // A person's message starts a fresh chain; the depth is never
                             // the client's to set.
                             request.background_depth = 0;
+
+                            // Refused before anything is sent, so no turn starts (FR-002).
+                            if let Err(error) = bind_client_tools(&mut request, &connection) {
+                                send_frame(error).await;
+                                continue;
+                            }
+                            if let VizierRequestContent::ClientEvent(event) = &mut request.content
+                                && let Err(error) = check_client_event(&storage, &curr_session, &limits, event).await
+                            {
+                                send_frame(error).await;
+                                continue;
+                            }
                             for attachment in request.attachments.iter_mut() {
                                 match transport.send_file_resolve(attachment.clone()).await {
                                     Ok(content) => {
@@ -553,6 +807,7 @@ pub async fn handle_socket(
         }
     }
 
+    connection.close();
     drop(write_tx);
     let _ = write_handle.await;
 }

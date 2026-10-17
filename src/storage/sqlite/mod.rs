@@ -12,6 +12,7 @@ use crate::utils::build_path;
 mod agent;
 mod background_job;
 mod catalogue;
+mod client_call;
 pub(crate) mod core_revision;
 mod dream_journal;
 mod global_config;
@@ -360,9 +361,36 @@ impl SqliteStorage {
         init_background_job_schema(conn)?;
         init_integration_schema(conn)?;
         init_usage_schema(conn)?;
+        init_client_call_schema(conn)?;
 
         Ok(())
     }
+}
+
+/// The `client_tool_call` table (`specs/019-client-tools/data-model.md`): the outcome and
+/// saved state of each client tool call, keyed by its history entry's uid. Split out like
+/// [`init_task_run_schema`] so the tests in `src/storage/sqlite/client_call.rs` can stand it
+/// up against an in-memory connection.
+pub fn init_client_call_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS client_tool_call (
+            history_uid      TEXT PRIMARY KEY,
+            agent_id         TEXT NOT NULL,
+            channel          TEXT NOT NULL,
+            topic            TEXT,
+            status           TEXT NOT NULL,
+            detail           TEXT,
+            state            TEXT,
+            state_updated_at TEXT,
+            created_at       TEXT NOT NULL,
+            finished_at      TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_client_call_session ON client_tool_call(agent_id, channel, topic);
+        CREATE INDEX IF NOT EXISTS idx_client_call_pending ON client_tool_call(status) WHERE status = 'pending';
+        ",
+    )?;
+    Ok(())
 }
 
 /// The usage accounting tables (`specs/018-usage-accounting/data-model.md` §2), split out like

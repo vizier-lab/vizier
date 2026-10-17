@@ -14,6 +14,8 @@ import '@mdxeditor/editor/style.css'
 import '@fontsource-variable/ibm-plex-sans'
 import '@fontsource/ibm-plex-mono'
 import '@fontsource/ibm-plex-serif'
+// The WebUI's own client tools (specs/019-client-tools), registered for every request.
+import './lib/clientTools/builtin'
 
 export const links: Route.LinksFunction = () => [
     { rel: 'preconnect', href: 'https://fonts.googleapis.com' },

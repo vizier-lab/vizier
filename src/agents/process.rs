@@ -439,6 +439,7 @@ async fn refresh_session_detail(
     );
     let ctx = ToolContext {
         loaded_images: Default::default(),
+        client: None,
         session,
         pending_attachments: Arc::new(Mutex::new(vec![])),
         hooks: None,
@@ -675,7 +676,7 @@ fn start_session_job(
     let thinking_response_tx = response_tx.clone();
     let thinking_request = request.clone();
     let thinking_handle = Arc::new(tokio::spawn(async move {
-        if matches!(thinking_request.content, VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _) | VizierRequestContent::BackgroundReport(_)) {
+        if matches!(thinking_request.content, VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _) | VizierRequestContent::BackgroundReport(_) | VizierRequestContent::ClientEvent(_)) {
             if let Some(ref tx) = thinking_response_tx {
                 let _ = tx
                     .send_async(VizierResponse {
@@ -826,6 +827,7 @@ async fn run_checkpoint(
     let reactions = crate::agents::agent::system_prompt::reactions::reaction_digest(&history, 0);
     let ctx = ToolContext {
         loaded_images: Default::default(),
+        client: None,
         session: session.clone(),
         pending_attachments: Arc::new(Mutex::new(vec![])),
         hooks: None,
@@ -1114,9 +1116,11 @@ pub async fn handle_request(
     match &request.content {
         VizierRequestContent::Chat(_)
         | VizierRequestContent::AudioChat(_, _)
-        | VizierRequestContent::BackgroundReport(_) => {
+        | VizierRequestContent::BackgroundReport(_)
+        | VizierRequestContent::ClientEvent(_) => {
             let prompt = match &request.content {
                 VizierRequestContent::Chat(p) => p.clone(),
+                VizierRequestContent::ClientEvent(event) => event.text.clone(),
                 VizierRequestContent::AudioChat(_, Some(text)) => text.clone(),
                 VizierRequestContent::AudioChat(_, None) => "[Voice message]".to_string(),
                 VizierRequestContent::BackgroundReport(report) => report.to_string(),

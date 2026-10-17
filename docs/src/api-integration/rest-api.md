@@ -197,6 +197,8 @@ ws://localhost:9999/api/v1/agents/{agent_id}/channel/{channel_id}/topic/{topic_i
 
 Text frames in both directions carry JSON. Ping/pong frames keep the connection alive; the server closes it after `ws_idle_timeout_secs` (default 300) of silence.
 
+A request may also declare tools of the client's own (`client_tools`), which the agent can call during that turn; see [Client tools](./client-tools.md).
+
 ### Client → server: request
 
 ```json
@@ -220,6 +222,7 @@ Text frames in both directions carry JSON. Ping/pong frames keep the connection 
 | `command` | `"abort"` \| `"checkpoint"` \| `"lobotomy"` | Session control (same as the Discord/Telegram slash commands) |
 | `audio_chat` | `[attachment, transcript?]` | Voice message; transcribed with the agent's STT if `transcript` is null |
 | `audio_prompt` | `[attachment, transcript?]` | Voice, stateless like `prompt` |
+| `client_event` | `{ text, data?, source_call_id? }` | A message the client sends on the person's behalf, e.g. a click in a page the agent drew; starts a turn like `chat`. See [Client tools](./client-tools.md#5-client--server-a-client-event) |
 | `task` | string | Used internally by the scheduler |
 | `reaction` | `{ user_id, emoji, action }` | Used internally |
 

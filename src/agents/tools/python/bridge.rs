@@ -11,7 +11,7 @@ use tokio::sync::OnceCell;
 use crate::{
     agents::{
         hook::VizierSessionHook,
-        tools::{CatalogueEntry, ToolContext, ToolRouter},
+        tools::{CatalogueEntry, ToolContext, ToolRouter, ToolTarget, turn_catalogue},
     },
     agents::tools::python::docs_tools::entry_doc,
     sandbox::{BridgeError, SandboxBridge, ToolFunctionDoc, ToolInvocationRecord, docs},
@@ -22,7 +22,8 @@ pub struct RouterBridge {
     router: ToolRouter,
     ctx: ToolContext,
     tool_timeout: Duration,
-    /// The router's catalogue, snapshotted once per run so names stay put while it runs.
+    /// The turn's catalogue (the router's, then the client's), snapshotted once per run so
+    /// names stay put while it runs.
     catalogue: OnceCell<Vec<CatalogueEntry>>,
     invocations: Mutex<Vec<ToolInvocationRecord>>,
     attachments: Mutex<Vec<VizierAttachment>>,
@@ -47,7 +48,7 @@ impl RouterBridge {
 
     async fn entries(&self) -> &[CatalogueEntry] {
         self.catalogue
-            .get_or_init(|| self.router.catalogue())
+            .get_or_init(|| turn_catalogue(&self.router, &self.ctx))
             .await
     }
 
@@ -55,8 +56,26 @@ impl RouterBridge {
         self.entries().await.iter().find(|entry| entry.name == function)
     }
 
-    /// One nested call, exactly as the agent loop makes a direct one.
-    async fn dispatch(&self, tool: String, arguments: String) -> Result<serde_json::Value, String> {
+    /// One nested call, exactly as the agent loop makes a direct one. A client tool goes to
+    /// the client instead of the router, inside the same hooks and timeout.
+    /// The call id is a client call's history uid, `None` for every other call.
+    async fn dispatch(&self, tool: String, arguments: String) -> (Option<String>, Result<serde_json::Value, String>) {
+        let client = match self.entry(&tool).await.map(|entry| &entry.target) {
+            Some(ToolTarget::Client { .. }) => self.ctx.client.clone(),
+            _ => None,
+        };
+        let call_id = std::sync::Mutex::new(None);
+        let result = self.dispatch_to(tool, arguments, client, &call_id).await;
+        (call_id.into_inner().unwrap_or_default(), result)
+    }
+
+    async fn dispatch_to(
+        &self,
+        tool: String,
+        arguments: String,
+        client: Option<std::sync::Arc<crate::agents::client::ClientTools>>,
+        call_id: &std::sync::Mutex<Option<String>>,
+    ) -> Result<serde_json::Value, String> {
         let (mut tool, mut arguments) = (tool, arguments);
         if let Some(hooks) = &self.ctx.hooks {
             (tool, arguments) = hooks
@@ -65,13 +84,23 @@ impl RouterBridge {
                 .map_err(|err| err.to_string())?;
         }
 
-        let mut response = tokio::time::timeout(
-            self.tool_timeout,
-            self.router.call(tool.clone(), arguments, &self.ctx),
-        )
-        .await
-        .map_err(|_| format!("timed out after {:?}", self.tool_timeout))?
-        .map_err(|err| err.to_string())?;
+        let call = async {
+            match &client {
+                Some(client) => {
+                    let arguments = serde_json::from_str(&arguments).map_err(anyhow::Error::from)?;
+                    let (id, result) = client.call(&tool, arguments).await;
+                    if let Ok(mut slot) = call_id.lock() {
+                        *slot = id;
+                    }
+                    result
+                }
+                None => self.router.call(tool.clone(), arguments, &self.ctx).await,
+            }
+        };
+        let mut response = tokio::time::timeout(self.tool_timeout, call)
+            .await
+            .map_err(|_| format!("timed out after {:?}", self.tool_timeout))?
+            .map_err(|err| err.to_string())?;
 
         if let Some(hooks) = &self.ctx.hooks {
             response = hooks
@@ -110,7 +139,7 @@ impl SandboxBridge for RouterBridge {
     }
 
     async fn describe(&self, function: &str) -> Option<ToolFunctionDoc> {
-        Some(entry_doc(&self.router, self.entry(function).await?))
+        Some(entry_doc(&self.router, &self.ctx, self.entry(function).await?))
     }
 
     async fn call(
@@ -119,16 +148,20 @@ impl SandboxBridge for RouterBridge {
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value, BridgeError> {
         // The catalogue name is the one `ToolRouter::call` dispatches on.
-        let tool = self
-            .entry(function)
-            .await
-            .ok_or(BridgeError::UnknownFunction)?
-            .name
-            .clone();
+        let entry = self.entry(function).await.ok_or(BridgeError::UnknownFunction)?;
+        let tool = entry.name.clone();
+        let is_client = matches!(entry.target, ToolTarget::Client { .. });
 
         let started = Instant::now();
-        let result = self.dispatch(tool.clone(), arguments.to_string()).await;
+        let (call_id, result) = self.dispatch(tool.clone(), arguments.to_string()).await;
         let duration_ms = started.elapsed().as_millis() as u64;
+
+        // A client call's arguments are already stored in full on its `ClientToolCall` entry
+        // (a page can be 256 KB), so the report keeps a reference to it instead.
+        let arguments = match is_client {
+            true => serde_json::json!({ "client_call": call_id }),
+            false => arguments,
+        };
 
         tracing::info!(
             agent_id = %self.ctx.session.0,

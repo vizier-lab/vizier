@@ -71,4 +71,57 @@ mod tests {
         assert!(md.contains("must finish within 30s"));
         assert_eq!(md, sandbox_md(&categories, "30s"));
     }
+
+    /// The client's categories as `turn_categories` gives them for one declaration.
+    fn with_client(base: &[CategorySummary]) -> Vec<CategorySummary> {
+        use crate::agents::client::{
+            ClientBinding, ClientCategoryDeclaration, ClientConnection, ClientToolDeclaration, ClientTools,
+        };
+        let tool = |name: &str, category: &str| ClientToolDeclaration {
+            name: name.into(),
+            category: Some(category.into()),
+            description: "d".into(),
+            input_schema: serde_json::json!({ "type": "object" }),
+            output_schema: None,
+            timeout_secs: None,
+        };
+        let (connection, _rx) = ClientConnection::for_tests();
+        let binding = ClientBinding {
+            connection,
+            tools: vec![tool("render_interactive_ui", "ui"), tool("pick_color", "palette"), tool("x", "memory")],
+            categories: vec![ClientCategoryDeclaration {
+                name: "ui".into(),
+                description: Some("Show interactive pages in the conversation".into()),
+            }],
+        };
+        let client = ClientTools::resolve(
+            &binding,
+            &[],
+            &[],
+            crate::schema::VizierSession("a".into(), crate::schema::VizierChannelId::System, None),
+            crate::agents::client::test_storage(),
+            crate::transport::VizierTransport::new(),
+        );
+        let mut categories = base.to_vec();
+        categories.extend(client.categories().iter().cloned());
+        categories
+    }
+
+    /// Client categories follow the agent's own, labelled, in declaration order
+    /// (contracts/agent-surface.md), and the same declaration gives the same prompt (SC-007).
+    #[test]
+    fn client_categories_are_listed_after_the_agents_and_labelled() {
+        let base = [category("memory", "Search, read, write and organise long-term memory")];
+        let md = sandbox_md(&with_client(&base), "30s");
+        assert!(md.contains(
+            "- memory: Search, read, write and organise long-term memory\n\
+             - ui: (provided by the person's client) Show interactive pages in the conversation\n\
+             - palette: (provided by the person's client) Tools provided by the person's client\n\
+             - memory_client: (provided by the person's client) Tools provided by the person's client\n\n"
+        ), "{md}");
+        assert_eq!(md, sandbox_md(&with_client(&base), "30s"));
+        // Without a client the prompt is what it was.
+        assert_eq!(sandbox_md(&base, "30s"), sandbox_md(&base.to_vec(), "30s"));
+        assert!(!sandbox_md(&base, "30s").contains("provided by the person's client"));
+    }
 }

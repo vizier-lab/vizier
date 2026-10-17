@@ -18,7 +18,7 @@ mod bridge;
 mod docs_tools;
 
 use bridge::RouterBridge;
-pub use docs_tools::{DescribeToolFunction, ListToolFunctions};
+pub use docs_tools::{DescribeToolFunction, ListToolFunctions, ListToolFunctionsInput};
 
 pub struct ExecutePython {
     router: ToolRouter,

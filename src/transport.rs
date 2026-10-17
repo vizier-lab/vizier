@@ -39,6 +39,22 @@ pub enum SessionFrame {
         history_uid: String,
         reactions: Vec<ReactionEntry>,
     },
+    /// The display copy of a client tool call (`specs/019-client-tools`), for every socket on
+    /// the session but `connection_id`, which got the call itself directly.
+    ClientToolCall {
+        connection_id: String,
+        call: crate::agents::client::ClientCallFrame,
+    },
+    /// How a client tool call ended.
+    ClientCallOutcome {
+        call_id: String,
+        outcome: crate::schema::ClientCallOutcome,
+    },
+    /// A client tool call's newly saved state, echoed to the saver as its confirmation.
+    ClientCallState {
+        call_id: String,
+        state: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone)]

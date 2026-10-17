@@ -19,6 +19,7 @@ import type {
   Agent,
   BackgroundReport,
   ChatMessage,
+  ClientCallView,
   Topic,
   TrailEvent,
   VizierAttachment,
@@ -42,13 +43,28 @@ import {
   FaVolumeHigh,
 } from 'react-icons/fa6'
 import { useToastStore } from '../hooks/toastStore'
-import { subscribeReactionFrames, useConnectionStore } from '../hooks/connectionStore'
+import {
+  clientEventMessage,
+  subscribeClientFrames,
+  subscribeReactionFrames,
+  useConnectionStore,
+} from '../hooks/connectionStore'
 import { useUserStore } from '../hooks/userStore'
 import { useQuickChatStore } from '../hooks/quickChatStore'
 import { MessageItem } from '../components/MessageItem'
 import { ThinkingIndicator } from '../components/ThinkingIndicator'
 import ActivityTrail from '../components/ActivityTrail'
-import { appendLiveEvent, groupHistory, outcomeDurationMs } from '../lib/trail'
+import {
+  appendClientCall,
+  appendLiveEvent,
+  applyClientOutcome,
+  applyClientState,
+  groupHistory,
+  outcomeDurationMs,
+} from '../lib/trail'
+import { findClientTool } from '../lib/clientTools'
+import type { ClientCallContext } from '../lib/clientTools'
+import { ClientCallChip } from '../components/client/ClientCallChip'
 import { CheckpointDivider } from '../components/CheckpointDivider'
 import { BackgroundReportItem } from '../components/BackgroundReportItem'
 import { BackgroundJobTray } from '../components/BackgroundJobTray'
@@ -367,6 +383,7 @@ export default function Chat() {
     lastMessage,
     // messageCount,
     sendMessage,
+    saveClientState,
     // clearLastMessage,
   } = useConnectionStore()
 
@@ -742,10 +759,12 @@ export default function Chat() {
 
   // Stored history, grouped into turns, so a trail recorded before this page loaded renders
   // in the same place and through the same component as one collected live.
+  const turns = useMemo(() => groupHistory(messages), [messages])
+
   const storedTrails = useMemo(() => {
     const byAnchor: Record<string, { trail: TrailEvent[]; durationMs?: number }> = {}
     const unanchored: { trail: TrailEvent[]; key: string }[] = []
-    for (const turn of groupHistory(messages)) {
+    for (const turn of turns) {
       if (turn.trail.length === 0) continue
       if (turn.anchorUid) {
         byAnchor[turn.anchorUid] = {
@@ -758,7 +777,21 @@ export default function Chat() {
       }
     }
     return { byAnchor, unanchored }
-  }, [messages])
+  }, [turns])
+
+  // Each turn's client tool calls, drawn inside its reply bubble: the answer's, keyed by the
+  // answer's uid, or — for a turn with no answer yet, or none ever (running, failed before
+  // replying, aborted) — a bubble of their own where the first call happened.
+  const clientCalls = useMemo(() => {
+    const byOutcome: Record<string, ClientCallView[]> = {}
+    const atCall: Record<string, ClientCallView[]> = {}
+    for (const turn of turns) {
+      if (turn.clientCalls.length === 0) continue
+      if (turn.outcome) byOutcome[turn.outcome.uid] = turn.clientCalls
+      else atCall[turn.clientCalls[0].callId] = turn.clientCalls.map((call) => ({ ...call, live: true }))
+    }
+    return { byOutcome, atCall }
+  }, [turns])
 
   // A turn closed in this session wins: its events are the ones the person just watched.
   const trailFor = (uid: string) =>
@@ -854,6 +887,30 @@ export default function Chat() {
       }
     })
   }, [addToast, clearPending])
+
+  // Client tool calls as they happen: the call (this tab's own, or another tab's display
+  // copy), how it ended, and state any tab saved for it.
+  useEffect(() => {
+    return subscribeClientFrames((frame) => {
+      if ('client_tool_call' in frame) {
+        const session = {
+          agent_id: agentId!,
+          channel: 'vizier-webui',
+          topic: currentTopicRef.current!,
+        }
+        setMessages((prev) => appendClientCall(prev, frame.client_tool_call, session))
+      } else if ('client_tool_outcome' in frame) {
+        setMessages((prev) => applyClientOutcome(prev, frame.client_tool_outcome))
+      } else if ('client_call_state' in frame) {
+        setMessages((prev) => applyClientState(prev, frame.client_call_state))
+      } else if ('client_error' in frame && frame.client_error.call_id) {
+        const { code, message } = frame.client_error
+        if (code === 'rate_limited' || code === 'state_too_large' || code === 'state_not_saved') {
+          console.warn(`Client tool call ${frame.client_error.call_id}: ${message}`)
+        }
+      }
+    })
+  }, [agentId])
 
   const pendingByMessage = useMemo(() => {
     const byUid: Record<string, string[]> = {}
@@ -1449,6 +1506,57 @@ export default function Chat() {
     [addToast]
   )
 
+  // A page (or any client tool) starting a turn as the person, the way a typed message does.
+  const handleClientEvent = useCallback(
+    (text: string, data: unknown, sourceCallId: string) => {
+      if (!agentId) return
+      if (!connected) {
+        addToast('error', 'Not connected', 'Reconnect to send from the page.')
+        return
+      }
+      const message = clientEventMessage(text, data, sourceCallId)
+      const userMessage: ChatMessage = {
+        uid: Date.now().toString(),
+        vizier_session: {
+          agent_id: agentId,
+          channel: 'vizier-webui',
+          topic: resolvedTopicId,
+        },
+        content: {
+          Request: {
+            timestamp: message.timestamp,
+            user: message.user,
+            content: message.content,
+          },
+        },
+      }
+      if (isThinkingRef.current) {
+        setQueuedMessages((prev) => [...prev, userMessage])
+      } else {
+        setMessages((prev) => [...prev, userMessage])
+        setThinking(true)
+      }
+      sendMessage(message)
+    },
+    [agentId, connected, resolvedTopicId, sendMessage, addToast, setThinking]
+  )
+
+  // The context a call's renderer is drawn with. Read through a ref so `renderClientCall`
+  // keeps one identity and memoised bubbles do not redraw on every send.
+  const clientCtxRef = useRef({ handleClientEvent, saveClientState, agentId, resolvedTopicId })
+  clientCtxRef.current = { handleClientEvent, saveClientState, agentId, resolvedTopicId }
+  const renderClientCall = useCallback((call: ClientCallView) => {
+    const ctx: ClientCallContext = {
+      callId: call.callId,
+      agentId: clientCtxRef.current.agentId ?? '',
+      topicId: clientCtxRef.current.resolvedTopicId,
+      sendEvent: (text, data) => clientCtxRef.current.handleClientEvent(text, data, call.callId),
+      saveState: (state) => clientCtxRef.current.saveClientState(call.callId, state),
+    }
+    const render = findClientTool(call.category, call.tool)?.render
+    return render ? render(call, ctx) : <ClientCallChip call={call} />
+  }, [])
+
   const handleAbort = useCallback(() => {
     if (!connected) return
     const username = getCurrentUsername()
@@ -1902,6 +2010,37 @@ export default function Chat() {
                   )
                 }
 
+                // A client tool call renders inside its turn's reply. Only a turn with no
+                // reply has its calls drawn here, at the first call, in a bubble of their own.
+                if (msg.content.ClientToolCall) {
+                  const calls = clientCalls.atCall[msg.uid]
+                  if (!calls) return trail
+                  return (
+                    <Fragment key={msg.uid}>
+                      {trail}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ fontWeight: '600', fontSize: '14px', color: 'var(--accent-primary)' }}>
+                          {agentDetail?.name || 'Agent'}
+                        </div>
+                        <div
+                          style={{
+                            padding: '12px 16px',
+                            borderRadius: '8px',
+                            borderLeft: '3px solid var(--accent-primary)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px',
+                          }}
+                        >
+                          {calls.map((call) => (
+                            <div key={call.callId}>{renderClientCall(call)}</div>
+                          ))}
+                        </div>
+                      </div>
+                    </Fragment>
+                  )
+                }
+
                 // A background report woke the agent; it is not a person's message.
                 const requestContent = msg.content.Request?.content
                 if (requestContent && 'background_report' in requestContent) {
@@ -1928,11 +2067,17 @@ export default function Chat() {
                 let voiceSrc: string | undefined
                 let audioReplySrc: string | undefined
                 let isError = false
+                let senderNote: string | undefined
 
                 if (isUserMessage && msg.content.Request) {
                   const request = msg.content.Request as any
                   if (request.content?.chat) {
                     content = request.content.chat
+                  } else if (request.content?.client_event) {
+                    // The person's click in a page: its text is their message; its data is
+                    // for the agent and never shown.
+                    content = request.content.client_event.text
+                    senderNote = 'from a page'
                   } else if (request.content?.audio_chat) {
                     // Voice message: [attachment, transcription]
                     const [att, transcription] = request.content.audio_chat
@@ -2014,6 +2159,9 @@ export default function Chat() {
                     trail={isUserMessage ? undefined : own?.trail}
                     trailDurationMs={own?.durationMs}
                     trailLabel={toolLabel}
+                    senderNote={senderNote}
+                    clientCalls={isUserMessage ? undefined : clientCalls.byOutcome[msg.uid]}
+                    renderClientCall={renderClientCall}
                   />
                 )
               })}
@@ -2052,7 +2200,7 @@ export default function Chat() {
                   )
                 }
                 const request = msg.content.Request as any
-                const content = request?.content?.chat || (request?.content?.audio_chat ? (request.content.audio_chat[1] || '🎤 Voice message') : null)
+                const content = request?.content?.chat || request?.content?.client_event?.text || (request?.content?.audio_chat ? (request.content.audio_chat[1] || '🎤 Voice message') : null)
                 if (!content) return null
                 return (
                   <div key={msg.uid} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -2412,7 +2560,13 @@ export default function Chat() {
             {openPieceTurns.map((turn) => {
               const prompt = turn.request?.content.Request?.content
               const promptText =
-                prompt && 'prompt' in prompt ? prompt.prompt : prompt && 'chat' in prompt ? prompt.chat : null
+                prompt && 'prompt' in prompt
+                  ? prompt.prompt
+                  : prompt && 'chat' in prompt
+                    ? prompt.chat
+                    : prompt && 'client_event' in prompt
+                      ? prompt.client_event.text
+                      : null
               const outcome = turn.outcome?.content.Response?.content
               const answer =
                 typeof outcome === 'object' && outcome !== null
