@@ -145,6 +145,8 @@ Each agent's persistent "self" document is `CORE.md`, stored in storage (not the
 
 ## Key conventions
 
+- **Migration & backward-compat code is tracked for removal before 1.0.0** in [#82](https://github.com/vizier-lab/vizier/issues/82). Keep it working until then: don't delete a migration, legacy shim or `legacy`/`migrated_from` field as "dead code". When you add new code of this kind (a startup migration in `dependencies.rs`, an `add_column_if_missing`/data move in an `init_*_schema`, a `Legacy*` type, a lenient deserializer, an old-name alias, or an API refusal kept for old clients), add a checklist entry to #82 naming the code and anything that depends on it.
+
 - **Errors**: `VizierError(pub String)` (`src/error.rs`); the crate-wide alias is `crate::Result<T> = Result<T, VizierError>`. Convert external errors with `throw_vizier_error(prefix, err)`. Avoid `unwrap()`/`expect()` outside tests and `main`'s bootstrap.
 - **Logging**: `tracing` only (never `println!`) — `tracing::info!`, `warn!`, `error!`, etc. `main.rs` sets per-crate directive overrides (twilight, sqlite, reqwest, hyper, bollard, rmcp, etc. quieted to `error`/`off` by default unless `RUST_LOG` is set).
 - **Extensibility is trait-based**: new tools/channels/storage backends/providers get added by implementing the relevant trait and registering the impl in its module constructor — not by branching on type inside existing dispatch code (see `.specify/memory/constitution.md` for the fuller rationale if present).
