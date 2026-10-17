@@ -32,5 +32,6 @@
 ## Notes
 
 - Tool and category names (`scratchpad`, `write_tmp`, `append_tmp`, `read_tmp`) come from the request and are the agent-facing contract, so they are named in the spec deliberately.
-- Defaults chosen without asking (see Assumptions): "chat" = one conversation, idle = no running or queued turn; in-memory only (lost on restart); 1 MiB/file and 64 files/conversation; not in the dream tool set; no list/delete tools.
+- Defaults chosen without asking (see Assumptions): "chat" = one conversation, idle = no running or queued turn; 1 MiB/file and 64 files/conversation.
+- Confirmed with the user (2026-10-17): kept in durable storage rather than RAM, leftovers cleared at startup; no list/delete tools; dream cycle gets the tools.
 - Known consequence worth confirming in `/speckit-clarify`: a background job's report turn usually arrives after the conversation went idle, so it will not see scratch files from before the launch.

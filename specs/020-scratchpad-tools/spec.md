@@ -81,7 +81,8 @@ Two people talk to the same agent at the same time in different conversations (o
 - **Non-text content**: content is text; the scratchpad does not accept or return binary data.
 - **Background job reports**: a background job's report arrives as a new turn after the launching conversation has typically gone idle, so scratch files written before launch are normally gone by then. Agents must not rely on the scratchpad to carry state to a woken report turn (this is stated in the tool descriptions).
 - **Subagent and delegated work**: subtasks and delegated agents run in their own conversations and therefore have their own, separate scratchpads; they do not see the launcher's scratch files.
-- **Server restart**: scratch files do not survive a restart of the server; after a restart every conversation starts with an empty scratchpad, and nothing left over from before the restart is ever readable.
+- **Server restart**: scratch files are kept in durable storage, so a crash or restart can leave some behind. Since no turn can be running before the server starts, every scratch file left over is deleted at startup; after a restart every conversation starts with an empty scratchpad.
+- **Dream cycle**: a dream run is a conversation of its own, so it has its own scratchpad, separate from every person's conversation, deleted when the dream run ends.
 - **Agent update/restart or deletion**: when an agent instance is stopped (update, restart, delete), its conversations' running turns end; the scratchpads of conversations left with nothing running or queued are deleted. Deleting an agent deletes all its scratch files.
 - **Conversation deleted** while it has scratch files: the scratch files are deleted with it.
 
@@ -96,7 +97,7 @@ Two people talk to the same agent at the same time in different conversations (o
 - **FR-005**: Scratch files MUST be scoped to one conversation of one agent: a scratch file is visible to, and changeable by, only the turns of the conversation in which it was written.
 - **FR-006**: Scratch files MUST remain available across all turns of a conversation that run back-to-back, i.e. while any turn of that conversation is running or queued.
 - **FR-007**: When a conversation has no running turn and no queued turn, the system MUST delete all of that conversation's scratch files, whether the last turn completed, failed, timed out or was aborted.
-- **FR-008**: Scratch files MUST NOT survive a server restart, and no scratch content from before a restart may be readable after it.
+- **FR-008**: Scratch files MUST be kept in the system's durable storage, not held in process memory, so that their size never adds to the server's memory use. Any scratch files left over from before a restart MUST be deleted at startup, before any turn runs, so no scratch content from before a restart is readable after it.
 - **FR-009**: Deleting a conversation or an agent MUST delete its scratch files.
 - **FR-010**: The system MUST validate names (1–128 characters; letters, digits, `-`, `_`, `.`; not `.` or `..`) and refuse invalid ones with a message stating the allowed form.
 - **FR-011**: The system MUST cap each scratch file at 1 MiB and each conversation at 64 scratch files, refusing over-limit writes atomically (existing content unchanged) with a message stating the limit.
@@ -104,10 +105,11 @@ Two people talk to the same agent at the same time in different conversations (o
 - **FR-013**: The tool descriptions MUST tell the agent that scratch files are temporary, private to the conversation, deleted once the conversation goes idle, and not suitable for anything that must persist (memory) or reach a later background report.
 - **FR-014**: Scratch files MUST NOT be stored in or affect the agent's long-term memory, memory search, version history, or the conversation's visible history beyond the record of the tool calls themselves.
 - **FR-015**: The scratchpad tools MUST be reachable the same way as the agent's other categorised tools (listed under their category and callable from the agent's scripts).
+- **FR-016**: The scratchpad tools MUST be available to the dream cycle, scoped to the dream run's own conversation and deleted when that run ends, under the same rules as any other conversation.
 
 ### Key Entities
 
-- **Scratch file**: a named piece of text belonging to one conversation of one agent. Attributes: name, content, size. Lifetime: from first write or append until its conversation goes idle (or the conversation/agent is deleted, or the server restarts).
+- **Scratch file**: a named piece of text belonging to one conversation of one agent. Attributes: name, content, size. Lifetime: from first write or append until its conversation goes idle, the conversation or agent is deleted, or the next server startup.
 - **Conversation scratchpad**: the set of scratch files of one conversation (at most 64), created implicitly on first write and removed entirely when the conversation goes idle.
 
 ## Success Criteria *(mandatory)*
@@ -117,7 +119,8 @@ Two people talk to the same agent at the same time in different conversations (o
 - **SC-001**: In an end-to-end check with the offline test provider, 100% of write → read, append → read and overwrite → read sequences in one turn return exactly the expected content.
 - **SC-002**: After a conversation's last turn ends with nothing queued, a scratch file written during it is readable by 0 later turns (verified across completed, failed and aborted turns).
 - **SC-003**: Across two concurrent conversations using identical scratch file names, 0 reads return the other conversation's content.
-- **SC-004**: After a server restart, 0 scratch files from before the restart are readable.
+- **SC-004**: After a server restart, including one that interrupted running turns, 0 scratch files from before the restart are readable.
+- **SC-007**: A dream run can write and read scratch files, and 0 of them are readable once it ends.
 - **SC-005**: Every refused call (invalid name, over size, over count, not found) returns a message an agent can act on, and 0 of them end the turn or the script.
 - **SC-006**: Reading or writing a scratch file of up to 1 MiB completes fast enough that it does not noticeably lengthen a turn (well under one second).
 
@@ -126,7 +129,7 @@ Two people talk to the same agent at the same time in different conversations (o
 - "A chat" means one conversation (session/topic) with one agent; "all turns complete" means the conversation has no running turn and no queued turn. Queued turns from the same burst therefore share one scratchpad.
 - Scratch content is plain text; binary data, attachments and session files are out of scope (the existing session-file tools cover files people send).
 - No `list_tmp` or `delete_tmp` tool is provided, per the requested three-tool set; listing is available through the "not found" result of `read_tmp`, and overwriting with empty content serves as clearing.
-- The scratchpad is held for the life of the server process only and is not persisted; this is what makes "deleted after restart" automatic.
-- The dream cycle's restricted tool set is unchanged: scratchpad tools are not added to it in this feature.
+- Scratch files are kept in durable storage, not in RAM, because their total size across conversations is unbounded in practice. Leftovers from before a restart are cleared at startup.
+- The dream cycle's restricted tool set gains the three scratchpad tools.
 - Limits of 1 MiB per file and 64 files per conversation are reasonable defaults for working notes and are not configurable in this feature.
 - People do not see scratch files in the WebUI or any channel; they are an agent's private working space.
