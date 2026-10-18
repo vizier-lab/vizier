@@ -1828,6 +1828,28 @@ select:focus {
   color: var(--accent-primary);
 }
 
+/* The input's first paragraph continues on the chip's line. */
+.skill-invocation > .skill-invocation-chip + p {
+  display: inline;
+}
+
+/* A skill the person ran by name (`/release-notes`), at the top of their message. */
+.skill-invocation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  margin: 2px 8px 2px 0;
+  vertical-align: baseline;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  color: var(--accent-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .command-history-text {
   font-weight: 500;
 }

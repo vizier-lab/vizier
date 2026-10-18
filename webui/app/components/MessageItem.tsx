@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { FaCopy, FaFile, FaFilePdf, FaFileImage, FaFileLines, FaFileVideo, FaFileAudio } from 'react-icons/fa6'
+import { FaCopy, FaWandMagicSparkles, FaFile, FaFilePdf, FaFileImage, FaFileLines, FaFileVideo, FaFileAudio } from 'react-icons/fa6'
 import type {
   VizierAttachment,
   VizierResponseStats,
@@ -51,6 +51,9 @@ interface MessageItemProps {
   // inside the bubble above the answer, in order.
   clientCalls?: ClientCallView[]
   renderClientCall?: (call: ClientCallView) => ReactNode
+  // A skill the person ran by name: `command` (`/release-notes`) is drawn as a chip, and
+  // `input` replaces `content` as the message body.
+  invocation?: { command: string; input: string }
 }
 
 function MessageItemComponent({
@@ -77,6 +80,7 @@ function MessageItemComponent({
   senderNote,
   clientCalls,
   renderClientCall,
+  invocation,
 }: MessageItemProps) {
   const [showPicker, setShowPicker] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -204,6 +208,18 @@ function MessageItemComponent({
             )}
             {isVoiceMessage && voiceSrc ? (
               <VoiceMessagePlayer src={voiceSrc} />
+            ) : invocation ? (
+              <div className="skill-invocation">
+                <span className="skill-invocation-chip" title="Ran this skill">
+                  <FaWandMagicSparkles size={11} />
+                  {invocation.command}
+                </span>
+                {invocation.input && (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                    {invocation.input}
+                  </ReactMarkdown>
+                )}
+              </div>
             ) : (
               <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
                 {content}
@@ -402,5 +418,7 @@ export const MessageItem = memo(MessageItemComponent, (prevProps, nextProps) => 
   if (prevProps.senderNote !== nextProps.senderNote) return false
   if (prevProps.clientCalls !== nextProps.clientCalls) return false
   if (prevProps.renderClientCall !== nextProps.renderClientCall) return false
+  if (prevProps.invocation?.command !== nextProps.invocation?.command) return false
+  if (prevProps.invocation?.input !== nextProps.invocation?.input) return false
   return true
 })

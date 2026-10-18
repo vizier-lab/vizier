@@ -124,6 +124,30 @@ const SLASH_COMMANDS: SlashSuggestion[] = [
   { name: '/skills', description: 'List the skills you can run' },
 ]
 
+const sameSkillName = (a: string, b: string): boolean =>
+  a.toLowerCase().replace(/_/g, '-') === b.toLowerCase().replace(/_/g, '-')
+
+// A sent message that ran a skill, split into the command and its input, the way the server
+// parses it (`skill::invocation`). Stored messages say which skill in `invoked_skill`; the one
+// just sent has no server metadata yet, so it is matched against the agent's skills.
+const splitInvocation = (
+  text: string,
+  invokedSkill: string | undefined,
+  skills: SlashSuggestion[]
+): { command: string; input: string } | null => {
+  const match = text
+    .trim()
+    .match(/^\/(skill\s+)?([A-Za-z0-9][A-Za-z0-9_-]*)(?:@\S+)?(?:\s+([\s\S]*))?$/)
+  if (!match) return null
+  const [, viaSkill, name, input] = match
+  if (!viaSkill && ['skill', 'skills'].includes(name.toLowerCase())) return null
+  const known = invokedSkill
+    ? sameSkillName(invokedSkill, name)
+    : skills.some((skill) => sameSkillName(skill.name.slice(1), name))
+  if (!known) return null
+  return { command: `/${viaSkill ? 'skill ' : ''}${name}`, input: (input ?? '').trim() }
+}
+
 // The editor writes markdown, which escapes `_`; a command's name must reach the agent as
 // typed (`/release_notes`, not `/release\_notes`).
 const unescapeCommand = (text: string): string =>
@@ -2122,11 +2146,18 @@ export default function Chat() {
                 let audioReplySrc: string | undefined
                 let isError = false
                 let senderNote: string | undefined
+                let invocation: { command: string; input: string } | undefined
 
                 if (isUserMessage && msg.content.Request) {
                   const request = msg.content.Request as any
                   if (request.content?.chat) {
                     content = request.content.chat
+                    invocation =
+                      splitInvocation(
+                        request.content.chat,
+                        request.metadata?.invoked_skill,
+                        availableSkills
+                      ) ?? undefined
                   } else if (request.content?.client_event) {
                     // The person's click in a page: its text is their message; its data is
                     // for the agent and never shown.
@@ -2216,6 +2247,7 @@ export default function Chat() {
                     senderNote={senderNote}
                     clientCalls={isUserMessage ? undefined : clientCalls.byOutcome[msg.uid]}
                     renderClientCall={renderClientCall}
+                    invocation={invocation}
                   />
                 )
               })}
