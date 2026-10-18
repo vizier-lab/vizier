@@ -14,7 +14,7 @@ keywords:
 - form
 - interactive
 - render_interactive_ui
-version: 2
+version: 3
 ---
 
 # Interactive pages in the WebUI
@@ -215,8 +215,16 @@ The page's script gets `vizier`:
 
 - The code-mode sandbox refuses one long string literal: a multi-line `"""…"""` of a couple of
   KB (about 150 lines) can already fail with `SyntaxError: Source is too deeply nested`. Build a
-  large page from chunks of about 2 KB, e.g. `html = "".join([head, style, body, script])`,
-  rather than one huge literal.
+  large page from chunks of about 2 KB instead of one huge literal.
+- Every `execute_python` run is stateless: variables are gone when it ends. Keep the page in the
+  scratchpad, which lasts the whole turn. Send each chunk exactly once, in its own script:
+  `append_tmp(name="page.html", content=style)` (use `write_tmp` for the first chunk), then
+  `append_tmp(name="page.html", content=body)`, and so on. When it is complete, render it in one
+  script: `html = read_tmp(name="page.html")["content"]` then
+  `ui_render_interactive_ui(title=…, html=html)`.
+- Never re-send a chunk you already wrote, and don't print `len(...)` or the HTML to "check"
+  it: `append_tmp` returns the file's size, and a long print only costs tokens. If a chunk is
+  wrong, `write_tmp` the file again and resend what changed.
 - Prefix your own class names per page or component (`.ed-title`, `.timeline-tick`, not
   `.title`, `.num` or `.tick`). Short generic names collide with the kit (`.num`, `.row`,
   `.bar`, `.stat` are taken) or with each other.

@@ -146,7 +146,10 @@ as a tool, or from inside the script (`list_tools(category=…)` / `describe_too
 two functions under shorter names). `list_tools()` returns a list of
 {{\"name\": ..., \"summary\": ..., \"category\": ...}} dicts; pass a `name` to `describe_tool`.
 A tool error is raised as an exception you may catch; an uncaught one ends the run. The whole script, including every tool call it makes, must finish within {tools_timeout}.
-Each run is stateless; loop and aggregate inside one script and return only what you need."
+Each run is stateless: variables do not survive to the next call, so never rebuild or re-send a
+value just to keep it. Loop and aggregate inside one script and return only what you need; to
+carry text between runs (e.g. a large page built in pieces) use the scratchpad tools
+(`write_tmp`, `append_tmp`, `read_tmp`)."
     );
 
     format!(
