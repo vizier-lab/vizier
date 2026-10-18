@@ -102,5 +102,5 @@ A person mistypes a skill name or calls a skill that is not available to this ag
 - The invocation form is a slash command named after the skill (`/<skill-name> [input]`), consistent with the existing `/abort` command.
 - Only skills already available to the agent in that conversation are invokable; no new skill authoring or installing flow is part of this feature.
 - The agent still sees the skill the way it does today; the change is that the person, not the agent, chooses it for the turn.
-- Plain-text commands must work everywhere. Discord additionally gets native slash commands per skill; Telegram's native command menu is out of scope (it is per bot and not per conversation).
+- Plain-text commands must work everywhere. Discord and Telegram additionally list the skills in their native command menus (one bot belongs to one agent, so a bot's menu is that agent's skills). On Telegram, skill names with `-` appear in the menu with `_`, since Telegram command names cannot contain `-`.
 - Scheduled tasks, dreams, background jobs and inter-agent turns are out of scope; only people-initiated chat turns can invoke skills.

@@ -44,7 +44,7 @@
 ## R7 — Discovery
 
 - **Decision**: `/skills` text reply on Telegram and in the WebUI/typed form; WebUI `/` suggestions fed by `GET /agents/{id}/skills/available` (agent and global, agent winning, name + description only); on Discord the slash-command picker is the list (R6), and `/skills` typed as text still answers.
-- **Telegram native menu (`setMyCommands`)**: out of scope; it is set per bot, not per conversation, and `/skills` covers discovery.
+- **Telegram native menu (`setMyCommands`) — in scope (revised)**: each bot integration belongs to exactly one agent and a token is used once per platform (spec 017), so a per-bot menu is exactly that agent's skill list. See R10.
 - **Why a new endpoint**: the existing `GET /agents/{id}/skills` lists the agent's own skills only (`SkillManager::for_agent`), not the global ones the agent can also use, and returns full content.
 
 ## R8 — Freshness (SC-005)
@@ -54,3 +54,20 @@
 ## R9 — Skills that need the skill's `resources`
 
 The existing `use_skill` tool describes resource handling. The invoked-skill section includes the skill's `resources` list the same way `use_skill` returns it, so a skill behaves identically however it is loaded (verify the exact shape when implementing).
+
+## R10 — Command registration: when and where
+
+- **Shared module `src/channels/commands.rs`**:
+  - `build(skills, &PlatformRules) -> Vec<CommandEntry>`: pure. Order: the platform's built-ins, then `skill`, then skills sorted by name. Applies the rules: name conversion (Telegram `-` → `_`), drop names that are invalid, equal a built-in/reserved name, or become ambiguous after conversion (then only the exact-name skill keeps the entry); truncate descriptions; stop at the count cap. Every skipped skill is returned with a reason so the caller logs it once.
+  - `watch(agent_id, deps, rules, send) -> guard`: a spawned task, aborted on drop (the `woken::watch` pattern). Every 60 s it rebuilds the list and calls `send(list)` only when it differs from the last list `send` accepted.
+  - `PlatformRules`: name pattern, max commands, max description length, built-in entries, name conversion.
+- **Discord** (`discord/mod.rs`): `Handler::ready()` already calls `set_global_commands`; it now sends `commands::build(...)` (built-ins + `/skill` + skills, each with its options) and stores `ready.application.id` in a `OnceLock` on `Handler`, and records the list as sent. `run()` holds `let _commands = commands::watch(...)` beside `_woken`; its `send` is a no-op until the application id is known. The loop is not started from `ready()`, because `Ready` repeats on every full reconnect. Limits: names 1–32 of `a-z0-9_-`, description ≤100, ≤100 global commands.
+- **Telegram** (`telegram/mod.rs`): `run()` calls `set_my_commands` (default scope) once before the `get_updates` loop and holds the same `commands::watch` guard. A failure is logged only; an invalid token is already turned into `FatalChannelError` by `get_updates`. Limits: names 1–32 of `a-z0-9_`, description ≤256, ≤100 commands. The parser treats `_` and `-` as the same in a skill name, so `/release_notes` resolves to `release-notes`.
+- **No clearing on stop**: a reader stops on every restart and token change; clearing would blank the menu each time. A deleted bot's stale menu is inert, since the bot no longer answers.
+
+## R11 — What counts as "the list changed"
+
+- The comparison is on the finished payload (`Vec<CommandEntry>`: name, description, options) after every platform rule, by plain equality against the last list the platform **accepted** (in memory, per reader).
+- Changes: a skill added/removed/renamed; a description edit that changes the truncated text; a skill entering or leaving the list through the cap or Telegram ambiguity.
+- Not changes: edits to a skill's content, keywords, version or resources (none are in the payload; the invocation reads the skill at call time).
+- A failed `send` leaves the stored list unchanged, so the next tick retries. A restart starts empty and sends once. Edits made to the bot's commands outside vizier are not detected (accepted; a token is used once per install).

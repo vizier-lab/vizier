@@ -6,7 +6,7 @@
 
 ## Summary
 
-A person sends `/<skill> [input]` (or `/skill <name> [input]`, or `/skills` to list) as an ordinary chat message on the WebUI, Telegram or Discord. The three channels already deliver such a message to the agent as `VizierRequestContent::Chat(text)`, so **resolution happens once, server-side, in the agent's chat path** (`agents/process.rs`, `Chat` arm) rather than in each channel: a pure parser (`skill::invocation`) turns the text into `List`, `Invoke{name,input}` or `Plain`; `VizierSkills` resolves the name with the agent-over-global precedence it already uses; the turn then runs with the skill's full content in a new `## Invoked Skill` section of the per-request context block, and the model's user message is the input text. A list or a not-found reply is answered directly with no model call. Channels change only to (a) on Discord, register each skill, plus a `/skill` command with name autocomplete, as slash commands of that bot (kept in step with the skills by a 60 s check) whose interaction becomes the same `Chat("/<slug> <input>")`; on Telegram, let a group message that starts with the exact name of one of the agent's skills through as chat without a mention (via one shared helper) and treat `/name@bot …` as addressed, and (b) advertise the feature in help text; the WebUI composer gains skill entries in its existing `/` suggestions, fed by one new read endpoint that returns the skills the agent can actually use (agent and global).
+A person sends `/<skill> [input]` (or `/skill <name> [input]`, or `/skills` to list) as an ordinary chat message on the WebUI, Telegram or Discord. The three channels already deliver such a message to the agent as `VizierRequestContent::Chat(text)`, so **resolution happens once, server-side, in the agent's chat path** (`agents/process.rs`, `Chat` arm) rather than in each channel: a pure parser (`skill::invocation`) turns the text into `List`, `Invoke{name,input}` or `Plain`; `VizierSkills` resolves the name with the agent-over-global precedence it already uses; the turn then runs with the skill's full content in a new `## Invoked Skill` section of the per-request context block, and the model's user message is the input text. A list or a not-found reply is answered directly with no model call. Channels change only to (a) on Discord, register each skill, plus a `/skill` command with name autocomplete, as slash commands of that bot (kept in step with the skills by a 60 s check) whose interaction becomes the same `Chat("/<slug> <input>")`; on Telegram, register a `setMyCommands` menu the same way, let a group message that starts with the exact name of one of the agent's skills through as chat without a mention (via one shared helper) and treat `/name@bot …` as addressed, and (b) advertise the feature in help text; the WebUI composer gains skill entries in its existing `/` suggestions, fed by one new read endpoint that returns the skills the agent can actually use (agent and global).
 
 ## Technical Context
 
@@ -71,8 +71,9 @@ src/
 │       ├── mod.rs               # chat/chat_turn take `invoked: Option<Skill>`; message built from the input
 │       └── system_prompt/context.rs   # context_md renders "## Invoked Skill"
 ├── channels/
+│   ├── commands.rs              # NEW: build() command list per PlatformRules + watch() 60 s re-sync guard
 │   ├── http/api/v1/agents/skills.rs   # + GET /agents/{id}/skills/available
-│   ├── telegram/mod.rs          # unmentioned `/skill-name` allowed; `/name@bot …` addressed; help text
+│   ├── telegram/mod.rs          # setMyCommands on run + watch guard; unmentioned `/skill-name` allowed; `/name@bot …` addressed; help text
 │   └── discord/mod.rs           # per-skill + `/skill` (autocomplete) slash commands, periodic re-sync; interaction → Chat; /help text
 webui/app/routes/chat.tsx        # `/` suggestions include the agent's skills
 docs/src/configuration/skills.md # "Invoking a skill" section for each channel
