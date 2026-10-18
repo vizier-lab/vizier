@@ -59,6 +59,8 @@ pub struct VizierDependencies {
     /// Each channel connection's reader health, written by `ChannelConnections` and read by
     /// agent health and integration status.
     pub channel_board: crate::channels::connections::ChannelBoard,
+    /// Live agent setup/build progress (model downloads included), read by the WebUI.
+    pub setup: crate::setup::SetupBoard,
 }
 
 /// Old (pre-bundle) memory frontmatter shape, kept only so `migrate_memory_to_bundles` can parse
@@ -165,6 +167,7 @@ impl VizierDependencies {
             integration_kinds: Arc::new(crate::integrations::IntegrationKinds::builtin()),
             integration_health: Default::default(),
             channel_board: Default::default(),
+            setup: Default::default(),
         })
     }
 

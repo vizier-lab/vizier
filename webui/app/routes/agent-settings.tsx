@@ -12,6 +12,7 @@ import {
 import AgentForm from '../components/AgentForm'
 import { useToastStore } from '../hooks/toastStore'
 import { useAgentStore } from '../hooks/agentStore'
+import { isBuildFailure, useBuildStore } from '../hooks/buildStore'
 import type { CreateAgentRequest, AgentDetail, User } from '../interfaces/types'
 
 function getErrorMessage(err: unknown): string {
@@ -63,6 +64,10 @@ export default function AgentSettings() {
   const navigate = useNavigate()
   const addToast = useToastStore((s) => s.addToast)
   const loadAgents = useAgentStore((s) => s.loadAgents)
+  const begin = useBuildStore((s) => s.begin)
+  const ready = useBuildStore((s) => s.ready)
+  const fail = useBuildStore((s) => s.fail)
+  const close = useBuildStore((s) => s.close)
 
   const [detail, setDetail] = useState<AgentDetail | null>(null)
   const [sharingOpened, setSharingOpened] = useState(false)
@@ -112,13 +117,25 @@ export default function AgentSettings() {
 
   const handleSave = async (form: CreateAgentRequest) => {
     if (!agentId) return
+    // Retry is fired from the modal, which has no one to hand a rejection to.
+    const buildId = begin(agentId, `Updating agent "${form.name}"`, () => {
+      handleSave(form).catch(() => {})
+    })
     try {
       const res = await updateAgent(agentId, form)
       for (const w of res.data?.warnings || []) addToast('warning', w.message)
       addToast('success', `Agent "${form.name}" updated`)
+      ready(buildId)
       loadAgents()
     } catch (err: unknown) {
-      addToast('error', getErrorMessage(err) || 'Failed to update agent')
+      const message = getErrorMessage(err) || 'Failed to update agent'
+      if (isBuildFailure(message)) {
+        // Shown in the modal, with Retry; a toast as well would say it twice.
+        fail(buildId, message)
+      } else {
+        close(buildId)
+        addToast('error', message)
+      }
       throw err
     }
   }

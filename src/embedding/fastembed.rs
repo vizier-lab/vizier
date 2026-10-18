@@ -16,18 +16,50 @@ impl LocalEmbedder {
     /// The model is cached under `{workspace}/.runtime/embeddings/<model code>`: the Hugging
     /// Face code (e.g. `Qdrant/all-MiniLM-L6-v2-onnx`) is what fastembed < 5 rendered as
     /// `Display`, so existing caches keep loading.
-    pub fn new(model: &FastembedModel, workspace: &str) -> anyhow::Result<Self> {
+    ///
+    /// Progress goes to the WebUI through the setup board; fastembed exposes no byte
+    /// callback, so the download is indeterminate and the UI shows a spinner and message.
+    pub fn new(
+        model: &FastembedModel,
+        workspace: &str,
+        setup: &crate::setup::SetupBoard,
+        agent_id: &str,
+    ) -> anyhow::Result<Self> {
+        use crate::setup::DownloadKind;
+
         let info = TextEmbedding::get_model_info(model)
             .map_err(|e| anyhow::anyhow!("unknown local embedding model: {e}"))?;
         let cache = build_path(workspace, &[".runtime", "embeddings", &info.model_code]);
+        // An existing, non-empty cache means a load, not a download: don't report one.
+        let cached = std::fs::read_dir(&cache).is_ok_and(|mut entries| entries.next().is_some());
         let opts = InitOptions::new(model.to_owned())
-            .with_show_download_progress(true)
+            .with_show_download_progress(false)
             .with_cache_dir(cache);
-        let embedder = TextEmbedding::try_new(opts)
-            .map_err(|e| anyhow::anyhow!("cannot load the local embedding model: {e}"))?;
-        Ok(Self {
-            embedder: Arc::new(embedder),
-        })
+
+        if !cached {
+            setup.download_started(
+                agent_id,
+                DownloadKind::Embedding,
+                format!("Downloading embedding model {}", info.model_code),
+            );
+        }
+        match TextEmbedding::try_new(opts) {
+            Ok(embedder) => {
+                if !cached {
+                    setup.download_finished(agent_id, DownloadKind::Embedding);
+                }
+                Ok(Self {
+                    embedder: Arc::new(embedder),
+                })
+            }
+            Err(e) => {
+                let error = anyhow::anyhow!("cannot load the local embedding model: {e}");
+                if !cached {
+                    setup.download_failed(agent_id, DownloadKind::Embedding, format!("{error:#}"));
+                }
+                Err(error)
+            }
+        }
     }
 }
 

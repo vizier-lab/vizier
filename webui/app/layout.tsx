@@ -4,6 +4,7 @@ import { Outlet, useNavigate, useParams, useLocation } from 'react-router'
 import { FaRobot, FaGear, FaCircleCheck, FaRightFromBracket, FaArrowTrendUp, FaChevronDown, FaChevronLeft, FaComment, FaSun, FaMoon, FaBars, FaPlus, FaBook, FaWandMagicSparkles, FaHouse, FaCloudMoon, FaBrain, FaHashtag, FaPuzzlePiece, FaPlug } from 'react-icons/fa6'
 import Avatar from './components/avatar'
 import ToastContainer from './components/Toast'
+import SetupProgress from './components/SetupProgress'
 import { useConnectionStore } from './hooks/connectionStore'
 import { useSidebarStore } from './hooks/sidebarStore'
 import { useThemeStore } from './hooks/themeStore'
@@ -161,6 +162,7 @@ export default function Layout() {
   return (
     <div className="layout-container">
       <ToastContainer />
+      <SetupProgress />
 
       {/* Backdrop for mobile drawer */}
       <div

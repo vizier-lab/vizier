@@ -26,6 +26,7 @@ mod llm;
 mod sandbox;
 mod scheduler;
 mod schema;
+mod setup;
 
 mod skill;
 mod storage;

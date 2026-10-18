@@ -25,6 +25,7 @@ impl VizierStt {
         settings: &SttToolSettings,
         deps: &VizierDependencies,
         workspace: &str,
+        agent_id: &str,
     ) -> Result<Self> {
         let provider = &settings.provider;
         let model = settings
@@ -32,7 +33,12 @@ impl VizierStt {
             .clone()
             .unwrap_or_else(|| provider.default_model().into());
         let model: Arc<dyn VizierSttModel> = match (provider, provider.credentials()) {
-            (SttProvider::Whisper, _) => Arc::new(whisper::WhisperSttModel::new(model, workspace)),
+            (SttProvider::Whisper, _) => Arc::new(whisper::WhisperSttModel::new(
+                model,
+                workspace,
+                deps.setup.clone(),
+                agent_id.to_string(),
+            )),
             (SttProvider::Elevenlabs, Some(id)) => Arc::new(elevenlabs::ElevenLabsSttModel::new(
                 media::api_key(deps, &id).await?,
                 model,

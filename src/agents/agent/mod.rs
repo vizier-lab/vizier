@@ -116,7 +116,7 @@ impl VizierAgent {
 
         // Create STT instance if enabled (shared between auto-transcription and stt_transcribe tool)
         let stt = if agent_config.tools.stt.enabled {
-            match VizierStt::new(&agent_config.tools.stt.settings, &deps, &workspace).await
+            match VizierStt::new(&agent_config.tools.stt.settings, &deps, &workspace, &agent_id).await
             {
                 Ok(instance) => Some(Arc::new(instance)),
                 Err(e) => {
@@ -130,7 +130,13 @@ impl VizierAgent {
 
         // Create TTS instance if enabled (shared between audio reply and tts_generate tool)
         let tts = if agent_config.tools.tts.enabled {
-            match VizierTts::new(&agent_config.tools.tts.settings, &deps, &deps.config.workspace).await
+            match VizierTts::new(
+                &agent_config.tools.tts.settings,
+                &deps,
+                &deps.config.workspace,
+                &agent_id,
+            )
+            .await
             {
                 Ok(instance) => Some(Arc::new(instance)),
                 Err(e) => {

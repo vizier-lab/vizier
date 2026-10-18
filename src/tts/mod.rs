@@ -20,6 +20,7 @@ impl VizierTts {
         settings: &TtsToolSettings,
         deps: &VizierDependencies,
         workspace: &str,
+        agent_id: &str,
     ) -> Result<Self> {
         let provider = &settings.provider;
         let model = settings.model.clone().unwrap_or_else(|| {
@@ -34,7 +35,12 @@ impl VizierTts {
             .into()
         });
         let model: Arc<dyn VizierTtsModel> = match (provider, provider.credentials()) {
-            (TtsProvider::Kokoro, _) => Arc::new(kokoro::KokoroTtsModel::new(model, workspace)),
+            (TtsProvider::Kokoro, _) => Arc::new(kokoro::KokoroTtsModel::new(
+                model,
+                workspace,
+                deps.setup.clone(),
+                agent_id.to_string(),
+            )),
             (TtsProvider::Elevenlabs, Some(id)) => Arc::new(elevenlabs::ElevenLabsTtsModel::new(
                 media::api_key(deps, &id).await?,
                 model,

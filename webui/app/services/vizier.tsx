@@ -933,6 +933,36 @@ export const pingAgent = async (agentId: string): Promise<{ alive: boolean }> =>
 }
 
 // ============================================================================
+// SETUP STATE (agent build progress, model downloads)
+// ============================================================================
+
+export type DownloadKind = 'model' | 'embedding' | 'stt' | 'tts'
+export type SetupPhase = 'starting' | 'downloading' | 'ready' | 'failed'
+
+export interface DownloadStatus {
+  kind: DownloadKind
+  label: string
+  /** Bytes done. `total === 0` means the size is unknown (indeterminate). */
+  completed: number
+  total: number
+  status: string
+  error?: string
+}
+
+export interface SetupState {
+  agent_id: string
+  phase: SetupPhase
+  message: string
+  error?: string
+  downloads: DownloadStatus[]
+}
+
+export const getSetupState = async (): Promise<SetupState[]> => {
+  const res = await apiClient.get('/utils/setup-state')
+  return res.data?.data?.setups || []
+}
+
+// ============================================================================
 // FILE UPLOAD ENDPOINTS
 // ============================================================================
 

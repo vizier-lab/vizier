@@ -2761,3 +2761,182 @@ select:focus {
   background: var(--surface);
   overflow-x: auto;
 }
+
+/* ============================================================================
+    AGENT SETUP PROGRESS (modal + chip)
+    ============================================================================ */
+
+.setup-loader {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 1px;
+}
+
+.setup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+}
+
+.setup-modal {
+  width: min(440px, 90vw);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+}
+
+.setup-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.setup-modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup-modal-close {
+  flex: none;
+  display: flex;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  color: var(--text-tertiary);
+}
+
+.setup-modal-close:hover {
+  color: var(--text-primary);
+}
+
+.setup-modal-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  min-height: 108px;
+}
+
+.setup-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.setup-state-ready {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.setup-state-failed {
+  color: var(--color-error);
+}
+
+.setup-modal-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.setup-modal-detail {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  max-width: 340px;
+  word-break: break-word;
+}
+
+.setup-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.setup-chips {
+  position: fixed;
+  right: 16px;
+  top: 16px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setup-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+  max-width: 340px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-primary);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+}
+
+.setup-chip .setup-loader {
+  font-size: 18px;
+}
+
+.setup-chip-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.setup-chip-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup-chip-detail {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.setup-chip-close {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  color: var(--text-tertiary);
+}
+
+.setup-chip-close:hover {
+  color: var(--text-primary);
+}
+
+.setup-chip-more {
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}

@@ -19,6 +19,7 @@ pub mod files;
 pub mod integrations;
 pub mod providers;
 pub mod skills;
+pub mod utils;
 
 pub fn v1(state: HTTPState) -> Router<HTTPState> {
     Router::new()
@@ -151,6 +152,10 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
         .nest(
             "/embedding-models",
             embedding::embedding().layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .nest(
+            "/utils",
+            utils::utils().layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
 }
 

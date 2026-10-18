@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { FaCircleCheck, FaCircleExclamation, FaTriangleExclamation, FaCircleInfo } from 'react-icons/fa6'
-import { useToastStore, type Toast } from '../hooks/toastStore'
+import { useToastStore, type Toast as ToastType } from '../hooks/toastStore'
 import { motion, AnimatePresence } from 'motion/react'
 
 const toastIcons = {
@@ -10,42 +10,50 @@ const toastIcons = {
   info: FaCircleInfo,
 }
 
-const toastColors = {
-  success: 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400',
-  error: 'border-red-500 bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400',
-  warning: 'border-amber-500 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400',
-  info: 'border-blue-500 bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400',
+// Neutral surface with a state-coloured accent, the way a chat bubble reads: only the
+// left rule and the icon/title carry colour, so it is solid in both light and dark mode.
+const toastAccent: Record<ToastType['type'], string> = {
+  success: 'var(--accent-primary)',
+  error: 'var(--color-error)',
+  warning: '#f59e0b',
+  info: '#3b82f6',
 }
 
-function ToastItem({ toast }: { toast: Toast }) {
+function ToastItem({ toast }: { toast: ToastType }) {
   const { removeToast } = useToastStore()
   const Icon = toastIcons[toast.type]
+  const accent = toastAccent[toast.type]
 
   return (
     <motion.div
-      // initial={{ opacity: 0, y: -20, scale: 0.95 }}
-      // animate={{ opacity: 1, y: 0, scale: 1 }}
-      // exit={{ opacity: 0, y: -20, scale: 0.95 }}
-      className={`flex items-start justify-between gap-3 p-2! pt-0! rounded-lg border shadow-lg ${toastColors[toast.type]}`}
+      className="flex items-start justify-between gap-3 p-3 rounded-lg shadow-lg"
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderLeft: `3px solid ${accent}`,
+      }}
     >
-      <div className='flex gap-2 pt-2! pb-2!'>
-        <Icon className="mt-1!" size={18} />
+      <div className="flex gap-2">
+        <Icon size={18} style={{ color: accent, marginTop: 2, flex: 'none' }} />
         <div className="flex-1">
-          <p className="font-medium text-sm">{toast.message}</p>
+          <p className="font-medium text-sm" style={{ color: accent }}>
+            {toast.message}
+          </p>
           {toast.description && (
-            <p className="text-xs mt-1 opacity-80">{toast.description}</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+              {toast.description}
+            </p>
           )}
         </div>
-
       </div>
 
       <button
         onClick={() => removeToast(toast.id)}
-        className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+        className="shrink-0 transition-opacity opacity-60 hover:opacity-100"
+        style={{ color: 'var(--text-tertiary)' }}
       >
         ×
       </button>
-
     </motion.div>
   )
 }

@@ -34,6 +34,7 @@ impl VizierEmbedder {
         settings: &EmbeddingConfig,
         deps: &VizierDependencies,
         workspace: &str,
+        agent_id: &str,
     ) -> Result<Self> {
         use crate::schema::agent::EmbeddingProvider;
 
@@ -45,13 +46,22 @@ impl VizierEmbedder {
             return Ok(Self::build(fastembed::LocalEmbedder::new(
                 &variant.to_fastembed(),
                 workspace,
+                &deps.setup,
+                agent_id,
             )?));
         };
         let endpoint = media::endpoint(deps, &id, model.clone()).await?;
         Ok(match provider {
             EmbeddingProvider::Ollama => {
                 if !model.is_empty() {
-                    crate::utils::ollama::ollama_pull_model(&endpoint.base_url, &model).await?;
+                    crate::utils::ollama::ollama_pull_model(
+                        &endpoint.base_url,
+                        &model,
+                        &deps.setup,
+                        agent_id,
+                        crate::setup::DownloadKind::Embedding,
+                    )
+                    .await?;
                 }
                 Self::build(OllamaEmbeddings(endpoint))
             }

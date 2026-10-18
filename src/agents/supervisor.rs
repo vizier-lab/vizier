@@ -53,7 +53,34 @@ pub struct BuiltAgent {
 impl BuiltAgent {
     /// Everything that can fail about starting an agent: pulling an Ollama model, building
     /// the embedder and indexer, and the agent itself (provider, tools, skills).
+    ///
+    /// Wraps [`Self::build_quietly`] so the agent's setup shows up in the WebUI from the
+    /// moment a build starts — a boot build or a form submit. The guard reports a failure
+    /// if this future is dropped or panics, so the WebUI never keeps a stale "building".
     pub async fn build(
+        deps: &VizierDependencies,
+        agent_id: &AgentId,
+        config: &AgentConfig,
+    ) -> Result<Self> {
+        let guard = deps
+            .setup
+            .build_started(
+                agent_id,
+                config.owner_id.clone(),
+                format!("Building agent '{}'", config.name),
+            );
+        let result = Self::build_quietly(deps, agent_id, config).await;
+        match &result {
+            Ok(_) => guard.finished(),
+            Err(e) => guard.failed(format!("{e:#}")),
+        }
+        result
+    }
+
+    /// The build without a setup entry of its own, for the supervisor's retries: an agent
+    /// that keeps failing would otherwise flash "Building agent" at every backoff. Any model
+    /// download it starts still reports itself.
+    pub async fn build_quietly(
         deps: &VizierDependencies,
         agent_id: &AgentId,
         config: &AgentConfig,
@@ -67,10 +94,17 @@ impl BuiltAgent {
                 &Default::default(),
             )
             .await?;
-            crate::utils::ollama::ollama_pull_model(&resolved.base_url, &config.model).await?;
+            crate::utils::ollama::ollama_pull_model(
+                &resolved.base_url,
+                &config.model,
+                &deps.setup,
+                agent_id,
+                crate::setup::DownloadKind::Model,
+            )
+            .await?;
         }
 
-        let indexer = build_indexer(deps, config).await?;
+        let indexer = build_indexer(deps, agent_id, config).await?;
         let agent = Arc::new(VizierAgent::new(agent_id.clone(), deps, config, indexer.clone()).await?);
         Ok(Self { agent, indexer })
     }
@@ -78,6 +112,7 @@ impl BuiltAgent {
 
 async fn build_indexer(
     deps: &VizierDependencies,
+    agent_id: &AgentId,
     config: &AgentConfig,
 ) -> Result<Option<VizierIndexer>> {
     let (emb_settings, _idx_cfg) = match (&config.embedding, &config.indexer) {
@@ -88,7 +123,7 @@ async fn build_indexer(
     let conn = deps.sqlite_conn.clone();
 
     let embedder = Arc::new(
-        VizierEmbedder::from_agent_settings(emb_settings, deps, &deps.config.workspace)
+        VizierEmbedder::from_agent_settings(emb_settings, deps, &deps.config.workspace, agent_id)
             .await?,
     );
     let sqlite_idx = SqliteIndexer::new(conn, embedder).await?;
@@ -160,7 +195,14 @@ impl Supervisor {
                 None => {
                     set_status(&self.status, |s| s.state = AgentRunState::Starting);
                     tokio::select! {
-                        built = BuiltAgent::build(&self.deps, &self.agent_id, &self.config) => built,
+                        built = async {
+                            if failures == 0 {
+                                BuiltAgent::build(&self.deps, &self.agent_id, &self.config).await
+                            } else {
+                                BuiltAgent::build_quietly(&self.deps, &self.agent_id, &self.config)
+                                    .await
+                            }
+                        } => built,
                         _ = wait_for_shutdown(&mut self.shutdown_rx) => break,
                     }
                 }

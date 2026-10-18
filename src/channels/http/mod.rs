@@ -166,6 +166,7 @@ impl VizierChannel for HTTPChannel {
         api::v1::catalogue::get_model,
         api::v1::catalogue::logo,
         api::v1::catalogue::refresh,
+        api::v1::utils::setup_state,
     ),
     components(
         schemas(
@@ -266,6 +267,12 @@ impl VizierChannel for HTTPChannel {
             crate::schema::usage::UsageLinkKind,
             crate::schema::usage::NoLinkReason,
             crate::schema::SessionHistory,
+            crate::setup::SetupStates,
+            crate::setup::SetupState,
+            crate::setup::SetupPhase,
+            crate::setup::DownloadStatus,
+            crate::setup::DownloadKind,
+            crate::channels::http::models::response::APIResponse<crate::setup::SetupStates>,
         )
     ),
     info(

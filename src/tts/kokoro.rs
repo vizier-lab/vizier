@@ -2,15 +2,18 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use indicatif::{ProgressBar, ProgressStyle};
+use crate::setup::{DownloadKind, SetupBoard};
+use crate::tts::VizierTtsModel;
+use crate::utils::build_path;
+use crate::{Result, VizierError};
+
 use sherpa_onnx::{
     GenerationConfig, OfflineTts, OfflineTtsConfig, OfflineTtsKokoroModelConfig,
     OfflineTtsModelConfig,
 };
 
-use crate::tts::VizierTtsModel;
-use crate::utils::build_path;
-use crate::{Result, VizierError};
+/// How many bytes a download moves between two progress reports.
+const PROGRESS_STEP: u64 = 1024 * 1024;
 
 const MODEL_BASE_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models";
 
@@ -215,15 +218,20 @@ pub struct KokoroTtsModel {
     model_name: String,
     model_dir: PathBuf,
     tts: Arc<parking_lot::Mutex<Option<OfflineTts>>>,
+    /// Reports the one-time model download to the WebUI setup board.
+    setup: SetupBoard,
+    agent_id: String,
 }
 
 impl KokoroTtsModel {
-    pub fn new(model_name: String, workspace: &str) -> Self {
+    pub fn new(model_name: String, workspace: &str, setup: SetupBoard, agent_id: String) -> Self {
         let model_dir = build_path(workspace, &[".runtime", "tts", "kokoro", &model_name]);
         Self {
             model_name,
             model_dir,
             tts: Arc::new(parking_lot::Mutex::new(None)),
+            setup,
+            agent_id,
         }
     }
 
@@ -242,13 +250,10 @@ impl KokoroTtsModel {
 
         tracing::info!("Downloading Kokoro model: {url}");
 
-        let pb = ProgressBar::new(0);
-        pb.set_style(
-            ProgressStyle::with_template(
-                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})",
-            )
-            .unwrap()
-            .progress_chars("#>-"),
+        self.setup.download_started(
+            &self.agent_id,
+            DownloadKind::Tts,
+            format!("Downloading speech model '{}'", self.model_name),
         );
 
         let client = reqwest::Client::builder()
@@ -259,9 +264,11 @@ impl KokoroTtsModel {
         let max_retries = 100u32;
         let mut last_err: Option<VizierError> = None;
         let mut bytes: Vec<u8> = Vec::new();
+        // Set only by an attempt whose stream ended cleanly with every byte, so a final
+        // attempt cut off half way is never taken for a finished download.
+        let mut complete = false;
 
         for attempt in 1..=max_retries {
-            pb.set_position(0);
             bytes.clear();
 
             let response = match client.get(&url).send().await {
@@ -279,7 +286,8 @@ impl KokoroTtsModel {
             };
 
             let total_size = response.content_length().unwrap_or(0);
-            pb.set_length(total_size);
+            let mut completed = 0u64;
+            let mut reported = 0u64;
 
             let mut stream = response.bytes_stream();
             use futures::StreamExt;
@@ -288,7 +296,18 @@ impl KokoroTtsModel {
                 match chunk {
                     Ok(c) => {
                         bytes.extend_from_slice(&c);
-                        pb.inc(c.len() as u64);
+                        completed += c.len() as u64;
+                        // Every chunk would take the board's lock thousands of times.
+                        if completed - reported >= PROGRESS_STEP || completed == total_size {
+                            reported = completed;
+                            self.setup.download_progress(
+                                &self.agent_id,
+                                DownloadKind::Tts,
+                                completed,
+                                total_size,
+                                "downloading",
+                            );
+                        }
                     }
                     Err(e) => {
                         tracing::warn!(
@@ -308,13 +327,31 @@ impl KokoroTtsModel {
                 continue;
             }
 
-            pb.finish_with_message("download complete");
+            if total_size > 0 && completed != total_size {
+                tracing::warn!(
+                    "Download attempt {attempt}/{max_retries} ended early: {completed}/{total_size} bytes"
+                );
+                last_err = Some(VizierError(format!(
+                    "download ended early: {completed} of {total_size} bytes"
+                )));
+                if attempt < max_retries {
+                    tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
+                }
+                continue;
+            }
+
+            complete = true;
             break;
         }
 
-        if last_err.is_some() && bytes.is_empty() {
-            return Err(last_err.unwrap());
+        if !complete {
+            let err = last_err.unwrap_or_else(|| VizierError("download failed".into()));
+            self.setup
+                .download_failed(&self.agent_id, DownloadKind::Tts, err.to_string());
+            return Err(err);
         }
+        self.setup
+            .download_finished(&self.agent_id, DownloadKind::Tts);
 
         std::fs::write(&archive_path, &bytes)
             .map_err(|e| VizierError(format!("write archive: {e}")))?;
