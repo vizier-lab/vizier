@@ -40,7 +40,7 @@ Delete `release-notes`; without restarting, `/release-notes` is now not found. R
 ## 8. Telegram and Discord (channel steps need real bots, run after 1–7)
 
 - Telegram DM and group: `/release-notes context` runs with no mention (group bot with privacy mode off); `/relase-notes` and `/skills` in the group do nothing unless addressed (`/skills@mybot`).
-- Discord: `/release-notes` appears in the command picker under this bot; run it with `input` = `context`. With two bots in the guild that both have the skill, each shows its own `/release-notes` entry. Add a skill and within 60 s it shows in the picker; delete one and it disappears. A skill named `Bad Name!` is not registered (one warning in the log) and works via `@bot /skill Bad Name!`... use `@bot /skill <name> context`. Typed text in a DM also works.
+- Discord: `/release-notes` appears in the command picker under this bot; run it with `input` = `context`. With two bots in the guild that both have the skill, each shows its own `/release-notes` entry. Add a skill and within 60 s it shows in the picker; delete one and it disappears. A skill whose name Discord rejects (for example one with spaces or capitals beyond what the slug allows) is not registered, logs one warning, and still runs via `@bot /skill <name> context`. Typed text in a DM also works.
 
 Steps 1–7 use dummyplug alone; step 8 needs platform bot tokens and is marked as such.
 
