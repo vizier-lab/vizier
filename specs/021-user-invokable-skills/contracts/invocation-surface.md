@@ -15,7 +15,9 @@
 
 Empty list reply: `No skills are available to this agent.`
 
-Groups (Telegram and Discord): no mention needed for `/<name> …` when `<name>` exactly matches one of the agent's skills. `/skills`, `/skill …` and not-found replies need the agent addressed (Discord mention; Telegram `/<cmd>@<bot>` or mention). DMs always. On Telegram the bot must receive group messages (privacy mode off, or the command addressed with `@bot`).
+**Discord**: each skill is a slash command of that bot, `/<slug> [input]`, picked in Discord's command picker (no mention needed; the picker shows which bot). Names Discord rejects (not 1–32 of `a-z0-9_-`), clashes with a built-in command, or skills past the command cap are not registered and are reached by typed text (`@bot /skill <name>`, or DM). Typed text with a mention or in a DM follows the grammar above. The command set is re-synced within 60 s of a skill being added, changed or removed.
+
+**Telegram**: no mention needed for `/<name> …` in a group when `<name>` exactly matches one of the agent's skills. `/skills`, `/skill …` and not-found replies need the bot addressed (`/<cmd>@<bot>` or a mention). DMs always. The bot must receive group messages (privacy mode off, or the command addressed with `@bot`).
 
 ## HTTP
 
