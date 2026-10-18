@@ -33,8 +33,10 @@
 
 ## R6 — Addressing in groups (FR-008)
 
-- **Discord**: unchanged — only DMs and mentions become `Chat`; others are `SilentRead` and never invoke. The mention text is already stripped by `render_mentions`, so `@bot /release-notes x` parses after trimming.
-- **Telegram**: today only a mention, DM or `/<bot_username>` counts as addressed. Add: a text starting `/<word>@<bot_username>` is addressed (Telegram's own form for commands in groups). The parser strips the `@bot` suffix.
+- **Decision (revised: no mention needed)**: a group message becomes `Chat` when it is addressed (as today) **or** when `skill::invocation::names_skill(skills, text)` is true, i.e. it parses as `Invoke`/`Unknown` and the name exactly matches one of this agent's skills. Everything else unaddressed stays `SilentRead`. So `/skills`, not-found replies and `/skill <name>` still need an address; only the bare `/<existing-skill>` form is open.
+- **Why not fully open**: with two bots in one group, an open `/skills` or not-found reply would be answered by both; an exact-match run only fires for agents that really have the skill. Cost accepted: two agents with a same-named skill both run it.
+- **Where**: one shared helper called by both readers (`discord/mod.rs` before the `SilentRead` choice ~line 733, `telegram/mod.rs` `should_respond` ~line 594); it reads the agent's skill folders (cheap, as in R8) and is not called for DMs or addressed messages. Discord needs the message-content intent it already uses to read the text. Telegram groups where the bot has privacy mode on only deliver commands/mentions to the bot; that is a BotFather setting and is documented, not worked around.
+- **Telegram**: also treat `/<word>@<bot_username>` as addressed (Telegram's own group command form); the parser strips the `@bot` suffix. **Discord**: `render_mentions` already strips mentions, so `@bot /release-notes x` still parses.
 - **WebUI**: always addressed.
 
 ## R7 — Discovery

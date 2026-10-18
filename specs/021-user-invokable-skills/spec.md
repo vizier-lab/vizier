@@ -59,7 +59,7 @@ A person mistypes a skill name or calls a skill that is not available to this ag
 
 - A skill name collides with a built-in command (such as `/abort`): built-in commands always win, and the skill remains reachable another way (e.g. `/skill <name>`).
 - Skill exists both globally and for the specific agent: the agent-specific one is used, matching how the agent already resolves skills.
-- In Discord and Telegram groups, the command is only honoured when addressed to the agent (mention or the platform's command addressing), so it does not fire for every bot in a shared chat.
+- In Discord and Telegram groups, no mention is needed: a message starting with `/<skill-name>` where the name exactly matches a skill of that agent runs it. Unknown names, `/skills` and not-found replies still need the agent to be addressed (mention, or `/cmd@bot` on Telegram), so unrelated slash text does not make every bot in the group reply. If several agents in one group have a skill of the same name, each of them runs it.
 - A skill is removed or changed between listing and invoking: the current state wins; a removed skill gives the not-found reply.
 - Very long input after the command is handled like any other long message.
 - A command sent while the agent is already mid-turn is queued like any other message.
@@ -76,7 +76,7 @@ A person mistypes a skill name or calls a skill that is not available to this ag
 - **FR-005**: The set of invokable skills MUST match the skills the agent itself can use (agent-specific overriding global), and update when skills are installed or removed, without restarting the agent.
 - **FR-006**: Built-in commands MUST take precedence over skill names; a documented alternate form MUST exist to reach a skill whose name is shadowed.
 - **FR-007**: A leading-slash message that does not match a built-in command or a skill MUST either get a not-found reply with suggestions (when it looks like a skill name) or be handled as ordinary chat (when it clearly is not a command); no model turn is spent on a not-found reply.
-- **FR-008**: In multi-party chats, invocation MUST only trigger when the message is addressed to the agent.
+- **FR-008**: In multi-party chats, a message that begins with the exact name of one of the agent's skills MUST invoke it without mentioning the agent; every other command-shaped message (unknown name, skill list, not-found reply) MUST only act when addressed to the agent.
 - **FR-009**: The invocation MUST be recorded in the conversation history so that the agent and the person can see which skill was run in that turn.
 - **FR-010**: Invoking a skill MUST NOT grant any permission the person did not already have in that conversation; access rules for who may talk to the agent still apply.
 - **FR-011**: The user-facing documentation MUST describe how to invoke and list skills on each channel.

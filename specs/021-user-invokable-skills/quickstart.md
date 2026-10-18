@@ -39,8 +39,8 @@ Delete `release-notes`; without restarting, `/release-notes` is now not found. R
 
 ## 8. Telegram and Discord (channel steps need real bots, run after 1–7)
 
-- Telegram DM: `/release-notes context`. In a group: `/release-notes@mybot context` runs; `/release-notes context` alone does nothing.
-- Discord DM or `@bot /release-notes context`: runs; a guild message without the mention does not.
+- Telegram DM and group: `/release-notes context` runs with no mention (group bot with privacy mode off); `/relase-notes` and `/skills` in the group do nothing unless addressed (`/skills@mybot`).
+- Discord DM, guild with or without `@bot`: `/release-notes context` runs; `/skills` and a mistyped name in a guild only reply when the bot is mentioned.
 
 Steps 1–7 use dummyplug alone; step 8 needs platform bot tokens and is marked as such.
 

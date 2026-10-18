@@ -15,7 +15,7 @@
 
 Empty list reply: `No skills are available to this agent.`
 
-Telegram groups: `/<name>@<bot> …` is addressed to the bot; plain `/<name> …` in a group the bot was not addressed in is not acted on. Discord: needs a mention in guilds; DMs always.
+Groups (Telegram and Discord): no mention needed for `/<name> …` when `<name>` exactly matches one of the agent's skills. `/skills`, `/skill …` and not-found replies need the agent addressed (Discord mention; Telegram `/<cmd>@<bot>` or mention). DMs always. On Telegram the bot must receive group messages (privacy mode off, or the command addressed with `@bot`).
 
 ## HTTP
 
