@@ -47,6 +47,7 @@ use crate::{
         history_entries_to_messages, message_for_model, messages_for_model,
         messages_to_history_entries, seal_tool_calls,
     },
+    skill::invocation::Invoked,
     storage::{
         VizierStorage,
         agent::AgentStorage,
@@ -487,11 +488,12 @@ impl VizierAgent {
         session_history: Vec<SessionHistory>,
         memory: Vec<MemoryPassageResult>,
         skills: Vec<Skill>,
+        invoked: Option<Invoked>,
         hooks: Option<Arc<VizierSessionHooks>>,
         checkpoint_handover: Option<String>,
     ) -> Result<VizierResponse> {
         let span = self.invoke_agent_span(&req, &session, false);
-        self.chat_turn(req, session, session_history, memory, skills, hooks, checkpoint_handover)
+        self.chat_turn(req, session, session_history, memory, skills, invoked, hooks, checkpoint_handover)
             .instrument(span)
             .await
     }
@@ -530,6 +532,7 @@ impl VizierAgent {
         session_history: Vec<SessionHistory>,
         memory: Vec<MemoryPassageResult>,
         skills: Vec<Skill>,
+        invoked: Option<Invoked>,
         hooks: Option<Arc<VizierSessionHooks>>,
         checkpoint_handover: Option<String>,
     ) -> Result<VizierResponse> {
@@ -662,7 +665,18 @@ impl VizierAgent {
 
         let original_history_len = history.len();
 
-        let mut message = req.to_message(&self.global_workspace)?;
+        // An invoked skill: history keeps what the person typed (`/release-notes v1.2`), the
+        // model is sent only the input, with the skill itself in the context block (spec 021).
+        let mut message = match &invoked {
+            Some(invoked) => {
+                let mut model_req = req.clone();
+                if let VizierRequestContent::Chat(text) = &mut model_req.content {
+                    *text = invoked.message().to_string();
+                }
+                model_req.to_message(&self.global_workspace)?
+            }
+            None => req.to_message(&self.global_workspace)?,
+        };
         if !unavailable.is_empty() {
             message = with_note(
                 message,
@@ -676,7 +690,12 @@ impl VizierAgent {
         let prompt_result = self
             .prompt_with(
                 &tools,
-                with_context(message, context_md(&memory, &skills, digest.as_deref())),
+                with_context(message, context_md(
+                        &memory,
+                        &skills,
+                        invoked.as_ref().map(|invoked| &invoked.skill),
+                        digest.as_deref(),
+                    )),
                 history,
                 0,
                 hooks.clone(),
@@ -1273,6 +1292,10 @@ impl VizierAgent {
         generate_handover_with_model(&self.model, history, reactions, &scope).await
     }
 
+    pub fn skills(&self) -> &VizierSkills {
+        &self.skills
+    }
+
     pub async fn recommend_skills(&self, query: &str) -> Result<Vec<Skill>> {
         self.skills.recommend_skills(query, 5, 0.4).await
     }
@@ -1338,7 +1361,7 @@ impl VizierAgent {
                 &dream_model,
                 with_context(
                     req.to_message(&self.global_workspace)?,
-                    context_md(&[], &[], reaction_digest(&session_history, 1).as_deref()),
+                    context_md(&[], &[], None, reaction_digest(&session_history, 1).as_deref()),
                 ),
                 history,
                 tools,

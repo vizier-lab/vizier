@@ -10,6 +10,7 @@ import {
   uploadFile,
   getTopicDetail,
   getPieceHistory,
+  listAvailableSkills,
   api_protocol,
   base_url,
 } from '../services/vizier'
@@ -114,11 +115,19 @@ const PLACEHOLDERS = [
 // overrule it.
 const THINKING_POLL_GRACE_MS = 2000
 
-const SLASH_COMMANDS = [
+type SlashSuggestion = { name: string; description: string; skill?: boolean }
+
+const SLASH_COMMANDS: SlashSuggestion[] = [
   { name: '/checkpoint', description: 'Save checkpoint with handover' },
   { name: '/lobotomy', description: 'Save checkpoint without handover' },
   { name: '/abort', description: 'Abort current thinking' },
+  { name: '/skills', description: 'List the skills you can run' },
 ]
+
+// The editor writes markdown, which escapes `_`; a command's name must reach the agent as
+// typed (`/release_notes`, not `/release\_notes`).
+const unescapeCommand = (text: string): string =>
+  text.replace(/^\/\S*/, (head) => head.replace(/\\_/g, '_'))
 
 // Exported so the task view can label a run's trail with the same catalogue. One home for
 // the tool names, rather than a second list that drifts from this one.
@@ -329,6 +338,10 @@ export default function Chat() {
   const [expectAudioReply, setExpectAudioReply] = useState(false)
   const [showCommandSuggestions, setShowCommandSuggestions] = useState(false)
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
+  // Skills the agent can run with `/<name>`; offered after the built-in commands.
+  const [availableSkills, setAvailableSkills] = useState<SlashSuggestion[]>([])
+  // Set when a suggestion is put in the composer, so the remounted editor takes focus.
+  const [focusComposer, setFocusComposer] = useState(false)
   const prevInputRef = useRef('')
   const currentInputRef = useRef('')
   const dragCounterRef = useRef(0)
@@ -369,13 +382,47 @@ export default function Chat() {
     [placeholderSeed]
   )
 
+  useEffect(() => {
+    if (!agentId) return
+    let cancelled = false
+    listAvailableSkills(agentId)
+      .then((skills) => {
+        if (cancelled) return
+        setAvailableSkills(
+          skills.map((skill) => ({
+            name: `/${skill.name}`,
+            description: skill.description,
+            skill: true,
+          }))
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setAvailableSkills([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [agentId])
+
   const filteredCommands = useMemo(() => {
     if (!input.startsWith('/')) return []
-    const query = input.toLowerCase()
-    return SLASH_COMMANDS.filter((cmd) =>
+    const query = unescapeCommand(input).trim().toLowerCase()
+    // Once the name is followed by input, the suggestions have done their job.
+    if (/\s/.test(query)) return []
+    return [...SLASH_COMMANDS, ...availableSkills].filter((cmd) =>
       cmd.name.toLowerCase().startsWith(query)
     )
-  }, [input])
+  }, [input, availableSkills])
+
+  // A skill goes into the composer, ready for its input, rather than being sent.
+  const insertSuggestion = useCallback((cmd: SlashSuggestion) => {
+    const value = cmd.skill ? `${cmd.name} ` : cmd.name
+    setInput(value)
+    currentInputRef.current = value
+    setFocusComposer(true)
+    setClearKey((k) => k + 1)
+    setShowCommandSuggestions(false)
+  }, [])
 
   const { addToast } = useToastStore()
   const {
@@ -1341,7 +1388,7 @@ export default function Chat() {
       const username = getCurrentUsername()
 
       // Handle slash commands
-      const text = currentInput.trim()
+      const text = unescapeCommand(currentInput.trim())
       if (text === '/checkpoint' || text === '/lobotomy' || text === '/abort') {
         const command = text.slice(1) // Remove leading /
         const message: WebSocketMessage = {
@@ -1437,7 +1484,7 @@ export default function Chat() {
         message = {
           timestamp: new Date().toISOString(),
           user: username,
-          content: { chat: currentInput.trim() },
+          content: { chat: unescapeCommand(currentInput.trim()) },
           metadata: null as any,
           attachments: uploadedAttachments,
           expect_audio_reply: expectAudioReply || undefined,
@@ -1447,7 +1494,7 @@ export default function Chat() {
           Request: {
             timestamp: new Date().toISOString(),
             user: username,
-            content: { chat: currentInput.trim() },
+            content: { chat: unescapeCommand(currentInput.trim()) },
             attachments: uploadedAttachments,
           },
         }
@@ -2286,6 +2333,10 @@ export default function Chat() {
                     key={cmd.name}
                     className={`command-suggestion-item ${index === selectedCommandIndex ? 'selected' : ''}`}
                     onClick={() => {
+                      if (cmd.skill || cmd.name === '/skills') {
+                        insertSuggestion(cmd)
+                        return
+                      }
                       const command = cmd.name.slice(1) // Remove leading /
                       const message: WebSocketMessage = {
                         timestamp: new Date().toISOString(),
@@ -2348,11 +2399,7 @@ export default function Chat() {
                   } else if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
                     e.preventDefault()
                     const selected = filteredCommands[selectedCommandIndex]
-                    if (selected) {
-                      setInput(selected.name)
-                      currentInputRef.current = selected.name
-                      setShowCommandSuggestions(false)
-                    }
+                    if (selected) insertSuggestion(selected)
                   } else if (e.key === 'Escape') {
                     setShowCommandSuggestions(false)
                   }
@@ -2387,6 +2434,7 @@ export default function Chat() {
                 {recordingState === 'idle' ? (
                   <MarkdownEditor
                     key={clearKey}
+                    autoFocus={focusComposer}
                     value={input}
                     onChange={handleEditorChange}
                     onAttach={handleAttachClick}

@@ -7,10 +7,11 @@ use teloxide::Bot;
 use teloxide::{ApiError, RequestError};
 use teloxide::prelude::*;
 use teloxide::types::{
-    AllowedUpdate, ChatAction, InputFile, MaybeAnonymousUser, MessageId, MessageReactionUpdated,
+    AllowedUpdate, BotCommand, ChatAction, InputFile, MaybeAnonymousUser, MessageId, MessageReactionUpdated,
     ReactionType,
 };
 
+use crate::channels::commands::{self, CommandEntry, CommandSync, PlatformRules};
 use crate::channels::{FatalChannelError, VizierChannel};
 use crate::channels::woken;
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
@@ -31,6 +32,8 @@ pub struct TelegramChannelReader {
     token: String,
     agent_id: String,
     deps: VizierDependencies,
+    /// The bot's command menu, and the agent's skills for unmentioned `/<skill>` in groups.
+    commands: std::sync::Arc<CommandSync>,
     /// The next update to ask for. Kept across restarts of `run`, so a restart doesn't ask
     /// Telegram again for updates already handled.
     offset: AtomicI64,
@@ -39,12 +42,18 @@ pub struct TelegramChannelReader {
 impl TelegramChannelReader {
     pub fn new(agent_id: String, token: String, deps: VizierDependencies) -> Self {
         let bot = Bot::new(token.clone());
+        let commands = std::sync::Arc::new(CommandSync::new(
+            agent_id.clone(),
+            &deps.config.workspace,
+            telegram_rules(),
+        ));
 
         Self {
             bot,
             token,
             agent_id,
             deps,
+            commands,
             offset: AtomicI64::new(0),
         }
     }
@@ -53,6 +62,21 @@ impl TelegramChannelReader {
 #[async_trait::async_trait]
 impl VizierChannel for TelegramChannelReader {
     async fn run(&self) -> Result<()> {
+        // The command menu: set now, then kept in step with the skills (spec 021). A failure
+        // is only logged; a bad token already ends the run through `get_updates`.
+        let _commands = commands::watch(self.commands.clone(), {
+            let bot = self.bot.clone();
+            move |entries: Vec<CommandEntry>| {
+                let bot = bot.clone();
+                async move {
+                    let menu = entries
+                        .into_iter()
+                        .map(|entry| BotCommand::new(entry.name, entry.description));
+                    bot.set_my_commands(menu).await?;
+                    Ok(())
+                }
+            }
+        });
 
         let _woken = woken::watch(
             &self.deps.transport,
@@ -282,12 +306,12 @@ impl TelegramChannelReader {
 
         let transport = self.deps.transport.clone();
 
-        if text.starts_with("/ping") {
+        if is_command(&text, "ping", &bot_username) {
             let _ = self.bot.send_message(chat_id, "Pong!").await?;
             return Ok(());
         }
 
-        if text.starts_with("/thinking") {
+        if is_command(&text, "thinking", &bot_username) {
             let mut state = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await {
                 serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
                     active_topic: None,
@@ -308,7 +332,7 @@ impl TelegramChannelReader {
             return Ok(());
         }
 
-        if text.starts_with("/tool_calls") {
+        if is_command(&text, "tool_calls", &bot_username) {
             let mut state = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await {
                 serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
                     active_topic: None,
@@ -329,7 +353,7 @@ impl TelegramChannelReader {
             return Ok(());
         }
 
-        if text.starts_with("/new") {
+        if is_command(&text, "new", &bot_username) {
             let topic_id = nanoid::nanoid!(10);
             let _ = self
                 .deps
@@ -354,7 +378,7 @@ impl TelegramChannelReader {
             return Ok(());
         }
 
-        if text.starts_with("/session") {
+        if is_command(&text, "session", &bot_username) {
             let parts: Vec<&str> = text.split_whitespace().collect();
             if parts.len() > 1 {
                 let raw_topic_id = parts[1];
@@ -431,7 +455,7 @@ impl TelegramChannelReader {
             return Ok(());
         }
 
-        if text.starts_with("/abort") {
+        if is_command(&text, "abort", &bot_username) {
             let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
             let _ = transport
                 .send_request(
@@ -457,7 +481,7 @@ impl TelegramChannelReader {
             return Ok(());
         }
 
-        if text.starts_with("/checkpoint") {
+        if is_command(&text, "checkpoint", &bot_username) {
             let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
             let (response_tx, response_rx) = flume::unbounded();
             let _ = transport
@@ -524,7 +548,7 @@ impl TelegramChannelReader {
             return Ok(());
         }
 
-        if text.starts_with("/lobotomy") {
+        if is_command(&text, "lobotomy", &bot_username) {
             let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
             let (response_tx, response_rx) = flume::unbounded();
             let _ = transport
@@ -591,7 +615,15 @@ impl TelegramChannelReader {
             return Ok(());
         }
 
-        let should_respond = is_mention || text.starts_with(&format!("/{}", bot_username)) || is_dm;
+        // `/<bot_username> …`, the bot's name as a whole first word.
+        let by_name = text
+            .strip_prefix(&format!("/{}", bot_username))
+            .filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace));
+        let addressed = is_mention || by_name.is_some() || is_dm;
+        // `/<skill> …` naming one of this agent's skills runs without a mention (spec 021).
+        // `/skills` and unknown names still need one, so several bots in a group do not all
+        // answer slash text meant for one of them.
+        let should_respond = addressed || self.commands.names_skill(&text);
 
         let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
 
@@ -601,9 +633,7 @@ impl TelegramChannelReader {
                     .trim()
                     .to_string()
             } else {
-                text.replace(&format!("/{}", bot_username), "")
-                    .trim()
-                    .to_string()
+                by_name.unwrap_or(&text).trim().to_string()
             };
             (cleaned.clone(), VizierRequestContent::Chat(cleaned))
         } else {
@@ -933,9 +963,55 @@ fn reaction_diff(old: &[ReactionType], new: &[ReactionType]) -> (Vec<String>, Ve
     (removed, added)
 }
 
+/// Menu commands: names of 1–32 `a-z0-9_`, descriptions up to 256 characters, at most 100.
+/// `-` cannot appear, so a skill shows with `_` (`/release_notes`), which resolves back to it.
+fn telegram_rules() -> PlatformRules {
+    PlatformRules {
+        name_ok: |name| {
+            commands::name_ok(name, |c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        },
+        convert: |name| name.to_lowercase().replace('-', "_"),
+        max_commands: 100,
+        max_description: 256,
+        builtins: vec![
+            CommandEntry::new("ping", "a simple ping"),
+            CommandEntry::new("new", "create fresh new session"),
+            CommandEntry::new("session", "list or select session"),
+            CommandEntry::new("abort", "abort current thinking"),
+            CommandEntry::new("checkpoint", "save checkpoint with handover summary"),
+            CommandEntry::new("lobotomy", "save checkpoint without handover (clean break)"),
+            CommandEntry::new("thinking", "toggle showing thinking output"),
+            CommandEntry::new("tool_calls", "toggle showing tool call details"),
+        ],
+    }
+}
+
+/// The message is the built-in command `name`: its whole first word, with an `@bot` suffix
+/// only when it names this bot. A prefix is not enough, or `/newsletter` would be `/new`.
+fn is_command(text: &str, name: &str, bot_username: &str) -> bool {
+    let first = text.split_whitespace().next().unwrap_or("");
+    let Some(command) = first.strip_prefix('/') else {
+        return false;
+    };
+    match command.split_once('@') {
+        Some((command, bot)) => command == name && bot.eq_ignore_ascii_case(bot_username),
+        None => command == name,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn built_in_commands_match_the_whole_word() {
+        assert!(is_command("/new", "new", "mybot"));
+        assert!(is_command("/session abc", "session", "mybot"));
+        assert!(is_command("/abort@MyBot", "abort", "mybot"));
+        assert!(!is_command("/abort@otherbot", "abort", "mybot"));
+        assert!(!is_command("/newsletter", "new", "mybot"));
+        assert!(!is_command("hello /new", "new", "mybot"));
+    }
 
     fn emoji(e: &str) -> ReactionType {
         ReactionType::Emoji { emoji: e.to_string() }

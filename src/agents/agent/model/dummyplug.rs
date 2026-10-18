@@ -588,7 +588,7 @@ mod tests {
     fn command_text_ignores_the_injected_context_block() {
         use crate::agents::agent::system_prompt::context::{context_md, with_context};
 
-        let message = with_context(user_message("tools"), context_md(&[], &[], None));
+        let message = with_context(user_message("tools"), context_md(&[], &[], None, None));
         assert_eq!(command_text(&message), "tools");
     }
 
@@ -598,7 +598,7 @@ mod tests {
     async fn context_replies_with_the_context_block() {
         use crate::agents::agent::system_prompt::context::{context_md, with_context};
 
-        let message = with_context(user_message("context"), context_md(&[], &[], Some("- x")));
+        let message = with_context(user_message("context"), context_md(&[], &[], None, Some("- x")));
         let text = reply_text(message, vec![]).await;
         assert!(text.starts_with(CONTEXT_HEADER), "{text}");
         assert!(text.contains("## Reactions"), "{text}");

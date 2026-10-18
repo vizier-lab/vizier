@@ -12,7 +12,7 @@ use crate::{
         state::HTTPState,
     },
     schema::Skill,
-    skill::SkillManager,
+    skill::{SkillManager, invocation},
     storage::agent::AgentStorage,
 };
 
@@ -59,9 +59,17 @@ impl From<Skill> for SkillResponse {
     }
 }
 
+/// A skill a person can invoke by name on the agent (spec 021): no content.
+#[derive(Debug, Serialize, Clone)]
+pub struct AvailableSkill {
+    pub name: String,
+    pub description: String,
+}
+
 pub fn agent_skills() -> Router<HTTPState> {
     Router::new()
         .route("/", get(list_agent_skills).post(create_agent_skill))
+        .route("/available", get(list_available_skills))
         .route("/{slug}", get(get_agent_skill).put(update_agent_skill).delete(delete_agent_skill))
 }
 
@@ -90,6 +98,39 @@ async fn list_agent_skills(
     let responses: Vec<SkillResponse> = skills.into_iter().map(SkillResponse::from).collect();
 
     api_response(StatusCode::OK, responses)
+}
+
+/// Every skill the agent can use, its own and the global ones, for the composer's `/`
+/// suggestions. Unlike `GET /`, which lists only the agent's own skills.
+async fn list_available_skills(
+    State(state): State<HTTPState>,
+    Path(agent_id): Path<String>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> Response<Vec<AvailableSkill>> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
+    let workspace = &state.config.workspace;
+    let skills = match invocation::available(
+        &SkillManager::for_agent(workspace, &agent_id),
+        &SkillManager::new(workspace),
+    ) {
+        Ok(skills) => skills,
+        Err(_) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, "Failed to list skills".into()),
+    };
+    let available = skills
+        .into_iter()
+        .map(|skill| AvailableSkill { name: skill.name, description: skill.description })
+        .collect();
+
+    api_response(StatusCode::OK, available)
 }
 
 async fn create_agent_skill(

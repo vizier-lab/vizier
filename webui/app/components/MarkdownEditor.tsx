@@ -28,6 +28,8 @@ interface MarkdownEditorProps {
   className?: string
   onAttach?: () => void
   hideToolbar?: boolean
+  // Focus the editor, caret at the end, when it mounts.
+  autoFocus?: boolean
 }
 
 export default function MarkdownEditor({
@@ -38,6 +40,7 @@ export default function MarkdownEditor({
   className,
   onAttach,
   hideToolbar = false,
+  autoFocus = false,
 }: MarkdownEditorProps) {
   const editorRef = useRef<MDXEditorMethods>(null)
 
@@ -97,6 +100,7 @@ export default function MarkdownEditor({
         placeholder={placeholder ?? 'Type something...'}
         readOnly={disabled}
         plugins={plugins}
+        autoFocus={autoFocus ? { defaultSelection: 'rootEnd' } : false}
       />
     </div>
   )

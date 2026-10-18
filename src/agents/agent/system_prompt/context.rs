@@ -16,11 +16,15 @@ pub const CONTEXT_HEADER: &str = "# Context\n";
 /// system prompts and replayed history stay byte-identical across requests and remain
 /// cacheable by the provider. Time is rounded to the minute for the same reason.
 ///
+/// `invoked` is the skill the person named with `/<skill>` (spec 021). Its whole content goes
+/// here, first after the time, rather than into a system prompt, for the same caching reason.
+///
 /// `reactions` is the list from `reaction_digest`. Reactions change after the fact, which is
 /// exactly why they live here and not on the replayed assistant messages they are about.
 pub fn context_md(
     memory: &[MemoryPassageResult],
     skills: &[Skill],
+    invoked: Option<&Skill>,
     reactions: Option<&str>,
 ) -> String {
     let utc_now = Utc::now();
@@ -31,6 +35,10 @@ pub fn context_md(
         utc_now.format("%A, %Y-%m-%d %H:%M UTC"),
         local_now.format("%A, %Y-%m-%d %H:%M %:z"),
     )];
+
+    if let Some(skill) = invoked {
+        sections.push(render_invoked_skill(skill));
+    }
 
     if let Some(list) = reactions {
         sections.push(render_reaction_section(list));
@@ -81,6 +89,12 @@ pub fn context_md(
         ));
     }
 
+    // The invoked skill is already above in full; listing it again as a maybe would only
+    // invite a redundant `use_skill`.
+    let skills: Vec<&Skill> = skills
+        .iter()
+        .filter(|skill| invoked.is_none_or(|invoked| invoked.name != skill.name))
+        .collect();
     if !skills.is_empty() {
         let summarize_skills = skills
             .iter()
@@ -96,6 +110,30 @@ pub fn context_md(
     }
 
     format!("{CONTEXT_HEADER}{}", sections.join("\n\n"))
+}
+
+fn render_invoked_skill(skill: &Skill) -> String {
+    let mut section = format!(
+        "## Invoked Skill\nThe person invoked this skill by name. Follow it for this message.\n\n\
+         **{}**: {}\n\n{}",
+        skill.name,
+        skill.description,
+        skill.content.trim()
+    );
+    if !skill.resources.is_empty() {
+        let resources = skill
+            .resources
+            .iter()
+            .map(|path| format!("- {path}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        section.push_str(&format!(
+            "\n\nResources in this skill (load one with `read_skill_resource(slug=\"{}\", \
+             path=\"…\")`):\n{}",
+            skill.name, resources
+        ));
+    }
+    section
 }
 
 /// Prepend `context` as the first text block of a user message. Non-user messages are returned
@@ -153,7 +191,7 @@ mod tests {
 
     #[test]
     fn the_context_header_is_the_first_line_so_consumers_can_strip_the_block() {
-        let rendered = context_md(&[], &[], None);
+        let rendered = context_md(&[], &[], None, None);
         assert!(rendered.starts_with(CONTEXT_HEADER));
         assert!(rendered.contains("## Time"), "time is always present");
         assert!(!rendered.contains("## Reactions"), "omitted when nothing was reacted to");
@@ -175,7 +213,7 @@ mod tests {
             score: 0.9,
             truncated: false,
         };
-        let rendered = context_md(&[passage], &[], Some("- your reply 1 message ago"));
+        let rendered = context_md(&[passage], &[], None, Some("- your reply 1 message ago"));
         let time = rendered.find("## Time").unwrap();
         let reactions = rendered.find("## Reactions").unwrap();
         let memories = rendered.find("## Possibly Related Memories").unwrap();
@@ -190,5 +228,36 @@ mod tests {
             },
             other => panic!("a user message must stay a user message: {other:?}"),
         }
+    }
+
+    fn skill(name: &str) -> Skill {
+        Skill {
+            name: name.into(),
+            agent_id: None,
+            author: "test".into(),
+            description: format!("{name} description"),
+            content: format!("{name} instructions"),
+            keywords: vec![],
+            version: 1,
+            resources: vec!["template.md".into()],
+        }
+    }
+
+    /// Spec 021: the invoked skill comes first after the time, in full, and is not offered
+    /// again as a recommendation.
+    #[test]
+    fn an_invoked_skill_is_rendered_in_full_and_not_recommended_again() {
+        let invoked = skill("release-notes");
+        let rendered = context_md(&[], &[skill("release-notes"), skill("standup")], Some(&invoked), None);
+
+        let time = rendered.find("## Time").unwrap();
+        let section = rendered.find("## Invoked Skill").unwrap();
+        let related = rendered.find("## Possibly Related Skills").unwrap();
+        assert!(time < section && section < related, "{rendered}");
+        assert!(rendered.contains("**release-notes**: release-notes description"));
+        assert!(rendered.contains("release-notes instructions"));
+        assert!(rendered.contains("- template.md"));
+        assert!(rendered.contains("- **standup**"));
+        assert!(!rendered.contains("- **release-notes**"), "{rendered}");
     }
 }

@@ -6,9 +6,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use twilight_gateway::{CloseFrame, Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
 use twilight_http::Client;
-use twilight_model::application::command::{Command, CommandType};
+use twilight_model::application::command::{
+    Command, CommandOptionChoice, CommandOptionChoiceValue, CommandType,
+};
 use twilight_model::application::interaction::application_command::CommandOptionValue;
-use twilight_model::application::interaction::{Interaction, InteractionData};
+use twilight_model::application::interaction::{Interaction, InteractionData, InteractionType};
 use twilight_model::channel::Message;
 use twilight_model::channel::message::EmojiReactionType;
 use twilight_model::gateway::CloseCode;
@@ -20,6 +22,7 @@ use twilight_model::id::marker::{ApplicationMarker, ChannelMarker, MessageMarker
 use twilight_util::builder::InteractionResponseDataBuilder;
 use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 
+use crate::channels::commands::{self, CommandEntry, CommandOption, CommandSync, PlatformRules};
 use crate::channels::{FatalChannelError, VizierChannel};
 use crate::channels::woken;
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
@@ -77,6 +80,12 @@ impl VizierChannel for DiscordChannelReader {
             deps: self.deps.clone(),
             http,
             bot: OnceLock::new(),
+            application_id: OnceLock::new(),
+            commands: Arc::new(CommandSync::new(
+                self.agent_id.clone(),
+                &self.deps.config.workspace,
+                discord_rules(),
+            )),
         });
 
         let events = EventTypeFlags::READY
@@ -103,6 +112,16 @@ impl VizierChannel for DiscordChannelReader {
                 }
             },
         );
+
+        // Keeps the bot's slash commands in step with the agent's skills (spec 021). It sends
+        // nothing until `ready()` has learned the application id.
+        let _commands = commands::watch(handler.commands.clone(), {
+            let handler = handler.clone();
+            move |entries| {
+                let handler = handler.clone();
+                async move { handler.register_commands(entries).await }
+            }
+        });
 
         loop {
             tokio::select! {
@@ -190,6 +209,8 @@ struct Handler {
     deps: VizierDependencies,
     http: Arc<Client>,
     bot: OnceLock<BotIdentity>,
+    application_id: OnceLock<Id<ApplicationMarker>>,
+    commands: Arc<CommandSync>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -201,23 +222,69 @@ struct ChannelState {
     show_tool_calls: bool,
 }
 
-fn slash_commands() -> Vec<Command> {
-    let command = |name: &str, description: &str| {
-        CommandBuilder::new(name, description, CommandType::ChatInput)
-    };
-
+fn builtin_commands() -> Vec<CommandEntry> {
     vec![
-        command("ping", "a simple ping").build(),
-        command("new", "create fresh new session").build(),
-        command("session", "list or select session")
-            .option(StringBuilder::new("topic_id", "switch to the topic if not empty"))
-            .build(),
-        command("abort", "abort current thinking").build(),
-        command("checkpoint", "save checkpoint with handover summary").build(),
-        command("lobotomy", "save checkpoint without handover (clean break)").build(),
-        command("thinking", "toggle showing thinking output").build(),
-        command("tool_calls", "toggle showing tool call details").build(),
+        CommandEntry::new("ping", "a simple ping"),
+        CommandEntry::new("help", "what I can do"),
+        CommandEntry::new("new", "create fresh new session"),
+        CommandEntry::new("session", "list or select session")
+            .option(CommandOption::text("topic_id", "switch to the topic if not empty")),
+        CommandEntry::new("abort", "abort current thinking"),
+        CommandEntry::new("checkpoint", "save checkpoint with handover summary"),
+        CommandEntry::new("lobotomy", "save checkpoint without handover (clean break)"),
+        CommandEntry::new("thinking", "toggle showing thinking output"),
+        CommandEntry::new("tool_calls", "toggle showing tool call details"),
     ]
+}
+
+/// Global commands: names of 1–32 `a-z0-9_-`, descriptions up to 100 characters, at most
+/// 100 commands. Skills are lower-cased; one that still does not fit is run with `/skill`.
+fn discord_rules() -> PlatformRules {
+    PlatformRules {
+        name_ok: |name| {
+            commands::name_ok(name, |c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-'
+            })
+        },
+        convert: str::to_lowercase,
+        max_commands: 100,
+        max_description: 100,
+        builtins: builtin_commands(),
+    }
+}
+
+fn slash_command(entry: &CommandEntry) -> Command {
+    let mut command = CommandBuilder::new(&entry.name, &entry.description, CommandType::ChatInput);
+    for option in &entry.options {
+        command = command.option(
+            StringBuilder::new(&option.name, &option.description)
+                .required(option.required)
+                .autocomplete(option.autocomplete),
+        );
+    }
+    command.build()
+}
+
+/// The string value of a command option, `""` when absent.
+fn option_text<'a>(options: &'a [twilight_model::application::interaction::application_command::CommandDataOption], name: &str) -> &'a str {
+    options
+        .iter()
+        .find_map(|opt| match &opt.value {
+            CommandOptionValue::String(value) if opt.name == name => Some(value.as_str()),
+            CommandOptionValue::Focused(value, _) if opt.name == name => Some(value.as_str()),
+            _ => None,
+        })
+        .unwrap_or("")
+}
+
+/// The chat text a skill command stands for, which the agent resolves like typed text.
+fn skill_command_text(command: &str, options: &[twilight_model::application::interaction::application_command::CommandDataOption]) -> String {
+    let input = option_text(options, "input").trim();
+    let head = match command {
+        "skill" => format!("/skill {}", option_text(options, "name").trim()),
+        other => format!("/{other}"),
+    };
+    if input.is_empty() { head } else { format!("{head} {input}") }
 }
 
 fn error_kind_label(kind: &crate::schema::ErrorKind) -> &'static str {
@@ -253,15 +320,26 @@ impl Handler {
             name: ready.user.name.clone(),
         });
 
-        let commands = slash_commands();
-        if let Err(err) = self
-            .http
-            .interaction(ready.application.id)
+        let _ = self.application_id.set(ready.application.id);
+        // `Ready` repeats on every full reconnect; the sync sends only when the list changed.
+        self.commands
+            .sync(|entries| self.register_commands(entries))
+            .await;
+    }
+
+    /// Replace the bot's global slash commands. Refused until `ready()` knows the
+    /// application id, so the first tick of the re-sync before then is not recorded as sent.
+    async fn register_commands(&self, entries: Vec<CommandEntry>) -> Result<()> {
+        let Some(application_id) = self.application_id.get() else {
+            return Err(anyhow!("not connected yet"));
+        };
+        let commands: Vec<Command> = entries.iter().map(slash_command).collect();
+        self.http
+            .interaction(*application_id)
             .set_global_commands(&commands)
             .await
-        {
-            tracing::error!("failed to register discord slash commands: {:?}", err);
-        }
+            .map_err(|err| anyhow!("{err:?}"))?;
+        Ok(())
     }
 
     async fn respond(&self, interaction: &Interaction, content: impl Into<String>) {
@@ -284,6 +362,10 @@ impl Handler {
         let Some(InteractionData::ApplicationCommand(data)) = &interaction.data else {
             return;
         };
+        if interaction.kind == InteractionType::ApplicationCommandAutocomplete {
+            self.autocomplete(&interaction, &data.options).await;
+            return;
+        }
         let Some(channel_id) = interaction.channel.as_ref().map(|channel| channel.id) else {
             return;
         };
@@ -381,6 +463,11 @@ If I am halucinating, feel free to `/lobotomy` me
 • `/abort` — Abort current thinking
 • `/new` — Create new session
 • `/session` — List or switch sessions
+
+**Skills:**
+• `/skills` — List the skills you can run
+• `/<skill> [input]` — Run a skill (each one is in the command list)
+• `/skill <name> [input]` — Run any skill by name
                             "#,
                 )
                 .await;
@@ -446,7 +533,125 @@ If I am halucinating, feel free to `/lobotomy` me
                     .await;
             }
 
-            _ => {}
+            // Any other command is `/skill`, `/skills` or one skill's own command.
+            command => {
+                let text = skill_command_text(command, &data.options);
+                self.run_skill_command(&interaction, channel, text).await;
+            }
+        }
+    }
+
+    /// Suggest skills for `/skill name:` as the person types (Discord shows up to 25).
+    async fn autocomplete(
+        &self,
+        interaction: &Interaction,
+        options: &[twilight_model::application::interaction::application_command::CommandDataOption],
+    ) {
+        let typed = option_text(options, "name").to_lowercase();
+        let skills = self.commands.skills().unwrap_or_default();
+        let (mut starts, contains): (Vec<_>, Vec<_>) = skills
+            .iter()
+            .filter(|skill| skill.name.to_lowercase().contains(&typed))
+            .partition(|skill| skill.name.to_lowercase().starts_with(&typed));
+        starts.extend(contains);
+        let choices = starts
+            .into_iter()
+            .take(25)
+            .filter(|skill| skill.name.chars().count() <= 100)
+            .map(|skill| CommandOptionChoice {
+                name: skill.name.clone(),
+                name_localizations: None,
+                value: CommandOptionChoiceValue::String(skill.name.clone()),
+            });
+        let response = InteractionResponse {
+            kind: InteractionResponseType::ApplicationCommandAutocompleteResult,
+            data: Some(InteractionResponseDataBuilder::new().choices(choices).build()),
+        };
+        if let Err(err) = self
+            .http
+            .interaction(interaction.application_id)
+            .create_response(interaction.id, &interaction.token, &response)
+            .await
+        {
+            tracing::debug!("failed to answer discord autocomplete: {:?}", err);
+        }
+    }
+
+    /// A skill picked from the command list: sent as the chat text it stands for, so the
+    /// agent resolves it exactly as it would typed text, and the reply posted like any turn.
+    async fn run_skill_command(&self, interaction: &Interaction, channel: VizierChannelId, text: String) {
+        let deferred = InteractionResponse {
+            kind: InteractionResponseType::DeferredChannelMessageWithSource,
+            data: None,
+        };
+        if let Err(err) = self
+            .http
+            .interaction(interaction.application_id)
+            .create_response(interaction.id, &interaction.token, &deferred)
+            .await
+        {
+            tracing::error!("failed to respond to discord interaction: {:?}", err);
+            return;
+        }
+        let Some(channel_id) = interaction.channel.as_ref().map(|channel| channel.id) else {
+            return;
+        };
+
+        let ChannelState { active_topic, show_thinking, show_tool_calls } = self.load_state(&channel).await;
+        let session = VizierSession(self.agent_id.clone(), channel, active_topic);
+        let user = match interaction.author() {
+            Some(author) => format!(
+                "@{} (DiscordId: {})",
+                author.global_name.as_deref().unwrap_or(&author.name),
+                author.id
+            ),
+            None => "unknown".to_string(),
+        };
+        let request = VizierRequest {
+            timestamp: Utc::now(),
+            user,
+            content: VizierRequestContent::Chat(text.clone()),
+            metadata: json!({
+                "sent_at": Utc::now().to_string(),
+                "is_reply_message": false,
+                "discord_channel_id": channel_id.to_string(),
+                "is_dm": interaction.guild_id.is_none(),
+                "via": "slash_command",
+            }),
+            ..Default::default()
+        };
+        let renderer = TurnRenderer {
+            http: self.http.clone(),
+            file_manager: self.deps.file_manager.clone(),
+            storage: self.deps.storage.clone(),
+            agent_id: self.agent_id.clone(),
+            channel_id,
+            show_thinking,
+            show_tool_calls,
+        };
+
+        let (response_tx, response_rx) = flume::unbounded();
+        if let Err(err) = self
+            .deps
+            .transport
+            .send_request(session, request, Some(response_tx))
+            .await
+        {
+            tracing::error!("{}", err);
+        } else {
+            renderer.render(response_rx).await;
+        }
+
+        // Replaces Discord's "thinking…" with what was run, once the reply is posted.
+        let echo = format!("`{text}`");
+        if let Err(err) = self
+            .http
+            .interaction(interaction.application_id)
+            .update_response(&interaction.token)
+            .content(Some(&echo))
+            .await
+        {
+            tracing::debug!("failed to finish discord interaction: {:?}", err);
         }
     }
 
@@ -729,7 +934,8 @@ If I am halucinating, feel free to `/lobotomy` me
                 (mention.id, name)
             })
             .collect();
-        let content = render_mentions(&msg.content, &mentions, bot);
+        // `@bot /release-notes x`: the agent must see the command first to resolve it.
+        let content = render_mentions(&command_text(&msg.content, bot.user_id), &mentions, bot);
 
         let request_content = if !is_mention && !is_dm {
             VizierRequestContent::SilentRead(content)
@@ -1017,6 +1223,23 @@ fn is_text_abort(content: &str, bot_id: Id<UserMarker>) -> bool {
     text.trim().eq_ignore_ascii_case("/abort")
 }
 
+/// The message with a leading mention of the bot removed when what follows is a slash
+/// command; otherwise unchanged.
+fn command_text(content: &str, bot_id: Id<UserMarker>) -> String {
+    let trimmed = content.trim_start();
+    let rest = trimmed
+        .strip_prefix(&format!("<@{}>", bot_id))
+        .or_else(|| trimmed.strip_prefix(&format!("<@!{}>", bot_id)));
+    match rest {
+        Some(rest)
+            if crate::skill::invocation::parse(rest) != crate::skill::invocation::Parsed::Plain =>
+        {
+            rest.trim().to_string()
+        }
+        _ => content.to_string(),
+    }
+}
+
 fn render_mentions(content: &str, mentions: &[(Id<UserMarker>, &str)], bot: &BotIdentity) -> String {
     let mut content = content.to_string();
     let bot_mention = (bot.user_id, bot.name.as_str());
@@ -1045,6 +1268,31 @@ mod tests {
         assert!(is_text_abort("<@!42>/abort", bot));
         assert!(!is_text_abort("/abort the plan", bot));
         assert!(!is_text_abort("<@7> /abort", bot));
+    }
+
+    #[test]
+    fn a_leading_mention_is_dropped_before_a_command() {
+        let bot = Id::new(42);
+        assert_eq!(command_text("<@42> /release-notes v1", bot), "/release-notes v1");
+        assert_eq!(command_text("<@!42>/skills", bot), "/skills");
+        assert_eq!(command_text("<@42> hello", bot), "<@42> hello");
+        assert_eq!(command_text("<@7> /x", bot), "<@7> /x");
+    }
+
+    #[test]
+    fn skill_commands_become_the_text_they_stand_for() {
+        use twilight_model::application::interaction::application_command::CommandDataOption;
+        let option = |name: &str, value: &str| CommandDataOption {
+            name: name.into(),
+            value: CommandOptionValue::String(value.into()),
+        };
+        assert_eq!(skill_command_text("release-notes", &[option("input", " v1.2 ")]), "/release-notes v1.2");
+        assert_eq!(skill_command_text("release-notes", &[]), "/release-notes");
+        assert_eq!(
+            skill_command_text("skill", &[option("name", "standup"), option("input", "today")]),
+            "/skill standup today"
+        );
+        assert_eq!(skill_command_text("skills", &[]), "/skills");
     }
 
     #[test]

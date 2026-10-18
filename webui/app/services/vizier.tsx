@@ -1039,6 +1039,15 @@ export const listAgentSkills = async (agentId: string) => {
   return res.data
 }
 
+// The skills a person can invoke by name on the agent (its own and the global ones), for
+// the composer's `/` suggestions.
+export const listAvailableSkills = async (
+  agentId: string
+): Promise<{ name: string; description: string }[]> => {
+  const res = await apiClient.get(`/agents/${agentId}/skills/available`)
+  return res.data?.data ?? []
+}
+
 export const getAgentSkill = async (agentId: string, slug: string) => {
   const res = await apiClient.get(`/agents/${agentId}/skills/${slug}`)
   return res.data

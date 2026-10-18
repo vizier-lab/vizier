@@ -16,6 +16,7 @@ use crate::{
             VizierSessionHooks, debug::DebugHook, handover::HandoverSenderHook,
             thinking::ThinkingHook, tool_calls::ToolCallsHook,
         },
+        skill::VizierSkills,
         tools::ToolContext,
     },
     dependencies::VizierDependencies,
@@ -25,8 +26,10 @@ use crate::{
         VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
         VizierSessionDetail, dream_journal::DreamJournalEntry, history_entries_to_messages,
     },
+    skill::invocation::{self, Invoked, Parsed},
     storage::{
-        VizierStorage, dream_journal::DreamJournalStorage, history::HistoryStorage,
+        VizierStorage, dream_journal::DreamJournalStorage,
+        history::{HistoryStorage, save_with_busy_retry},
         memory::MemoryStorage, scratch::ScratchStorage, session::SessionStorage,
     },
     transport::{DreamCommand, VizierRequestEnvelope},
@@ -1110,7 +1113,7 @@ pub async fn handle_request(
     agent: Arc<VizierAgent>,
     agent_config: AgentConfig,
     session: VizierSession,
-    request: VizierRequest,
+    mut request: VizierRequest,
     response_tx: Option<flume::Sender<VizierResponse>>,
     storage: Arc<VizierStorage>,
     indexer: Option<crate::indexer::VizierIndexer>,
@@ -1138,7 +1141,41 @@ pub async fn handle_request(
         | VizierRequestContent::AudioChat(_, _)
         | VizierRequestContent::BackgroundReport(_)
         | VizierRequestContent::ClientEvent(_) => {
+            // `/skills`, `/<skill> …` and `/skill <name> …` (spec 021): every channel delivers
+            // them as `Chat`, so this is the one place they are told apart.
+            let mut invoked = None;
+            if let VizierRequestContent::Chat(text) = &request.content {
+                match invocation::parse(text) {
+                    Parsed::Plain => {}
+                    Parsed::List => {
+                        let reply = list_reply(agent.skills());
+                        return answer_directly(&storage, &session, request, &response_tx, reply).await;
+                    }
+                    Parsed::Invoke { name, input } => match agent.skills().resolve(&name) {
+                        Ok(Some(skill)) => {
+                            set_metadata(&mut request.metadata, "invoked_skill", skill.name.clone().into());
+                            invoked = Some(Invoked { skill, input });
+                        }
+                        Ok(None) => {
+                            let reply = not_found_reply(agent.skills(), &name);
+                            return answer_directly(&storage, &session, request, &response_tx, reply).await;
+                        }
+                        Err(e) => {
+                            tracing::warn!("could not read skills to resolve /{name}, answering as chat: {e}");
+                        }
+                    },
+                }
+            }
+
             let prompt = match &request.content {
+                // Retrieval looks for what the skill is being asked to do, not the command.
+                VizierRequestContent::Chat(_) if let Some(invoked) = &invoked => {
+                    if invoked.input.is_empty() {
+                        invoked.skill.description.clone()
+                    } else {
+                        invoked.input.clone()
+                    }
+                }
                 VizierRequestContent::Chat(p) => p.clone(),
                 VizierRequestContent::ClientEvent(event) => event.text.clone(),
                 VizierRequestContent::AudioChat(_, Some(text)) => text.clone(),
@@ -1179,6 +1216,7 @@ pub async fn handle_request(
                     history,
                     memory,
                     skills,
+                    invoked,
                     Some(hooks),
                     checkpoint_handover,
                 )
@@ -1227,6 +1265,7 @@ pub async fn handle_request(
                     history,
                     memory,
                     skills,
+                    None,
                     Some(hooks),
                     checkpoint_handover,
                 )
@@ -1357,6 +1396,7 @@ pub async fn handle_request(
                             vec![],
                             vec![],
                             vec![],
+                            None,
                             Some(hooks),
                             None,
                         )
@@ -1374,6 +1414,73 @@ pub async fn handle_request(
     }
 
     Ok(())
+}
+
+/// Answer a message without a model turn (`/skills`, an unknown skill): the request and the
+/// reply are saved like any exchange, so they show on reload, and no usage is recorded.
+async fn answer_directly(
+    storage: &Arc<VizierStorage>,
+    session: &VizierSession,
+    mut request: VizierRequest,
+    response_tx: &Option<flume::Sender<VizierResponse>>,
+    content: String,
+) -> Result<()> {
+    request.attachments.clear();
+    if let Err(e) = save_with_busy_retry(storage, session, SessionHistoryContent::Request(request)).await {
+        tracing::error!(agent_id = %session.0, "failed to save session history: {e}");
+    }
+    let mut response = VizierResponse {
+        timestamp: Utc::now(),
+        content: VizierResponseContent::Message { content, stats: None },
+        ..Default::default()
+    };
+    match save_with_busy_retry(storage, session, SessionHistoryContent::Response(response.clone())).await {
+        Ok(uid) => response.history_uid = Some(uid),
+        Err(e) => tracing::error!(agent_id = %session.0, "failed to save session history: {e}"),
+    }
+    if let Some(tx) = response_tx {
+        let _ = tx.send_async(response).await;
+    }
+    Ok(())
+}
+
+fn set_metadata(metadata: &mut serde_json::Value, key: &str, value: serde_json::Value) {
+    if !metadata.is_object() {
+        *metadata = serde_json::json!({});
+    }
+    if let Some(object) = metadata.as_object_mut() {
+        object.insert(key.to_string(), value);
+    }
+}
+
+/// The `/skills` reply.
+fn list_reply(skills: &VizierSkills) -> String {
+    match skills.available() {
+        Ok(skills) if skills.is_empty() => "No skills are available to this agent.".to_string(),
+        Ok(skills) => skills
+            .iter()
+            .map(|skill| format!("`/{}` — {}", skill.name, skill.description))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Err(e) => format!("Could not read the skills: {e}"),
+    }
+}
+
+/// The reply to `/<name>` when no skill has that name.
+fn not_found_reply(skills: &VizierSkills, name: &str) -> String {
+    let known: Vec<String> = skills
+        .available()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|skill| skill.name)
+        .collect();
+    let mut reply = format!("No skill named \"{name}\".");
+    let close = crate::sandbox::docs::did_you_mean(name, &known);
+    if !close.is_empty() {
+        reply.push_str(&format!(" Did you mean: {}?", close.join(", ")));
+    }
+    reply.push_str(" Send /skills to list them.");
+    reply
 }
 
 async fn save_dream_entry(
@@ -1544,7 +1651,7 @@ mod auto_context_tests {
 
     #[test]
     fn the_memory_section_is_omitted_entirely_when_nothing_qualified() {
-        let rendered = crate::agents::agent::system_prompt::context::context_md(&[], &[], None);
+        let rendered = crate::agents::agent::system_prompt::context::context_md(&[], &[], None, None);
         assert!(
             !rendered.contains("Related Memories"),
             "FR-026: no empty heading, no weakly-related filler: {rendered}"
@@ -1554,7 +1661,7 @@ mod auto_context_tests {
     #[test]
     fn a_rendered_passage_carries_its_address_and_is_labelled_as_data() {
         let rendered =
-            crate::agents::agent::system_prompt::context::context_md(&[passage("Deploys go out Tuesday.")], &[], None);
+            crate::agents::agent::system_prompt::context::context_md(&[passage("Deploys go out Tuesday.")], &[], None, None);
         assert!(rendered.contains(r#"<memory bundle="work" path="ops/deploys" passage="3">"#));
         assert!(rendered.contains("Deploys go out Tuesday."));
         assert!(rendered.contains("</memory>"));
@@ -1572,7 +1679,7 @@ mod auto_context_tests {
     fn a_merged_passage_renders_its_ordinal_range() {
         let mut p = passage("merged text");
         p.ordinal_end = 5;
-        let rendered = crate::agents::agent::system_prompt::context::context_md(&[p], &[], None);
+        let rendered = crate::agents::agent::system_prompt::context::context_md(&[p], &[], None, None);
         assert!(rendered.contains(r#"passage="3-5""#), "{rendered}");
     }
 
@@ -1580,7 +1687,7 @@ mod auto_context_tests {
     fn a_truncated_passage_says_so_in_the_rendered_block() {
         let mut p = passage("cut short");
         p.truncated = true;
-        let rendered = crate::agents::agent::system_prompt::context::context_md(&[p], &[], None);
+        let rendered = crate::agents::agent::system_prompt::context::context_md(&[p], &[], None, None);
         assert!(rendered.contains(r#"truncated="true""#), "{rendered}");
         assert!(rendered.contains("truncated to fit"), "{rendered}");
     }

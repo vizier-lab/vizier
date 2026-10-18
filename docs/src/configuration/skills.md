@@ -62,6 +62,27 @@ There is no keyword matching or auto-injection. Instead:
 
 Agents without an embedding/indexer get no recommendations but can still `list_skills`.
 
+## Invoking a skill
+
+A person can run a skill by name instead of waiting for the agent to pick it. The message is ordinary chat on every channel:
+
+| Message | What happens |
+|---------|--------------|
+| `/<skill> [input]` | Runs the skill. `input` is the message the agent works on; with none, the agent works from the conversation. |
+| `/skill <name> [input]` | The same, for a skill whose name is also a platform command. |
+| `/skills` | Lists the skills you can run, one per line with its description. |
+| `/<unknown>` | `No skill named "<unknown>".`, up to three close names, and a `/skills` hint. |
+
+Names match case-insensitively, and `_` and `-` count as the same (`/release_notes` runs `release-notes`). An agent skill wins over a global one with the same name. Built-in commands (`/abort`, `/checkpoint`, `/new`, …) always win; reach a skill with such a name through `/skill <name>`. `skill` and `skills` cannot be skill names for invocation. Text that only starts with a slash, such as `/etc/hosts`, stays ordinary chat.
+
+The agent receives the skill's full instructions (and its resource list) in an `## Invoked Skill` section of the message's `# Context` block, and the input as the message itself. History keeps what the person typed, with `invoked_skill` in the request metadata. `/skills` and the not-found reply are answered directly: no model call, no usage recorded. Installing or removing a skill takes effect on the next message, with no restart.
+
+**WebUI.** Typing `/` in the composer suggests the built-in commands and every skill the agent can run (from `GET /api/v1/agents/{agent_id}/skills/available`). Picking a skill puts `/<name> ` in the composer for you to add input.
+
+**Discord.** Each skill is a slash command of the agent's bot, with an optional `input` option, so it runs from the command picker without a mention, and the picker shows which bot it belongs to. The bot also has `/skill` (the `name` option autocompletes the agent's skills) and `/skills`. A skill gets no command of its own, and is logged once, if its lower-cased name is not 1–32 characters of `a-z`, `0-9`, `-` or `_`, if it equals a built-in command, or once the bot has Discord's limit of 100 commands; `/skill` still runs it. The commands are re-checked every 60 seconds and re-registered only when the list changed. Typed text works in a DM or after a mention (`@bot /release-notes v1.2`).
+
+**Telegram.** The bot's command menu lists the built-ins, `/skill`, `/skills` and the skills, with `-` shown as `_` (Telegram allows only `a-z`, `0-9` and `_`), re-checked every 60 seconds. In a group, `/<skill> …` or `/skill <skill> …` runs without a mention when it names one of the agent's skills; `/skills` and unknown names need the bot addressed (`/skills@mybot` or a mention), so several bots in one group do not all answer. The bot only sees group messages that are not addressed to it when its privacy mode is off (BotFather → `/setprivacy`).
+
 ## Agent tools
 
 | Tool | Description |
@@ -96,6 +117,8 @@ Global:
 | `GET` | `/api/v1/skills/{slug}/resources/{path}` | — |
 
 Agent-scoped: the same `GET|POST` / `GET|PUT|DELETE` under `/api/v1/agents/{agent_id}/skills[/ {slug}]`.
+
+`GET /api/v1/agents/{agent_id}/skills/available` returns `[{ "name", "description" }]` for every skill the agent can run (its own and the global ones, agent winning, sorted by name), without content.
 
 ### CLI
 

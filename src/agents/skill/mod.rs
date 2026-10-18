@@ -4,7 +4,7 @@ use crate::{
     dependencies::VizierDependencies,
     indexer::VizierIndexer,
     schema::{AgentId, Skill},
-    skill::SkillManager,
+    skill::{invocation, SkillManager},
 };
 
 const GLOBAL_SCOPE: &str = "global";
@@ -73,6 +73,16 @@ impl VizierSkills {
             return Ok(Some(skill.content));
         }
         Ok(None)
+    }
+
+    /// The skill a person invoked by name (`/name`), agent's own before global.
+    pub fn resolve(&self, name: &str) -> crate::Result<Option<Skill>> {
+        invocation::resolve(&self.agent_manager, &self.global_manager, name)
+    }
+
+    /// Every skill a person can invoke on this agent, sorted by name.
+    pub fn available(&self) -> crate::Result<Vec<Skill>> {
+        invocation::available(&self.agent_manager, &self.global_manager)
     }
 
     pub fn get_skill_manager(&self) -> &SkillManager {

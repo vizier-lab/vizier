@@ -8,6 +8,7 @@ use crate::{
     dependencies::VizierDependencies,
 };
 
+pub mod commands;
 pub mod connections;
 pub mod discord;
 pub mod http;
