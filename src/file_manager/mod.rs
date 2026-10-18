@@ -71,6 +71,19 @@ impl FileManager {
         Ok((filename, content))
     }
 
+    /// Absolute filesystem path of an uploaded file, as stored on disk.
+    pub async fn path_of(&self, file_id: &str) -> Result<PathBuf> {
+        let dir = PathBuf::from(&self.workspace).join("uploads").join(file_id);
+        let mut entries = tokio::fs::read_dir(&dir)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to read uploads dir {}: {}", dir.display(), e))?;
+        let entry = entries
+            .next_entry()
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("No file found in {}", dir.display()))?;
+        Ok(tokio::fs::canonicalize(entry.path()).await?)
+    }
+
     pub async fn resolve(&self, attachment: &VizierAttachment) -> Result<(String, Vec<u8>)> {
         match &attachment.content {
             VizierAttachmentContent::Local(path) => {

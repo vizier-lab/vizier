@@ -84,6 +84,8 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "execute_skill_resource" => "▶️ Executing skill resource:".to_string(),
         "list_session_files" => "📂 Listing session files".to_string(),
         "read_document_file" => "📄 Reading document:".to_string(),
+        "get_session_file_path" => "📍 Getting file path:".to_string(),
+        "load_path_as_session_file" => "📥 Loading file:".to_string(),
         "send_attachment" => "📎 Sending attachment:".to_string(),
         "fetch" => "🌐 Fetching:".to_string(),
         "http_client" => format!("🔗 HTTP {}:", args["method"].as_str().unwrap_or("GET")),

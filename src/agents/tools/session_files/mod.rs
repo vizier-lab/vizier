@@ -17,6 +17,9 @@ use crate::{
 mod send_attachment;
 pub use send_attachment::SendAttachment;
 
+mod paths;
+pub use paths::{GetSessionFilePath, LoadPathAsSessionFile};
+
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ListSessionFilesArgs {}
 

@@ -24,7 +24,7 @@ scheduler::{
 },
         read_image::ReadImageFile,
         scratchpad::{AppendTmp, ReadTmp, WriteTmp},
-        session_files::{ListSessionFiles, ReadDocumentFile, SendAttachment},
+        session_files::{GetSessionFilePath, ListSessionFiles, LoadPathAsSessionFile, ReadDocumentFile, SendAttachment},
         shell::ShellExec,
         skill::{
             CreateSkill, DeleteSkill, ExecuteSkillResource, GetSkillDetails, ListSkills,
@@ -958,6 +958,14 @@ impl BaseTools {
             .tool(SendAttachment {
                 storage: deps.storage.clone(),
             })
+            .tool(GetSessionFilePath {
+                storage: deps.storage.clone(),
+                file_manager: deps.file_manager.clone(),
+            })
+            .tool(LoadPathAsSessionFile {
+                storage: deps.storage.clone(),
+                file_manager: deps.file_manager.clone(),
+            })
             .tool(WriteTmp {
                 storage: deps.storage.clone(),
             })
@@ -1240,6 +1248,8 @@ mod tests {
             entry::<ReadDocumentFile>(),
             entry::<ReadImageFile>(),
             entry::<SendAttachment>(),
+            entry::<GetSessionFilePath>(),
+            entry::<LoadPathAsSessionFile>(),
             entry::<WriteTmp>(),
             entry::<AppendTmp>(),
             entry::<ReadTmp>(),
@@ -1314,6 +1324,8 @@ mod tests {
             ("read_document_file", Files),
             ("read_image_file", Files),
             ("send_attachment", Files),
+            ("get_session_file_path", Files),
+            ("load_path_as_session_file", Files),
             ("write_tmp", Scratchpad),
             ("append_tmp", Scratchpad),
             ("read_tmp", Scratchpad),
