@@ -3,19 +3,30 @@ use std::sync::Arc;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::agents::skill::{deindex_skill, global_scope};
+use crate::agents::skill::{deindex_skill, global_scope, scope_for_agent};
 use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::indexer::VizierIndexer;
+use crate::schema::AgentId;
 use crate::skill::SkillManager;
 
-pub struct DeleteSkill(SkillManager, Option<VizierIndexer>);
+pub struct DeleteSkill {
+    agent_id: AgentId,
+    agent_manager: SkillManager,
+    global_manager: SkillManager,
+    indexer: Option<VizierIndexer>,
+}
 
 impl DeleteSkill {
-    pub fn new(deps: VizierDependencies, indexer: Option<VizierIndexer>) -> Self {
+    pub fn new(agent_id: AgentId, deps: VizierDependencies, indexer: Option<VizierIndexer>) -> Self {
         let workspace = deps.config.workspace.clone();
-        Self(SkillManager::new(&workspace), indexer)
+        Self {
+            agent_manager: SkillManager::for_agent(&workspace, &agent_id),
+            global_manager: SkillManager::new(&workspace),
+            agent_id,
+            indexer,
+        }
     }
 }
 
@@ -43,16 +54,26 @@ impl VizierTool for DeleteSkill {
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        let deleted = self.0.delete_skill(&args.slug)
-            .map_err(|e| VizierError(e.to_string()))?;
-
-        if deleted {
-            if let Some(indexer) = &self.1 {
-                let _ = deindex_skill(indexer, global_scope(), &args.slug).await;
-            }
-            Ok(format!("Skill '{}' deleted", args.slug))
+        // The agent's own skill first, as `create_skill` writes there; then a global one.
+        let scope = if self
+            .agent_manager
+            .delete_skill(&args.slug)
+            .map_err(|e| VizierError(e.to_string()))?
+        {
+            scope_for_agent(&self.agent_id)
+        } else if self
+            .global_manager
+            .delete_skill(&args.slug)
+            .map_err(|e| VizierError(e.to_string()))?
+        {
+            global_scope().to_string()
         } else {
-            Err(VizierError(format!("Skill '{}' not found", args.slug)))
+            return Err(VizierError(format!("Skill '{}' not found", args.slug)));
+        };
+
+        if let Some(indexer) = &self.indexer {
+            let _ = deindex_skill(indexer, &scope, &args.slug).await;
         }
+        Ok(format!("Skill '{}' deleted", args.slug))
     }
 }

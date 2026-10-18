@@ -4,19 +4,30 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{SkillResource, write_resource_files};
-use crate::agents::skill::{global_scope, index_skill};
+use crate::agents::skill::{global_scope, index_skill, scope_for_agent};
 use crate::agents::tools::{ToolCategory, ToolContext, VizierTool};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::indexer::VizierIndexer;
+use crate::schema::AgentId;
 use crate::skill::SkillManager;
 
-pub struct UpdateSkill(SkillManager, Option<VizierIndexer>);
+pub struct UpdateSkill {
+    agent_id: AgentId,
+    agent_manager: SkillManager,
+    global_manager: SkillManager,
+    indexer: Option<VizierIndexer>,
+}
 
 impl UpdateSkill {
-    pub fn new(deps: VizierDependencies, indexer: Option<VizierIndexer>) -> Self {
+    pub fn new(agent_id: AgentId, deps: VizierDependencies, indexer: Option<VizierIndexer>) -> Self {
         let workspace = deps.config.workspace.clone();
-        Self(SkillManager::new(&workspace), indexer)
+        Self {
+            agent_manager: SkillManager::for_agent(&workspace, &agent_id),
+            global_manager: SkillManager::new(&workspace),
+            agent_id,
+            indexer,
+        }
     }
 }
 
@@ -56,9 +67,22 @@ impl VizierTool for UpdateSkill {
     }
 
     async fn call(&self, args: Self::Input, _ctx: &ToolContext) -> Result<Self::Output, VizierError> {
-        let mut skill = self.0.get_skill(&args.slug)
+        // The agent's own skill first, as `create_skill` writes there; then a global one.
+        let (manager, scope, mut skill) = match self
+            .agent_manager
+            .get_skill(&args.slug)
             .map_err(|e| VizierError(e.to_string()))?
-            .ok_or_else(|| VizierError(format!("Skill '{}' not found", args.slug)))?;
+        {
+            Some(skill) => (&self.agent_manager, scope_for_agent(&self.agent_id), skill),
+            None => {
+                let skill = self
+                    .global_manager
+                    .get_skill(&args.slug)
+                    .map_err(|e| VizierError(e.to_string()))?
+                    .ok_or_else(|| VizierError(format!("Skill '{}' not found", args.slug)))?;
+                (&self.global_manager, global_scope().to_string(), skill)
+            }
+        };
 
         if let Some(content) = args.content {
             skill.content = content;
@@ -71,18 +95,18 @@ impl VizierTool for UpdateSkill {
         }
 
         if let Some(resources) = &args.resources {
-            let skill_dir = self.0.skill_dir(&args.slug);
+            let skill_dir = manager.skill_dir(&args.slug);
             write_resource_files(&skill_dir, resources)?;
             skill.resources = resources.iter().map(|r| r.path.clone()).collect();
         }
 
         skill.version += 1;
 
-        self.0.save_skill(&skill)
+        manager.save_skill(&skill)
             .map_err(|e| VizierError(e.to_string()))?;
 
-        if let Some(indexer) = &self.1 {
-            let _ = index_skill(indexer, global_scope(), &skill).await;
+        if let Some(indexer) = &self.indexer {
+            let _ = index_skill(indexer, &scope, &skill).await;
         }
 
         Ok(format!("Skill '{}' updated to version {}", skill.name, skill.version))
