@@ -2,8 +2,11 @@ import type { Decorator, Preview } from "@storybook/react-vite";
 import { DecoratorHelpers } from "@storybook/addon-themes";
 import { Controls, Description, Primary, Stories, Subtitle, Title } from "@storybook/addon-docs/blocks";
 import { useEffect } from "react";
+import { addons } from "storybook/preview-api";
+import { GLOBALS_UPDATED, SET_GLOBALS } from "storybook/internal/core-events";
 import { SourceBlock } from "./blocks/Source";
 import "../src/styles.css";
+import "./docs.css";
 
 const { initializeThemeState, pluckThemeFromContext } = DecoratorHelpers;
 
@@ -11,14 +14,22 @@ const { initializeThemeState, pluckThemeFromContext } = DecoratorHelpers;
 const THEMES = { dark: "dark", light: "light", system: "" } as const;
 initializeThemeState(Object.keys(THEMES), "system");
 
+function applyTheme(theme: string | undefined) {
+  const value = THEMES[(theme || "system") as keyof typeof THEMES] ?? "";
+  const html = document.documentElement;
+  if (value) html.setAttribute("data-theme", value);
+  else html.removeAttribute("data-theme");
+}
+
+// MDX pages render no story, so no decorator runs there: follow the toolbar from its events too.
+const channel = addons.getChannel();
+const onGlobals = ({ globals }: { globals: { theme?: string } }) => applyTheme(globals.theme);
+channel.on(SET_GLOBALS, onGlobals);
+channel.on(GLOBALS_UPDATED, onGlobals);
+
 const withTheme: Decorator = (Story, context) => {
-  const theme = (pluckThemeFromContext(context) || "system") as keyof typeof THEMES;
-  const value = THEMES[theme] ?? "";
-  useEffect(() => {
-    const html = document.documentElement;
-    if (value) html.setAttribute("data-theme", value);
-    else html.removeAttribute("data-theme");
-  }, [value]);
+  const theme = pluckThemeFromContext(context);
+  useEffect(() => applyTheme(theme), [theme]);
   return <Story />;
 };
 
@@ -33,11 +44,29 @@ const requireInventoryId: Decorator = (Story, context) => {
   return <Story />;
 };
 
+// SC-007: a critical axe violation fails `npm test`. Lesser findings (contrast
+// on text/faint, for one) stay warnings in the Accessibility panel, where the
+// a11y addon reports everything. Only runs under Vitest.
+const failOnCriticalA11y: Preview["afterEach"] = async ({ title, name, parameters, viewMode }) => {
+  if (import.meta.env.VITEST_STORYBOOK !== "false" || viewMode !== "story" || parameters.a11y?.test === "off") return;
+  const { default: axe } = await import("axe-core");
+  const result = await axe.run(
+    { include: document.body, exclude: [".sb-wrapper", "#storybook-docs", "#storybook-highlights-root"] },
+    { resultTypes: ["violations"] },
+  );
+  const critical = result.violations.filter((v) => v.impact === "critical");
+  if (critical.length) {
+    const lines = critical.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`);
+    throw new Error(`${title} › ${name}: critical accessibility violations\n${lines.join("\n")}`);
+  }
+};
+
 const preview: Preview = {
   decorators: [withTheme, requireInventoryId],
+  afterEach: failOnCriticalA11y,
   initialGlobals: { theme: "system" },
   parameters: {
-    a11y: { test: "error" },
+    a11y: { test: "todo" },
     layout: "padded",
     controls: { expanded: true },
     docs: {

@@ -1,0 +1,23 @@
+import { Meta, Story } from "@storybook/addon-docs/blocks";
+import * as ColourStories from "./Colour.stories";
+import { colorTokens } from "../tokens/tokens";
+
+<Meta of={ColourStories} />
+
+# Colour
+
+{colorTokens.length} tokens, each with a Dark and a Light value. Both themes are
+shown side by side here; everywhere else, the toolbar switch decides.
+
+Components use them through Tailwind: `bg-surface`, `text-muted`,
+`border-border-strong`. Text tokens drop the `text-` prefix (`text-fg`,
+`text-soft`, `text-muted`, `text-faint`). The raw variable is `var(--vz-…)`.
+
+Colour carries meaning, so keep to it:
+
+- **Emerald (`live`)** means live, and only that. Always pair it with a word.
+- **Lapis (`rank`)** marks owner, superadmin and grants.
+- **Ember (`failed`)** is failure and destructive actions; **amber (`retrying`)** is backing off and limits.
+- **`text/faint`** is under 4.5:1 on the ground in both themes: timestamps, column labels and hints only.
+
+<Story of={ColourStories.Tokens} />

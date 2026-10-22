@@ -76,6 +76,24 @@
   --font-sans: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
 
+  /* DotLoader: three dots fading in turn. */
+  --animate-dot-wave: dot-wave 1.2s ease-in-out infinite;
+  @keyframes dot-wave {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 1; }
+  }
+  /* Skeleton shimmer and indeterminate progress. */
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  @keyframes shimmer {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  --animate-indeterminate: indeterminate 1.4s ease-in-out infinite;
+  @keyframes indeterminate {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(250%); }
+  }
+
   --shadow-*: initial;
   --shadow-popover: var(--vz-shadow-popover);
   --shadow-dialog: var(--vz-shadow-dialog);

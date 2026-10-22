@@ -1,0 +1,18 @@
+import { Meta, Unstyled } from "@storybook/addon-docs/blocks";
+import { TypeSpecimens } from "./blocks";
+
+<Meta title="Foundations/Type" />
+
+# Type
+
+Two families, both bundled (no CDN): **Schibsted Grotesk** for the interface
+and **JetBrains Mono** for code, ids, timestamps and labels.
+
+Each style is one utility, `type-<role>`, which sets family, size, weight,
+line height and tracking together. Don't combine it with separate font
+utilities. `-para` styles have a fixed line height for multi-line text;
+`type-label` is set in capitals by the component (`uppercase`).
+
+<Unstyled>
+  <TypeSpecimens />
+</Unstyled>
