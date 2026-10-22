@@ -34,8 +34,31 @@
 
 | ID | Item | Count | Notes |
 |----|------|-------|-------|
-| I1 | `Icon/*` on the Design System page | 45 | 24-unit grid, 1.7 stroke at 17 px, coloured by Tone. ⚑ The **descriptions** of `Icon/download` and `Icon/upload` are swapped ("upload icon" / "download icon"). |
-| I2 | Glyphs drawn on screens with no `Icon/*` component | ~22 candidates | globe (MCP remote server), terminal (MCP local command), folder (bundle), zoom-in, zoom-out, expand/fullscreen (graph fit, interactive page, editor), play, stop (Composer Stop, Stopped note), arrow-up (Send), arrow-down (Jump to latest), arrow-right (→ links), smile (add reaction), slash (Composer skills), bold, italic, code, link, list-bullet, list-numbered, outline, table, menu/hamburger (Mobile), layers (Mobile jobs), check-circle (empty state), cancelled (⊘ on a cancelled job). Some may be existing icons drawn by hand (Send, for instance); the build checks each against I1 first. |
+| I1 | `Icon/*` on the Design System page | 47 | Hand-drawn Lucide lookalikes. Every one has a Lucide counterpart (checked side by side on 2026-10-23), so the library uses **Lucide** (`lucide-react`), not the drawn vectors. Mapping below. ⚑ The **descriptions** of `Icon/download` and `Icon/upload` are swapped ("upload icon" / "download icon"). |
+| I2 | Glyphs drawn on screens with no `Icon/*` component | 25 | All exist in Lucide: `globe` (MCP remote), `square-terminal` (MCP local), `folder` (bundle), `zoom-in`, `zoom-out`, `maximize` (graph fit, interactive page, editor fullscreen), `play`, `square` (stop), `arrow-down` (jump to latest), `arrow-right` (→ links), `smile-plus` (add reaction), `slash` (composer skills), `bold`, `italic`, `code`, `link`, `list`, `list-ordered`, `list-tree` (outline), `table`, `menu` (Mobile), `layers` (Mobile jobs), `circle-check` (empty state), `ban` (cancelled job), `arrow-up-right` (external in run links). |
+
+**Icon source: Lucide.** The library's `Icon` uses `lucide-react`, at 17 px with an absolute 1.7 px stroke (`absoluteStrokeWidth`), which is the design's weight. Semantic names stay the FigCraft names (`core`, `memory`, `dreams`, …), each mapped to one Lucide icon in a single table. In FigCraft, each `Icon/*` component's vector is replaced by the real Lucide SVG (same component, same id, so every instance stays linked), and the I2 glyphs are added the same way. The design and the code then draw identical icons.
+
+| Design name | Lucide | Design name | Lucide | Design name | Lucide |
+|---|---|---|---|---|---|
+| addons | `puzzle` | file | `file` | refresh | `rotate-cw` ⚑ |
+| agent | `bot` | history | `history` | restore | `rotate-ccw` |
+| alert | `triangle-alert` | home | `house` | save | `save` |
+| attach | `paperclip` | info | `info` | search | `search` |
+| channels | `hash` | key | `key` | send | `arrow-up` ⚑ |
+| chat | `message-square` | lock | `lock` | settings | `settings` |
+| check | `check` | logout | `log-out` | shield | `shield` |
+| chevron-down/left/right | `chevron-*` | mcp | `plug` | sidebar-collapse | `panel-left-close` |
+| close | `x` | memory | `book` | skills | `wand-sparkles` |
+| cloud | `cloud` | mic | `mic` | tasks | `circle-check-big` |
+| copy | `copy` | more | `ellipsis` | theme | `contrast` |
+| core | `circle-dot` | pencil | `pencil` | trash | `trash-2` |
+| download | `arrow-down-to-line` ⚑ | plus | `plus` | unlink | `unlink` |
+| dreams | `moon` | | | upload | `arrow-up-to-line` ⚑ |
+| external | `external-link` | | | usage | `trending-up` |
+| | | | | user / users | `user` / `users` |
+
+⚑ marks where the drawn icon differs from Lucide's same-named icon, and the closer Lucide icon was picked: `send` is drawn as an up arrow (Lucide `send` is a paper plane); `refresh` is one arc; `download`/`upload` have a baseline. `addons` (puzzle) and `key` are simplified in the drawing; Lucide's versions replace them.
 
 ## B. Brand
 
@@ -288,7 +311,7 @@ These exist in today's WebUI but nowhere in the FigCraft file, so they are **not
 | Group | Count |
 |-------|-------|
 | Foundations | 6 groups (37 colour, 18 size, 7 tone modes, 24 type, 2 elevation, 2 fonts) |
-| Icons | 45 + ~22 to confirm |
+| Icons | 47 + 25, all from Lucide |
 | Brand | 4 |
 | Design System components | 60 (38 carry screen extensions or usage notes) |
 | Extracted from screens | 75 |
@@ -296,7 +319,7 @@ These exist in today's WebUI but nowhere in the FigCraft file, so they are **not
 
 ## Review decisions (2026-10-23)
 
-1. **Extracted components go back into FigCraft.** Every X component and every confirmed I2 glyph is added to the FigCraft Design System page as a component, through the FigCraft MCP, before it is built. FigCraft and the catalogue stay one-to-one, and each catalogue entry points at a Design System component.
+1. **Extracted components go back into FigCraft.** Every X component is added to the FigCraft Design System page as a component, through the FigCraft MCP, before it is built. Icons are the real Lucide SVGs (see *I. Icons*). FigCraft and the catalogue stay one-to-one, and each catalogue entry points at a Design System component.
 2. **Merges accepted, where they fit.**
    - One **Picker** (X41) behind the agent, conversation, topic and bundle pickers.
    - One **SortSelect** (X12) with a bordered look and a text look.

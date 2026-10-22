@@ -35,11 +35,12 @@ Versions were checked against the npm registry on 2026-10-23.
 - **Rationale**: Pure CSS: no provider component and no flash on load. This matches how FigCraft frames switch the `Color` mode.
 - **Alternatives**: A `ThemeProvider` context (React state for what CSS already does). The `dark:` class strategy (Tailwind-specific, and couples consumers to a class name).
 
-## R6. Tone and icons
+## R6. Tone and icons: Lucide
 
-- **Decision**: Icons are exported from FigCraft as SVG through the MCP `export` command (one call per `Icon/*` id) into `src/icons/svg/<name>.svg`. `scripts/build-icons.mjs` turns them into one generated `src/icons/index.tsx`: each icon is a component drawing `stroke="currentColor"`, sized 17 by default, with a `tone` prop. The `Tone` modes become `.tone-muted`, `.tone-default`, … utilities that set `color` to the aliased token (F3). Before export, each I2 glyph (drawn on screens, not a component yet) is first checked against the 45 existing icons, then made an `Icon/*` component in FigCraft, so the file stays the icons' source.
-- **Rationale**: `currentColor` is exactly what FigCraft's `Tone` variable does (an icon instance takes its mode's colour). A small generator replaces SVGR and its Babel chain, because every icon is the same shape: stroke paths on a 24 grid.
-- **Alternatives**: SVGR (a dependency for 70 near-identical files). An icon font (worse for accessibility and stroke rendering). Inline SVG strings (no tree-shaking or typing).
+- **Decision**: Icons come from **Lucide** through `lucide-react` (1.61.0). One table, `src/icons/map.ts`, maps each design name (`core`, `memory`, `dreams`, … plus the 25 screen glyphs) to a Lucide component. `<Icon name tone size>` renders it at 17 px with `strokeWidth={1.7}` and `absoluteStrokeWidth`, so the stroke is 1.7 px at any size, as in FigCraft. `tone` sets `color` through the `.tone-*` classes (F3). Lucide draws with `currentColor`, which is what the FigCraft `Tone` variable does.
+- **FigCraft side**: each `Icon/*` component's vector is swapped for the real Lucide SVG (`file.import` of the SVG, then its vector moved into the existing component), keeping the component and its id, so every instance on every screen updates. The 25 extra glyphs are added as new `Icon/*` components the same way. This happens during the backport phase.
+- **Rationale**: The maintainer asked for the matching existing pack. A side-by-side render on 2026-10-23 showed that all 47 drawn icons are Lucide lookalikes: same grid, round caps and joins, and the same composition, but drawn with straight segments (puzzle, key and refresh are simplified). Using Lucide gives the drawn set's exact intent, fills the 25 gaps without designing anything, keeps future icons free, and tree-shakes per icon. It also removes the SVG export step and the generator script that the hand-drawn set needed.
+- **Alternatives**: Exporting the hand-drawn vectors (keeps their approximations, and 25 more would need drawing). Feather (Lucide's ancestor; unmaintained, missing about 10 of the needed glyphs). Tabler and Phosphor (different shapes; the screens would change). `lucide-static` SVGs plus a generator (an extra script for what `lucide-react` already ships).
 
 ## R7. Fonts are bundled
 

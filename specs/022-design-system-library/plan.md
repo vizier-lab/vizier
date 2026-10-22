@@ -14,9 +14,9 @@ Turn the FigCraft "Celestial Court" design into a React component library in a n
 
 **Language/Version**: TypeScript 5.9 (matching `webui/`); React 19 (peer `^19`)
 
-**Primary Dependencies**: Tailwind CSS 4.3 (`@tailwindcss/vite`); Storybook 10.6 (`@storybook/react-vite`, `addon-docs`, `addon-a11y`, `addon-themes`, `addon-vitest`) plus `storybook-addon-pseudo-states`; Vite 7; `clsx`; `@fontsource-variable/schibsted-grotesk`, `@fontsource-variable/jetbrains-mono`; dev-only `fflate` (token sync), Vitest 5 + `@vitest/browser-playwright` (a11y run)
+**Primary Dependencies**: Tailwind CSS 4.3 (`@tailwindcss/vite`); `lucide-react` 1.61 (icons, R6); Storybook 10.6 (`@storybook/react-vite`, `addon-docs`, `addon-a11y`, `addon-themes`, `addon-vitest`) plus `storybook-addon-pseudo-states`; Vite 7; `clsx`; `@fontsource-variable/schibsted-grotesk`, `@fontsource-variable/jetbrains-mono`; dev-only `fflate` (token sync), Vitest 5 + `@vitest/browser-playwright` (a11y run)
 
-**Storage**: N/A (static library; generated token and icon files are committed)
+**Storage**: N/A (static library; generated token files are committed)
 
 **Testing**: `npm run typecheck`; `npm test` (every story rendered headless with axe, failing on critical violations, R9); `npm run build-storybook` (catalogue builds); a raw-value lint (`npm run lint:tokens`: no arbitrary Tailwind values or hex outside `src/tokens/`, FR-015). End-to-end: **N/A for dummyplug**. Nothing agent-observable changes: no agent loop, tools, sessions, channels or HTTP/WebUI surface (constitution e2e gate). quickstart.md scripts the catalogue review steps instead.
 
@@ -28,7 +28,7 @@ Turn the FigCraft "Celestial Court" design into a React component library in a n
 
 **Constraints**: Offline (bundled fonts, no CDN); no raw colours or sizes outside `src/tokens/` (except brand colours inside ProviderLogo/IntegrationLogo, if the inventory review accepts that); no data fetching in components (FR-017); vizier builds unchanged without the submodule (FR-003)
 
-**Scale/Scope**: About 140 components and 70 icons from the [inventory](inventory.md); 2 themes; each interactive component shown in every state
+**Scale/Scope**: About 140 components and 72 icons from the [inventory](inventory.md); 2 themes; each interactive component shown in every state
 
 ## Constitution Check
 
@@ -66,7 +66,7 @@ specs/022-design-system-library/
 ├── contracts/
 │   ├── component-api.md  # package surface, per-component rules, merged primitives (ListItem, Picker, SortSelect, Status, Icon)
 │   ├── story-metadata.md # titles, parameters.vizier, tags, required stories, design refs
-│   └── scripts.md        # sync, icons, lint:tokens, test, storybook
+│   └── scripts.md        # sync, lint:tokens, test, storybook
 ├── checklists/requirements.md
 └── tasks.md             # Phase 2 (/speckit-tasks)
 ```
@@ -95,14 +95,13 @@ LICENSE                  # MIT
 └── blocks/Source.tsx    # docs block: inventory id, FigCraft source + PNG, replaces
 scripts/
 ├── sync-figcraft.mjs    # .figcraft → src/tokens/{tokens.css,type.css,source.json} (R4)
-├── build-icons.mjs      # src/icons/svg/*.svg → src/icons/index.tsx (R6)
 └── lint-tokens.mjs      # FR-015 raw-value check
 design-refs/             # <inventory id>.png exported from FigCraft at 2× (R8)
 src/
 ├── index.ts             # public exports
 ├── styles.css           # fonts + tokens + type + Tailwind @theme mapping
 ├── tokens/              # generated: tokens.css, type.css, source.json
-├── icons/               # svg/ (exported) + index.tsx (generated) + Icon.tsx (tone, size)
+├── icons/               # map.ts (design name → Lucide) + Icon.tsx (tone, size) (R6)
 ├── brand/               # Mark, Wordmark, Sigil (+ generator), LedBoard
 ├── foundations/*.mdx    # Colour, Type, Size & spacing, Elevation, Tone pages
 └── components/
@@ -115,8 +114,8 @@ src/
 
 1. **Repository & catalogue skeleton**: the `design` repository scaffold, Storybook with themes and a11y running on one placeholder story, submodule added to vizier, contributor docs. Proves US2 and SC-001/SC-006 first.
 2. **Foundations**: run the sync script → tokens, type, tone; fonts; the 5 foundation pages; token lint.
-3. **FigCraft backport (FR-013c)**: add each X component and each confirmed I2 glyph to the FigCraft Design System page through the MCP, generalised from all of its drawn occurrences, with the merges applied (FR-013d). This is done tier by tier, just ahead of the code, rather than all at once, so the design and the code are reviewed together.
-4. **Icons & brand**: export SVGs, generate icons; Mark, Wordmark, Sigil (generation rule), LED board.
+3. **FigCraft backport (FR-013c)**: add each X component to the FigCraft Design System page through the MCP, and swap every `Icon/*` vector for its Lucide SVG (plus the 25 new icons), generalised from all of its drawn occurrences, with the merges applied (FR-013d). This is done tier by tier, just ahead of the code, rather than all at once, so the design and the code are reviewed together.
+4. **Icons & brand**: the Lucide map and `Icon`; Mark, Wordmark, Sigil (generation rule), LED board.
 5. **Components by tier**: T1 → T2 → T3 → T4, following the inventory ids, each with its stories, state grid, source block and design-ref PNG, and tagged `needs-review`.
 6. **Review loop**: the maintainer reviews in the catalogue; findings become issues on `vizier-lab/design`; approval flips the tag (SC-004). The README checklist tracks inventory ids → entries (SC-002) and the final screen sweep (SC-008).
 

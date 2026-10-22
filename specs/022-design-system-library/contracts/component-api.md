@@ -98,7 +98,8 @@ Each state maps to one dot shape (filled, ring, hollow, dashed, spinning) and on
 
 ```ts
 type IconProps = { name: IconName; tone?: ToneMode; size?: number /* 17 */ } & SVGProps<SVGSVGElement>;
-// Per-icon components are also exported: <SearchIcon tone="muted" />
+// Renders the mapped lucide-react icon with strokeWidth 1.7 + absoluteStrokeWidth.
+// IconName is the design vocabulary ("core", "memory", "zoom-in"), not Lucide's names.
 ```
 
 Decorative by default (`aria-hidden`). Pass `title` to make it labelled.

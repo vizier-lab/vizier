@@ -16,13 +16,6 @@ Regenerates the tokens from the FigCraft file (FR-023, FR-024, SC-005).
 - **Fails when**: the file can't be read or isn't a FigCraft zip; a variable has no `codeSyntax.WEB`; two variables share a CSS name; a Color variable is missing a mode value; a Tone alias points at something that isn't a Color variable.
 - **Never**: touches components, or anything outside `src/tokens/`.
 
-## `npm run icons` → `scripts/build-icons.mjs`
-
-- **Input**: `src/icons/svg/*.svg` (exported from FigCraft).
-- **Writes**: `src/icons/index.tsx` (one component per SVG, plus the `IconName` union and a name → component map).
-- **Normalises**: stroke and fill colours to `currentColor`; strips width and height; keeps the `viewBox`.
-- **Fails when**: an SVG has a viewBox other than `0 0 24 24`, or a fill colour that isn't `none`.
-
 ## `npm run lint:tokens` → `scripts/lint-tokens.mjs`
 
 FR-015 check.

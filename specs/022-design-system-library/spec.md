@@ -10,7 +10,7 @@
 
 ## Context
 
-The WebUI redesign ("Celestial Court") lives in the FigCraft file `Vizier.figcraft`. Its **Design System** page is the agreed source of truth: colour tokens in Dark and Light modes, size and spacing tokens, the `Tone` icon-colour modes, the `Type/*` text styles, two elevation styles, 45 `Icon/*` components, the brand mark and wordmark, and about 40 UI components (NavItem, Button, TextField, Notice, TrailCall, Sidebar, SettingsNav, …). Every interactive component has state variants (hover, pressed, disabled, loading, keyboard focus).
+The WebUI redesign ("Celestial Court") lives in the FigCraft file `Vizier.figcraft`. Its **Design System** page is the agreed source of truth: colour tokens in Dark and Light modes, size and spacing tokens, the `Tone` icon-colour modes, the `Type/*` text styles, two elevation styles, 47 `Icon/*` components, the brand mark and wordmark, and about 40 UI components (NavItem, Button, TextField, Notice, TrailCall, Sidebar, SettingsNav, …). Every interactive component has state variants (hover, pressed, disabled, loading, keyboard focus).
 
 Before the WebUI is rewritten, this design is turned into a standalone UI library. The library lives in its own repository, named `design`, and is added to the vizier repository as a git submodule. It ships with an interactive component catalogue (Storybook) so the maintainer can review each component against the FigCraft file before any screen is rebuilt on it.
 
@@ -24,6 +24,7 @@ Before the WebUI is rewritten, this design is turned into a standalone UI librar
 - Q: Should extracted components also be added to the FigCraft Design System page? → A: Yes (FR-013c).
 - Q: Should repeated variants (pickers, sort controls, rows, status dots) be merged? → A: Yes, where possible (FR-013d).
 - Q: Can anything (charts, memory graph, rich-text editor) be cut or deferred? → A: No. Everything in the inventory is needed for the WebUI rewrite.
+- Q: Hand-drawn icons or an existing pack? → A: Use the matching existing pack. The drawn icons are Lucide lookalikes, so the library uses Lucide, and FigCraft's icons are swapped for the real Lucide SVGs (FR-011).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -125,7 +126,7 @@ When the FigCraft Design System page changes, the maintainer can tell which part
 
 **Assets & components**
 
-- **FR-011**: The library MUST provide all 45 `Icon/*` icons at their design size and stroke (17 px, 1.7 stroke), coloured through Tone.
+- **FR-011**: The library MUST provide every icon in the design (the 47 `Icon/*` components plus the glyphs drawn on screens) at the design size and stroke (17 px, 1.7 stroke), coloured through Tone. Icons come from the matching existing pack (Lucide), and the FigCraft `Icon/*` components hold the same Lucide drawings.
 - **FR-012**: The library MUST provide the brand mark (8×8 dot V, Idle/Live states, optional grid) and the star-dot wordmark (Idle/Live), plus the 5×5 agent sigil identicon.
 - **FR-013**: The library MUST provide every non-screen component of the design. That means every component on the FigCraft Design System page, composites included (Sidebar, SettingsNav, TrailCall, …), **and** every reusable element drawn on the screen pages but never made into a Design System component (for example chips, banners, the context meter ring, the memory graph, list/picker rows, empty states, dialogs). Full screens and page layouts are out of scope.
 - **FR-013a**: Before any component is built, an inventory MUST be produced that lists each component, says whether it comes from the Design System page or was extracted from screens, and for extracted ones names the screen frame(s) it appears on. The maintainer reviews this inventory, and it is the scope list for SC-002.
@@ -155,7 +156,7 @@ When the FigCraft Design System page changes, the maintainer can tell which part
 - **Design token**: a named design value (colour, radius, spacing, elevation) with a value per theme where it varies by theme. Named after the FigCraft variable's code syntax.
 - **Text style**: a named typography role (family, size, weight, line height) from `Type/*`.
 - **Tone**: a named icon-colour role that maps to a colour token.
-- **Icon**: one of the 45 glyphs, drawn at a fixed size and stroke and coloured by Tone.
+- **Icon**: a named glyph from the design's vocabulary, drawn by one Lucide icon at a fixed size and stroke and coloured by Tone.
 - **Component**: a reusable UI element with variants (for example Active × Collapsed) and states, linked to its FigCraft component and to the WebUI file it will replace.
 - **Story**: one catalogue entry showing a component, foundation or asset in a given variant, state and theme.
 
