@@ -1,0 +1,34 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Welcome" />
+
+# Vizier design library
+
+This catalogue is the **source of truth** for Vizier's interface: its tokens,
+type, icons, brand pieces and components. The "Celestial Court" design was the
+starting point; from here on, a change to the design is a change to this
+library, reviewed in this catalogue.
+
+## Finding your way
+
+- **Foundations**: colour, type, size and spacing, elevation and tone.
+- **Icons**: every icon in the vocabulary, by its design name.
+- **Brand**: the mark, wordmark, agent sigils and the LED board.
+- **Components**: grouped as the app uses them (Shell, Actions & inputs,
+  Feedback, Surfaces & data, Chat, …).
+
+Use the **theme** switch in the toolbar to see each entry in Dark, Light, or
+System (follows your OS).
+
+## Reviewing
+
+Each component's docs page starts with its **inventory id** and the WebUI file
+it will replace. Every interactive component has a **States** story showing
+hover, pressed and focus side by side, and the **Accessibility** panel lists
+any axe findings.
+
+New entries carry the `needs-review` tag. Filter the sidebar by that tag to
+see what is left. Approving an entry means changing its tag to `approved` in
+its story file, in a commit; changes are requested as issues on
+[vizier-lab/design](https://github.com/vizier-lab/design/issues) that link the
+story.

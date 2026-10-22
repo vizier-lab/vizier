@@ -1,0 +1,230 @@
+/*
+ * Type styles (24) and elevation. Transcribed by hand from the starting
+ * design's Type/* and Elevation/* styles; change them here and nowhere else.
+ *
+ * Each style is a `type-<role>` utility. "auto" line height is `normal`.
+ * `type-label` is set in capitals by the component, not by the style.
+ */
+
+/* Greetings and brand moments. One per screen */
+@utility type-display {
+  font-family: var(--font-sans);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Page titles */
+@utility type-title {
+  font-family: var(--font-sans);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Card, panel and section headings */
+@utility type-heading {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Chat replies and long reading */
+@utility type-prose {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 24px;
+  letter-spacing: 0;
+}
+
+/* Default text, nav items */
+@utility type-body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Multi-line body text */
+@utility type-body-para {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  letter-spacing: 0;
+}
+
+/* Selected nav item, emphasised body */
+@utility type-body-medium {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Agent and item names */
+@utility type-body-strong {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Controls, inputs, table cells */
+@utility type-ui {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Descriptions and captions */
+@utility type-ui-para {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: 0;
+}
+
+/* Buttons, tabs, emphasised controls */
+@utility type-ui-medium {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Notice titles, primary buttons */
+@utility type-ui-strong {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Metadata, helper text */
+@utility type-small {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Multi-line helper text */
+@utility type-small-para {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 18px;
+  letter-spacing: 0;
+}
+
+/* Small buttons, chips */
+@utility type-small-medium {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Small emphasis */
+@utility type-small-strong {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Uppercase section and column labels */
+@utility type-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: normal;
+  letter-spacing: 0.06em;
+}
+
+/* Timestamps, counts, ids */
+@utility type-mono-xs {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Keys and card numbers */
+@utility type-mono-xs-medium {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Tool arguments, model ids, meta lines */
+@utility type-mono-sm {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Tool and function names */
+@utility type-mono-sm-medium {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Inline code, keys, values */
+@utility type-code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+/* Code blocks and diffs */
+@utility type-code-block {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: 0;
+}
+
+/* Skill and file names */
+@utility type-code-medium {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: normal;
+  letter-spacing: 0;
+}
+
+:root {
+  /* Elevation/popover: menus, pickers, toasts */
+  --vz-shadow-popover: 0 12px 32px -8px rgb(0 0 0 / 0.5);
+  /* Elevation/dialog: dialogs and confirmations */
+  --vz-shadow-dialog: 0 20px 48px -12px rgb(0 0 0 / 0.55);
+}

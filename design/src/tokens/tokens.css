@@ -1,0 +1,184 @@
+/*
+ * Vizier design tokens. This file is the only place token values are written.
+ *
+ * Transcribed by hand from the "Celestial Court" starting design (Color, Size
+ * and Tone variables); the catalogue is now the source of truth, so change a
+ * value here and nowhere else.
+ *
+ * Themes (research R5): Light on :root; Dark when the OS prefers it and the
+ * page hasn't forced light, or when <html data-theme="dark">.
+ */
+
+:root {
+  color-scheme: light;
+  --vz-ground: #ffffff; /* bg/ground */
+  --vz-sidebar: #f7f7f8; /* bg/sidebar */
+  --vz-surface: #f4f4f5; /* bg/surface */
+  --vz-raised: #e9e9ec; /* bg/raised */
+  --vz-pressed: #dcdce0; /* bg/pressed */
+
+  --vz-border: #e4e4e7; /* line/border */
+  --vz-border-strong: #d4d4d8; /* line/border-strong */
+  --vz-focus: #3f3f46; /* line/focus */
+  --vz-border-hover: #a1a1aa; /* line/border-hover */
+
+  --vz-unlit: #d4d4da; /* dot/unlit */
+  --vz-dot-off: #e4e4e7; /* dot/off */
+
+  --vz-text-faint: #8a8a94; /* text/faint */
+  --vz-text-muted: #5b5b66; /* text/muted */
+  --vz-text-soft: #3f3f46; /* text/soft */
+  --vz-text: #111114; /* text/default */
+
+  --vz-ink: #111114; /* fill/ink */
+  --vz-ink-hover: #2e2e33; /* fill/ink-hover */
+  --vz-ink-pressed: #45454d; /* fill/ink-pressed */
+
+  --vz-live: #059669; /* state/live */
+  --vz-rank: #5b7be8; /* state/rank */
+  --vz-rank-text: #3651c4; /* state/rank-text */
+  --vz-rank-bg: #e6ebfb; /* state/rank-bg */
+  --vz-failed: #c8371d; /* state/failed */
+  --vz-failed-text: #b4321c; /* state/failed-text */
+  --vz-failed-bg: #fdf1ee; /* state/failed-bg */
+  --vz-failed-line: #f5c9c0; /* state/failed-line */
+  --vz-retrying: #a86a12; /* state/retrying */
+  --vz-retrying-bg: #fbf4e6; /* state/retrying-bg */
+  --vz-retrying-line: #ebd9b0; /* state/retrying-line */
+  --vz-failed-hover: #a92e18; /* state/failed-hover */
+  --vz-failed-pressed: #8f2513; /* state/failed-pressed */
+
+  --vz-graph-edge: #dcdce1; /* data/graph-edge */
+  --vz-graph-edge-strong: #b4b4bc; /* data/graph-edge-strong */
+  --vz-chart-1: #9b87f5; /* data/chart-1 */
+  --vz-chart-2: #a8842f; /* data/chart-2 */
+  --vz-chart-3: #e58fb4; /* data/chart-3 */
+  --vz-chart-4: #6b6b76; /* data/chart-4 */
+  --vz-chart-5: #a1a1aa; /* data/chart-5 */
+
+  --vz-radius-xs: 4px; /* radius/xs */
+  --vz-radius-sm: 6px; /* radius/sm */
+  --vz-radius-md: 8px; /* radius/md */
+  --vz-radius-lg: 10px; /* radius/lg */
+  --vz-radius-xl: 12px; /* radius/xl */
+  --vz-radius-pill: 999px; /* radius/pill */
+  --vz-space-2: 2px; /* space/2 */
+  --vz-space-4: 4px; /* space/4 */
+  --vz-space-6: 6px; /* space/6 */
+  --vz-space-8: 8px; /* space/8 */
+  --vz-space-10: 10px; /* space/10 */
+  --vz-space-12: 12px; /* space/12 */
+  --vz-space-14: 14px; /* space/14 */
+  --vz-space-16: 16px; /* space/16 */
+  --vz-space-20: 20px; /* space/20 */
+  --vz-space-24: 24px; /* space/24 */
+  --vz-space-32: 32px; /* space/32 */
+  --vz-space-48: 48px; /* space/48 */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --vz-ground: #0b0b0c; /* bg/ground */
+    --vz-sidebar: #101012; /* bg/sidebar */
+    --vz-surface: #151518; /* bg/surface */
+    --vz-raised: #1c1c20; /* bg/raised */
+    --vz-pressed: #26262b; /* bg/pressed */
+
+    --vz-border: #242428; /* line/border */
+    --vz-border-strong: #303036; /* line/border-strong */
+    --vz-focus: #d6d6dc; /* line/focus */
+    --vz-border-hover: #45454d; /* line/border-hover */
+
+    --vz-unlit: #3a3a42; /* dot/unlit */
+    --vz-dot-off: #26262b; /* dot/off */
+
+    --vz-text-faint: #6f6f7a; /* text/faint */
+    --vz-text-muted: #a0a0aa; /* text/muted */
+    --vz-text-soft: #d6d6dc; /* text/soft */
+    --vz-text: #ededef; /* text/default */
+
+    --vz-ink: #f2f2f5; /* fill/ink */
+    --vz-ink-hover: #d6d6dc; /* fill/ink-hover */
+    --vz-ink-pressed: #bdbdc5; /* fill/ink-pressed */
+
+    --vz-live: #10b981; /* state/live */
+    --vz-rank: #5b7be8; /* state/rank */
+    --vz-rank-text: #9db1f5; /* state/rank-text */
+    --vz-rank-bg: #1e2540; /* state/rank-bg */
+    --vz-failed: #e5654b; /* state/failed */
+    --vz-failed-text: #f0a394; /* state/failed-text */
+    --vz-failed-bg: #2a1714; /* state/failed-bg */
+    --vz-failed-line: #4a2a26; /* state/failed-line */
+    --vz-retrying: #e2b04a; /* state/retrying */
+    --vz-retrying-bg: #2a2213; /* state/retrying-bg */
+    --vz-retrying-line: #4a3d22; /* state/retrying-line */
+    --vz-failed-hover: #ec7e67; /* state/failed-hover */
+    --vz-failed-pressed: #cc5238; /* state/failed-pressed */
+
+    --vz-graph-edge: #2e2e35; /* data/graph-edge */
+    --vz-graph-edge-strong: #5a5a64; /* data/graph-edge-strong */
+    --vz-chart-1: #9b87f5; /* data/chart-1 */
+    --vz-chart-2: #c9a45c; /* data/chart-2 */
+    --vz-chart-3: #e58fb4; /* data/chart-3 */
+    --vz-chart-4: #8e8e99; /* data/chart-4 */
+    --vz-chart-5: #55555e; /* data/chart-5 */
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --vz-ground: #0b0b0c; /* bg/ground */
+  --vz-sidebar: #101012; /* bg/sidebar */
+  --vz-surface: #151518; /* bg/surface */
+  --vz-raised: #1c1c20; /* bg/raised */
+  --vz-pressed: #26262b; /* bg/pressed */
+
+  --vz-border: #242428; /* line/border */
+  --vz-border-strong: #303036; /* line/border-strong */
+  --vz-focus: #d6d6dc; /* line/focus */
+  --vz-border-hover: #45454d; /* line/border-hover */
+
+  --vz-unlit: #3a3a42; /* dot/unlit */
+  --vz-dot-off: #26262b; /* dot/off */
+
+  --vz-text-faint: #6f6f7a; /* text/faint */
+  --vz-text-muted: #a0a0aa; /* text/muted */
+  --vz-text-soft: #d6d6dc; /* text/soft */
+  --vz-text: #ededef; /* text/default */
+
+  --vz-ink: #f2f2f5; /* fill/ink */
+  --vz-ink-hover: #d6d6dc; /* fill/ink-hover */
+  --vz-ink-pressed: #bdbdc5; /* fill/ink-pressed */
+
+  --vz-live: #10b981; /* state/live */
+  --vz-rank: #5b7be8; /* state/rank */
+  --vz-rank-text: #9db1f5; /* state/rank-text */
+  --vz-rank-bg: #1e2540; /* state/rank-bg */
+  --vz-failed: #e5654b; /* state/failed */
+  --vz-failed-text: #f0a394; /* state/failed-text */
+  --vz-failed-bg: #2a1714; /* state/failed-bg */
+  --vz-failed-line: #4a2a26; /* state/failed-line */
+  --vz-retrying: #e2b04a; /* state/retrying */
+  --vz-retrying-bg: #2a2213; /* state/retrying-bg */
+  --vz-retrying-line: #4a3d22; /* state/retrying-line */
+  --vz-failed-hover: #ec7e67; /* state/failed-hover */
+  --vz-failed-pressed: #cc5238; /* state/failed-pressed */
+
+  --vz-graph-edge: #2e2e35; /* data/graph-edge */
+  --vz-graph-edge-strong: #5a5a64; /* data/graph-edge-strong */
+  --vz-chart-1: #9b87f5; /* data/chart-1 */
+  --vz-chart-2: #c9a45c; /* data/chart-2 */
+  --vz-chart-3: #e58fb4; /* data/chart-3 */
+  --vz-chart-4: #8e8e99; /* data/chart-4 */
+  --vz-chart-5: #55555e; /* data/chart-5 */
+}
+
+/* Tone: the colour of an icon or glyph (currentColor). One class per mode. */
+.tone-muted { color: var(--vz-text-muted); }
+.tone-default { color: var(--vz-text); }
+.tone-faint { color: var(--vz-text-faint); }
+.tone-inverse { color: var(--vz-ground); }
+.tone-failed { color: var(--vz-failed); }
+.tone-live { color: var(--vz-live); }
+.tone-retrying { color: var(--vz-retrying); }

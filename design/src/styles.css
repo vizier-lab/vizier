@@ -1,0 +1,107 @@
+/*
+ * @vizier/design: fonts, tokens, type and the Tailwind theme mapping.
+ * Import once from the app's CSS entry, then point Tailwind at the library:
+ *
+ *   @import "@vizier/design/styles.css";
+ *   @source "../node_modules/@vizier/design/src";
+ */
+@import "@fontsource-variable/schibsted-grotesk";
+@import "@fontsource-variable/jetbrains-mono";
+@import "tailwindcss";
+@import "./tokens/tokens.css";
+@import "./tokens/type.css";
+
+/*
+ * Utilities resolve only to tokens (FR-015). The default Tailwind colours,
+ * radii, font sizes and shadows are switched off, so `bg-red-500` or
+ * `text-sm` simply don't exist here.
+ */
+@theme {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-ground: var(--vz-ground);
+  --color-sidebar: var(--vz-sidebar);
+  --color-surface: var(--vz-surface);
+  --color-raised: var(--vz-raised);
+  --color-pressed: var(--vz-pressed);
+  --color-border: var(--vz-border);
+  --color-border-strong: var(--vz-border-strong);
+  --color-focus: var(--vz-focus);
+  --color-border-hover: var(--vz-border-hover);
+  --color-unlit: var(--vz-unlit);
+  --color-dot-off: var(--vz-dot-off);
+  --color-faint: var(--vz-text-faint);
+  --color-muted: var(--vz-text-muted);
+  --color-soft: var(--vz-text-soft);
+  --color-fg: var(--vz-text);
+  --color-ink: var(--vz-ink);
+  --color-ink-hover: var(--vz-ink-hover);
+  --color-ink-pressed: var(--vz-ink-pressed);
+  --color-live: var(--vz-live);
+  --color-rank: var(--vz-rank);
+  --color-rank-text: var(--vz-rank-text);
+  --color-rank-bg: var(--vz-rank-bg);
+  --color-failed: var(--vz-failed);
+  --color-failed-text: var(--vz-failed-text);
+  --color-failed-bg: var(--vz-failed-bg);
+  --color-failed-line: var(--vz-failed-line);
+  --color-retrying: var(--vz-retrying);
+  --color-retrying-bg: var(--vz-retrying-bg);
+  --color-retrying-line: var(--vz-retrying-line);
+  --color-failed-hover: var(--vz-failed-hover);
+  --color-failed-pressed: var(--vz-failed-pressed);
+  --color-graph-edge: var(--vz-graph-edge);
+  --color-graph-edge-strong: var(--vz-graph-edge-strong);
+  --color-chart-1: var(--vz-chart-1);
+  --color-chart-2: var(--vz-chart-2);
+  --color-chart-3: var(--vz-chart-3);
+  --color-chart-4: var(--vz-chart-4);
+  --color-chart-5: var(--vz-chart-5);
+  --radius-*: initial;
+  --radius-xs: var(--vz-radius-xs);
+  --radius-sm: var(--vz-radius-sm);
+  --radius-md: var(--vz-radius-md);
+  --radius-lg: var(--vz-radius-lg);
+  --radius-xl: var(--vz-radius-xl);
+  --radius-pill: var(--vz-radius-pill);
+
+  /* One spacing unit is 1px, so `h-32` is 32px. Padding, margin and gap
+     must stay on the space scale (2 4 6 8 10 12 14 16 20 24 32 48);
+     lint:tokens checks that. Other numbers are component geometry. */
+  --spacing: 1px;
+
+  --text-*: initial;
+  --font-*: initial;
+  --font-sans: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --shadow-*: initial;
+  --shadow-popover: var(--vz-shadow-popover);
+  --shadow-dialog: var(--vz-shadow-dialog);
+}
+
+@layer base {
+  html {
+    background: var(--vz-ground);
+    color: var(--vz-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background: var(--vz-ground);
+    color: var(--vz-text);
+  }
+
+  /* Keyboard focus: 2px ring at a 2px offset (FR-014). Text entry overrides
+     this with the live colour in its own component. */
+  :focus-visible {
+    outline: var(--vz-space-2) solid var(--vz-focus);
+    outline-offset: var(--vz-space-2);
+  }
+
+  ::selection {
+    background: var(--vz-raised);
+  }
+}
