@@ -21,6 +21,9 @@ Before the WebUI is rewritten, this design is turned into a standalone UI librar
 - Q: Repository owner and visibility? → A: The maintainer created `vizier-lab/design`, which is public.
 - Q: Component scope for the first release? → A: Every non-screen component, including composites, plus components that exist only on screen pages and were never added to the Design System page. These are extracted and included.
 - Q: Where is the catalogue reviewed? → A: Locally for now.
+- Q: Should extracted components also be added to the FigCraft Design System page? → A: Yes (FR-013c).
+- Q: Should repeated variants (pickers, sort controls, rows, status dots) be merged? → A: Yes, where possible (FR-013d).
+- Q: Can anything (charts, memory graph, rich-text editor) be cut or deferred? → A: No. Everything in the inventory is needed for the WebUI rewrite.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -70,7 +73,7 @@ A developer starting the WebUI rewrite imports tokens, icons and components from
 
 1. **Given** the library, **When** a consumer uses its colour tokens, **Then** they are exposed under the same names as the FigCraft variables' code syntax (`--vz-*`), with Dark and Light values.
 2. **Given** an icon component, **When** a consumer gives it a tone (muted, default, faint, inverse, failed, live, retrying), **Then** it takes that tone's colour, as the FigCraft `Tone` modes do.
-3. **Given** a component, **When** a consumer reads its catalogue entry, **Then** it names the FigCraft component it implements and the current WebUI file it will replace (taken from the FigCraft component description).
+3. **Given** a component, **When** a consumer reads its catalogue entry, **Then** it names the FigCraft component (or, for extracted components, the screen frames) it implements, and the current WebUI file it will replace where one exists (mapped in the inventory, FR-013a).
 
 ---
 
@@ -114,7 +117,7 @@ When the FigCraft Design System page changes, the maintainer can tell which part
 
 **Foundations**
 
-- **FR-006**: The library MUST provide every colour token on the FigCraft Design System page (31 tokens), with Dark and Light values, named after the FigCraft code syntax (`--vz-*`).
+- **FR-006**: The library MUST provide every public colour variable in the FigCraft file (37 as of 2026-10-23; the hidden `doc/viewport` is excluded), with Dark and Light values, named after the FigCraft code syntax (`--vz-*`).
 - **FR-007**: The library MUST provide the size tokens (radius xs/sm/md/lg/xl/pill and the spacing scale) and the two elevation styles (popover, dialog).
 - **FR-008**: The library MUST provide every `Type/*` text style (display, title, heading, prose, body, ui, small, label, mono and code roles, with their -para/-medium/-strong variants), in the FigCraft families and sizes.
 - **FR-009**: The library MUST let a consumer switch the theme between Dark and Light at runtime, and MUST default to following the operating system's preference.
@@ -127,8 +130,10 @@ When the FigCraft Design System page changes, the maintainer can tell which part
 - **FR-013**: The library MUST provide every non-screen component of the design. That means every component on the FigCraft Design System page, composites included (Sidebar, SettingsNav, TrailCall, …), **and** every reusable element drawn on the screen pages but never made into a Design System component (for example chips, banners, the context meter ring, the memory graph, list/picker rows, empty states, dialogs). Full screens and page layouts are out of scope.
 - **FR-013a**: Before any component is built, an inventory MUST be produced that lists each component, says whether it comes from the Design System page or was extracted from screens, and for extracted ones names the screen frame(s) it appears on. The maintainer reviews this inventory, and it is the scope list for SC-002.
 - **FR-013b**: A component extracted from screens MUST be generalised from every place it appears (all its variants and states across screens and both themes), not copied from one occurrence. Where its occurrences differ in a way that looks unintended, the inventory flags it for the maintainer to decide rather than picking one silently.
+- **FR-013c**: Every component extracted from screens, and every icon glyph drawn on screens without an `Icon/*` component, MUST be added to the FigCraft Design System page as a component before it is built, so FigCraft and the library stay one-to-one.
+- **FR-013d**: Where several drawn elements are the same idea with small differences (pickers, sort controls, list rows, status dots), the library MUST provide one component that covers all of them, unless a variant can't be expressed without a special case. Then it stays separate and the inventory says why.
 - **FR-014**: Every interactive component MUST implement the state model on the FigCraft page: hover, pressed, disabled (40% opacity), loading (dot loader replaces the icon), and keyboard focus (focus ring as drawn), plus emerald text-entry focus.
-- **FR-015**: Components MUST use the library's tokens and type styles only. No raw colour values or one-off sizes outside the token definitions.
+- **FR-015**: Components MUST use the library's tokens and type styles only. No raw colour values or one-off sizes outside the token definitions. The one exception is third-party brand colours, which are allowed only as data inside the provider and integration logo components.
 - **FR-016**: Components MUST be usable by keyboard and screen reader: focusable, with correct roles and labels and visible focus.
 - **FR-017**: Components MUST have no Vizier data or API dependencies. They take everything as input, so they can be rendered on their own.
 
@@ -136,7 +141,7 @@ When the FigCraft Design System page changes, the maintainer can tell which part
 
 - **FR-018**: The library MUST include a Storybook catalogue with one entry per foundation group, icon set, brand asset and component.
 - **FR-019**: The catalogue MUST have a global Dark/Light theme switch that applies to every entry.
-- **FR-020**: Each component entry MUST show all its variants and states, and MUST state the FigCraft component it implements and the WebUI file it is meant to replace.
+- **FR-020**: Each component entry MUST show all its variants and states, and MUST state the FigCraft component (or source screen frames) it implements and the WebUI file it is meant to replace, where one exists.
 - **FR-021**: The catalogue MUST include an accessibility check per entry that the maintainer can see while reviewing.
 - **FR-022**: The catalogue MUST be reviewable locally, started with one documented command. Hosting it at a shareable URL is out of scope for now.
 
