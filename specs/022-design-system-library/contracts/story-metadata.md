@@ -18,14 +18,12 @@ The groups match the inventory sections: Shell, Actions & inputs, Feedback, Surf
 ```ts
 type StoryMeta = {
   id: string;                               // inventory id: "D10", "X41", "B3"
-  figcraft: { page: "Design System" | "Brand"; component: string; nodeId: number };
-  drawnOn?: string[];                       // screen frames, e.g. ["Chat · states & flow › C1"]
   replaces?: string | null;                 // "webui/app/components/Toast.tsx"
   merges?: string[];                        // ids folded in: ["X25", "X26"] on ListItem
 };
 ```
 
-Set once in the default export (`meta.parameters.vizier`). The `Source` docs block renders it at the top of the docs page along with `design-refs/<id>.png`. A story without `vizier.id` fails `npm test` (a check in `preview.tsx`).
+Set once in the default export (`meta.parameters.vizier`). The `Source` docs block renders it at the top of the docs page. Nothing in it refers to FigCraft: the catalogue is the source of truth (FR-023), and the inventory id is the link to the planning record. A story without `vizier.id` fails `npm test` (a check in `preview.tsx`).
 
 ## Tags
 
@@ -39,7 +37,3 @@ Set once in the default export (`meta.parameters.vizier`). The `Source` docs blo
 3. **States** (interactive components): Default, Hover, Pressed, Focus (pseudo-states), plus Disabled, Loading, Selected or whichever app states the component has, side by side.
 4. **Long content / scale** where the component holds lists or text: long names (middle truncation), 1,000 items (Picker, tables), empty.
 5. Each story renders in both themes through the toolbar switch. No story pins a theme, except the Foundations comparison page, which shows both.
-
-## Design reference images
-
-`design-refs/<id>.png`: the FigCraft component set (after the backport) exported at 2× through the MCP. They're regenerated with the component when FigCraft changes. Images are checked in, typically 20–200 KB each.

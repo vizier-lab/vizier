@@ -43,7 +43,7 @@ Expect the sidebar to show Foundations, Icons, Brand and Components, with nothin
 
 For any entry, say **Components/Feedback/Notice (D25)**:
 
-1. The docs page header shows `D25`, the FigCraft source (Design System › Notice), the drawn-on frames, the WebUI file it replaces, and the FigCraft PNG next to the live render.
+1. The docs page header shows `D25` and the WebUI file it replaces.
 2. Toolbar theme: switch Dark → Light → System. The render follows without a reload, and System tracks the OS setting.
 3. The **States** story shows Default / Hover / Pressed / Focus / Disabled side by side (pseudo-states).
 4. Tab through the Default story with the keyboard only: a 2 px focus ring at a 2 px offset; text fields focus emerald.
@@ -63,18 +63,6 @@ npm run build-storybook       # expect: storybook-static/ built
 
 Then open the README's inventory checklist. Every inventory id (B/D/X, plus icons) is ticked and links to its entry.
 
-## 6. Token sync round trip (US4, FR-023, FR-024, SC-005)
+## 6. Final screen sweep (SC-008)
 
-1. In FigCraft, change one colour variable (for example `text/muted`, Dark), then save.
-2. Run:
-   ```sh
-   npm run sync -- /mnt/c/Users/ganes/OneDrive/Dokumen/Vizier.figcraft
-   ```
-   Expect exactly one `~ --vz-text-muted dark …` line.
-3. `git diff --stat` shows only `src/tokens/*`.
-4. The catalogue (still running) shows the new value on Foundations/Colour and on every component that uses it.
-5. Revert the change in FigCraft, then sync again: back to no diff.
-
-## 7. FigCraft stays one-to-one (FR-013c, SC-008)
-
-In FigCraft, the Design System page has a component for every X entry and every added icon (the inventory row names it). A last pass over the screen pages finds no reusable drawn element that isn't in the inventory. Record that pass in the README with the date.
+A last read-only pass over the FigCraft screen pages finds no reusable drawn element that isn't in the inventory, and so in the catalogue. Record that pass in the README with the date.

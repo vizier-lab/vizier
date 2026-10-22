@@ -10,9 +10,9 @@
 
 ## Context
 
-The WebUI redesign ("Celestial Court") lives in the FigCraft file `Vizier.figcraft`. Its **Design System** page is the agreed source of truth: colour tokens in Dark and Light modes, size and spacing tokens, the `Tone` icon-colour modes, the `Type/*` text styles, two elevation styles, 47 `Icon/*` components, the brand mark and wordmark, and about 40 UI components (NavItem, Button, TextField, Notice, TrailCall, Sidebar, SettingsNav, …). Every interactive component has state variants (hover, pressed, disabled, loading, keyboard focus).
+The WebUI redesign ("Celestial Court") lives in the FigCraft file `Vizier.figcraft`. Its **Design System** page is the starting design: colour tokens in Dark and Light modes, size and spacing tokens, the `Tone` icon-colour modes, the `Type/*` text styles, two elevation styles, 47 `Icon/*` components, the brand mark and wordmark, and about 40 UI components (NavItem, Button, TextField, Notice, TrailCall, Sidebar, SettingsNav, …). Every interactive component has state variants (hover, pressed, disabled, loading, keyboard focus).
 
-Before the WebUI is rewritten, this design is turned into a standalone UI library. The library lives in its own repository, named `design`, and is added to the vizier repository as a git submodule. It ships with an interactive component catalogue (Storybook) so the maintainer can review each component against the FigCraft file before any screen is rebuilt on it.
+Before the WebUI is rewritten, this design is turned into a standalone UI library. The library lives in its own repository, named `design`, and is added to the vizier repository as a git submodule. It ships with an interactive component catalogue (Storybook) so the maintainer can review each component before any screen is rebuilt on it. FigCraft is where the library starts; once a component is in the catalogue, **the catalogue (Storybook) is the source of truth**, and later design changes are made there.
 
 ## Clarifications
 
@@ -21,10 +21,12 @@ Before the WebUI is rewritten, this design is turned into a standalone UI librar
 - Q: Repository owner and visibility? → A: The maintainer created `vizier-lab/design`, which is public.
 - Q: Component scope for the first release? → A: Every non-screen component, including composites, plus components that exist only on screen pages and were never added to the Design System page. These are extracted and included.
 - Q: Where is the catalogue reviewed? → A: Locally for now.
-- Q: Should extracted components also be added to the FigCraft Design System page? → A: Yes (FR-013c).
+- Q: Should extracted components also be added to the FigCraft Design System page? → A: Yes at first; reversed once Storybook became the source of truth. FigCraft is not edited (FR-013c).
 - Q: Should repeated variants (pickers, sort controls, rows, status dots) be merged? → A: Yes, where possible (FR-013d).
 - Q: Can anything (charts, memory graph, rich-text editor) be cut or deferred? → A: No. Everything in the inventory is needed for the WebUI rewrite.
-- Q: Hand-drawn icons or an existing pack? → A: Use the matching existing pack. The drawn icons are Lucide lookalikes, so the library uses Lucide, and FigCraft's icons are swapped for the real Lucide SVGs (FR-011).
+- Q: Should the `.figcraft` file (or a snapshot of it) live in the `design` repository, with a sync between them? → A: No, not for now. Exclude any integration or sync between FigCraft and the repository (FR-023). Tokens are written by hand, and User Story 4 (keeping in step with FigCraft) was dropped.
+- Q: Which is the source of truth, FigCraft or the catalogue? → A: The catalogue (Storybook). FigCraft is the starting design, and stories carry no FigCraft metadata.
+- Q: Hand-drawn icons or an existing pack? → A: Use the matching existing pack. The drawn icons are Lucide lookalikes, so the library uses Lucide. FigCraft's drawn icons are left as they are (FR-011).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -74,22 +76,7 @@ A developer starting the WebUI rewrite imports tokens, icons and components from
 
 1. **Given** the library, **When** a consumer uses its colour tokens, **Then** they are exposed under the same names as the FigCraft variables' code syntax (`--vz-*`), with Dark and Light values.
 2. **Given** an icon component, **When** a consumer gives it a tone (muted, default, faint, inverse, failed, live, retrying), **Then** it takes that tone's colour, as the FigCraft `Tone` modes do.
-3. **Given** a component, **When** a consumer reads its catalogue entry, **Then** it names the FigCraft component (or, for extracted components, the screen frames) it implements, and the current WebUI file it will replace where one exists (mapped in the inventory, FR-013a).
-
----
-
-### User Story 4 - Keep the library in step with FigCraft (Priority: P3)
-
-When the FigCraft Design System page changes, the maintainer can tell which parts of the library are out of date and bring them back in line.
-
-**Why this priority**: drift will happen, since the FigCraft file is living documentation. It can be handled by hand at first.
-
-**Independent Test**: change one token value in FigCraft, then follow the documented update procedure and see the change in the catalogue.
-
-**Acceptance Scenarios**:
-
-1. **Given** a token changed in FigCraft, **When** the maintainer follows the documented update procedure, **Then** the library's token values and the catalogue's foundations pages show the new value, and nothing else changes.
-2. **Given** the library, **When** the maintainer opens its README, **Then** it states which FigCraft file and page the library follows, and the date or revision last synced.
+3. **Given** a component, **When** a consumer reads its catalogue entry, **Then** it names its inventory id and the current WebUI file it will replace where one exists (mapped in the inventory, FR-013a).
 
 ---
 
@@ -126,12 +113,12 @@ When the FigCraft Design System page changes, the maintainer can tell which part
 
 **Assets & components**
 
-- **FR-011**: The library MUST provide every icon in the design (the 47 `Icon/*` components plus the glyphs drawn on screens) at the design size and stroke (17 px, 1.7 stroke), coloured through Tone. Icons come from the matching existing pack (Lucide), and the FigCraft `Icon/*` components hold the same Lucide drawings.
+- **FR-011**: The library MUST provide every icon in the design (the 47 `Icon/*` components plus the glyphs drawn on screens) at the design size and stroke (17 px, 1.7 stroke), coloured through Tone. Icons come from the matching existing pack (Lucide).
 - **FR-012**: The library MUST provide the brand mark (8×8 dot V, Idle/Live states, optional grid) and the star-dot wordmark (Idle/Live), plus the 5×5 agent sigil identicon.
 - **FR-013**: The library MUST provide every non-screen component of the design. That means every component on the FigCraft Design System page, composites included (Sidebar, SettingsNav, TrailCall, …), **and** every reusable element drawn on the screen pages but never made into a Design System component (for example chips, banners, the context meter ring, the memory graph, list/picker rows, empty states, dialogs). Full screens and page layouts are out of scope.
 - **FR-013a**: Before any component is built, an inventory MUST be produced that lists each component, says whether it comes from the Design System page or was extracted from screens, and for extracted ones names the screen frame(s) it appears on. The maintainer reviews this inventory, and it is the scope list for SC-002.
 - **FR-013b**: A component extracted from screens MUST be generalised from every place it appears (all its variants and states across screens and both themes), not copied from one occurrence. Where its occurrences differ in a way that looks unintended, the inventory flags it for the maintainer to decide rather than picking one silently.
-- **FR-013c**: Every component extracted from screens, and every icon glyph drawn on screens without an `Icon/*` component, MUST be added to the FigCraft Design System page as a component before it is built, so FigCraft and the library stay one-to-one.
+- **FR-013c**: Extracted components and icons MUST be built straight into the catalogue from their screen occurrences. The FigCraft file is read as the starting design and is not edited by this feature.
 - **FR-013d**: Where several drawn elements are the same idea with small differences (pickers, sort controls, list rows, status dots), the library MUST provide one component that covers all of them, unless a variant can't be expressed without a special case. Then it stays separate and the inventory says why.
 - **FR-014**: Every interactive component MUST implement the state model on the FigCraft page: hover, pressed, disabled (40% opacity), loading (dot loader replaces the icon), and keyboard focus (focus ring as drawn), plus emerald text-entry focus.
 - **FR-015**: Components MUST use the library's tokens and type styles only. No raw colour values or one-off sizes outside the token definitions. The one exception is third-party brand colours, which are allowed only as data inside the provider and integration logo components.
@@ -142,14 +129,14 @@ When the FigCraft Design System page changes, the maintainer can tell which part
 
 - **FR-018**: The library MUST include a Storybook catalogue with one entry per foundation group, icon set, brand asset and component.
 - **FR-019**: The catalogue MUST have a global Dark/Light theme switch that applies to every entry.
-- **FR-020**: Each component entry MUST show all its variants and states, and MUST state the FigCraft component (or source screen frames) it implements and the WebUI file it is meant to replace, where one exists.
+- **FR-020**: Each component entry MUST show all its variants and states, and MUST state its inventory id and the WebUI file it is meant to replace, where one exists. Catalogue entries carry no FigCraft references.
 - **FR-021**: The catalogue MUST include an accessibility check per entry that the maintainer can see while reviewing.
 - **FR-022**: The catalogue MUST be reviewable locally, started with one documented command. Hosting it at a shareable URL is out of scope for now.
 
-**Sync with FigCraft**
+**Relation to FigCraft**
 
-- **FR-023**: The library's README MUST name the FigCraft file and page it follows, record the last sync, and describe how to bring changes across.
-- **FR-024**: Token values MUST be defined in a single place in the library, so that a FigCraft token change is one edit.
+- **FR-023**: The library's README MUST state that the catalogue is the source of truth, and that the FigCraft file was only the starting design. The library MUST NOT contain any integration with FigCraft: no sync or import scripts, no committed FigCraft files or snapshots, no exported design images, no stored node ids.
+- **FR-024**: Token values MUST be defined in a single place in the library (written by hand from the FigCraft values), so that changing a token is one edit.
 
 ### Key Entities
 
@@ -157,7 +144,7 @@ When the FigCraft Design System page changes, the maintainer can tell which part
 - **Text style**: a named typography role (family, size, weight, line height) from `Type/*`.
 - **Tone**: a named icon-colour role that maps to a colour token.
 - **Icon**: a named glyph from the design's vocabulary, drawn by one Lucide icon at a fixed size and stroke and coloured by Tone.
-- **Component**: a reusable UI element with variants (for example Active × Collapsed) and states, linked to its FigCraft component and to the WebUI file it will replace.
+- **Component**: a reusable UI element with variants (for example Active × Collapsed) and states, linked to its inventory id and to the WebUI file it will replace.
 - **Story**: one catalogue entry showing a component, foundation or asset in a given variant, state and theme.
 
 ## Success Criteria *(mandatory)*
@@ -169,17 +156,17 @@ When the FigCraft Design System page changes, the maintainer can tell which part
 - **SC-008**: After the inventory, a pass over every screen page finds no reusable, non-screen element that is missing from it.
 - **SC-003**: Every in-scope component can be seen in both themes and in every state it has in FigCraft, with no code edits.
 - **SC-004**: The maintainer signs off each component in one review pass. Visual differences from FigCraft that they find are logged as issues, and none are left open on a component marked approved.
-- **SC-005**: A one-token change in FigCraft reaches the catalogue by editing exactly one place in the library.
+- **SC-005**: Changing one token's value means editing exactly one place in the library, and the change shows on every component that uses it.
 - **SC-006**: Cloning and building vizier without initialising submodules works exactly as before this feature.
 - **SC-007**: The catalogue reports no critical accessibility violations on any component entry.
 
 ## Assumptions
 
-- The FigCraft Design System page (as of 2026-10-23) is the source of truth. Where FigCraft and the current WebUI disagree, FigCraft wins.
+- The FigCraft Design System page (as of 2026-10-23) is the starting design. Where it and the current WebUI disagree, FigCraft wins for the first build. After that, Storybook is the source of truth.
 - The library targets the same front-end platform as the current WebUI, so the rewrite can consume it directly. The exact tooling is a planning decision.
 - The library is consumed from the submodule path (a local link), not from a package registry. Publishing a package is out of scope for now.
 - Screens (Home, Chat, Memory, Settings pages, …) are out of scope. Only the building blocks are built. Screen layouts may appear as reference compositions in the catalogue at most.
 - The WebUI rewrite itself, and any change to the current WebUI, is out of scope.
-- `Vizier.figcraft`, currently untracked in the vizier repository root, is not committed to vizier. Whether it moves into the `design` repository as a versioned design source is decided at planning time.
+- `Vizier.figcraft` is kept out of both repositories. The library is written from it by reading it during the build, not linked to it. Keeping the two in step later is a manual job.
 - Fonts are Schibsted Grotesk (UI and wordmark) and JetBrains Mono (mono and code), as on the Brand page, bundled with the library rather than loaded from a third-party CDN, since vizier is self-hosted.
 - The maintainer has created `vizier-lab/design`. Pushing the first commits to it and adding the submodule are done in the implementation phase.

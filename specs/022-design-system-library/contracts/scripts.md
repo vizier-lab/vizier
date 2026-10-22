@@ -1,20 +1,6 @@
 # Contract: Library scripts
 
-Command-line contracts for the scripts in `vizier-lab/design`. Each one is a single Node ESM file with no network access. Each exits `0` on success, and on failure exits `1` with a one-line `error: …` message on stderr.
-
-## `npm run sync -- <path/to/Vizier.figcraft>` → `scripts/sync-figcraft.mjs`
-
-Regenerates the tokens from the FigCraft file (FR-023, FR-024, SC-005).
-
-- **Input**: a `.figcraft` file (zip containing `document.json`). Windows paths under WSL (`/mnt/c/...`) work.
-- **Writes** (and only these):
-  - `src/tokens/tokens.css`: `:root` Light, a dark block under `prefers-color-scheme` guarded by `:root:not([data-theme="light"])`, `:root[data-theme="dark"]`; size variables; `.tone-*` classes.
-  - `src/tokens/type.css`: `@utility type-*` for each `Type/*` style; `shadow-popover` and `shadow-dialog`.
-  - `src/tokens/tokens.ts`: names, descriptions and values for the Foundations pages.
-  - `src/tokens/source.json`: the SyncRecord ([data-model](../data-model.md#syncrecord)).
-- **Stdout**: one line per changed token (`~ --vz-muted dark #A0A0AA → #9E9EA8`, `+ --vz-new`, `- --vz-old`), then the counts. No other output when nothing changed.
-- **Fails when**: the file can't be read or isn't a FigCraft zip; a variable has no `codeSyntax.WEB`; two variables share a CSS name; a Color variable is missing a mode value; a Tone alias points at something that isn't a Color variable.
-- **Never**: touches components, or anything outside `src/tokens/`.
+Command-line contracts for the scripts in `vizier-lab/design`. There is deliberately no script that reads or writes FigCraft files (FR-023). Each one is a single Node ESM file with no network access. Each exits `0` on success, and on failure exits `1` with a one-line `error: …` message on stderr.
 
 ## `npm run lint:tokens` → `scripts/lint-tokens.mjs`
 

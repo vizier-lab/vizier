@@ -37,7 +37,7 @@
 | I1 | `Icon/*` on the Design System page | 47 | Hand-drawn Lucide lookalikes. Every one has a Lucide counterpart (checked side by side on 2026-10-23), so the library uses **Lucide** (`lucide-react`), not the drawn vectors. Mapping below. ⚑ The **descriptions** of `Icon/download` and `Icon/upload` are swapped ("upload icon" / "download icon"). |
 | I2 | Glyphs drawn on screens with no `Icon/*` component | 25 | All exist in Lucide: `globe` (MCP remote), `square-terminal` (MCP local), `folder` (bundle), `zoom-in`, `zoom-out`, `maximize` (graph fit, interactive page, editor fullscreen), `play`, `square` (stop), `arrow-down` (jump to latest), `arrow-right` (→ links), `smile-plus` (add reaction), `slash` (composer skills), `bold`, `italic`, `code`, `link`, `list`, `list-ordered`, `list-tree` (outline), `table`, `menu` (Mobile), `layers` (Mobile jobs), `circle-check` (empty state), `ban` (cancelled job), `arrow-up-right` (external in run links). |
 
-**Icon source: Lucide.** The library's `Icon` uses `lucide-react`, at 17 px with an absolute 1.7 px stroke (`absoluteStrokeWidth`), which is the design's weight. Semantic names stay the FigCraft names (`core`, `memory`, `dreams`, …), each mapped to one Lucide icon in a single table. In FigCraft, each `Icon/*` component's vector is replaced by the real Lucide SVG (same component, same id, so every instance stays linked), and the I2 glyphs are added the same way. The design and the code then draw identical icons.
+**Icon source: Lucide.** The library's `Icon` uses `lucide-react`, at 17 px with an absolute 1.7 px stroke (`absoluteStrokeWidth`), which is the design's weight. Semantic names stay the FigCraft names (`core`, `memory`, `dreams`, …), each mapped to one Lucide icon in a single table. FigCraft is left as drawn: the catalogue is the source of truth.
 
 | Design name | Lucide | Design name | Lucide | Design name | Lucide |
 |---|---|---|---|---|---|
@@ -319,7 +319,7 @@ These exist in today's WebUI but nowhere in the FigCraft file, so they are **not
 
 ## Review decisions (2026-10-23)
 
-1. **Extracted components go back into FigCraft.** Every X component is added to the FigCraft Design System page as a component, through the FigCraft MCP, before it is built. Icons are the real Lucide SVGs (see *I. Icons*). FigCraft and the catalogue stay one-to-one, and each catalogue entry points at a Design System component.
+1. ~~Extracted components go back into FigCraft.~~ Reversed the same day, when the maintainer made the catalogue (Storybook) the source of truth: X components are built straight from their screen occurrences into Storybook, and FigCraft is not edited.
 2. **Merges accepted, where they fit.**
    - One **Picker** (X41) behind the agent, conversation, topic and bundle pickers.
    - One **SortSelect** (X12) with a bordered look and a text look.

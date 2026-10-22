@@ -21,7 +21,7 @@ import { Button, Picker, ListItem, Icon, Sigil } from "@vizier/design";
 
 ## Rules for every component
 
-1. **Props follow the FigCraft axes** in camelCase: `variant`, `size`, `tone`, `checked`, `selected`, `collapsed`, `active`, `state`. Values are the FigCraft values in lowercase (`variant="destructive"`, `size="sm"`).
+1. **Props follow the design's variant axes** in camelCase: `variant`, `size`, `tone`, `checked`, `selected`, `collapsed`, `active`, `state`. Values are the axis values in lowercase (`variant="destructive"`, `size="sm"`).
 2. **Interaction states are CSS, not props**: Hover, Pressed and Focus come from `:hover`, `:active` and `:focus-visible`. **App states are props**: `disabled`, `loading`, `selected`, `invalid` (FigCraft "Error"), `readOnly`, `open`, `streaming`.
 3. **Native props pass through**: each component renders one root element, spreads that element's props onto it, merges `className` last, and accepts `ref` (React 19).
 4. **Content comes in**: text as props or `children`, collections as arrays. No fetching, no app stores, no router (FR-017). Navigation-like components take an `href` or `onSelect`.
@@ -84,7 +84,7 @@ type SortSelectProps = {
 
 ```ts
 type StatusProps = {
-  state: "live" | "idle" | "failed" | "retrying" | "starting" | "stopped"   // FigCraft states
+  state: "live" | "idle" | "failed" | "retrying" | "starting" | "stopped"   // the original six
        | "answered" | "running" | "no-response" | "not-run" | "interrupted"  // task runs
        | "connected" | "reconnecting" | "disabled";                         // MCP and integrations
   label?: ReactNode;            // defaults to the state's words
@@ -92,7 +92,7 @@ type StatusProps = {
 };
 ```
 
-Each state maps to one dot shape (filled, ring, hollow, dashed, spinning) and one tone, in a single table in `Status.tsx`. If a new state needs a new shape, the shape is added to FigCraft first.
+Each state maps to one dot shape (filled, ring, hollow, dashed, spinning) and one tone, in a single table in `Status.tsx`. A new state is added to that table and to the Status story, nowhere else.
 
 ### Icon
 

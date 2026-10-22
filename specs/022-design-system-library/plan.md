@@ -4,19 +4,19 @@
 
 **Input**: Feature specification from `/specs/022-design-system-library/spec.md`
 
-**Status**: Phase 0 and Phase 1 done. The inventory was approved on 2026-10-23: extracted components go back into FigCraft, repeated elements are merged where they fit, and nothing is cut. Ready for `/speckit-tasks`.
+**Status**: Phase 0 and Phase 1 done. The inventory was approved on 2026-10-23: extracted components were to go back into FigCraft (later reversed), repeated elements are merged where they fit, and nothing is cut. Revised 2026-10-23: no FigCraft integration in the repository (no sync, no snapshot, no design images); User Story 4 dropped.
 
 ## Summary
 
-Turn the FigCraft "Celestial Court" design into a React component library in a new public repository, `vizier-lab/design`, added to vizier as a submodule at `design/`, with a local Storybook for review. The scope is the approved [inventory](inventory.md): foundations (37 colour tokens in two themes, size, tone, 24 type styles, elevation, fonts), 45+ icons, 4 brand pieces, the 60 Design System components with the extensions the screens draw for them, and 75 components extracted from the screens. Tokens are generated from the `.figcraft` file by a script, and icons are exported from FigCraft as SVG. Components are styled with Tailwind v4 utilities that resolve only to tokens, and each catalogue entry shows its FigCraft source image, its inventory id and the WebUI file it will replace. vizier's own build, CI and release are untouched (verified in research R10).
+Turn the FigCraft "Celestial Court" design into a React component library in a new public repository, `vizier-lab/design`, added to vizier as a submodule at `design/`, with a local Storybook for review. The scope is the approved [inventory](inventory.md): foundations (37 colour tokens in two themes, size, tone, 24 type styles, elevation, fonts), 72 Lucide icons, 4 brand pieces, the 60 Design System components with the extensions the screens draw for them, and 75 components extracted from the screens. Tokens are written by hand in one CSS file from the FigCraft values, and icons come from Lucide. The repository has no integration with FigCraft: no sync script, no committed design files or images (FR-023). Components are styled with Tailwind v4 utilities that resolve only to tokens, and each catalogue entry names its inventory id and the WebUI file it will replace. FigCraft is the starting design; once built, the catalogue (Storybook) is the source of truth. vizier's own build, CI and release are untouched (verified in research R10).
 
 ## Technical Context
 
 **Language/Version**: TypeScript 5.9 (matching `webui/`); React 19 (peer `^19`)
 
-**Primary Dependencies**: Tailwind CSS 4.3 (`@tailwindcss/vite`); `lucide-react` 1.61 (icons, R6; `lucide-static` same version, dev-only, for the FigCraft swap); Storybook 10.6 (`@storybook/react-vite`, `addon-docs`, `addon-a11y`, `addon-themes`, `addon-vitest`) plus `storybook-addon-pseudo-states`; Vite 7; `clsx`; `@fontsource-variable/schibsted-grotesk`, `@fontsource-variable/jetbrains-mono`; dev-only `fflate` (token sync), Vitest 5 + `@vitest/browser-playwright` (a11y run)
+**Primary Dependencies**: Tailwind CSS 4.3 (`@tailwindcss/vite`); `lucide-react` 1.61 (icons, R6); Storybook 10.6 (`@storybook/react-vite`, `addon-docs`, `addon-a11y`, `addon-themes`, `addon-vitest`) plus `storybook-addon-pseudo-states`; Vite 7; `clsx`; `@fontsource-variable/schibsted-grotesk`, `@fontsource-variable/jetbrains-mono`, dev-only Vitest 5 + `@vitest/browser-playwright` (a11y run)
 
-**Storage**: N/A (static library; generated token files are committed)
+**Storage**: N/A (static library; no generated files)
 
 **Testing**: `npm run typecheck`; `npm test` (every story rendered headless with axe, failing on critical violations, R9); `npm run build-storybook` (catalogue builds); a raw-value lint (`npm run lint:tokens`: no arbitrary Tailwind values or hex outside `src/tokens/`, FR-015). End-to-end: **N/A for dummyplug**. Nothing agent-observable changes: no agent loop, tools, sessions, channels or HTTP/WebUI surface (constitution e2e gate). quickstart.md scripts the catalogue review steps instead.
 
@@ -36,10 +36,10 @@ Turn the FigCraft "Celestial Court" design into a React component library in a n
 
 | Principle / gate | Assessment |
 |------------------|------------|
-| **I. Lean by default** | ✅ No build step or publish pipeline (source package, R3). Each dependency is justified in research: `fflate` replaces hand-typed tokens, the pseudo-states addon replaces test-only props, Playwright is the only way to back SC-007. Rejected: SVGR, cva, tailwind-merge, CSS-in-JS. ⚠ The library is large (about 140 components). That is the scope the maintainer asked for, and inventory proposals X12/X24/X41 fold 5 pickers, 3 sort controls and about 9 row types into shared primitives to keep it down. |
+| **I. Lean by default** | ✅ No build step or publish pipeline (source package, R3). Each dependency is justified in research: the pseudo-states addon replaces test-only props, Playwright is the only way to back SC-007. Rejected: SVGR, cva, tailwind-merge, CSS-in-JS. ⚠ The library is large (about 140 components). That is the scope the maintainer asked for, and inventory proposals X12/X24/X41 fold 5 pickers, 3 sort controls and about 9 row types into shared primitives to keep it down. |
 | **II. DRY via trait-based extensibility** | ✅ The same idea in UI form: shared primitives (ListItem, Picker, Card, Notice) with domain components composed on them, not copied (inventory ⚑ proposals). Variants are lookup tables per component, not branches spread across files. |
 | **III. Self-contained runtime** | ✅ Nothing reaches vizier's binary in this feature. Fonts are bundled, not fetched, so the future WebUI stays offline-capable. Dev tooling (Storybook, Playwright) lives only in the `design` repository. |
-| **IV. Portability** | ✅ Node/npm scripts only; no OS-specific paths. The sync script takes the `.figcraft` path as an argument and works with Windows paths under WSL. Vizier's `Cross.toml` targets are untouched. |
+| **IV. Portability** | ✅ Node/npm scripts only; no OS-specific paths. Vizier's `Cross.toml` targets are untouched. |
 | **V. Unified errors & observability** | N/A (no Rust code). The scripts exit non-zero with a one-line message on bad input. |
 | Clippy / tests / typecheck gates | ✅ vizier: `cargo build` unaffected (R10); the only vizier change is `.gitmodules`, the gitlink and docs. Library: typecheck, a11y test run, catalogue build, token lint. |
 | Conventional commits | ✅ vizier: `chore: add design library submodule`, `doc: …`. Library repository: same convention from its first commit. |
@@ -49,7 +49,7 @@ Turn the FigCraft "Celestial Court" design into a React component library in a n
 
 **Result**: PASS. No violations, so Complexity Tracking stays empty.
 
-**Re-check after Phase 1**: PASS. The contracts add no dependency beyond research. The merged primitives (ListItem, Picker, SortSelect, Status) put the DRY principle into the API itself, and the lint keeps raw values out. The backport adds FigCraft work, not code. The only new rule is the brand-colour exception, and it is confined to two files that the lint names.
+**Re-check after Phase 1**: PASS. The contracts add no dependency beyond research. The merged primitives (ListItem, Picker, SortSelect, Status) put the DRY principle into the API itself, and the lint keeps raw values out. FigCraft is read, never edited. The only new rule is the brand-colour exception, and it is confined to two files that the lint names.
 
 ## Project Structure
 
@@ -61,12 +61,12 @@ specs/022-design-system-library/
 ├── inventory.md         # Phase 0: component scope list (FR-013a), approved 2026-10-23
 ├── research.md          # Phase 0: decisions R1–R12
 ├── plan.md              # This file
-├── data-model.md        # Phase 1: tokens, tone, type, icons, inventory entry lifecycle, stories, sync record
-├── quickstart.md        # Phase 1: vizier unaffected → clone → catalogue → review → sync round trip
+├── data-model.md        # Phase 1: tokens, tone, type, icons, inventory entry lifecycle, stories
+├── quickstart.md        # Phase 1: vizier unaffected → clone → catalogue → review → final screen sweep
 ├── contracts/
 │   ├── component-api.md  # package surface, per-component rules, merged primitives (ListItem, Picker, SortSelect, Status, Icon)
 │   ├── story-metadata.md # titles, parameters.vizier, tags, required stories, design refs
-│   └── scripts.md        # sync, lint:tokens, test, storybook
+│   └── scripts.md        # lint:tokens, test, storybook (no FigCraft scripts)
 ├── checklists/requirements.md
 └── tasks.md             # Phase 2 (/speckit-tasks)
 ```
@@ -87,20 +87,18 @@ docs/src/…               # same note in the contributor section of the book
 ```text
 package.json             # @vizier/design, private, exports → src (R3)
 tsconfig.json
-README.md                # what it follows (FigCraft file + page), last sync, sync procedure, inventory checklist
+README.md                # Storybook is the source of truth; usage, review, inventory checklist
 LICENSE                  # MIT
 .storybook/
 ├── main.ts              # react-vite, addons (docs, a11y, themes, vitest, pseudo-states), Tailwind plugin
 ├── preview.tsx          # imports styles.css; theme switch (Dark/Light/System); a11y test = error
-└── blocks/Source.tsx    # docs block: inventory id, FigCraft source + PNG, replaces
+└── blocks/Source.tsx    # docs block: inventory id, replaces, merges
 scripts/
-├── sync-figcraft.mjs    # .figcraft → src/tokens/{tokens.css,type.css,source.json} (R4)
 └── lint-tokens.mjs      # FR-015 raw-value check
-design-refs/             # <inventory id>.png exported from FigCraft at 2× (R8)
 src/
 ├── index.ts             # public exports
 ├── styles.css           # fonts + tokens + type + Tailwind @theme mapping
-├── tokens/              # generated: tokens.css, type.css, source.json
+├── tokens/              # hand-written: tokens.css (all values), type.css; tokens.ts (names + descriptions only) (R4)
 ├── icons/               # map.ts (design name → Lucide) + Icon.tsx (tone, size) (R6)
 ├── brand/               # Mark, Wordmark, Sigil (+ generator), LedBoard
 ├── foundations/*.mdx    # Colour, Type, Size & spacing, Elevation, Tone pages
@@ -113,11 +111,10 @@ src/
 ## Phase plan (for /speckit-tasks)
 
 1. **Repository & catalogue skeleton**: the `design` repository scaffold, Storybook with themes and a11y running on one placeholder story, submodule added to vizier, contributor docs. Proves US2 and SC-001/SC-006 first.
-2. **Foundations**: run the sync script → tokens, type, tone; fonts; the 5 foundation pages; token lint.
-3. **FigCraft backport (FR-013c)**: add each X component to the FigCraft Design System page through the MCP, and swap every `Icon/*` vector for its Lucide SVG (plus the 25 new icons), generalised from all of its drawn occurrences, with the merges applied (FR-013d). This is done tier by tier, just ahead of the code, rather than all at once, so the design and the code are reviewed together.
-4. **Icons & brand**: the Lucide map and `Icon`; Mark, Wordmark, Sigil (generation rule), LED board.
-5. **Components by tier**: T1 → T2 → T3 → T4, following the inventory ids, each with its stories, state grid, source block and design-ref PNG, and tagged `needs-review`.
-6. **Review loop**: the maintainer reviews in the catalogue; findings become issues on `vizier-lab/design`; approval flips the tag (SC-004). The README checklist tracks inventory ids → entries (SC-002) and the final screen sweep (SC-008).
+2. **Foundations**: write tokens, type and tone by hand from the FigCraft values; fonts; the 5 foundation pages; token lint.
+3. **Icons & brand**: the Lucide map and `Icon`; Mark, Wordmark, Sigil (generation rule), LED board.
+4. **Components by tier**: T1 → T2 → T3 → T4, following the inventory ids, each built from all of its drawn occurrences with the merges applied (FR-013b, FR-013d), each with its stories, state grid, source block, and tagged `needs-review`.
+5. **Review loop**: the maintainer reviews in the catalogue; findings become issues on `vizier-lab/design`; approval flips the tag (SC-004). The README checklist tracks inventory ids → entries (SC-002) and the final screen sweep (SC-008).
 
 ## Complexity Tracking
 
