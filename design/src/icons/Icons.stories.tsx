@@ -24,7 +24,7 @@ const meta = {
 } satisfies Meta<Args>;
 
 export default meta;
-type Story = StoryObj<typeof meta>;
+type Story = StoryObj<Args>;
 
 /** Searchable grid of every icon, with its design and Lucide names. */
 export const All: Story = {
