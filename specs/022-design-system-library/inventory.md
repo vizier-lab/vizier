@@ -240,7 +240,7 @@ The screens draw many two-line list rows that share one anatomy: leading slot, t
 
 | ID | Component | T | Variants / states | Appears on | Replaces |
 |----|-----------|---|-------------------|------------|----------|
-| X49 | Prose (rendered markdown: h1–h3, paragraph, lists, table, code block, blockquote, inline code) | T4 | in a reply (body size) / in the editor (document size) | Chat replies, Core, Skill editor, Chat H2 | `MarkdownEditor.tsx` (view part), react-markdown styles |
+| X49 | Prose (rendered markdown: h1–h3, paragraph, lists, table, code block, blockquote, inline code) | T2 | in a reply (body size) / in the editor (document size) | Chat replies, Core, Skill editor, Chat H2 | `MarkdownEditor.tsx` (view part), react-markdown styles |
 | X50 | EditorToolbar | T4 | compact (Core: Paragraph, B I list code link, char count) / full (Skill editor: block-type select, B I code link, bullets, numbers, outline, table, / Insert block, Rich/Markdown/Split, fullscreen) | Core, Skill editor | `MarkdownEditor.tsx` |
 | X51 | OutlineNav (OUTLINE, nested headings by level, active item) | T4 | — | Skill editor | — |
 | X52 | DiffView (+ / − / context lines with tinted rows, Restore) | T4 | — | Core History | `VersionHistory.tsx` |

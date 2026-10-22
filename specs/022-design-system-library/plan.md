@@ -14,7 +14,7 @@ Turn the FigCraft "Celestial Court" design into a React component library in a n
 
 **Language/Version**: TypeScript 5.9 (matching `webui/`); React 19 (peer `^19`)
 
-**Primary Dependencies**: Tailwind CSS 4.3 (`@tailwindcss/vite`); `lucide-react` 1.61 (icons, R6); Storybook 10.6 (`@storybook/react-vite`, `addon-docs`, `addon-a11y`, `addon-themes`, `addon-vitest`) plus `storybook-addon-pseudo-states`; Vite 7; `clsx`; `@fontsource-variable/schibsted-grotesk`, `@fontsource-variable/jetbrains-mono`; dev-only `fflate` (token sync), Vitest 5 + `@vitest/browser-playwright` (a11y run)
+**Primary Dependencies**: Tailwind CSS 4.3 (`@tailwindcss/vite`); `lucide-react` 1.61 (icons, R6; `lucide-static` same version, dev-only, for the FigCraft swap); Storybook 10.6 (`@storybook/react-vite`, `addon-docs`, `addon-a11y`, `addon-themes`, `addon-vitest`) plus `storybook-addon-pseudo-states`; Vite 7; `clsx`; `@fontsource-variable/schibsted-grotesk`, `@fontsource-variable/jetbrains-mono`; dev-only `fflate` (token sync), Vitest 5 + `@vitest/browser-playwright` (a11y run)
 
 **Storage**: N/A (static library; generated token files are committed)
 
