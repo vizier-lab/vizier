@@ -116,6 +116,24 @@ Tracing and metrics are exported over OpenTelemetry when `OTEL_EXPORTER_OTLP_END
 
 > **Build gotcha:** `build.rs` runs `npm run build` in `webui/` on every `cargo build` if `webui/node_modules/` exists. If `node_modules/` is absent and `webui/build/client/` doesn't exist, the build panics — run `just install` first.
 
+### Design library
+
+`design/` is a git submodule: [vizier-lab/design](https://github.com/vizier-lab/design), the UI component library for the WebUI redesign, with a Storybook catalogue that is the source of truth for the design. Vizier builds without it (nothing in `cargo build` or the current WebUI reads it yet), so a plain clone works as before.
+
+```sh
+git clone --recurse-submodules https://github.com/vizier-lab/vizier.git   # new clone
+git submodule update --init design                                         # existing clone
+
+cd design && npm install && npm run storybook   # catalogue on http://localhost:6006
+```
+
+To move vizier to a newer library commit, bump the pin like any other change:
+
+```sh
+cd design && git pull origin main && cd ..
+git add design && git commit -m "chore: bump design library"
+```
+
 ### Project structure
 
 ```
@@ -135,6 +153,7 @@ src/
   schema/           shared types (agent config, requests/responses, sessions, history)
   command/          Unix-socket command server (shutdown, health) for the CLI
 webui/              React Router v7 + React 19 + Tailwind v4; built output served by the HTTP channel
+design/             submodule: vizier-lab/design, the redesign's UI library + Storybook catalogue
 templates/          CORE.md seed for new agents
 skills/             skill registry (installed with `vizier skill install <slug>`)
 vizier-derive/      #[derive(MarkdownDoc)] for frontmatter+body documents

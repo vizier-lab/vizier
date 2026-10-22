@@ -160,6 +160,8 @@ Each agent's persistent "self" document is `CORE.md`, stored in storage (not the
 
 ## WebUI (`webui/`)
 
+The redesign's UI library lives in the `design/` submodule (`vizier-lab/design`, spec 022): React components on hand-written tokens, with a Storybook catalogue that is the source of truth for the design. Nothing in vizier's build reads it yet; new UI is built there first, then consumed by the WebUI rewrite.
+
 React Router v7 + React 19 + TypeScript + Tailwind v4. State via Zustand-style stores in `app/hooks/*Store.tsx`. Recharts for charts, highlight.js for syntax highlighting, MDX editor for markdown. Build output (`webui/build/client/`) is what the Rust HTTP channel serves at runtime — see the `build.rs` gotcha above for why you generally need `npm install` done before `cargo build` will succeed.
 
 <!-- SPECKIT START -->
