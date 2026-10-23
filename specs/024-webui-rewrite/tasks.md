@@ -458,12 +458,12 @@
 
 **Independent Test**: quickstart §8, plus `webui/e2e/mobile.spec.ts` and `webui/e2e/a11y.spec.ts`.
 
-- [ ] T130 [US7] Make `webui/app/layouts/AppShell.tsx` responsive: below the design's breakpoint, the Sidebar is replaced by the library MobileTopBar (☰ opens the nav in a SlideOver; wordmark on Home, sigil + topic + status in Chat), with no horizontal scroll
-- [ ] T131 [P] [US7] Implement Mobile Home in `webui/app/screens/home/MobileHome.tsx`: Wordmark, greeting, compact ActivityGrid, and an AgentRow list per the Mobile design
-- [ ] T132 [P] [US7] Implement Mobile Chat in `webui/app/routes/chat.tsx` and `webui/app/screens/chat/`: side panels move into a SlideOver opened from the JobsPill/icon form, the trail uses the mini-timeline summary, and the composer shows "21k / 200k"
-- [ ] T133 [P] [US7] Check theme handling across screens: the UserMenu toggle switches without a reload and is remembered per device, and the first paint applies the stored theme before render to avoid a flash (inline script in `webui/app/root.tsx`)
-- [ ] T134 [US7] Write `webui/e2e/mobile.spec.ts` (every route at 390 px: `scrollWidth <= clientWidth`; Home and Chat match the Mobile layout) and `webui/e2e/a11y.spec.ts` (axe on every route in both themes, failing on serious or critical; a keyboard-only pass through Login, Chat, Tasks and Roles)
-- [ ] T135 [US7] Review §8.1 by hand: every screen in dark and light against the design frames, noting and fixing differences
+- [X] T130 [US7] Make `webui/app/layouts/AppShell.tsx` responsive: below the design's breakpoint, the Sidebar is replaced by the library MobileTopBar (☰ opens the nav in a SlideOver; wordmark on Home, sigil + topic + status in Chat), with no horizontal scroll
+- [X] T131 [P] [US7] Implement Mobile Home in `webui/app/screens/home/MobileHome.tsx`: Wordmark, greeting, compact ActivityGrid, and an AgentRow list per the Mobile design
+- [X] T132 [P] [US7] Implement Mobile Chat in `webui/app/routes/chat.tsx` and `webui/app/screens/chat/`: side panels move into a SlideOver opened from the JobsPill/icon form, the trail uses the mini-timeline summary, and the composer shows "21k / 200k"
+- [X] T133 [P] [US7] Check theme handling across screens: the UserMenu toggle switches without a reload and is remembered per device, and the first paint applies the stored theme before render to avoid a flash (inline script in `webui/app/root.tsx`)
+- [X] T134 [US7] Write `webui/e2e/mobile.spec.ts` (every route at 390 px: `scrollWidth <= clientWidth`; Home and Chat match the Mobile layout) and `webui/e2e/a11y.spec.ts` (axe on every route in both themes, failing on serious or critical; a keyboard-only pass through Login, Chat, Tasks and Roles)
+- [X] T135 [US7] Review §8.1 by hand: every screen in dark and light against the design frames, noting and fixing differences
 
 **Checkpoint**: every screen works at phone width and in both themes.
 
