@@ -36,6 +36,6 @@
   regardless of downtime.
 - Defaults taken without asking: give up on a turn after 3 resumptions without progress
   (FR-016); a resumed background piece's time limit restarts; dream cycles in progress are not
-  resumed; a settings change still stops turns (#52).
+  resumed; a settings change resumes running turns on the new instance (follow-up decision with the user; #52's intent is kept).
 - Missed schedules already run once on startup today. US5 protects that behaviour rather than
   adding it.

@@ -87,7 +87,7 @@ src/
 ├── schema/request.rs, schema/response.rs        # is_durable; VizierResponse.resumed
 ├── agents/agent/mod.rs                          # step recorder in prompt_with; chat saves only Response/Error; resume(); StopReason::Restart
 ├── agents/process.rs                            # envelope turn_id/resumed; start/finish/cancel rows; resumed jobs; crash-loop guard; hand_on_queued via resend; seal_open_calls + StopReason
-├── agents/mod.rs                                # boot: re-send pending turns before supervisors build
+├── agents/mod.rs, agents/supervisor.rs          # boot: re-send pending turns before supervisors build; stop reason (update/restart vs delete) on the shutdown signal
 ├── agents/background/mod.rs                     # recover(): re-attach running/reporting jobs; uses transport.broadcast_sender
 ├── scheduler/mod.rs                             # recover(): close resumed task runs via await_session_outcome
 ├── dependencies.rs                              # build transport with storage; sweeps skip work backed by rows; scratch/is_thinking clean-up respects rows
@@ -112,7 +112,7 @@ Nothing branches per channel except the one-line rendering of `resumed` in each 
 
 1. **Foundation**: `session_turn` + `TurnStorage`, envelope fields, `is_durable`, `VizierResponse.resumed`, `SessionFrame::HistoryEntry`.
 2. **US1 (P1)**: per-step history writes plus `history_entry` frames, `seal_open_calls` on abort/stop/panic (required as soon as steps are saved mid-turn), then the WebUI merge by uid and the trail from history, keeping aborted trails. This can ship on its own: it fixes the reported bug with no restart work.
-3. **US2 + US3**: journaling in `send_request`, row lifecycle in the loop, startup re-send, `resume()`, the crash-loop guard, resumed delivery and rendering, and the startup clean-up changes.
+3. **US2 + US3**: journaling in `send_request`, row lifecycle in the loop, startup re-send, `resume()`, the crash-loop guard, resumed delivery and rendering, the startup clean-up changes, and resuming turns across an agent update/restart (stop reason on the shutdown signal, hand-on keeping the original sender). Update CLAUDE.md's #52 paragraph to match.
 4. **US4 + US5**: `await_session_outcome`, background job and task run recovery, and sweeps limited to unbacked work.
 5. **Polish**: docs, e2e script, `cargo clippy`/`test`, typecheck, quickstart.
 

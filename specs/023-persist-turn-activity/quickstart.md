@@ -71,7 +71,7 @@ Repeat §3 with `just shutdown` instead of `kill -9`. Same expectations.
 2. **Expect**: an `abort` frame, no lorem replies for `first`/`second`, and `session_turn`
    empty.
 
-## §6b Abort mid-call (FR-021/022/023, SC-008)
+## §6b Abort or agent restart mid-call (FR-019/021/022/023, SC-008)
 
 1. Socket A: send `HOLD(30)`. After A receives the `ToolCall` `history_entry`, send
    `{"command":"abort"}`.
@@ -82,8 +82,15 @@ Repeat §3 with `just shutdown` instead of `kill -9`. Same expectations.
    - No `sleep` is still running, and `session_turn` is empty.
 3. Send `hello`. **Expect**: a normal lorem-ipsum reply. Every `ToolCall` in the session's
    history has a `ToolResult`.
-4. Repeat steps 1–2, but instead of aborting, change the agent's settings (`PUT /agents/plug`)
-   mid-call. **Expect**: the "agent was restarted" notice, then the same clean follow-up.
+4. Repeat step 1, but instead of aborting, change the agent's settings mid-call
+   (`PUT /agents/plug`, for example a different `thinking_depth`).
+   **Expect**, on socket A with no reconnect:
+   - a `history_entry` `ToolResult` with the "agent was restarted" notice, and no
+     `AgentUnavailable` error
+   - then a reply frame with `"resumed": true` echoing that notice
+   - `session_turn` empty afterwards
+5. Repeat step 4 with `DELETE /agents/plug` on a throwaway agent. **Expect**: no resumption,
+   and its rows are gone with the agent.
 
 ## §7 Crash-loop guard (FR-016, SC-007)
 

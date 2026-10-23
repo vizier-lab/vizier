@@ -41,6 +41,8 @@ what a page shows when it opens mid-turn, and what a restart resumes from.
   outcome is unknown, and decides what to do.
 - Q: Is there a limit on how long the downtime can be? → A: No. Interrupted work is always
   resumed, whatever the length of the downtime.
+- Q: When an agent's settings change mid-turn, is the running turn resumed? → A: Yes. It
+  resumes on the new settings from its last recorded step, instead of being dropped as today.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -193,9 +195,14 @@ run of that task.
   is now invalid): its interrupted and queued work waits and resumes once the agent starts,
   like any other request made while it is unavailable.
 - **The agent was deleted** while work was pending: that work is dropped with the agent.
-- **The agent's settings were changed** mid-turn: unchanged from today. Running turns are
-  stopped and queued messages carry on with the new settings. This feature does not resume a
-  turn stopped by a settings change.
+- **The agent's settings were changed** mid-turn (or it was restarted because its provider
+  credentials changed): the running turn is stopped on the old settings, as today. It then
+  resumes on the new settings from its last recorded step, the same way as after a vizier
+  restart, and its reply goes to the same place the person is waiting. Queued messages carry
+  on behind it, as today. A settings change that can't start is refused and changes nothing,
+  as today.
+- **A resumed turn's tools changed with the settings**: steps already recorded stay as they
+  are. The agent continues with the tools the new settings give it.
 - **A client tool call was pending** at the stop: it is reported to the agent as interrupted
   with unknown outcome. A *deferrable* call keeps its current behaviour and is delivered to the
   next client that connects.
@@ -203,8 +210,11 @@ run of that task.
   recorded as stopped by the person with an unknown outcome. The trail stays in the
   conversation, folded, showing what the agent had done before the abort. Today an aborted
   turn's trail disappears. The next message is answered normally.
-- **A turn is stopped by a settings change, or by an internal error, while a tool call is
-  running**: same as an abort, with the reason it was stopped.
+- **A turn is stopped by a settings change while a tool call is running**: the call is recorded
+  as stopped because the agent restarted, with an unknown outcome, and is not run again. The
+  turn then resumes.
+- **A turn ends with an internal error while a tool call is running**: same as an abort, with
+  that reason.
 - **A blocking HTTP chat request** was waiting for the answer: the connection is gone, and the
   answer is in the conversation's history.
 - **A dream cycle was in progress**: it is not resumed. Its next cycle runs when due, and that
@@ -275,9 +285,9 @@ run of that task.
 
 **Stopping a turn**
 
-- **FR-021**: Whenever a turn ends without finishing its own steps (aborted by the person,
-  including the commands that abort; stopped for an agent settings change, restart or
-  deletion; or ended by an internal error), every tool call it started without a recorded
+- **FR-021**: Whenever a turn is stopped without finishing its own steps (aborted by the
+  person, including the commands that abort; stopped for an agent settings change, restart or
+  deletion; interrupted by a vizier restart; or ended by an internal error), every tool call it started without a recorded
   result MUST be given a result stating why it stopped and that its outcome is unknown. Calls
   stopped this way MUST NOT be run again.
 - **FR-022**: After such a stop, no view MUST show a call of that turn as still running, and the
@@ -285,10 +295,14 @@ run of that task.
 - **FR-023**: An aborted turn's recorded steps MUST stay in the conversation as a folded trail,
   marked as aborted.
 
+- **FR-019**: When an agent is restarted for a settings change or a provider credentials change,
+  its running turns MUST resume on the new instance from their last recorded step (the same
+  rules as FR-008/FR-009/FR-016), and their replies MUST reach the same place the person is
+  waiting, marked as continued. Queued requests carry on behind them. When an agent is
+  deleted, its running and queued work is dropped.
+
 **Unchanged**
 
-- **FR-019**: Stopping an agent instance for a settings change, restart or deletion MUST keep
-  today's behaviour (running turns stopped, queued requests carried on or dropped with the agent).
 - **FR-020**: Dream cycles in progress are not resumed. Conversations and trails recorded
   before this feature MUST display as they do today.
 
@@ -334,7 +348,9 @@ run of that task.
 - Context the agent receives automatically with a message (related memories, reactions) is
   computed again when the turn resumes, from the state at that time.
 - The working indicator shows no elapsed time today, and none is added.
-- Stopping an agent instance for a settings change is a deliberate decision (#52) and keeps
-  stopping its turns. Only process restarts are covered.
+- #52 stops an agent's turns on a settings change so that none carries on with the *old*
+  settings, tools or MCP connections. Resuming on the *new* instance keeps that guarantee, so
+  this feature resumes those turns instead of dropping them. The project guidance describing #52
+  is updated to match.
 - Anything recorded for durability is subject to the same deletion rules as the conversation it
   belongs to (deleted with the topic or the agent).

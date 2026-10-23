@@ -28,7 +28,8 @@ send_request ──insert──▶ queued ──start_session_job──▶ runni
                            │                              │
                            └──── /abort, agent delete ────┴──────────────────────────────▶ (deleted)
 process exits (crash / shutdown): rows stay → startup re-sends them (running rows as resumed)
-instance stop for update: running → deleted (aborted, #52); queued → re-sent with the same id
+instance stop for update/restart: running → sealed, re-sent first as resumed (original sender kept); queued → re-sent with the same id
+agent delete: all rows → deleted
 ```
 
 **Trait** (`TurnStorage`, added to the `VizierStorageProvider` supertrait and forwarded by

@@ -10,7 +10,7 @@
 | WebUI | `layout.tsx`, `routes/chat.tsx` | The socket closes when the person leaves the chat route and opens again on return. History is read on mount. The running trail is `liveTrail` state, lost on unmount. |
 | Queue | `process.rs::agent_process` | `session_queues: HashMap<VizierSession, SessionQueue>` in memory. Requests in the flume channel are also memory only. |
 | Shutdown | `cli/run.rs` | `vizier shutdown` → `std::process::exit(0)`. A crash ends the process. Neither stops turns gracefully, so durable rows would be left exactly as they were. |
-| Instance stop | `process.rs` end of loop | Update/delete: `turns.stop_all` aborts running turns (#52), and `hand_on_queued` re-sends the queue on the agent channel. |
+| Instance stop | `process.rs` end of loop | Update/delete: `turns.stop_all` aborts running turns (#52), their senders get `AgentUnavailable`, and `hand_on_queued` re-sends the queue on the agent channel. |
 | Startup sweeps | `dependencies.rs` | Open task runs, background jobs (`running`/`reporting`) and pending client calls → `interrupted`. **All scratch rows cleared.** |
 | Schedules | `scheduler/mod.rs::tick_tasks`, `scheduler/dream` | Cron: next occurrence after `last_executed_at`, so a missed one fires once at startup. One-time: fires if still active and due. Dream: fires when `last_dream_time + interval ≤ now`. `is_running(task)` (a `running` task_run row) prevents overlap. |
 | Request serialisation | `schema/request.rs` | `VizierRequest` serialises everything except `trace`, `client`, and the client tool declarations (`skip_serializing`). `background_depth` and `scheduled_task` are kept. |
@@ -105,9 +105,19 @@ whatever rows remain.
   count. If it equals the stored count, `resume_count += 1`. Otherwise `resume_count` is reset
   to 1. When it reaches 4 (three resumptions without progress), the turn ends with an `Error`
   ("stopped vizier 3 times without progress") and the queue continues.
-- `hand_on_queued` (instance stop for an update) re-sends with `resend`, keeping row ids.
-  Running turns stopped for an update have their rows deleted, which is today's abort
-  behaviour (FR-019).
+- **Instance stop for an update or restart (FR-019)**: `stop_all` still aborts the running
+  tasks, so nothing continues on the old config, tools or MCP clients (#52's intent). Then, for
+  each stopped turn, `seal_open_calls(AgentRestarted)` runs, the row is kept, and the turn is
+  handed on ahead of its session's queue: `hand_on_queued` re-sends it with `resend` as
+  `resumed`, **keeping its original `response_tx`**. The new instance resumes it like a restart
+  resume, and the reply streams to whoever was waiting: the WebUI forwarder, or the
+  Discord/Telegram per-message renderer. `notify_turn_stopped` no longer sends
+  `AgentUnavailable` in this case. On delete (`AgentCommand::Delete`), rows are deleted and the
+  current behaviour is kept. `agent_process` learns which of the two it is from the supervisor's
+  stop reason (a field on the shutdown signal), since that's the only difference.
+- Because the sealing step counts as progress, a config that makes the turn fail at once is
+  handled by the ordinary error path (the turn ends with its `Error`), not by the crash-loop
+  guard.
 
 **Rationale**: re-sending through the existing loop reuses queueing, abort, and handover
 ordering unchanged. Resumption differs from a new turn in only one place: how the history and
@@ -171,7 +181,7 @@ for each one saves a `ToolResult` carrying `reason`'s notice and publishes it as
 | Path | Reason |
 |---|---|
 | `abort_session_notify` / the handover-command abort | `StopReason::Aborted` |
-| end of `agent_process` after `stop_all` | `StopReason::AgentRestarted` |
+| end of `agent_process` after `stop_all` (update/restart: then handed on to resume; delete: dropped) | `StopReason::AgentRestarted` |
 | `join_next` with a panicked outcome (`recover_failed_turn`) | `StopReason::InternalError` |
 | `resume()` (Decision 4) | `StopReason::Restart`, followed by continuing the turn |
 

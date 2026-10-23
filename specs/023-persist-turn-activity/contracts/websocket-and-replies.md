@@ -40,7 +40,7 @@ like any other and sent as a `history_entry`:
 |---|---|
 | Its turn resumes after a restart | `Interrupted: vizier restarted before this call finished, so its outcome is unknown. It was not run again.` |
 | The person aborted (`abort`, or a `checkpoint`/`lobotomy` that aborts) | `Stopped: the person aborted the turn before this call finished, so its outcome is unknown. It was not run again.` |
-| The agent was restarted (settings change, restart, delete) | `Stopped: the agent was restarted before this call finished, so its outcome is unknown. It was not run again.` |
+| The agent was restarted (settings change, credentials change; the turn then resumes) or deleted | `Stopped: the agent was restarted before this call finished, so its outcome is unknown. It was not run again.` |
 | The turn failed internally | `Stopped: the turn failed with an internal error before this call finished, so its outcome is unknown. It was not run again.` |
 
 After any of these, the WebSocket never leaves a call of that turn without a result. An
@@ -48,7 +48,11 @@ aborted turn's entries stay in history, followed by the `abort` command entry.
 
 ## 4. Delivery of resumed turns
 
-Every frame of a resumed turn is published on the session broadcast, the same path as a turn
+A turn resumed after an **agent** restart (settings or credentials change) keeps its original
+sender: the reply arrives on the same WebSocket stream or channel message flow the person is
+waiting on, marked `resumed`, and no `AgentUnavailable` error is sent.
+
+After a **vizier** restart, every frame of a resumed turn is published on the session broadcast, the same path as a turn
 woken by a background report. Open WebUI sockets on the session receive it, and the
 Discord/Telegram readers post it to their channel. A blocking `POST …/chat` that was waiting
 before the restart gets nothing; the reply is in history.
