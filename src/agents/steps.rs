@@ -17,6 +17,11 @@ use crate::{
 /// How many times a turn may be resumed without a single new step before it is given up on.
 pub const MAX_RESUMES_WITHOUT_PROGRESS: u32 = 3;
 
+/// Whether a turn resumed `resumes` times in a row without a new step has used up its chances.
+pub fn exceeds_resume_limit(resumes: u32) -> bool {
+    resumes > MAX_RESUMES_WITHOUT_PROGRESS
+}
+
 /// Which `session_turn` row a turn belongs to, and whether it is a resumption.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TurnRef {
@@ -218,6 +223,13 @@ mod tests {
             kinds(&whole),
             vec!["AssistantMessage", "ToolCall", "ToolCall", "ToolResult", "ToolResult", "ToolCall", "ToolResult"]
         );
+    }
+
+    #[test]
+    fn the_resume_guard_trips_on_the_fourth_resume_without_progress() {
+        assert!(!exceeds_resume_limit(1));
+        assert!(!exceeds_resume_limit(MAX_RESUMES_WITHOUT_PROGRESS));
+        assert!(exceeds_resume_limit(MAX_RESUMES_WITHOUT_PROGRESS + 1));
     }
 
     #[test]

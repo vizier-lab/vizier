@@ -281,6 +281,18 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
     repair_tool_pairing(messages)
 }
 
+/// Splits a session's history at the `Request` entry with `request_uid`: what came before,
+/// the request itself, and what came after (the steps taken on it so far).
+pub fn split_at_request<'a>(
+    entries: &'a [SessionHistory],
+    request_uid: &str,
+) -> Option<(&'a [SessionHistory], &'a SessionHistory, &'a [SessionHistory])> {
+    let at = entries
+        .iter()
+        .position(|e| e.uid == request_uid && matches!(e.content, SessionHistoryContent::Request(_)))?;
+    Some((&entries[..at], &entries[at], &entries[at + 1..]))
+}
+
 /// The `call_id`s of the tool calls in `entries_after_request` that no later `ToolResult`
 /// answers, in call order. A result that comes before its call does not answer it.
 pub fn open_tool_calls(entries_after_request: &[SessionHistory]) -> Vec<String> {
@@ -922,5 +934,33 @@ mod tests {
             open_tool_calls(&[result_entry("a", "early"), call_entry("a")]),
             vec!["a".to_string()]
         );
+    }
+
+    #[test]
+    fn split_at_request_finds_the_request_and_both_sides() {
+        let mut request = entry(SessionHistoryContent::Command("x".into()));
+        request.uid = "r".into();
+        let mut real = entry(SessionHistoryContent::Request(Default::default()));
+        real.uid = "r".into();
+        let entries = vec![request, real, call_entry("a"), result_entry("a", "ok")];
+        let (before, found, after) = split_at_request(&entries, "r").unwrap();
+        assert_eq!(before.len(), 1);
+        assert_eq!(found.uid, "r");
+        assert_eq!(after.len(), 2);
+        assert!(split_at_request(&entries, "missing").is_none());
+    }
+
+    #[test]
+    fn a_sealed_resume_replays_as_a_paired_message_sequence() {
+        let entries = vec![
+            call_entry("a"),
+            call_entry("b"),
+            result_entry("a", "ok"),
+            result_entry("b", "Interrupted: vizier restarted before this call finished, so its outcome is unknown. It was not run again."),
+        ];
+        let messages = history_entries_to_messages(&entries);
+        let calls: Vec<String> = messages.iter().flat_map(tool_call_ids).collect();
+        let results: Vec<String> = messages.iter().filter_map(|m| result_id(m).map(str::to_string)).collect();
+        assert_eq!(calls.len(), results.len());
     }
 }

@@ -143,7 +143,7 @@ on the same socket.
   - `start_session_job` → `start_turn(id)`.
   - When a current turn finishes in `join_next` (after T008's sealing for a panic) → `finish_turn(id)`.
   - Pass `TurnRef` on to `VizierAgent::chat`. After it saves the `Request` entry, call `set_turn_request_uid(id, uid)`.
-- [ ] T020 [US2] Resumption, in `src/schema/history.rs` and `src/agents/agent/mod.rs`:
+- [X] T020 [US2] Resumption, in `src/schema/history.rs` and `src/agents/agent/mod.rs`:
   - Add a pure `pub fn split_at_request(entries: &[SessionHistory], request_uid: &str) -> Option<(&[SessionHistory], &SessionHistory, &[SessionHistory])>` in `src/schema/history.rs`, with tests.
   - Add `VizierAgent::resume(session, request, turn: TurnRef, request_uid, response_tx)`. It:
     - loads history and splits it; when the uid isn't found, falls back to `chat`
@@ -153,9 +153,9 @@ on the same socket.
     - sets `resumed = true` on the final `Response` before saving and returning it.
   - In `handle_request` (`src/agents/process.rs`), route `turn.resumed` with a stored `request_uid` to `resume`, and everything else to `chat`. A resumed row without a `request_uid` runs as a fresh `chat`.
   - Add a unit test for the progress-to-messages step: after sealing, every `ToolCall` in the progress has a result, and the message sequence passes the existing tool-pairing invariant test helper in `src/schema/history.rs`.
-- [ ] T021 [US2] Crash-loop guard in `src/agents/process.rs`: before running a resumed turn, count the entries after its `request_uid` and call `note_resume(id, count)`. If the result is > `MAX_RESUMES_WITHOUT_PROGRESS` (3, a const in `src/agents/steps.rs`), save an `Error` response ("This turn was stopped: it brought vizier down 3 times without making progress."), send it on the response sender, `finish_turn(id)`, and let the queue continue. Add a unit test with the guard's decision as a pure function.
-- [ ] T022 [US2] Startup recovery in `src/agents/mod.rs` (`VizierAgents` boot, after every agent's request channel is registered and before supervisors build). For each agent, read `pending_turns(agent_id)` and `transport.resend` each in `id` order with `response_tx: Some(transport.broadcast_sender(session))`, `resumed: state == Running`, `turn_id: Some(id)`. Log a count per agent like the other startup sweeps.
-- [ ] T023 [US2] Startup clean-up in `src/dependencies.rs`:
+- [X] T021 [US2] Crash-loop guard in `src/agents/process.rs`: before running a resumed turn, count the entries after its `request_uid` and call `note_resume(id, count)`. If the result is > `MAX_RESUMES_WITHOUT_PROGRESS` (3, a const in `src/agents/steps.rs`), save an `Error` response ("This turn was stopped: it brought vizier down 3 times without making progress."), send it on the response sender, `finish_turn(id)`, and let the queue continue. Add a unit test with the guard's decision as a pure function.
+- [X] T022 [US2] Startup recovery in `src/agents/mod.rs` (`VizierAgents` boot, after every agent's request channel is registered and before supervisors build). For each agent, read `pending_turns(agent_id)` and `transport.resend` each in `id` order with `response_tx: Some(transport.broadcast_sender(session))`, `resumed: state == Running`, `turn_id: Some(id)`. Log a count per agent like the other startup sweeps.
+- [X] T023 [US2] Startup clean-up in `src/dependencies.rs`:
   - Replace `clear_all_scratch` with clearing only sessions not in `sessions_with_pending_turns()`. Add `clear_scratch_except(&[VizierSession])` to `ScratchStorage` (`src/storage/scratch.rs`, `src/storage/sqlite/scratch.rs`) or loop `clear_scratch` over the difference, whichever is smaller.
   - Reset `is_thinking` to false for every session with no `running` row (one `UPDATE` in `src/storage/sqlite/session.rs` behind a `SessionStorage` method).
 - [ ] T024 [P] [US2] Show `resumed` replies:

@@ -540,9 +540,59 @@ impl VizierAgent {
         turn: TurnRef,
     ) -> Result<VizierResponse> {
         let background_depth = req.background_depth;
-        // Auto-transcribe AudioChat/AudioPrompt in-place
         let mut req = req;
-        if let Some(ref stt) = self.stt {
+
+        // A turn that was running when vizier went down carries on from its last step: the
+        // request is the one already saved, and a call the stop cut off is sealed, never run
+        // again (`specs/023-persist-turn-activity`).
+        let mut resume_steps: Option<Vec<SessionHistory>> = None;
+        let mut resumed_request_uid: Option<String> = None;
+        if turn.resumed
+            && let Some(request_uid) = self.pending_request_uid(turn.id).await
+        {
+            crate::agents::steps::seal_open_calls(
+                &self.storage,
+                &self.transport,
+                &session,
+                Some(&request_uid),
+                crate::agents::steps::StopReason::Restart,
+            )
+            .await;
+            if let Ok(all) = self
+                .storage
+                .list_session_history(session.clone(), None, None, None)
+                .await
+                && let Some((_, entry, after)) = crate::schema::split_at_request(&all, &request_uid)
+                && let SessionHistoryContent::Request(stored) = &entry.content
+            {
+                req = stored.clone();
+                resume_steps = Some(after.to_vec());
+                resumed_request_uid = Some(request_uid);
+            }
+        }
+        // A turn that keeps bringing vizier down is given up on rather than resumed forever.
+        if let (Some(id), Some(after)) = (turn.id, &resume_steps)
+            && let Ok(resumes) = self.storage.note_resume(id, after.len()).await
+            && crate::agents::steps::exceeds_resume_limit(resumes)
+        {
+            let message = format!(
+                "This turn was stopped: it brought vizier down {} times without making progress.",
+                crate::agents::steps::MAX_RESUMES_WITHOUT_PROGRESS
+            );
+            let response = VizierResponse {
+                timestamp: chrono::Utc::now(),
+                content: VizierResponseContent::Error { kind: ErrorKind::classify(&message), message },
+                attachments: vec![],
+                ..Default::default()
+            };
+            self.save_history_or_log(&session, SessionHistoryContent::Response(response.clone()))
+                .await;
+            return Ok(response);
+        }
+        let resuming = resume_steps.is_some();
+
+        // Auto-transcribe AudioChat/AudioPrompt in-place
+        if let Some(ref stt) = self.stt && !resuming {
             let audio_att = match &req.content {
                 VizierRequestContent::AudioChat(att, None) => Some((att.clone(), false)),
                 VizierRequestContent::AudioPrompt(att, None) => Some((att.clone(), true)),
@@ -631,7 +681,9 @@ impl VizierAgent {
         // 1: this turn's own request follows the loaded history.
         let digest = reaction_digest(&session_history, 1);
 
-        if let Some(hooks) = hooks.clone() {
+        if let Some(hooks) = hooks.clone()
+            && !resuming
+        {
             req = hooks.on_request(req).await?;
         }
 
@@ -652,9 +704,13 @@ impl VizierAgent {
         req.attachments.clear();
 
         // Always save request to history (even for SilentRead that may not get a response)
-        let request_uid = self
-            .save_history_or_log(&session, SessionHistoryContent::Request(req.clone()))
-            .await;
+        let request_uid = match resumed_request_uid {
+            Some(uid) => Some(uid),
+            None => {
+                self.save_history_or_log(&session, SessionHistoryContent::Request(req.clone()))
+                    .await
+            }
+        };
         if let (Some(id), Some(uid)) = (turn.id, request_uid.as_deref())
             && let Err(e) = self.storage.set_turn_request_uid(id, uid).await
         {
@@ -696,7 +752,12 @@ impl VizierAgent {
             );
         }
 
-        let mut recorder = StepRecorder::new(session.clone(), 0);
+        let progress = resume_steps
+            .as_deref()
+            .map(history_entries_to_messages)
+            .unwrap_or_default();
+        let mut recorder =
+            StepRecorder::new(session.clone(), crate::agents::steps::entries_for(&progress).len());
         let prompt_result = self
             .prompt_with(
                 &tools,
@@ -712,6 +773,7 @@ impl VizierAgent {
                 false,
                 &ctx,
                 Some(&mut recorder),
+                progress,
             )
             .await;
 
@@ -773,6 +835,7 @@ impl VizierAgent {
             attachments,
             ..Default::default()
         };
+        response.resumed = resuming;
         response = self.maybe_audio_reply(response, &req).await;
 
         // The answer exists and is paid for: a failed save loses it from history, not from
@@ -810,7 +873,7 @@ impl VizierAgent {
         (anyhow::Error, Vec<Message>),
     > {
         let tools = self.tools.load_full();
-        self.prompt_with(&tools, message, history, turn_depth, hooks, is_subagent, ctx, None)
+        self.prompt_with(&tools, message, history, turn_depth, hooks, is_subagent, ctx, None, vec![])
             .await
     }
 
@@ -824,6 +887,7 @@ impl VizierAgent {
         _is_subagent: bool,
         ctx: &ToolContext,
         mut steps: Option<&mut StepRecorder>,
+        progress: Vec<Message>,
     ) -> std::result::Result<
         (
             String,
@@ -851,6 +915,17 @@ impl VizierAgent {
         // The turn's own request, which a mid-turn checkpoint keeps ahead of the exchange in
         // progress.
         let request = message.clone();
+
+        // Steps already taken (a resumed turn): the request and its progress go into the
+        // record, and the last message of the progress is the one sent next.
+        if !progress.is_empty() {
+            let mut progress = progress;
+            history.push(message.clone());
+            full_history.push(message.clone());
+            message = progress.pop().expect("checked non-empty");
+            history.extend(progress.iter().cloned());
+            full_history.extend(progress);
+        }
 
         let start = Instant::now();
         let prompt_timeout = *self.config.prompt_timeout;
@@ -1276,6 +1351,18 @@ impl VizierAgent {
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
         Ok(())
+    }
+
+    /// The history uid of the saved `Request` a journaled turn is working on.
+    async fn pending_request_uid(&self, turn_id: Option<i64>) -> Option<String> {
+        let id = turn_id?;
+        self.storage
+            .pending_turns(&self.agent_id)
+            .await
+            .ok()?
+            .into_iter()
+            .find(|turn| turn.id == id)?
+            .request_uid
     }
 
     /// Save a history entry without letting a failure end the turn (#47): retried briefly

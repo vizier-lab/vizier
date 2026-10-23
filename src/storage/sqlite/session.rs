@@ -37,6 +37,36 @@ impl SessionStorage for SqliteStorage {
         Ok(())
     }
 
+    async fn reset_thinking_except(&self, keep: &[crate::schema::VizierSession]) -> Result<usize> {
+        let conn = self.conn.lock();
+        let rows: Vec<(String, String, Option<String>, String)> = {
+            let mut stmt = conn.prepare("SELECT agent_id, channel, topic, data FROM session_detail")?;
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        let kept: std::collections::HashSet<(String, String, String)> = keep
+            .iter()
+            .map(|s| (s.0.clone(), s.1.to_slug(), s.2.clone().unwrap_or_default()))
+            .collect();
+        let mut reset = 0;
+        for (agent, channel, topic, data) in rows {
+            if kept.contains(&(agent.clone(), channel.clone(), topic.clone().unwrap_or_default())) {
+                continue;
+            }
+            let Ok(mut detail) = serde_json::from_str::<VizierSessionDetail>(&data) else { continue };
+            if !detail.is_thinking {
+                continue;
+            }
+            detail.is_thinking = false;
+            conn.execute(
+                "UPDATE session_detail SET data = ?1 WHERE agent_id = ?2 AND channel = ?3 AND topic IS ?4",
+                rusqlite::params![serde_json::to_string(&detail)?, agent, channel, topic],
+            )?;
+            reset += 1;
+        }
+        Ok(reset)
+    }
+
     async fn update_thinking_state(
         &self,
         agent_id: AgentId,

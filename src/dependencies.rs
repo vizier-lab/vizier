@@ -4,6 +4,7 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use rusqlite::OptionalExtension;
 
+use crate::storage::turn::TurnStorage;
 use crate::{
     agents::background::BackgroundJobs,
     config::{VizierConfig, storage::StorageConfig},
@@ -931,7 +932,15 @@ impl VizierDependencies {
     /// nothing can be running before agents start, so every row left is a leftover
     /// (`specs/020-scratchpad-tools` research R5).
     async fn clear_orphaned_scratch(storage: &VizierStorage) {
-        match storage.clear_all_scratch().await {
+        // A session with a turn waiting to resume keeps its scratch files and its thinking
+        // mark; everything else is a leftover of the previous process.
+        let keep = storage.sessions_with_pending_turns().await.unwrap_or_default();
+        match storage.reset_thinking_except(&keep).await {
+            Ok(0) => {}
+            Ok(reset) => tracing::info!("cleared the thinking mark of {} session(s) left by a previous process", reset),
+            Err(e) => tracing::warn!("failed to reset thinking marks: {}", e),
+        }
+        match storage.clear_scratch_except(&keep).await {
             Ok(0) => {}
             Ok(cleared) => tracing::info!("cleared {} scratch file(s) left by a previous process", cleared),
             Err(e) => tracing::warn!("failed to clear leftover scratch files: {}", e),

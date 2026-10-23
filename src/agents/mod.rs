@@ -97,10 +97,42 @@ impl VizierAgents {
         for (agent_id, config) in agents.deps.storage.list_agents().await? {
             tracing::info!("starting agent: {}", agent_id);
             let recv = agents.deps.transport.register_agent(agent_id.clone()).await;
+            agents.resend_pending_turns(&agent_id).await;
             agents.start(agent_id, config, recv, None);
         }
 
         Ok(agents)
+    }
+
+    /// Requests accepted before vizier went down and not finished are sent again, in the
+    /// order they were accepted: a turn that had begun resumes, the rest run in turn
+    /// (`specs/023-persist-turn-activity`). Their replies are published on the session
+    /// events, where an open WebUI topic or a channel reader picks them up.
+    async fn resend_pending_turns(&self, agent_id: &AgentId) {
+        use crate::storage::turn::{TurnState, TurnStorage};
+        let pending = match self.deps.storage.pending_turns(agent_id).await {
+            Ok(pending) => pending,
+            Err(e) => {
+                tracing::error!(agent_id = %agent_id, "could not read pending turns: {e}");
+                return;
+            }
+        };
+        if pending.is_empty() {
+            return;
+        }
+        tracing::info!(agent_id = %agent_id, count = pending.len(), "re-sending turns that were pending at shutdown");
+        for turn in pending {
+            let envelope = crate::transport::VizierRequestEnvelope {
+                response_tx: Some(self.deps.transport.broadcast_sender(turn.session.clone())),
+                session: turn.session,
+                request: turn.request,
+                turn_id: Some(turn.id),
+                resumed: turn.state == TurnState::Running,
+            };
+            if let Err(e) = self.deps.transport.resend(envelope).await {
+                tracing::warn!(agent_id = %agent_id, "could not re-send a pending turn: {e}");
+            }
+        }
     }
 
     /// Spawn a supervisor for the agent on an already-registered request channel.

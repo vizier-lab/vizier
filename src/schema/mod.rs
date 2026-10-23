@@ -41,7 +41,7 @@ pub use integration::{
 };
 pub use history::{
     ClientCallOutcome, SessionHistory, SessionHistoryContent, history_entries_to_messages, message_for_model,
-    messages_for_model, messages_to_history_entries, open_tool_calls, seal_tool_calls,
+    messages_for_model, messages_to_history_entries, open_tool_calls, seal_tool_calls, split_at_request,
 };
 pub use provider::{CustomModel, CustomProtocol, CustomProvider, ProviderCredentials, ProviderEntry};
 pub use request::{

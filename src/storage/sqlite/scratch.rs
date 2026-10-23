@@ -105,6 +105,33 @@ impl ScratchStorage for SqliteStorage {
         )?)
     }
 
+    async fn clear_scratch_except(&self, keep: &[VizierSession]) -> Result<usize> {
+        let keep: std::collections::HashSet<(String, String, String)> = keep
+            .iter()
+            .map(|s| {
+                let (agent, channel, topic) = key(s);
+                (agent.to_string(), channel, topic.to_string())
+            })
+            .collect();
+        let conn = self.conn.lock();
+        let rows: Vec<(String, String, String)> = {
+            let mut stmt = conn.prepare("SELECT DISTINCT agent_id, channel, topic FROM scratch_file")?;
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        let mut cleared = 0;
+        for (agent, channel, topic) in rows {
+            if keep.contains(&(agent.clone(), channel.clone(), topic.clone())) {
+                continue;
+            }
+            cleared += conn.execute(
+                "DELETE FROM scratch_file WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3",
+                rusqlite::params![agent, channel, topic],
+            )?;
+        }
+        Ok(cleared)
+    }
+
     async fn clear_all_scratch(&self) -> Result<usize> {
         Ok(self.conn.lock().execute("DELETE FROM scratch_file", [])?)
     }
