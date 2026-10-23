@@ -193,7 +193,7 @@
 
   Also the "messages wait in line" note
 - [X] T058 [US1] Write `webui/e2e/chat.spec.ts` covering quickstart §2 steps 1–8 and §3 steps 2–7 against a dummyplug agent
-- [ ] T059 [US1] Walk quickstart §2 and §3 on a running binary (constitution e2e gate), then step §2.10 by hand: compare every Chat state with the design in both themes
+- [X] T059 [US1] Walk quickstart §2 and §3 on a running binary (constitution e2e gate), then step §2.10 by hand: compare every Chat state with the design in both themes
 
 **Checkpoint**: Chat is usable end to end. This is the MVP.
 
