@@ -10,6 +10,7 @@ use tokio::sync::watch;
 use tokio::task::{AbortHandle, Id as TaskId, JoinHandle, JoinSet};
 
 use crate::{
+    agents::steps::{StopReason, seal_open_calls},
     agents::{
         agent::VizierAgent,
         hook::{
@@ -32,7 +33,7 @@ use crate::{
         history::{HistoryStorage, save_with_busy_retry},
         memory::MemoryStorage, scratch::ScratchStorage, session::SessionStorage,
     },
-    transport::{DreamCommand, VizierRequestEnvelope},
+    transport::{DreamCommand, VizierRequestEnvelope, VizierTransport},
 };
 
 /// Requests waiting for the session's running job, each with where its response goes.
@@ -72,6 +73,7 @@ async fn abort_session_notify(
     thinking_handles: &mut HashMap<VizierSession, Arc<JoinHandle<()>>>,
     session_queues: &mut HashMap<VizierSession, SessionQueue>,
     storage: &VizierStorage,
+    transport: &VizierTransport,
     response_tx: &Option<flume::Sender<VizierResponse>>,
 ) {
     // The aborted turn's own sender hears it too: Discord and Telegram send `/abort` with
@@ -84,6 +86,11 @@ async fn abort_session_notify(
         session_queues,
         storage,
     );
+    // A call the abort cut off gets its result now. The task may still be finishing a save
+    // as it is dropped; a doubled result for one call is dropped again on replay.
+    if had_in_flight {
+        seal_open_calls(storage, transport, session, None, StopReason::Aborted).await;
+    }
     // The turn and its queue are gone, so a message sent straight after starts afresh.
     clear_idle_scratch(storage, session).await;
     if had_in_flight {
@@ -169,6 +176,7 @@ pub async fn agent_process(
                             &mut thinking_handles,
                             &mut session_queues,
                             &deps.storage,
+                            &deps.transport,
                             &response_tx,
                         )
                         .await;
@@ -247,6 +255,9 @@ pub async fn agent_process(
                     continue;
                 }
                 let session = finished.session;
+                if finished.outcome == TurnOutcome::Panicked {
+                    seal_open_calls(&deps.storage, &deps.transport, &session, None, StopReason::InternalError).await;
+                }
                 if finished.outcome != TurnOutcome::Done {
                     recover_failed_turn(&session, finished.outcome, finished.response_tx, &mut thinking_handles, &deps.storage);
                 }
@@ -279,6 +290,7 @@ pub async fn agent_process(
     // This instance's turns stop with it, so none outlives an update or delete and carries
     // on with the old config, tools and MCP clients (#52).
     for (session, response_tx) in turns.stop_all(TURN_STOP_TIMEOUT).await {
+        seal_open_calls(&deps.storage, &deps.transport, &session, None, StopReason::AgentRestarted).await;
         notify_turn_stopped(&session, response_tx, &mut thinking_handles, &deps.storage).await;
         // A session whose queue is handed on carries on in the next instance, scratch and all.
         if session_queues.get(&session).is_none_or(|queue| queue.is_empty()) {

@@ -13,7 +13,7 @@ use crate::{
         catalogue::{CachedLogo, CatalogueCacheStorage, CatalogueSnapshotRow}, dream::DreamStorage, dream_journal::DreamJournalStorage,
         global_config::GlobalConfigStorage, history::HistoryStorage, integration::IntegrationStorage,
         memory::MemoryStorage,
-        provider::{CustomProviderStorage, ProviderStorage}, reaction::ReactionStorage, scratch::ScratchStorage, session::SessionStorage, session_file::SessionFileStorage,
+        provider::{CustomProviderStorage, ProviderStorage}, reaction::ReactionStorage, scratch::ScratchStorage, turn::TurnStorage, session::SessionStorage, session_file::SessionFileStorage,
         state::StateStorage, task::TaskStorage, task_run::TaskRunStorage,
         usage::UsageStorage, user::UserStorage,
     },
@@ -42,6 +42,7 @@ pub mod session_file;
 pub mod state;
 pub mod task;
 pub mod task_run;
+pub mod turn;
 pub mod usage;
 pub mod user;
 
@@ -70,7 +71,8 @@ where
         + IntegrationStorage
         + UsageStorage
         + ClientCallStorage
-        + ScratchStorage,
+        + ScratchStorage
+        + TurnStorage,
 {
 }
 

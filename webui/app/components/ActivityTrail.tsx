@@ -32,6 +32,8 @@ interface ActivityTrailProps {
   //   `block` — standalone, for a trail with no answer to sit inside: one closed by a
   //             checkpoint or a command, or one nothing closed at all.
   variant?: 'inset' | 'bare' | 'block'
+  // The person aborted the turn this trail belongs to.
+  aborted?: boolean
 }
 
 const quote = (text: string) =>
@@ -46,6 +48,7 @@ export function ActivityTrail({
   durationMs,
   label,
   variant = 'block',
+  aborted = false,
 }: ActivityTrailProps) {
   // FR-017: nothing on the way to the answer means no disclosure at all, not an empty one.
   if (trail.length === 0) return null
@@ -56,7 +59,7 @@ export function ActivityTrail({
         <span className="activity-trail-caret" aria-hidden="true">
           ▸
         </span>
-        <span className="activity-trail-label">{trailSummary(trail, durationMs)}</span>
+        <span className="activity-trail-label">{trailSummary(trail, durationMs)}{aborted ? ' · Aborted' : ''}</span>
       </summary>
 
       <div className="activity-trail-body">
@@ -85,6 +88,7 @@ export function ActivityTrail({
                   className="prose activity-trail-event"
                   data-job-id={event.jobId}
                 >
+                  {event.stopped && <em className="activity-trail-stopped">Stopped · </em>}
                   <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
                     {label(event.name, event.args)}
                   </ReactMarkdown>
@@ -93,6 +97,7 @@ export function ActivityTrail({
             case 'python':
               return (
                 <div key={event.id} className="activity-trail-event">
+                  {event.stopped && <em className="activity-trail-stopped">Stopped</em>}
                   <ExecutionReportView
                     report={event.report}
                     intent={event.intent}

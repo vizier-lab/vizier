@@ -242,6 +242,15 @@ pub struct VizierRequest {
 }
 
 impl VizierRequest {
+    /// Whether the request is journaled so a restart can pick it up again. An abort is an
+    /// instruction about the present, and a dream cycle is rescheduled on its own.
+    pub fn is_durable(&self, session: &crate::schema::VizierSession) -> bool {
+        if matches!(&self.content, VizierRequestContent::Command(cmd) if cmd == "abort" || cmd == "dream") {
+            return false;
+        }
+        !matches!(session.1, crate::schema::VizierChannelId::Dream(..))
+    }
+
     pub fn to_prompt(&self) -> anyhow::Result<String> {
         let mut prompt = format!(
             "---\n{}\n---\n\n{}",
@@ -330,6 +339,23 @@ impl VizierRequest {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn abort_dream_and_dream_sessions_are_not_durable() {
+        use crate::schema::{DreamStage, VizierChannelId, VizierSession};
+        let session = VizierSession("a".into(), VizierChannelId::System, None);
+        let req = |content| VizierRequest { content, ..Default::default() };
+        assert!(req(VizierRequestContent::Chat("hi".into())).is_durable(&session));
+        assert!(req(VizierRequestContent::Command("checkpoint".into())).is_durable(&session));
+        assert!(!req(VizierRequestContent::Command("abort".into())).is_durable(&session));
+        assert!(!req(VizierRequestContent::Command("dream".into())).is_durable(&session));
+        let dream = VizierSession(
+            "a".into(),
+            VizierChannelId::Dream(Box::new(session.clone()), DreamStage::Extraction),
+            None,
+        );
+        assert!(!req(VizierRequestContent::Chat("x".into())).is_durable(&dream));
+    }
+
     use super::*;
 
     fn scheduled() -> VizierRequest {

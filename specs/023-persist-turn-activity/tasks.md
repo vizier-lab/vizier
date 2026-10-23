@@ -36,7 +36,7 @@ Single repo: Rust in `src/`, WebUI in `webui/app/`, docs in `docs/src/`, scripts
 
 **Purpose**: a baseline to compare against for FR-002 (the step-by-step record must equal today's).
 
-- [ ] T001 Run `cargo test`, `cargo clippy` and `cd webui && npm run typecheck` on the branch before changes, and note any pre-existing failures in `specs/023-persist-turn-activity/baseline.md`. With `just run` and a dummyplug agent `plug` (local shell enabled), send `{"tool":"execute_python","arguments":{"intent":"ref","code":"shell_exec(command=\"echo hi\")"}}` on a fresh topic, and save that topic's `GET …/history` entries (content kinds and order only, no uids or timestamps) to `specs/023-persist-turn-activity/reference-history.json`. Confirm `shell_exec`'s argument name with `describe_tool_function` and note it in `baseline.md`.
+- [X] T001 Run `cargo test`, `cargo clippy` and `cd webui && npm run typecheck` on the branch before changes, and note any pre-existing failures in `specs/023-persist-turn-activity/baseline.md`. With `just run` and a dummyplug agent `plug` (local shell enabled), send `{"tool":"execute_python","arguments":{"intent":"ref","code":"shell_exec(command=\"echo hi\")"}}` on a fresh topic, and save that topic's `GET …/history` entries (content kinds and order only, no uids or timestamps) to `specs/023-persist-turn-activity/reference-history.json`. Confirm `shell_exec`'s argument name with `describe_tool_function` and note it in `baseline.md`.
 
 ---
 
@@ -46,9 +46,9 @@ Single repo: Rust in `src/`, WebUI in `webui/app/`, docs in `docs/src/`, scripts
 
 **⚠️ CRITICAL**: no user story work begins until this phase is complete.
 
-- [ ] T002 [P] Add `SessionFrame::HistoryEntry(SessionHistory)` to `src/transport.rs`, carrying a saved entry with its uid, in the shape `GET …/history` returns. In `handle_socket` (`src/channels/http/api/v1/agents/channel.rs`), forward it as `{"history_entry": <entry>}`. Make every other `match` on `SessionFrame` ignore the new variant: `src/channels/woken.rs`, plus anything `grep -rn "SessionFrame::" src` finds.
-- [ ] T003 [P] In `src/schema/history.rs`, add a pure `pub fn open_tool_calls(entries_after_request: &[SessionHistory]) -> Vec<String>`. It returns the `call_id`s of `ToolCall` entries that have no `ToolResult` with the same `call_id` later in the slice, in call order. Add unit tests for: none open, one open among answered, several open, and a result before its call (that call is not open).
-- [ ] T004 Create `src/agents/steps.rs` (register it in `src/agents/mod.rs`) with:
+- [X] T002 [P] Add `SessionFrame::HistoryEntry(SessionHistory)` to `src/transport.rs`, carrying a saved entry with its uid, in the shape `GET …/history` returns. In `handle_socket` (`src/channels/http/api/v1/agents/channel.rs`), forward it as `{"history_entry": <entry>}`. Make every other `match` on `SessionFrame` ignore the new variant: `src/channels/woken.rs`, plus anything `grep -rn "SessionFrame::" src` finds.
+- [X] T003 [P] In `src/schema/history.rs`, add a pure `pub fn open_tool_calls(entries_after_request: &[SessionHistory]) -> Vec<String>`. It returns the `call_id`s of `ToolCall` entries that have no `ToolResult` with the same `call_id` later in the slice, in call order. Add unit tests for: none open, one open among answered, several open, and a result before its call (that call is not open).
+- [X] T004 Create `src/agents/steps.rs` (register it in `src/agents/mod.rs`) with:
   - `pub async fn record_step(storage: &VizierStorage, transport: &VizierTransport, session: &VizierSession, content: SessionHistoryContent) -> Option<String>`: saves through `storage::history::save_with_busy_retry`, logs on error like `VizierAgent::save_history_or_log`, and on success publishes `SessionFrame::HistoryEntry` with the uid.
   - `pub enum StopReason { Restart, Aborted, AgentRestarted, InternalError }` with `fn notice(&self) -> &'static str`, using the exact texts in `contracts/websocket-and-replies.md` §3.
   - `pub async fn seal_open_calls(storage, transport, session, request_uid: Option<&str>, reason: StopReason) -> usize`. It reads the session history, takes the entries after the entry whose uid is `request_uid` (or, when `None`, after the last `Request` entry), calls `open_tool_calls`, records one `ToolResult { call_id, content: reason.notice() }` per open call through `record_step`, and returns how many it sealed.
@@ -69,41 +69,41 @@ updating. After an abort mid-call, the call shows as stopped and the next messag
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] In `src/agents/steps.rs`, add `pub struct StepRecorder { session, recorded: usize }` with:
+- [X] T005 [US1] In `src/agents/steps.rs`, add `pub struct StepRecorder { session, recorded: usize }` with:
   - `async fn record(&mut self, storage: &VizierStorage, transport: &VizierTransport, message: &Message)`: converts one model message with `messages_to_history_entries(std::slice::from_ref(message))`, records each entry through `record_step`, and increments `recorded`.
   - `async fn flush(&mut self, …, delta: &[Message])`: records `delta[self.recorded..]`.
 
   Keep the conversion pure and separate from the IO (a `fn entries_for(&[Message]) -> Vec<SessionHistoryContent>` step), so that `cargo test` can check the following against a scripted delta (assistant with narration and 2 tool calls, 2 results, a second assistant with 1 call, 1 result, final assistant text): recording message by message as `prompt_with` would, then flushing all but the final message, yields exactly `messages_to_history_entries(&delta[..len-1])`.
-- [ ] T006 [US1] In `prompt_with` (`src/agents/agent/mod.rs`, ~811), add a parameter `steps: Option<&mut StepRecorder>` and update every caller (`grep -n "prompt_with(" src`). Only `chat` passes `Some`.
+- [X] T006 [US1] In `prompt_with` (`src/agents/agent/mod.rs`, ~811), add a parameter `steps: Option<&mut StepRecorder>` and update every caller (`grep -n "prompt_with(" src`). Only `chat` passes `Some`.
   - When `Some`, record the `Message::Assistant(choices)` right after it is pushed to `full_history`, but only when it has tool calls (a text-only final answer is saved by `chat` as the `Response`).
   - Record each tool's `Message::ToolResult` as soon as that call's result is built, before the next call runs.
   - Keep the record order identical to the order the messages end up in `full_history`.
   - The tool-response user messages carrying images (`pending_images`) are `Message::User` and produce no entries, as today.
-- [ ] T007 [US1] In `VizierAgent::chat` (`src/agents/agent/mod.rs`, ~613–780):
+- [X] T007 [US1] In `VizierAgent::chat` (`src/agents/agent/mod.rs`, ~613–780):
   - Create the `StepRecorder` and pass it to `prompt_with`.
   - Success path: replace the end-of-turn `messages_to_history_entries(&new_messages[..len-1])` save loop with `recorder.flush(&new_messages[..len-1])`, which records only what wasn't recorded.
   - Error path: replace the partial-history save loop with `recorder.flush(partial_history[original_history_len..])`, which picks up the sealing results `fail_turn` adds. The `Error` response save is unchanged.
   - Check that the per-call `ToolResult` saved during the loop and the sealing result from `fail_turn` can't both exist for one call: a failure after a call's result was recorded must not seal that call again.
-- [ ] T008 [US1] In `src/agents/process.rs`, seal on every stop the turn can't clean up after (research Decision 8). In each case, run after the task is stopped and before the session is reported free:
+- [X] T008 [US1] In `src/agents/process.rs`, seal on every stop the turn can't clean up after (research Decision 8). In each case, run after the task is stopped and before the session is reported free:
   - `abort_session_notify`, and the abort performed for `checkpoint`/`lobotomy` → `steps::seal_open_calls(.., None, StopReason::Aborted)`.
   - The `turns.stop_all` loop at the end of `agent_process` → `StopReason::AgentRestarted`. Today's drop behaviour is kept until T027.
   - A panicked turn in `join_next` (`TurnOutcome` panicked, before `recover_failed_turn`) → `StopReason::InternalError`.
 
   Pass `&deps.storage` and `&deps.transport`.
-- [ ] T009 [P] [US1] In `webui/app/interfaces/types.ts`, add `HistoryEntryFrame = { history_entry: ChatMessage }`. In `webui/app/hooks/connectionStore.tsx`, recognise `history_entry` frames before the `lastMessage` fallthrough and deliver them to a listener set: `subscribeHistoryEntries(listener) => unsubscribe`, following the `reactionListeners` pattern in the same file.
-- [ ] T010 [P] [US1] In `webui/app/lib/trail.ts`:
+- [X] T009 [P] [US1] In `webui/app/interfaces/types.ts`, add `HistoryEntryFrame = { history_entry: ChatMessage }`. In `webui/app/hooks/connectionStore.tsx`, recognise `history_entry` frames before the `lastMessage` fallthrough and deliver them to a listener set: `subscribeHistoryEntries(listener) => unsubscribe`, following the `reactionListeners` pattern in the same file.
+- [X] T010 [P] [US1] In `webui/app/lib/trail.ts`:
   - Add `mergeEntries(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[]`. It dedupes by `uid` (an incoming entry replaces the one with the same uid), keeps the stored history order, and appends new uids after it.
   - Export a helper `openTurn(turns)` that returns the last turn when it has no outcome.
   - Make an aborted turn (no outcome, followed by a `Command("abort")` entry) identifiable, e.g. `turn.aborted = true` set in `groupHistory`.
   - Add tests in `webui/app/lib/trail.test.ts` for: merge with overlap, merge with a gap, an open turn with an unanswered `ToolCall`, and an aborted turn.
-- [ ] T011 [US1] In `webui/app/routes/chat.tsx`:
+- [X] T011 [US1] In `webui/app/routes/chat.tsx`:
   - Subscribe with `subscribeHistoryEntries` and `setMessages(prev => mergeEntries(prev, [entry]))`, only when the entry's session topic is the page's.
   - Re-read history every time `connected` turns true (after the socket opens), merging with `mergeEntries` instead of replacing. Keep the loading skeleton for the first read of a topic only.
   - Draw `ThinkingIndicator`'s trail from the open turn of `groupHistory` (the same `TrailEvent` mapping the stored trails use), not from `liveTrail`.
   - Remove `liveTrail`, `closedTrails`, `closeTurn`, `clearLiveTrail` and the `thinking`/`tool_choice`/`tool_response` → `appendLiveEvent` branch. Those frames are ignored for the trail; the indicator still turns on at `thinking_start`.
   - On `abort`, only stop the indicator and clear `queuedMessages`. The trail stays and renders as an unanchored aborted trail.
   - Remove `appendLiveEvent`/`liveEvent` from `lib/trail.ts` if nothing else uses them.
-- [ ] T012 [P] [US1] In `webui/app/components/ActivityTrail.tsx`, show an "Aborted" label in the summary line when the trail's turn is aborted (T010), and show a tool call whose result is one of the stop notices as stopped rather than failed or running. Match the notices on the shared prefix `Stopped:`/`Interrupted:`.
+- [X] T012 [P] [US1] In `webui/app/components/ActivityTrail.tsx`, show an "Aborted" label in the summary line when the trail's turn is aborted (T010), and show a tool call whose result is one of the stop notices as stopped rather than failed or running. Match the notices on the shared prefix `Stopped:`/`Interrupted:`.
 - [ ] T013 [US1] Dummyplug check on a running binary: quickstart §1, §2 and §6b steps 1–3 (by hand or with the first part of T041's script). Compare §1's final entry kinds with `reference-history.json` from T001. Then do quickstart §11.1–2 in the WebUI.
 
 **Checkpoint**: the reported bug is fixed and shippable on its own. No restart work is needed for it.
@@ -123,15 +123,15 @@ on the same socket.
 
 ### Implementation for User Story 2
 
-- [ ] T014 [P] [US2] Create `src/storage/turn.rs` with `PendingTurn { id: i64, session: VizierSession, request: VizierRequest, state: TurnState, request_uid: Option<String> }`, `enum TurnState { Queued, Running }`, and `#[async_trait] pub trait TurnStorage` with the methods listed in `data-model.md` (`accept_turn`, `start_turn`, `set_turn_request_uid`, `note_resume`, `finish_turn`, `cancel_session_turns`, `pending_turns`, `sessions_with_pending_turns`). Add it to the `VizierStorageProvider` supertrait and hand-forward every method on `VizierStorage` in `src/storage/mod.rs`.
-- [ ] T015 [US2] SQLite implementation:
+- [X] T014 [P] [US2] Create `src/storage/turn.rs` with `PendingTurn { id: i64, session: VizierSession, request: VizierRequest, state: TurnState, request_uid: Option<String> }`, `enum TurnState { Queued, Running }`, and `#[async_trait] pub trait TurnStorage` with the methods listed in `data-model.md` (`accept_turn`, `start_turn`, `set_turn_request_uid`, `note_resume`, `finish_turn`, `cancel_session_turns`, `pending_turns`, `sessions_with_pending_turns`). Add it to the `VizierStorageProvider` supertrait and hand-forward every method on `VizierStorage` in `src/storage/mod.rs`.
+- [X] T015 [US2] SQLite implementation:
   - Add `pub fn init_turn_schema(conn)` in `src/storage/sqlite/mod.rs` (table and index exactly as `data-model.md`), called from `init_schema` after `init_scratch_schema`.
   - Implement `TurnStorage for SqliteStorage` in a new `src/storage/sqlite/turn.rs`. `pending_turns` orders by `id`.
   - `note_resume(id, steps)`: if `steps == steps_at_resume` and `resume_count > 0`, then `resume_count += 1`; otherwise `resume_count = 1` and `steps_at_resume = steps`. Return `resume_count`.
   - Delete rows in `delete_session` (`src/storage/sqlite/session.rs`, matching `agent_id`, `channel` slug and `topic`) and in `delete_agent` (`src/storage/sqlite/agent.rs`).
   - Unit tests against an in-memory connection (the pattern in `src/storage/sqlite/task_run.rs`): lifecycle queued→running→deleted, `pending_turns` order, `note_resume` reset-on-progress and count-otherwise, and deletion with the session and with the agent.
-- [ ] T016 [P] [US2] In `src/schema/request.rs`, add `pub fn is_durable(&self, session: &VizierSession) -> bool`. It is false for `Command("abort")` and `Command("dream")`, and for sessions whose channel is `VizierChannelId::Dream(..)`; true otherwise. Add unit tests.
-- [ ] T017 [P] [US2] In `src/schema/response.rs`, add `#[serde(default, skip_serializing_if = "std::ops::Not::not")] pub resumed: bool` to `VizierResponse`, plus the matching field on its utoipa schema if one is derived. Fix any literal that doesn't use `..Default::default()`.
+- [X] T016 [P] [US2] In `src/schema/request.rs`, add `pub fn is_durable(&self, session: &VizierSession) -> bool`. It is false for `Command("abort")` and `Command("dream")`, and for sessions whose channel is `VizierChannelId::Dream(..)`; true otherwise. Add unit tests.
+- [X] T017 [P] [US2] In `src/schema/response.rs`, add `#[serde(default, skip_serializing_if = "std::ops::Not::not")] pub resumed: bool` to `VizierResponse`, plus the matching field on its utoipa schema if one is derived. Fix any literal that doesn't use `..Default::default()`.
 - [ ] T018 [US2] Make the transport durable, in `src/transport.rs` and `src/dependencies.rs`:
   - `VizierTransport::new(storage: Arc<VizierStorage>)`. In `VizierDependencies` construction, wrap storage in `Arc` before building the transport and reuse that `Arc`. Update other `VizierTransport::new()` callers (tests, `grep -rn "VizierTransport::new" src`).
   - Add `turn_id: Option<i64>` and `resumed: bool` to `VizierRequestEnvelope`.

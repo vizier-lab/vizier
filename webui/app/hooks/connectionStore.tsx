@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 import { getChatWebSocketUrl } from '../services/vizier'
 import type {
+  ChatMessage,
   ClientFrame,
+  HistoryEntryFrame,
   ClientToolCallFrame,
   WebSocketJobFrame,
   WebSocketMessage,
@@ -45,6 +47,17 @@ export function subscribeReactionFrames(listener: (frame: ReactionFrame) => void
   reactionListeners.add(listener)
   return () => {
     reactionListeners.delete(listener)
+  }
+}
+
+// History entries (specs/023-persist-turn-activity) go to listeners too: each is a saved step
+// of a turn, and `lastMessage` would keep only the latest of several that land together.
+const historyEntryListeners = new Set<(entry: ChatMessage) => void>()
+
+export function subscribeHistoryEntries(listener: (entry: ChatMessage) => void): () => void {
+  historyEntryListeners.add(listener)
+  return () => {
+    historyEntryListeners.delete(listener)
   }
 }
 
@@ -161,6 +174,11 @@ export const useConnectionStore = create<ConnectionState>()((set, get) => ({
           // response handler cannot mistake it for a response.
           if (parsed && typeof parsed === 'object' && 'background_job' in parsed) {
             useBackgroundJobStore.getState().applySnapshot(parsed.background_job)
+            return
+          }
+          if (parsed && typeof parsed === 'object' && 'history_entry' in parsed) {
+            const entry = (parsed as unknown as HistoryEntryFrame).history_entry
+            historyEntryListeners.forEach((listener) => listener(entry))
             return
           }
           if (parsed && typeof parsed === 'object' && isClientFrame(parsed)) {

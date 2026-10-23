@@ -47,6 +47,7 @@ import { useToastStore } from '../hooks/toastStore'
 import {
   clientEventMessage,
   subscribeClientFrames,
+  subscribeHistoryEntries,
   subscribeReactionFrames,
   useConnectionStore,
 } from '../hooks/connectionStore'
@@ -57,7 +58,8 @@ import { ThinkingIndicator } from '../components/ThinkingIndicator'
 import ActivityTrail from '../components/ActivityTrail'
 import {
   appendClientCall,
-  appendLiveEvent,
+  mergeEntries,
+  openTurn,
   applyClientOutcome,
   applyClientState,
   groupHistory,
@@ -318,12 +320,9 @@ export default function Chat() {
   // Bumped to re-read history without the loading skeleton: when a turn is seen to end
   // without its closing frame having reached this page (see the thinking poll).
   const [historyVersion, setHistoryVersion] = useState(0)
-  // What the agent is doing in the turn that is streaming right now.
-  const [liveTrail, setLiveTrail] = useState<TrailEvent[]>([])
-  // The trail of every turn that has already closed in this session, keyed by the uid of
-  // the entry it ended at. History is not re-read when a turn closes normally, so a finished
-  // turn's trail has to come from the events already collected here, not from a reload.
-  const [closedTrails, setClosedTrails] = useState<Record<string, TrailEvent[]>>({})
+  // The uids of entries the server has given this page (a history read, a pushed step, a
+  // reply with its history uid). A re-read keeps these and drops the optimistic local ones.
+  const serverUidsRef = useRef<Set<string>>(new Set())
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null)
   const [attachments, setAttachments] = useState<{ file: File; previewUrl: string | null }[]>([])
   const [previewAttachment, setPreviewAttachment] = useState<VizierAttachment | null>(null)
@@ -599,7 +598,6 @@ export default function Chat() {
       if (!thinking) {
         // The turn ended and its reply never arrived here (the socket was down, or the
         // page was elsewhere): history has it.
-        setLiveTrail([])
         setHistoryVersion((v) => v + 1)
       }
     }
@@ -622,8 +620,6 @@ export default function Chat() {
     isThinkingRef.current = false
     thinkingChangedAtRef.current = 0
     setIsThinking(false)
-    setLiveTrail([])
-    setClosedTrails({})
     setAttachments([])
     setQueuedMessages([])
     setImagePreviews((prev) => {
@@ -759,6 +755,7 @@ export default function Chat() {
       setLoading(true)
       setMessages([])
       setReactions({})
+      serverUidsRef.current = new Set()
     }
 
     const loadHistory = async () => {
@@ -766,7 +763,18 @@ export default function Chat() {
         const response = await getTopicHistory(agentId, topicId)
         if (stale) return
         const historyMessages = response.data || []
-        setMessages(historyMessages)
+        // Merged, not replaced: a step pushed while this read was in flight is kept, and
+        // the optimistic local entries go, as they did before (the server's copy replaces
+        // them).
+        const fromServer = new Set(historyMessages.map((m: ChatMessage) => m.uid))
+        const held = serverUidsRef.current
+        historyMessages.forEach((m: ChatMessage) => held.add(m.uid))
+        setMessages((prev) =>
+          mergeEntries(
+            historyMessages,
+            prev.filter((m) => held.has(m.uid) && !fromServer.has(m.uid))
+          )
+        )
 
         const reactionsMap: Record<string, ReactionEntry[]> = {}
         for (const msg of historyMessages) {
@@ -791,6 +799,21 @@ export default function Chat() {
     }
   }, [agentId, topicId, historyVersion])
 
+  // A socket that comes back may have missed steps: read history again, merging it in.
+  const wasConnectedRef = useRef(connected)
+  useEffect(() => {
+    if (connected && !wasConnectedRef.current) setHistoryVersion((v) => v + 1)
+    wasConnectedRef.current = connected
+  }, [connected])
+
+  // Each step of a running turn, pushed as the server saves it.
+  useEffect(() => {
+    return subscribeHistoryEntries((entry) => {
+      serverUidsRef.current.add(entry.uid)
+      setMessages((prev) => mergeEntries(prev, [entry]))
+    })
+  }, [])
+
   useEffect(() => {
     listAgents().then((res) => {
       const names: Record<string, string> = {}
@@ -801,22 +824,7 @@ export default function Chat() {
     })
   }, [])
 
-  const clearLiveTrail = () => {
-    setLiveTrail([])
-    if (thinkingTimeoutRef.current) {
-      clearTimeout(thinkingTimeoutRef.current)
-      thinkingTimeoutRef.current = null
-    }
-  }
-
-  /// Hands the closing turn the trail it accumulated, instead of throwing it away.
-  const closeTurn = (anchorUid: string) => {
-    setLiveTrail((trail) => {
-      if (trail.length > 0) {
-        setClosedTrails((prev) => ({ ...prev, [anchorUid]: trail }))
-      }
-      return []
-    })
+  const stopThinkingTimeout = () => {
     if (thinkingTimeoutRef.current) {
       clearTimeout(thinkingTimeoutRef.current)
       thinkingTimeoutRef.current = null
@@ -832,23 +840,29 @@ export default function Chat() {
   // in the same place and through the same component as one collected live.
   const turns = useMemo(() => groupHistory(messages), [messages])
 
+  // The turn that is running now: its trail is the thinking indicator's, built from the
+  // same history as every stored one, so a page opened mid-turn shows it all.
+  const runningTurn = useMemo(() => (isThinking ? openTurn(turns) : undefined), [turns, isThinking])
+
   const storedTrails = useMemo(() => {
-    const byAnchor: Record<string, { trail: TrailEvent[]; durationMs?: number }> = {}
-    const unanchored: { trail: TrailEvent[]; key: string }[] = []
+    const byAnchor: Record<string, { trail: TrailEvent[]; durationMs?: number; aborted?: boolean }> = {}
+    const unanchored: { trail: TrailEvent[]; key: string; aborted: boolean }[] = []
     for (const turn of turns) {
       if (turn.trail.length === 0) continue
+      if (turn === runningTurn) continue
       if (turn.anchorUid) {
         byAnchor[turn.anchorUid] = {
           trail: turn.trail,
           durationMs: outcomeDurationMs(turn.outcome),
+          aborted: turn.aborted,
         }
       } else {
         // A turn nothing closed — interrupted, or still running when the page loaded.
-        unanchored.push({ trail: turn.trail, key: turn.key })
+        unanchored.push({ trail: turn.trail, key: turn.key, aborted: !!turn.aborted })
       }
     }
     return { byAnchor, unanchored }
-  }, [turns])
+  }, [turns, runningTurn])
 
   // Each turn's client tool calls, drawn inside its reply bubble: the answer's, keyed by the
   // answer's uid, or — for a turn with no answer yet, or none ever (running, failed before
@@ -868,11 +882,7 @@ export default function Chat() {
     return { byOutcome, atCall }
   }, [turns, isThinking])
 
-  // A turn closed in this session wins: its events are the ones the person just watched.
-  const trailFor = (uid: string) =>
-    closedTrails[uid] !== undefined
-      ? { trail: closedTrails[uid], durationMs: undefined }
-      : storedTrails.byAnchor[uid]
+  const trailFor = (uid: string) => storedTrails.byAnchor[uid]
 
   // Read through a ref so `handleReact` keeps one identity across reconnects: a message
   // rendered while offline must react normally once the socket is back (W5).
@@ -1018,28 +1028,27 @@ export default function Chat() {
 
       case 'empty':
         setThinking(false)
-        clearLiveTrail()
+        stopThinkingTimeout()
         return
 
       case 'abort':
-        // An aborted turn has no answer for a trail to belong to, so the trail goes.
+        // The trail stays: it is in history, and renders as an aborted one.
         setThinking(false)
-        clearLiveTrail()
+        stopThinkingTimeout()
         setQueuedMessages([])
         return
     }
 
     if (typeof content === 'object') {
+      // The trail comes from the saved steps (`history_entry` frames), not from these.
       if ('thinking' in content || 'tool_choice' in content || 'tool_response' in content) {
-        const id = `${timestamp}-${Math.random().toString(36).slice(2, 11)}`
-        setLiveTrail((trail) => appendLiveEvent(trail, content, id))
         return
       }
 
       if ('checkpoint' in content) {
         // Add checkpoint to messages
         setThinking(false)
-        closeTurn(`checkpoint-${timestamp}`)
+        stopThinkingTimeout()
         setMessages((prev) => {
           const newMessage: ChatMessage = {
             uid: `checkpoint-${timestamp}`,
@@ -1063,7 +1072,8 @@ export default function Chat() {
       if ('message' in content) {
         setThinking(false)
         const uid = wsResponse.history_uid ?? timestamp
-        closeTurn(uid)
+        stopThinkingTimeout()
+        if (wsResponse.history_uid !== undefined) serverUidsRef.current.add(uid)
         setMessages((prev) => {
           if (
             prev.some(
@@ -1102,7 +1112,7 @@ export default function Chat() {
 
       if ('error' in content) {
         setThinking(false)
-        closeTurn(timestamp)
+        stopThinkingTimeout()
         setMessages((prev) => {
           if (
             prev.some(
@@ -1142,7 +1152,8 @@ export default function Chat() {
       if ('audio_reply' in content) {
         setThinking(false)
         const uid = wsResponse.history_uid ?? timestamp
-        closeTurn(uid)
+        stopThinkingTimeout()
+        if (wsResponse.history_uid !== undefined) serverUidsRef.current.add(uid)
         setMessages((prev) => {
           if (
             prev.some(
@@ -1201,7 +1212,7 @@ export default function Chat() {
     if (!showScrollButton && scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
     }
-  }, [messages, liveTrail, queuedMessages, showScrollButton])
+  }, [messages, queuedMessages, showScrollButton])
 
   // Close session dropdown on outside click
   useEffect(() => {
@@ -2018,7 +2029,7 @@ export default function Chat() {
             gap: '1.5rem',
           }}
         >
-          {messages.length === 0 && liveTrail.length === 0 ? (
+          {messages.length === 0 ? (
             <div
               style={{
                 display: 'flex',
@@ -2049,6 +2060,7 @@ export default function Chat() {
                     trail={own.trail}
                     live={false}
                     durationMs={own.durationMs}
+                    aborted={own.aborted}
                     label={toolLabel}
                   />
                 ) : null
@@ -2259,6 +2271,7 @@ export default function Chat() {
                   key={`${item.key}-trail`}
                   trail={item.trail}
                   live={false}
+                  aborted={item.aborted}
                   label={toolLabel}
                 />
               ))}
@@ -2266,7 +2279,7 @@ export default function Chat() {
               {/* Thinking indicator with inline events */}
               <ThinkingIndicator
                 isVisible={isThinking}
-                trail={liveTrail}
+                trail={runningTurn?.trail ?? []}
                 agentName={agentDetail?.name || 'Agent'}
                 toolLabel={toolLabel}
                 onAbort={isThinking ? handleAbort : undefined}

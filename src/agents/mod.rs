@@ -25,6 +25,7 @@ pub mod mcp;
 pub mod memory_ops;
 pub mod process;
 pub mod shell;
+pub mod steps;
 pub mod skill;
 pub mod supervisor;
 pub mod tools;

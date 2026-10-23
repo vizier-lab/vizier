@@ -13,6 +13,7 @@ use tokio::time::{Instant, timeout};
 use tracing::Instrument;
 
 use crate::{
+    agents::steps::StepRecorder,
     VizierError,
     agents::{
         agent::{
@@ -45,7 +46,7 @@ use crate::{
         VizierAttachment, VizierAttachmentContent, VizierRequest, VizierRequestContent,
         VizierResponse, VizierResponseContent, VizierResponseStats, VizierSession,
         history_entries_to_messages, message_for_model, messages_for_model,
-        messages_to_history_entries, seal_tool_calls,
+        seal_tool_calls,
     },
     skill::invocation::Invoked,
     storage::{
@@ -687,6 +688,7 @@ impl VizierAgent {
             );
         }
 
+        let mut recorder = StepRecorder::new(session.clone(), 0);
         let prompt_result = self
             .prompt_with(
                 &tools,
@@ -701,6 +703,7 @@ impl VizierAgent {
                 hooks.clone(),
                 false,
                 &ctx,
+                Some(&mut recorder),
             )
             .await;
 
@@ -713,10 +716,7 @@ impl VizierAgent {
                 let new_messages = partial_history
                     .get(original_history_len..)
                     .unwrap_or_default();
-                let tool_entries = messages_to_history_entries(new_messages);
-                for entry in tool_entries {
-                    self.save_history_or_log(&session, entry).await;
-                }
+                recorder.flush(&self.storage, &self.transport, new_messages).await;
 
                 // Determine error kind
                 let err_str = err.to_string();
@@ -750,11 +750,9 @@ impl VizierAgent {
             // its tool calls is part of what it did on the way to the answer, and it is
             // recorded ahead of those tool calls so replay can merge the two back into the
             // single assistant message the model actually sent.
-            let tool_entries =
-                messages_to_history_entries(&new_messages[..new_messages.len() - 1]);
-            for entry in tool_entries {
-                self.save_history_or_log(&session, entry).await;
-            }
+            recorder
+                .flush(&self.storage, &self.transport, &new_messages[..new_messages.len() - 1])
+                .await;
         }
 
         // Save response with full stats and attachments
@@ -804,7 +802,7 @@ impl VizierAgent {
         (anyhow::Error, Vec<Message>),
     > {
         let tools = self.tools.load_full();
-        self.prompt_with(&tools, message, history, turn_depth, hooks, is_subagent, ctx)
+        self.prompt_with(&tools, message, history, turn_depth, hooks, is_subagent, ctx, None)
             .await
     }
 
@@ -817,6 +815,7 @@ impl VizierAgent {
         hooks: Option<Arc<VizierSessionHooks>>,
         _is_subagent: bool,
         ctx: &ToolContext,
+        mut steps: Option<&mut StepRecorder>,
     ) -> std::result::Result<
         (
             String,
@@ -913,6 +912,18 @@ impl VizierAgent {
 
             history.push(Message::Assistant(choices.clone()));
             full_history.push(Message::Assistant(choices.clone()));
+
+            // A reply with tool calls is a step of its own; a text-only final answer is
+            // saved by `chat` as the `Response`.
+            if let Some(recorder) = steps.as_deref_mut()
+                && choices
+                    .iter()
+                    .any(|choice| matches!(choice, AssistantPart::ToolCall { .. }))
+            {
+                recorder
+                    .record(&self.storage, &self.transport, &Message::Assistant(choices.clone()))
+                    .await;
+            }
 
             if turn_depth == 1 {
                 input_tokens = usage.input_tokens;
@@ -1058,6 +1069,13 @@ impl VizierAgent {
                     .map_err(|e| {
                         fail_turn(e, full_history.clone(), None, tool_responses.clone())
                     })?;
+                // Saved the moment it exists, so the trail shows the call finished even if
+                // the next one runs for minutes.
+                if let Some(recorder) = steps.as_deref_mut() {
+                    recorder
+                        .record(&self.storage, &self.transport, &response_content)
+                        .await;
+                }
                 tool_responses.push(response_content);
             }
 

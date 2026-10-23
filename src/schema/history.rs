@@ -281,6 +281,20 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
     repair_tool_pairing(messages)
 }
 
+/// The `call_id`s of the tool calls in `entries_after_request` that no later `ToolResult`
+/// answers, in call order. A result that comes before its call does not answer it.
+pub fn open_tool_calls(entries_after_request: &[SessionHistory]) -> Vec<String> {
+    let mut open: Vec<String> = Vec::new();
+    for entry in entries_after_request {
+        match &entry.content {
+            SessionHistoryContent::ToolCall { call_id, .. } => open.push(call_id.clone()),
+            SessionHistoryContent::ToolResult { call_id, .. } => open.retain(|id| id != call_id),
+            _ => {}
+        }
+    }
+    open
+}
+
 /// What a tool call with no recorded result replays as. Sessions saved before turns sealed
 /// their own tool calls (`seal_tool_calls`) can hold calls whose results were never stored.
 const NO_RESULT_RECORDED: &str = "[no result recorded: the turn ended before this tool returned]";
@@ -889,6 +903,24 @@ mod tests {
         assert_eq!(
             format!("{:?}", history_entries_to_messages(&with)),
             format!("{:?}", history_entries_to_messages(&without))
+        );
+    }
+
+    #[test]
+    fn open_tool_calls_finds_only_the_unanswered_ones_in_call_order() {
+        assert!(open_tool_calls(&[]).is_empty());
+        assert!(open_tool_calls(&[call_entry("a"), result_entry("a", "ok")]).is_empty());
+        assert_eq!(
+            open_tool_calls(&[call_entry("a"), call_entry("b"), result_entry("a", "ok")]),
+            vec!["b".to_string()]
+        );
+        assert_eq!(
+            open_tool_calls(&[call_entry("a"), call_entry("b"), call_entry("c"), result_entry("b", "ok")]),
+            vec!["a".to_string(), "c".to_string()]
+        );
+        assert_eq!(
+            open_tool_calls(&[result_entry("a", "early"), call_entry("a")]),
+            vec!["a".to_string()]
         );
     }
 }

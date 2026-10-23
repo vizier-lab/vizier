@@ -44,6 +44,10 @@ pub struct VizierResponse {
     /// after the save, so it is never part of the stored `data`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history_uid: Option<String>,
+    /// The turn was interrupted by a restart and carried on afterwards
+    /// (`specs/023-persist-turn-activity`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub resumed: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, utoipa::ToSchema)]

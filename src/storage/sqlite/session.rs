@@ -168,6 +168,11 @@ impl SessionStorage for SqliteStorage {
             "DELETE FROM scratch_file WHERE agent_id = ?1 AND channel = ?2 AND topic = ?3",
             rusqlite::params![agent_id, channel.to_slug(), topic],
         )?;
+        // And its pending turns.
+        conn.execute(
+            "DELETE FROM session_turn WHERE agent_id = ?1 AND channel = ?2 AND topic = COALESCE(?3, '')",
+            rusqlite::params![agent_id, channel.to_slug(), topic],
+        )?;
         Ok(())
     }
 }

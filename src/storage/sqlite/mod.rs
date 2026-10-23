@@ -28,6 +28,7 @@ mod session_file;
 mod state;
 mod task;
 mod task_run;
+mod turn;
 pub(crate) mod usage;
 mod user;
 
@@ -364,6 +365,7 @@ impl SqliteStorage {
         init_usage_schema(conn)?;
         init_client_call_schema(conn)?;
         init_scratch_schema(conn)?;
+        init_turn_schema(conn)?;
 
         Ok(())
     }
@@ -413,6 +415,30 @@ pub fn init_scratch_schema(conn: &Connection) -> Result<()> {
             updated_at TEXT    NOT NULL,
             PRIMARY KEY (agent_id, channel, topic, name)
         );
+        ",
+    )?;
+    Ok(())
+}
+
+/// Accepted work that has not finished (`specs/023-persist-turn-activity/data-model.md`).
+pub fn init_turn_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS session_turn (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id        TEXT    NOT NULL,
+            channel         TEXT    NOT NULL,
+            topic           TEXT    NOT NULL DEFAULT '',
+            session         TEXT    NOT NULL,
+            request         TEXT    NOT NULL,
+            state           TEXT    NOT NULL,
+            request_uid     TEXT,
+            accepted_at     TEXT    NOT NULL,
+            started_at      TEXT,
+            resume_count    INTEGER NOT NULL DEFAULT 0,
+            steps_at_resume INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_session_turn_agent ON session_turn (agent_id, id);
         ",
     )?;
     Ok(())

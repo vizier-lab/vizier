@@ -52,6 +52,9 @@ pub enum SessionFrame {
     },
     /// A deferrable tool's call was deferred: any socket open on the session may deliver it.
     ClientCallDeferred { call_id: String },
+    /// One step of a running turn, saved as it happened (`specs/023-persist-turn-activity`),
+    /// in the shape `GET …/history` returns so a client can merge it by uid.
+    HistoryEntry(crate::schema::SessionHistory),
     /// A client tool call's newly saved state, echoed to the saver as its confirmation.
     ClientCallState {
         call_id: String,

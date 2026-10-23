@@ -16,6 +16,8 @@ import {
   applyClientState,
   groupHistory,
   liveEvent,
+  mergeEntries,
+  openTurn,
   trailSummary,
 } from './trail.ts'
 import type { ChatMessage, TrailEvent } from '../interfaces/types.ts'
@@ -417,4 +419,46 @@ test('a call with no open turn opens one', () => {
 test('unknown entry kinds next to client calls still do not throw', () => {
   const odd = { ...entry({}), content: { Mystery: 1 } as unknown as ChatMessage['content'] }
   assert.doesNotThrow(() => groupHistory([request('x'), odd, clientCall('c'), response('y')]))
+})
+
+// specs/023-persist-turn-activity: the running trail is built from history, merged by uid.
+
+const stepCall = (callId: string) =>
+  entry({ ToolCall: { call_id: callId, name: 'execute_python', arguments: { intent: 'x', code: 'y' } } })
+const stepResult = (callId: string) => entry({ ToolResult: { call_id: callId, content: 'done' } })
+
+test('merging overlapping entries shows each step once, in stored order', () => {
+  const a = request('go')
+  const b = stepCall('c1')
+  const c = stepResult('c1')
+  const merged = mergeEntries([a, b], [b, c])
+  assert.deepEqual(merged.map((m) => m.uid), [a.uid, b.uid, c.uid])
+})
+
+test('merging with a gap appends the new steps after the held ones', () => {
+  const a = request('go')
+  const b = stepCall('c1')
+  const c = stepCall('c2')
+  const merged = mergeEntries([a], [b, c])
+  assert.deepEqual(merged.map((m) => m.uid), [a.uid, b.uid, c.uid])
+})
+
+test('an incoming entry replaces the one with the same uid', () => {
+  const a = request('go')
+  const replaced = { ...a, reactions: [] }
+  const merged = mergeEntries([a], [replaced])
+  assert.equal(merged.length, 1)
+  assert.equal(merged[0], replaced)
+})
+
+test('a turn with an unanswered tool call is the open turn', () => {
+  const turns = groupHistory([request('go'), stepCall('c1')])
+  assert.equal(openTurn(turns)?.trail.length, 1)
+  assert.equal(openTurn(groupHistory([request('go'), stepCall('c1'), stepResult('c1'), response('ok')])), undefined)
+})
+
+test('an aborted turn has no outcome and is marked aborted, not open', () => {
+  const turns = groupHistory([request('go'), stepCall('c1'), stepResult('c1'), entry({ Command: 'abort' })])
+  assert.equal(turns[0].aborted, true)
+  assert.equal(openTurn(turns), undefined)
 })

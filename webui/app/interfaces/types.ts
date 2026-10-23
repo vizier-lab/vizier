@@ -776,13 +776,14 @@ export type TrailEvent =
   | { kind: 'thought'; id: string; text: string }
   // `jobId` is set on the `paralel_subtasks`/`delegate_agent` call that launched a background
   // job, read from its tool result, so the job tray can jump back to it.
-  | { kind: 'tool'; id: string; name: string; args: Record<string, unknown>; jobId?: string }
+  | { kind: 'tool'; id: string; name: string; args: Record<string, unknown>; jobId?: string; stopped?: boolean }
   | {
       kind: 'python'
       id: string
       intent: string | null
       code: string | null
       report: ExecutionReport | null
+      stopped?: boolean
     }
 
 // One exchange: what was asked, what the agent did on the way, and what came back.
@@ -801,6 +802,13 @@ export interface Turn {
   live: boolean
   // The client tool calls the turn made, in order. Drawn inside the turn's reply bubble.
   clientCalls: ClientCallView[]
+  // True when the person aborted the turn: no outcome, closed by an `abort` command.
+  aborted?: boolean
+}
+
+// A step of a running turn, pushed as it is saved (specs/023-persist-turn-activity).
+export interface HistoryEntryFrame {
+  history_entry: ChatMessage
 }
 
 export interface WebSocketMessage {

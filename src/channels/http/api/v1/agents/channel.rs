@@ -714,6 +714,9 @@ pub async fn handle_socket(
                                 spawn_delivery(&storage, &transport, &curr_session, &connection, &limits.deferred, Some(vec![call_id]));
                                 None
                             }
+                            SessionFrame::HistoryEntry(entry) => {
+                                serde_json::to_string(&serde_json::json!({ "history_entry": entry })).ok()
+                            }
                             SessionFrame::ClientCallState { call_id, state } => Some(
                                 serde_json::json!({
                                     "client_call_state": { "call_id": call_id, "state": state }

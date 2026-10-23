@@ -114,6 +114,10 @@ impl AgentStorage for SqliteStorage {
             "DELETE FROM scratch_file WHERE agent_id = ?1",
             rusqlite::params![agent_id],
         )?;
+        conn.execute(
+            "DELETE FROM session_turn WHERE agent_id = ?1",
+            rusqlite::params![agent_id],
+        )?;
         let deleted = conn.execute(
             "DELETE FROM agent_config WHERE agent_id = ?1",
             rusqlite::params![agent_id],

@@ -101,6 +101,9 @@ function historyEvent(entry: ChatMessage): TrailEvent | null {
   return { kind: 'tool', id: entry.uid, name: call.name, args }
 }
 
+// The server's stop notices (contracts/websocket-and-replies.md §3).
+const STOP_NOTICE = /^(Stopped|Interrupted):/
+
 /**
  * Stored history to turns.
  *
@@ -118,6 +121,8 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
   let pendingPython: Map<string, TrailEvent> = new Map()
   // call_id of a job-launching call → its event, waiting for the result that names the job.
   let pendingLaunch: Map<string, TrailEvent> = new Map()
+  // call_id of any call event → the event, so a stop notice can mark it stopped.
+  const callEvents: Map<string, TrailEvent> = new Map()
   let open: Turn | null = null
 
   // An agent-initiated turn — a scheduled task, a dream cycle — has no request. Its trail
@@ -134,7 +139,10 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
     // A divider belongs to no turn, but it does end the one that was open — so it is where
     // that turn's trail renders, live and on reload alike.
     if (content.Checkpoint !== undefined || content.Command !== undefined) {
-      if (open) open.anchorUid = entry.uid
+      if (open) {
+        open.anchorUid = entry.uid
+        if (content.Command === 'abort' && !open.outcome) open.aborted = true
+      }
       open = null
       pendingPython = new Map()
       continue
@@ -172,6 +180,10 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
 
     // A report pairs with its call by `call_id`, which history always carries.
     if (content.ToolResult) {
+      if (STOP_NOTICE.test(content.ToolResult.content)) {
+        const stopped = callEvents.get(content.ToolResult.call_id)
+        if (stopped && (stopped.kind === 'tool' || stopped.kind === 'python')) stopped.stopped = true
+      }
       const launch = pendingLaunch.get(content.ToolResult.call_id)
       if (launch && launch.kind === 'tool') {
         launch.jobId = launchedJobId(launch.name, content.ToolResult.content)
@@ -194,6 +206,7 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
 
     if (!open) open = newTurn(entry.uid)
     push(open.trail, event)
+    if (content.ToolCall) callEvents.set(content.ToolCall.call_id, event)
     if (event.kind === 'python' && content.ToolCall) {
       pendingPython.set(content.ToolCall.call_id, event)
     }
@@ -203,6 +216,33 @@ export function groupHistory(entries: ChatMessage[]): Turn[] {
   }
 
   return turns
+}
+
+/** The turn still running: the last one, when nothing has closed it. */
+export function openTurn(turns: Turn[]): Turn | undefined {
+  const last = turns[turns.length - 1]
+  return last && !last.outcome && !last.aborted && last.anchorUid === undefined ? last : undefined
+}
+
+/**
+ * Folds entries into a history already held: an entry whose uid is known replaces it in
+ * place, a new one goes after the last. Stored order is kept, so the same step arriving
+ * twice (pushed, then read back) is shown once.
+ */
+export function mergeEntries(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  const at = new Map<string, number>()
+  prev.forEach((entry, i) => at.set(entry.uid, i))
+  const next = prev.slice()
+  for (const entry of incoming) {
+    const known = at.get(entry.uid)
+    if (known !== undefined) {
+      next[known] = entry
+    } else {
+      at.set(entry.uid, next.length)
+      next.push(entry)
+    }
+  }
+  return next
 }
 
 /** A stored (or live) `ClientToolCall` entry as a turn draws it. */
