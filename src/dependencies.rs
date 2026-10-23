@@ -886,7 +886,18 @@ impl VizierDependencies {
     ///
     /// Unlike the migrations above this is not one-time, so it carries no marker.
     async fn interrupt_orphaned_task_runs(storage: &VizierStorage) -> Result<()> {
-        match storage.interrupt_open_task_runs().await {
+        // A run whose session has a pending turn is resumed with it and closed by
+        // `VizierScheduler::recover`; only the rest died with the process.
+        let pending = storage.sessions_with_pending_turns().await.unwrap_or_default();
+        let keep: Vec<i64> = storage
+            .open_task_runs()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|run| pending.contains(&crate::storage::task_run::task_run_session(run)))
+            .map(|run| run.id)
+            .collect();
+        match storage.interrupt_open_task_runs_except(&keep).await {
             Ok(0) => {}
             Ok(swept) => tracing::info!(
                 "marked {} task run(s) left open by a previous process as interrupted",

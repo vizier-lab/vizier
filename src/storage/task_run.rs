@@ -55,6 +55,12 @@ pub trait TaskRunStorage {
     /// a run that died with the previous process.
     async fn interrupt_open_task_runs(&self) -> Result<usize>;
 
+    /// Every `Running` row, for recovery at startup (`specs/023-persist-turn-activity`).
+    async fn open_task_runs(&self) -> Result<Vec<TaskRun>>;
+
+    /// The startup sweep, leaving the runs in `keep` (by id) open: a pending turn backs them.
+    async fn interrupt_open_task_runs_except(&self, keep: &[i64]) -> Result<usize>;
+
     /// Called from task deletion: a new task reusing a freed slug must find no rows.
     async fn delete_task_runs(&self, agent_id: AgentId, task_slug: String) -> Result<()>;
 }
@@ -114,6 +120,14 @@ impl TaskRunStorage for VizierStorage {
 
     async fn interrupt_open_task_runs(&self) -> Result<usize> {
         self.0.interrupt_open_task_runs().await
+    }
+
+    async fn open_task_runs(&self) -> Result<Vec<TaskRun>> {
+        self.0.open_task_runs().await
+    }
+
+    async fn interrupt_open_task_runs_except(&self, keep: &[i64]) -> Result<usize> {
+        self.0.interrupt_open_task_runs_except(keep).await
     }
 
     async fn delete_task_runs(&self, agent_id: AgentId, task_slug: String) -> Result<()> {

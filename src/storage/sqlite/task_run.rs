@@ -183,6 +183,35 @@ impl TaskRunStorage for SqliteStorage {
         }
     }
 
+    async fn open_task_runs(&self) -> Result<Vec<TaskRun>> {
+        let conn = self.conn.lock();
+        let sql = format!("SELECT {RUN_COLUMNS} FROM task_run WHERE state = ?1 ORDER BY id");
+        let mut stmt = conn.prepare(&sql)?;
+        let runs = stmt
+            .query_map([TaskRunState::Running.as_str()], run_from_row)?
+            .filter_map(|r| r.ok())
+            .flatten()
+            .collect();
+        Ok(runs)
+    }
+
+    async fn interrupt_open_task_runs_except(&self, keep: &[i64]) -> Result<usize> {
+        let conn = self.conn.lock();
+        let ids: Vec<i64> = {
+            let mut stmt = conn.prepare("SELECT id FROM task_run WHERE state = ?1")?;
+            stmt.query_map([TaskRunState::Running.as_str()], |row| row.get(0))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        let mut swept = 0;
+        for id in ids.into_iter().filter(|id| !keep.contains(id)) {
+            swept += conn.execute(
+                "UPDATE task_run SET state = ?1, finished_at = ?2 WHERE id = ?3",
+                rusqlite::params![TaskRunState::Interrupted.as_str(), Utc::now().timestamp_millis(), id],
+            )?;
+        }
+        Ok(swept)
+    }
+
     async fn interrupt_open_task_runs(&self) -> Result<usize> {
         let conn = self.conn.lock();
         let swept = conn.execute(

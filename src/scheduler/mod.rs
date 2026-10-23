@@ -31,7 +31,36 @@ impl VizierScheduler {
         })
     }
 
+    /// Closes the runs a restart interrupted that a pending turn resumed: each waits for its
+    /// session's turn to end and records how it did, as `fire` does. It keeps the run's row
+    /// `running`, which is what stops `tick_tasks` from firing the task on top of it.
+    async fn recover(&self) {
+        let runs = match self.deps.storage.open_task_runs().await {
+            Ok(runs) => runs,
+            Err(e) => {
+                tracing::warn!("could not read open task runs to recover: {e}");
+                return;
+            }
+        };
+        for run in runs {
+            let session = crate::storage::task_run::task_run_session(&run);
+            let deps = self.deps.clone();
+            tracing::info!(task = %run.task_slug, "recovering a task run");
+            tokio::spawn(async move {
+                use crate::agents::background::PieceOutcome;
+                let state = match deps.transport.await_session_outcome(&session, run.ran_at).await {
+                    PieceOutcome::Answered(_) => TaskRunState::Answered,
+                    PieceOutcome::Failed(_) => TaskRunState::NoResponse,
+                };
+                if let Err(e) = deps.storage.close_task_run(run.id, state, Utc::now()).await {
+                    tracing::error!("Failed to record the end of a run of task '{}': {}", run.task_slug, e);
+                }
+            });
+        }
+    }
+
     pub async fn run(&mut self) -> Result<()> {
+        self.recover().await;
         let mut schedules: HashMap<(DateTime<Utc>, String), Task> = HashMap::new();
         let mut interval = tokio::time::interval(Duration::from_mins(1));
 
@@ -82,6 +111,10 @@ impl VizierScheduler {
     /// state would also have to be shared back across them and would still be lost on
     /// restart. The row survives both, and the startup sweep is what keeps a row left open
     /// by a stopped process from blocking the task forever.
+    ///
+    /// A run resumed after a restart keeps its `running` row until `recover` closes it
+    /// (`specs/023-persist-turn-activity`), so this is also what stops `tick_tasks` from
+    /// firing a missed schedule on top of it: the task runs once, not twice.
     async fn is_running(&self, task: &Task) -> bool {
         match self
             .deps

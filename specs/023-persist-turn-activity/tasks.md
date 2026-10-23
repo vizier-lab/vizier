@@ -207,7 +207,7 @@ complete exactly once. Only work with no backing row is swept to `interrupted`.
   - For each `reporting` job, call `deliver` again unless a `BackgroundReport` for that job id is already pending (in `session_turn` for the launching session, matched on the request JSON's job id) or is in the launching session's history. Add the query to `TurnStorage`/`HistoryStorage` as needed.
   - Factor the shared part of `run_job` instead of copying it (constitution II).
 - [X] T035 [US4] In `src/dependencies.rs`, limit `interrupt_orphaned_background_jobs` to jobs where none of the unfinished pieces' sessions (nor, for `reporting`, the launching session's report) has a pending turn row. Add the storage query next to `interrupt_open_background_jobs` in `src/storage/sqlite/background_job.rs`. In `src/cli/run.rs`, call `deps.background_jobs.recover()` once after `VizierAgents` has re-sent pending turns (T022).
-- [ ] T036 [US4] In `src/scheduler/mod.rs`, add `VizierScheduler::recover()`, called at the start of `run()` before the first tick. For each `running` task run whose session has a pending turn row, spawn the closing logic `fire` uses (`close_run` with `answered`/`no_response`), fed by `await_session_outcome`. Get the run's session from the stored run. If `task_run` doesn't store enough to rebuild `VizierChannelId::Task`, add the slug column with `add_column_if_missing` in `init_task_run_schema` and an #82 checklist entry. Then limit the startup task-run sweep in `src/dependencies.rs` to runs with no pending turn row.
+- [X] T036 [US4] In `src/scheduler/mod.rs`, add `VizierScheduler::recover()`, called at the start of `run()` before the first tick. For each `running` task run whose session has a pending turn row, spawn the closing logic `fire` uses (`close_run` with `answered`/`no_response`), fed by `await_session_outcome`. Get the run's session from the stored run. If `task_run` doesn't store enough to rebuild `VizierChannelId::Task`, add the slug column with `add_column_if_missing` in `init_task_run_schema` and an #82 checklist entry. Then limit the startup task-run sweep in `src/dependencies.rs` to runs with no pending turn row.
 - [ ] T037 [US4] Dummyplug check: quickstart §8 and §9. Also check a blocking `consult_agent` cut off by `kill -9`: the caller's call is sealed with the restart notice, the target's turn resumes in its own session, and nothing is answered twice.
 
 **Checkpoint**: background jobs and task runs survive restarts.
@@ -220,7 +220,7 @@ complete exactly once. Only work with no backing row is swept to `interrupted`.
 
 **Independent Test**: quickstart §9 step 3 (one run only) and §10.
 
-- [ ] T038 [US5] In `src/scheduler/mod.rs`, confirm and add a comment that `is_running(task)` sees the still-`running` row of a resumed run (T036 keeps it open), so `tick_tasks` skips that task until the run closes. Add a unit test or a debug assertion around `tick_tasks` if a seam exists. Otherwise rely on T039.
+- [X] T038 [US5] In `src/scheduler/mod.rs`, confirm and add a comment that `is_running(task)` sees the still-`running` row of a resumed run (T036 keeps it open), so `tick_tasks` skips that task until the run closes. Add a unit test or a debug assertion around `tick_tasks` if a seam exists. Otherwise rely on T039.
 - [ ] T039 [US5] Dummyplug check: quickstart §10 (cron every minute, 3 minutes down, then exactly one run) and §9 step 3 (exactly one run).
 
 **Checkpoint**: all user stories are complete.
