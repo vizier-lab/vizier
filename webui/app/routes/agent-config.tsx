@@ -1,4 +1,4 @@
-import { Button, Card, Dialog, EmptyState, Notice, Select, ShareList, SigilPicker, Skeleton, Tab, TabList, TextField, Textarea, ToggleSection, UnsavedIndicator, ImageCropper } from '@vizier/design'
+import { Button, Card, Dialog, EmptyState, Notice, Select, ShareList, SigilPicker, Skeleton, Tab, TabList, TextField, ToggleSection, UnsavedIndicator, ImageCropper, MarkdownEditor } from '@vizier/design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/client'
@@ -8,6 +8,7 @@ import { EMBEDDING_PROVIDERS, fromDetail, problems, toInput, type AgentForm } fr
 import { uploadFile } from '../lib/upload'
 import { ModelSelect } from '../screens/agents/ModelSelect'
 import { ToolsFields } from '../screens/agents/ToolsFields'
+import { IntegrationsTab } from '../screens/integrations/IntegrationsTab'
 import { ConfirmDialog } from '../screens/shared/ConfirmDialog'
 import { PageFrame } from '../screens/shared/PageFrame'
 import { TwoColumn } from '../screens/shared/TwoColumn'
@@ -18,6 +19,7 @@ const TABS = [
     { key: 'config', label: 'Config' },
     { key: 'prompt', label: 'System Prompt' },
     { key: 'tools', label: 'Tools' },
+    { key: 'integrations', label: 'Integrations' },
     { key: 'sharing', label: 'Sharing' },
     { key: 'danger', label: 'Danger Zone' },
 ] as const
@@ -192,6 +194,7 @@ export default function AgentConfig() {
             title="Config"
             meta={`${form.name} · @${form.agentId}`}
             actions={
+                tab === 'integrations' ? undefined : (
                 <>
                     <span className="hidden type-small text-faint xl:inline">Saving rebuilds {form.name} and stops its running turns.</span>
                     {dirty && <UnsavedIndicator>Unsaved changes</UnsavedIndicator>}
@@ -204,6 +207,7 @@ export default function AgentConfig() {
                         Save changes
                     </Button>
                 </>
+                )
             }
         >
             {saveError && (
@@ -238,10 +242,11 @@ export default function AgentConfig() {
                 )}
                 {tab === 'prompt' && (
                     <Card title="System prompt" description="Who the agent is and how it should work.">
-                        <Textarea aria-label="System prompt" mono rows={22} value={form.systemPrompt} onChange={(e) => set({ systemPrompt: e.target.value })} />
+                        <MarkdownEditor look="compact" value={form.systemPrompt} onChange={(systemPrompt) => set({ systemPrompt })} className="h-640" />
                     </Card>
                 )}
                 {tab === 'tools' && <ToolsFields form={form} errors={errors} set={set} />}
+                {tab === 'integrations' && <IntegrationsTab agentId={agentId} />}
                 {tab === 'sharing' && sharing}
                 {tab === 'danger' && danger}
             </div>

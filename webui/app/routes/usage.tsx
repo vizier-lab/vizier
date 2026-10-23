@@ -1,4 +1,4 @@
-import { BarList, FilterTabs, KeyValueList, Legend, Notice, PanelHeader, SlideOver, SortSelect, StackedBarChart, StatGroup, Table, TableRow, TextLink } from '@vizier/design'
+import { BarList, FilterTabs, KeyValueList, Notice, PanelHeader, SlideOver, SortSelect, StackedBarChart, StatGroup, Table, TableRow, TextLink } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router'
 import {
@@ -109,16 +109,16 @@ export default function Usage() {
                         days={dailyStacks(report.daily, measure, keys)}
                         format={measure === 'cost' ? (v) => `$${v.toFixed(2)}` : abbreviate}
                     />
-                    <Legend items={series.map((x) => ({ label: x.label, colour: x.colour }))} />
                 </section>
             )}
 
+            <div className="grid grid-cols-1 items-start gap-24 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
             {report && (
                 <section aria-label="Where it went" className="flex flex-col gap-12">
                     <PanelHeader title="Where it went" level={2} />
                     <Table
                         label="Where it went"
-                        columns={[{ label: by === 'model' ? 'Model' : by === 'channel' ? 'Channel' : 'Activity' }, { label: 'Calls', width: 90, align: 'end' }, { label: 'Tokens', width: 110, align: 'end' }, { label: 'Cost', width: 100, align: 'end' }, { label: 'Share', width: 220 }]}
+                        columns={[{ label: by === 'model' ? 'Model' : by === 'channel' ? 'Channel' : 'Activity' }, { label: 'Calls', width: 90, align: 'end' }, { label: 'Tokens', width: 110, align: 'end' }, { label: 'Cost', width: 100, align: 'end' }, { label: 'Share', width: 120 }]}
                     >
                         {rows.map((r) => (
                             <TableRow
@@ -146,18 +146,17 @@ export default function Usage() {
             {report && report.costliest.length > 0 && (
                 <section aria-label="Costliest conversations" className="flex flex-col gap-12">
                     <PanelHeader title="Costliest conversations" level={2} />
-                    <Table label="Costliest conversations" columns={[{ label: 'Conversation' }, { label: 'Model', width: 220 }, { label: 'Tokens', width: 110, align: 'end' }, { label: 'Cost', width: 100, align: 'end' }]}>
+                    <Table label="Costliest conversations" columns={[{ label: 'Conversation' }, { label: 'Tokens', width: 90, align: 'end' }, { label: 'Cost', width: 90, align: 'end' }]}>
                         {report.costliest.map((c) => (
                             <TableRow
                                 key={`${c.channel}/${c.topic ?? ''}`}
-                                endAligned={[2, 3]}
+                                endAligned={[1, 2]}
                                 onSelect={() => void openConversation(c)}
                                 cells={[
                                     <span key="l" className="flex flex-col">
                                         <span className="truncate type-body text-fg">{c.label}</span>
-                                        <span className="truncate type-mono-xs text-faint">{ACTIVITY_LABEL[c.activity]} · {absoluteTime(c.last_at)}</span>
+                                        <span className="truncate type-mono-xs text-faint">{ACTIVITY_LABEL[c.activity]} · {absoluteTime(c.last_at)} · {c.model}</span>
                                     </span>,
-                                    <span key="m" className="truncate type-mono-xs text-muted">{c.model}</span>,
                                     count(c.tokens),
                                     usd(c.cost_usd),
                                 ]}
@@ -166,6 +165,7 @@ export default function Usage() {
                     </Table>
                 </section>
             )}
+            </div>
 
             <p className="type-small text-faint">Costs are estimates from the model catalogue's prices. Speech, image generation and embedding calls aren't counted.</p>
 

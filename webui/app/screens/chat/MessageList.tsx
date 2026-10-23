@@ -44,14 +44,13 @@ type Props = {
     clientCalls?: (turn: Turn, running: boolean) => ReactNode
     /** How many passages the turn recalled, for its trail summary. */
     recalledFor?: (turn: Turn) => number
-    jobHref: (agentId: string, topic: string) => string
 }
 
 function stopTime(entry: ChatMessage | undefined) {
     return entry?.timestamp ? time(entry.timestamp) : ''
 }
 
-export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder, onReact, error, clientCalls, recalledFor, jobHref }: Props) {
+export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder, onReact, error, clientCalls, recalledFor }: Props) {
     const { entries } = state
     const turns = useMemo(() => groupHistory(entries), [entries])
     const prices = usePrices()
@@ -90,7 +89,6 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
         const price = stats?.provider && stats.model ? prices.prices[`${stats.provider}/${stats.model}`] : undefined
         return (
             <div key={`reply-${turn.key}`} className="flex flex-col gap-8">
-                <AgentHeader agentId={agent.id} name={agent.name} time={time(outcome?.timestamp)} />
                 {(text != null || (outcome?.content.Response?.attachments?.length ?? 0) > 0) && (
                     <AgentReply
                         stats={stats ? statsLine(stats, price) : undefined}
@@ -114,8 +112,10 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
         )
     }
 
+    // One turn: the agent's head, then its working folded into the same flow, then what it said.
     const block = (turn: Turn, key: string) => (
-        <div key={key} className="flex flex-col gap-12">
+        <div key={key} className="flex flex-col gap-10">
+            <AgentHeader agentId={agent.id} name={agent.name} time={time(turn.outcome?.timestamp)} />
             <Trail
                 trail={turn.trail}
                 live={false}
@@ -123,6 +123,7 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
                 recalled={recalledFor?.(turn)}
                 failed={!!(turn.outcome && replyError(turn.outcome.content.Response!.content))}
                 aborted={turn.aborted}
+                agentName={agent.name}
             />
             {clientCalls?.(turn, false)}
             {turn.outcome && reply(turn)}
@@ -142,8 +143,16 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
                         key={e.uid}
                         agentId={agent.id}
                         meta={`${r.kind === 'delegation' ? `delegate_agent → ${r.delegated_to ?? ''}` : 'paralel_subtasks'} · ${r.entries.length} piece${r.entries.length === 1 ? '' : 's'}`}
-                        linkLabel="Open the job's conversations"
-                        href={jobHref(agent.id, r.job_id)}
+                        linkLabel="What each piece found"
+                        details={r.entries.map((en) => (
+                            <div key={en.ordinal} className="flex flex-col gap-4">
+                                <p className="type-small text-faint">
+                                    {en.ordinal + 1}. {en.prompt} · {en.state}
+                                </p>
+                                <Markdown size="document">{en.text || '_No answer._'}</Markdown>
+                                {en.truncated && <p className="type-small text-faint">The answer was cut short here.</p>}
+                            </div>
+                        ))}
                     />
                 )
                 continue
@@ -164,7 +173,7 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
                         ) : undefined
                     }
                 >
-                    {requestText(content)}
+                    <Markdown size="document">{requestText(content)}</Markdown>
                 </UserMessage>
             )
             continue
@@ -182,19 +191,25 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
 
     if (open && (running || open.trail.length || open.clientCalls.length)) {
         items.push(
-            <div key="live" className="flex flex-col gap-12">
-                <Trail trail={open.trail} live recalled={recalledFor?.(open)} />
+            <div key="live" className="flex flex-col gap-10">
+                <AgentHeader agentId={agent.id} name={agent.name} />
+                <Trail trail={open.trail} live recalled={recalledFor?.(open)} agentName={agent.name} />
                 {clientCalls?.(open, true)}
             </div>
         )
     } else if (running) {
-        items.push(<Trail key="live-empty" trail={[]} live />)
+        items.push(
+            <div key="live-empty" className="flex flex-col gap-10">
+                <AgentHeader agentId={agent.id} name={agent.name} />
+                <Trail trail={[]} live agentName={agent.name} />
+            </div>
+        )
     }
 
     state.queued.forEach((q) =>
         items.push(
             <UserMessage key={`q-${q.id}`} queued={{ agentName: agent.name }}>
-                {q.text}
+                <Markdown size="document">{q.text}</Markdown>
             </UserMessage>
         )
     )

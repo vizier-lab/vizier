@@ -1,4 +1,4 @@
-import { FilePreview, FilterTabs, Table, TableRow } from '@vizier/design'
+import { FilePreview, FilterTabs, Modal, Table, TableRow } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
 import type { SessionFileRecord } from '../../api/frames'
 import { getToken } from '../../api/client'
@@ -40,7 +40,7 @@ type Loaded = { text: string; partial: boolean; status: number }
 
 async function readText(file: SessionFileRecord): Promise<Loaded> {
     const res = await fetch(url(file), { headers: { Authorization: `Bearer ${getToken()}`, Range: `bytes=0-${PREVIEW_BYTES - 1}` } })
-    return { text: await res.text(), partial: res.status === 206, status: res.status }
+    return { text: await res.text(), partial: res.status === 206 && file.size > PREVIEW_BYTES, status: res.status }
 }
 
 const kind = (f: SessionFileRecord) =>
@@ -121,7 +121,9 @@ export function FilePreviewDialog({ files, index, onIndex, onClose }: Props) {
     const note = loaded?.partial ? `showing the first ${Math.round(PREVIEW_BYTES / 1024)} KB` : null
 
     return (
+        <Modal open label={`Preview of ${file.filename}`} onClose={onClose}>
         <FilePreview
+            className="h-[min(720px,88vh)] w-[min(960px,92vw)]"
             look="dialog"
             name={file.filename}
             meta={`${fileSize(file.size)}${file.sender ? ` · sent by ${file.sender}` : ''}`}
@@ -175,5 +177,6 @@ export function FilePreviewDialog({ files, index, onIndex, onClose }: Props) {
                 <pre className="whitespace-pre-wrap type-mono-sm text-fg">{loaded.text}</pre>
             )}
         </FilePreview>
+        </Modal>
     )
 }

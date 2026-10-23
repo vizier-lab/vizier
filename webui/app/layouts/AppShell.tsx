@@ -32,21 +32,21 @@ const PAGE_PATH: Record<SidebarPage, string> = {
     tasks: '/tasks',
     skills: '/skills',
     dreams: '/dream',
-    channels: '/integrations/channels',
-    addons: '/integrations/addons',
-    mcp: '/integrations/mcp',
     usage: '/usage',
+    integrations: '/config?tab=integrations',
     config: '/config',
     settings: '/settings/profile',
 }
 
-function pageOf(pathname: string): SidebarPage | undefined {
+function pageOf(pathname: string, search = ''): SidebarPage | undefined {
     if (pathname === '/') return 'home'
+    // Integrations is a tab of Config, so it owns that URL while its tab is open.
+    if (/^\/[^/]+\/(config|integrations)(\/|$)/.test(pathname) && /[?&]tab=integrations\b/.test(search)) return 'integrations'
     if (pathname.startsWith('/settings')) return 'settings'
     const rest = '/' + pathname.split('/').slice(2).join('/')
     const hit = (Object.entries(PAGE_PATH) as [SidebarPage, string][]).find(
         ([page, p]) =>
-            p && page !== 'settings' && (rest === p || rest.startsWith(p + '/'))
+            p && page !== 'settings' && page !== 'integrations' && (rest === p || rest.startsWith(p + '/'))
     )
     return hit?.[0]
 }
@@ -70,7 +70,7 @@ function write(key: string, value: unknown) {
 
 export default function AppShell() {
     const navigate = useNavigate()
-    const { pathname } = useLocation()
+    const { pathname, search } = useLocation()
     const params = useParams()
     const { user, toggleTheme, signOut, can } = useSession()
     const { agents, health, start } = useAgents()
@@ -216,7 +216,7 @@ export default function AppShell() {
                     }}
                 />
             }
-            active={pageOf(pathname)}
+            active={pageOf(pathname, search)}
             collapsed={inDrawer ? false : collapsed}
             className={inDrawer ? 'w-full! border-r-0!' : undefined}
             hrefFor={(page) =>

@@ -1,4 +1,4 @@
-import { ActionBar, AgentPreviewCard, Button, Card, Notice, Stepper, TextField, Textarea } from '@vizier/design'
+import { ActionBar, AgentPreviewCard, Button, Card, Notice, Stepper, TextField, MarkdownEditor } from '@vizier/design'
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { ApiError } from '../api/client'
@@ -167,14 +167,14 @@ export default function AgentNew() {
 
                     {step === 'prompt' && (
                         <Card title="System prompt" description="Optional. Who the agent is and how it should work. It can also edit this later in its Core.">
-                            <Textarea aria-label="System prompt" mono rows={16} value={form.systemPrompt} onChange={(e) => set({ systemPrompt: e.target.value })} />
+                            <MarkdownEditor look="compact" value={form.systemPrompt} onChange={(systemPrompt) => set({ systemPrompt })} className="h-480" />
                         </Card>
                     )}
 
                     {step === 'tools' && <ToolsFields form={form} errors={shown} set={set} />}
 
                     {step === 'review' && (
-                        <Card title="Ready to create" description="Check the preview on the right. You can change all of this later on Config.">
+                        <Card title="Ready to create" description="Check the preview on the right. You can change all of this later on Config, where you can also connect channels, addons and MCP servers.">
                             {refused && (
                                 <Notice tone="failed" title="The agent could not be created">
                                     {refused}

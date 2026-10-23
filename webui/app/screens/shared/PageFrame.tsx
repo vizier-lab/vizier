@@ -13,7 +13,7 @@ const WIDTH = { narrow: 'max-w-3xl', wide: 'max-w-6xl', full: '' } as const
 export function PageFrame({ children, width = 'wide', ...header }: Props) {
     return (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-            <div className={`mx-auto flex w-full flex-col gap-24 px-32 py-32 ${WIDTH[width]}`}>
+            <div className={`mx-auto flex w-full flex-col gap-24 px-16 py-20 sm:px-32 sm:py-32 ${WIDTH[width]}`}>
                 <PageHeader {...header} />
                 {children}
             </div>

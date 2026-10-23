@@ -84,7 +84,6 @@ export default function ChatRead() {
                     loadingOlder={loadingOlder}
                     onLoadOlder={() => void loadOlder()}
                     onReact={() => {}}
-                    jobHref={(a) => `/${a}/chat`}
                 />
             )}
         </div>

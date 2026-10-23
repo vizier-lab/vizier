@@ -133,7 +133,8 @@ function AllBundles({ agentId }: { agentId: string }) {
             title="Memory"
             meta={list.data ? `${count(list.data.counts.all ?? 0)} bundle${list.data.counts.all === 1 ? '' : 's'}` : undefined}
             actions={
-                <div className="flex items-center gap-8">
+                <div className="flex flex-wrap items-center gap-8">
+                    <SearchField className="w-260" aria-label="Search memory" placeholder="Search passages…" value={query} onValueChange={setQuery} />
                     <input ref={importer} type="file" accept=".zip" hidden onChange={(e) => e.target.files?.[0] && void doImport(e.target.files[0])} />
                     <Button variant="secondary" icon="upload" onClick={() => importer.current?.click()}>
                         Import
@@ -147,7 +148,6 @@ function AllBundles({ agentId }: { agentId: string }) {
                 </div>
             }
         >
-            <SearchField aria-label="Search memory" placeholder="Search what the agent remembers" value={query} onValueChange={setQuery} />
             {results !== null ? (
                 results.length === 0 ? (
                     <EmptyState kind="no-results" title="Nothing matched" message="Try different words: it searches meaning, not just text." />
@@ -166,10 +166,10 @@ function AllBundles({ agentId }: { agentId: string }) {
                     </div>
                 )
             ) : (
-                <>
+                <div className="grid grid-cols-1 items-start gap-24 xl:grid-cols-[minmax(0,1fr)_380px]">
                     {view && view.nodes.length > 0 && (
                         <MemoryGraph
-                            className="h-320"
+                            className="h-[min(680px,calc(100vh-13rem))] min-h-[360px]"
                             nodes={view.nodes}
                             edges={view.edges}
                             selectedId={selected ?? undefined}
@@ -190,18 +190,10 @@ function AllBundles({ agentId }: { agentId: string }) {
                             caption={`Dot size = documents · line = links between bundles · ${view.nodes.length} of ${list.data?.counts.all ?? view.nodes.length} shown · double-click to open`}
                         />
                     )}
-                    {sel && (
-                        <SelectedBundle
-                            name={sel.name}
-                            meta={`${count(sel.concept_count)} document${sel.concept_count === 1 ? '' : 's'} · ${count(sel.link_count)} link${sel.link_count === 1 ? '' : 's'}${sel.updated_at ? ` · last written ${relativeTime(sel.updated_at)}` : ''}`}
-                            onOpen={() => navigate(`/${agentId}/memory/${encodeURIComponent(sel.name)}`)}
-                            onExport={() => void doExport(sel.name)}
-                            onDelete={() => setDeleting(sel.name)}
-                        />
-                    )}
+                    <div className="flex min-w-0 flex-col gap-16">
                     <PagedTable<Bundle>
                         label="Bundles"
-                        searchLabel="Filter bundles by name"
+                        searchLabel="Filter bundles"
                         list={list}
                         rowKey={(b) => b.name}
                         selectedKey={selected ?? undefined}
@@ -212,12 +204,11 @@ function AllBundles({ agentId }: { agentId: string }) {
                             { value: 'links', label: 'Most linked' },
                             { value: 'name', label: 'Name' },
                         ]}
-                        columns={[{ label: 'Bundle' }, { label: 'Documents', width: 110, align: 'end' }, { label: 'Links', width: 90, align: 'end' }, { label: 'Updated', width: 130 }]}
-                        endAligned={[1, 2]}
+                        columns={[{ label: 'Bundle' }, { label: 'Docs', width: 70, align: 'end' }, { label: 'Updated', width: 90 }]}
+                        endAligned={[1]}
                         row={(b) => [
                             <span key="n" className="type-mono-sm text-fg">{b.name}</span>,
                             count(b.concept_count),
-                            count(b.link_count),
                             <span key="u" className="type-mono-xs text-faint">{b.updated_at ? relativeTime(b.updated_at) : '–'}</span>,
                         ]}
                         empty={{
@@ -231,7 +222,17 @@ function AllBundles({ agentId }: { agentId: string }) {
                             ),
                         }}
                     />
-                </>
+                    {sel && (
+                        <SelectedBundle
+                            name={sel.name}
+                            meta={`${count(sel.concept_count)} document${sel.concept_count === 1 ? '' : 's'} · ${count(sel.link_count)} link${sel.link_count === 1 ? '' : 's'}${sel.updated_at ? ` · last written ${relativeTime(sel.updated_at)}` : ''}`}
+                            onOpen={() => navigate(`/${agentId}/memory/${encodeURIComponent(sel.name)}`)}
+                            onExport={() => void doExport(sel.name)}
+                            onDelete={() => setDeleting(sel.name)}
+                        />
+                    )}
+                    </div>
+                </div>
             )}
 
             <NewMemoryDialog

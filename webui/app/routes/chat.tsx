@@ -239,7 +239,6 @@ export default function Chat() {
                         renderClientCalls(turn, running, clientContext)
                     }
                     recalledFor={() => recalled.length}
-                    jobHref={(a) => `/${a}/chat`}
                     error={
                         state.error && (
                             <ErrorNotice
@@ -296,7 +295,7 @@ export default function Chat() {
             {!mobile && panel && (
                 <aside
                     aria-label="Conversation details"
-                    className="flex w-320 shrink-0 flex-col gap-24 overflow-y-auto border-l border-border p-16"
+                    className="flex w-320 shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto border-l border-border p-16 [&>*]:min-w-0"
                 >
                     {details}
                 </aside>

@@ -62,9 +62,7 @@ export default function SettingsProfile() {
 
     return (
         <SettingsFrame title="Profile" description="How agents recognise you on Discord and Telegram, and how you sign in.">
-            <Card>
-                <ProfileHeader name={user?.username ?? ''} role={user?.role_name} />
-            </Card>
+            <ProfileHeader name={user?.username ?? ''} role={user?.role_name} />
             <Card title="Who you are on other channels" description="Agents use these to recognise you on Discord and Telegram, and to address you properly.">
                 {problem ? (
                     <p className="type-small text-failed-text">{problem}</p>

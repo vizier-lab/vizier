@@ -7,6 +7,8 @@ export type ProviderSummary = {
     kind: string
     dialect?: string | null
     logo?: string | null
+    /** The logo has its own colours; the others are drawn in the text colour. */
+    logo_full_color?: boolean
     model_count: number
     connection: { status: 'connected' | 'missing' | 'unreachable'; source?: string | null }
     popular: boolean
@@ -19,6 +21,10 @@ export type ModelSummary = {
     id: string
     name: string
     default: boolean
+    logo?: string | null
+    logo_full_color?: boolean
+    release_date?: string | null
+    knowledge?: string | null
     limit: { context?: number | null; input?: number | null; output?: number | null }
     caps: { tool_call?: boolean | null; reasoning?: boolean | null; image_input?: boolean | null; attachment?: boolean | null }
     cost?: { input: number; output: number; cache_read?: number | null; cache_write?: number | null } | null

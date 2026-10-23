@@ -13,6 +13,7 @@ import {
 } from '../api/endpoints/agentPages'
 import { absoluteTime, relativeTime } from '../lib/format'
 import { authorLabel, diffLines, type RevisionDiff } from '../lib/revisions'
+import { TwoColumn } from '../screens/shared/TwoColumn'
 import { PageFrame } from '../screens/shared/PageFrame'
 import { useAgents } from '../stores/agents'
 import { clearDraft, pendingDraft, saveDraft } from '../stores/drafts'
@@ -193,49 +194,53 @@ export default function AgentCore() {
                 </div>
             )}
 
-            <MarkdownEditor look="compact" value={text} onChange={edit} onSaveShortcut={() => void save()} className="h-640" />
-
-            <section aria-label="History" className="flex flex-col gap-8">
-                <PanelHeader title="History" meta={total ? `${total} revision${total === 1 ? '' : 's'}` : undefined} level={2} />
-                {history.map((r, i) => (
-                    <RevisionRow
-                        key={r.seq}
-                        revision={r.seq}
-                        author={authorLabel(r.actor, r.trigger, agentName)}
-                        time={relativeTime(r.created_at)}
-                        selected={selected === r.seq}
-                        onSelect={() => void open(r.seq)}
-                        trailing={i === 0 ? <span className="type-mono-xs text-faint">current</span> : undefined}
-                    />
-                ))}
-                {history.length < total && (
-                    <LoadMore
-                        label="Load older"
-                        remaining={total - history.length}
-                        loading={loadingMore}
-                        onLoad={async () => {
-                            setLoadingMore(true)
-                            await loadHistory(history.length).catch(() => {})
-                            setLoadingMore(false)
-                        }}
-                    />
-                )}
-                {selected !== null && diff && (
-                    <DiffView
-                        title={`rev ${diff.from_seq} → ${diff.to_seq}`}
-                        lines={diffLines(diff)}
-                        restoreLabel={selected !== current?.seq ? `Restore rev ${selected}` : undefined}
-                        onRestore={selected !== current?.seq ? () => setRestoring(selected) : undefined}
-                    />
-                )}
-                {selected !== null && selected !== current?.seq && (
-                    <div>
-                        <Button size="sm" variant="ghost" onClick={() => void preview(selected)}>
-                            Load rev {selected} into the editor
-                        </Button>
-                    </div>
-                )}
-            </section>
+            <TwoColumn
+                aside={
+                    <section aria-label="History" className="flex flex-col gap-8 rounded-xl border border-border bg-surface p-16">
+                                    <PanelHeader title="History" meta={total ? `${total} revision${total === 1 ? '' : 's'}` : undefined} level={2} />
+                                    {history.map((r, i) => (
+                                        <RevisionRow
+                                            key={r.seq}
+                                            revision={r.seq}
+                                            author={authorLabel(r.actor, r.trigger, agentName)}
+                                            time={relativeTime(r.created_at)}
+                                            selected={selected === r.seq}
+                                            onSelect={() => void open(r.seq)}
+                                            trailing={i === 0 ? <span className="type-mono-xs text-faint">current</span> : undefined}
+                                        />
+                                    ))}
+                                    {history.length < total && (
+                                        <LoadMore
+                                            label="Load older"
+                                            remaining={total - history.length}
+                                            loading={loadingMore}
+                                            onLoad={async () => {
+                                                setLoadingMore(true)
+                                                await loadHistory(history.length).catch(() => {})
+                                                setLoadingMore(false)
+                                            }}
+                                        />
+                                    )}
+                                    {selected !== null && diff && (
+                                        <DiffView
+                                            title={`rev ${diff.from_seq} → ${diff.to_seq}`}
+                                            lines={diffLines(diff)}
+                                            restoreLabel={selected !== current?.seq ? `Restore rev ${selected}` : undefined}
+                                            onRestore={selected !== current?.seq ? () => setRestoring(selected) : undefined}
+                                        />
+                                    )}
+                                    {selected !== null && selected !== current?.seq && (
+                                        <div>
+                                            <Button size="sm" variant="ghost" onClick={() => void preview(selected)}>
+                                                Load rev {selected} into the editor
+                                            </Button>
+                                        </div>
+                                    )}
+                                </section>
+                }
+            >
+                <MarkdownEditor look="compact" value={text} onChange={edit} onSaveShortcut={() => void save()} className="h-640" />
+            </TwoColumn>
 
             <Dialog
                 open={restoring !== null}

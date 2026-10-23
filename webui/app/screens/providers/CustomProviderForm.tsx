@@ -5,13 +5,15 @@ import { createCustom, testCustom, updateCustom, type CustomBody, type CustomMod
 type Props = {
     /** Editing this provider; absent creates one. */
     provider?: CustomProvider
+    /** A name to start from, when the search found nothing to connect. */
+    initialName?: string
     onDone: () => void
     onCancel: () => void
 }
 
 /** A provider of the operator's own: a protocol, a base URL, an optional key, and its model list. */
-export function CustomProviderForm({ provider, onDone, onCancel }: Props) {
-    const [name, setName] = useState(provider?.name ?? '')
+export function CustomProviderForm({ provider, initialName, onDone, onCancel }: Props) {
+    const [name, setName] = useState(provider?.name ?? initialName ?? '')
     const [protocol, setProtocol] = useState<CustomProtocol>(provider?.protocol ?? 'openai_compatible')
     const [baseUrl, setBaseUrl] = useState(provider?.base_url ?? '')
     const [apiKey, setApiKey] = useState('')

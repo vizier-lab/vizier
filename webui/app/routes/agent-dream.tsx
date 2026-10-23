@@ -116,7 +116,7 @@ export default function AgentDream() {
 
             <div className="grid grid-cols-1 gap-24 xl:grid-cols-[1fr_320px]">
                 <section aria-label="Journal" className="flex flex-col gap-16">
-                    <PanelHeader title="Journal" level={2} />
+                    <PanelHeader title="Dream journal" level={2} />
                     {cycles.length === 0 && <p className="type-small text-muted">No dreams yet. The first one runs on its schedule, or press Dream now.</p>}
                     {cycles.map((c) => (
                         <div key={c.cycle_id} ref={(el) => void (el ? entryRefs.current.set(c.cycle_id, el) : entryRefs.current.delete(c.cycle_id))} className={selected === c.cycle_id ? 'rounded-xl outline-2 outline-offset-4 outline-focus' : undefined}>
@@ -136,7 +136,7 @@ export default function AgentDream() {
                     {next && <LoadMore label="Load older" loading={loading} onLoad={() => void more()} />}
                 </section>
 
-                <aside aria-label="Dream status" className="flex flex-col gap-16">
+                <aside aria-label="Dream status" className="flex flex-col gap-16 self-start rounded-xl border border-border bg-surface p-20">
                     <PanelHeader title="Status" level={2} />
                     <KeyValueList
                         items={[

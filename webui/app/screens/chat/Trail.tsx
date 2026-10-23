@@ -6,8 +6,10 @@ import {
     ScriptCall,
     Thought,
     TrailCall,
+    Thinking,
 } from '@vizier/design'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { thinkingWord } from '../../lib/thinkingWords'
 import type { ExecutionReport, TrailEvent } from '../../api/frames'
 import { duration } from '../../lib/format'
 import { trailSummary } from '../../lib/trail'
@@ -160,6 +162,8 @@ type Props = {
     recalled?: number
     failed?: boolean
     aborted?: boolean
+    /** The agent's name, for the line shown while it works. */
+    agentName?: string
 }
 
 /** The agent's working: live while it runs, folding to a summary row when it answers (FR-008b). */
@@ -170,10 +174,20 @@ export function Trail({
     recalled = 0,
     failed,
     aborted,
+    agentName,
 }: Props) {
     const [all, setAll] = useState(false)
+    const word = useMemo(thinkingWord, [])
     const mobile = useMobile()
     if (trail.length === 0 && !live) return null
+    const wait = live && (
+        <Thinking>
+            {agentName ? `${agentName} is ` : ''}
+            {word}…
+        </Thinking>
+    )
+    // Nothing to show yet: the dots and a word, like the legacy page.
+    if (trail.length === 0) return wait
 
     const hidden = !all && trail.length > VISIBLE ? trail.length - VISIBLE : 0
     const shown = hidden ? trail.slice(hidden) : trail
@@ -186,7 +200,10 @@ export function Trail({
             : `Worked${durationMs != null ? ` ${duration(durationMs)}` : ''}`
 
     return (
+        <div className="flex flex-col gap-10">
+        {wait}
         <ActivityTrail
+            bare
             state={live ? 'live' : failed || aborted ? 'failed' : 'done'}
             title={title}
             counts={
@@ -225,5 +242,6 @@ export function Trail({
                 <Event key={e.id} event={e} live={live} />
             ))}
         </ActivityTrail>
+        </div>
     )
 }

@@ -1,4 +1,4 @@
-import { Badge, Button, Dialog, EmptyState, KeyValueList, LoadMore, PanelHeader, RunRow, SlideOver, Status, Switch } from '@vizier/design'
+import { Badge, Button, Dialog, EmptyState, KeyValueList, LoadMore, PanelHeader, RunRow, Status, Switch } from '@vizier/design'
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/client'
@@ -20,6 +20,9 @@ import { usePagedList } from '../lib/usePagedList'
 import { ConfirmDialog } from '../screens/shared/ConfirmDialog'
 import { Markdown } from '../screens/shared/Markdown'
 import { PagedTable } from '../screens/shared/PagedTable'
+import { describeCron } from '../lib/cron'
+import { SplitView } from '../screens/shared/SplitView'
+import { useWide } from '../lib/useWide'
 import { PageFrame } from '../screens/shared/PageFrame'
 import { TaskDialog } from '../screens/tasks/TaskDialog'
 import { toast } from '../stores/toasts'
@@ -53,6 +56,17 @@ export default function Tasks() {
             },
             { replace: true }
         )
+
+    // Beside the list the detail is always there: the first task until another is chosen.
+    const wide = useWide()
+    useEffect(() => {
+        const first = list.data?.items[0]
+        if (wide && !selectedSlug && first) select(first.slug)
+    }, [wide, selectedSlug, list.data]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    // With the detail beside it the list drops "Requested by", which the detail has.
+    const split = wide && !!selected
+    const keep = <T,>(cells: T[]) => (split ? cells.filter((_, i) => i !== 2) : cells)
 
     const submit = async (input: TaskInput) => {
         setSaving(true)
@@ -111,6 +125,11 @@ export default function Tasks() {
                 </Button>
             }
         >
+            <SplitView
+                title={selected?.title ?? ''}
+                onClose={() => select(null)}
+                detail={selected ? <TaskDetail agentId={agentId} task={selected} onEdit={() => (setError(undefined), setEditing(selected))} onDelete={() => setDeleting(selected)} /> : undefined}
+            >
             <PagedTable<Task>
                 label="Tasks"
                 searchLabel="Search tasks"
@@ -124,26 +143,35 @@ export default function Tasks() {
                     { value: 'active', label: 'Active' },
                     { value: 'last_run_failed', label: 'Last run failed' },
                 ]}
-                columns={[
+                columns={keep([
                     { label: 'Task' },
                     { label: 'Schedule', width: 180 },
                     { label: 'Requested by', width: 150 },
                     { label: 'Latest run', width: 170 },
-                    { label: 'Active', width: 80, align: 'end' },
-                ]}
-                endAligned={[4]}
-                row={(t) => [
+                    { label: 'Active', width: 80, align: 'end' as const },
+                ])}
+                endAligned={split ? [3] : [4]}
+                row={(t) => keep([
                     <span key="t" className="flex min-w-0 flex-col">
                         <span className="truncate type-body-strong text-fg">{t.title}</span>
-                        <span className="truncate type-mono-xs text-faint">{t.slug}</span>
+                        <span className="truncate type-small text-muted">{t.instruction.split('\n')[0]}</span>
                     </span>,
-                    <span key="s" className="type-mono-xs text-muted">{scheduleText(t.schedule)}</span>,
+                    <span key="s" className="flex min-w-0 flex-col gap-2">
+                        {'CronTask' in t.schedule && describeCron(t.schedule.CronTask) ? (
+                            <>
+                                <span className="truncate type-small text-fg">{describeCron(t.schedule.CronTask)}</span>
+                                <span className="truncate type-mono-xs text-faint">{scheduleText(t.schedule)}</span>
+                            </>
+                        ) : (
+                            <span className="truncate type-mono-xs text-muted">{scheduleText(t.schedule)}</span>
+                        )}
+                    </span>,
                     <span key="r" className="truncate type-small text-muted">{requesterText(t.requester)}</span>,
                     <Status key="l" state={runStatus(t.last_run)} font="sans" detail={t.last_run ? relativeTime(t.last_run.ran_at) : undefined} />,
                     <span key="a" onClick={(e) => e.stopPropagation()}>
                         <Switch checked={t.is_active} aria-label={`${t.title} active`} onCheckedChange={(on) => void toggle(t, on)} />
                     </span>,
-                ]}
+                ])}
                 empty={{
                     icon: 'tasks',
                     title: 'No duties scheduled',
@@ -155,10 +183,7 @@ export default function Tasks() {
                     ),
                 }}
             />
-
-            <SlideOver open={!!selected} title={selected?.title ?? ''} onClose={() => select(null)}>
-                {selected && <TaskDetail agentId={agentId} task={selected} onEdit={() => (setError(undefined), setEditing(selected))} onDelete={() => setDeleting(selected)} />}
-            </SlideOver>
+            </SplitView>
 
             <Dialog
                 open={editing !== null}
@@ -229,7 +254,7 @@ function TaskDetail({ agentId, task, onEdit, onDelete }: { agentId: string; task
     }, [open, agentId, task.slug])
 
     return (
-        <div className="flex flex-col gap-24 p-24">
+        <div className="flex flex-col gap-24">
             <div className="flex items-center gap-8">
                 <Badge tone={task.is_active ? 'live' : 'neutral'}>{task.is_active ? 'Active' : 'Inactive'}</Badge>
                 <span className="flex-1" />
