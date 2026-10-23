@@ -204,3 +204,32 @@ export const Thousand: Story = {
     );
   },
 };
+
+/** Server mode: each keystroke fetches, and scrolling to the end fetches the next page. */
+export const ServerPaged: Story = {
+  args: { label: "Agents", search: { placeholder: "Search", value: "", onChange: () => {} }, sections: [], getKey: () => "", renderItem: () => null, onSelect: () => {} },
+  render: function Render(args) {
+    const [q, setQ] = useState("");
+    const [count, setCount] = useState(25);
+    const [loading, setLoading] = useState(false);
+    const all = useMemo(() => manyAgents.filter((a) => a.name.toLowerCase().includes(q.toLowerCase())), [q]);
+    const shown = all.slice(0, count);
+    return (
+      <Picker<AgentItem>
+        {...args}
+        label="Agents"
+        search={{ placeholder: "Search agents", value: q, onChange: (v) => { setQ(v); setCount(25); }, mode: "server", total: `${all.length} agents` }}
+        sections={[{ items: shown }]}
+        getKey={(a) => a.id}
+        renderItem={(a, { query }) => <HighlightMatch text={a.name} query={query} />}
+        onSelect={() => {}}
+        loading={loading}
+        onEndReached={() => {
+          if (count >= all.length) return;
+          setLoading(true);
+          setTimeout(() => { setCount((c) => c + 25); setLoading(false); }, 400);
+        }}
+      />
+    );
+  },
+};

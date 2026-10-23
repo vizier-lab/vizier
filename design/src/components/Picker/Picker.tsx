@@ -19,7 +19,18 @@ export type PickerProps<T> = {
   label: string;
   /** The button that opens it (AgentSwitcher, a topic title, a bundle button). Omit to show the list inline. */
   trigger?: ReactElement<{ onClick?: () => void; "aria-expanded"?: boolean; "aria-haspopup"?: "dialog" | "listbox" }>;
-  search: { placeholder: string; total?: ReactNode; value: string; onChange: (value: string) => void };
+  search: {
+    placeholder: string;
+    total?: ReactNode;
+    value: string;
+    onChange: (value: string) => void;
+    /** `client`: the caller filters `sections` from the whole list. `server`: each change fetches a page, so the list may be longer than what is shown. */
+    mode?: "client" | "server";
+  };
+  /** Called once when the list is scrolled to its end, to fetch the next page. */
+  onEndReached?: () => void;
+  /** A page is being fetched: shows a loading row at the end. */
+  loading?: boolean;
   /** Filter tabs under the search (the conversation picker). */
   filters?: ReactNode;
   sections: PickerSection<T>[];
@@ -61,6 +72,8 @@ export function Picker<T>({
   onSelect,
   remainder,
   footer,
+  onEndReached,
+  loading,
   open: openProp,
   onOpenChange,
   itemHeight = 45,
@@ -100,6 +113,19 @@ export function Picker<T>({
   }, [sections, getKey, itemHeight]);
 
   useEffect(() => setActive(0), [search.value, sections]);
+
+  // Ask for the next page when the end is in view (once per list length).
+  const endedAt = useRef(-1);
+  useEffect(() => {
+    if (!onEndReached || loading || !open) return;
+    const el = list.current;
+    if (!el) return;
+    const atEnd = el.scrollTop + el.clientHeight >= height - 2 * itemHeight;
+    if (atEnd && endedAt.current !== items.length) {
+      endedAt.current = items.length;
+      onEndReached();
+    }
+  }, [scrollTop, height, items.length, loading, open, onEndReached, itemHeight]);
 
   // Keep the active row in view.
   useEffect(() => {
@@ -219,6 +245,11 @@ export function Picker<T>({
             );
           })}
         </div>
+        {loading && (
+          <div role="status" className="flex justify-center py-10 type-small text-faint">
+            Loading…
+          </div>
+        )}
       </div>
       {remainder && <p className="px-14 pt-6 pb-10 type-small text-faint">{remainder}</p>}
       {footer && <div className="flex items-center gap-16 border-t border-border px-14 py-10">{footer}</div>}

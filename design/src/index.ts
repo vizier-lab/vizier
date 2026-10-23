@@ -74,6 +74,7 @@ export * from "./components/KeywordInput";
 export * from "./components/Legend";
 export * from "./components/ListItem";
 export * from "./components/MemoryGraph";
+export * from "./components/LoadMore";
 export * from "./components/Menu";
 export * from "./components/MenuItem";
 export * from "./components/MobileTopBar";
