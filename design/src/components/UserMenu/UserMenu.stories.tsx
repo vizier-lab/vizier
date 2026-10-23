@@ -5,7 +5,7 @@ import { UserMenu } from "./UserMenu";
 const meta = {
   title: "Components/Shell/UserMenu",
   component: UserMenu,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D5", replaces: null } },
   args: { name: "ganesha", role: "superadmin", onSignOut: () => {}, onOpenProfile: () => {} },
   decorators: [(Story) => <div className="w-212 bg-sidebar">{Story()}</div>],

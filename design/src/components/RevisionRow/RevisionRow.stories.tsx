@@ -6,7 +6,7 @@ import { RevisionRow } from "./RevisionRow";
 const meta = {
   title: "Components/Lists/RevisionRow",
   component: RevisionRow,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X27", replaces: "webui/app/components/VersionHistory.tsx" } },
   args: { revision: 41, author: "dream cycle", time: "today 03:12", added: 2, removed: 1, onSelect: () => {} },
   decorators: [(Story) => <div className="w-380">{Story()}</div>],

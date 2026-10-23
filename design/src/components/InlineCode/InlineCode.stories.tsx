@@ -4,7 +4,7 @@ import { InlineCode } from "./InlineCode";
 const meta = {
   title: "Components/Surfaces & data/InlineCode",
   component: InlineCode,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D42", replaces: null } },
   args: { children: "memory_search" },
 } satisfies Meta<typeof InlineCode>;

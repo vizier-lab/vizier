@@ -5,7 +5,7 @@ import { FileRow } from "./FileRow";
 const meta = {
   title: "Components/Lists/FileRow",
   component: FileRow,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X25", replaces: null } },
   args: { name: "checklist.md", size: "2 KB" },
   decorators: [(Story) => <div className="w-320">{Story()}</div>],

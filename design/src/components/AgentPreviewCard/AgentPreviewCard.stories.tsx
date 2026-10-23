@@ -4,7 +4,7 @@ import { AgentPreviewCard } from "./AgentPreviewCard";
 const meta = {
   title: "Components/Agents & dreams/AgentPreviewCard",
   component: AgentPreviewCard,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X55", replaces: null } },
   args: {
     agentId: "scribe",

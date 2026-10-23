@@ -4,7 +4,7 @@ import { Toast } from "./Toast";
 const meta = {
   title: "Components/Feedback/Toast",
   component: Toast,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D27", replaces: "webui/app/components/Toast.tsx" } },
   args: { tone: "success", title: "Memory updated", message: "infra/vector-dbs/summary.md · rev 3", onClose: () => {} },
   argTypes: { tone: { control: "inline-radio", options: ["success", "error", "warning", "info"] } },

@@ -15,7 +15,7 @@ const ITEMS = [
 const meta = {
   title: "Components/Rich text/OutlineNav",
   component: OutlineNav,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X51", replaces: null } },
   args: { items: ITEMS, activeId: "steps", onSelect: () => {} },
   decorators: [(Story) => <div className="w-162">{Story()}</div>],

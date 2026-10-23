@@ -5,7 +5,7 @@ import { Checkbox } from "./Checkbox";
 const meta = {
   title: "Components/Actions & inputs/Checkbox",
   component: Checkbox,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D19", replaces: null } },
   args: { label: "Read memory", defaultChecked: true },
 } satisfies Meta<typeof Checkbox>;

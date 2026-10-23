@@ -5,7 +5,7 @@ import { IconButton, IconButtonGroup } from "./IconButton";
 const meta = {
   title: "Components/Actions & inputs/IconButton",
   component: IconButton,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D11", replaces: null } },
   args: { icon: "history", "aria-label": "Version history", variant: "secondary", size: "md" },
   argTypes: {

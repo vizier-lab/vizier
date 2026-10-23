@@ -5,7 +5,7 @@ import { Tooltip, TooltipBubble } from "./Tooltip";
 const meta = {
   title: "Components/Feedback/Tooltip",
   component: Tooltip,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D33", replaces: "webui/app/components/TooltipLabel.tsx" } },
   args: {
     label: "Collapse sidebar",

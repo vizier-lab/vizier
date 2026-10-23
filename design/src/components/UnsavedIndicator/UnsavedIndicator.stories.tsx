@@ -4,7 +4,7 @@ import { UnsavedIndicator } from "./UnsavedIndicator";
 const meta = {
   title: "Components/Layout/UnsavedIndicator",
   component: UnsavedIndicator,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X8", replaces: null } },
 } satisfies Meta<typeof UnsavedIndicator>;
 

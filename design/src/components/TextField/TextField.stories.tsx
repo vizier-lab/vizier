@@ -5,7 +5,7 @@ import { TextField } from "./TextField";
 const meta = {
   title: "Components/Actions & inputs/TextField",
   component: TextField,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "D12", replaces: null },
     docs: { description: { component: "Text entry focuses emerald: typing is live. Every other control focuses with the neutral ring." } },

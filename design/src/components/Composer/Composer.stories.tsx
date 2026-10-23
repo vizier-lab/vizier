@@ -17,7 +17,7 @@ const CONTEXT = { used: 156000, window: 200000, detail: "claude-sonnet-5-5 · ch
 const meta = {
   title: "Components/Chat/Composer",
   component: Composer,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "D46", replaces: null },
     docs: { description: { component: "Enter sends, Shift+Enter breaks the line. Type / for the skill menu: ↑ ↓ move, Tab completes, Enter runs. Send stays disabled until there is text or an attachment; while the agent works it becomes Stop." } },

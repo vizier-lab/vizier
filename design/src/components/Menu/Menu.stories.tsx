@@ -6,7 +6,7 @@ import { Menu, MenuDivider } from "./Menu";
 const meta = {
   title: "Components/Actions & inputs/Menu",
   component: Menu,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D21", replaces: null } },
   args: { "aria-label": "Document actions", children: null },
 } satisfies Meta<typeof Menu>;

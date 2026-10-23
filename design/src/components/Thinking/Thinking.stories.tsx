@@ -4,7 +4,7 @@ import { Thinking } from "./Thinking";
 const meta = {
   title: "Components/Chat/Thinking",
   component: Thinking,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D47", replaces: "webui/app/components/ThinkingIndicator.tsx" } },
   args: { children: "Archivist is thinking…" },
 } satisfies Meta<typeof Thinking>;

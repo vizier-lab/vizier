@@ -12,7 +12,7 @@ const PROTOCOLS = [
 const meta = {
   title: "Components/Actions & inputs/Select",
   component: Select,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "D14", replaces: "webui/app/components/CustomSelect.tsx" },
     docs: { description: { component: "For short fixed lists. Open with click, ↓ or ↑; then ↑ ↓ move, Enter picks, Esc closes. Long or searchable lists use Picker." } },

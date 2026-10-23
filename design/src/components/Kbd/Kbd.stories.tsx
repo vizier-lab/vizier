@@ -4,7 +4,7 @@ import { Kbd } from "./Kbd";
 const meta = {
   title: "Components/Layout/Kbd",
   component: Kbd,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X6", replaces: "webui/app/components/MediaKeyHint.tsx" } },
   args: { children: "Enter", look: "inline" },
 } satisfies Meta<typeof Kbd>;

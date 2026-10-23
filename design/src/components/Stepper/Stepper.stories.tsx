@@ -4,7 +4,7 @@ import { Stepper } from "./Stepper";
 const meta = {
   title: "Components/Layout/Stepper",
   component: Stepper,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X10", replaces: "webui/app/routes/agent-new.tsx" } },
   args: {
     "aria-label": "New agent",

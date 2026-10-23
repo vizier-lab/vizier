@@ -5,7 +5,7 @@ import { MenuItem } from "./MenuItem";
 const meta = {
   title: "Components/Actions & inputs/MenuItem",
   component: MenuItem,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D22", replaces: null } },
   args: { icon: "pencil", label: "Rename", meta: "F2", tone: "default" },
   argTypes: { tone: { control: "inline-radio", options: ["default", "danger"] } },

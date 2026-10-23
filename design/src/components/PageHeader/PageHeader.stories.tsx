@@ -8,7 +8,7 @@ import { PageHeader } from "./PageHeader";
 const meta = {
   title: "Components/Shell/PageHeader",
   component: PageHeader,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D7", replaces: null } },
   args: {
     title: "Tasks",

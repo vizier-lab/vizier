@@ -4,7 +4,7 @@ import { StoppedNote } from "./StoppedNote";
 const meta = {
   title: "Components/Chat/StoppedNote",
   component: StoppedNote,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X32", replaces: null } },
   args: { children: "Stopped by you at 14:03 · 1 queued message dropped" },
 } satisfies Meta<typeof StoppedNote>;

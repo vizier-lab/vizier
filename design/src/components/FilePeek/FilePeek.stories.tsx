@@ -11,7 +11,7 @@ const rows = [
 const meta = {
   title: "Components/Chat/FilePeek",
   component: FilePeek,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X38", replaces: null } },
   args: {
     name: "p99-results.csv",

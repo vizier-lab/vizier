@@ -15,7 +15,7 @@ const LABELS: Record<ButtonVariant, { label: string; busy: string; icon: "plus" 
 const meta = {
   title: "Components/Actions & inputs/Button",
   component: Button,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "D10", replaces: null },
     docs: {

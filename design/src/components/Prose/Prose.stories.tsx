@@ -53,7 +53,7 @@ const sample = (
 const meta = {
   title: "Components/Rich text/Prose",
   component: Prose,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X49", replaces: "webui/app/components/MarkdownEditor.tsx" } },
   args: { children: sample },
   decorators: [(Story) => <div className="max-w-640">{Story()}</div>],

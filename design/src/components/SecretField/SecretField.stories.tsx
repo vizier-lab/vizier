@@ -5,7 +5,7 @@ import { SecretField } from "./SecretField";
 const meta = {
   title: "Components/Actions & inputs/SecretField",
   component: SecretField,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X14", replaces: null } },
   args: { label: "API key", masked: "••••••••••••7c1e", onReplace: () => {} },
   decorators: [(Story) => <div className="w-420">{Story()}</div>],

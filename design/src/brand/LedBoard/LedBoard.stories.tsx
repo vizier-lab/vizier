@@ -5,7 +5,7 @@ import { LedBoard } from "./LedBoard";
 const meta = {
   title: "Brand/LedBoard",
   component: LedBoard,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     layout: "fullscreen",
     vizier: { id: "B4", replaces: "webui/app/routes/login.tsx" },

@@ -4,7 +4,7 @@ import { BackgroundReportCard } from "./BackgroundReportCard";
 const meta = {
   title: "Components/Chat/BackgroundReportCard",
   component: BackgroundReportCard,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X44", replaces: "webui/app/components/BackgroundReportItem.tsx" } },
   args: {
     agentId: "scout",

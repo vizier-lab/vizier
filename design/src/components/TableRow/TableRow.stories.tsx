@@ -15,7 +15,7 @@ const row = (title: string, schedule: string, state: React.ComponentProps<typeof
 const meta = {
   title: "Components/Surfaces & data/TableRow",
   component: TableRow,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D38", replaces: null } },
   args: { cells: row("Morning brief", "every weekday · 07:00", "answered", "ganesha"), endAligned: [3], onSelect: () => {} },
   decorators: [

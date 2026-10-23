@@ -28,7 +28,7 @@ const calls = (
 const meta = {
   title: "Components/Chat/RunDetail",
   component: RunDetail,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X48", replaces: "webui/app/components/ExecutionReportView.tsx" } },
   args: {
     description: "Compare the benchmark notes for the three databases, render one table, and file it in infra.",

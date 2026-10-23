@@ -4,7 +4,7 @@ import { Status, statusStates } from "./Status";
 const meta = {
   title: "Components/Feedback/Status",
   component: Status,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "D24", replaces: null },
     docs: {

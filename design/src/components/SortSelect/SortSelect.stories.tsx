@@ -5,7 +5,7 @@ import { SortSelect } from "./SortSelect";
 const meta = {
   title: "Components/Actions & inputs/SortSelect",
   component: SortSelect,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X12", replaces: null } },
   args: {
     label: "Sort",

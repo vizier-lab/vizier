@@ -35,7 +35,7 @@ const LINKS: GraphEdge[] = [
 const meta = {
   title: "Components/Visualisation/MemoryGraph",
   component: MemoryGraph,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "X73", replaces: "webui/app/components/MemoryGraph.tsx" },
     docs: {

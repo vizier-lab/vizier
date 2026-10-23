@@ -5,7 +5,7 @@ import { DotLoader } from "./DotLoader";
 const meta = {
   title: "Components/Feedback/DotLoader",
   component: DotLoader,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D32", replaces: "webui/app/components/dot_loader.tsx" } },
   args: { tone: "muted", label: "Loading" },
   argTypes: { tone: { control: "select", options: toneModes } },

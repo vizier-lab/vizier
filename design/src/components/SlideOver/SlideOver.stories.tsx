@@ -17,7 +17,7 @@ const body = (
 const meta = {
   title: "Components/Surfaces & data/SlideOver",
   component: SlideOverPanel,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D35", replaces: "webui/app/components/SlideOver.tsx" } },
   args: { title: "Run · Morning brief", onClose: () => {}, children: body, footer: <Button>Close</Button> },
   decorators: [(Story) => <div className="h-560">{Story()}</div>],

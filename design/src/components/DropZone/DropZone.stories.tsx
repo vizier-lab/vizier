@@ -4,7 +4,7 @@ import { DropZone } from "./DropZone";
 const meta = {
   title: "Components/Actions & inputs/DropZone",
   component: DropZone,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X19", replaces: null } },
   args: { onFiles: () => {} },
   decorators: [(Story) => <div className="w-271">{Story()}</div>],

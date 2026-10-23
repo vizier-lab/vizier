@@ -29,7 +29,7 @@ const days = Array.from({ length: 30 }, (_, i) => ({
 const meta = {
   title: "Components/Visualisation/StackedBarChart",
   component: StackedBarChart,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X70", replaces: "webui/app/components/UsageDailyChart.tsx" } },
   args: { title: "Daily cost", series: SERIES, days, annotation: { index: 17, label: "Oct 8 · vision model switched on" } },
   decorators: [(Story) => <div className="w-1010 pt-16">{Story()}</div>],

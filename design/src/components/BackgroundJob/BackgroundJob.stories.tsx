@@ -4,7 +4,7 @@ import { BackgroundJob } from "./BackgroundJob";
 const meta = {
   title: "Components/Chat/BackgroundJob",
   component: BackgroundJob,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D59", replaces: "webui/app/components/BackgroundJobTray.tsx" } },
   args: {
     title: "paralel_subtasks",

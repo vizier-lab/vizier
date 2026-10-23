@@ -5,7 +5,7 @@ import { ProviderTile } from "./ProviderTile";
 const meta = {
   title: "Components/Integrations & settings/ProviderTile",
   component: ProviderTile,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X65", replaces: "webui/app/components/providers/AddProvider.tsx" } },
   args: { provider: "google", name: "Google", sub: "Gemini" },
   decorators: [(Story) => <div className="w-190">{Story()}</div>],

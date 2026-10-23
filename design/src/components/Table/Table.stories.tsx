@@ -12,7 +12,7 @@ import { Table } from "./Table";
 const meta = {
   title: "Components/Surfaces & data/Table",
   component: Table,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D36", replaces: null } },
   args: { label: "Tasks", columns: [], children: null },
   decorators: [(Story) => <div className="w-760">{Story()}</div>],

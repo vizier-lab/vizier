@@ -13,7 +13,7 @@ import { AgentSwitcher } from "./AgentSwitcher";
 const meta = {
   title: "Components/Shell/AgentSwitcher",
   component: AgentSwitcher,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D4", replaces: null } },
   args: { agentId: "archivist", name: "Archivist", state: "live", detail: "replying" },
   decorators: [(Story) => <div className="w-212">{Story()}</div>],

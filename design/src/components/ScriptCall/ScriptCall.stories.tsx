@@ -4,7 +4,7 @@ import { ScriptCall } from "./ScriptCall";
 const meta = {
   title: "Components/Chat/ScriptCall",
   component: ScriptCall,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D52", replaces: null } },
   args: { name: "memory_search", args: '"vector db benchmark"', duration: "0.4s", state: "ok" },
   argTypes: { state: { control: "inline-radio", options: ["ok", "failed"] } },

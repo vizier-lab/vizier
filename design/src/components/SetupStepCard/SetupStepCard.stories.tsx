@@ -7,7 +7,7 @@ import { SetupStepCard } from "./SetupStepCard";
 const meta = {
   title: "Components/Agents & dreams/SetupStepCard",
   component: SetupStepCard,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X54", replaces: "webui/app/components/SetupProgress.tsx" } },
   args: { step: 2, state: "current", title: "Create your first agent", description: "Pick a model, give it a name, and choose what it may do. You can change everything later." },
   decorators: [(Story) => <ol className="flex w-760 flex-col gap-16">{Story()}</ol>],

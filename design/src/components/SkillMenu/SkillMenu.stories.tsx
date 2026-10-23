@@ -10,7 +10,7 @@ const SKILLS = [
 const meta = {
   title: "Components/Chat/SkillMenu",
   component: SkillMenu,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X33", replaces: null } },
   args: { id: "skills", items: SKILLS, query: "co", active: 0, onPick: () => {} },
   decorators: [(Story) => <div className="w-396">{Story()}</div>],

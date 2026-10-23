@@ -4,7 +4,7 @@ import { SkillChip } from "./SkillChip";
 const meta = {
   title: "Components/Chat/SkillChip",
   component: SkillChip,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D56", replaces: null } },
   args: { skill: "code-review" },
 } satisfies Meta<typeof SkillChip>;

@@ -4,7 +4,7 @@ import { Mark } from "./Mark";
 const meta = {
   title: "Brand/Mark",
   component: Mark,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "B1", replaces: null },
     docs: {

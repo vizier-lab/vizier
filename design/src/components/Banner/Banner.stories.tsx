@@ -5,7 +5,7 @@ import { Banner } from "./Banner";
 const meta = {
   title: "Components/Feedback/Banner",
   component: Banner,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D26", replaces: null } },
   args: { tone: "offline", title: "Connection lost · reconnecting in 3 s", actions: <Button variant="ghost" size="sm">Retry now</Button> },
   argTypes: { tone: { control: "inline-radio", options: ["offline", "reconnected", "failed"] } },

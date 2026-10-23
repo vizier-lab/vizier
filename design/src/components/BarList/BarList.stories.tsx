@@ -6,7 +6,7 @@ import { BarList, Meter } from "./BarList";
 const meta = {
   title: "Components/Visualisation/BarList",
   component: BarList,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X71", replaces: null } },
   args: {
     items: [

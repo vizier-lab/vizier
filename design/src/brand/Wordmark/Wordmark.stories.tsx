@@ -5,7 +5,7 @@ import { Wordmark } from "./Wordmark";
 const meta = {
   title: "Brand/Wordmark",
   component: Wordmark,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "B2", replaces: null },
     docs: {

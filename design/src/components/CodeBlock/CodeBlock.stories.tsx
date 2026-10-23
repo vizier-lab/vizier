@@ -8,7 +8,7 @@ for h in hits:
 const meta = {
   title: "Components/Surfaces & data/CodeBlock",
   component: CodeBlock,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D41", replaces: null } },
   args: { code: PY, language: "python" },
   decorators: [(Story) => <div className="w-580">{Story()}</div>],

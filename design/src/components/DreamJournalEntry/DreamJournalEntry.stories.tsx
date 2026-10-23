@@ -4,7 +4,7 @@ import { DreamJournalEntry } from "./DreamJournalEntry";
 const meta = {
   title: "Components/Agents & dreams/DreamJournalEntry",
   component: DreamJournalEntry,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X56", replaces: "webui/app/routes/agent-dream.tsx" } },
   args: {
     when: "Tonight, 03:00 – 03:12",

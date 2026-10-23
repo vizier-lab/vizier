@@ -5,7 +5,7 @@ import { ActivityItem } from "./ActivityItem";
 const meta = {
   title: "Components/Lists/ActivityItem",
   component: ActivityItem,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X26", replaces: null } },
   args: { actor: "ganesha", time: "Sep 14", text: "Installed Brave Search." },
   decorators: [(Story) => <div className="w-340">{Story()}</div>],

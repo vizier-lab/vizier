@@ -4,7 +4,7 @@ import { ProgressBar } from "./ProgressBar";
 const meta = {
   title: "Components/Feedback/ProgressBar",
   component: ProgressBar,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D30", replaces: null } },
   args: { label: "Pulling qwen3:32b from Ollama", value: 62, detail: "12.4 GB of 20.0 GB · about 3 min", state: "running" },
   argTypes: { state: { control: "inline-radio", options: ["running", "done", "failed"] } },

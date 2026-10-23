@@ -5,7 +5,7 @@ import { AudioPlayer } from "./AudioPlayer";
 const meta = {
   title: "Components/Chat/AudioPlayer",
   component: AudioPlayer,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X45", replaces: "webui/app/components/VoiceMessagePlayer.tsx" } },
   args: {
     playing: false,

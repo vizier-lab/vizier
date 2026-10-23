@@ -11,7 +11,7 @@ const TEXT = "All three handled our 2.1M-passage corpus; the difference is tail 
 const meta = {
   title: "Components/Chat/AgentReply",
   component: AgentReply,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D45", replaces: "webui/app/components/MessageItem.tsx" } },
   args: {
     children: TEXT,

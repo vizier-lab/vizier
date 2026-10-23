@@ -5,7 +5,7 @@ import { KeywordInput } from "./KeywordInput";
 const meta = {
   title: "Components/Actions & inputs/KeywordInput",
   component: KeywordInput,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X18", replaces: null } },
   args: { label: "Keywords", value: ["review", "quality", "security"], onChange: () => {} },
   decorators: [(Story) => <div className="w-271">{Story()}</div>],

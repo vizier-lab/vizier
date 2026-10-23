@@ -5,7 +5,7 @@ import { KeyValueList } from "./KeyValueList";
 const meta = {
   title: "Components/Layout/KeyValueList",
   component: KeyValueList,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X3", replaces: null } },
   args: {
     items: [

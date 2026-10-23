@@ -5,7 +5,7 @@ import { Radio } from "./Radio";
 const meta = {
   title: "Components/Actions & inputs/Radio",
   component: Radio,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "D20", replaces: null },
     docs: { description: { component: "Not drawn on any screen yet; kept as designed for short exclusive choices (shell: Docker or Local)." } },

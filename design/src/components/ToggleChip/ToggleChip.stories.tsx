@@ -5,7 +5,7 @@ import { ToggleChip } from "./ToggleChip";
 const meta = {
   title: "Components/Actions & inputs/ToggleChip",
   component: ToggleChip,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X15", replaces: null } },
   args: { label: "Fetch Webpage", checked: true, onCheckedChange: () => {} },
 } satisfies Meta<typeof ToggleChip>;

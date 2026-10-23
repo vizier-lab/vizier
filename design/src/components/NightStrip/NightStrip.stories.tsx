@@ -10,7 +10,7 @@ const nights: Night[] = M.map((m, i) => ({ memories: m, core: CORE.has(i), label
 const meta = {
   title: "Components/Visualisation/NightStrip",
   component: NightStrip,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X69", replaces: "webui/app/routes/agent-dream.tsx" } },
   args: { nights },
   decorators: [(Story) => <div className="w-1010">{Story()}</div>],

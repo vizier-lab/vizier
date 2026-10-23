@@ -5,7 +5,7 @@ import { ToolList } from "./ToolList";
 const meta = {
   title: "Components/Integrations & settings/ToolList",
   component: ToolList,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X61", replaces: null } },
   args: {
     tools: [

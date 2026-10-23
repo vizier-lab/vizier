@@ -4,7 +4,7 @@ import { Fold } from "./Fold";
 const meta = {
   title: "Components/Chat/Fold",
   component: Fold,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D54", replaces: null } },
   args: { label: "9 more · 1 thought, 8 python runs" },
   decorators: [(Story) => <ul className="w-480 rounded-lg bg-surface p-12">{Story()}</ul>],

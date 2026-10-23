@@ -5,7 +5,7 @@ import { ServerRow } from "./ServerRow";
 const meta = {
   title: "Components/Integrations & settings/ServerRow",
   component: ServerRow,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X62", replaces: "webui/app/routes/integrations-mcp.tsx" } },
   args: { name: "github", transport: "remote", target: "https://api.githubcopilot.com/mcp", state: "connected", category: "github", tools: 34, enabled: true, onEnabledChange: () => {} },
   decorators: [

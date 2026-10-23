@@ -5,7 +5,7 @@ import { ContextRing } from "./ContextRing";
 const meta = {
   title: "Components/Chat/ContextRing",
   component: ContextRing,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X36", replaces: null } },
   args: { used: 156000, window: 200000, detail: "claude-sonnet-5-5 · checkpoints automatically" },
   decorators: [(Story) => <div className="p-48">{Story()}</div>],

@@ -4,7 +4,7 @@ import { AgentCard } from "./AgentCard";
 const meta = {
   title: "Components/Agents & dreams/AgentCard",
   component: AgentCard,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X53", replaces: "webui/app/components/AgentCard.tsx" } },
   args: {
     agentId: "archivist",

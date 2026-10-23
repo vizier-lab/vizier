@@ -5,7 +5,7 @@ import { NavItem } from "./NavItem";
 const meta = {
   title: "Components/Shell/NavItem",
   component: NavItem,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D2", replaces: null } },
   args: { icon: "home", label: "Home", href: "#", active: false, collapsed: false, live: false },
   decorators: [(Story) => <div className="w-212">{Story()}</div>],

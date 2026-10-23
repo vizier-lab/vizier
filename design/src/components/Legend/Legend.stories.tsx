@@ -4,7 +4,7 @@ import { Legend } from "./Legend";
 const meta = {
   title: "Components/Visualisation/Legend",
   component: Legend,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X72", replaces: null } },
   args: {
     items: [

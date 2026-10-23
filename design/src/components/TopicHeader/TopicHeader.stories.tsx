@@ -8,7 +8,7 @@ import { TopicHeader } from "./TopicHeader";
 const meta = {
   title: "Components/Chat/TopicHeader",
   component: TopicHeader,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X42", replaces: null } },
   args: { topic: "vector-db-review", meta: "webui · topic 3 of 5 · started 11:40" },
 } satisfies Meta<typeof TopicHeader>;

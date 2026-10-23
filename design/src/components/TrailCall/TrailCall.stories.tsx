@@ -4,7 +4,7 @@ import { TrailCall } from "./TrailCall";
 const meta = {
   title: "Components/Chat/TrailCall",
   component: TrailCall,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D51", replaces: null } },
   args: { name: "execute_python", intent: "compare benchmark notes, render table", duration: "12.6s", state: "done" },
   argTypes: { state: { control: "inline-radio", options: ["done", "running", "failed", "limit", "lookup"] } },

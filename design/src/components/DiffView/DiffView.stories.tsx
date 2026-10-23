@@ -4,7 +4,7 @@ import { DiffView } from "./DiffView";
 const meta = {
   title: "Components/Rich text/DiffView",
   component: DiffView,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X52", replaces: "webui/app/components/VersionHistory.tsx" } },
   args: {
     title: "rev 40 → 41",

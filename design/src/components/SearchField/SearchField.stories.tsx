@@ -6,7 +6,7 @@ import { SearchField } from "./SearchField";
 const meta = {
   title: "Components/Actions & inputs/SearchField",
   component: SearchField,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D15", replaces: null } },
   args: { value: "", onValueChange: () => {}, "aria-label": "Search agents", placeholder: "Search 48 agents" },
   decorators: [(Story) => <div className="w-280">{Story()}</div>],

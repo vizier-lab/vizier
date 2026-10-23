@@ -15,7 +15,7 @@ const DETAIL: Record<CallStatus, string> = {
 const meta = {
   title: "Components/Chat/CallChip",
   component: CallChip,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D58", replaces: "webui/app/components/client/ClientCallChip.tsx" } },
   args: { status: "pending", detail: DETAIL.pending },
   argTypes: { status: { control: "select", options: callStatuses } },

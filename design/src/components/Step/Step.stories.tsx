@@ -4,7 +4,7 @@ import { Step } from "./Step";
 const meta = {
   title: "Components/Shell/Step",
   component: Step,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D9", replaces: null } },
   args: { number: 3, label: "Tools", state: "current" },
   argTypes: { state: { control: "inline-radio", options: ["done", "current", "upcoming", "error"] } },

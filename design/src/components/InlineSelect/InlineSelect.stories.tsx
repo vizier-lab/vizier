@@ -5,7 +5,7 @@ import { InlineSelect } from "./InlineSelect";
 const meta = {
   title: "Components/Actions & inputs/InlineSelect",
   component: InlineSelect,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X13", replaces: null } },
   args: { label: "Vision model", value: "Anthropic · claude-haiku-5-5" },
 } satisfies Meta<typeof InlineSelect>;

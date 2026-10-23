@@ -6,7 +6,7 @@ import { MobileTopBar } from "./MobileTopBar";
 const meta = {
   title: "Components/Mobile/MobileTopBar",
   component: MobileTopBar,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X75", replaces: null }, layout: "fullscreen" },
   args: { onMenu: () => {}, trailing: <IconButton icon="plus" aria-label="New agent" /> },
   decorators: [(Story) => <div className="w-375">{Story()}</div>],

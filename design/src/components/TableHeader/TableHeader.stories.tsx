@@ -4,7 +4,7 @@ import { TableHeader } from "./TableHeader";
 const meta = {
   title: "Components/Surfaces & data/TableHeader",
   component: TableHeader,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "D37", replaces: null },
     docs: { description: { component: "Column labels. The table's `<colgroup>` sets the widths for the header and every row together." } },

@@ -5,7 +5,7 @@ import { ShareList, type SharePerson } from "./ShareList";
 const meta = {
   title: "Components/Actions & inputs/ShareList",
   component: ShareList,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X21", replaces: null } },
   args: {
     people: [{ name: "ganesha", owner: true }, { name: "ana" }, { name: "rio" }],

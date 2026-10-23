@@ -4,7 +4,7 @@ import { AgentRow } from "./AgentRow";
 const meta = {
   title: "Components/Lists/AgentRow",
   component: AgentRow,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X30", replaces: null } },
   args: { agentId: "Archivist", name: "Archivist", state: "live", detail: "replying", href: "#" },
   decorators: [(Story) => <div className="w-375 divide-y divide-border">{Story()}</div>],

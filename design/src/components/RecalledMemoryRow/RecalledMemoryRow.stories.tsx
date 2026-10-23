@@ -5,7 +5,7 @@ import { RecalledMemoryRow } from "./RecalledMemoryRow";
 const meta = {
   title: "Components/Lists/RecalledMemoryRow",
   component: RecalledMemoryRow,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X29", replaces: null } },
   args: { path: "qdrant.md#3", bundle: "infra", score: 0.82 },
   decorators: [(Story) => <div className="w-280">{Story()}</div>],

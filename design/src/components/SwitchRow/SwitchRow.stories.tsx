@@ -5,7 +5,7 @@ import { SwitchRow } from "./SwitchRow";
 const meta = {
   title: "Components/Actions & inputs/SwitchRow",
   component: SwitchRow,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X16", replaces: "webui/app/components/SelfManagementSection.tsx" } },
   args: { label: "MCP servers", badge: "granted", helper: "Archivist may add, change and remove its own MCP servers.", checked: true, onCheckedChange: () => {} },
   decorators: [(Story) => <div className="w-334">{Story()}</div>],

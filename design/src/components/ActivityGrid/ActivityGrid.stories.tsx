@@ -25,7 +25,7 @@ const FOUR: ActivityRow[] = [
 const meta = {
   title: "Components/Visualisation/ActivityGrid",
   component: ActivityGrid,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "X68", replaces: "webui/app/routes/home.tsx" },
     docs: { description: { component: "Never more than seven rows, so Home keeps its height whether the court has one agent or a thousand. Dot size is turns in that hour; a green dot is an agent replying right now." } },

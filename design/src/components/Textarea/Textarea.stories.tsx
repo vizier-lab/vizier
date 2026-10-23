@@ -8,7 +8,7 @@ const DESC = "Review a diff for bugs, then for clarity. Point at lines, never re
 const meta = {
   title: "Components/Actions & inputs/Textarea",
   component: Textarea,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D13", replaces: null } },
   args: { label: "Description", defaultValue: DESC, maxLength: 500, helper: "Shown in /skills and the slash menu." },
   decorators: [(Story) => <div className="w-320">{Story()}</div>],

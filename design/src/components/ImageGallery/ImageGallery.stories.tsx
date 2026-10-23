@@ -8,7 +8,7 @@ import BEFORE from "../../stories/flame-before.svg?url";
 const meta = {
   title: "Components/Chat/ImageGallery",
   component: ImageGallery,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X40", replaces: null } },
   args: {
     images: [

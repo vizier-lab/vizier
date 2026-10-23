@@ -4,7 +4,7 @@ import { SecretReveal } from "./SecretReveal";
 const meta = {
   title: "Components/Actions & inputs/SecretReveal",
   component: SecretReveal,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X23", replaces: null } },
   args: {
     title: "Key “home-assistant” created. Copy it now: it won't be shown again.",

@@ -23,7 +23,7 @@ const body = (
 const meta = {
   title: "Components/Chat/FilePreview",
   component: FilePreview,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X37", replaces: "webui/app/components/AttachmentPreviewModal.tsx" } },
   args: {
     name: "p99-results.csv",

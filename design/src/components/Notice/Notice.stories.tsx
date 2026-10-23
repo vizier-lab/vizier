@@ -6,7 +6,7 @@ import { Notice } from "./Notice";
 const meta = {
   title: "Components/Feedback/Notice",
   component: Notice,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D25", replaces: null } },
   args: {
     tone: "failed",

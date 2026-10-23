@@ -4,7 +4,7 @@ import { FileTypeTag } from "./FileTypeTag";
 const meta = {
   title: "Components/Chat/FileTypeTag",
   component: FileTypeTag,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X39", replaces: null } },
   args: { file: "usage-october.csv" },
 } satisfies Meta<typeof FileTypeTag>;

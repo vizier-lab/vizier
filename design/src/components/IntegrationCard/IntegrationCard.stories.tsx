@@ -9,7 +9,7 @@ import { IntegrationCard } from "./IntegrationCard";
 const meta = {
   title: "Components/Integrations & settings/IntegrationCard",
   component: IntegrationCard,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X59", replaces: "webui/app/components/integrations.tsx" } },
   args: {
     kind: "discord",

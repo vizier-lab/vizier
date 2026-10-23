@@ -4,7 +4,7 @@ import { Eyebrow } from "./Eyebrow";
 const meta = {
   title: "Components/Layout/Eyebrow",
   component: Eyebrow,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X1", replaces: null } },
   args: { children: "Connected", count: 5 },
 } satisfies Meta<typeof Eyebrow>;

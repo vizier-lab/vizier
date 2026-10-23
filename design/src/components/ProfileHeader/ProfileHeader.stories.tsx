@@ -4,7 +4,7 @@ import { ProfileHeader } from "./ProfileHeader";
 const meta = {
   title: "Components/Integrations & settings/ProfileHeader",
   component: ProfileHeader,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X66", replaces: null } },
   args: { name: "ganesha", role: "superadmin" },
   decorators: [(Story) => <div className="w-720">{Story()}</div>],

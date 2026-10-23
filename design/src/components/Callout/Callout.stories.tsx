@@ -5,7 +5,7 @@ import { Callout } from "./Callout";
 const meta = {
   title: "Components/Layout/Callout",
   component: Callout,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X5", replaces: null } },
   args: { children: "No API key? Ollama runs open models on this machine, no key needed." },
   decorators: [(Story) => <div className="w-700">{Story()}</div>],

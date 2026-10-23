@@ -4,7 +4,7 @@ import { PanelHeader } from "./PanelHeader";
 const meta = {
   title: "Components/Layout/PanelHeader",
   component: PanelHeader,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X2", replaces: null } },
   args: { title: "Recalled memory", meta: "4 passages" },
   decorators: [(Story) => <div className="w-280">{Story()}</div>],

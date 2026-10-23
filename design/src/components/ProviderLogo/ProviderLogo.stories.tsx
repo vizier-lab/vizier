@@ -18,7 +18,7 @@ const PROVIDERS: [string, string][] = [
 const meta = {
   title: "Components/Integrations & settings/ProviderLogo",
   component: ProviderLogo,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "X63", replaces: "webui/app/components/ProviderLogo.tsx" },
     docs: { description: { component: "Known providers show their letters on their brand colour (`brands.ts`, the one place brand colours live). Local and custom providers get the neutral tile with their initials." } },

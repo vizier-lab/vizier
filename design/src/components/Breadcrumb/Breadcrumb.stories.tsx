@@ -5,7 +5,7 @@ import { Breadcrumb } from "./Breadcrumb";
 const meta = {
   title: "Components/Layout/Breadcrumb",
   component: Breadcrumb,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X9", replaces: null } },
   args: { segments: [{ label: "infra", href: "#" }, { label: "vector-dbs", href: "#" }, { label: "summary.md" }] },
 } satisfies Meta<typeof Breadcrumb>;

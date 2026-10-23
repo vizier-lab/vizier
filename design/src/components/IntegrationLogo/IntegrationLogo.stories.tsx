@@ -4,7 +4,7 @@ import { IntegrationLogo } from "./IntegrationLogo";
 const meta = {
   title: "Components/Integrations & settings/IntegrationLogo",
   component: IntegrationLogo,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X60", replaces: null } },
   args: { kind: "discord", size: 44 },
   argTypes: { kind: { control: "inline-radio", options: ["discord", "telegram", "brave_search", "mcp"] } },

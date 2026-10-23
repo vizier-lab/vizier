@@ -5,7 +5,7 @@ import { TextLink } from "./TextLink";
 const meta = {
   title: "Components/Layout/TextLink",
   component: TextLink,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X7", replaces: null } },
   args: { children: "Retry" },
 } satisfies Meta<typeof TextLink>;

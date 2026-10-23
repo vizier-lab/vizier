@@ -10,7 +10,7 @@ import { ActivityTrail, TrailItem } from "./ActivityTrail";
 const meta = {
   title: "Components/Chat/ActivityTrail",
   component: ActivityTrail,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D49", replaces: "webui/app/components/ActivityTrail.tsx" } },
   args: { state: "done", title: "Worked 18.4s", counts: "3 python runs · 4 passages recalled", defaultExpanded: true },
   decorators: [(Story) => <div className="w-720">{Story()}</div>],

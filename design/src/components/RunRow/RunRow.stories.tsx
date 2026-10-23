@@ -6,7 +6,7 @@ import { RunRow } from "./RunRow";
 const meta = {
   title: "Components/Lists/RunRow",
   component: RunRow,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X28", replaces: null } },
   args: { time: "Oct 20, 09:00", state: "answered", duration: "41s", onSelect: () => {} },
   decorators: [(Story) => <div className="w-320">{Story()}</div>],

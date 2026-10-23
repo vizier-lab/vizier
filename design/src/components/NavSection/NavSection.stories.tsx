@@ -5,7 +5,7 @@ import { NavSection } from "./NavSection";
 const meta = {
   title: "Components/Shell/NavSection",
   component: NavSection,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D3", replaces: null } },
   args: { label: "Integrations", collapsed: false },
 } satisfies Meta<typeof NavSection>;

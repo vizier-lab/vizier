@@ -9,7 +9,7 @@ const PAGES: SidebarPage[] = ["home", "chat", "core", "memory", "tasks", "skills
 const meta = {
   title: "Components/Shell/Sidebar",
   component: Sidebar,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D1", replaces: "webui/app/root.tsx" }, layout: "fullscreen" },
   args: {
     agent: <AgentSwitcher agentId="archivist" name="Archivist" state="live" detail="replying" />,

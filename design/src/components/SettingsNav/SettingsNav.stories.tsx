@@ -4,7 +4,7 @@ import { SettingsNav } from "./SettingsNav";
 const meta = {
   title: "Components/Shell/SettingsNav",
   component: SettingsNav,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D6", replaces: "webui/app/routes/settingsRoot.tsx" }, layout: "fullscreen" },
   args: { active: "providers", hrefFor: (p) => `#${p}` },
   argTypes: { active: { control: "select", options: ["profile", "password", "api-keys", "providers", "users", "roles"] } },

@@ -4,7 +4,7 @@ import { StatGroup } from "./StatGroup";
 const meta = {
   title: "Components/Layout/StatGroup",
   component: StatGroup,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X11", replaces: null } },
   args: {
     stats: [

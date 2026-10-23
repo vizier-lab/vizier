@@ -6,7 +6,7 @@ import { EditorToolbar, type EditorMode } from "./EditorToolbar";
 const meta = {
   title: "Components/Rich text/EditorToolbar",
   component: EditorToolbar,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X50", replaces: "webui/app/components/MarkdownEditor.tsx" } },
   args: { blockType: "Paragraph", onCommand: () => {}, count: "1,284 chars" },
   decorators: [(Story) => <div className="w-680 rounded-xl border border-border bg-surface">{Story()}</div>],

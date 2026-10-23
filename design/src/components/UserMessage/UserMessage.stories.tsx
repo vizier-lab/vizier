@@ -5,7 +5,7 @@ import { UserMessage } from "./UserMessage";
 const meta = {
   title: "Components/Chat/UserMessage",
   component: UserMessage,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D43", replaces: "webui/app/components/chat_bubble.tsx" } },
   args: { meta: "You · 14:02", children: "Compare the three vector databases we tested last week and file a summary in memory." },
   decorators: [(Story) => <div className="w-640">{Story()}</div>],

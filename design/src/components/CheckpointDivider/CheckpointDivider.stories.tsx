@@ -4,7 +4,7 @@ import { CheckpointDivider } from "./CheckpointDivider";
 const meta = {
   title: "Components/Chat/CheckpointDivider",
   component: CheckpointDivider,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D48", replaces: "webui/app/components/CheckpointDivider.tsx" } },
   args: { detail: "handed over at 81% of 200k" },
   decorators: [(Story) => <div className="w-640">{Story()}</div>],

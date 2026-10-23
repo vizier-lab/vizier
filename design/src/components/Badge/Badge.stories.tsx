@@ -4,7 +4,7 @@ import { Badge } from "./Badge";
 const meta = {
   title: "Components/Feedback/Badge",
   component: Badge,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D23", replaces: null } },
   args: { children: "custom", tone: "neutral" },
   argTypes: { tone: { control: "inline-radio", options: ["neutral", "rank", "live", "failed", "retrying"] } },

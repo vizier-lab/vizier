@@ -5,7 +5,7 @@ import { AddReaction, Reaction } from "./Reaction";
 const meta = {
   title: "Components/Chat/Reaction",
   component: Reaction,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D55", replaces: "webui/app/components/ReactionBadges.tsx" } },
   args: { emoji: "👍", count: 1 },
 } satisfies Meta<typeof Reaction>;

@@ -4,7 +4,7 @@ import { InteractivePage } from "./InteractivePage";
 const meta = {
   title: "Components/Chat/InteractivePage",
   component: InteractivePage,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X47", replaces: "webui/app/components/client/InteractivePage.tsx" } },
   args: {
     title: "Benchmark explorer",

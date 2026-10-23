@@ -6,7 +6,7 @@ import { Switch } from "./Switch";
 const meta = {
   title: "Components/Actions & inputs/Switch",
   component: Switch,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D18", replaces: null } },
   args: { checked: true, "aria-label": "Enabled" },
 } satisfies Meta<typeof Switch>;

@@ -6,7 +6,7 @@ import { ActionBar } from "./ActionBar";
 const meta = {
   title: "Components/Layout/ActionBar",
   component: ActionBar,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X4", replaces: null }, layout: "fullscreen" },
   args: {
     position: "bottom",

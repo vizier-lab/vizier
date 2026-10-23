@@ -5,7 +5,7 @@ import { Pagination } from "./Pagination";
 const meta = {
   title: "Components/Surfaces & data/Pagination",
   component: Pagination,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D39", replaces: null } },
   args: { page: 1, pageCount: 13, total: 312, perPage: 25, onPageChange: () => {} },
   decorators: [(Story) => <div className="w-640">{Story()}</div>],

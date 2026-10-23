@@ -6,7 +6,7 @@ import { Dialog, DialogPanel } from "./Dialog";
 const meta = {
   title: "Components/Feedback/Dialog",
   component: DialogPanel,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D28", replaces: "webui/app/components/providers/DeleteWarning.tsx" } },
   args: {
     title: "Restart Archivist?",

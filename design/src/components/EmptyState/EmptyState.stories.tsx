@@ -5,7 +5,7 @@ import { EmptyState } from "./EmptyState";
 const meta = {
   title: "Components/Feedback/EmptyState",
   component: EmptyState,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D29", replaces: null } },
   args: {
     kind: "empty",

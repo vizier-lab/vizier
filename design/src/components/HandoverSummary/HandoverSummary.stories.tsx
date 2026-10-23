@@ -6,7 +6,7 @@ import { HandoverSummary } from "./HandoverSummary";
 const meta = {
   title: "Components/Chat/HandoverSummary",
   component: HandoverSummary,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X31", replaces: "webui/app/components/CheckpointDivider.tsx" } },
   args: { children: "Reviewing PR #418. Found two bugs in settle(); asked for a lock around retries. Next: re-run the race test." },
   decorators: [(Story) => <div className="w-400">{Story()}</div>],

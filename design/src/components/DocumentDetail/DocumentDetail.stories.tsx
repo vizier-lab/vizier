@@ -4,7 +4,7 @@ import { DocumentDetail, SelectedBundle } from "./DocumentDetail";
 const meta = {
   title: "Components/Visualisation/DocumentDetail",
   component: DocumentDetail,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X74", replaces: "webui/app/routes/memory.tsx" } },
   args: {
     title: "Vector databases — summary",

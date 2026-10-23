@@ -5,7 +5,7 @@ import { PermissionGroup, PermissionRow } from "./PermissionRow";
 const meta = {
   title: "Components/Agents & dreams/PermissionRow",
   component: PermissionRow,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X57", replaces: "webui/app/components/RolesSection.tsx" } },
   args: { label: "Create agents", permission: "all_agents:create", granted: true, onGrantedChange: () => {} },
   decorators: [(Story) => <div className="w-480">{Story()}</div>],

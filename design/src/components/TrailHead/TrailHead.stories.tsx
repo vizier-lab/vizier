@@ -4,7 +4,7 @@ import { TrailHead } from "./TrailHead";
 const meta = {
   title: "Components/Chat/TrailHead",
   component: TrailHead,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D50", replaces: null } },
   args: { state: "live", title: "Working 6.4s", counts: "2 python runs" },
   argTypes: { state: { control: "inline-radio", options: ["live", "done", "failed"] } },

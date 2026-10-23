@@ -7,7 +7,7 @@ import { Card } from "./Card";
 const meta = {
   title: "Components/Surfaces & data/Card",
   component: Card,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D34", replaces: null } },
   args: {
     title: "Model",

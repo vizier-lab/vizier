@@ -12,7 +12,7 @@ import { ListItem } from "./ListItem";
 const meta = {
   title: "Components/Lists/ListItem",
   component: ListItem,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "X24", replaces: null, merges: ["X25", "X26", "X27", "X28", "X29", "X30", "X64", "X67"] },
     docs: {

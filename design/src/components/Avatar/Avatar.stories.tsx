@@ -4,7 +4,7 @@ import { Avatar } from "./Avatar";
 const meta = {
   title: "Components/Surfaces & data/Avatar",
   component: Avatar,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D40", replaces: "webui/app/components/avatar.tsx" } },
   args: { name: "ganesha", size: "md" },
   argTypes: { size: { control: "inline-radio", options: ["sm", "md", "lg"] } },

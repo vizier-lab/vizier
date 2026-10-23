@@ -5,7 +5,7 @@ import { JobsPill } from "./JobsPill";
 const meta = {
   title: "Components/Chat/JobsPill",
   component: JobsPill,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D60", replaces: "webui/app/components/BackgroundJobTray.tsx" } },
   args: { count: 1 },
 } satisfies Meta<typeof JobsPill>;

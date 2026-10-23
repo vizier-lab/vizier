@@ -20,7 +20,7 @@ const AGENTS = [
 const meta = {
   title: "Brand/Sigil",
   component: Sigil,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "B3", replaces: "webui/app/components/avatar.tsx" },
     docs: {

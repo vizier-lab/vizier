@@ -4,7 +4,7 @@ import { AgentStartingCard } from "./AgentStartingCard";
 const meta = {
   title: "Components/Agents & dreams/AgentStartingCard",
   component: AgentStartingCard,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X58", replaces: null } },
   args: { name: "Treasurer", step: "Pulling qwen3:32b from Ollama", percent: 62, detail: "12.4 GB of 20.0 GB", eta: "about 3 min", onDismiss: () => {} },
 } satisfies Meta<typeof AgentStartingCard>;

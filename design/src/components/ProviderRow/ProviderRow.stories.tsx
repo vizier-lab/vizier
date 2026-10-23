@@ -5,7 +5,7 @@ import { ProviderRow } from "./ProviderRow";
 const meta = {
   title: "Components/Integrations & settings/ProviderRow",
   component: ProviderRow,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X64", replaces: "webui/app/components/providers/ConnectedList.tsx" } },
   args: { provider: "anthropic", name: "Anthropic", credential: "Saved key ••••7c1e", usage: "3 agents · 41 models", onModels: () => {}, onMore: () => {} },
   decorators: [(Story) => <div className="w-860 divide-y divide-border rounded-xl border border-border bg-surface">{Story()}</div>],

@@ -4,7 +4,7 @@ import { ChatGreeting } from "./ChatGreeting";
 const meta = {
   title: "Components/Chat/ChatGreeting",
   component: ChatGreeting,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X34", replaces: null } },
   args: { agentId: "archivist", name: "Archivist", meta: "Topic 4 of 5 · nothing sent yet" },
 } satisfies Meta<typeof ChatGreeting>;

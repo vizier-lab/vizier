@@ -4,7 +4,7 @@ import { Skeleton } from "./Skeleton";
 const meta = {
   title: "Components/Feedback/Skeleton",
   component: Skeleton,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D31", replaces: "webui/app/components/Skeleton.tsx" } },
   args: { variant: "card", lines: 3 },
   argTypes: { variant: { control: "inline-radio", options: ["card", "lines"] } },

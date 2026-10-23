@@ -4,7 +4,7 @@ import { VoiceRecorder } from "./VoiceRecorder";
 const meta = {
   title: "Components/Chat/VoiceRecorder",
   component: VoiceRecorder,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X35", replaces: null } },
   args: { mode: "recording", elapsed: 12, onStop: () => {}, onDiscard: () => {} },
   decorators: [(Story) => <div className="w-396 rounded-xl border border-border-strong bg-surface px-14 py-14">{Story()}</div>],

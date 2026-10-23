@@ -5,7 +5,7 @@ import { Segment } from "./Segment";
 const meta = {
   title: "Components/Actions & inputs/Segment",
   component: Segment,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D16", replaces: null } },
   args: { children: "All", count: 48, selected: true },
 } satisfies Meta<typeof Segment>;

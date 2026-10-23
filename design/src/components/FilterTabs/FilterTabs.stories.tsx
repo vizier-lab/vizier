@@ -5,7 +5,7 @@ import { FilterTabs } from "./FilterTabs";
 const meta = {
   title: "Components/Actions & inputs/FilterTabs",
   component: FilterTabs,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D17", replaces: null } },
 } satisfies Meta<typeof FilterTabs>;
 

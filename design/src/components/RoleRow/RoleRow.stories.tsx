@@ -5,7 +5,7 @@ import { RoleRow } from "./RoleRow";
 const meta = {
   title: "Components/Integrations & settings/RoleRow",
   component: RoleRow,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X67", replaces: "webui/app/components/RolesSection.tsx" } },
   args: { name: "member", permissions: 4, people: 38, onSelect: () => {} },
   decorators: [(Story) => <div className="w-290 divide-y divide-border rounded-xl border border-border bg-surface">{Story()}</div>],

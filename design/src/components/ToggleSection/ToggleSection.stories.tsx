@@ -7,7 +7,7 @@ import { ToggleSection } from "./ToggleSection";
 const meta = {
   title: "Components/Actions & inputs/ToggleSection",
   component: ToggleSection,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X17", replaces: "webui/app/routes/agent-new.tsx" } },
   args: { title: "Text-to-Speech", description: "Speak replies aloud when asked.", checked: true, onCheckedChange: () => {} },
   decorators: [(Story) => <div className="w-720">{Story()}</div>],

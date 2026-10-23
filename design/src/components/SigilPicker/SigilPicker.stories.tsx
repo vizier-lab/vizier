@@ -4,7 +4,7 @@ import { SigilPicker } from "./SigilPicker";
 const meta = {
   title: "Components/Actions & inputs/SigilPicker",
   component: SigilPicker,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "X22", replaces: "webui/app/components/AvatarCropModal.tsx" } },
   args: { agentId: "archivist", onUpload: () => {}, onReset: () => {} },
 } satisfies Meta<typeof SigilPicker>;

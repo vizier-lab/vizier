@@ -13,7 +13,7 @@ import { HighlightMatch, Picker, PickerAction } from "./Picker";
 const meta = {
   title: "Components/Actions & inputs/Picker",
   component: Picker,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: {
     vizier: { id: "X41", replaces: "webui/app/components/ProviderModelPicker.tsx" },
     docs: {

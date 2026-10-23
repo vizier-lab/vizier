@@ -6,7 +6,7 @@ import { Tab, TabList } from "./Tab";
 const meta = {
   title: "Components/Shell/Tab",
   component: Tab,
-  tags: ["needs-review"],
+  tags: ["approved"],
   parameters: { vizier: { id: "D8", replaces: null } },
   args: { children: "Config", selected: true },
 } satisfies Meta<typeof Tab>;
