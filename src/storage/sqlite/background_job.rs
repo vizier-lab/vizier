@@ -330,6 +330,35 @@ impl BackgroundJobStorage for SqliteStorage {
         Ok(counts)
     }
 
+    async fn open_background_jobs(&self) -> Result<Vec<BackgroundJob>> {
+        let conn = self.conn.lock();
+        load_jobs(&conn, IN_FLIGHT, &[])
+    }
+
+    async fn interrupt_open_background_jobs_except(&self, keep: &[String]) -> Result<usize> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let now = Utc::now().timestamp_millis();
+        let open: Vec<String> = {
+            let mut stmt = tx.prepare(&format!("SELECT id FROM background_job WHERE {IN_FLIGHT}"))?;
+            stmt.query_map([], |row| row.get(0))?.collect::<rusqlite::Result<_>>()?
+        };
+        let mut swept = 0;
+        for id in open.iter().filter(|id| !keep.contains(id)) {
+            tx.execute(
+                "UPDATE background_piece SET state = 'interrupted', finished_at = ?1 \
+                 WHERE job_id = ?2 AND state = 'running'",
+                rusqlite::params![now, id],
+            )?;
+            swept += tx.execute(
+                "UPDATE background_job SET state = 'interrupted', finished_at = ?1 WHERE id = ?2",
+                rusqlite::params![now, id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(swept)
+    }
+
     async fn interrupt_open_background_jobs(&self) -> Result<usize> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;

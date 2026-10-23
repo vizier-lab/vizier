@@ -905,7 +905,11 @@ impl VizierDependencies {
     /// report. Marking it `interrupted` is what lets a reloaded WebUI show it as lost instead
     /// of perpetually running (research D9).
     async fn interrupt_orphaned_background_jobs(storage: &VizierStorage) {
-        match storage.interrupt_open_background_jobs().await {
+        // A job a pending turn still backs is kept open: a running one while one of its
+        // pieces has a pending turn, a reporting one while its report does. `recover` picks
+        // them up once the agents have re-sent their turns (`specs/023-persist-turn-activity`).
+        let keep = Self::background_jobs_backed_by_turns(storage).await;
+        match storage.interrupt_open_background_jobs_except(&keep).await {
             Ok(0) => {}
             Ok(swept) => tracing::info!(
                 "marked {} background job(s) left open by a previous process as interrupted",
@@ -913,6 +917,36 @@ impl VizierDependencies {
             ),
             Err(e) => tracing::warn!("failed to sweep open background jobs: {}", e),
         }
+    }
+
+    async fn background_jobs_backed_by_turns(storage: &VizierStorage) -> Vec<String> {
+        use crate::schema::{JobState, PieceState, VizierRequestContent};
+        let Ok(jobs) = storage.open_background_jobs().await else {
+            return vec![];
+        };
+        let pending_sessions = storage.sessions_with_pending_turns().await.unwrap_or_default();
+        let mut keep = vec![];
+        for job in jobs {
+            let backed = match job.state {
+                JobState::Running => job
+                    .pieces
+                    .iter()
+                    .any(|p| p.state == PieceState::Running && pending_sessions.contains(&p.session)),
+                JobState::Reporting => storage
+                    .pending_turns(&job.origin.0)
+                    .await
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|turn| {
+                        matches!(&turn.request.content, VizierRequestContent::BackgroundReport(r) if r.job_id == job.id)
+                    }),
+                _ => false,
+            };
+            if backed {
+                keep.push(job.id);
+            }
+        }
+        keep
     }
 
     /// A client tool call is awaited by the turn that made it, so one still `pending` at

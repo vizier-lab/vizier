@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::sync::RwLock;
 
-use crate::storage::turn::TurnStorage;
+use crate::storage::{history::HistoryStorage, turn::TurnStorage};
 use crate::schema::{
     AgentCommand, AgentHealthStatus, AgentId, BackgroundJobSnapshot, CommandRequest, CommandResponse, FileCommand, IntegrationChanged,
     MemoryOpEnvelope, ReactionEntry, VizierAttachment, VizierRequest, VizierResponse, VizierSession,
@@ -276,6 +276,48 @@ impl VizierTransport {
             .ok_or_else(|| anyhow::anyhow!("agent '{}' not registered", envelope.session.0))?;
         tx.send_async(envelope).await?;
         Ok(())
+    }
+
+    /// How the turn running in `session` ends, for work that outlived a restart and has no
+    /// response channel of its own to read: the first terminal reply stored after `since`, or
+    /// else the first one published. A channel that closes reads as a restart.
+    pub async fn await_session_outcome(
+        &self,
+        session: &VizierSession,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> crate::agents::background::PieceOutcome {
+        use crate::agents::background::{AGENT_RESTARTED, PieceOutcome, classify};
+        use crate::schema::SessionHistoryContent;
+        let mut events = self.subscribe_session_events();
+        loop {
+            // Checked first and again after a lag: a reply published before the subscription
+            // is in history by then, since it is saved before it is sent.
+            if let Some(journal) = &self.journal
+                && let Ok(history) = journal.list_session_history(session.clone(), None, None, None).await
+                && let Some(outcome) = history.iter().rev().find_map(|entry| match &entry.content {
+                    SessionHistoryContent::Response(r) if r.timestamp > since => classify(&r.content),
+                    _ => None,
+                })
+            {
+                return outcome;
+            }
+            loop {
+                match events.recv().await {
+                    Ok(ev) if &ev.session == session => {
+                        if let SessionFrame::Response(r) = ev.frame
+                            && let Some(outcome) = classify(&r.content)
+                        {
+                            return outcome;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => break,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        return PieceOutcome::Failed(AGENT_RESTARTED.to_string());
+                    }
+                }
+            }
+        }
     }
 
     /// A response sender that republishes every frame onto the session-event broadcast, for a

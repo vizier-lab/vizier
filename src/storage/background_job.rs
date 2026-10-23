@@ -74,6 +74,13 @@ pub trait BackgroundJobStorage {
     /// `interrupted`. Nothing can be in flight before the agents start, so a row left open is
     /// a job that died with the previous process.
     async fn interrupt_open_background_jobs(&self) -> Result<usize>;
+
+    /// Every `running`/`reporting` job with its pieces, for recovery at startup
+    /// (`specs/023-persist-turn-activity`).
+    async fn open_background_jobs(&self) -> Result<Vec<BackgroundJob>>;
+
+    /// The startup sweep, leaving the jobs in `keep` open: a pending turn backs them.
+    async fn interrupt_open_background_jobs_except(&self, keep: &[String]) -> Result<usize>;
 }
 
 #[async_trait::async_trait]
@@ -141,6 +148,14 @@ impl BackgroundJobStorage for VizierStorage {
         channel: VizierChannelId,
     ) -> Result<HashMap<Option<TopicId>, usize>> {
         self.0.count_running_background_jobs(agent_id, channel).await
+    }
+
+    async fn open_background_jobs(&self) -> Result<Vec<BackgroundJob>> {
+        self.0.open_background_jobs().await
+    }
+
+    async fn interrupt_open_background_jobs_except(&self, keep: &[String]) -> Result<usize> {
+        self.0.interrupt_open_background_jobs_except(keep).await
     }
 
     async fn interrupt_open_background_jobs(&self) -> Result<usize> {

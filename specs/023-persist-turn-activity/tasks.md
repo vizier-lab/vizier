@@ -196,17 +196,17 @@ complete exactly once. Only work with no backing row is swept to `interrupted`.
 
 **Independent Test**: quickstart §8 and §9.
 
-- [ ] T033 [US4] In `src/transport.rs`, add `pub async fn await_session_outcome(&self, session: &VizierSession, since: DateTime<Utc>) -> PieceOutcome`:
+- [X] T033 [US4] In `src/transport.rs`, add `pub async fn await_session_outcome(&self, session: &VizierSession, since: DateTime<Utc>) -> PieceOutcome`:
   1. Subscribe to session events.
   2. Check stored history for a terminal `Response` after `since`, classified with `crate::agents::background::classify`.
   3. Otherwise wait for a `SessionFrame::Response` on that session that `classify` treats as terminal.
 
   Reuse `PieceOutcome` from `src/agents/background/mod.rs`. Don't create a second outcome type.
-- [ ] T034 [US4] In `src/agents/background/mod.rs`, add `BackgroundJobs::recover()`:
+- [X] T034 [US4] In `src/agents/background/mod.rs`, add `BackgroundJobs::recover()`:
   - For each `running` job, rebuild the runner: pieces already final keep their state, and unfinished pieces are awaited with `await_session_outcome` under a fresh `timeout_secs` limit. Then continue exactly as `run_job` does (the transition to `reporting`, then `deliver`).
   - For each `reporting` job, call `deliver` again unless a `BackgroundReport` for that job id is already pending (in `session_turn` for the launching session, matched on the request JSON's job id) or is in the launching session's history. Add the query to `TurnStorage`/`HistoryStorage` as needed.
   - Factor the shared part of `run_job` instead of copying it (constitution II).
-- [ ] T035 [US4] In `src/dependencies.rs`, limit `interrupt_orphaned_background_jobs` to jobs where none of the unfinished pieces' sessions (nor, for `reporting`, the launching session's report) has a pending turn row. Add the storage query next to `interrupt_open_background_jobs` in `src/storage/sqlite/background_job.rs`. In `src/cli/run.rs`, call `deps.background_jobs.recover()` once after `VizierAgents` has re-sent pending turns (T022).
+- [X] T035 [US4] In `src/dependencies.rs`, limit `interrupt_orphaned_background_jobs` to jobs where none of the unfinished pieces' sessions (nor, for `reporting`, the launching session's report) has a pending turn row. Add the storage query next to `interrupt_open_background_jobs` in `src/storage/sqlite/background_job.rs`. In `src/cli/run.rs`, call `deps.background_jobs.recover()` once after `VizierAgents` has re-sent pending turns (T022).
 - [ ] T036 [US4] In `src/scheduler/mod.rs`, add `VizierScheduler::recover()`, called at the start of `run()` before the first tick. For each `running` task run whose session has a pending turn row, spawn the closing logic `fire` uses (`close_run` with `answered`/`no_response`), fed by `await_session_outcome`. Get the run's session from the stored run. If `task_run` doesn't store enough to rebuild `VizierChannelId::Task`, add the slug column with `add_column_if_missing` in `init_task_run_schema` and an #82 checklist entry. Then limit the startup task-run sweep in `src/dependencies.rs` to runs with no pending turn row.
 - [ ] T037 [US4] Dummyplug check: quickstart §8 and §9. Also check a blocking `consult_agent` cut off by `kill -9`: the caller's call is sealed with the restart notice, the target's turn resumes in its own session, and nothing is answered twice.
 

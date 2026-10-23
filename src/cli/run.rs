@@ -117,6 +117,8 @@ pub fn run_server(config: VizierConfig) -> Result<()> {
         // Agents first: `VizierAgents::new` registers every agent's request channel, so the
         // scheduler's immediate first tick queues a due task instead of losing it (#26).
         let mut agents = VizierAgents::new(deps.clone()).await?;
+        // After the agents re-sent their pending turns, so a recovered job finds them running.
+        deps.background_jobs.recover().await;
         subsystems.spawn("agent manager", async move { agents.run().await });
 
         let mut scheduler = VizierScheduler::new(deps.clone()).await?;

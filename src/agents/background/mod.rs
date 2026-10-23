@@ -45,7 +45,7 @@ pub const MAX_TIMEOUT_SECS: u64 = 3600;
 const DELIVERY_BACKOFF_MS: [u64; 6] = [500, 1_000, 2_000, 4_000, 8_000, 14_000];
 
 const NO_ANSWER: &str = "the piece ended without an answer";
-const AGENT_RESTARTED: &str = "the agent was restarted";
+pub const AGENT_RESTARTED: &str = "the agent was restarted";
 
 /// The `timeout_secs` tool argument: 1..=3600, default 600.
 pub fn validate_timeout(timeout_secs: Option<u64>) -> crate::Result<u64> {
@@ -152,6 +152,14 @@ async fn cancelled(mut rx: watch::Receiver<bool>) {
             std::future::pending::<()>().await;
         }
     }
+}
+
+/// Where a piece's outcome comes from.
+enum PieceSource {
+    /// The response channel the job dispatched it with, or `None` when it is already closed.
+    Dispatched(Option<flume::Receiver<VizierResponse>>),
+    /// A recovered piece: read from its session.
+    Session,
 }
 
 #[derive(Clone)]
@@ -267,7 +275,7 @@ impl BackgroundJobs {
                 .await;
 
             match sent {
-                Ok(()) => receivers.push(Some(rx)),
+                Ok(()) => receivers.push(PieceSource::Dispatched(Some(rx))),
                 Err(err) => {
                     // A piece that could not be handed off is failed right away (FR-014);
                     // the rest of the job carries on.
@@ -289,7 +297,7 @@ impl BackgroundJobs {
                     piece.state = PieceState::Failed;
                     piece.reason = Some(reason);
                     piece.finished_at = Some(finished_at);
-                    receivers.push(None);
+                    receivers.push(PieceSource::Dispatched(None));
                 }
             }
         }
@@ -321,27 +329,88 @@ impl BackgroundJobs {
         Ok(job)
     }
 
+    /// Picks up the jobs a restart left open that a pending turn still backs
+    /// (`specs/023-persist-turn-activity`): a running job waits on its unfinished pieces'
+    /// sessions again and reports as usual; a reporting job's report turn is already journaled
+    /// and re-sent, so the job is only marked reported.
+    pub async fn recover(&self) {
+        let jobs = match self.storage.open_background_jobs().await {
+            Ok(jobs) => jobs,
+            Err(e) => {
+                tracing::warn!("could not read open background jobs to recover: {e}");
+                return;
+            }
+        };
+        for job in jobs {
+            match job.state {
+                JobState::Reporting => {
+                    if let Err(e) = self
+                        .storage
+                        .transition_background_job(&job.id, JobState::Reporting, JobState::Reported, None, None, Utc::now())
+                        .await
+                    {
+                        tracing::warn!("failed to mark recovered background job {} reported: {}", job.id, e);
+                    }
+                    self.publish_stored(&job.id).await;
+                }
+                JobState::Running => {
+                    let sources = job
+                        .pieces
+                        .iter()
+                        .map(|piece| match piece.state {
+                            PieceState::Running => PieceSource::Session,
+                            _ => PieceSource::Dispatched(None),
+                        })
+                        .collect();
+                    let (cancel_tx, cancel_rx) = watch::channel(false);
+                    self.cancels.lock().insert(job.id.clone(), cancel_tx);
+                    tracing::info!("recovering background job {}", job.id);
+                    let this = self.clone();
+                    tokio::spawn(async move {
+                        let job_id = job.id.clone();
+                        this.run_job(job, sources, cancel_rx).await;
+                        this.cancels.lock().remove(&job_id);
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// Await every piece, then report — unless a cancel wins first.
     async fn run_job(
         &self,
         job: BackgroundJob,
-        receivers: Vec<Option<flume::Receiver<VizierResponse>>>,
+        sources: Vec<PieceSource>,
         cancel_rx: watch::Receiver<bool>,
     ) {
         let limit = Duration::from_secs(job.timeout_secs);
         let job = &job;
-        let pieces = job.pieces.iter().zip(receivers).map(|(piece, rx)| {
+        let pieces = job.pieces.iter().zip(sources).map(|(piece, source)| {
             let job_id = job.id.clone();
             async move {
-                // Failed at dispatch: already closed, keep its reason.
-                let Some(rx) = rx else {
-                    return (
-                        piece.state,
-                        piece.reason.clone().unwrap_or_else(|| NO_ANSWER.to_string()),
-                    );
+                let outcome: BoxFuture<'_, PieceOutcome> = match source {
+                    PieceSource::Dispatched(Some(rx)) => {
+                        async move { first_terminal(&rx).await }.boxed()
+                    }
+                    // Recovered after a restart: no channel of its own, so its session's
+                    // events and history say how it ended.
+                    PieceSource::Session => self
+                        .transport
+                        .await_session_outcome(&piece.session, job.created_at)
+                        .boxed(),
+                    // Already closed: failed at dispatch, or finished before a restart.
+                    PieceSource::Dispatched(None) => {
+                        let text = if piece.state == PieceState::Answered {
+                            piece_answer(&self.storage, &piece.session).await.unwrap_or_default()
+                        } else {
+                            piece.reason.clone().unwrap_or_else(|| NO_ANSWER.to_string())
+                        };
+                        return (piece.state, text);
+                    }
                 };
 
-                let (state, text) = match tokio::time::timeout(limit, first_terminal(&rx)).await
+                let (state, text) = match tokio::time::timeout(limit, outcome).await
                 {
                     Ok(PieceOutcome::Answered(text)) => (PieceState::Answered, text),
                     Ok(PieceOutcome::Failed(reason)) => (PieceState::Failed, reason),
@@ -355,7 +424,6 @@ impl BackgroundJobs {
                         )
                     }
                 };
-                drop(rx);
 
                 // An answered piece's text lives in its own session's history; only a piece
                 // that did not answer has a reason worth storing.
