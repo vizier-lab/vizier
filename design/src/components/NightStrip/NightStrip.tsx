@@ -8,15 +8,23 @@ export type Night = {
   memories: number;
   /** CORE changed that night: a ring around the dot. */
   core?: boolean;
+  /** A dream is running now: the dot is emerald. */
+  live?: boolean;
+  /** Said on hover or focus: "Oct 20 · 3 memories · CORE". */
+  hint?: string;
 };
 
 export type NightStripProps = {
   nights: Night[];
   meta?: ReactNode;
+  /** The selected night (its index); its dot gets a halo. */
+  selected?: number;
+  /** Makes each night a button. */
+  onSelectNight?: (index: number) => void;
 } & HTMLAttributes<HTMLElement>;
 
 /** The last 30 nights of dreams (X69): dot size is memories written or revised; a ring is CORE changed. */
-export function NightStrip({ nights, meta = "dot size = memories written or revised · ring = CORE changed", className, ...rest }: NightStripProps) {
+export function NightStrip({ nights, meta = "dot size = memories written or revised · ring = CORE changed", selected, onSelectNight, className, ...rest }: NightStripProps) {
   const max = Math.max(1, ...nights.map((n) => n.memories));
   const size = (m: number) => (m <= 0 ? 3 : Math.max(5, Math.round((m / max) * 12)));
   return (
@@ -26,19 +34,41 @@ export function NightStrip({ nights, meta = "dot size = memories written or revi
         {meta && <span className="type-mono-xs text-faint">{meta}</span>}
       </header>
       <div
-        role="img"
+        role={onSelectNight ? "group" : "img"}
         aria-label={`Dreams over the last ${nights.length} nights: ${nights.filter((n) => n.memories > 0).length} with changes, ${nights.filter((n) => n.core).length} changed CORE`}
         className="grid"
         style={{ gridTemplateColumns: `repeat(${nights.length}, minmax(0, 1fr))` }}
       >
-        {nights.map((n, i) => (
-          <span key={i} className="flex h-24 items-center justify-center">
+        {nights.map((n, i) => {
+          const dot = (
             <span
-              className={cx("rounded-pill", n.memories <= 0 ? "bg-unlit" : "bg-ink", n.core && "ring-2 ring-ink ring-offset-2 ring-offset-surface")}
+              className={cx(
+                "rounded-pill",
+                n.live ? "bg-live" : n.memories <= 0 ? "bg-unlit" : "bg-ink",
+                n.core && "ring-2 ring-ink ring-offset-2 ring-offset-surface",
+                selected === i && "outline-2 outline-offset-4 outline-focus",
+              )}
               style={{ width: size(n.memories), height: size(n.memories) }}
             />
-          </span>
-        ))}
+          );
+          return onSelectNight ? (
+            <button
+              key={i}
+              type="button"
+              title={n.hint}
+              aria-label={n.hint ?? n.label}
+              aria-pressed={selected === i}
+              onClick={() => onSelectNight(i)}
+              className="flex h-24 items-center justify-center rounded-sm hover:bg-raised"
+            >
+              {dot}
+            </button>
+          ) : (
+            <span key={i} title={n.hint} className="flex h-24 items-center justify-center">
+              {dot}
+            </span>
+          );
+        })}
         {nights.map((n, i) => (
           <span key={`l${i}`} className="pt-6 text-center type-mono-xs whitespace-nowrap text-faint">
             {n.label ?? ""}

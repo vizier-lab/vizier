@@ -2,7 +2,12 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { cx } from "../../lib/cx";
 import { Badge } from "../Badge/Badge";
 
-export type DreamChange = { kind: "wrote" | "revised" | "core"; text: ReactNode };
+export type DreamChange = {
+  kind: "wrote" | "revised" | "removed" | "core";
+  text: ReactNode;
+  /** Opens the document or the CORE revision. */
+  href?: string;
+};
 
 export type DreamJournalEntryProps = {
   /** "Tonight, 03:00 – 03:12". */
@@ -43,8 +48,16 @@ export function DreamJournalEntry({ when, state = "complete", meta, extraction, 
       <ul className="flex flex-col gap-10">
         {changes.map((c, i) => (
           <li key={i} className="grid grid-cols-[56px_1fr] items-baseline gap-8">
-            <span className={cx("type-mono-xs", c.kind === "core" ? "text-rank-text" : "text-muted")}>{c.kind}</span>
-            <span className="type-ui text-fg">{c.text}</span>
+            <span className={cx("type-mono-xs", c.kind === "core" ? "text-rank-text" : c.kind === "removed" ? "text-failed-text" : "text-muted")}>{c.kind}</span>
+            <span className="type-ui text-fg">
+              {c.href ? (
+                <a href={c.href} className="underline decoration-border-strong underline-offset-2 hover:decoration-fg">
+                  {c.text}
+                </a>
+              ) : (
+                c.text
+              )}
+            </span>
           </li>
         ))}
       </ul>
