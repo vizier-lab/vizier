@@ -184,7 +184,7 @@
   - files from `GET …/topic/{topic}/files` plus `session_file` frames, shown as FileRow
   - FilePreview in a Dialog: CSV as a sortable Table (first 256 KB through `Range`, with a "showing the first 256 KB" note) or Raw; images; markdown through Markdown.tsx
   - Download, Open in new tab, previous/next across the topic's files, and keyboard ← → Esc
-- [ ] T055 [P] [US1] Implement reply media in `webui/app/screens/chat/ReplyMedia.tsx`: FilePeek for files in a reply, ImageGallery, AudioPlayer (with transcript), VideoPlayer, and FileTypeTag
+- [X] T055 [P] [US1] Implement reply media in `webui/app/screens/chat/ReplyMedia.tsx`: FilePeek for files in a reply, ImageGallery, AudioPlayer (with transcript), VideoPlayer, and FileTypeTag
 - [X] T056 [P] [US1] Implement client tools in replies in `webui/app/screens/chat/ClientCalls.tsx`: CallChip for each call (filtered by `visibleClientCalls`), and the library InteractivePage frame hosting the sandboxed iframe with the `window.vizier` bridge, carried over from `legacy/app/components/client/InteractivePage.tsx`
 - [X] T057 [US1] Implement `webui/app/screens/chat/AgentStateBanner.tsx`:
   - starting: AgentStartingCard with the ETA from the agents store
@@ -205,19 +205,19 @@
 
 **Independent Test**: quickstart §0.
 
-- [ ] T060 [P] [US2] In `.github/workflows/release.yml`, `.github/workflows/publish.yml` and `.github/workflows/docker-publish.yml`:
+- [X] T060 [P] [US2] In `.github/workflows/release.yml`, `.github/workflows/publish.yml` and `.github/workflows/docker-publish.yml`:
   - every `actions/checkout` gets `submodules: recursive`
   - Node 22
   - the WebUI step runs `npm ci` in `design/` then `npm ci && npm run build` in `webui/`
   - `cache-dependency-path` lists `design/package-lock.json` and `webui/package-lock.json`
-- [ ] T061 [P] [US2] Update the panic message in `build.rs` (submodules + `just install`). Check that `Cargo.toml`'s `include` ships `webui/build/client/**` and nothing under `legacy/` or `design/`
-- [ ] T062 [P] [US2] Check the `Dockerfile` build path: if it builds from source, init submodules and install `design/` + `webui/`. If it copies release binaries, confirm no change is needed and record which it is in the task's commit message
-- [ ] T063 [P] [US2] Write `webui/README.md`: what it is, and that it builds inside a vizier checkout (needs `../design`); `npm run dev` with the `/api` proxy; `gen:api`, `test`, `e2e`; and the commit order for library changes (design → webui → vizier pins)
-- [ ] T064 [US2] Update `README.md` and `CLAUDE.md`:
+- [X] T061 [P] [US2] Update the panic message in `build.rs` (submodules + `just install`). Check that `Cargo.toml`'s `include` ships `webui/build/client/**` and nothing under `legacy/` or `design/`
+- [X] T062 [P] [US2] Check the `Dockerfile` build path: if it builds from source, init submodules and install `design/` + `webui/`. If it copies release binaries, confirm no change is needed and record which it is in the task's commit message
+- [X] T063 [P] [US2] Write `webui/README.md`: what it is, and that it builds inside a vizier checkout (needs `../design`); `npm run dev` with the `/api` proxy; `gen:api`, `test`, `e2e`; and the commit order for library changes (design → webui → vizier pins)
+- [X] T064 [US2] Update `README.md` and `CLAUDE.md`:
   - in the WebUI section and the build gotcha: the `webui` and `design` submodules, `legacy/` as reference only, `just install`, and the new stack (no recharts or MDX editor; the library's components; Zustand stores in `app/stores/`)
   - fix the stale line in the `design/` paragraph
   - add `docs/src/getting-started/` contributor notes for submodules
-- [ ] T065 [US2] Run quickstart §0 steps 1–4, including building with `legacy/` moved away, and `cargo package --list`
+- [X] T065 [US2] Run quickstart §0 steps 1–4, including building with `legacy/` moved away, and `cargo package --list`
 
 **Checkpoint**: a clean clone with submodules builds and serves the new app; release and Docker pipelines are ready.
 

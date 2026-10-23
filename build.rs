@@ -24,7 +24,8 @@ fn main() {
         // If no node_modules and no pre-built files, we can't proceed
         panic!(
             "webui/build/client not found and node_modules not available. \
-             Either run 'npm install && npm run build' in webui/ directory, \
+             The WebUI and its component library are git submodules: run \
+             'git submodule update --init --recursive' and then 'just install', \
              or ensure pre-built files are included."
         );
     }
@@ -33,6 +34,7 @@ fn main() {
     // Rebuild if frontend files change
     println!("cargo:rerun-if-changed=webui/app");
     println!("cargo:rerun-if-changed=webui/package.json");
+    println!("cargo:rerun-if-changed=design/src");
 
     embed_catalogue_seed();
 }

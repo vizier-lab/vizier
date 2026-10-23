@@ -96,7 +96,7 @@ See `docs/src/api-integration/`.
 ## Development
 
 ```sh
-just install     # cargo fetch + npm install in webui/ (+ cargo-watch)
+just install     # submodules, npm install in design/ and webui/, cargo fetch (+ cargo-watch)
 just dev         # cargo watch -s "just run" — hot reload with dev.vizier.yaml
 just run         # cargo run -- run --config dev.vizier.yaml
 just run-d       # same, detached
@@ -110,19 +110,20 @@ just run-otel    # `just run` exporting traces to it (also dev-otel; jaeger-down
 cargo test       # tests are sparse; most behavior is exercised by running the binary
 cargo clippy
 cd webui && npm run typecheck
+cd webui && npm run dev   # the WebUI on http://localhost:5173, proxying /api to a running `just run`
 ```
 
 Tracing and metrics are exported over OpenTelemetry when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; see [Observability](docs/src/configuration/observability.md).
 
-> **Build gotcha:** `build.rs` runs `npm run build` in `webui/` on every `cargo build` if `webui/node_modules/` exists. If `node_modules/` is absent and `webui/build/client/` doesn't exist, the build panics — run `just install` first.
+> **Build gotcha:** the WebUI (`webui/`) and its component library (`design/`) are git submodules. Clone with `--recurse-submodules`, or run `git submodule update --init --recursive`. `build.rs` runs `npm run build` in `webui/` on every `cargo build` if `webui/node_modules/` exists; if `node_modules/` is absent and `webui/build/client/` doesn't exist, the build panics — run `just install` first. `legacy/` holds the previous WebUI for reference; it is never built, served or packaged.
 
-### Design library
+### Design library and WebUI submodules
 
-`design/` is a git submodule: [vizier-lab/design](https://github.com/vizier-lab/design), the UI component library for the WebUI redesign, with a Storybook catalogue that is the source of truth for the design. Vizier builds without it (nothing in `cargo build` or the current WebUI reads it yet), so a plain clone works as before.
+`design/` is a git submodule: [vizier-lab/design](https://github.com/vizier-lab/design), the UI component library with a Storybook catalogue that is the source of truth for the design. `webui/` is a submodule too: [vizier-lab/webui](https://github.com/vizier-lab/webui), the WebUI, built from that library (`"@vizier/design": "file:../design"`).
 
 ```sh
 git clone --recurse-submodules https://github.com/vizier-lab/vizier.git   # new clone
-git submodule update --init design                                         # existing clone
+git submodule update --init --recursive                                    # existing clone
 
 cd design && npm install && npm run storybook   # catalogue on http://localhost:6006
 ```
@@ -152,8 +153,9 @@ src/
   skill/            skill packages: manifest, install (registry/git/local)
   schema/           shared types (agent config, requests/responses, sessions, history)
   command/          Unix-socket command server (shutdown, health) for the CLI
-webui/              React Router v7 + React 19 + Tailwind v4; built output served by the HTTP channel
-design/             submodule: vizier-lab/design, the redesign's UI library + Storybook catalogue
+webui/              submodule: vizier-lab/webui (React Router v7 + React 19 + Tailwind v4); built output served by the HTTP channel
+design/             submodule: vizier-lab/design, the UI library + Storybook catalogue
+legacy/             the previous WebUI, kept for reference; never built or served
 templates/          CORE.md seed for new agents
 skills/             skill registry (installed with `vizier skill install <slug>`)
 vizier-derive/      #[derive(MarkdownDoc)] for frontmatter+body documents

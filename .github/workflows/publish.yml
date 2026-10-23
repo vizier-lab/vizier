@@ -43,6 +43,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          submodules: recursive
           ref: v${{ inputs.version }}
 
       - name: Verify tag exists
@@ -67,12 +68,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
-          cache-dependency-path: webui/package-lock.json
+          cache-dependency-path: |
+            design/package-lock.json
+            webui/package-lock.json
 
       - name: Build WebUI
         run: |
+          (cd design && npm ci)
           cd webui
           npm ci
           npm run build

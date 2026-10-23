@@ -6,6 +6,7 @@
 
 - [1.1 Installation](./getting-started/installation.md)
 - [1.2 Quick Start](./getting-started/quick-start.md)
+- [1.3 Building from Source](./getting-started/contributing.md)
 
 # 2. Configuration
 

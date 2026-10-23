@@ -9,7 +9,7 @@ Vizier is a Rust-based AI agent framework: a single binary that runs multiple co
 ## Commands
 
 ```sh
-just install     # cargo fetch + npm i in webui/
+just install     # submodules, npm i in design/ and webui/, cargo fetch
 just dev          # cargo watch -s "just run" (hot-reload)
 just run          # cargo run -- run --config dev.vizier.yaml
 just run-d        # same, detached (-d)
@@ -31,7 +31,7 @@ WebUI typecheck: `cd webui && npm run typecheck` (runs `react-router typegen && 
 
 ### Build gotcha: `build.rs` runs the WebUI build
 
-`build.rs` shells out to `npm run build` in `webui/` on every `cargo build` **if** `webui/node_modules/` exists. If `node_modules/` is absent and `webui/build/client/` doesn't already exist, the build panics. Run `just install` first, or make sure `webui/build/client/` is pre-populated (this is how crates.io publishes work — see `include` in `Cargo.toml`).
+`webui/` and `design/` are git submodules (`vizier-lab/webui`, `vizier-lab/design`); `legacy/` is the previous WebUI, kept for reference and never built, served or packaged. `build.rs` shells out to `npm run build` in `webui/` on every `cargo build` **if** `webui/node_modules/` exists. If `node_modules/` is absent and `webui/build/client/` doesn't already exist, the build panics. Run `just install` (it initialises the submodules) first, or make sure `webui/build/client/` is pre-populated (this is how crates.io publishes work — see `include` in `Cargo.toml`).
 
 ## CLI subcommands
 
@@ -162,9 +162,9 @@ Each agent's persistent "self" document is `CORE.md`, stored in storage (not the
 
 ## WebUI (`webui/`)
 
-The redesign's UI library lives in the `design/` submodule (`vizier-lab/design`, spec 022): React components on hand-written tokens, with a Storybook catalogue that is the source of truth for the design. Nothing in vizier's build reads it yet; new UI is built there first, then consumed by the WebUI rewrite.
+The WebUI is the submodule `vizier-lab/webui` (spec 024), built on the `design/` submodule (`vizier-lab/design`, spec 022): React components on hand-written tokens, with a Storybook catalogue that is the source of truth for the design. A change to a component is made in `design/` first, then used in `webui/`, then vizier's pins are bumped (commit order: design → webui → vizier). The previous WebUI is in `legacy/` for reference only; don't edit it.
 
-React Router v7 + React 19 + TypeScript + Tailwind v4. State via Zustand-style stores in `app/hooks/*Store.tsx`. Recharts for charts, highlight.js for syntax highlighting, MDX editor for markdown. Build output (`webui/build/client/`) is what the Rust HTTP channel serves at runtime — see the `build.rs` gotcha above for why you generally need `npm install` done before `cargo build` will succeed.
+React Router v7 (SPA, `ssr: false`) + React 19 + TypeScript + Tailwind v4, composing `@vizier/design` only. State in Zustand stores in `app/stores/`, pure logic with vitest tests in `app/lib/` (the turn reducer `lib/frames.ts`, the trail model `lib/trail.ts`, paging), the typed API client and topic socket in `app/api/` (`schema.d.ts` is generated from the server's OpenAPI by `scripts/openapi.mjs`), screens in `app/routes/` and `app/screens/`. `npm run dev` serves on `:5173` and proxies `/api` to vizier on `:9999`. Build output (`webui/build/client/`) is what the Rust HTTP channel serves at runtime — see the `build.rs` gotcha above.
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
