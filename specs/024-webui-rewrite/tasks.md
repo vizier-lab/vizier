@@ -472,7 +472,7 @@
 ## Phase 10: Polish & cross-cutting concerns
 
 - [X] T136 [P] Run the library's token lint over the app: make `design/scripts/lint-tokens.mjs` take a path argument, add `"lint:tokens": "node ../design/scripts/lint-tokens.mjs app"` to `webui/package.json`, and fix any findings
-- [ ] T137 [P] Add #82 checklist entries for the backward-compat code added here:
+- [X] T137 [P] Add #82 checklist entries for the backward-compat code added here:
   - the `dream_cycle_id` column adds and the legacy time-window attribution (T072–T074)
   - the `last_seen_at`/`previous_visit_at` column adds (T114)
   - the `serde(default)` `sender`/`history_uid` on `SessionFileRecord` (T033)
