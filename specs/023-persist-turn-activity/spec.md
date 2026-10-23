@@ -79,24 +79,6 @@ conversation in a second tab. Both show the activity list so far, and both keep 
 
 ---
 
-### User Story 3 - The elapsed time reflects the whole turn (Priority: P3)
-
-The working indicator shows how long the agent has been at it. On returning mid-turn it should
-count from when the turn started, not from when the page was reopened.
-
-**Why this priority**: A small honesty fix that rides on the same information; a timer that resets
-on every visit misreports how long the agent has been working.
-
-**Independent Test**: Start a turn, wait 20 seconds, navigate away and back. The indicator reads
-about 20 seconds or more, not near zero.
-
-**Acceptance Scenarios**:
-
-1. **Given** a turn has been running for some time, **When** the person returns to it, **Then**
-   the elapsed time shown counts from the turn's start.
-
----
-
 ### Edge Cases
 
 - **Turn ends while the person is away**: on return the finished trail is shown folded above the
@@ -133,18 +115,17 @@ about 20 seconds or more, not near zero.
 - **FR-005**: When the turn ends, the trail shown to someone who returned mid-turn MUST be the same
   as the trail shown to someone who never left, and the same as the one shown after a later reload.
 - **FR-006**: A running turn's activity MUST only ever be shown in its own conversation.
-- **FR-007**: The working indicator's elapsed time MUST count from the start of the running turn.
-- **FR-008**: An aborted or interrupted turn MUST NOT be shown as still running after the person
+- **FR-007**: An aborted or interrupted turn MUST NOT be shown as still running after the person
   returns.
-- **FR-009**: Viewing a running turn's activity MUST be subject to the same access rules as viewing
+- **FR-008**: Viewing a running turn's activity MUST be subject to the same access rules as viewing
   the conversation itself.
-- **FR-010**: Conversations, turns and trails recorded before this feature MUST display as they do
+- **FR-009**: Conversations, turns and trails recorded before this feature MUST display as they do
   today.
 
 ### Key Entities
 
-- **Running turn**: the agent's current, unfinished response in one conversation — when it started
-  and the ordered activity it has produced so far.
+- **Running turn**: the agent's current, unfinished response in one conversation and the ordered
+  activity it has produced so far.
 - **Activity entry**: one step in a turn's trail — a piece of reasoning, a line of narration, a
   tool call, or a tool result — with its position in the turn's order.
 
@@ -157,9 +138,7 @@ about 20 seconds or more, not near zero.
 - **SC-002**: The restored activity list appears within 1 second of the conversation opening.
 - **SC-003**: The trail shown after the turn ends is identical whether the person stayed, left and
   returned, or reloaded.
-- **SC-004**: The elapsed time shown on return differs from the true time since the turn started
-  by no more than 2 seconds.
-- **SC-005**: Two views of the same running conversation show the same activity list at any moment,
+- **SC-004**: Two views of the same running conversation show the same activity list at any moment,
   give or take entries still in flight.
 
 ## Assumptions
@@ -170,6 +149,8 @@ about 20 seconds or more, not near zero.
   interrupted).
 - Whether each entry is expanded or folded while live follows existing behaviour; personal UI
   state such as which entries a person manually expanded need not survive leaving the page.
+- The working indicator shows no elapsed time today, so none is added here; a turn's duration is
+  shown once it ends, as before.
 - Reasoning shown live today is the agent's `think` activity (spec 010); no new kind of activity is
   introduced.
 - The existing "is the agent working" signal for a conversation stays the source of truth for
