@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
+import { ImageCropper } from "../ImageCropper/ImageCropper";
 import { SigilPicker } from "./SigilPicker";
 
 const meta = {
@@ -13,3 +15,26 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Generated: Story = {};
+
+/** Choosing a picture opens the cropper; the saved crop replaces the sigil, and "Sigil" goes back. */
+export const Upload: Story = {
+  render: function Render(args) {
+    const [file, setFile] = useState<File>();
+    const [saved, setSaved] = useState<string>();
+    return (
+      <>
+        <SigilPicker {...args} imageSrc={saved} onUpload={setFile} onReset={() => setSaved(undefined)} />
+        {file && (
+          <ImageCropper
+            file={file}
+            onCancel={() => setFile(undefined)}
+            onCrop={(blob) => {
+              setSaved(URL.createObjectURL(blob));
+              setFile(undefined);
+            }}
+          />
+        )}
+      </>
+    );
+  },
+};

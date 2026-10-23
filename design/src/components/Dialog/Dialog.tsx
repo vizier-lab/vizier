@@ -11,12 +11,13 @@ export type DialogPanelProps = {
   tone?: "default" | "danger";
   /** Asks the person to type this word before the confirm enables. */
   confirmWord?: string;
+  /** Empty: a content dialog whose children carry their own buttons, so no actions row. */
   confirmLabel: ReactNode;
   confirmIcon?: React.ComponentProps<typeof Button>["icon"];
   cancelLabel?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
-  /** Large: a content dialog (file preview) with no actions row of its own. */
+  /** Large: a wider panel for forms and previews. */
   size?: "md" | "lg";
   /** Content dialogs put their body here. */
   children?: ReactNode;
@@ -70,12 +71,14 @@ export function DialogPanel({
           spellCheck={false}
         />
       )}
-      <div className="flex justify-end gap-10 pt-4">
-        <Button onClick={onCancel}>{cancelLabel}</Button>
-        <Button variant={tone === "danger" ? "destructive" : "primary"} icon={confirmIcon} disabled={!ready} onClick={onConfirm}>
-          {confirmLabel}
-        </Button>
-      </div>
+      {confirmLabel && (
+        <div className="flex justify-end gap-10 pt-4">
+          <Button onClick={onCancel}>{cancelLabel}</Button>
+          <Button variant={tone === "danger" ? "destructive" : "primary"} icon={confirmIcon} disabled={!ready} onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
