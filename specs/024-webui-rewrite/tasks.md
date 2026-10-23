@@ -134,15 +134,15 @@
 
 ### Design library for User Story 1
 
-- [ ] T039 [P] [US1] Add the EmojiPicker component (X78) in `design/src/components/EmojiPicker/`: search, a recent row, and a grid from a bundled emoji list in `design/src/components/EmojiPicker/emoji.ts` (no network), built on Picker's popover and search
-- [ ] T040 [P] [US1] Add an `eta` prop to AgentStartingCard (X58) in `design/src/components/AgentStartingCard/AgentStartingCard.tsx`, with a story
+- [X] T039 [P] [US1] Add the EmojiPicker component (X78) in `design/src/components/EmojiPicker/`: search, a recent row, and a grid from a bundled emoji list in `design/src/components/EmojiPicker/emoji.ts` (no network), built on Picker's popover and search
+- [X] T040 [P] [US1] Add an `eta` prop to AgentStartingCard (X58) in `design/src/components/AgentStartingCard/AgentStartingCard.tsx`, with a story
 
 ### WebUI for User Story 1
 
-- [ ] T041 [US1] Type every frame in [contracts/websocket.md](contracts/websocket.md) in `webui/app/api/frames.ts`, `session_file` included
-- [ ] T042 [US1] Implement `webui/app/api/socket.ts`: one WebSocket per open topic, backoff 1 s doubling to 30 s, `offline` after 3 failed attempts, and on reopen a history re-read after the last known uid (no duplicates)
-- [ ] T043 [P] [US1] Port `legacy/app/lib/clientTools.ts`, `legacy/app/lib/clientTools/builtin.tsx`, `legacy/app/lib/pageDocument.ts` and `legacy/app/lib/trail.ts` with their tests into `webui/app/lib/`, changing only imports and UI bindings
-- [ ] T044 [US1] Implement the pure turn reducer `reduce(topic, frame)` in `webui/app/lib/frames.ts`:
+- [X] T041 [US1] Type every frame in [contracts/websocket.md](contracts/websocket.md) in `webui/app/api/frames.ts`, `session_file` included
+- [X] T042 [US1] Implement `webui/app/api/socket.ts`: one WebSocket per open topic, backoff 1 s doubling to 30 s, `offline` after 3 failed attempts, and on reopen a history re-read after the last known uid (no duplicates)
+- [X] T043 [P] [US1] Port `legacy/app/lib/clientTools.ts`, `legacy/app/lib/clientTools/builtin.tsx`, `legacy/app/lib/pageDocument.ts` and `legacy/app/lib/trail.ts` with their tests into `webui/app/lib/`, changing only imports and UI bindings
+- [X] T044 [US1] Implement the pure turn reducer `reduce(topic, frame)` in `webui/app/lib/frames.ts`:
   - history merged by uid
   - live labels from `thinking`/`tool_choice`
   - queued messages
@@ -154,45 +154,45 @@
   - the state machine in data-model §3
 
   Vitest in `webui/app/lib/frames.test.ts`, covering a reopen mid-turn with no duplicates, the queue being dropped on abort, and a resumed reply
-- [ ] T045 [US1] Implement `webui/app/stores/connection.ts` (socket per topic, connection state, client-tool declarations on every request from `lib/clientTools.ts`) and `webui/app/stores/turns.ts` (per-topic state from history plus the reducer; upward history paging)
-- [ ] T046 [US1] Implement the Chat page frame in `webui/app/routes/chat.tsx`:
+- [X] T045 [US1] Implement `webui/app/stores/connection.ts` (socket per topic, connection state, client-tool declarations on every request from `lib/clientTools.ts`) and `webui/app/stores/turns.ts` (per-topic state from history plus the reducer; upward history paging)
+- [X] T046 [US1] Implement the Chat page frame in `webui/app/routes/chat.tsx`:
   - three columns: conversation, composer, and a collapsible side panel
   - TopicHeader with a topic Picker (from the existing `GET …/channel/{channel}/topics`) and "New topic"
   - JobsPill
   - the agent-state banners on top
-- [ ] T047 [US1] Implement `webui/app/screens/chat/MessageList.tsx`:
+- [X] T047 [US1] Implement `webui/app/screens/chat/MessageList.tsx`:
   - UserMessage, with SkillChip, attachments, and the queued look
   - AgentHeader + AgentReply through `screens/shared/Markdown.tsx`, with a meta row (model · in · out · cost, copy, reactions)
   - ChatGreeting for an empty topic
   - CheckpointDivider + HandoverSummary (with and without a handover)
   - StoppedNote, BackgroundReportCard, JumpToLatest ("N new messages")
   - upward history loading with LoadMore `auto`
-- [ ] T048 [US1] Implement the trail in `webui/app/screens/chat/Trail.tsx`:
+- [X] T048 [US1] Implement the trail in `webui/app/screens/chat/Trail.tsx`:
   - ActivityTrail, TrailHead, TrailCall (done/running/failed/limit; lookup look), ScriptCall + RunDetail, Thought/Fold
   - the live trail while working, then folding into the summary row ("Worked 18.4s · 3 python runs · 4 passages recalled", counting failed runs) when the reply lands (FR-008b)
-- [ ] T049 [US1] Implement `webui/app/screens/chat/Composer.tsx`:
+- [X] T049 [US1] Implement `webui/app/screens/chat/Composer.tsx`:
   - the library Composer (idle/busy/focus/filled/recording/disabled), and Send turning into Stop (sends `/abort`)
   - attachments through `POST /files/upload` with Attachment chips and a DropZone overlay
   - VoiceRecorder recording and playback
   - SkillMenu on `/` with built-in commands plus the agent's skills (`GET /agents/{id}/skills` + global), ↑↓/Tab/Enter
   - ContextRing from `stats.current_context_size`/`context_window` (FR-008c)
-- [ ] T050 [P] [US1] Implement `webui/app/screens/chat/ErrorNotice.tsx`, mapping each error kind to the Notice tone, text and actions from the Chat states sheet C1–C5: Retry, Switch model (→ config), Open Providers, Open agent health; and a compact in-trail Notice for a tool timeout
-- [ ] T051 [P] [US1] Implement `webui/app/screens/chat/Reactions.tsx`: Reaction badges, the add-reaction button opening EmojiPicker, and sending and acknowledging through the existing reactions frame and endpoint
-- [ ] T052 [P] [US1] Implement `webui/app/screens/chat/RecalledMemoryPanel.tsx`: PanelHeader with a count, the newest 5 RecalledMemoryRow for the selected turn (auto and search, grouped), "Show all", and rows linking to `/:agentId/memory?bundle=&doc=` (FR-008a)
-- [ ] T053 [P] [US1] Implement `webui/app/screens/chat/BackgroundJobsPanel.tsx`: BackgroundJob rows from `job` frames + `GET …/jobs`, pieces progress, "Jump to start", Cancel through `POST …/jobs/{id}/cancel`, and newest 5 then "Show all"
-- [ ] T054 [US1] Implement `webui/app/screens/chat/SessionFilesPanel.tsx` + `webui/app/screens/chat/FilePreviewDialog.tsx`:
+- [X] T050 [P] [US1] Implement `webui/app/screens/chat/ErrorNotice.tsx`, mapping each error kind to the Notice tone, text and actions from the Chat states sheet C1–C5: Retry, Switch model (→ config), Open Providers, Open agent health; and a compact in-trail Notice for a tool timeout
+- [X] T051 [P] [US1] Implement `webui/app/screens/chat/Reactions.tsx`: Reaction badges, the add-reaction button opening EmojiPicker, and sending and acknowledging through the existing reactions frame and endpoint
+- [X] T052 [P] [US1] Implement `webui/app/screens/chat/RecalledMemoryPanel.tsx`: PanelHeader with a count, the newest 5 RecalledMemoryRow for the selected turn (auto and search, grouped), "Show all", and rows linking to `/:agentId/memory?bundle=&doc=` (FR-008a)
+- [X] T053 [P] [US1] Implement `webui/app/screens/chat/BackgroundJobsPanel.tsx`: BackgroundJob rows from `job` frames + `GET …/jobs`, pieces progress, "Jump to start", Cancel through `POST …/jobs/{id}/cancel`, and newest 5 then "Show all"
+- [X] T054 [US1] Implement `webui/app/screens/chat/SessionFilesPanel.tsx` + `webui/app/screens/chat/FilePreviewDialog.tsx`:
   - files from `GET …/topic/{topic}/files` plus `session_file` frames, shown as FileRow
   - FilePreview in a Dialog: CSV as a sortable Table (first 256 KB through `Range`, with a "showing the first 256 KB" note) or Raw; images; markdown through Markdown.tsx
   - Download, Open in new tab, previous/next across the topic's files, and keyboard ← → Esc
 - [ ] T055 [P] [US1] Implement reply media in `webui/app/screens/chat/ReplyMedia.tsx`: FilePeek for files in a reply, ImageGallery, AudioPlayer (with transcript), VideoPlayer, and FileTypeTag
-- [ ] T056 [P] [US1] Implement client tools in replies in `webui/app/screens/chat/ClientCalls.tsx`: CallChip for each call (filtered by `visibleClientCalls`), and the library InteractivePage frame hosting the sandboxed iframe with the `window.vizier` bridge, carried over from `legacy/app/components/client/InteractivePage.tsx`
-- [ ] T057 [US1] Implement `webui/app/screens/chat/AgentStateBanner.tsx`:
+- [X] T056 [P] [US1] Implement client tools in replies in `webui/app/screens/chat/ClientCalls.tsx`: CallChip for each call (filtered by `visibleClientCalls`), and the library InteractivePage frame hosting the sandboxed iframe with the `window.vizier` bridge, carried over from `legacy/app/components/client/InteractivePage.tsx`
+- [X] T057 [US1] Implement `webui/app/screens/chat/AgentStateBanner.tsx`:
   - starting: AgentStartingCard with the ETA from the agents store
   - failed: Banner with the cause, failure count, retry time, "Retry now" (→ `POST /agents/{id}/restart`) and "Open config"
   - offline/reconnected: Banner from the connection state
 
   Also the "messages wait in line" note
-- [ ] T058 [US1] Write `webui/e2e/chat.spec.ts` covering quickstart §2 steps 1–8 and §3 steps 2–7 against a dummyplug agent
+- [X] T058 [US1] Write `webui/e2e/chat.spec.ts` covering quickstart §2 steps 1–8 and §3 steps 2–7 against a dummyplug agent
 - [ ] T059 [US1] Walk quickstart §2 and §3 on a running binary (constitution e2e gate), then step §2.10 by hand: compare every Chat state with the design in both themes
 
 **Checkpoint**: Chat is usable end to end. This is the MVP.
