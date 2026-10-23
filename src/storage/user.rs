@@ -59,6 +59,10 @@ pub struct ApiKey {
     pub expires_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub last_used_at: Option<DateTime<Utc>>,
+    /// The first characters of the key, kept to tell keys apart on the API keys page. Keys made
+    /// before it was kept have none.
+    #[serde(default)]
+    pub prefix: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -87,6 +91,7 @@ pub trait UserStorage {
         user_id: &str,
         name: &str,
         key_hash: &str,
+        prefix: &str,
         expires_at: Option<DateTime<Utc>>,
     ) -> Result<ApiKey>;
     async fn get_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>>;

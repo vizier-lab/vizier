@@ -95,6 +95,7 @@ impl VizierChannel for HTTPChannel {
 #[openapi(
     paths(
         api::v1::ping,
+        api::v1::status,
         api::v1::auth::login,
         api::v1::auth::change_password,
         api::v1::auth::create_api_key,
@@ -176,6 +177,8 @@ impl VizierChannel for HTTPChannel {
     components(
         schemas(
             crate::channels::http::models::page::SortOrder,
+            api::v1::ServerStatus,
+            api::v1::auth::RoleItem,
             api::v1::agents::AgentListItem,
             api::v1::agents::dream::DreamCycles,
             api::v1::auth::LoginRequest,

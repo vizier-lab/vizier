@@ -359,34 +359,34 @@
 
 **Independent Test**: quickstart §1, plus `webui/e2e/admin.spec.ts`.
 
-- [ ] T102 [US5] Add public `GET /status` → `{ online, version: env!("CARGO_PKG_VERSION"), setup_required }` in `src/channels/http/api/v1/mod.rs`, outside the auth layer, with `#[utoipa::path]`
-- [ ] T103 [P] [US5] Add a `UserListing` (`role:<name>`; `created`/`username`), a `RoleListing` (`builtin`/`custom`; `people`/`name`, with people counts) and an `ApiKeyListing` (`created`/`last_used`), with opt-in paging on `GET /auth/users`, `GET /auth/roles` and `GET /auth/api-keys` in `src/channels/http/api/v1/auth.rs`
-- [ ] T104 [US5] Regenerate `webui/openapi.json` + `webui/app/api/schema.d.ts`
-- [ ] T105 [US5] Implement Login in `webui/app/routes/login.tsx`:
+- [X] T102 [US5] Add public `GET /status` → `{ online, version: env!("CARGO_PKG_VERSION"), setup_required }` in `src/channels/http/api/v1/mod.rs`, outside the auth layer, with `#[utoipa::path]`
+- [X] T103 [P] [US5] Add a `UserListing` (`role:<name>`; `created`/`username`), a `RoleListing` (`builtin`/`custom`; `people`/`name`, with people counts) and an `ApiKeyListing` (`created`/`last_used`), with opt-in paging on `GET /auth/users`, `GET /auth/roles` and `GET /auth/api-keys` in `src/channels/http/api/v1/auth.rs`
+- [X] T104 [US5] Regenerate `webui/openapi.json` + `webui/app/api/schema.d.ts`
+- [X] T105 [US5] Implement Login in `webui/app/routes/login.tsx`:
   - AuthLayout left panel with LedBoard, Wordmark, the tagline and three capability lines
   - the form (TextField username/password, full-width Button, invalid state)
   - the footer "Server online · <origin> · v<version>" from `GET /status`
   - the invite hint
-- [ ] T106 [US5] Implement Onboarding in `webui/app/routes/onboarding.tsx`:
+- [X] T106 [US5] Implement Onboarding in `webui/app/routes/onboarding.tsx`:
   - compact Stepper Account → Provider → First agent
   - Account: `POST /auth/setup`, with the 8-character minimum and confirm checks
   - Provider: provider connect, reusing T108's composition; the Ollama Callout ("No API key? Ollama runs open models on this machine")
   - First agent: a minimal agent form, then into Chat
   - never lists or mentions dummyplug in copy (FR-017)
-- [ ] T107 [P] [US5] Implement Profile and Password in `webui/app/routes/settings-profile.tsx` and `webui/app/routes/settings-password.tsx`: ProfileHeader; Discord/Telegram IDs, usernames and aliases through `GET/PUT /auth/users/me/profile`; change password through `POST /auth/change-password`
-- [ ] T108 [P] [US5] Implement Providers in `webui/app/routes/settings-providers.tsx` and `webui/app/screens/providers/`:
+- [X] T107 [P] [US5] Implement Profile and Password in `webui/app/routes/settings-profile.tsx` and `webui/app/routes/settings-password.tsx`: ProfileHeader; Discord/Telegram IDs, usernames and aliases through `GET/PUT /auth/users/me/profile`; change password through `POST /auth/change-password`
+- [X] T108 [P] [US5] Implement Providers in `webui/app/routes/settings-providers.tsx` and `webui/app/screens/providers/`:
   - CONNECTED Eyebrow + ProviderRow list (saved key or URL, usage, Models drawer as a SlideOver, ⋯ menu with edit/delete and a warning about the agents using it)
   - "Add a provider": a search over the catalogue + ProviderTile grid (Popular)
   - ConnectForm (key, OAuth flows for ChatGPT and Copilot as in legacy) and CustomProviderForm (protocol, base URL, model list)
   - "Refresh catalogue"
-- [ ] T109 [P] [US5] Implement API keys in `webui/app/routes/settings-api-keys.tsx`: a PagedTable (NAME, PREFIX, LAST USED), a New key dialog, SecretReveal showing the full key once with Copy, and Delete with ConfirmDialog
-- [ ] T110 [P] [US5] Implement Users in `webui/app/routes/settings-users.tsx`: a PagedTable with role filter chips and counts, an inline role Select (compact badge value), an Add user dialog (username, password, role), and Delete with ConfirmDialog. "(you)" can't be deleted
-- [ ] T111 [P] [US5] Implement Roles in `webui/app/routes/settings-roles.tsx`:
+- [X] T109 [P] [US5] Implement API keys in `webui/app/routes/settings-api-keys.tsx`: a PagedTable (NAME, PREFIX, LAST USED), a New key dialog, SecretReveal showing the full key once with Copy, and Delete with ConfirmDialog
+- [X] T110 [P] [US5] Implement Users in `webui/app/routes/settings-users.tsx`: a PagedTable with role filter chips and counts, an inline role Select (compact badge value), an Add user dialog (username, password, role), and Delete with ConfirmDialog. "(you)" can't be deleted
+- [X] T111 [P] [US5] Implement Roles in `webui/app/routes/settings-roles.tsx`:
   - a paged RoleRow list (search, All/Built-in/Custom, sorted by people)
   - a one-role editor: PermissionGroup/PermissionRow from `GET /auth/roles/available-permissions`, "Show granted only", built-ins read-only
   - Save role ("Applies to all N people on their next request"), Duplicate, Delete with ConfirmDialog, and "See them in Users →"
-- [ ] T112 [US5] Write `webui/e2e/admin.spec.ts` covering quickstart §1 on an empty data dir, and creating an API key, user and role
-- [ ] T113 [US5] Walk quickstart §1 on a running binary, timing onboarding to the first reply (SC-003, under 5 min)
+- [X] T112 [US5] Write `webui/e2e/admin.spec.ts` covering quickstart §1 on an empty data dir, and creating an API key, user and role
+- [X] T113 [US5] Walk quickstart §1 on a running binary, timing onboarding to the first reply (SC-003, under 5 min)
 
 **Checkpoint**: a fresh install can be set up and administered entirely from the new UI.
 

@@ -1,6 +1,6 @@
 use axum::{
     Extension, Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
 use chrono::{DateTime, Duration, Utc};
@@ -8,7 +8,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::channels::http::{
     auth::{AuthService, AuthenticatedUser},
-    models::{self, response::{api_response, APIResponse}},
+    models::{
+        self,
+        page::{self, ListQuery, Listing, SortKey, SortOrder},
+        response::{api_response, APIResponse},
+    },
     state::HTTPState,
 };
 use crate::storage::user::{AVAILABLE_PERMISSIONS, UserProfile, UserStorage};
@@ -109,6 +113,8 @@ pub struct CreateApiKeyResponse {
 pub struct ApiKeyResponse {
     pub id: String,
     pub name: String,
+    /// The first characters of the key; empty for a key made before they were kept.
+    pub prefix: Option<String>,
     pub expires_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub last_used_at: Option<DateTime<Utc>>,
@@ -374,7 +380,7 @@ pub async fn create_api_key(
     // Store API key
     let api_key = match state
         .storage
-        .create_api_key(&user.user_id, &req.name, &key_hash, expires_at)
+        .create_api_key(&user.user_id, &req.name, &key_hash, &raw_key[..raw_key.len().min(7)], expires_at)
         .await
     {
         Ok(key) => key,
@@ -402,15 +408,17 @@ pub async fn create_api_key(
 #[utoipa::path(
     get,
     path = "/auth/api-keys",
+    params(ListQuery),
     responses(
-        (status = 200, description = "List of API keys", body = APIResponse<Vec<ApiKeyResponse>>),
+        (status = 200, description = "List of API keys, or one page of them with `limit`", body = APIResponse<Vec<ApiKeyResponse>>),
         (status = 500, description = "Internal server error", body = APIResponse<String>)
     )
 )]
 pub async fn list_api_keys(
     State(state): State<HTTPState>,
     Extension(user): Extension<AuthenticatedUser>,
-) -> models::response::Response<Vec<ApiKeyResponse>> {
+    Query(query): Query<ListQuery>,
+) -> models::response::Response<serde_json::Value> {
     let keys = match state.storage.list_api_keys(&user.user_id).await {
         Ok(keys) => keys,
         Err(e) => {
@@ -427,13 +435,46 @@ pub async fn list_api_keys(
         .map(|k| ApiKeyResponse {
             id: k.id,
             name: k.name,
+            prefix: k.prefix,
             expires_at: k.expires_at,
             created_at: k.created_at,
             last_used_at: k.last_used_at,
         })
         .collect();
 
-    api_response(StatusCode::OK, response)
+    page::respond(response, &ApiKeyListing, &query)
+}
+
+/// No filters; sorts `created` (newest first) and `last_used` (most recent first, never-used last).
+pub struct ApiKeyListing;
+
+impl Listing<ApiKeyResponse> for ApiKeyListing {
+    fn matches(&self, item: &ApiKeyResponse, q: &str) -> bool {
+        item.name.to_lowercase().contains(q)
+    }
+
+    fn filter_keys(&self, _: &[ApiKeyResponse]) -> Vec<String> {
+        vec![]
+    }
+
+    fn in_filter(&self, _: &str, _: &ApiKeyResponse) -> bool {
+        false
+    }
+
+    fn sort_key(&self, item: &ApiKeyResponse, sort: &str) -> SortKey {
+        match sort {
+            "last_used" => SortKey::Num(item.last_used_at.map_or(0, |t| t.timestamp_millis())),
+            _ => SortKey::Num(item.created_at.timestamp_millis()),
+        }
+    }
+
+    fn sorts(&self) -> &'static [&'static str] {
+        &["created", "last_used"]
+    }
+
+    fn default_order(&self, _: &str) -> SortOrder {
+        SortOrder::Desc
+    }
 }
 
 #[utoipa::path(
@@ -616,9 +657,64 @@ pub async fn setup_first_user(
 // ROLE MANAGEMENT ENDPOINTS
 // ============================================================================
 
+/// A role with how many people have it.
+#[derive(Debug, Serialize, Clone, utoipa::ToSchema)]
+pub struct RoleItem {
+    #[serde(flatten)]
+    pub role: RoleResponse,
+    pub people: usize,
+}
+
+/// Filters `builtin` and `custom`; sorts `people` (most first) and `name`.
+pub struct RoleListing;
+
+impl Listing<RoleItem> for RoleListing {
+    fn matches(&self, item: &RoleItem, q: &str) -> bool {
+        item.role.name.to_lowercase().contains(q)
+    }
+
+    fn filter_keys(&self, _: &[RoleItem]) -> Vec<String> {
+        vec!["builtin".into(), "custom".into()]
+    }
+
+    fn in_filter(&self, filter: &str, item: &RoleItem) -> bool {
+        match filter {
+            "builtin" => item.role.is_system,
+            "custom" => !item.role.is_system,
+            _ => false,
+        }
+    }
+
+    fn sort_key(&self, item: &RoleItem, sort: &str) -> SortKey {
+        match sort {
+            "name" => SortKey::text(&item.role.name),
+            _ => SortKey::Num(item.people as i64),
+        }
+    }
+
+    fn sorts(&self) -> &'static [&'static str] {
+        &["people", "name"]
+    }
+
+    fn default_order(&self, sort: &str) -> SortOrder {
+        if sort == "name" { SortOrder::Asc } else { SortOrder::Desc }
+    }
+}
+
 pub async fn list_roles(
     State(state): State<HTTPState>,
-) -> models::response::Response<Vec<RoleResponse>> {
+    Query(query): Query<ListQuery>,
+) -> models::response::Response<serde_json::Value> {
+    let people = match state.storage.list_users().await {
+        Ok(users) => users.into_iter().fold(std::collections::HashMap::<String, usize>::new(), |mut acc, u| {
+            *acc.entry(u.role_id).or_default() += 1;
+            acc
+        }),
+        Err(e) => {
+            tracing::error!("Failed to count people per role: {}", e);
+            Default::default()
+        }
+    };
     let roles = match state.storage.list_roles().await {
         Ok(roles) => roles,
         Err(e) => {
@@ -630,18 +726,21 @@ pub async fn list_roles(
         }
     };
 
-    let response: Vec<RoleResponse> = roles
+    let response: Vec<RoleItem> = roles
         .into_iter()
-        .map(|r| RoleResponse {
-            role_id: r.role_id,
-            name: r.name,
-            permissions: r.permissions,
-            is_system: r.is_system,
-            created_at: r.created_at,
+        .map(|r| RoleItem {
+            people: people.get(&r.role_id).copied().unwrap_or(0),
+            role: RoleResponse {
+                role_id: r.role_id,
+                name: r.name,
+                permissions: r.permissions,
+                is_system: r.is_system,
+                created_at: r.created_at,
+            },
         })
         .collect();
 
-    api_response(StatusCode::OK, response)
+    page::respond(response, &RoleListing, &query)
 }
 
 pub async fn create_role(
@@ -806,9 +905,49 @@ pub async fn available_permissions() -> models::response::Response<AvailablePerm
 // USER MANAGEMENT ENDPOINTS
 // ============================================================================
 
+/// Filters `role:<name>`, one per role someone has; sorts `created` (newest first) and `username`.
+pub struct UserListing;
+
+fn role_of(user: &UserResponse) -> &str {
+    user.role_name.as_deref().unwrap_or(&user.role_id)
+}
+
+impl Listing<UserResponse> for UserListing {
+    fn matches(&self, item: &UserResponse, q: &str) -> bool {
+        item.username.to_lowercase().contains(q)
+    }
+
+    fn filter_keys(&self, items: &[UserResponse]) -> Vec<String> {
+        let mut roles: Vec<String> = items.iter().map(|u| format!("role:{}", role_of(u))).collect();
+        roles.sort();
+        roles.dedup();
+        roles
+    }
+
+    fn in_filter(&self, filter: &str, item: &UserResponse) -> bool {
+        filter.strip_prefix("role:").is_some_and(|role| role == role_of(item))
+    }
+
+    fn sort_key(&self, item: &UserResponse, sort: &str) -> SortKey {
+        match sort {
+            "username" => SortKey::text(&item.username),
+            _ => SortKey::Num(item.created_at.timestamp_millis()),
+        }
+    }
+
+    fn sorts(&self) -> &'static [&'static str] {
+        &["created", "username"]
+    }
+
+    fn default_order(&self, sort: &str) -> SortOrder {
+        if sort == "username" { SortOrder::Asc } else { SortOrder::Desc }
+    }
+}
+
 pub async fn list_users(
     State(state): State<HTTPState>,
-) -> models::response::Response<Vec<UserResponse>> {
+    Query(query): Query<ListQuery>,
+) -> models::response::Response<serde_json::Value> {
     let users = match state.storage.list_users().await {
         Ok(users) => users,
         Err(e) => {
@@ -839,7 +978,7 @@ pub async fn list_users(
         });
     }
 
-    api_response(StatusCode::OK, response)
+    page::respond(response, &UserListing, &query)
 }
 
 pub async fn create_user(

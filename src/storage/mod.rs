@@ -180,10 +180,11 @@ impl UserStorage for VizierStorage {
         user_id: &str,
         name: &str,
         key_hash: &str,
+        prefix: &str,
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<crate::storage::user::ApiKey> {
         self.0
-            .create_api_key(user_id, name, key_hash, expires_at)
+            .create_api_key(user_id, name, key_hash, prefix, expires_at)
             .await
     }
 

@@ -25,6 +25,7 @@ pub mod utils;
 pub fn v1(state: HTTPState) -> Router<HTTPState> {
     Router::new()
         .route("/ping", get(ping))
+        .route("/status", get(status))
         // Auth routes (some public, some protected)
         .route("/auth/login", post(auth::login))
         .route(
@@ -158,6 +159,36 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
             "/utils",
             utils::utils().layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
+}
+
+/// What the sign-in page needs before anyone has signed in.
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct ServerStatus {
+    pub online: bool,
+    pub version: &'static str,
+    /// No one has been set up yet: show Onboarding.
+    pub setup_required: bool,
+}
+
+#[utoipa::path(
+    get,
+    path = "/status",
+    responses(
+        (status = 200, description = "Public. Whether vizier is up, its version, and whether first-run setup is still needed", body = APIResponse<ServerStatus>)
+    )
+)]
+async fn status(
+    axum::extract::State(state): axum::extract::State<HTTPState>,
+) -> models::response::Response<ServerStatus> {
+    use crate::storage::user::UserStorage;
+    // A storage that can't answer is not "set up": say so rather than sending someone to Onboarding.
+    match state.storage.user_exists().await {
+        Ok(exists) => api_response(
+            StatusCode::OK,
+            ServerStatus { online: true, version: env!("CARGO_PKG_VERSION"), setup_required: !exists },
+        ),
+        Err(e) => models::response::err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
 }
 
 #[utoipa::path(
