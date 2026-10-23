@@ -63,7 +63,7 @@ description: "Task list for the Design System Library"
 
 **Independent Test**: quickstart.md §1–§3. A plain clone of vizier builds as before with an empty `design/`; a `--recurse-submodules` clone has the library at the pinned commit; a standalone clone of `design` runs its catalogue.
 
-- [ ] T015 [US2] Commit the scaffold in `design/` (`chore: scaffold design library with storybook`, conventional commits) and, **after confirming with the maintainer** (first push to a public repository), push `main` to `https://github.com/vizier-lab/design.git`
+- [X] T015 [US2] Commit the scaffold in `design/` (`chore: scaffold design library with storybook`, conventional commits) and, **after confirming with the maintainer** (first push to a public repository), push `main` to `https://github.com/vizier-lab/design.git`
 - [X] T016 [US2] In vizier, register the existing checkout as the submodule: `git submodule add https://github.com/vizier-lab/design.git design` (git adopts the existing repo at `design/`), check `.gitmodules` has the HTTPS URL, and stage `.gitmodules` + the `design` gitlink (research R10)
 - [X] T017 [P] [US2] Add a *Design library* subsection to the Development section of `Readme.md`: what `design/` is, `git clone --recurse-submodules` or `git submodule update --init design`, how to run its catalogue, and how to bump the pin (`cd design && git pull origin main && cd .. && git add design`); note that vizier builds without it (FR-005)
 - [X] T018 [P] [US2] Add `design/` to CLAUDE.md: one line in the WebUI section saying the redesign's UI library lives in the `design/` submodule (`vizier-lab/design`, Storybook, spec 022), that nothing in vizier's build reads it yet, and that new UI goes there first
@@ -276,7 +276,7 @@ description: "Task list for the Design System Library"
 - [X] T179 Fill *Inventory checklist* in `design/README.md`: one line per inventory id (B1–B4, D1–D60, X1–X75, plus the icon set) with its catalogue path and status (`needs-review` / `approved`), generated from the stories' `parameters.vizier.id` and tags by `design/scripts/inventory-checklist.mjs`, and checked against the ids in `specs/022-design-system-library/inventory.md` (SC-002)
 - [X] T180 Final screen sweep (SC-008): rerun the structural repeat analysis over the dark screen frames and look at every screen page once more; confirm that no reusable element is missing from the inventory; record the date and result in `design/README.md`. Add and build any missed element before closing
 - [ ] T181 Run every quickstart.md section end to end (§1–§6) and fix anything that fails; dummyplug e2e is N/A (no agent-observable change, plan Testing)
-- [ ] T182 Bump the vizier submodule pin to the reviewed `design` commit and commit `chore: bump design library`
+- [X] T182 Bump the vizier submodule pin to the reviewed `design` commit and commit `chore: bump design library`
 
 ---
 
