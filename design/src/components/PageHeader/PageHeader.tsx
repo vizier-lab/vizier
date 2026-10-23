@@ -16,13 +16,13 @@ export type PageHeaderProps = {
 /** A page's title, meta line and actions (D7). */
 export function PageHeader({ title, meta, description, actions, size = "app", className, ...rest }: PageHeaderProps) {
   return (
-    <header className={cx("flex items-start justify-between gap-24", className)} {...rest}>
+    <header className={cx("flex flex-wrap items-start justify-between gap-x-24 gap-y-12", className)} {...rest}>
       <div className="flex min-w-0 flex-col gap-4">
         <h1 className={cx("text-fg", size === "app" ? "type-title" : "type-heading")}>{title}</h1>
         {meta && <p className="type-mono-xs text-faint">{meta}</p>}
         {description && <p className="type-ui-para text-muted">{description}</p>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-10">{actions}</div>}
+      {actions && <div className="flex max-w-full flex-wrap items-center gap-10">{actions}</div>}
     </header>
   );
 }

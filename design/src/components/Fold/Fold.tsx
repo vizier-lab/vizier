@@ -9,7 +9,7 @@ export type FoldProps = {
 /** The folded middle of a long trail (D54); it opens in place. */
 export function Fold({ label, type = "button", className, ...rest }: FoldProps) {
   return (
-    <li className="flex min-h-28 items-center gap-10">
+    <li className="relative flex min-h-28 items-center gap-10 not-last:after:absolute not-last:after:top-20 not-last:after:-bottom-8 not-last:after:left-6 not-last:after:w-px not-last:after:bg-border-strong not-last:after:content-['']">
       <span aria-hidden className="relative z-10 flex size-12 shrink-0 flex-col items-center justify-center gap-2 bg-surface">
         <span className="size-2 rounded-pill bg-faint" />
         <span className="size-2 rounded-pill bg-faint" />

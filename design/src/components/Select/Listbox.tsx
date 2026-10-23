@@ -1,5 +1,6 @@
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { cx } from "../../lib/cx";
+import { Floating, inFloating } from "../Floating/Floating";
 import { MenuItem } from "../MenuItem/MenuItem";
 
 export type ListboxOption<V extends string> = { value: V; label: ReactNode; leading?: ReactNode };
@@ -10,15 +11,20 @@ export type ListboxOption<V extends string> = { value: V; label: ReactNode; lead
  */
 export function ListboxPopup<V extends string>({
   id,
+  anchor,
   label,
   options,
   value,
   onPick,
   onClose,
   align = "start",
+  matchWidth,
   className,
 }: {
   id: string;
+  /** The wrapper the list hangs from. */
+  anchor: RefObject<HTMLElement | null>;
+  matchWidth?: boolean;
   label: string;
   options: ListboxOption<V>[];
   value?: V;
@@ -50,34 +56,36 @@ export function ListboxPopup<V extends string>({
     }
   };
   return (
-    <div
-      ref={ref}
-      id={id}
-      role="listbox"
-      aria-label={label}
-      onKeyDown={onKeyDown}
-      className={cx(
-        "absolute top-full z-30 mt-4 flex min-w-full flex-col rounded-lg border border-border-strong bg-surface p-6 shadow-popover",
-        align === "end" ? "right-0" : "left-0",
-        className,
-      )}
-    >
-      {options.map((o) => (
-        <MenuItem
-          key={o.value}
-          role="option"
-          selected={o.value === value}
-          label={
-            <span className="flex items-center gap-8">
-              {o.leading}
-              {o.label}
-            </span>
-          }
-          onClick={() => onPick(o.value)}
-          className="whitespace-nowrap"
-        />
-      ))}
-    </div>
+    <Floating anchor={anchor} align={align} matchWidth={matchWidth}>
+      <div
+        ref={ref}
+        id={id}
+        role="listbox"
+        aria-label={label}
+        onKeyDown={onKeyDown}
+        className={cx(
+          "flex max-h-[inherit] min-w-full flex-col overflow-y-auto [&>*]:shrink-0 rounded-lg border border-border-strong bg-surface p-6 shadow-popover",
+          className,
+        )}
+        style={{ maxHeight: "inherit" }}
+      >
+        {options.map((o) => (
+          <MenuItem
+            key={o.value}
+            role="option"
+            selected={o.value === value}
+            label={
+              <span className="flex items-center gap-8">
+                {o.leading}
+                {o.label}
+              </span>
+            }
+            onClick={() => onPick(o.value)}
+            className="whitespace-nowrap"
+          />
+        ))}
+      </div>
+    </Floating>
   );
 }
 
@@ -86,7 +94,7 @@ export function useOutsideClose(open: boolean, root: React.RefObject<HTMLElement
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
-      if (!root.current?.contains(e.target as Node)) close();
+      if (!root.current?.contains(e.target as Node) && !inFloating(e.target)) close();
     };
     document.addEventListener("pointerdown", onDown);
     return () => document.removeEventListener("pointerdown", onDown);

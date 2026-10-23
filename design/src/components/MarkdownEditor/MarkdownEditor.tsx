@@ -108,7 +108,7 @@ export function MarkdownEditor({
   onKeyDown,
   ...rest
 }: MarkdownEditorProps) {
-  const [modeState, setModeState] = useState<EditorMode>("rich");
+  const [modeState, setModeState] = useState<EditorMode>("split");
   const mode = modeProp ?? modeState;
   const setMode = (m: EditorMode) => {
     setModeState(m);

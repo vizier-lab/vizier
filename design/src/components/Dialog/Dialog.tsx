@@ -113,3 +113,31 @@ export function Dialog({ open, onCancel, ...panel }: DialogProps) {
     </dialog>
   );
 }
+
+/**
+ * The modal shell alone: a native `<dialog>` with the ground scrim, holding whatever you give it
+ * (a file preview). Esc and the scrim's cancel call `onClose`.
+ */
+export function Modal({ open, onClose, label, children }: { open: boolean; onClose: () => void; label: string; children: ReactNode }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) d.showModal();
+    if (!open && d.open) d.close();
+  }, [open]);
+  return (
+    <dialog
+      ref={ref}
+      aria-label={label}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      onClick={(e) => e.target === ref.current && onClose()}
+      className="m-auto max-h-[92vh] max-w-[94vw] overflow-visible bg-transparent p-0 backdrop:bg-ground/60"
+    >
+      {open && children}
+    </dialog>
+  );
+}

@@ -20,14 +20,14 @@ export type UserMenuProps = {
 export function UserMenu({ name, role, avatarSrc, collapsed, onOpenProfile, onSignOut, className, ...rest }: UserMenuProps) {
   return (
     <div
-      className={cx("flex items-center gap-10 border-t border-border py-10", collapsed ? "w-44 justify-center" : "pr-6 pl-10", className)}
+      className={cx("flex border-t border-border py-10", collapsed ? "w-full flex-col items-center gap-6" : "items-center gap-10 pr-6 pl-10", className)}
       {...rest}
     >
       <button
         type="button"
         onClick={onOpenProfile}
         aria-label={collapsed ? `${name}, profile` : undefined}
-        className="flex min-w-0 flex-1 items-center gap-10 rounded-md text-left hover:opacity-80"
+        className={cx("flex min-w-0 items-center gap-10 rounded-md text-left hover:opacity-80", collapsed ? "justify-center" : "flex-1")}
       >
         <Avatar name={name} src={avatarSrc} size="sm" />
         {!collapsed && (
@@ -37,7 +37,7 @@ export function UserMenu({ name, role, avatarSrc, collapsed, onOpenProfile, onSi
           </span>
         )}
       </button>
-      {!collapsed && (
+      {(
         <button
           type="button"
           aria-label="Sign out"

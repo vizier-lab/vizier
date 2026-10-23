@@ -104,6 +104,8 @@ export function Select<V extends string>({
       {trigger}
       {open && (
         <ListboxPopup
+          anchor={root}
+          matchWidth
           id={`${id}-list`}
           label={name}
           options={options}

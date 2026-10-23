@@ -37,5 +37,5 @@ export type TabListProps = { "aria-label": string } & React.HTMLAttributes<HTMLD
 
 /** A row of tabs on a hairline. */
 export function TabList({ className, ...rest }: TabListProps) {
-  return <div role="tablist" className={cx("flex gap-24 border-b border-border", className)} {...rest} />;
+  return <div role="tablist" className={cx("flex max-w-full gap-24 overflow-x-auto border-b border-border [scrollbar-width:none]", className)} {...rest} />;
 }

@@ -42,7 +42,7 @@ export function StackedBarChart({ title, series, days, format = (v) => `$${v.toF
         <h3 className="type-ui-strong text-fg">{title}</h3>
         <Legend items={series.map((s) => ({ label: s.label, colour: s.colour }))} />
       </header>
-      <div className="grid grid-cols-[48px_1fr] gap-x-8">
+      <div className="grid grid-cols-[48px_minmax(0,1fr)] gap-x-8">
         <div className="flex h-160 flex-col justify-between">
           {ticks.map((t, i) => (
             <span key={i} className="type-mono-xs text-faint">{format(t)}</span>

@@ -12,10 +12,12 @@ export type ActivityTrailProps = {
   children?: ReactNode;
   /** Mobile: one line with a dot per call instead of the spine. */
   mini?: { dots: ("done" | "running" | "failed")[] };
+  /** Inside an agent's turn, as the start of its reply: no card around it. */
+  bare?: boolean;
 } & Omit<HTMLAttributes<HTMLDivElement>, "title">;
 
 /** A turn's work, on a timeline (D49): TrailHead over a spine of calls. */
-export function ActivityTrail({ state, title, counts, defaultExpanded, children, mini, className, ...rest }: ActivityTrailProps) {
+export function ActivityTrail({ state, title, counts, defaultExpanded, children, mini, bare, className, ...rest }: ActivityTrailProps) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? state === "live");
   if (mini) {
     return (
@@ -31,10 +33,10 @@ export function ActivityTrail({ state, title, counts, defaultExpanded, children,
     );
   }
   return (
-    <div className={cx("flex flex-col gap-10 rounded-lg border border-border bg-surface px-16 py-12", className)} {...rest}>
+    <div className={cx("flex flex-col gap-10", !bare && "rounded-lg border border-border bg-surface px-16 py-12", className)} {...rest}>
       <TrailHead state={state} title={title} counts={counts} expanded={expanded} onClick={() => setExpanded(!expanded)} />
       {expanded && children && (
-        <ul className="relative flex flex-col before:absolute before:top-14 before:bottom-14 before:left-6 before:w-px before:bg-border-strong before:content-['']">
+        <ul className="relative flex flex-col">
           {children}
         </ul>
       )}

@@ -4,7 +4,7 @@ import { AgentSwitcher } from "../AgentSwitcher/AgentSwitcher";
 import { UserMenu } from "../UserMenu/UserMenu";
 import { Sidebar, type SidebarPage } from "./Sidebar";
 
-const PAGES: SidebarPage[] = ["home", "chat", "core", "memory", "tasks", "skills", "dreams", "channels", "addons", "mcp", "usage", "config", "settings"];
+const PAGES: SidebarPage[] = ["home", "chat", "core", "memory", "tasks", "skills", "dreams", "usage", "integrations", "config", "settings"];
 
 const meta = {
   title: "Components/Shell/Sidebar",

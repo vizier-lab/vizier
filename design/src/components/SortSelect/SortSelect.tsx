@@ -45,6 +45,7 @@ export function SortSelect({ label, value, options, onChange, look = "bordered",
       </button>
       {open && (
         <ListboxPopup
+          anchor={root}
           id={`${id}-list`}
           label={label}
           options={options}

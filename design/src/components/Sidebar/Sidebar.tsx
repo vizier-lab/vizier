@@ -7,7 +7,7 @@ import { Tooltip } from "../Tooltip/Tooltip";
 
 export type SidebarPage =
   | "home" | "chat" | "core" | "memory" | "tasks" | "skills" | "dreams"
-  | "channels" | "addons" | "mcp" | "usage" | "config" | "settings";
+  | "usage" | "integrations" | "config" | "settings";
 
 const GROUPS: { label?: string; pages: { page: SidebarPage; label: string; icon: IconName }[] }[] = [
   {
@@ -22,17 +22,10 @@ const GROUPS: { label?: string; pages: { page: SidebarPage; label: string; icon:
     ],
   },
   {
-    label: "Integrations",
-    pages: [
-      { page: "channels", label: "Channels", icon: "channels" },
-      { page: "addons", label: "Addons", icon: "addons" },
-      { page: "mcp", label: "MCP", icon: "mcp" },
-    ],
-  },
-  {
     label: "Misc",
     pages: [
       { page: "usage", label: "Usage", icon: "usage" },
+      { page: "integrations", label: "Integrations", icon: "mcp" },
       { page: "config", label: "Config", icon: "agent" },
     ],
   },

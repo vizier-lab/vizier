@@ -11,6 +11,7 @@ import {
 } from "react";
 import { Icon } from "../../icons/Icon";
 import { cx } from "../../lib/cx";
+import { Floating, inFloating } from "../Floating/Floating";
 
 export type PickerSection<T> = { label?: ReactNode; items: T[] };
 
@@ -141,7 +142,7 @@ export function Picker<T>({
   useEffect(() => {
     if (!trigger || !open) return;
     const onDown = (e: PointerEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
+      if (!root.current?.contains(e.target as Node) && !inFloating(e.target)) setOpen(false);
     };
     document.addEventListener("pointerdown", onDown);
     return () => document.removeEventListener("pointerdown", onDown);
@@ -178,7 +179,7 @@ export function Picker<T>({
     <div
       className={cx(
         "flex flex-col overflow-hidden rounded-xl border border-border-strong bg-surface",
-        trigger && "absolute top-full left-0 z-30 mt-6 shadow-popover",
+        trigger && "shadow-popover",
         className,
       )}
       style={{ width }}
@@ -264,7 +265,7 @@ export function Picker<T>({
         "aria-expanded": open,
         "aria-haspopup": "dialog",
       })}
-      {open && panel}
+      {open && <Floating anchor={root}>{panel}</Floating>}
     </div>
   );
 }

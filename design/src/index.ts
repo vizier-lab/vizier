@@ -110,6 +110,7 @@ export * from "./components/SecretField";
 export * from "./components/SecretReveal";
 export * from "./components/Segment";
 export * from "./components/Select";
+export * from "./components/Floating";
 export * from "./components/ServerRow";
 export * from "./components/SettingsNav";
 export * from "./components/SetupStepCard";

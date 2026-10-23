@@ -113,6 +113,11 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
       .alphaDecay(0.02)
       .velocityDecay(0.3)
       .on("tick", () => {
+        // Keep every star, with its label to the right, inside the frame and clear of the caption.
+        for (const n of next) {
+          n.x = Math.max(24, Math.min(w - 130, n.x ?? w / 2));
+          n.y = Math.max(52, Math.min(h - 44, n.y ?? h / 2));
+        }
         cancelAnimationFrame(frame);
         frame = requestAnimationFrame(() => setTick((t) => t + 1));
       });

@@ -8,6 +8,8 @@ import { ProviderLogo } from "../ProviderLogo/ProviderLogo";
 export type ProviderRowProps = {
   provider: string;
   name: string;
+  /** The catalogue logo url, and whether it has its own colours. */
+  logo?: { src?: string | null; fullColor?: boolean };
   /** "Saved key ••••7c1e", "http://localhost:11434 · no key". */
   credential: ReactNode;
   /** "3 agents · 41 models", "not used yet". */
@@ -18,11 +20,11 @@ export type ProviderRowProps = {
 } & Omit<ListItemProps, "title" | "subtitle" | "meta" | "leading" | "trailing">;
 
 /** A connected provider (X64): logo, name, credential, usage, Models and ⋯. Built on ListItem. */
-export function ProviderRow({ provider, name, credential, usage, custom, onModels, onMore, ...rest }: ProviderRowProps) {
+export function ProviderRow({ provider, name, logo, credential, usage, custom, onModels, onMore, ...rest }: ProviderRowProps) {
   return (
     <ListItem
       shape="flush"
-      leading={<ProviderLogo provider={provider} name={name} />}
+      leading={<ProviderLogo provider={provider} name={name} src={logo?.src} fullColor={logo?.fullColor} />}
       title={
         <span className="flex items-center gap-8">
           <span className="type-body-strong">{name}</span>

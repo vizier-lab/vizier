@@ -51,7 +51,7 @@ export const ReadOnly: Story = { args: { value: CORE, readOnly: true } };
 
 /** Typing and deleting a character in the rich pane gives back exactly the fixture: nothing is lost. */
 export const RoundTrip: Story = {
-  args: { value: FIXTURE, look: "full", onChange: fn() },
+  args: { value: FIXTURE, look: "full", mode: "rich", onChange: fn() },
   render: (args) => <Controlled {...args} />,
   play: async ({ canvasElement, args }) => {
     const doc = await within(canvasElement).findByRole("textbox", { name: "Document" });
