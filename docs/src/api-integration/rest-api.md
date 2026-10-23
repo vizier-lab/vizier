@@ -257,4 +257,20 @@ Each frame:
 | `abort` | `null` | Response was aborted |
 | `empty` | `null` | No response (e.g. ignored `silent_read`) |
 
+### Server → client: saved steps (`history_entry`)
+
+As a turn runs, each step it takes is saved to history and pushed as its own frame:
+
+```json
+{ "history_entry": { "uid": "…", "vizier_session": [ … ], "timestamp": "…", "content": { "ToolCall": { "call_id": "…", "name": "execute_python", "arguments": { … } } } } }
+```
+
+The payload has the shape of one element of `GET …/topic/{topic_id}/history`. It is sent for `AssistantMessage`, `ToolCall` and `ToolResult` entries, including the results that close a call a stop cut off (their text starts `Stopped:` or `Interrupted:`). The `thinking`, `tool_choice` and `tool_response` frames above are unchanged.
+
+To build a turn's activity without gaps or repeats, **open the socket first, then read history, and merge the two by `uid`**: every step is then in the read, in a frame, or in both. Do the same after a reconnect.
+
+### Requests survive restarts
+
+A request is recorded when it is accepted and removed when its turn ends. If vizier restarts (or the agent is updated) while a turn runs, the turn resumes from its last saved step: a call that was cut off is closed with a `Stopped:`/`Interrupted:` result and not run again. Its final reply carries `"resumed": true`. Requests that were queued come back in order. `abort` discards all of it. A turn that brings vizier down repeatedly without making progress is given up on with an `error` reply.
+
 Requests to a session that is already processing one are **queued** and run in order after it finishes. `command: "abort"` (and `checkpoint`/`lobotomy`) cancels the in-flight request (you receive `abort`) **and discards the queue**.

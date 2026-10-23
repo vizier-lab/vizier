@@ -161,7 +161,7 @@ on the same socket.
 - [X] T024 [P] [US2] Show `resumed` replies:
   - WebUI: add `resumed?: boolean` to the response types in `webui/app/interfaces/types.ts`, and a small "continued after a restart" label in `webui/app/components/chat_bubble.tsx` when the reply's stored `Response` has it.
   - Discord/Telegram: in the shared place where a response's text is turned into messages (find the renderer `src/channels/woken.rs` hands frames to, and the person-turn renderer in `src/channels/discord/mod.rs` and `src/channels/telegram/mod.rs`), prefix `_continued after a restart_` when `response.resumed`. Use one helper in `src/channels/mod.rs` if both renderers can share it.
-- [ ] T025 [US2] Dummyplug check: quickstart §3 and §4 (`kill -9`, then `just shutdown`).
+- [X] T025 [US2] Dummyplug check: quickstart §3 and §4 (`kill -9`, then `just shutdown`).
 - [X] T026 [US2] Agent update/restart stop reason, in `src/agents/supervisor.rs` and `src/agents/mod.rs`: make the instance shutdown signal say why it is stopping. Change `watch::Receiver<bool>` to `watch::Receiver<Option<StopKind>>` with `enum StopKind { Replace, Delete }`, or add a sibling field read when the bool flips, whichever touches fewer call sites. Set `Replace` for `AgentCommand::Update`/`Restart` (including the provider-credentials restart) and `Delete` for delete. Process exit is unaffected (`std::process::exit`).
 - [X] T027 [US2] Resume across an agent update (FR-019), in `src/agents/process.rs` at the end of `agent_process`:
   - On `Replace`: for each turn returned by `turns.stop_all`, run T008's `seal_open_calls(AgentRestarted)`, **don't** call `notify_turn_stopped` (no `AgentUnavailable`), and hand the turn on **ahead of** its session's queue as a `resumed` envelope (same `turn_id`) with its original `response_tx` (`SessionTurns::stop_all` must return it). Update `hand_on_queued` to `transport.resend` queued envelopes with their `turn_id`.
@@ -229,9 +229,9 @@ complete exactly once. Only work with no backing row is swept to `interrupted`.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T040 [P] Update `docs/src/api-integration/rest-api.md` § WebSocket chat per `contracts/websocket-and-replies.md`: the `history_entry` row and its exactly-once recipe, `resumed` on replies, the stop notices, and a short "requests survive restarts" note.
-- [ ] T041 [P] Write `scripts/durable-turns-e2e.mjs`, modelled on `scripts/client-tools-e2e.mjs` (Node ≥ 22, no dependencies, `VIZIER_URL`/`VIZIER_TOKEN`/`AGENT`, plus `VIZIER_START`/`VIZIER_STOP`/`VIZIER_PID` for restarts), covering quickstart §1–§6b and §8–§10. Exit non-zero naming the first failed check.
-- [ ] T042 Run `cargo clippy` and `cargo test`, `cd webui && npm run typecheck`, and `npx vitest run app/lib/trail.test.ts`. Fix everything new against `baseline.md`.
+- [X] T040 [P] Update `docs/src/api-integration/rest-api.md` § WebSocket chat per `contracts/websocket-and-replies.md`: the `history_entry` row and its exactly-once recipe, `resumed` on replies, the stop notices, and a short "requests survive restarts" note.
+- [X] T041 [P] Write `scripts/durable-turns-e2e.mjs`, modelled on `scripts/client-tools-e2e.mjs` (Node ≥ 22, no dependencies, `VIZIER_URL`/`VIZIER_TOKEN`/`AGENT`, plus `VIZIER_START`/`VIZIER_STOP`/`VIZIER_PID` for restarts), covering quickstart §1–§6b and §8–§10. Exit non-zero naming the first failed check.
+- [X] T042 Run `cargo clippy` and `cargo test`, `cd webui && npm run typecheck`, and `npx vitest run app/lib/trail.test.ts`. Fix everything new against `baseline.md`.
 - [ ] T043 End-to-end check with a `dummyplug` agent on a running binary (constitution e2e gate): run `scripts/durable-turns-e2e.mjs` start to finish, then walk quickstart §11 on a live provider (marked live) in the WebUI and on a Discord or Telegram agent.
 - [ ] T044 Run the quickstart.md validation. Mark each § done or note deviations in `specs/023-persist-turn-activity/quickstart.md`, and delete `baseline.md`/`reference-history.json` once they've served their purpose.
 
