@@ -132,13 +132,13 @@ on the same socket.
   - Unit tests against an in-memory connection (the pattern in `src/storage/sqlite/task_run.rs`): lifecycle queued→running→deleted, `pending_turns` order, `note_resume` reset-on-progress and count-otherwise, and deletion with the session and with the agent.
 - [X] T016 [P] [US2] In `src/schema/request.rs`, add `pub fn is_durable(&self, session: &VizierSession) -> bool`. It is false for `Command("abort")` and `Command("dream")`, and for sessions whose channel is `VizierChannelId::Dream(..)`; true otherwise. Add unit tests.
 - [X] T017 [P] [US2] In `src/schema/response.rs`, add `#[serde(default, skip_serializing_if = "std::ops::Not::not")] pub resumed: bool` to `VizierResponse`, plus the matching field on its utoipa schema if one is derived. Fix any literal that doesn't use `..Default::default()`.
-- [ ] T018 [US2] Make the transport durable, in `src/transport.rs` and `src/dependencies.rs`:
+- [X] T018 [US2] Make the transport durable, in `src/transport.rs` and `src/dependencies.rs`:
   - `VizierTransport::new(storage: Arc<VizierStorage>)`. In `VizierDependencies` construction, wrap storage in `Arc` before building the transport and reuse that `Arc`. Update other `VizierTransport::new()` callers (tests, `grep -rn "VizierTransport::new" src`).
   - Add `turn_id: Option<i64>` and `resumed: bool` to `VizierRequestEnvelope`.
   - `send_request`: when `req.is_durable(&session)`, call `accept_turn` (on `Err`, `tracing::warn!` and continue with `turn_id: None`) and set `turn_id`.
   - Add `pub async fn resend(&self, envelope: VizierRequestEnvelope) -> Result<()>`, which sends without inserting.
   - Move `BackgroundJobs::broadcast_sender` (`src/agents/background/mod.rs` ~506) to `VizierTransport::broadcast_sender(&self, session) -> flume::Sender<VizierResponse>` and use it from `BackgroundJobs`.
-- [ ] T019 [US2] Row lifecycle in `src/agents/process.rs`:
+- [X] T019 [US2] Row lifecycle in `src/agents/process.rs`:
   - Carry `turn_id` and `resumed` from the envelope into `start_session_job`, the session queue tuples and `handle_request` (a small `TurnRef { id: Option<i64>, resumed: bool }`).
   - `start_session_job` → `start_turn(id)`.
   - When a current turn finishes in `join_next` (after T008's sealing for a panic) → `finish_turn(id)`.

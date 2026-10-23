@@ -139,7 +139,7 @@ impl VizierDependencies {
             tracing::error!("failed to carry reply usage over into usage accounting: {e}");
         }
 
-        let transport = VizierTransport::new();
+        let transport = VizierTransport::durable(storage.clone());
         let file_manager = FileManager::new(config.workspace.clone());
 
         let fm = file_manager.clone();

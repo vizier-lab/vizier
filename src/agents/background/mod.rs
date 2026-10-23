@@ -453,7 +453,7 @@ impl BackgroundJobs {
                 .send_request(
                     job.origin.clone(),
                     request,
-                    Some(self.broadcast_sender(job.origin.clone())),
+                    Some(self.transport.broadcast_sender(job.origin.clone())),
                 )
                 .await
             {
@@ -499,22 +499,6 @@ impl BackgroundJobs {
             tracing::warn!("failed to mark background job {} undelivered: {}", job.id, e);
         }
         self.publish_stored(&job.id).await;
-    }
-
-    /// A response sender that republishes every frame of the woken turn onto the
-    /// session-event broadcast (research D1).
-    fn broadcast_sender(&self, session: VizierSession) -> flume::Sender<VizierResponse> {
-        let (tx, rx) = flume::unbounded::<VizierResponse>();
-        let transport = self.transport.clone();
-        tokio::spawn(async move {
-            while let Ok(frame) = rx.recv_async().await {
-                transport.publish_session_event(SessionEvent {
-                    session: session.clone(),
-                    frame: SessionFrame::Response(frame),
-                });
-            }
-        });
-        tx
     }
 
     /// The existing `abort` command, sent to a piece's session.

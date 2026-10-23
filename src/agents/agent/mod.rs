@@ -13,7 +13,7 @@ use tokio::time::{Instant, timeout};
 use tracing::Instrument;
 
 use crate::{
-    agents::steps::StepRecorder,
+    agents::steps::{StepRecorder, TurnRef},
     VizierError,
     agents::{
         agent::{
@@ -50,7 +50,7 @@ use crate::{
     },
     skill::invocation::Invoked,
     storage::{
-        VizierStorage,
+        VizierStorage, turn::TurnStorage,
         agent::AgentStorage,
         history::HistoryStorage,
         integration::IntegrationStorage,
@@ -492,9 +492,10 @@ impl VizierAgent {
         invoked: Option<Invoked>,
         hooks: Option<Arc<VizierSessionHooks>>,
         checkpoint_handover: Option<String>,
+        turn: TurnRef,
     ) -> Result<VizierResponse> {
         let span = self.invoke_agent_span(&req, &session, false);
-        self.chat_turn(req, session, session_history, memory, skills, invoked, hooks, checkpoint_handover)
+        self.chat_turn(req, session, session_history, memory, skills, invoked, hooks, checkpoint_handover, turn)
             .instrument(span)
             .await
     }
@@ -536,6 +537,7 @@ impl VizierAgent {
         invoked: Option<Invoked>,
         hooks: Option<Arc<VizierSessionHooks>>,
         checkpoint_handover: Option<String>,
+        turn: TurnRef,
     ) -> Result<VizierResponse> {
         let background_depth = req.background_depth;
         // Auto-transcribe AudioChat/AudioPrompt in-place
@@ -650,8 +652,14 @@ impl VizierAgent {
         req.attachments.clear();
 
         // Always save request to history (even for SilentRead that may not get a response)
-        self.save_history_or_log(&session, SessionHistoryContent::Request(req.clone()))
+        let request_uid = self
+            .save_history_or_log(&session, SessionHistoryContent::Request(req.clone()))
             .await;
+        if let (Some(id), Some(uid)) = (turn.id, request_uid.as_deref())
+            && let Err(e) = self.storage.set_turn_request_uid(id, uid).await
+        {
+            tracing::warn!(agent_id = %session.0, "could not note a turn's request entry: {e}");
+        }
 
         if let VizierRequestContent::SilentRead(_) = req.content {
             if initiative_factor > self.config.silent_read_initiative_chance {

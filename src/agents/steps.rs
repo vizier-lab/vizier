@@ -17,6 +17,13 @@ use crate::{
 /// How many times a turn may be resumed without a single new step before it is given up on.
 pub const MAX_RESUMES_WITHOUT_PROGRESS: u32 = 3;
 
+/// Which `session_turn` row a turn belongs to, and whether it is a resumption.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TurnRef {
+    pub id: Option<i64>,
+    pub resumed: bool,
+}
+
 /// Why a turn stopped with a tool call still open. The text is what the agent reads as the
 /// call's result, and the WebUI matches its `Stopped:`/`Interrupted:` prefix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

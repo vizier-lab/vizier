@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::sync::RwLock;
 
+use crate::storage::turn::TurnStorage;
 use crate::schema::{
     AgentCommand, AgentHealthStatus, AgentId, BackgroundJobSnapshot, CommandRequest, CommandResponse, FileCommand, IntegrationChanged,
     MemoryOpEnvelope, ReactionEntry, VizierAttachment, VizierRequest, VizierResponse, VizierSession,
@@ -74,6 +75,29 @@ pub struct VizierRequestEnvelope {
     pub request: VizierRequest,
     #[serde(skip)]
     pub response_tx: Option<flume::Sender<VizierResponse>>,
+    /// The `session_turn` row journaling this request, when it is durable.
+    #[serde(skip)]
+    pub turn_id: Option<i64>,
+    /// Re-sent after a restart with its turn already begun: the agent resumes it.
+    #[serde(skip)]
+    pub resumed: bool,
+}
+
+/// `VizierStorage` has no `Debug`; this lets the transport keep deriving it.
+#[derive(Clone)]
+struct JournalHandle(crate::storage::VizierStorage);
+
+impl std::fmt::Debug for JournalHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("JournalHandle")
+    }
+}
+
+impl std::ops::Deref for JournalHandle {
+    type Target = crate::storage::VizierStorage;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -103,9 +127,18 @@ pub struct VizierTransport {
     session_events: tokio::sync::broadcast::Sender<SessionEvent>,
 
     integration_events: tokio::sync::broadcast::Sender<IntegrationChanged>,
+
+    /// Where durable requests are journaled (`specs/023-persist-turn-activity`). `None` for
+    /// a transport nothing restarts around, such as the tests'.
+    journal: Option<JournalHandle>,
 }
 
 impl VizierTransport {
+    /// A transport that journals durable requests in `storage`.
+    pub fn durable(storage: crate::storage::VizierStorage) -> Self {
+        Self { journal: Some(JournalHandle(storage)), ..Self::new() }
+    }
+
     pub fn new() -> Self {
         let command_request_channel = Arc::new(flume::unbounded());
         let command_response_channel = Arc::new(flume::unbounded());
@@ -125,6 +158,7 @@ impl VizierTransport {
             file_command_channel,
             session_events: tokio::sync::broadcast::channel(SESSION_EVENTS_CAPACITY).0,
             integration_events: tokio::sync::broadcast::channel(INTEGRATION_EVENTS_CAPACITY).0,
+            journal: None,
         }
     }
 
@@ -209,18 +243,55 @@ impl VizierTransport {
     ) -> Result<()> {
         let mut req = req;
         req.trace.capture();
-        let agent_id = &session.0;
+
+        // Journaled before it is sent, so a restart between "accepted" and "answered" finds
+        // it. A failure to journal costs the durability of this one request, nothing else.
+        let mut turn_id = None;
+        if let Some(journal) = &self.journal
+            && req.is_durable(&session)
+        {
+            match journal.accept_turn(&session, &req).await {
+                Ok(id) => turn_id = Some(id),
+                Err(e) => tracing::warn!(agent_id = %session.0, "could not journal a request: {e}"),
+            }
+        }
+
+        let sent = self
+            .resend(VizierRequestEnvelope { session, request: req, response_tx, turn_id, resumed: false })
+            .await;
+        if sent.is_err()
+            && let (Some(journal), Some(id)) = (&self.journal, turn_id)
+        {
+            let _ = journal.finish_turn(id).await;
+        }
+        sent
+    }
+
+    /// Sends an envelope as it is, without journaling it again: a request recovered at
+    /// startup, or handed on to the next instance of an agent.
+    pub async fn resend(&self, envelope: VizierRequestEnvelope) -> Result<()> {
         let channels = self.agent_channels.read().await;
         let tx = channels
-            .get(agent_id)
-            .ok_or_else(|| anyhow::anyhow!("agent '{}' not registered", agent_id))?;
-        tx.send_async(VizierRequestEnvelope {
-            session,
-            request: req,
-            response_tx,
-        })
-        .await?;
+            .get(&envelope.session.0)
+            .ok_or_else(|| anyhow::anyhow!("agent '{}' not registered", envelope.session.0))?;
+        tx.send_async(envelope).await?;
         Ok(())
+    }
+
+    /// A response sender that republishes every frame onto the session-event broadcast, for a
+    /// turn nobody is waiting on (a woken report, a recovered request).
+    pub fn broadcast_sender(&self, session: VizierSession) -> flume::Sender<VizierResponse> {
+        let (tx, rx) = flume::unbounded::<VizierResponse>();
+        let transport = self.clone();
+        tokio::spawn(async move {
+            while let Ok(frame) = rx.recv_async().await {
+                transport.publish_session_event(SessionEvent {
+                    session: session.clone(),
+                    frame: SessionFrame::Response(frame),
+                });
+            }
+        });
+        tx
     }
 
     pub async fn send_command_request(&self, req: CommandRequest) -> Result<()> {
