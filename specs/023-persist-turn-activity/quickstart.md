@@ -1,76 +1,125 @@
-# Quickstart: Persist In-Progress Turn Activity
+# Quickstart: Durable Turns
 
-All checks run offline against a `dummyplug` agent (constitution e2e gate). Dummyplug runs one tool
-per turn, so the turn is held open with a **client tool** (spec 019): the turn waits until the
-declaring socket answers, which gives a deterministic "still running" state.
+All checks run offline against an agent `plug` on the `dummyplug` provider (constitution e2e gate),
+with the **local shell enabled** in its tools config. Dummyplug runs one tool per turn, so a
+turn is held open with a script that sleeps:
 
-The checks are scripted in `scripts/turn-snapshot-e2e.mjs`, written in the same style as
-`scripts/client-tools-e2e.mjs` (Node ≥ 22, no dependencies):
-
-```sh
-just run   # with an agent `plug` on the dummyplug provider
-VIZIER_URL=ws://localhost:9999 VIZIER_TOKEN=<jwt> AGENT=plug node scripts/turn-snapshot-e2e.mjs
+```text
+HOLD(n) = {"tool":"execute_python","arguments":{"intent":"hold","code":"shell_exec(command=\"sleep n\")"}}
 ```
 
-## §1 No running turn: no snapshot
+(Check `shell_exec`'s argument name with `describe_tool_function` when writing the script.)
 
-1. Open socket **A** on a fresh topic. Send `hello`, then wait for the `message` reply.
-2. Open socket **B** on the same topic.
-3. **Expect**: B receives no `turn_snapshot` within 1 s.
+The checks are scripted in `scripts/durable-turns-e2e.mjs`, in the same style as
+`scripts/client-tools-e2e.mjs` (Node ≥ 22, no dependencies). The script restarts vizier itself
+through `VIZIER_START`/`VIZIER_STOP` commands, defaulting to `just run-d` / `just shutdown`.
+A crash is `kill -9` of the vizier pid.
 
-## §2 Mid-turn reconnect restores the trail (US1, FR-002/003)
+```sh
+VIZIER_URL=ws://localhost:9999 VIZIER_TOKEN=<jwt> AGENT=plug node scripts/durable-turns-e2e.mjs
+```
 
-1. On socket **A**, declare client tool `hold` (category `e2e`, input `{}`) and send
-   `{"tool":"execute_python","arguments":{"intent":"hold","code":"hold()"}}`.
-2. Wait for A to receive `thinking_start`, `tool_choice` (`execute_python`) and the
-   `client_tool_call` for `hold`. **Don't answer it.**
-3. Open socket **B** on the same topic.
-4. **Expect**: B's first frame is `turn_snapshot`. Its `frames`, compared by content, equal the
-   `thinking_start` and `tool_choice` frames A received, in the same order.
-5. On A, answer the `hold` call with `{"ok": true}`.
-6. **Expect**: B then receives the `tool_response` (the script's report) and the final `message`
-   once each, and receives no second copy of any frame from step 4.
+The reply checks below rely on dummyplug §4: after one tool call, the turn's reply is
+`**Tool result** (\`<tool>\`):\n<output>`.
 
-## §3 Steps taken while away (US1 scenario 2)
+## §1 Steps reach history while the turn runs (US1, FR-001/002)
 
-§2 already covers this: B was not connected when `thinking_start` and `tool_choice` were
-published, and receives them in the snapshot. Dummyplug can't produce a trail frame *after* a
-held client call and still keep the turn open (one tool per turn, and the script's report comes
-only when the script ends), so a separate "left and came back" round trip adds nothing here. The
-buffer filling with no subscriber at all is covered by the unit test in `src/transport.rs`, and
-the round trip in the WebUI by §7.1.
+1. Socket **A**: send `HOLD(8)`. Wait for `thinking_start`.
+2. Within the sleep, `GET …/history`. **Expect**: the `Request`, then a `ToolCall`
+   (`execute_python`) entry, with no `ToolResult` yet.
+3. **Expect**: A received a `history_entry` frame for that `ToolCall` with the same `uid`.
+4. After the reply, the history entries for the turn are, in order: `Request`, `ToolCall`,
+   `ToolResult`, `Response`. This is the same sequence a turn produced before this feature
+   (compare with a turn recorded on `master`).
 
-## §4 Turn ended while away (edge case, FR-007)
+## §2 Reopening mid-turn: exactly once (US1, FR-004/005)
 
-1. Run §2 to completion with B closed before step 5, then reopen B after the `message`.
-2. **Expect**: no `turn_snapshot`. History (`GET …/history`) holds the full trail and the reply.
+1. Socket A: send `HOLD(8)`. After A receives the `ToolCall` `history_entry`, open socket **B**,
+   then read history.
+2. **Expect**: the union of B's history read and B's `history_entry` frames, merged by `uid`,
+   equals A's entries for the turn, and every `uid` appears once.
 
-## §5 Aborted while away (FR-007)
+## §3 Resume after a crash (US2, FR-008/009/011, SC-002/003)
 
-1. Hold a turn as in §2 steps 1–2, close B, and send `{"command":"abort"}` on A.
-2. Reopen B. **Expect**: no `turn_snapshot`.
+1. Socket A: send `HOLD(30)`. After the `ToolCall` entry is in history, `kill -9` vizier.
+2. Check `session_turn`: one `running` row for the session, with `request_uid` set.
+3. Start vizier and open socket A again.
+4. **Expect**, within 10 s:
+   - a `history_entry` `ToolResult` for that call whose content is the restart notice
+     (contracts §3)
+   - then a reply frame with `"resumed": true` whose text is
+     `**Tool result** (\`execute_python\`):` followed by the notice
+5. **Expect**: no `sleep` process was started again (the call was not re-run). The turn's
+   history reads `Request`, `ToolCall`, `ToolResult` (notice), `Response` (resumed). The
+   `session_turn` table is empty.
 
-## §6 Isolation (FR-006)
+## §4 Resume after a clean shutdown (FR-018)
 
-1. Hold a turn on topic `t1`, then open a socket on topic `t2`.
-2. **Expect**: no `turn_snapshot` on `t2`.
+Repeat §3 with `just shutdown` instead of `kill -9`. Same expectations.
 
-## §7 WebUI by hand (US1/US2, FR-004/005)
+## §5 Queue survives (US3, FR-010, SC-004)
 
-Use an agent on a live provider (marked as such: the WebUI needs real tool activity to look at),
-or dummyplug with the `hold` approach from the WebUI's own client tools.
+1. Socket A: send `HOLD(30)`, then `first`, then `second`. Wait until history shows the
+   `ToolCall`.
+2. `kill -9`. Start vizier, open A.
+3. **Expect**: the resumed reply, then two lorem-ipsum replies, with history `Request`s in the
+   order `HOLD`, `first`, `second`. `session_turn` is empty at the end.
 
-1. Ask for something that makes several tool calls. After two activity entries appear, open
-   Settings, wait for another step, then go back to the chat. **Expect**: every entry, in order,
-   with none duplicated, and still updating live.
-2. Reload mid-turn. **Expect**: the same.
-3. Open the topic in a second tab mid-turn. **Expect**: both tabs show the same list.
-4. Let the turn finish. **Expect**: the folded trail above the answer matches the one in a tab
-   that never left. Reload, and it still matches.
+## §6 Abort after restart (FR-017)
+
+1. As §5 step 1. `kill -9`, start vizier, and immediately send `{"command":"abort"}`.
+2. **Expect**: an `abort` frame, no lorem replies for `first`/`second`, and `session_turn`
+   empty.
+
+## §7 Crash-loop guard (FR-016, SC-007)
+
+Dummyplug can't produce a turn that crashes the process, and every resume records a sealing
+step, which counts as progress. So the guard is checked by unit tests, not end to end:
+- `storage/sqlite/turn.rs`: `note_resume` returns 1 after progress and counts up when the step
+  count is unchanged.
+- `agents/process.rs`: a resumed job whose count exceeds 3 ends with an `Error` response, its
+  row is deleted, and the next queued request starts.
+
+## §8 Background job resumes and reports once (US4, FR-012, SC-005)
+
+1. Socket A: run `paralel_subtasks` through `execute_python` with two pieces: `"hello"` (answers
+   at once) and `HOLD(30)`.
+2. After the first piece answers and the second has its `ToolCall` in history, `kill -9`, then
+   start vizier.
+3. **Expect**: the job leaves `running` exactly once, and one `BackgroundReport` request
+   appears in A's history containing both answers (the second is the restart-notice echo). A
+   receives the woken reply. The first piece's session has exactly one `Response` (it was not
+   run again).
+
+## §9 Task run resumes, and is not fired twice (US4/US5, FR-013/014)
+
+1. Create a one-time task for `plug` due in 5 s, whose prompt is `HOLD(30)`.
+2. Once its run is `running` and the `ToolCall` is in its session's history, `kill -9`, then
+   start vizier.
+3. **Expect**: the run ends `answered`, its response is the restart-notice echo, and the task
+   has exactly one run.
+
+## §10 Missed schedule runs once (US5, FR-014)
+
+1. Create a cron task every minute. Stop vizier for 3 minutes, then start it.
+2. **Expect**: exactly one new run within the first tick, not three.
+
+## §11 WebUI by hand (US1/US2)
+
+These steps use a live provider, marked as such, for a real multi-step trail.
+
+1. Mid-turn: leave to Settings and come back, reload, and open a second tab. **Expect**: every
+   step, in order, once, and still updating.
+2. After the reply: the folded trail is identical in all three views and after another reload.
+3. Kill vizier mid-turn and restart it. **Expect**: the page shows the steps before and after
+   the restart as one list. The reply carries the "continued after a restart" label.
+4. Same on a Discord or Telegram agent: the resumed reply is posted in the channel with the
+   restart line.
 
 ## Gates
 
-- `cargo clippy`, `cargo test` (the new unit test for the buffer transitions and the exactly-once
-  snapshot, in `src/transport.rs`).
-- `cd webui && npm run typecheck`, and `npx vitest run app/lib/trail.test.ts` if the fold helper
-  is added there.
+- `cargo clippy`. `cargo test`, which adds tests for: `TurnStorage` lifecycle and
+  `note_resume`, the history split + seal for resumption, `is_durable`, and per-step entries
+  being equal to `messages_to_history_entries(delta)` for a recorded turn.
+- `cd webui && npm run typecheck`, plus `trail.test.ts` for merging by uid and the open turn's
+  trail.

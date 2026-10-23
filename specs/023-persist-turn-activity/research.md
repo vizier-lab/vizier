@@ -1,114 +1,168 @@
-# Research: Persist In-Progress Turn Activity
+# Research: Durable Turns
 
 ## What happens today (traced)
 
-- **Producers.** A turn's live activity is a set of `VizierResponse` frames sent on the request's
-  `response_tx`: `ThinkingStart` (`agents/process.rs::start_session_job`), `Thinking`
-  (`hook/thinking.rs`, from the `think` tool), `ToolChoice` (`hook/tool_calls.rs`) and
-  `ToolResponse` (only `execute_python`'s report, same hook). The turn ends with one of
-  `Message`, `AudioReply`, `Error`, `Empty`, `Abort` or `Checkpoint`.
-- **Delivery.** For a WebUI turn, `handle_socket` (`channels/http/api/v1/agents/channel.rs`)
-  forwards every frame from `response_rx` onto `VizierTransport::publish_session_event`. A turn woken by a
-  background report is published the same way (`agents/background/`). Every socket on the
-  session receives it through `subscribe_session_events`. A socket that subscribes later receives
-  only later frames.
-- **Storage.** The trail reaches history only when the turn ends
-  (`messages_to_history_entries`, `agents/agent/mod.rs` ~716/754). Mid-turn, history holds the
-  request and any client tool calls (saved when made, spec 019), and nothing else.
-- **WebUI.** `layout.tsx` calls `disconnect()` whenever the route has no topic and `connect()`
-  when it has one. Leaving the chat page closes the socket, and coming back opens a new one, so
-  `handle_socket` runs again. `routes/chat.tsx` keeps the running trail in `useState`
-  (`liveTrail`), built with `appendLiveEvent` from each frame, and wiped on unmount. The
-  `is_thinking` poll restores the indicator but not the list.
-- **No elapsed timer exists.** `ThinkingIndicator` renders the agent name and trail only. The
-  spec's original US3 assumed one, so it was removed from the spec rather than adding a new timer.
+| Concern | Where | Today |
+|---|---|---|
+| Turn steps | `VizierAgent::chat` (`agents/agent/mod.rs`) | Request saved at start (`save_history_or_log`). Steps (`AssistantMessage`, `ToolCall`, `ToolResult`) are saved **after** `prompt_with` returns, from `messages_to_history_entries(delta)`, and on the error path from the partial history. |
+| Round loop | `prompt_with` (~811) | Sequential: one completion, then each tool call in message order (`on_tool_call` hook → `traced_tool_call`), results appended in that order. |
+| Live updates | `hook/thinking.rs`, `hook/tool_calls.rs`, `process.rs::start_session_job` | `ThinkingStart`/`Thinking`/`ToolChoice`/`ToolResponse` frames on the request's `response_tx`. They carry no history uid. |
+| WebUI | `layout.tsx`, `routes/chat.tsx` | The socket closes when the person leaves the chat route and opens again on return. History is read on mount. The running trail is `liveTrail` state, lost on unmount. |
+| Queue | `process.rs::agent_process` | `session_queues: HashMap<VizierSession, SessionQueue>` in memory. Requests in the flume channel are also memory only. |
+| Shutdown | `cli/run.rs` | `vizier shutdown` → `std::process::exit(0)`. A crash ends the process. Neither stops turns gracefully, so durable rows would be left exactly as they were. |
+| Instance stop | `process.rs` end of loop | Update/delete: `turns.stop_all` aborts running turns (#52), and `hand_on_queued` re-sends the queue on the agent channel. |
+| Startup sweeps | `dependencies.rs` | Open task runs, background jobs (`running`/`reporting`) and pending client calls → `interrupted`. **All scratch rows cleared.** |
+| Schedules | `scheduler/mod.rs::tick_tasks`, `scheduler/dream` | Cron: next occurrence after `last_executed_at`, so a missed one fires once at startup. One-time: fires if still active and due. Dream: fires when `last_dream_time + interval ≤ now`. `is_running(task)` (a `running` task_run row) prevents overlap. |
+| Request serialisation | `schema/request.rs` | `VizierRequest` serialises everything except `trace`, `client`, and the client tool declarations (`skip_serializing`). `background_depth` and `scheduled_task` are kept. |
 
-## Decision 1: Keep the running turn's frames in memory at the publication point
+## Decision 1: Record steps in history as they happen, rather than an in-memory buffer
 
-**Decision**: `VizierTransport` keeps, per session, the trail frames of the turn currently
-running (`ThinkingStart`, `Thinking`, `ToolChoice`, `ToolResponse`), updated inside
-`publish_session_event`. A `ThinkingStart` starts a fresh buffer. A trail frame appends,
-creating the buffer if none exists. Any other `Response` frame (a turn's end) removes it.
+**Decision**: `prompt_with` takes an optional step recorder, which `chat` passes. After each
+completion that has tool calls, it saves `messages_to_history_entries([assistant])`
+(narration, then one `ToolCall` per call). After each tool call returns, it saves that
+`ToolResult`. `chat` stops saving the delta at the end and saves only the final `Response`. On
+the error path it saves only what the recorder hasn't saved yet (the sealing results and the
+`Error`).
 
-**Rationale**: Every frame the WebUI can show already passes through this one function, so the
-buffer holds exactly what a person who stayed would have received (FR-004/FR-005). That holds
-for person-started and background-woken turns alike, with no change to the agent loop, the
-hooks, or storage. A running turn already ends as `interrupted` on a server restart, so a
-buffer that disappears with the process matches the spec's assumption.
+**Rationale**: Calls run one at a time in message order, so saving each entry when it happens
+produces the same entries, in the same order, as saving the delta at the end (FR-002). History
+then holds the running turn, which is both what a reopened page needs (US1) and what a restart
+resumes from (US2). A single record serves both, replacing the earlier plan's memory-only
+snapshot buffer, which couldn't survive a restart.
+
+**Alternatives considered**: the in-memory `turn_snapshot` buffer from the previous plan
+revision. It solved US1 only, and a restart would still lose everything. A separate
+"turn journal" table holding the model messages would duplicate what history already stores in
+the same form.
+
+## Decision 2: The WebUI's trail is read from history, with live steps delivered as history entries
+
+**Decision**: Each step the recorder saves is also published on the session broadcast as
+`SessionFrame::HistoryEntry(entry with uid)`, and `handle_socket` sends it to the client as
+`{"history_entry": <ChatMessage>}`. The WebUI merges entries into `messages` by uid, and
+`groupHistory` already turns them into turns and trails. It reads history again each time the
+socket opens, after it is open. `liveTrail`/`closedTrails` go: the running turn's trail is the
+open turn of `groupHistory`, drawn by `ThinkingIndicator`.
+
+**Rationale**: Reading history *after* subscribing means a step is either in the read, or
+arrives as a frame, or both. Merging by uid makes "both" harmless, so nothing is lost or
+duplicated (FR-005), however the read and the frames interleave. The in-progress list and the
+finished list come from the same data through the same grouping (FR-006). The old trail frames
+stay on the wire for API clients, which the docs describe. The WebUI simply stops using them
+for the trail.
+
+**Alternatives considered**: putting uids on the existing `ToolChoice`/`Thinking` frames. Hooks
+see only `(name, args)`, so every hook's signature would change, and the client would still
+need two ways of building a trail.
+
+## Decision 3: A durable turn table, written at `send_request`
+
+**Decision**: A new table, `session_turn`, holds every request that hasn't finished: state
+`queued` or `running`. A row is inserted in `VizierTransport::send_request` before the
+envelope is queued, so a request waiting for an agent that is still starting is covered too
+(FR-003). The envelope carries the row id. The process loop marks a row `running` when it
+starts the job and **deletes** it when the turn ends, whether done, failed or aborted. History
+keeps the outcome, so finished rows have no further use.
+
+Not recorded: `abort` and `dream` commands (handled on arrival, never queued) and dream
+sessions (`VizierChannelId::Dream`, FR-020). The test is one helper, `VizierRequest::is_durable(&session)`,
+next to `is_handover_command`. If the insert fails, the error is logged and the request is sent
+anyway. Durability never blocks a request (Principle V).
+
+**Rationale**: `send_request` is the single entry point for every channel, the scheduler,
+background jobs and consultations (19 call sites, one function). Storage is already built
+before the transport in `dependencies.rs`, so the transport can hold it. Deleting rows on
+completion keeps the table at "work not yet finished", so startup recovery is a scan of
+whatever rows remain.
 
 **Alternatives considered**:
-- *Write the trail to history as it happens.* This would make mid-turn history complete, but it
-  changes the one-to-one `messages_to_history_entries` contract and its ordering guarantees
-  (spec 010 FR-011). It also changes what `history_entries_to_messages` replays into the model's
-  context for every later turn, and adds a database write per step. That is far more risk than
-  the problem needs.
-- *Keep the trail in a WebUI store that outlives the page.* This would fix in-app navigation
-  only: the socket is closed while you are away, so steps taken then are never received (fails
-  US1 scenario 2), and it does nothing for reloads or second tabs (fails US2).
-- *Buffer in `agents/process.rs` (`SessionTurns`).* It knows the exact turn lifecycle, but
-  frames reach the WebUI through `handle_socket`'s forwarder rather than from there, so a second
-  copy of the routing would be needed. The transport already owns the session broadcast.
+- Recording in the process loop on receipt. This loses requests sitting in the flume channel
+  while an agent is down or starting.
+- Keeping finished rows. That duplicates history and needs a retention policy.
 
-## Decision 2: Snapshot and subscribe atomically
+## Decision 4: Startup recovery re-sends rows. Resumption is a variant of `chat`.
 
-**Decision**: A new `VizierTransport::subscribe_session_with_turn(&session)` takes the buffer's
-lock, subscribes to the broadcast, and clones that session's buffer. `publish_session_event`
-updates the buffer and calls `broadcast::Sender::send` while holding the same lock.
+**Decision**:
+- `VizierAgents` boot, after registering channels and before supervisors build: for each agent,
+  `storage.pending_turns(agent_id)` is read, ordered by session and then id. The rows are
+  re-sent with `transport.resend(envelope)`, which skips the insert. Running rows go first and
+  are marked `resumed`. The response sender is the session broadcast sender, which is
+  `BackgroundJobs::broadcast_sender` moved onto the transport so there's one copy (DRY). Because
+  the rows are re-sent in id order through the loop's existing queue rules, a queued handover
+  ends up in the same place as before (FR-010).
+- `chat` records the uid of the saved `Request` entry on the row (`set_turn_request_uid`). A
+  resumed row with a uid runs `VizierAgent::resume`. Without one, the process died before the
+  request was saved, so the row runs as a fresh turn.
+- `resume`:
+  1. Split the session history at the request uid: before → prior messages, the entry → the
+     request message (automatic context computed again), after → progress.
+  2. `seal_tool_calls(progress, [], RESTART_NOTICE)`, and save each sealing result as a
+     `ToolResult` (FR-009).
+  3. Call `prompt_with` with the progress already in history, so the next completion follows
+     the last recorded step.
+  4. Mark the final `Response` as `resumed`.
+- Crash-loop guard (FR-016): at resume, `note_resume(id, steps_after_request)` stores the step
+  count. If it equals the stored count, `resume_count += 1`. Otherwise `resume_count` is reset
+  to 1. When it reaches 4 (three resumptions without progress), the turn ends with an `Error`
+  ("stopped vizier 3 times without progress") and the queue continues.
+- `hand_on_queued` (instance stop for an update) re-sends with `resend`, keeping row ids.
+  Running turns stopped for an update have their rows deleted, which is today's abort
+  behaviour (FR-019).
 
-**Rationale**: Because both happen under one lock, every frame is either in the snapshot
-(published before the subscribe) or delivered to the new receiver (published after), never both
-and never neither (FR-003, the "return in the instant a step lands" edge case).
-`broadcast::send` is synchronous and cheap, so holding a `parking_lot::Mutex` (already a
-dependency) across it is fine. The existing `subscribe_session_events` stays for subscribers
-that don't need a snapshot (Discord/Telegram `woken.rs`).
+**Rationale**: re-sending through the existing loop reuses queueing, abort, and handover
+ordering unchanged. Resumption differs from a new turn in only one place: how the history and
+message are built.
 
-**Alternatives considered**: subscribe first, then snapshot, and de-duplicate on the client by
-timestamp. Timestamps are not unique (several frames can share a millisecond), and this pushes
-correctness into every client.
+## Decision 5: Background jobs and task runs re-attach by session
 
-## Decision 3: One `turn_snapshot` frame, sent first, only while a turn runs
+**Decision**: Piece sessions and task-run sessions are unique to their job piece or firing, so
+"the turn in session S ended" identifies them. One helper,
+`transport::await_session_outcome(session, since)`, subscribes to the broadcast first, then
+checks history for a terminal `Response` after `since`, then waits for a terminal frame
+(`background::classify`). It replaces the current startup sweeps where a turn row still backs
+the work:
+- **Background jobs** `running`: `BackgroundJobs::recover()` restarts `run_job` for each one,
+  waiting on unfinished pieces through the helper, with a fresh time limit (spec edge case).
+  For a job in `reporting`, the report is delivered again unless a `BackgroundReport` request
+  for that job id is already in a turn row or in the launching session's history. Delivering
+  the report is itself a journaled request, so this check keeps it exactly-once (FR-012).
+- **Task runs** `running`: `VizierScheduler::recover()` spawns the same closing logic `fire`
+  uses, fed by the helper. The row stays `running` until it is closed, so `is_running` keeps
+  the scheduler from firing that task again (FR-013/FR-014).
+- Work with no backing turn row (pre-upgrade, or a failed insert) is swept to `interrupted` as
+  today. Pending client calls are still swept, and the resumed turn seals them as interrupted.
 
-**Decision**: When the buffer is non-empty, `handle_socket` sends
-`{"turn_snapshot": {"frames": [<VizierResponse>, …]}}` as the socket's first frame, before
-entering its loop. If the buffer is non-empty but storage's `is_thinking` for the session is
-false, the buffer is stale: it is dropped and nothing is sent.
+**Alternatives considered**: storing an "awaiter" on the turn row (job id, run id). That's a
+second link to maintain. The session already identifies the work.
 
-**Rationale**:
-- A single frame lets the client replace its list in one step. Replaying N ordinary frames
-  through `lastMessage`, which keeps only the latest frame, would depend on React rendering
-  between socket messages.
-- The frames are the same `VizierResponse` values the client already decodes. It rebuilds the
-  list by folding them through the existing `appendLiveEvent`, so the restored list matches a
-  live one by construction (FR-004).
-- The `is_thinking` check covers a turn that ended without any terminal frame (FR-007), so no
-  stale list is ever presented as live. Its only false negative is the first instant of a turn
-  (`ThinkingStart` published, `is_thinking` not yet written). In that case the buffer holds
-  nothing but `ThinkingStart`, and the page's existing one-second `is_thinking` poll turns the
-  indicator on anyway.
-- Access is unchanged (FR-008): the snapshot goes only to a socket that the chat route has
-  already authorised for that session, and sessions are per user (`HTTP(username, channel)`).
+## Decision 6: Delivering and marking resumed replies
 
-## Decision 4: WebUI consumes the snapshot through connection-store state
+**Decision**: `VizierResponse` gains `resumed: bool` (`serde(default, skip_serializing_if = "is_false")`).
+It is set on the final response of a resumed turn and stored with it. Replies go out through
+the broadcast sender, so the WebUI receives them like a woken turn, and the Discord/Telegram
+`woken.rs` readers post them through the person-turn renderer. Each renderer adds a short
+"continued after a restart" line when `resumed` is set. In the WebUI it is a small label on the
+reply bubble.
 
-**Decision**: `connectionStore` sets `turnSnapshot: { agentId, topicId, frames }` when the
-frame arrives. It clears the value on `connect()`/`disconnect()`, so a snapshot can't outlive
-its socket or topic. `routes/chat.tsx` applies it in an effect declared before the
-`lastMessage` effect: `setThinking(true)` and `setLiveTrail(() => fold(frames))`.
+**Rationale**: delivering a reply nobody is waiting on is exactly what woken turns already do.
+The flag travels on the response, so every channel decides how to show it once, in its
+renderer.
 
-**Rationale**: Unlike a listener, state does not depend on the chat page registering before the
-first frame arrives, so it is safe whichever of the layout and chat page effects runs first.
-Declaring the effect before the `lastMessage` effect means a live frame delivered in the same
-render is appended after the restored list, not overwritten by it.
+## Decision 7: Startup clean-up respects pending work
 
-**Alternatives considered**: a listener set like `subscribeReactionFrames`. It would work today
-because child effects run before the layout's `connect()`, but correctness would then rest on
-that ordering.
+- `clear_all_scratch` becomes "clear scratch for sessions with no `session_turn` row", which
+  keeps spec 020's rule that files last while a turn is running or queued.
+- `is_thinking` is reset to false for sessions with no running row. A resumed turn sets it
+  again when it starts.
 
-## Risks noted, not addressed
+## Risks
 
-- A socket that falls behind the broadcast (`RecvError::Lagged`) drops frames, as it does today.
-  Reconnecting now recovers the full list, which is an improvement, but a lag while connected
-  still isn't repaired. This is out of scope.
-- The buffer is unbounded within a turn and cleared at the turn's end. `ToolResponse` frames are
-  `execute_python` reports, which are already bounded by the sandbox's output limits. The buffer
-  holds one entry per session with a running turn.
+- **`prompt_with` resumption** is the most delicate change: the loop has to start with progress
+  already in history and the right message pending. It is covered by a unit test around the
+  history split and seal, and by quickstart §4.
+- **The per-step write** costs one SQLite insert per step, against model and tool calls that
+  take seconds. A save failure is logged and the turn continues, as `save_history_or_log`
+  already does. That step is then missing from a reopened page and from resumption, which is
+  no worse than today.
+- **Automatic context computed again** on resume can differ from the original. This is
+  accepted (spec Assumptions).

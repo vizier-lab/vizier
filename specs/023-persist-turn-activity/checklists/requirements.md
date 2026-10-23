@@ -1,7 +1,7 @@
-# Specification Quality Checklist: Persist In-Progress Turn Activity
+# Specification Quality Checklist: Durable Turns
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
-**Created**: 2026-10-23
+**Created**: 2026-10-23 (revised the same day when the restart-durability scope was folded in)
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -31,7 +31,11 @@
 
 ## Notes
 
-- The Context section cites specs 010, 012 and 019 by number so the gap is stated against what
-  already exists; it names behaviour, not code.
-- Scope decision taken as a default rather than asked: the fix covers navigation, reload and second
-  tabs alike (US2), since one durable record of the running turn serves all three.
+- Three scope questions were answered by the user and recorded under Clarifications: resume
+  everything including missed schedules, never re-run a cut-off call, and always resume
+  regardless of downtime.
+- Defaults taken without asking: give up on a turn after 3 resumptions without progress
+  (FR-016); a resumed background piece's time limit restarts; dream cycles in progress are not
+  resumed; a settings change still stops turns (#52).
+- Missed schedules already run once on startup today. US5 protects that behaviour rather than
+  adding it.

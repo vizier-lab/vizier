@@ -1,39 +1,70 @@
-# Data Model: Persist In-Progress Turn Activity
+# Data Model: Durable Turns
 
-No storage changes: no tables, columns or migrations. The one new piece of state is in memory.
+## New table: `session_turn` (`TurnStorage`, `storage/turn.rs` + `storage/sqlite/turn.rs`)
 
-## Running turn buffer (server, in memory)
+Work that has been accepted and is not finished yet. A row is deleted when its turn ends.
 
-Held by `VizierTransport`: `Arc<parking_lot::Mutex<HashMap<VizierSession, Vec<VizierResponse>>>>`.
-The `Mutex` also serialises `session_events.send` so that snapshot and subscribe can't
-interleave (research Decision 2).
-
-| Field | Type | Notes |
+| Column | Type | Notes |
 |---|---|---|
-| key | `VizierSession` | `(agent_id, channel, topic)`, the same key `SessionEvent.session` uses |
-| value | `Vec<VizierResponse>` | Trail frames in publication order. Never empty while present. |
+| `id` | INTEGER PK AUTOINCREMENT | Also the order requests were accepted in |
+| `agent_id` | TEXT NOT NULL | Deleted with the agent |
+| `channel` | TEXT NOT NULL | `VizierChannelId::to_slug()`, used to delete with a session |
+| `topic` | TEXT NOT NULL | `''` when none (same convention as `scratch_file`) |
+| `session` | TEXT NOT NULL | JSON `VizierSession`, rebuilt on recovery |
+| `request` | TEXT NOT NULL | JSON `VizierRequest` (client bindings and trace are not serialised) |
+| `state` | TEXT NOT NULL | `queued` \| `running` |
+| `request_uid` | TEXT NULL | History uid of this turn's saved `Request` entry, set by `chat` |
+| `accepted_at` | TEXT NOT NULL | RFC 3339 |
+| `started_at` | TEXT NULL | Set when it becomes `running` |
+| `resume_count` | INTEGER NOT NULL DEFAULT 0 | Crash-loop guard |
+| `steps_at_resume` | INTEGER NOT NULL DEFAULT 0 | Steps after `request_uid` at the last resume |
 
-**Transitions**, driven only by `publish_session_event` with `SessionFrame::Response(r)`. Other
-`SessionFrame` variants don't touch the buffer.
+Index: `(agent_id, id)`.
 
-| `r.content` | Effect |
+**Lifecycle**
+
+```text
+send_request ──insert──▶ queued ──start_session_job──▶ running ──turn ends (any outcome)──▶ (deleted)
+                           │                              │
+                           └──── /abort, agent delete ────┴──────────────────────────────▶ (deleted)
+process exits (crash / shutdown): rows stay → startup re-sends them (running rows as resumed)
+instance stop for update: running → deleted (aborted, #52); queued → re-sent with the same id
+```
+
+**Trait** (`TurnStorage`, added to the `VizierStorageProvider` supertrait and forwarded by
+`VizierStorage`):
+
+- `accept_turn(session, request) -> i64`
+- `start_turn(id)`
+- `set_turn_request_uid(id, uid)`
+- `note_resume(id, steps) -> u32`: returns the new `resume_count`
+- `finish_turn(id)`: deletes the row
+- `cancel_session_turns(session)`: deletes them (abort)
+- `pending_turns(agent_id) -> Vec<PendingTurn>`
+- `sessions_with_pending_turns() -> Vec<VizierSession>`: used by the startup clean-up
+
+`delete_session` and `delete_agent` delete their rows.
+
+## Changed types
+
+| Type | Change |
 |---|---|
-| `ThinkingStart` | `insert(session, vec![r])`, replacing any previous entry |
-| `Thinking` / `ToolChoice` / `ToolResponse` | `entry(session).or_default().push(r)` |
-| anything else | `remove(session)` |
+| `VizierRequestEnvelope` | `+ turn_id: Option<i64>`, `+ resumed: bool` |
+| `VizierResponse` | `+ resumed: bool` (`serde(default, skip_serializing_if)`), stored with the final reply |
+| `SessionFrame` | `+ HistoryEntry(SessionHistory)`: a saved step, uid included |
+| `VizierTransport` | holds `Arc<VizierStorage>`. `send_request` journals the request. Adds `resend(envelope)`, `broadcast_sender(session)` (moved from `BackgroundJobs`) and `await_session_outcome(session, since)`. |
 
-Taking a snapshot on connect, when `is_thinking` is false, also does `remove(session)` (a stale
-entry).
+## Unchanged, used differently
 
-**Bounds**: at most one entry per session with a running turn, and each entry lives for one turn.
+- **Session history**: the same entry kinds and the same order. Steps are written during the
+  turn instead of at its end (research Decision 1).
+- **`task_run`, `background_job`/`background_piece`**: rows backed by a pending turn stay
+  `running`/`reporting` across a restart and are closed by recovery. Others are swept as today.
+- **`scratch_file`**: kept at startup for sessions with a `session_turn` row.
+- **`session_detail.is_thinking`**: reset at startup for sessions with no running row.
 
-## Running trail (WebUI, `routes/chat.tsx`)
+## Constants
 
-Unchanged: `liveTrail: TrailEvent[]`. New input: `connectionStore.turnSnapshot`.
-
-| Field | Type | Notes |
-|---|---|---|
-| `agentId`, `topicId` | `string` | The socket the snapshot came from. Applied only if it matches the page. |
-| `frames` | `WebSocketResponse[]` | Folded by the existing `appendLiveEvent` into `liveTrail`. |
-
-`turnSnapshot` is reset to `null` on `connect()` and `disconnect()`.
+- `RESTART_NOTICE` (result of a cut-off tool call): "Interrupted: vizier restarted before this
+  call finished, so its outcome is unknown. It was not run again."
+- `MAX_RESUMES_WITHOUT_PROGRESS = 3`.

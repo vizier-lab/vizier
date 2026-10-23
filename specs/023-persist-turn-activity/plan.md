@@ -1,4 +1,4 @@
-# Implementation Plan: Persist In-Progress Turn Activity
+# Implementation Plan: Durable Turns: Live Progress That Survives Navigation and Restarts
 
 **Branch**: `023-persist-turn-activity` | **Date**: 2026-10-23 | **Spec**: [spec.md](spec.md)
 
@@ -6,36 +6,41 @@
 
 ## Summary
 
-While a turn runs, its activity list (thinking, tool calls, python reports) exists only in the
-open chat page. The server writes it to history at turn end, and the WebUI closes its socket when
-you leave the chat page, so coming back, reloading or opening a second tab shows only later steps.
+Work in progress lives only in memory. A turn's steps reach history only when it ends,
+queued requests sit in a `HashMap` and a flume channel, and a restart sweeps background jobs and
+task runs to `interrupted`. As a result, a WebUI page reopened mid-turn shows only later steps,
+and a restart silently loses running turns, queues and agent work.
 
-**Approach**: `VizierTransport` keeps the running turn's trail frames per session, in memory,
-updated inside `publish_session_event`, which every WebUI turn frame already passes through. A
-socket that opens on a session with a running turn gets one `turn_snapshot` frame first. Taking
-that snapshot is atomic with subscribing to the session broadcast, so no frame is lost or
-duplicated. The WebUI rebuilds its live list from the snapshot with the same `appendLiveEvent`
-it uses for live frames. No storage, agent loop or hook changes.
+**Approach**: make progress durable at two levels, and read everything back from them.
+1. **Steps**: `prompt_with` saves each step to history as it happens (same entries, same order)
+   and publishes it as a `history_entry` frame. The WebUI builds the running trail from
+   history, merging by uid, so any page, tab or reload shows it all exactly once.
+2. **Requests**: `send_request` records every durable request in a new `session_turn` table
+   (`queued` → `running` → deleted at the end). On startup, remaining rows are re-sent through
+   the normal loop. A running row resumes from its last recorded step: completed calls are
+   kept, and cut-off calls are sealed with a restart notice, never re-run. Background jobs and
+   task runs backed by a row re-attach by session instead of being swept. Replies go out on
+   the session broadcast (the woken-turn path) marked `resumed`.
 
 ## Technical Context
 
-**Language/Version**: Rust 2024 (crate edition as in `Cargo.toml`); TypeScript 5 / React 19
+**Language/Version**: Rust 2024 (crate edition); TypeScript 5 / React 19
 
-**Primary Dependencies**: `tokio::sync::broadcast`, `parking_lot` (both already present); axum WebSocket; Zustand-style store in the WebUI
+**Primary Dependencies**: existing only: `rusqlite` (bundled), `tokio` broadcast, `flume`, `serde`. WebUI: React Router v7 and the store pattern.
 
-**Storage**: N/A. An in-memory buffer only; no tables or migrations.
+**Storage**: SQLite. One new table, `session_turn`, created in an `init_turn_schema`. It is a new table, not a data migration. Session history gets the same entries, written earlier.
 
-**Testing**: `cargo test` (unit test of the buffer transitions and the exactly-once snapshot in `src/transport.rs`), `npm run typecheck`. End-to-end: dummyplug steps in [quickstart.md](quickstart.md), scripted as `scripts/turn-snapshot-e2e.mjs`, with the turn held open by a client tool call.
+**Testing**: `cargo test`, with unit tests for `TurnStorage`, `note_resume`, the resume history split and seal, `is_durable`, and per-step entries matching `messages_to_history_entries`. `trail.test.ts`. End-to-end: dummyplug steps in [quickstart.md](quickstart.md), scripted as `scripts/durable-turns-e2e.mjs`, using `shell_exec sleep` to hold turns and `kill -9`/`just shutdown` to restart.
 
 **Target Platform**: the vizier binary (all `Cross.toml` targets) and the bundled WebUI
 
-**Project Type**: web service + bundled web app (single repo)
+**Project Type**: web service + bundled web app
 
-**Performance Goals**: the snapshot is the socket's first frame, so the list appears as soon as the socket opens (SC-002 ≤ 1 s)
+**Performance Goals**: one extra SQLite insert per step and two row writes per turn. That is negligible next to model and tool latency. Startup recovery is one indexed scan per agent.
 
-**Constraints**: exactly-once delivery across snapshot and live frames (FR-003); one mutex acquisition per published frame, with no `.await` while it is held
+**Constraints**: no re-execution of a tool call because of a restart (SC-003); exactly-once job reports (FR-012); durability must never block or fail a request (log and continue)
 
-**Scale/Scope**: one buffer entry per session with a running turn, cleared at the turn's end. About 5 files changed.
+**Scale/Scope**: about 15 files across `transport.rs`, `agents/process.rs`, `agents/agent/mod.rs`, `agents/background/`, `scheduler/`, `storage/`, `dependencies.rs`, the channel renderers, and four WebUI files
 
 ## Constitution Check
 
@@ -43,16 +48,16 @@ it uses for live frames. No storage, agent loop or hook changes.
 
 | Principle / gate | Status |
 |---|---|
-| I. Lean by Default | ✅ No new dependency, trait or config. One map and one method on an existing type, one frame, one store field. |
-| II. Trait-based extensibility | ✅ No dispatch over a type tag is added. The buffer classifies `VizierResponseContent` once, in one function, the way the WebUI already does. Nothing varies by channel, provider or tool. |
-| III. Self-contained runtime | ✅ In-process memory only. |
-| IV. Portability | ✅ No platform-specific code. |
-| V. Unified errors & observability | ✅ Nothing fallible is added. A failed `is_thinking` read on connect is logged with `tracing::warn!` and treated as "no snapshot". |
-| Migration/back-compat tracking (#82) | ✅ None added. The frame is additive. |
-| `cargo clippy` / `cargo test` / `npm run typecheck` | Required at the end (tasks). |
-| Dummyplug e2e gate | ✅ Planned in quickstart.md §1–§6. §7 is a WebUI walkthrough. |
+| I. Lean by Default | ✅ No new dependency. One table, and finished rows are deleted rather than kept. The WebUI *loses* its `liveTrail`/`closedTrails` machinery, because the trail comes from history in one way. Resumption reuses the existing loop, `seal_tool_calls`, the woken-turn delivery and `background::classify`. |
+| II. Trait-based extensibility | ✅ `TurnStorage` is a storage concern added to the `VizierStorageProvider` supertrait like every other. Durability sits at `send_request` and the process loop, never per channel, provider or tool. `broadcast_sender` moves to the transport so there is one copy, and `await_session_outcome` is shared by background jobs and the scheduler. |
+| III. Self-contained runtime | ✅ Embedded SQLite only. |
+| IV. Portability | ✅ No platform-specific code. The e2e script takes start/stop commands from the environment. |
+| V. Unified errors & observability | ✅ Journal and step-save failures are `tracing::warn!`/`error!` and never fail the request. Recovery logs counts like the existing sweeps. |
+| Migration/back-compat tracking (#82) | ✅ Nothing legacy is added. Pre-upgrade work has no rows and falls through to the existing sweeps, which stay. |
+| `cargo clippy` / `cargo test` / `npm run typecheck` | Required (tasks). |
+| Dummyplug e2e gate | ✅ quickstart §1–§10. §11 is a WebUI and channel walkthrough on a live provider, marked as such. |
 
-**Post-design re-check**: unchanged. All gates pass, and Complexity Tracking is empty.
+**Post-design re-check**: unchanged. Complexity Tracking is empty.
 
 ## Project Structure
 
@@ -64,7 +69,7 @@ specs/023-persist-turn-activity/
 ├── research.md
 ├── data-model.md
 ├── quickstart.md
-├── contracts/turn-snapshot.md
+├── contracts/websocket-and-replies.md
 └── tasks.md             # /speckit-tasks
 ```
 
@@ -72,40 +77,40 @@ specs/023-persist-turn-activity/
 
 ```text
 src/
-├── transport.rs                                  # running-turn buffer; publish updates it; subscribe_session_with_turn
-└── channels/http/api/v1/agents/channel.rs        # handle_socket: subscribe with snapshot, is_thinking check, send turn_snapshot first
+├── storage/turn.rs, storage/sqlite/turn.rs      # NEW TurnStorage + session_turn table
+├── storage/mod.rs                               # supertrait + VizierStorage forwarding; delete_session/delete_agent clean-up
+├── transport.rs                                 # holds storage; send_request journals; resend; broadcast_sender (moved); await_session_outcome; SessionFrame::HistoryEntry
+├── schema/request.rs, schema/response.rs        # is_durable; VizierResponse.resumed
+├── agents/agent/mod.rs                          # step recorder in prompt_with; chat saves only Response/Error; resume(); RESTART_NOTICE
+├── agents/process.rs                            # envelope turn_id/resumed; start/finish/cancel rows; resumed jobs; crash-loop guard; hand_on_queued via resend
+├── agents/mod.rs                                # boot: re-send pending turns before supervisors build
+├── agents/background/mod.rs                     # recover(): re-attach running/reporting jobs; uses transport.broadcast_sender
+├── scheduler/mod.rs                             # recover(): close resumed task runs via await_session_outcome
+├── dependencies.rs                              # build transport with storage; sweeps skip work backed by rows; scratch/is_thinking clean-up respects rows
+├── channels/http/api/v1/agents/channel.rs       # forward HistoryEntry as `history_entry`
+└── channels/{discord,telegram}/                 # render the `resumed` line
 
 webui/app/
-├── interfaces/types.ts                           # TurnSnapshotFrame type
-├── hooks/connectionStore.tsx                     # route turn_snapshot frames into `turnSnapshot` state; reset on connect/disconnect
-├── lib/trail.ts                                  # foldLiveEvents(frames) over appendLiveEvent (+ test in trail.test.ts)
-└── routes/chat.tsx                               # apply turnSnapshot before the lastMessage effect
+├── hooks/connectionStore.tsx                    # history_entry frames → listeners
+├── lib/trail.ts (+ trail.test.ts)               # mergeEntries by uid; open turn's trail
+├── routes/chat.tsx                              # read history after socket opens; merge entries; trail from open turn; drop liveTrail/closedTrails
+└── components/chat_bubble.tsx                   # "continued after a restart" label
 
-docs/src/api-integration/rest-api.md              # turn_snapshot row in the WebSocket frame table
-scripts/turn-snapshot-e2e.mjs                     # quickstart §1–§6
+docs/src/api-integration/rest-api.md             # history_entry, resumed, durability note
+scripts/durable-turns-e2e.mjs                    # quickstart §1–§10
 ```
 
-**Structure Decision**: a server-side change in the transport, where session frames are already
-published, and a client-side change limited to the connection store and the chat route. The
-Discord/Telegram `woken.rs` readers keep using `subscribe_session_events` unchanged.
+**Structure Decision**: progress is made durable where it already flows (history writes in the
+round loop, requests at `send_request`), and recovery re-enters the existing process loop.
+Nothing branches per channel except the one-line rendering of `resumed` in each renderer.
 
-## Design notes
+## Phasing (for /speckit-tasks)
 
-- **`publish_session_event`** becomes: lock `running_turns`, update it for
-  `SessionFrame::Response` (see data-model transitions), call `session_events.send`, unlock.
-  All existing callers keep their signature.
-- **`subscribe_session_with_turn(&VizierSession) -> (Receiver<SessionEvent>, Vec<VizierResponse>)`**:
-  lock, `subscribe()`, clone the entry, unlock. **`discard_turn(&VizierSession)`** removes a stale
-  entry.
-- **`handle_socket`**: replace `subscribe_session_events()` with the call above. If the frames
-  are non-empty, read `get_session_detail_by_topic(...)`. If `is_thinking` is set, send
-  `{"turn_snapshot": {"frames": …}}` through `write_tx` before the loop. Otherwise call
-  `discard_turn`. Since `write_tx` is the socket's only writer and the loop hasn't started, the
-  snapshot goes out before any live frame.
-- **WebUI**: `connectionStore.onmessage` recognises `turn_snapshot` before the `lastMessage`
-  fallthrough and sets `turnSnapshot: { agentId, topicId, frames }`. In `chat.tsx`, an effect
-  declared above the `lastMessage` handler applies it when it matches the page:
-  `setThinking(true)`, then `setLiveTrail(() => foldLiveEvents(frames))`.
+1. **Foundation**: `session_turn` + `TurnStorage`, envelope fields, `is_durable`, `VizierResponse.resumed`, `SessionFrame::HistoryEntry`.
+2. **US1 (P1)**: per-step history writes plus `history_entry` frames, then the WebUI merge by uid and the trail from history. This can ship on its own: it fixes the reported bug with no restart work.
+3. **US2 + US3**: journaling in `send_request`, row lifecycle in the loop, startup re-send, `resume()`, the crash-loop guard, resumed delivery and rendering, and the startup clean-up changes.
+4. **US4 + US5**: `await_session_outcome`, background job and task run recovery, and sweeps limited to unbacked work.
+5. **Polish**: docs, e2e script, `cargo clippy`/`test`, typecheck, quickstart.
 
 ## Complexity Tracking
 
