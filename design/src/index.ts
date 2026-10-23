@@ -8,6 +8,9 @@ export { icons, iconNames, lucideNames, type IconName } from "./icons/map";
 // Brand
 export * from "./brand";
 
+// Helpers
+export { MiddleTruncate, middleTruncate, type MiddleTruncateProps } from "./lib/MiddleTruncate";
+
 // Components
 export * from "./components/ActionBar";
 export * from "./components/ActivityGrid";

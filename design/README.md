@@ -243,6 +243,10 @@ To approve, change `tags: ["needs-review"]` to `["approved"]` in the story file 
 
 <!-- inventory:end -->
 
+## Final screen sweep
+
+**2026-10-23**: every screen page of the starting design was looked at once more (Login, Onboarding, Home and its first-run and any-size frames, Chat with its file preview and the A–I flow lanes, Core, Memory and all bundles, Tasks, Skills and the skill editor, Dreams, Usage, Config, New agent, Channels, Addons, MCP, Profile, API keys, Providers, Users, Roles, States, Mobile, Scaling). Every reusable element is in the catalogue. Two gaps were found and added: the `paper-plane` icon (Telegram, in the conversation picker) and middle truncation for long names and paths (`MiddleTruncate`, used by ListItem's mono titles), from the Scaling sheet's "Long names" rule.
+
 ## Licence
 
 MIT. The bundled fonts (Schibsted Grotesk, JetBrains Mono) keep their own OFL

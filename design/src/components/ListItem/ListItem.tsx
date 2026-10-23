@@ -1,12 +1,15 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { cx } from "../../lib/cx";
+import { MiddleTruncate } from "../../lib/MiddleTruncate";
 
 export type ListItemProps = {
   /** Icon, Sigil, Avatar, ProviderLogo or a Status dot. */
   leading?: ReactNode;
   title: ReactNode;
-  /** Skill names, roles, servers, paths. */
+  /** Skill names, roles, servers, paths. Long mono titles are cut in the middle. */
   titleMono?: boolean;
+  /** Characters a mono title keeps before it is cut in the middle (default 40). */
+  titleMax?: number;
   /** Second line; plain text is muted, or pass a styled node (a status line). */
   subtitle?: ReactNode;
   /** Right-aligned mono meta: sizes, times, counts. */
@@ -33,6 +36,7 @@ export function ListItem({
   leading,
   title,
   titleMono,
+  titleMax = 40,
   subtitle,
   meta,
   trailing,
@@ -60,7 +64,10 @@ export function ListItem({
     <>
       {leading && <span className="flex shrink-0 items-center">{leading}</span>}
       <span className="flex min-w-0 flex-1 flex-col gap-2">
-        <span className={cx("truncate text-fg", titleMono ? "type-code-medium" : "type-ui-medium")}>{title}</span>
+        <span className={cx("truncate text-fg", titleMono ? "type-code-medium" : "type-ui-medium")}>
+          {/* Mono titles are names and paths: cut the middle, so the file name stays. */}
+          {titleMono && typeof title === "string" ? <MiddleTruncate text={title} max={titleMax} /> : title}
+        </span>
         {subtitle != null &&
           (typeof subtitle === "string" ? <span className="truncate type-small text-muted">{subtitle}</span> : subtitle)}
       </span>
