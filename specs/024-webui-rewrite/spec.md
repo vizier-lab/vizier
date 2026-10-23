@@ -77,6 +77,7 @@ An agent's owner works through the agent's pages: Home, Core, Memory, Tasks, Ski
 3. **Given** the Tasks page, **When** the owner filters, sorts and pages through tasks and opens one, **Then** they see its schedule, requester, next run and recent runs, and can open a run's conversation.
 4. **Given** the Skills page, **When** the owner opens a skill, **Then** they can edit it in the rich, markdown or split editor with an outline. An unsaved draft is kept in the browser until they save or discard it.
 5. **Given** the Dreams page, **When** the owner presses "Dream now", **Then** a dream starts, and its journal entry appears with the extraction and consolidation stages and the changes it made.
+6. **Given** the Dreams page, **When** it loads, **Then** "Last 30 nights" shows one dot per night: size is the number of memories that night's dream wrote or revised, a ring means it changed CORE, and a night with no dream is an empty slot. **When** the owner picks a night's dot, **Then** the journal opens at that night's entry.
 6. **Given** the Usage page, **When** the owner picks a period and a breakdown, **Then** the totals, daily chart, "where it went" table and costliest conversations match the server's usage report.
 
 ---
@@ -119,7 +120,9 @@ A first-time operator sees the Onboarding flow (account, provider, first agent).
 
 The design shows a few things today's server doesn't provide. They are added to the server so the screens can show real data:
 
-- **Home overview across agents**: a greeting line with agent counts (total, live, failed) and today's estimated cost; "Last 24 hours", turns per hour for the most active agents, capped at seven rows; and "Since you were away", a feed of notable events (failures, task answers, dream results, background reports, channel activity) since the person's last visit.
+- **Home overview across agents**: a greeting line with agent counts (total, live, failed) and today's estimated cost. "Since you were away" is a feed of notable events (failures, task answers, dream results, background reports, channel activity) since the person's last visit.
+- **Home "Last 24 hours" activity dots**: a grid with one row per agent and one column per hour (00 to now). Each dot's size is the turns that agent took in that hour, and a green dot is an agent replying right now. The panel never grows past seven rows. With no agents, the hour axis stays with every hour empty, plus an empty message and "New agent". With one agent, a single full-width row with bigger dots and a line saying the day in words ("94 chat turns, 5 scheduled tasks and 2 dream stages today"). With 2 to 6 agents, one row each, most active first. With 7 or more, an "All N" total row plus the 5 most active, switchable.
+- **Dream timeline and dream changes**: "Last 30 nights" on the Dreams page (see User Story 3, scenario 6) needs, per dream cycle, how many memories it wrote, how many it revised, and whether it changed CORE. The journal's per-entry change list (wrote / revised / core, each with its document or CORE revision) needs the same attribution. Today, revisions are only tagged as coming from *a* dream, not from which cycle.
 - **Conversation list per agent**: one searchable list of an agent's conversations across the WebUI, Discord and Telegram, filtered by channel, grouped by day, loading older conversations as you scroll.
 - **Agent start progress**: while an agent starts, the WebUI shows what it is waiting on (for example a model download from Ollama, with percent, size and time left), and when a start has failed, the cause and the next retry time.
 - **Lists that work at any size**: agents, tasks, skills, users, roles, MCP servers, bundles and conversations can be searched, filtered (with total counts per filter), sorted and paged on the server, so no screen ever loads all of a large set.
@@ -133,8 +136,10 @@ The design shows a few things today's server doesn't provide. They are added to 
 
 1. **Given** a person returns after some hours away, **When** they open Home, **Then** "Since you were away" lists what happened in that time, newest first, 20 at a time, with "Load older".
 2. **Given** 1,000 agents, **When** Home loads, **Then** "Last 24 hours" shows an "All" total row plus the five most active agents, and the panel stays the same height as with two agents.
-3. **Given** an agent with conversations on all three channels, **When** the person searches the conversation list, **Then** matching conversations from every channel appear, and the channel filter chips show total counts.
-4. **Given** an agent pulling a model, **When** the person opens its chat, **Then** the starting card shows live progress, and messages sent meanwhile are queued and run once it starts.
+3. **Given** an agent took 12 turns between 14:00 and 15:00 and is replying now, **When** Home loads, **Then** that agent's 14:00 dot is sized for 12 turns, and its current-hour dot is green.
+4. **Given** a dream cycle that wrote 2 memories, revised 3 and updated CORE, **When** the Dreams page loads, **Then** that night's dot is sized for 5 changes with a ring, and its journal entry lists the 2 written and 3 revised documents and the new CORE revision.
+5. **Given** an agent with conversations on all three channels, **When** the person searches the conversation list, **Then** matching conversations from every channel appear, and the channel filter chips show total counts.
+6. **Given** an agent pulling a model, **When** the person opens its chat, **Then** the starting card shows live progress, and messages sent meanwhile are queued and run once it starts.
 
 ---
 
@@ -193,7 +198,11 @@ Every screen works in light and dark themes, follows the system theme by default
 
 **Server additions the design needs**
 
-- **FR-018**: The server MUST provide a cross-agent overview for the signed-in person, covering only agents they can see: agent counts by state (total, live, failed), estimated cost today, and turns per hour over the last 24 hours for the most active agents, with an all-agents total row.
+- **FR-018**: The server MUST provide a cross-agent overview for the signed-in person, covering only agents they can see: agent counts by state (total, live, failed) and estimated cost today.
+- **FR-018a**: The server MUST provide hourly activity for the last 24 hours for the agents the person can see: turns per agent per hour, the agents ranked by activity (the top 5, or all of them when there are 6 or fewer), an all-agents total per hour, and which agents are replying right now. For the single-agent case, it MUST also give today's turns split by kind (chat, scheduled task, dream stage, background). The response size MUST NOT grow with the number of agents beyond the rows shown.
+- **FR-018b**: Home MUST draw "Last 24 hours" as the design's dot grid, with each variant: no agents, one agent, 2 to 6 agents, and 7 or more (an "All N" row plus the 5 most active, switchable). Dot size scales with turns in that hour, emerald marks only an agent replying now, and hovering a dot shows the exact count.
+- **FR-018c**: Every memory and CORE revision made by a dream MUST record which dream cycle made it. The server MUST provide, per dream cycle, the number of memories written (new documents), the number revised, whether CORE changed, and the list of those documents and CORE revisions, for the last 30 nights at least. Revisions recorded before this change are counted by time window, or shown as unattributed, never miscounted.
+- **FR-018d**: The Dreams page MUST draw "Last 30 nights" as the design's dot timeline: one slot per night, dot size = memories written plus revised, a ring when CORE changed, an empty slot for a night with no dream, and the running cycle shown as live. Each night opens its journal entry, and each journal entry lists its changes as wrote / revised / core, linking to the document or revision.
 - **FR-019**: The server MUST provide a "since you were away" feed for the signed-in person: notable events across the agents they can see (start failures, task results, dream results, background reports, channel activity) since their last visit, newest first, paged. It MUST also record each person's last visit.
 - **FR-020**: The server MUST provide one list of an agent's conversations across all its channels, searchable by name and content, filterable by channel with total counts per channel, newest first, and paged.
 - **FR-021**: The server MUST report an agent's start progress while it builds, including what it is waiting on and, for model downloads, percent done, size and estimated time left. This MUST be in addition to the failure state, error and next retry time already reported.
@@ -208,6 +217,8 @@ Every screen works in light and dark themes, follows the system theme by default
 - **Legacy WebUI**: the current WebUI code, kept in `legacy/` as a reference only, until the maintainer deletes it.
 - **Design library**: the existing `design` submodule. The source of truth for components and tokens, and extended where the screens need it.
 - **Overview**: a per-person summary across the agents they can see: counts by state, today's cost, and hourly turns over 24 hours.
+- **Hourly activity**: for one agent and one hour of the last 24, the number of turns it took (by kind), and whether it is replying now. Used for the Home dot grid.
+- **Dream cycle summary**: for one dream cycle, its night, time span, state, memories written, memories revised, whether CORE changed, and the documents and CORE revision behind those counts. Used for the Dreams timeline and journal.
 - **Away feed event**: a notable thing that happened to an agent (start failure, task answer, dream result, background report, channel post), with a time, the agent and a short description. Shown to people who can see that agent.
 - **Last visit**: the time a person last used the WebUI, kept per person and used to bound the away feed.
 - **Conversation listing**: one entry per conversation of an agent, across channels: name, channel, place (server/DM/topic), last activity, and number of topics.
