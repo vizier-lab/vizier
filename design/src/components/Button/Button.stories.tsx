@@ -58,6 +58,7 @@ export const Variants: Story = {
 
 /** Every variant in every state, Md then Sm. */
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   render: () => (
     <div className="flex flex-col gap-32">

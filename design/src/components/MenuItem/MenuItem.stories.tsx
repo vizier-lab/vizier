@@ -20,6 +20,7 @@ export const Default: Story = {};
 export const Danger: Story = { args: { icon: "trash", label: "Delete", meta: "⌫", tone: "danger" } };
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   render: () => (
     <StateGrid

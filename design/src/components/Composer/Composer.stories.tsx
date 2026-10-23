@@ -39,6 +39,7 @@ export const Default: Story = {
 };
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   decorators: [(Story) => <div className="w-720">{Story()}</div>],
   render: (args) => {

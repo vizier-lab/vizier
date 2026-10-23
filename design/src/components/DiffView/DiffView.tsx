@@ -25,11 +25,14 @@ export function DiffView({ title, lines, restoreLabel, onRestore, className, ...
             className={cx(
               "grid grid-cols-[14px_1fr] gap-6 rounded-sm px-6 py-4 type-ui-para",
               l.kind === "add" && "bg-raised text-fg",
-              l.kind === "del" && "text-faint line-through decoration-faint",
+              l.kind === "del" && "text-faint [&>span:last-child]:line-through",
               l.kind === "ctx" && "text-muted",
             )}
           >
-            <span aria-hidden className="type-mono-xs">{l.kind === "add" ? "+" : l.kind === "del" ? "−" : ""}</span>
+            {/* Code-block type shares the 20px line, so the marker sits on the text's first line at full size. */}
+            <span aria-hidden className={cx("type-code-block no-underline", l.kind === "add" ? "text-live" : "text-muted")}>
+              {l.kind === "add" ? "+" : l.kind === "del" ? "-" : ""}
+            </span>
             <span>
               <span className="sr-only">{l.kind === "add" ? "Added: " : l.kind === "del" ? "Removed: " : ""}</span>
               {l.text}

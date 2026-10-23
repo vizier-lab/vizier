@@ -41,6 +41,7 @@ export const Failed: Story = {
 
 /** Hover shows Copy and ⋯. */
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   render: (args) => (
     <StateGrid

@@ -27,6 +27,7 @@ export const Default: Story = {};
 export const Collapsed: Story = { args: { collapsed: true } };
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   decorators: [(Story) => <div>{Story()}</div>],
   render: (args) => (

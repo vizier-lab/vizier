@@ -30,6 +30,7 @@ export const Mono: Story = {
 };
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   decorators: [(Story) => <div>{Story()}</div>],
   render: () => {

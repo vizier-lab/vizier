@@ -19,6 +19,7 @@ export const Default: Story = {};
 export const Collapsed: Story = { args: { collapsed: true }, decorators: [(Story) => <div className="w-64 px-10">{Story()}</div>] };
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   render: (args) => (
     <StateGrid

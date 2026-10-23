@@ -41,6 +41,7 @@ export const Default: Story = {};
 export const Selected: Story = { args: { selected: true } };
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   decorators: [(Story) => <div>{Story()}</div>],
   render: () => {

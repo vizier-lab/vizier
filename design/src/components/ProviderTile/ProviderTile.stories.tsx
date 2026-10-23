@@ -34,6 +34,7 @@ export const Popular: Story = {
 };
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   decorators: [(Story) => <div>{Story()}</div>],
   render: () => <StateGrid rows={[{ cells: interactionCells(() => <div className="w-190"><ProviderTile provider="google" name="Google" sub="Gemini" /></div>) }]} />,

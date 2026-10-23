@@ -21,6 +21,7 @@ export const Several: Story = { args: { count: 3 } };
 export const Compact: Story = { args: { count: 3, compact: true } };
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   render: () => <StateGrid rows={[{ cells: interactionCells(() => <JobsPill count={1} />).filter((c) => c.label !== "Pressed") }]} />,
 };

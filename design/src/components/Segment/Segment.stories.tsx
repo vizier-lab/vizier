@@ -16,6 +16,7 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   render: () => (
     <StateGrid

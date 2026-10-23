@@ -36,6 +36,7 @@ export const ConfigTabs: Story = {
 };
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   render: () => {
     const one = (tab: React.ReactNode) => (

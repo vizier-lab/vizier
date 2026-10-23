@@ -74,6 +74,7 @@ export const BadgeLook: Story = {
 };
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   decorators: [(Story) => <div className="h-260">{Story()}</div>],
   render: () => {

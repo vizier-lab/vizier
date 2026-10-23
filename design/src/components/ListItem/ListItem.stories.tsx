@@ -54,6 +54,7 @@ export const Shapes: Story = {
 };
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   decorators: [(Story) => <div>{Story()}</div>],
   render: () => {
@@ -73,10 +74,10 @@ export const States: Story = {
   },
 };
 
-/** Long names truncate; the meta and trailing stay put. */
+/** Long mono names are cut in the middle (the full name shows on hover); long text truncates at the end. */
 export const LongContent: Story = {
   args: {
-    title: "vector-db-review-with-a-very-long-skill-name-that-keeps-going",
+    title: "projects/2025-archive/board-meetings/quarterly/q4-board-notes.md",
     titleMono: true,
     subtitle: "Review a diff for bugs, then for clarity. Point at lines, never rewrite whole files.",
     meta: "v1.2.0",

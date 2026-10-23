@@ -13,7 +13,12 @@ export type StateCell = {
   node: ReactNode;
 };
 
-/** The `parameters.pseudo` that goes with a StateGrid. */
+/**
+ * The `parameters.pseudo` that goes with a StateGrid. Stories using it also
+ * take `tags: ["!autodocs"]`: on a docs page the pseudo-states addon rewrites
+ * the stylesheet once per story and can freeze the page, so state grids live
+ * only as their own stories in the sidebar.
+ */
 export const statePseudo = {
   pseudo: {
     hover: '[data-pseudo="hover"] *',

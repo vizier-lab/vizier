@@ -21,6 +21,7 @@ export const Active: Story = { args: { active: true } };
 export const Live: Story = { args: { icon: "chat", label: "Chat", live: true } };
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   render: () => (
     <StateGrid

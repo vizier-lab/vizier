@@ -30,6 +30,7 @@ export const Group: Story = {
 };
 
 export const States: Story = {
+  tags: ["!autodocs"],
   parameters: statePseudo,
   render: () => (
     <StateGrid
