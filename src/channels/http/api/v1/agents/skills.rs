@@ -1,6 +1,6 @@
 use axum::{
     Extension, Router, Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{get, post, put, delete},
 };
 use reqwest::StatusCode;
@@ -17,6 +17,14 @@ use crate::{
 };
 
 use super::user_can_view_agent;
+use super::super::skill_support::{self, SkillListing};
+use crate::channels::http::models::page::{self, ListQuery};
+
+#[derive(Debug, Deserialize, Default)]
+pub struct ScopeQuery {
+    /// `all` merges the global skills into the list.
+    pub scope: Option<String>,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct CreateSkillRequest {
@@ -32,32 +40,11 @@ pub struct UpdateSkillRequest {
     pub description: Option<String>,
     pub content: Option<String>,
     pub keywords: Option<Vec<String>>,
+    /// `base_hash` of the content this edit started from; a mismatch is `409 stale_content`.
+    pub base_hash: Option<String>,
 }
 
-#[derive(Debug, Serialize, Clone)]
-pub struct SkillResponse {
-    pub name: String,
-    pub description: String,
-    pub keywords: Vec<String>,
-    pub version: u32,
-    pub resources: Vec<String>,
-    pub content: String,
-    pub agent_id: Option<String>,
-}
-
-impl From<Skill> for SkillResponse {
-    fn from(skill: Skill) -> Self {
-        Self {
-            name: skill.name,
-            description: skill.description,
-            keywords: skill.keywords,
-            version: skill.version,
-            resources: skill.resources,
-            content: skill.content,
-            agent_id: skill.agent_id,
-        }
-    }
-}
+pub use super::super::skill_support::SkillResponse;
 
 /// A skill a person can invoke by name on the agent (spec 021): no content.
 #[derive(Debug, Serialize, Clone)]
@@ -76,8 +63,10 @@ pub fn agent_skills() -> Router<HTTPState> {
 async fn list_agent_skills(
     State(state): State<HTTPState>,
     Path(agent_id): Path<String>,
+    Query(scope): Query<ScopeQuery>,
+    Query(query): Query<ListQuery>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
-) -> Response<Vec<SkillResponse>> {
+) -> Response<serde_json::Value> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
         Ok(None) => return err_response(StatusCode::NOT_FOUND, "Agent not found".into()),
@@ -95,9 +84,15 @@ async fn list_agent_skills(
         Ok(skills) => skills,
         Err(_) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, "Failed to list skills".into()),
     };
-    let responses: Vec<SkillResponse> = skills.into_iter().map(SkillResponse::from).collect();
+    let mut responses: Vec<SkillResponse> = skills.into_iter().map(|s| skill_support::listed(&manager, s)).collect();
+    if scope.scope.as_deref() == Some("all") {
+        let global = SkillManager::new(workspace);
+        if let Ok(skills) = global.list_skills() {
+            responses.extend(skills.into_iter().map(|s| skill_support::listed(&global, s)));
+        }
+    }
 
-    api_response(StatusCode::OK, responses)
+    page::respond(responses, &SkillListing, &query)
 }
 
 /// Every skill the agent can use, its own and the global ones, for the composer's `/`
@@ -231,6 +226,9 @@ async fn update_agent_skill(
     };
 
     if let Some(mut skill) = skill.take() {
+        if skill_support::is_stale(request.base_hash.as_deref(), &skill.content) {
+            return super::super::skills::stale_content(skill);
+        }
         if let Some(description) = request.description {
             skill.description = description;
         }

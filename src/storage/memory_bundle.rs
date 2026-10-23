@@ -1846,10 +1846,16 @@ impl BundleMemoryStore {
             let updated_at = updated
                 .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
                 .map(|d| d.with_timezone(&Utc));
+            let links: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM memory_edge WHERE agent_id = ?1 AND source_bundle = ?2",
+                params![agent_id, bundle],
+                |row| row.get(0),
+            )?;
             result.push(BundleSummary {
                 name: bundle,
                 concept_count: count as usize,
                 updated_at,
+                link_count: links as usize,
             });
         }
         Ok(result)
@@ -3048,6 +3054,7 @@ mod tests {
         let agent = RevisionOrigin {
             actor: crate::schema::RevisionActor::Agent,
             trigger: RevisionTrigger::Conversation,
+            dream_cycle: None,
         };
         let user = RevisionOrigin {
             actor: crate::schema::RevisionActor::User {
@@ -3055,6 +3062,7 @@ mod tests {
                 username: "alice".into(),
             },
             trigger: RevisionTrigger::WebUi,
+            dream_cycle: None,
         };
 
         write_note(&store, &indexer, "Note", "v1", vec![], &agent).await;
@@ -3081,6 +3089,7 @@ mod tests {
         let agent = RevisionOrigin {
             actor: crate::schema::RevisionActor::Agent,
             trigger: RevisionTrigger::Conversation,
+            dream_cycle: None,
         };
 
         // A document that pre-dates history: written directly on disk, then reconciled.

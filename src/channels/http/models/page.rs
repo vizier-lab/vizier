@@ -151,6 +151,29 @@ where
     Ok(Page { items, total, counts })
 }
 
+/// Answers a list endpoint: the plain array when the request has no `limit` (what clients
+/// have always got), a [`Page`] when it does. A bad filter is a `400` whose message is its code.
+pub fn respond<T, L>(
+    items: Vec<T>,
+    listing: &L,
+    query: &ListQuery,
+) -> crate::channels::http::models::response::Response<serde_json::Value>
+where
+    T: Serialize + Clone,
+    L: Listing<T>,
+{
+    use crate::channels::http::models::response::{api_response, err_response};
+    use reqwest::StatusCode;
+
+    if !query.is_paged() {
+        return api_response(StatusCode::OK, serde_json::to_value(items).unwrap_or_default());
+    }
+    match paginate(items, listing, query) {
+        Ok(page) => api_response(StatusCode::OK, serde_json::to_value(page).unwrap_or_default()),
+        Err(e) => err_response(StatusCode::BAD_REQUEST, e.code.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

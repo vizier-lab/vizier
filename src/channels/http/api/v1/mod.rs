@@ -18,6 +18,7 @@ pub mod embedding;
 pub mod files;
 pub mod integrations;
 pub mod providers;
+pub mod skill_support;
 pub mod skills;
 pub mod utils;
 

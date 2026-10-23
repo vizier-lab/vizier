@@ -8,6 +8,7 @@ use axum::{
 };
 use chrono::Utc;
 use croner::Cron;
+use crate::channels::http::models::page::{self, ListQuery, Listing, SortKey, SortOrder};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
@@ -169,10 +170,69 @@ pub struct TaskResponse {
     /// `null` for a task that has never run — distinct from a run that answered nothing,
     /// which is a `last_run` whose `response` is `null`.
     last_run: Option<TaskRunResponse>,
+    /// When it runs next: a cron task's next occurrence, a one-time task's moment while it is
+    /// still ahead; `null` when inactive or finished.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_run: Option<chrono::DateTime<Utc>>,
+}
+
+fn next_run_of(task: &Task, now: chrono::DateTime<Utc>) -> Option<chrono::DateTime<Utc>> {
+    if !task.is_active {
+        return None;
+    }
+    match &task.schedule {
+        TaskSchedule::CronTask(expr) => Cron::from_str(expr)
+            .ok()
+            .and_then(|c| c.find_next_occurrence(&now, false).ok()),
+        TaskSchedule::OneTimeTask(at) => (*at > now).then_some(*at),
+    }
+}
+
+/// Filters `active` and `last_run_failed`; sorts `next_run` (soonest first, none last),
+/// `name` and `last_run` (newest first).
+struct TaskListing;
+
+impl Listing<TaskResponse> for TaskListing {
+    fn matches(&self, item: &TaskResponse, q: &str) -> bool {
+        item.title.to_lowercase().contains(q) || item.slug.to_lowercase().contains(q)
+    }
+
+    fn filter_keys(&self, _: &[TaskResponse]) -> Vec<String> {
+        vec!["active".into(), "last_run_failed".into()]
+    }
+
+    fn in_filter(&self, filter: &str, item: &TaskResponse) -> bool {
+        match filter {
+            "active" => item.is_active,
+            "last_run_failed" => item
+                .last_run
+                .as_ref()
+                .is_some_and(|r| matches!(r.state, TaskRunState::NoResponse | TaskRunState::Interrupted)),
+            _ => false,
+        }
+    }
+
+    fn sort_key(&self, item: &TaskResponse, sort: &str) -> SortKey {
+        match sort {
+            "name" => SortKey::text(&item.title),
+            "last_run" => SortKey::Num(item.last_run.as_ref().map_or(0, |r| r.ran_at.timestamp_millis())),
+            // No next run sorts after every real one.
+            _ => SortKey::Num(item.next_run.map_or(i64::MAX, |t| t.timestamp_millis())),
+        }
+    }
+
+    fn sorts(&self) -> &'static [&'static str] {
+        &["next_run", "name", "last_run"]
+    }
+
+    fn default_order(&self, sort: &str) -> SortOrder {
+        if sort == "last_run" { SortOrder::Desc } else { SortOrder::Asc }
+    }
 }
 
 impl From<Task> for TaskResponse {
     fn from(task: Task) -> Self {
+        let next_run = next_run_of(&task, Utc::now());
         Self {
             slug: task.slug,
             requester: task.requester,
@@ -183,6 +243,7 @@ impl From<Task> for TaskResponse {
             last_executed_at: task.last_executed_at,
             timestamp: task.timestamp,
             last_run: None,
+            next_run,
         }
     }
 }
@@ -227,9 +288,13 @@ async fn last_run_detail(state: &HTTPState, task: &Task) -> Option<TaskRunRespon
     params(
         ("agent_id" = String, Path, description = "Agent ID")
     ),
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ListQuery
+    ),
     request_body = GetTasksQuery,
     responses(
-        (status = 200, description = "List of tasks", body = APIResponse<Vec<TaskResponse>>),
+        (status = 200, description = "List of tasks; with `limit`, a page `{items, total, counts}` (filters `active`, `last_run_failed`; sorts `next_run`, `name`, `last_run`)", body = APIResponse<Vec<TaskResponse>>),
         (status = 404, description = "Agent not found", body = APIResponse<String>),
         (status = 500, description = "Internal server error", body = APIResponse<String>)
     )
@@ -237,9 +302,10 @@ async fn last_run_detail(state: &HTTPState, task: &Task) -> Option<TaskRunRespon
 pub async fn get_tasks(
     Path(agent_id): Path<String>,
     Query(params): Query<GetTasksQuery>,
+    Query(list): Query<ListQuery>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
-) -> models::response::Response<Vec<TaskResponse>> {
+) -> models::response::Response<serde_json::Value> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
         Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
@@ -265,7 +331,7 @@ pub async fn get_tasks(
                 entry.last_run = last_run;
                 response.push(entry);
             }
-            api_response(StatusCode::OK, response)
+            page::respond(response, &TaskListing, &list)
         }
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
@@ -625,5 +691,57 @@ pub async fn get_run_history(
     {
         Ok(history) => api_response(StatusCode::OK, history),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod listing_tests {
+    use super::*;
+    use crate::channels::http::models::page::paginate;
+
+    fn task(slug: &str, schedule: TaskSchedule, active: bool) -> Task {
+        Task {
+            slug: slug.into(),
+            requester: Requester::User("me".into()),
+            agent_id: "a".into(),
+            title: slug.into(),
+            instruction: "do".into(),
+            is_active: active,
+            schedule,
+            last_executed_at: None,
+            timestamp: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn next_run_follows_the_schedule_and_activity() {
+        let now = Utc::now();
+        let ahead = now + chrono::Duration::hours(3);
+        assert_eq!(next_run_of(&task("a", TaskSchedule::OneTimeTask(ahead), true), now), Some(ahead));
+        assert_eq!(next_run_of(&task("a", TaskSchedule::OneTimeTask(now - chrono::Duration::hours(1)), true), now), None);
+        assert_eq!(next_run_of(&task("a", TaskSchedule::OneTimeTask(ahead), false), now), None);
+        let cron = next_run_of(&task("a", TaskSchedule::CronTask("0 * * * *".into()), true), now).unwrap();
+        assert!(cron > now && cron <= now + chrono::Duration::hours(1));
+    }
+
+    #[test]
+    fn lists_by_next_run_with_the_unscheduled_last() {
+        let now = Utc::now();
+        let items: Vec<TaskResponse> = vec![
+            task("later", TaskSchedule::OneTimeTask(now + chrono::Duration::hours(9)), true),
+            task("off", TaskSchedule::OneTimeTask(now + chrono::Duration::hours(1)), false),
+            task("soon", TaskSchedule::OneTimeTask(now + chrono::Duration::hours(2)), true),
+        ]
+        .into_iter()
+        .map(TaskResponse::from)
+        .collect();
+        let q = ListQuery { limit: Some(10), ..Default::default() };
+        let page = paginate(items.clone(), &TaskListing, &q).ok().unwrap();
+        assert_eq!(page.items.iter().map(|t| t.slug.as_str()).collect::<Vec<_>>(), ["soon", "later", "off"]);
+        assert_eq!(page.counts["active"], 2);
+
+        let q = ListQuery { filter: Some("active".into()), q: Some("LAT".into()), limit: Some(10), ..Default::default() };
+        let page = paginate(items, &TaskListing, &q).ok().unwrap();
+        assert_eq!(page.total, 1);
     }
 }

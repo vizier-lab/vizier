@@ -231,22 +231,22 @@
 
 ### Server for User Story 3
 
-- [ ] T066 [US3] Add an `AgentListing` (`Listing` impl: filters `mine`/`live`/`failed`, sorts `last_active`/`name`) and opt-in paging on `GET /agents` in `src/channels/http/api/v1/agents/mod.rs` (unpaged response unchanged)
-- [ ] T067 [P] [US3] Add a `TaskListing` (`active`, `last_run_failed`; `next_run`, `name`, `last_run`), opt-in paging, and `last_run: {id, ran_at, outcome} | null` on task items (both shapes) in `src/channels/http/api/v1/agents/task.rs`, using `TaskRunStorage`
-- [ ] T068 [P] [US3] Add a `SkillListing` (`agent`/`global`; `name`/`updated`), opt-in paging, and `base_hash` handling (`409 stale_content` with the current content) on update in `src/channels/http/api/v1/skills.rs` and `src/channels/http/api/v1/agents/skills.rs`
-- [ ] T069 [P] [US3] Accept `base_seq` on `PUT /agents/{id}/core` in `src/channels/http/api/v1/agents/core.rs`, answering `409 stale_revision` with `latest_seq` and the content on a mismatch
-- [ ] T070 [P] [US3] Add bundle sorts `documents`/`updated`/`links` and `total` on `GET /agents/{id}/memory/bundles` in `src/channels/http/api/v1/agents/memory.rs` (existing offset/limit kept)
-- [ ] T071 [US3] Add `dream_cycle: Option<String>` to `RevisionOrigin` in `src/schema/revision.rs`, filled by `from_session` from a dream session's topic. Extend the existing unit test with a dream session
-- [ ] T072 [US3] Add the `dream_cycle_id` column (`add_column_if_missing`) and the index `(agent_id, dream_cycle_id)` on `core_revision` and `memory_revision` in `src/storage/sqlite/mod.rs`. Write it from `RevisionOrigin` in `src/storage/sqlite/core_revision.rs` and `src/storage/sqlite/memory_revision.rs` (the single write paths)
-- [ ] T073 [US3] Add `DreamChange`, `ChangeKind`, `DreamCycle`, `DreamCycleState`, `DreamNight` and `DreamNights` in `src/schema/dream_journal.rs`, plus a pure `change_kind(prev, rev)` and the legacy window attribution as pure functions with `#[cfg(test)]` units (data-model §2.4: wrote/revised/removed/core, windows ±1 min, unattributed)
-- [ ] T074 [US3] Add storage queries for cycles and their changes (by `dream_cycle_id`, with the legacy-window fallback) and per-night summaries in `src/storage/sqlite/dream_journal.rs`, exposed through `DreamJournalStorage` in `src/storage/dream_journal.rs` and forwarded in `src/storage/mod.rs`
-- [ ] T075 [US3] Add `GET /agents/{id}/dream/nights?days&tz` and `GET /agents/{id}/dream/cycles?before&limit` in `src/channels/http/api/v1/agents/dream.rs`:
+- [X] T066 [US3] Add an `AgentListing` (`Listing` impl: filters `mine`/`live`/`failed`, sorts `last_active`/`name`) and opt-in paging on `GET /agents` in `src/channels/http/api/v1/agents/mod.rs` (unpaged response unchanged)
+- [X] T067 [P] [US3] Add a `TaskListing` (`active`, `last_run_failed`; `next_run`, `name`, `last_run`), opt-in paging, and `last_run: {id, ran_at, outcome} | null` on task items (both shapes) in `src/channels/http/api/v1/agents/task.rs`, using `TaskRunStorage`
+- [X] T068 [P] [US3] Add a `SkillListing` (`agent`/`global`; `name`/`updated`), opt-in paging, and `base_hash` handling (`409 stale_content` with the current content) on update in `src/channels/http/api/v1/skills.rs` and `src/channels/http/api/v1/agents/skills.rs`
+- [X] T069 [P] [US3] Accept `base_seq` on `PUT /agents/{id}/core` in `src/channels/http/api/v1/agents/core.rs`, answering `409 stale_revision` with `latest_seq` and the content on a mismatch
+- [X] T070 [P] [US3] Add bundle sorts `documents`/`updated`/`links` and `total` on `GET /agents/{id}/memory/bundles` in `src/channels/http/api/v1/agents/memory.rs` (existing offset/limit kept)
+- [X] T071 [US3] Add `dream_cycle: Option<String>` to `RevisionOrigin` in `src/schema/revision.rs`, filled by `from_session` from a dream session's topic. Extend the existing unit test with a dream session
+- [X] T072 [US3] Add the `dream_cycle_id` column (`add_column_if_missing`) and the index `(agent_id, dream_cycle_id)` on `core_revision` and `memory_revision` in `src/storage/sqlite/mod.rs`. Write it from `RevisionOrigin` in `src/storage/sqlite/core_revision.rs` and `src/storage/sqlite/memory_revision.rs` (the single write paths)
+- [X] T073 [US3] Add `DreamChange`, `ChangeKind`, `DreamCycle`, `DreamCycleState`, `DreamNight` and `DreamNights` in `src/schema/dream_journal.rs`, plus a pure `change_kind(prev, rev)` and the legacy window attribution as pure functions with `#[cfg(test)]` units (data-model §2.4: wrote/revised/removed/core, windows ±1 min, unattributed)
+- [X] T074 [US3] Add storage queries for cycles and their changes (by `dream_cycle_id`, with the legacy-window fallback) and per-night summaries in `src/storage/sqlite/dream_journal.rs`, exposed through `DreamJournalStorage` in `src/storage/dream_journal.rs` and forwarded in `src/storage/mod.rs`
+- [X] T075 [US3] Add `GET /agents/{id}/dream/nights?days&tz` and `GET /agents/{id}/dream/cycles?before&limit` in `src/channels/http/api/v1/agents/dream.rs`:
   - the state comes from `DreamStatus`
   - the cost comes from `usage_event` rows with the cycle's topic
   - `#[utoipa::path]`
 
   See [contracts/http-api.md](contracts/http-api.md)
-- [ ] T076 [US3] Regenerate `webui/openapi.json` + `webui/app/api/schema.d.ts` with `scripts/openapi.mjs`
+- [X] T076 [US3] Regenerate `webui/openapi.json` + `webui/app/api/schema.d.ts` with `scripts/openapi.mjs`
 
 ### Design library for User Story 3
 

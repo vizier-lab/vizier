@@ -96,6 +96,10 @@ impl RevisionTrigger {
 pub struct RevisionOrigin {
     pub actor: RevisionActor,
     pub trigger: RevisionTrigger,
+    /// The dream cycle that made the change, when it came from one (`specs/024-webui-rewrite`,
+    /// FR-018c). Recorded so a night can say exactly what it wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dream_cycle: Option<String>,
 }
 
 impl RevisionOrigin {
@@ -103,6 +107,7 @@ impl RevisionOrigin {
         Self {
             actor: RevisionActor::System,
             trigger,
+            dream_cycle: None,
         }
     }
 
@@ -118,9 +123,15 @@ impl RevisionOrigin {
             VizierChannelId::Dream(..) => RevisionTrigger::Dream,
             _ => RevisionTrigger::Conversation,
         };
+        // A dream session's topic is its cycle id.
+        let dream_cycle = match &session.1 {
+            VizierChannelId::Dream(..) => session.2.clone(),
+            _ => None,
+        };
         Self {
             actor: RevisionActor::Agent,
             trigger,
+            dream_cycle,
         }
     }
 
@@ -137,6 +148,7 @@ impl RevisionOrigin {
                 username: user.username.clone(),
             },
             trigger,
+            dream_cycle: None,
         }
     }
 }
@@ -260,11 +272,12 @@ mod tests {
         let session = VizierSession(
             "agent-1".into(),
             VizierChannelId::Dream(Box::new(base_session()), DreamStage::Extraction),
-            None,
+            Some("cycle-7".into()),
         );
         let origin = RevisionOrigin::from_session(&session);
         assert_eq!(origin.actor, RevisionActor::Agent);
         assert_eq!(origin.trigger, RevisionTrigger::Dream);
+        assert_eq!(origin.dream_cycle.as_deref(), Some("cycle-7"));
     }
 
     #[test]
@@ -279,6 +292,7 @@ mod tests {
             let origin = RevisionOrigin::from_session(&VizierSession("a".into(), channel, None));
             assert_eq!(origin.trigger, RevisionTrigger::Conversation);
             assert_eq!(origin.actor, RevisionActor::Agent);
+            assert_eq!(origin.dream_cycle, None);
         }
     }
 

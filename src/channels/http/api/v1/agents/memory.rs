@@ -27,6 +27,7 @@ use crate::{
 };
 
 use super::user_can_view_agent;
+use crate::channels::http::models::page::{self, ListQuery, Listing, SortKey, SortOrder};
 
 pub fn memory() -> Router<HTTPState> {
     Router::new()
@@ -742,11 +743,55 @@ pub async fn delete_memory_scoped(
     do_delete_memory(&state, agent_id, Some(bundle), path, &user).await
 }
 
+/// Search by name; sorts `documents` (most first), `updated` (newest first), `links` (most
+/// first) and `name`. No filters.
+struct BundleListing;
+
+impl Listing<BundleSummary> for BundleListing {
+    fn matches(&self, item: &BundleSummary, q: &str) -> bool {
+        item.name.to_lowercase().contains(q)
+    }
+
+    fn filter_keys(&self, _: &[BundleSummary]) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn in_filter(&self, _: &str, _: &BundleSummary) -> bool {
+        false
+    }
+
+    fn sort_key(&self, item: &BundleSummary, sort: &str) -> SortKey {
+        match sort {
+            "updated" => SortKey::Num(item.updated_at.map_or(0, |t| t.timestamp_millis())),
+            "links" => SortKey::Num(item.link_count as i64),
+            "name" => SortKey::text(&item.name),
+            _ => SortKey::Num(item.concept_count as i64),
+        }
+    }
+
+    fn sorts(&self) -> &'static [&'static str] {
+        &["documents", "updated", "links", "name"]
+    }
+
+    fn default_order(&self, sort: &str) -> SortOrder {
+        if sort == "name" { SortOrder::Asc } else { SortOrder::Desc }
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/memory/bundles",
+    params(("agent_id" = String, Path, description = "Agent ID"), ListQuery),
+    responses(
+        (status = 200, description = "Bundles; with `limit`, a page `{items, total, counts}` (sorts `documents`, `updated`, `links`, `name`)", body = APIResponse<Vec<BundleSummary>>)
+    )
+)]
 pub async fn list_bundles(
     Path(agent_id): Path<String>,
+    Query(query): Query<ListQuery>,
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
-) -> models::response::Response<Vec<BundleSummary>> {
+) -> models::response::Response<serde_json::Value> {
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
@@ -756,7 +801,7 @@ pub async fn list_bundles(
         .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::ListBundles)
         .await
     {
-        Ok(crate::schema::MemoryOpResponse::Bundles(bundles)) => api_response(StatusCode::OK, bundles),
+        Ok(crate::schema::MemoryOpResponse::Bundles(bundles)) => page::respond(bundles, &BundleListing, &query),
         Ok(_) => err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "unexpected response".into(),

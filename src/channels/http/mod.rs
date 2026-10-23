@@ -106,6 +106,9 @@ impl VizierChannel for HTTPChannel {
         api::v1::agents::update_agent,
         api::v1::agents::delete_agent,
         api::v1::agents::restart_agent,
+        api::v1::agents::dream::dream_nights,
+        api::v1::agents::dream::dream_cycles,
+        api::v1::agents::memory::list_bundles,
         api::v1::agents::agent_usage,
         api::v1::agents::agent_usage_conversation,
         api::v1::agents::channel::list_topics,
@@ -172,6 +175,9 @@ impl VizierChannel for HTTPChannel {
     ),
     components(
         schemas(
+            crate::channels::http::models::page::SortOrder,
+            api::v1::agents::AgentListItem,
+            api::v1::agents::dream::DreamCycles,
             api::v1::auth::LoginRequest,
             api::v1::auth::LoginResponse,
             api::v1::auth::ChangePasswordRequest,

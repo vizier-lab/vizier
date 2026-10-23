@@ -8,6 +8,13 @@ use crate::{
 
 #[async_trait::async_trait]
 pub trait HistoryStorage {
+    /// The newest history entry of each agent that has any: when it was last active.
+    async fn last_activity_by_agent(
+        &self,
+    ) -> Result<std::collections::HashMap<String, chrono::DateTime<chrono::Utc>>> {
+        Ok(Default::default())
+    }
+
     async fn save_session_history(
         &self,
         session: VizierSession,
@@ -95,6 +102,12 @@ pub async fn save_with_busy_retry(
 
 #[async_trait::async_trait]
 impl HistoryStorage for VizierStorage {
+    async fn last_activity_by_agent(
+        &self,
+    ) -> Result<std::collections::HashMap<String, chrono::DateTime<chrono::Utc>>> {
+        self.0.last_activity_by_agent().await
+    }
+
     async fn save_session_history(
         &self,
         session: VizierSession,

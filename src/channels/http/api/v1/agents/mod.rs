@@ -38,6 +38,8 @@ pub mod skills;
 pub mod task;
 
 use channel::channel;
+use crate::channels::http::models::page::{self, ListQuery, Listing, SortKey, SortOrder};
+use crate::storage::session::SessionStorage;
 use core::core;
 use dream::dream;
 use jobs::jobs;
@@ -104,44 +106,131 @@ pub fn agents() -> Router<HTTPState> {
         .nest("/{agent_id}/integrations", integrations::integrations())
 }
 
+/// One row of `GET /agents`: the summary, plus when the agent was last active.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct AgentListItem {
+    #[serde(flatten)]
+    pub summary: AgentSummary,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_active: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(skip)]
+    #[schema(ignore)]
+    mine: bool,
+    #[serde(skip)]
+    #[schema(ignore)]
+    live: bool,
+    #[serde(skip)]
+    #[schema(ignore)]
+    failed: bool,
+}
+
+/// Filters `mine`/`live`/`failed`; sorts `last_active` (newest first) and `name`.
+struct AgentListing;
+
+impl Listing<AgentListItem> for AgentListing {
+    fn matches(&self, item: &AgentListItem, q: &str) -> bool {
+        item.summary.name.to_lowercase().contains(q)
+            || item.summary.agent_id.to_lowercase().contains(q)
+            || item.summary.description.as_deref().is_some_and(|d| d.to_lowercase().contains(q))
+    }
+
+    fn filter_keys(&self, _: &[AgentListItem]) -> Vec<String> {
+        vec!["mine".into(), "live".into(), "failed".into()]
+    }
+
+    fn in_filter(&self, filter: &str, item: &AgentListItem) -> bool {
+        match filter {
+            "mine" => item.mine,
+            "live" => item.live,
+            "failed" => item.failed,
+            _ => false,
+        }
+    }
+
+    fn sort_key(&self, item: &AgentListItem, sort: &str) -> SortKey {
+        match sort {
+            "name" => SortKey::text(&item.summary.name),
+            _ => SortKey::Num(item.last_active.map_or(0, |t| t.timestamp_millis())),
+        }
+    }
+
+    fn sorts(&self) -> &'static [&'static str] {
+        &["last_active", "name"]
+    }
+
+    fn default_order(&self, sort: &str) -> SortOrder {
+        if sort == "last_active" { SortOrder::Desc } else { SortOrder::Asc }
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/agents",
+    params(ListQuery),
     responses(
-        (status = 200, description = "List of agents", body = APIResponse<Vec<AgentSummary>>)
+        (status = 200, description = "List of agents; with `limit`, a page `{items, total, counts}` (filters `mine`, `live`, `failed`; sorts `last_active`, `name`)", body = APIResponse<Vec<AgentListItem>>),
+        (status = 400, description = "Unknown filter", body = APIResponse<String>)
     )
 )]
 async fn list_agents(
     State(state): State<HTTPState>,
+    Query(query): Query<ListQuery>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
-) -> models::response::Response<Vec<AgentSummary>> {
-    match state.storage.list_agents().await {
-        Ok(agents) => {
-            let mut res = Vec::new();
-            for (id, config) in agents {
-                if !user_can_view_agent(&user, &config) {
-                    continue;
-                }
+) -> models::response::Response<serde_json::Value> {
+    let agents = match state.storage.list_agents().await {
+        Ok(agents) => agents,
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    // Only what the listing needs: skipped without a `limit`, which has always been just names.
+    let (last_active, live, failed) = if query.is_paged() {
+        let failed: std::collections::HashSet<String> = state
+            .transport
+            .agent_health()
+            .await
+            .map(|h| {
+                h.into_iter()
+                    .filter(|s| s.state == crate::schema::AgentRunState::Failed)
+                    .map(|s| s.agent_id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        (
+            state.storage.last_activity_by_agent().await.unwrap_or_default(),
+            state.storage.thinking_agents().await.unwrap_or_default(),
+            failed,
+        )
+    } else {
+        Default::default()
+    };
 
-                let owner_username = if let Some(ref owner_id) = config.owner_id {
-                    state.storage.get_user_by_id(owner_id).await.ok().flatten().map(|u| u.username)
-                } else {
-                    None
-                };
-                res.push(AgentSummary {
-                    agent_id: id,
-                    name: config.name,
-                    description: config.description,
-                    avatar_url: config.avatar_url,
-                    owner_username,
-                    owner_id: config.owner_id.clone(),
-                    shared_to: config.shared_to,
-                });
-            }
-            api_response(StatusCode::OK, res)
+    let mut res = Vec::new();
+    for (id, config) in agents {
+        if !user_can_view_agent(&user, &config) {
+            continue;
         }
-        Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
+
+        let owner_username = if let Some(ref owner_id) = config.owner_id {
+            state.storage.get_user_by_id(owner_id).await.ok().flatten().map(|u| u.username)
+        } else {
+            None
+        };
+        res.push(AgentListItem {
+            last_active: last_active.get(&id).copied(),
+            mine: config.owner_id.as_deref() == Some(user.user_id.as_str()),
+            live: live.contains(&id),
+            failed: failed.contains(&id),
+            summary: AgentSummary {
+                agent_id: id,
+                name: config.name,
+                description: config.description,
+                avatar_url: config.avatar_url,
+                owner_username,
+                owner_id: config.owner_id.clone(),
+                shared_to: config.shared_to,
+            },
+        });
     }
+    page::respond(res, &AgentListing, &query)
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]

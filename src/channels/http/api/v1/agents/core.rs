@@ -31,10 +31,24 @@ pub fn core() -> Router<HTTPState> {
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateCoreRequest {
     content: String,
+    /// The revision this edit started from (`seq` of `GET /core`). When CORE has moved on, the
+    /// save is refused with `409 stale_revision` instead of overwriting the newer text.
+    #[serde(default)]
+    base_seq: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct CoreContentResponse {
+    pub content: String,
+    /// The current revision, to send back as `base_seq`. Absent when CORE has no history yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seq: Option<i64>,
+}
+
+/// `data` of a `409 stale_revision`.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct CoreConflict {
+    pub latest_seq: i64,
     pub content: String,
 }
 
@@ -94,9 +108,10 @@ pub async fn get_core(
         return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
+    let seq = latest_seq(&state, &agent_id).await;
     match state.storage.get_agent_core(&agent_id).await {
-        Ok(Some(content)) => api_response(StatusCode::OK, CoreContentResponse { content }),
-        Ok(None) => api_response(StatusCode::OK, CoreContentResponse { content: String::new() }),
+        Ok(Some(content)) => api_response(StatusCode::OK, CoreContentResponse { content, seq }),
+        Ok(None) => api_response(StatusCode::OK, CoreContentResponse { content: String::new(), seq }),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("failed to read CORE: {}", e)),
     }
 }
@@ -110,6 +125,7 @@ pub async fn get_core(
     request_body = UpdateCoreRequest,
     responses(
         (status = 200, description = "CORE updated successfully", body = APIResponse<CoreUpdateResponse>),
+        (status = 409, description = "`base_seq` is not the current revision (`stale_revision`); `data` holds the current one", body = APIResponse<CoreConflict>),
         (status = 404, description = "Agent not found", body = APIResponse<String>),
         (status = 500, description = "Internal server error", body = APIResponse<String>)
     )
@@ -119,7 +135,7 @@ pub async fn update_core(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
     Json(body): Json<UpdateCoreRequest>,
-) -> models::response::Response<CoreUpdateResponse> {
+) -> models::response::Response<serde_json::Value> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
         Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
@@ -130,14 +146,42 @@ pub async fn update_core(
         return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
+    if let Some(base) = body.base_seq
+        && let Some(latest) = latest_seq(&state, &agent_id).await
+        && latest != base
+    {
+        let content = state.storage.get_agent_core(&agent_id).await.ok().flatten().unwrap_or_default();
+        return (
+            StatusCode::CONFLICT,
+            Json(models::response::APIResponse {
+                status: StatusCode::CONFLICT.as_u16(),
+                message: Some("stale_revision".into()),
+                data: serde_json::to_value(CoreConflict { latest_seq: latest, content }).ok(),
+            }),
+        );
+    }
+
     match state
         .storage
         .set_agent_core(&agent_id, &body.content, &RevisionOrigin::from_user(&user))
         .await
     {
-        Ok(_) => api_response(StatusCode::OK, CoreUpdateResponse { message: "CORE updated successfully".to_string() }),
+        Ok(_) => api_response(
+            StatusCode::OK,
+            serde_json::json!({ "message": "CORE updated successfully", "seq": latest_seq(&state, &agent_id).await }),
+        ),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("failed to update CORE: {}", e)),
     }
+}
+
+/// The newest CORE revision's `seq`, if CORE has any history.
+async fn latest_seq(state: &HTTPState, agent_id: &str) -> Option<i64> {
+    state
+        .storage
+        .list_core_revisions(agent_id, 0, 1)
+        .await
+        .ok()
+        .and_then(|page| page.revisions.first().map(|r| r.seq))
 }
 
 async fn require_viewable_agent(

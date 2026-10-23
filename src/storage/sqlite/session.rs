@@ -37,6 +37,15 @@ impl SessionStorage for SqliteStorage {
         Ok(())
     }
 
+    async fn thinking_agents(&self) -> Result<std::collections::HashSet<String>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT agent_id FROM session_detail WHERE json_extract(data, '$.is_thinking') = 1",
+        )?;
+        let ids = stmt.query_map([], |row| row.get::<_, String>(0))?.filter_map(|r| r.ok()).collect();
+        Ok(ids)
+    }
+
     async fn reset_thinking_except(&self, keep: &[crate::schema::VizierSession]) -> Result<usize> {
         let conn = self.conn.lock();
         let rows: Vec<(String, String, Option<String>, String)> = {

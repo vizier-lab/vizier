@@ -1,6 +1,11 @@
 use anyhow::Result;
 
-use crate::schema::{AgentId, DreamStage, dream_journal::DreamJournalEntry};
+use chrono::{DateTime, Utc};
+
+use crate::schema::{
+    AgentId, DreamStage,
+    dream_journal::{DreamEntryStub, DreamJournalEntry, DreamRevision},
+};
 
 use super::VizierStorage;
 
@@ -29,6 +34,24 @@ pub trait DreamJournalStorage {
         cycle_id: &str,
         stage: Option<DreamStage>,
     ) -> Result<Vec<DreamJournalEntry>>;
+
+    /// Journal entries since `since`, oldest first, without their text (spec 024).
+    async fn list_dream_entry_stubs(
+        &self,
+        _agent_id: AgentId,
+        _since: DateTime<Utc>,
+    ) -> Result<Vec<DreamEntryStub>> {
+        Ok(Vec::new())
+    }
+
+    /// Every CORE and memory revision a dream made since `since`, oldest first (spec 024).
+    async fn list_dream_revisions(
+        &self,
+        _agent_id: AgentId,
+        _since: DateTime<Utc>,
+    ) -> Result<Vec<DreamRevision>> {
+        Ok(Vec::new())
+    }
 }
 
 #[async_trait::async_trait]
@@ -71,5 +94,21 @@ impl DreamJournalStorage for VizierStorage {
         self.0
             .list_dream_entries_by_cycle(agent_id, cycle_id, stage)
             .await
+    }
+
+    async fn list_dream_entry_stubs(
+        &self,
+        agent_id: AgentId,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<DreamEntryStub>> {
+        self.0.list_dream_entry_stubs(agent_id, since).await
+    }
+
+    async fn list_dream_revisions(
+        &self,
+        agent_id: AgentId,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<DreamRevision>> {
+        self.0.list_dream_revisions(agent_id, since).await
     }
 }

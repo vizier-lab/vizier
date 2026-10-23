@@ -165,8 +165,8 @@ fn insert(
     conn.execute(
         "INSERT INTO memory_revision
             (agent_id, bundle, path, seq, content, deleted,
-             actor_kind, actor_id, actor_name, trigger, restored_from, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             actor_kind, actor_id, actor_name, trigger, restored_from, created_at, dream_cycle_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             agent_id,
             bundle,
@@ -180,6 +180,7 @@ fn insert(
             trigger,
             restored_from,
             Utc::now().timestamp_millis(),
+            origin.dream_cycle,
         ],
     )?;
     Ok(())
@@ -264,6 +265,7 @@ mod tests {
         RevisionOrigin {
             actor: RevisionActor::Agent,
             trigger: RevisionTrigger::Conversation,
+            dream_cycle: None,
         }
     }
 

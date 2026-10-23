@@ -93,8 +93,8 @@ fn insert(
     let (trigger, restored_from) = origin.trigger.to_columns();
     conn.execute(
         "INSERT INTO core_revision
-            (agent_id, seq, content, actor_kind, actor_id, actor_name, trigger, restored_from, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            (agent_id, seq, content, actor_kind, actor_id, actor_name, trigger, restored_from, created_at, dream_cycle_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             agent_id,
             seq,
@@ -105,6 +105,7 @@ fn insert(
             trigger,
             restored_from,
             Utc::now().timestamp_millis(),
+            origin.dream_cycle,
         ],
     )?;
     Ok(())
@@ -178,6 +179,7 @@ mod tests {
         RevisionOrigin {
             actor: RevisionActor::Agent,
             trigger: RevisionTrigger::Conversation,
+            dream_cycle: None,
         }
     }
 
@@ -240,6 +242,7 @@ mod tests {
                 username: "alice".into(),
             },
             trigger: RevisionTrigger::Rollback { restored_from: 1 },
+            dream_cycle: None,
         };
         record(&c, "a", "v2", &origin, Some("v1")).unwrap();
         let row = get(&c, "a", 2).unwrap().unwrap();

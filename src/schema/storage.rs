@@ -72,6 +72,9 @@ pub struct BundleSummary {
     pub name: String,
     pub concept_count: usize,
     pub updated_at: Option<DateTime<Utc>>,
+    /// Links from this bundle's documents (to anywhere), for the "Most linked" sort.
+    #[serde(default)]
+    pub link_count: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, utoipa::ToSchema)]

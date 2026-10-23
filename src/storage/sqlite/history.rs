@@ -164,6 +164,19 @@ fn is_non_user_channel(channel_slug: &str) -> bool {
 
 #[async_trait::async_trait]
 impl HistoryStorage for SqliteStorage {
+    async fn last_activity_by_agent(
+        &self,
+    ) -> anyhow::Result<std::collections::HashMap<String, DateTime<Utc>>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT agent_id, MAX(timestamp) FROM session_history GROUP BY agent_id")?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+            .filter_map(|r| r.ok())
+            .filter_map(|(id, ms)| DateTime::from_timestamp_millis(ms).map(|t| (id, t)))
+            .collect();
+        Ok(rows)
+    }
+
     async fn save_session_history(
         &self,
         session: VizierSession,

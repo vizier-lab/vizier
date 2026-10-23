@@ -22,6 +22,11 @@ pub trait SessionStorage {
         let _ = keep;
         Ok(0)
     }
+    /// The agents with a turn running now (a session marked thinking).
+    async fn thinking_agents(&self) -> Result<std::collections::HashSet<String>> {
+        Ok(Default::default())
+    }
+
     async fn get_session_detail_by_topic(
         &self,
         agent_id: AgentId,
@@ -45,6 +50,10 @@ pub trait SessionStorage {
 
 #[async_trait::async_trait]
 impl SessionStorage for VizierStorage {
+    async fn thinking_agents(&self) -> Result<std::collections::HashSet<String>> {
+        self.0.thinking_agents().await
+    }
+
     async fn reset_thinking_except(&self, keep: &[crate::schema::VizierSession]) -> Result<usize> {
         self.0.reset_thinking_except(keep).await
     }

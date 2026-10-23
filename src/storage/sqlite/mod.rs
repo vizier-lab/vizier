@@ -143,6 +143,15 @@ pub fn init_revision_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_mem_rev_agent ON memory_revision(agent_id);
         ",
     )?;
+    // The dream cycle that made a revision (spec 024). Tracked for removal in #82.
+    add_column_if_missing(conn, "core_revision", "dream_cycle_id", "TEXT")?;
+    add_column_if_missing(conn, "memory_revision", "dream_cycle_id", "TEXT")?;
+    conn.execute_batch(
+        "
+        CREATE INDEX IF NOT EXISTS idx_core_rev_cycle ON core_revision(agent_id, dream_cycle_id);
+        CREATE INDEX IF NOT EXISTS idx_mem_rev_cycle ON memory_revision(agent_id, dream_cycle_id);
+        ",
+    )?;
     Ok(())
 }
 
