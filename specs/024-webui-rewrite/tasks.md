@@ -68,7 +68,7 @@
 
 **⚠️ CRITICAL**: no story phase starts until this phase is complete.
 
-- [ ] T010 Add `ListQuery`, `SortOrder`, `Page<T>`, the `Listing<T>` trait and `paginate()` to `src/channels/http/models/page.rs`, and register the module in `src/channels/http/models/mod.rs`. Behaviour:
+- [X] T010 Add `ListQuery`, `SortOrder`, `Page<T>`, the `Listing<T>` trait and `paginate()` to `src/channels/http/models/page.rs`, and register the module in `src/channels/http/models/mod.rs`. Behaviour:
   - clamp `limit` to 1–100
   - `counts` per filter is computed after `q` and before `filter`
   - an unknown filter returns `400 unknown_filter`
