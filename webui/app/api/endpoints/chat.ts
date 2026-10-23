@@ -4,14 +4,16 @@ import type { BackgroundJobSnapshot, ChatMessage, SessionFileRecord, Topic } fro
 /** The channel every WebUI conversation lives on. */
 export const CHANNEL = 'vizier-webui'
 
-const base = (agentId: string, topicId: string) =>
-    `/agents/${agentId}/channel/${CHANNEL}/topic/${encodeURIComponent(topicId)}`
+const base = (agentId: string, topicId: string, channel: string = CHANNEL) =>
+    `/agents/${agentId}/channel/${encodeURIComponent(channel)}/topic/${encodeURIComponent(topicId)}`
 
 export const listTopics = (agentId: string) => api.get<Topic[]>(`/agents/${agentId}/channel/${CHANNEL}/topics`)
 
 export const topicDetail = (agentId: string, topicId: string) => api.get<Topic>(`${base(agentId, topicId)}/detail`)
 
 export interface HistoryCursor {
+    /** Read another channel (`discord__123`) instead of the WebUI's own. Read-only. */
+    channel?: string
     before?: string
     before_seq?: number | null
     limit?: number
@@ -23,7 +25,7 @@ export function topicHistory(agentId: string, topicId: string, cursor: HistoryCu
     if (cursor.before) qs.set('before', cursor.before)
     if (cursor.before_seq != null) qs.set('before_seq', String(cursor.before_seq))
     if (cursor.limit) qs.set('limit', String(cursor.limit))
-    return api.get<ChatMessage[]>(`${base(agentId, topicId)}/history?${qs}`)
+    return api.get<ChatMessage[]>(`${base(agentId, topicId, cursor.channel)}/history?${qs}`)
 }
 
 export const topicJobs = (agentId: string, topicId: string) =>

@@ -196,6 +196,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agent_id}/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The agent's conversations on the WebUI (the caller's own), Discord and Telegram, newest first. `q` searches titles and the text of the agent's newest 5,000 messages only, so an older match may not be found. */
+        get: operations["list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agent_id}/core": {
         parameters: {
             query?: never;
@@ -772,6 +789,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["overview_counts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/overview/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["activity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/overview/feed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["feed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ping": {
         parameters: {
             query?: never;
@@ -936,6 +1001,20 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        APIResponse_Activity: {
+            data?: {
+                agent_total: number;
+                all?: components["schemas"]["ActivityRow"] | null;
+                /** @description The start of each of the last 24 hours, oldest first, ending with the current hour. */
+                hours: string[];
+                /** @description At most 6: the top 5 when `all` is present, otherwise every agent. */
+                rows: components["schemas"]["ActivityRow"][];
+                today_by_kind?: components["schemas"]["TodayByKind"] | null;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_AgentDetail: {
             data?: {
                 agent_id: string;
@@ -1071,6 +1150,20 @@ export interface components {
                 attachments: components["schemas"]["VizierAttachment"][];
                 content: string;
                 stats?: components["schemas"]["VizierResponseStats"] | null;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_ConversationPage: {
+            data?: {
+                /** @description Matches per kind after `q`, ignoring `channel`. */
+                counts: components["schemas"]["ConversationCounts"];
+                items: components["schemas"]["ConversationItem"][];
+                /** @description Pass as `cursor` for the next page. */
+                next?: string | null;
+                /** @description Matches after `q` and `channel`, before paging. */
+                total: number;
             };
             message?: string | null;
             /** Format: int32 */
@@ -1216,6 +1309,21 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_Feed: {
+            data?: {
+                events: components["schemas"]["FeedEvent"][];
+                /** @description Pass as `before` for the next page; absent on the last one. */
+                next?: string | null;
+                /**
+                 * Format: date-time
+                 * @description Where the feed starts: the previous visit, or 24 hours ago.
+                 */
+                since: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_InUse: {
             /** @description The agents a delete would affect, for the WebUI's warning. */
             data?: {
@@ -1350,6 +1458,25 @@ export interface components {
                 /** Format: date */
                 release_date?: string | null;
                 status: components["schemas"]["ModelStatus"];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Overview: {
+            data?: {
+                /**
+                 * Format: date-time
+                 * @description Where complete usage accounting starts; spend from before it is partial.
+                 */
+                accounting_since?: string | null;
+                agents: components["schemas"]["AgentCounts"];
+                /**
+                 * Format: double
+                 * @description Today's estimated spend across these agents, in USD. Calls to models without a catalogue
+                 *     price add nothing.
+                 */
+                cost_today_usd: number;
             };
             message?: string | null;
             /** Format: int32 */
@@ -1869,11 +1996,35 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        Activity: {
+            agent_total: number;
+            all?: components["schemas"]["ActivityRow"] | null;
+            /** @description The start of each of the last 24 hours, oldest first, ending with the current hour. */
+            hours: string[];
+            /** @description At most 6: the top 5 when `all` is present, otherwise every agent. */
+            rows: components["schemas"]["ActivityRow"][];
+            today_by_kind?: components["schemas"]["TodayByKind"] | null;
+        };
+        ActivityRow: {
+            /** @description `null` for the "All N" row. */
+            agent_id?: string | null;
+            label: string;
+            live: boolean;
+            /** @description Turns started in each of the 24 hours of [`Activity::hours`]. */
+            turns: number[];
+        };
         /** @description An agent that would lose a provider, for the delete warning. */
         AffectedAgent: {
             features: string[];
             id: string;
             name: string;
+        };
+        AgentCounts: {
+            /** @description Failed to start or run, whatever their retry state. */
+            failed: number;
+            /** @description With a turn running now. */
+            live: number;
+            total: number;
         };
         AgentDetail: {
             agent_id: string;
@@ -2180,6 +2331,37 @@ export interface components {
          * @enum {string}
          */
         ContextSource: "override" | "catalogue" | "listing" | "name" | "unknown";
+        ConversationCounts: {
+            all: number;
+            discord: number;
+            telegram: number;
+            webui: number;
+        };
+        ConversationItem: {
+            /** @description The channel slug, which names the conversation in `/agents/{id}/channel/{channel}/…`. */
+            channel: string;
+            kind: components["schemas"]["ConversationKind"];
+            /** Format: date-time */
+            last_activity: string;
+            /** @description The topic with the newest message; empty without topics. */
+            latest_topic: string;
+            /** @description Under the title: "topic 3 of 5", or the server a Discord channel is in. */
+            place: string;
+            title: string;
+            /** Format: int64 */
+            topics: number;
+        };
+        /** @enum {string} */
+        ConversationKind: "webui" | "discord" | "telegram";
+        ConversationPage: {
+            /** @description Matches per kind after `q`, ignoring `channel`. */
+            counts: components["schemas"]["ConversationCounts"];
+            items: components["schemas"]["ConversationItem"][];
+            /** @description Pass as `cursor` for the next page. */
+            next?: string | null;
+            /** @description Matches after `q` and `channel`, before paging. */
+            total: number;
+        };
         ConversationRow: {
             /** @description The activity, and the model, that cost the most in this conversation. */
             activity: components["schemas"]["UsageActivity"];
@@ -2575,6 +2757,30 @@ export interface components {
             /** Format: int64 */
             turns: number;
         };
+        Feed: {
+            events: components["schemas"]["FeedEvent"][];
+            /** @description Pass as `before` for the next page; absent on the last one. */
+            next?: string | null;
+            /**
+             * Format: date-time
+             * @description Where the feed starts: the previous visit, or 24 hours ago.
+             */
+            since: string;
+        };
+        FeedEvent: {
+            agent_id: string;
+            /** Format: date-time */
+            at: string;
+            /** @description Where the WebUI takes the person to see more. */
+            href: string;
+            /** @description Stable across requests: `task_run:812`, `health:scribe`. */
+            id: string;
+            /** @description `start_failed`, `task_run`, `dream_cycle`, `background_job`, `integration`, `channel_replies`. */
+            kind: string;
+            text: string;
+            /** @description `failed` or `default`. */
+            tone: string;
+        };
         /** @enum {string} */
         FieldType: "secret" | "string" | "bool" | "string_list" | "secret_map" | "select";
         GetTasksQuery: {
@@ -2911,6 +3117,20 @@ export interface components {
         };
         /** @enum {string} */
         NoLinkReason: "no_web_page" | "deleted";
+        Overview: {
+            /**
+             * Format: date-time
+             * @description Where complete usage accounting starts; spend from before it is partial.
+             */
+            accounting_since?: string | null;
+            agents: components["schemas"]["AgentCounts"];
+            /**
+             * Format: double
+             * @description Today's estimated spend across these agents, in USD. Calls to models without a catalogue
+             *     price add nothing.
+             */
+            cost_today_usd: number;
+        };
         PaginatedCoreRevisions: {
             limit: number;
             offset: number;
@@ -3003,6 +3223,11 @@ export interface components {
             /** Format: double */
             threshold?: number;
         };
+        /**
+         * @description How agents are ordered when there are more rows than the grid shows.
+         * @enum {string}
+         */
+        Rank: "most_active" | "mine" | "live" | "failed";
         ReactionEntry: {
             emoji: string;
             user_id: string;
@@ -3363,6 +3588,16 @@ export interface components {
             ok: boolean;
             /** Format: int32 */
             status?: number | null;
+        };
+        TodayByKind: {
+            /** Format: int64 */
+            background: number;
+            /** Format: int64 */
+            chat: number;
+            /** Format: int64 */
+            dream_stages: number;
+            /** Format: int64 */
+            scheduled: number;
         };
         TopicEntry: {
             agent_id: string;
@@ -4265,6 +4500,59 @@ export interface operations {
             };
             /** @description Agent response timeout */
             408: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Matches titles, and message text within the agent's newest 5,000 messages. */
+                q: string | null;
+                channel: components["schemas"]["ConversationKind"] | null;
+                /** @description The `next` of the previous page. */
+                cursor: string | null;
+                /** @description 1–100; default 25. */
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of conversations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ConversationPage"];
+                };
+            };
+            /** @description A cursor that isn't one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description The caller can't see this agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such agent */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6312,6 +6600,87 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    overview_counts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The person's UTC offset, e.g. `+07:00`; default UTC. */
+                tz: string | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Counts and today's spend across the agents the caller can see */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Overview"];
+                };
+            };
+        };
+    };
+    activity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rank: components["schemas"]["Rank"] | null;
+                /** @description The person's UTC offset, e.g. `+07:00`; default UTC. */
+                tz: string | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Turns per hour for the last 24 hours, for the agents the caller can see */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Activity"];
+                };
+            };
+        };
+    };
+    feed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The `next` of the previous page. */
+                before: string | null;
+                /** @description 1–50; default 20. */
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What happened since the caller's previous visit (else the last 24 hours), newest first, with start failures pinned to the top of the first page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Feed"];
+                };
+            };
+            /** @description A cursor that isn't one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
             };
         };
     };

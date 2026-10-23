@@ -14,6 +14,7 @@ export default [
             route('agents/new', 'routes/agent-new.tsx'),
 
             route(':agentId/chat', 'routes/chat.tsx', { id: 'chat-latest' }),
+            route(':agentId/chat/read', 'routes/chat-read.tsx'),
             route(':agentId/chat/:topicId', 'routes/chat.tsx', { id: 'chat-topic' }),
             route(':agentId/core', 'routes/agent-core.tsx'),
             route(':agentId/memory', 'routes/memory.tsx', { id: 'memory-all' }),

@@ -1,4 +1,4 @@
-import { HighlightMatch, JobsPill, Picker, PickerAction, TopicHeader } from '@vizier/design'
+import { JobsPill } from '@vizier/design'
 import { nanoid } from 'nanoid'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
@@ -7,6 +7,7 @@ import type { Topic, Turn } from '../api/frames'
 import type { ClientCallView } from '../api/frames'
 import { emptyTopic } from '../lib/frames'
 import { requestText } from '../lib/messages'
+import { ConversationHeader } from '../screens/chat/ConversationHeader'
 import { AgentStateBanner } from '../screens/chat/AgentStateBanner'
 import { BackgroundJobsPanel } from '../screens/chat/BackgroundJobsPanel'
 import { renderClientCalls } from '../screens/chat/ClientCalls'
@@ -33,8 +34,6 @@ export default function Chat() {
     const agentName = agent?.name ?? agentId
 
     const [topics, setTopics] = useState<Topic[]>([])
-    const [pickerOpen, setPickerOpen] = useState(false)
-    const [query, setQuery] = useState('')
     const [panel, setPanel] = useState(true)
 
     // No topic in the URL: the latest one, or a fresh one.
@@ -106,38 +105,24 @@ export default function Chat() {
     const topicIndex = topics.findIndex((t) => t.topic_id === topicId)
     const title = topics[topicIndex]?.title || topicId || 'New topic'
 
-    const filtered = topics.filter((t) => !query || (t.title ?? t.topic_id).toLowerCase().includes(query.toLowerCase()))
-
     return (
         <div data-chat-area className="flex min-h-0 flex-1">
             <div className="flex min-w-0 flex-1 flex-col">
-                <header className="flex items-center gap-12 border-b border-border px-24 py-12">
-                    <Picker<Topic>
-                        label="Conversations"
-                        open={pickerOpen}
-                        onOpenChange={setPickerOpen}
-                        trigger={<TopicHeader topic={title} meta={topicIndex >= 0 ? `webui · topic ${topicIndex + 1} of ${topics.length}` : 'webui · new topic'} />}
-                        search={{ placeholder: 'Search conversations', value: query, onChange: setQuery, total: `${topics.length}` }}
-                        sections={[{ items: filtered }]}
-                        getKey={(t) => t.topic_id}
-                        renderItem={(t, { query: q }) => (
-                            <span className="truncate type-body text-fg">
-                                <HighlightMatch text={t.title || t.topic_id} query={q} />
-                            </span>
-                        )}
-                        onSelect={(t) => navigate(`/${agentId}/chat/${t.topic_id}`)}
-                        footer={
-                            <PickerAction icon="plus" onClick={() => navigate(`/${agentId}/chat/${nanoid(10)}`)}>
-                                New topic
-                            </PickerAction>
-                        }
-                    />
-                    <div className="flex-1" />
-                    <JobsPill count={runningJobs} onClick={() => setPanel(true)} open={panel} />
-                    <button type="button" className="type-small text-muted hover:text-fg" onClick={() => setPanel((p) => !p)} aria-pressed={panel}>
-                        {panel ? 'Hide panel' : 'Show panel'}
-                    </button>
-                </header>
+                <ConversationHeader
+                    agentId={agentId}
+                    title={title}
+                    meta={topicIndex >= 0 ? `webui · topic ${topicIndex + 1} of ${topics.length}` : 'webui · new topic'}
+                    current={{ topic: topicId }}
+                    liveTopics={topics.filter((t) => t.is_thinking).map((t) => t.topic_id)}
+                    trailing={
+                        <>
+                            <JobsPill count={runningJobs} onClick={() => setPanel(true)} open={panel} />
+                            <button type="button" className="type-small text-muted hover:text-fg" onClick={() => setPanel((p) => !p)} aria-pressed={panel}>
+                                {panel ? 'Hide panel' : 'Show panel'}
+                            </button>
+                        </>
+                    }
+                />
 
                 <AgentStateBanner
                     agentName={agentName}

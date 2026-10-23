@@ -1,11 +1,14 @@
-import { AgentCard, Button, Callout, EmptyState, FilterTabs, LoadMore, SearchField, SetupStepCard } from '@vizier/design'
-import { useEffect, useMemo, useState } from 'react'
+import { AgentCard, Button, Callout, EmptyState, FilterTabs, LoadMore, PageHeader, SearchField, SetupStepCard } from '@vizier/design'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { paged } from '../api/client'
 import type { Agent, AgentHealth } from '../api/endpoints/agents'
 import { count, relativeTime } from '../lib/format'
 import { usePagedList } from '../lib/usePagedList'
-import { PageFrame } from '../screens/shared/PageFrame'
+import { getOverview, type Overview } from '../api/endpoints/overview'
+import { greetingMeta } from '../lib/overview'
+import { ActivityPanel } from '../screens/home/ActivityPanel'
+import { AwayFeed } from '../screens/home/AwayFeed'
 import { useAgents } from '../stores/agents'
 import { useSession } from '../stores/session'
 
@@ -123,13 +126,16 @@ function FirstRun({ hasProvider }: { hasProvider: boolean }) {
 }
 
 export default function Home() {
+    const navigate = useNavigate()
     const agents = useAgents((s) => s.agents)
     const loaded = useAgents((s) => s.loaded)
     const health = useAgents((s) => s.health)
     const user = useSession((s) => s.user)
+    const canCreate = useSession((s) => s.can('all_agents:create'))
     const [recent, setRecent] = useState<AgentRow[] | null>(null)
     const [showAll, setShowAll] = useState(false)
     const [hasProvider, setHasProvider] = useState(false)
+    const [overview, setOverview] = useState<Overview>()
 
     useEffect(() => {
         let alive = true
@@ -138,6 +144,17 @@ export default function Home() {
             .catch(() => alive && setRecent([]))
         return () => {
             alive = false
+        }
+    }, [agents.length])
+
+    useEffect(() => {
+        let alive = true
+        const load = () => getOverview().then((o) => alive && setOverview(o), () => {})
+        void load()
+        const id = setInterval(() => document.visibilityState === 'visible' && void load(), 30_000)
+        return () => {
+            alive = false
+            clearInterval(id)
         }
     }, [agents.length])
 
@@ -151,34 +168,54 @@ export default function Home() {
         )
     }, [agents.length])
 
-    const failed = useMemo(() => Object.values(health).filter((h) => h.state === 'failed').length, [health])
-    const hello = user ? `Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, ${user.username}` : 'Welcome'
+    const hour = new Date().getHours()
+    const hello = user ? `Good ${hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'}, ${user.username}.` : 'Welcome'
+    const firstRun = loaded && agents.length === 0
 
     return (
-        <PageFrame
-            title={hello}
-            meta={loaded ? `${count(agents.length)} agent${agents.length === 1 ? '' : 's'} at court${failed ? ` · ${failed} failed` : ''}` : undefined}
-        >
-            {loaded && agents.length === 0 ? (
-                <FirstRun hasProvider={hasProvider} />
-            ) : showAll ? (
-                <AllAgents health={health} />
-            ) : (
-                <section aria-label="The court" className="flex flex-col gap-16">
-                    <div className="grid grid-cols-1 gap-12 md:grid-cols-2 xl:grid-cols-3">
-                        {(recent ?? []).map((a) => (
-                            <Card key={a.agent_id} agent={a} health={health[a.agent_id]} />
-                        ))}
-                    </div>
-                    {agents.length > COURT && (
-                        <div>
-                            <Button variant="secondary" onClick={() => setShowAll(true)}>
-                                Show all {count(agents.length)} agents
-                            </Button>
-                        </div>
+        <div className="flex min-h-0 flex-1">
+            <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+                <div className="mx-auto flex w-full max-w-5xl flex-col gap-24 px-32 py-32">
+                    <PageHeader
+                        title={hello}
+                        meta={overview ? greetingMeta(overview) : undefined}
+                        actions={
+                            canCreate ? (
+                                <Button variant="primary" icon="plus" onClick={() => navigate('/agents/new')}>
+                                    New agent
+                                </Button>
+                            ) : undefined
+                        }
+                    />
+                    <ActivityPanel />
+                    {firstRun ? (
+                        <FirstRun hasProvider={hasProvider} />
+                    ) : showAll ? (
+                        <AllAgents health={health} />
+                    ) : (
+                        <section id="the-court" aria-label="The court" className="flex flex-col gap-16">
+                            <h2 className="type-ui-strong text-fg">The court</h2>
+                            <div className="grid grid-cols-1 gap-12 md:grid-cols-2 xl:grid-cols-3">
+                                {(recent ?? []).map((a) => (
+                                    <Card key={a.agent_id} agent={a} health={health[a.agent_id]} />
+                                ))}
+                            </div>
+                            {agents.length > COURT && (
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAll(true)}
+                                    className="rounded-lg border border-dashed border-border-strong px-16 py-14 type-ui text-muted hover:text-fg"
+                                >
+                                    Show all {count(agents.length)} agents <span className="text-faint">sorted by last active</span>
+                                </button>
+                            )}
+                        </section>
                     )}
-                </section>
-            )}
-        </PageFrame>
+                </div>
+            </div>
+            <div className="hidden w-340 shrink-0 overflow-y-auto border-l border-border px-24 py-32 xl:block">
+                <AwayFeed />
+            </div>
+        </div>
     )
 }
