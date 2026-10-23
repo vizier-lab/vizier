@@ -4,6 +4,8 @@ install:
   cargo fetch
   @echo -e "\n\\e[1;32mDone\\e[0m"
   @echo -e "\n\\e[1;34minstalling webui dependencies\\e[0m\n"
+  git submodule update --init --recursive
+  cd design && npm i
   cd webui && npm i
   @echo -e "\n\\e[1;32mDone\\e[0m"
 

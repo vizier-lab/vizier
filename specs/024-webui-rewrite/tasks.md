@@ -41,19 +41,19 @@
 
 **Purpose**: the repository switch and an empty, building new app.
 
-- [ ] T001 Create the first commit of the `vizier-lab/webui` repository (README stub, MIT `LICENSE`, `.gitignore` for `node_modules/`, `build/`, `.react-router/`, `test-results/`) and push it to `git@github.com:vizier-lab/webui.git` (confirm with the maintainer before pushing)
-- [ ] T002 Move the old app: `git mv webui legacy` in vizier. Leave its contents unchanged and don't touch `legacy/` again in any later task
-- [ ] T003 Add the submodule: `git submodule add https://github.com/vizier-lab/webui.git webui`, then `git -C webui remote set-url --push origin git@github.com:vizier-lab/webui.git`, which updates `.gitmodules`
-- [ ] T004 Scaffold the app in `webui/`:
+- [X] T001 Create the first commit of the `vizier-lab/webui` repository (README stub, MIT `LICENSE`, `.gitignore` for `node_modules/`, `build/`, `.react-router/`, `test-results/`) and push it to `git@github.com:vizier-lab/webui.git` (confirm with the maintainer before pushing)
+- [X] T002 Move the old app: `git mv webui legacy` in vizier. Leave its contents unchanged and don't touch `legacy/` again in any later task
+- [X] T003 Add the submodule: `git submodule add https://github.com/vizier-lab/webui.git webui`, then `git -C webui remote set-url --push origin git@github.com:vizier-lab/webui.git`, which updates `.gitmodules`
+- [X] T004 Scaffold the app in `webui/`:
   - `webui/package.json`: React 19, react-router 7.12 + `@react-router/dev`, Tailwind 4 + `@tailwindcss/vite`, Vite 7, zustand, react-markdown, remark-gfm, rehype-highlight, nanoid, `"@vizier/design": "file:../design"`; dev: typescript 5.9, vitest, `@playwright/test`, openapi-typescript. Scripts: `dev`, `build`, `typecheck` (`react-router typegen && tsc`), `test`, `e2e`, `gen:api`.
   - `webui/react-router.config.ts` with `ssr: false`.
   - `webui/vite.config.ts` with `resolve.dedupe: ["react","react-dom"]` and a `/api` proxy to `VIZIER_URL` (default `http://localhost:9999`, ws included).
   - `webui/tsconfig.json` with the React types `paths` from `design/README.md`.
-- [ ] T005 Create `webui/app/root.tsx` (html shell, `<html data-theme>` from the stored choice, or no attribute to follow the OS) and `webui/app/app.css` with `@import "@vizier/design/styles.css";` and `@source "../../design/src";`. Then check that `npm run build` writes `webui/build/client/index.html`
-- [ ] T006 [P] Add ESLint and Prettier configs in `webui/eslint.config.mjs` and `webui/prettier.config.js`, carrying over the rules from `legacy/eslint.config.mjs` and `legacy/prettier.config.js`
-- [ ] T007 [P] Update `justfile`: `install` runs `git submodule update --init --recursive`, then `npm i` in `design/` and `webui/`, then `cargo fetch`. `build` runs `cd webui && npm run build`
-- [ ] T008 [P] Add `scripts/openapi.mjs` (Node ≥ 22, no dependencies). It fetches `${VIZIER_URL}/openapi.json`, writes it to `webui/openapi.json`, and runs `npm run gen:api` in `webui/`. `gen:api` runs openapi-typescript into `webui/app/api/schema.d.ts`
-- [ ] T009 [P] Add the test harness:
+- [X] T005 Create `webui/app/root.tsx` (html shell, `<html data-theme>` from the stored choice, or no attribute to follow the OS) and `webui/app/app.css` with `@import "@vizier/design/styles.css";` and `@source "../../design/src";`. Then check that `npm run build` writes `webui/build/client/index.html`
+- [X] T006 [P] Add ESLint and Prettier configs in `webui/eslint.config.mjs` and `webui/prettier.config.js`, carrying over the rules from `legacy/eslint.config.mjs` and `legacy/prettier.config.js`
+- [X] T007 [P] Update `justfile`: `install` runs `git submodule update --init --recursive`, then `npm i` in `design/` and `webui/`, then `cargo fetch`. `build` runs `cd webui && npm run build`
+- [X] T008 [P] Add `scripts/openapi.mjs` (Node ≥ 22, no dependencies). It fetches `${VIZIER_URL}/openapi.json`, writes it to `webui/openapi.json`, and runs `npm run gen:api` in `webui/`. `gen:api` runs openapi-typescript into `webui/app/api/schema.d.ts`
+- [X] T009 [P] Add the test harness:
   - `webui/vitest.config.ts`
   - `webui/playwright.config.ts` (baseURL from `VIZIER_URL`, projects for desktop 1440×900 and mobile 390×844, in both color schemes)
   - `webui/e2e/fixtures.ts`: an admin login helper; `createPlugAgent(id)`, which creates a dummyplug agent through `POST /api/v1/agents`; `send(text)`; `HOLD(n)` from quickstart.md

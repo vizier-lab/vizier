@@ -1,3 +1,6 @@
 [submodule "design"]
 	path = design
 	url = https://github.com/vizier-lab/design.git
+[submodule "webui"]
+	path = webui
+	url = https://github.com/vizier-lab/webui.git
