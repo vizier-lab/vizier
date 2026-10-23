@@ -13,7 +13,7 @@ export type FilePreviewProps = {
   viewBar?: ReactNode;
   /** The file itself: a Table, text, an image. */
   children: ReactNode;
-  /** The reply's other files, for stepping through. */
+  /** The reply's other files; the inline look counts them and steps with Previous/Next, the dialog steps with the arrow keys. */
   files?: { name: string; current?: boolean; onSelect: () => void }[];
   onPrevious?: () => void;
   onNext?: () => void;
@@ -68,41 +68,26 @@ export function FilePreview({
         <IconButton variant="ghost" size={inline ? "sm" : "md"} icon="close" aria-label="Close preview" onClick={onClose} />
       </header>
       {viewBar && <div className="flex items-center gap-12 border-b border-border px-16 py-8">{viewBar}</div>}
-      <div className="min-h-0 flex-1 overflow-auto px-16 py-12">{children}</div>
-      {(onPrevious || onNext || files) && (
-        <footer className="flex flex-col gap-6 border-t border-border px-16 py-10">
+      <div className="flex min-h-0 flex-1 overflow-auto px-16 py-12">
+        <div className="m-auto max-w-full">{children}</div>
+      </div>
+      {inline && (onPrevious || onNext || files) && (
+        <footer className="border-t border-border px-16 py-10">
           <div className="flex items-center gap-12">
             <button type="button" onClick={onPrevious} disabled={!onPrevious} className="inline-flex items-center gap-4 rounded-xs type-ui text-fg disabled:opacity-40">
               <Icon name="chevron-left" size={13} /> Previous
             </button>
-            <div className="flex min-w-0 flex-1 items-center justify-center gap-6">
-              {inline && files ? (
+            <div className="flex min-w-0 flex-1 items-center justify-center">
+              {files && (
                 <span className="type-mono-xs text-faint">
                   {files.findIndex((f) => f.current) + 1} of {files.length} files in this reply
                 </span>
-              ) : (
-                files?.map((f) => (
-                  <button
-                    key={f.name}
-                    type="button"
-                    aria-current={f.current ? "true" : undefined}
-                    onClick={f.onSelect}
-                    className={cx(
-                      "inline-flex items-center gap-6 rounded-sm px-8 py-4",
-                      f.current ? "border border-border-strong bg-raised" : "hover:bg-raised",
-                    )}
-                  >
-                    <span className="type-mono-xs text-faint">{f.name.split(".").pop()?.toUpperCase()}</span>
-                    <span className={cx("type-code", f.current ? "text-fg" : "text-muted")}>{f.name}</span>
-                  </button>
-                ))
               )}
             </div>
             <button type="button" onClick={onNext} disabled={!onNext} className="inline-flex items-center gap-4 rounded-xs type-ui text-fg disabled:opacity-40">
               Next <Icon name="chevron-right" size={13} />
             </button>
           </div>
-          {!inline && <p className="text-center type-mono-xs text-faint">← → switch file · Esc close</p>}
         </footer>
       )}
     </div>
