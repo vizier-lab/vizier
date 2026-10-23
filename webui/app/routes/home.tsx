@@ -1,3 +1,10 @@
-export default function Home() {
-    return <main className="p-24">Vizier</main>
+import { EmptyState } from '@vizier/design'
+import { PageFrame } from '../screens/shared/PageFrame'
+
+export default function Route() {
+    return (
+        <PageFrame title="Home">
+            <EmptyState kind="empty" title="Home" message="This page is being rebuilt." />
+        </PageFrame>
+    )
 }
