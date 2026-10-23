@@ -4,7 +4,7 @@ import { Sigil } from "../../brand/Sigil/Sigil";
 import { Icon } from "../../icons/Icon";
 import { cx } from "../../lib/cx";
 import { IconButton } from "../IconButton/IconButton";
-import { Status, type StatusState } from "../Status/Status";
+import { Status, type AgentState, agentStatusLabel } from "../Status/Status";
 
 export type MobileTopBarProps = {
   onMenu: () => void;
@@ -13,7 +13,7 @@ export type MobileTopBarProps = {
     agentId: string;
     agentName: string;
     topic: string;
-    state: Extract<StatusState, "live" | "idle" | "failed" | "retrying" | "starting" | "stopped">;
+    state: AgentState;
     detail?: ReactNode;
     onTopic: () => void;
   };
@@ -28,13 +28,13 @@ export function MobileTopBar({ onMenu, chat, trailing, className, ...rest }: Mob
       <IconButton variant="ghost" icon="menu" aria-label="Open menu" onClick={onMenu} />
       {chat ? (
         <button type="button" onClick={chat.onTopic} className="flex min-w-0 flex-1 items-center gap-10 rounded-sm text-left">
-          <Sigil agentId={chat.agentId} live={chat.state === "live"} />
+          <Sigil agentId={chat.agentId} live={chat.state === "live" || chat.state === "running"} />
           <span className="flex min-w-0 flex-col gap-2">
             <span className="flex items-center gap-4">
               <span className="truncate type-body-strong text-fg">{chat.topic}</span>
               <Icon name="chevron-down" size={13} tone="muted" />
             </span>
-            <Status state={chat.state} font="mono-xs" label={chat.agentName} detail={chat.detail ?? chat.state} />
+            <Status state={chat.state} font="mono-xs" label={chat.agentName} detail={chat.detail ?? agentStatusLabel(chat.state) ?? chat.state} />
           </span>
         </button>
       ) : (

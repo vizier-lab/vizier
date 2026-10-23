@@ -107,7 +107,7 @@ export function Composer({
         <div
           className={cx(
             "flex flex-col gap-10 rounded-xl border px-14 pt-14 pb-12",
-            disabled ? "border-border bg-surface" : "border-border-strong bg-surface focus-within:border-live",
+            disabled ? "border-border bg-surface/70 backdrop-blur-md" : "border-border-strong bg-surface/70 backdrop-blur-md focus-within:border-live",
           )}
         >
           {attachments && <div className="flex flex-wrap gap-6">{attachments}</div>}

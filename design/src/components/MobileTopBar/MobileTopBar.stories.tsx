@@ -19,7 +19,7 @@ export const Home: Story = {};
 
 export const Chat: Story = {
   args: {
-    chat: { agentId: "archivist", agentName: "Archivist", topic: "vector-db-review", state: "live", detail: "replying", onTopic: () => {} },
+    chat: { agentId: "archivist", agentName: "Archivist", topic: "vector-db-review", state: "running", detail: "replying", onTopic: () => {} },
     trailing: <JobsPill count={1} compact />,
   },
 };

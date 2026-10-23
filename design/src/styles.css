@@ -39,6 +39,7 @@
   --color-ink-hover: var(--vz-ink-hover);
   --color-ink-pressed: var(--vz-ink-pressed);
   --color-live: var(--vz-live);
+  --color-live-text: var(--vz-live-text);
   --color-rank: var(--vz-rank);
   --color-rank-text: var(--vz-rank-text);
   --color-rank-bg: var(--vz-rank-bg);
@@ -121,5 +122,47 @@
 
   ::selection {
     background: var(--vz-raised);
+  }
+
+  /* Scrollbars: every scroll container gets the same pill thumb, so nothing
+     opts in. WebKit/Blink draw it from the pseudo-elements (the transparent
+     border insets the thumb from the edge); Firefox, which has no
+     pseudo-elements, gets the standard properties. Setting those in Blink
+     would switch the pseudo-elements off, hence the @supports. */
+  ::-webkit-scrollbar {
+    width: var(--vz-scrollbar-size);
+    height: var(--vz-scrollbar-size);
+    background: transparent;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--vz-scrollbar-thumb);
+    background-clip: padding-box;
+    border: var(--vz-scrollbar-inset) solid transparent;
+    border-radius: var(--vz-radius-pill);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--vz-scrollbar-thumb-hover);
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background-color: var(--vz-scrollbar-thumb-active);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--vz-scrollbar-thumb) transparent;
+    }
+  }
+}
+
+/* Scrolls without showing a bar: tab strips and other rows whose overflow is
+   already obvious from clipped content. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
   }
 }

@@ -44,7 +44,7 @@ export function CodeBlock({ code, language, filename, lineNumbers, onCopy, class
       <pre className="overflow-x-auto type-code-block text-soft">
         <code className="grid" style={{ gridTemplateColumns: lineNumbers ? "max-content 1fr" : "1fr" }}>
           {lines.map((line, i) => {
-            const tone = diff && line.startsWith("+") ? "text-live" : diff && line.startsWith("-") ? "text-failed" : "";
+            const tone = diff && line.startsWith("+") ? "text-live-text" : diff && line.startsWith("-") ? "text-failed" : "";
             return (
               <span key={i} className="contents">
                 {lineNumbers && (

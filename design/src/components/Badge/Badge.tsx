@@ -11,7 +11,7 @@ export type BadgeProps = {
 const TONES: Record<BadgeTone, string> = {
   neutral: "bg-raised text-muted",
   rank: "bg-rank-bg text-rank-text",
-  live: "bg-raised text-live",
+  live: "bg-raised text-live-text",
   failed: "bg-failed-bg text-failed-text",
   retrying: "bg-retrying-bg text-retrying",
 };

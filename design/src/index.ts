@@ -54,6 +54,7 @@ export * from "./components/EmptyState";
 export * from "./components/Eyebrow";
 export * from "./components/FilePeek";
 export * from "./components/FilePreview";
+export * from "./components/FileTree";
 export * from "./components/FileRow";
 export * from "./components/FileTypeTag";
 export * from "./components/FilterTabs";

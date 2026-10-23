@@ -35,6 +35,7 @@
   --vz-ink-pressed: #45454d; /* fill/ink-pressed */
 
   --vz-live: #059669; /* state/live */
+  --vz-live-text: #046c4e; /* state/live-text */
   --vz-rank: #5b7be8; /* state/rank */
   --vz-rank-text: #3651c4; /* state/rank-text */
   --vz-rank-bg: #e6ebfb; /* state/rank-bg */
@@ -74,6 +75,14 @@
   --vz-space-24: 24px; /* space/24 */
   --vz-space-32: 32px; /* space/32 */
   --vz-space-48: 48px; /* space/48 */
+
+  /* Scrollbar: a pill thumb on no track, inset from the edge. Colours alias
+     line and dot tokens, so they follow the theme without their own values. */
+  --vz-scrollbar-size: 10px; /* scrollbar/size */
+  --vz-scrollbar-inset: var(--vz-space-2); /* scrollbar/inset */
+  --vz-scrollbar-thumb: var(--vz-unlit); /* scrollbar/thumb */
+  --vz-scrollbar-thumb-hover: var(--vz-border-hover); /* scrollbar/thumb-hover */
+  --vz-scrollbar-thumb-active: var(--vz-text-faint); /* scrollbar/thumb-active */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -103,6 +112,7 @@
     --vz-ink-pressed: #bdbdc5; /* fill/ink-pressed */
 
     --vz-live: #10b981; /* state/live */
+    --vz-live-text: #10b981; /* state/live-text */
     --vz-rank: #5b7be8; /* state/rank */
     --vz-rank-text: #9db1f5; /* state/rank-text */
     --vz-rank-bg: #1e2540; /* state/rank-bg */
@@ -152,6 +162,7 @@
   --vz-ink-pressed: #bdbdc5; /* fill/ink-pressed */
 
   --vz-live: #10b981; /* state/live */
+  --vz-live-text: #10b981; /* state/live-text */
   --vz-rank: #5b7be8; /* state/rank */
   --vz-rank-text: #9db1f5; /* state/rank-text */
   --vz-rank-bg: #1e2540; /* state/rank-bg */

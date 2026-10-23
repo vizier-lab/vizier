@@ -10,11 +10,11 @@ const meta = {
     docs: {
       description: {
         component:
-          "A dot and words. Agents: live and idle are a running agent (replying or not); starting is building; stopped is off. Task runs, MCP servers and integrations add their own states. Each state's shape and colour is in one table in `Status.tsx`.",
+          "A dot and words. Agents: live is up and waiting, running has a turn in progress; starting is building; stopped is off. Task runs, MCP servers and integrations add their own states. Each state's shape and colour is in one table in `Status.tsx`.",
       },
     },
   },
-  args: { state: "live", detail: "replying" },
+  args: { state: "running", detail: "replying" },
   argTypes: {
     state: { control: "select", options: statusStates },
     font: { control: "inline-radio", options: ["mono", "mono-xs", "sans"] },
@@ -30,7 +30,7 @@ export const Default: Story = {};
 export const Agents: Story = {
   render: () => (
     <div className="flex flex-wrap items-center gap-24">
-      <Status state="live" detail="replying" />
+      <Status state="running" detail="replying" />
       <Status state="idle" detail="2h ago" />
       <Status state="failed" detail="retry in 40s" />
       <Status state="retrying" label="retrying in 20s" />

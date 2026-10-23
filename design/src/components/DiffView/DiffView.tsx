@@ -30,7 +30,7 @@ export function DiffView({ title, lines, restoreLabel, onRestore, className, ...
             )}
           >
             {/* Code-block type shares the 20px line, so the marker sits on the text's first line at full size. */}
-            <span aria-hidden className={cx("type-code-block no-underline", l.kind === "add" ? "text-live" : "text-muted")}>
+            <span aria-hidden className={cx("type-code-block no-underline", l.kind === "add" ? "text-live-text" : "text-muted")}>
               {l.kind === "add" ? "+" : l.kind === "del" ? "-" : ""}
             </span>
             <span>

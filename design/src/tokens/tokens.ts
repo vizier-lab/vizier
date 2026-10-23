@@ -37,6 +37,7 @@ export const colorTokens: ColorToken[] = [
   { name: "fill/ink-hover", cssVar: "--vz-ink-hover", tw: "ink-hover", group: "fill", description: "Primary button and ink fills under the pointer" },
   { name: "fill/ink-pressed", cssVar: "--vz-ink-pressed", tw: "ink-pressed", group: "fill", description: "Primary button and ink fills while pressed" },
   { name: "state/live", cssVar: "--vz-live", tw: "live", group: "state", description: "Emerald: live only. Always paired with a word" },
+  { name: "state/live-text", cssVar: "--vz-live-text", tw: "live-text", group: "state", description: "Emerald text on badges, statuses and diffs: 4.5:1 on every ground, a selected row included" },
   { name: "state/rank", cssVar: "--vz-rank", tw: "rank", group: "state", description: "Lapis: owner, superadmin, grants" },
   { name: "state/rank-text", cssVar: "--vz-rank-text", tw: "rank-text", group: "state", description: "Lapis text in badges" },
   { name: "state/rank-bg", cssVar: "--vz-rank-bg", tw: "rank-bg", group: "state", description: "Lapis badge ground" },

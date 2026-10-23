@@ -2,14 +2,14 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { Sigil } from "../../brand/Sigil/Sigil";
 import { cx } from "../../lib/cx";
 import { Badge } from "../Badge/Badge";
-import { Status, type StatusState } from "../Status/Status";
+import { Status, type AgentState, agentStatusLabel } from "../Status/Status";
 
 export type AgentCardProps = {
   agentId: string;
   name: string;
   /** "memory & research". */
   description?: ReactNode;
-  state: Extract<StatusState, "live" | "idle" | "failed" | "retrying" | "starting" | "stopped">;
+  state: AgentState;
   detail?: ReactNode;
   /** "anthropic/claude-sonnet-5-5". */
   model?: string;
@@ -30,7 +30,7 @@ export function AgentCard({ agentId, name, description, state, detail, model, ow
       {...rest}
     >
       <span className="flex items-center gap-12">
-        <Sigil agentId={agentId} live={state === "live"} />
+        <Sigil agentId={agentId} live={state === "live" || state === "running"} />
         <span className="flex min-w-0 flex-col gap-2">
           <span className="flex items-center gap-8">
             <span className="truncate type-body-strong text-fg">{name}</span>
@@ -39,7 +39,7 @@ export function AgentCard({ agentId, name, description, state, detail, model, ow
           {description && <span className="truncate type-small text-muted">{description}</span>}
         </span>
       </span>
-      <Status state={state} detail={detail} />
+      <Status state={state} label={agentStatusLabel(state)} detail={detail} />
       {model && <span className="truncate type-mono-xs text-faint">{model}</span>}
     </a>
   );

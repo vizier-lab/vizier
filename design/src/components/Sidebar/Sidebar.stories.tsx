@@ -4,7 +4,7 @@ import { AgentSwitcher } from "../AgentSwitcher/AgentSwitcher";
 import { UserMenu } from "../UserMenu/UserMenu";
 import { Sidebar, type SidebarPage } from "./Sidebar";
 
-const PAGES: SidebarPage[] = ["home", "chat", "core", "memory", "tasks", "skills", "dreams", "usage", "integrations", "config", "settings"];
+const PAGES: SidebarPage[] = ["home", "chat", "core", "memory", "tasks", "skills", "dreams", "channels", "addons", "mcp", "usage", "config", "settings"];
 
 const meta = {
   title: "Components/Shell/Sidebar",
@@ -12,7 +12,7 @@ const meta = {
   tags: ["approved"],
   parameters: { vizier: { id: "D1", replaces: "webui/app/root.tsx" }, layout: "fullscreen" },
   args: {
-    agent: <AgentSwitcher agentId="archivist" name="Archivist" state="live" detail="replying" />,
+    agent: <AgentSwitcher agentId="archivist" name="Archivist" state="running" detail="replying" />,
     user: <UserMenu name="ganesha" role="superadmin" onSignOut={() => {}} />,
     active: "chat",
     chatLive: true,
@@ -35,7 +35,7 @@ export const Default: Story = {
         {...args}
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed(!collapsed)}
-        agent={<AgentSwitcher agentId="archivist" name="Archivist" state="live" detail="replying" collapsed={collapsed} />}
+        agent={<AgentSwitcher agentId="archivist" name="Archivist" state="running" detail="replying" collapsed={collapsed} />}
         user={<UserMenu name="ganesha" role="superadmin" collapsed={collapsed} onSignOut={() => {}} />}
       />
     );
@@ -46,7 +46,7 @@ export const Default: Story = {
 export const Collapsed: Story = {
   args: {
     collapsed: true,
-    agent: <AgentSwitcher agentId="archivist" name="Archivist" state="live" detail="replying" collapsed />,
+    agent: <AgentSwitcher agentId="archivist" name="Archivist" state="running" detail="replying" collapsed />,
     user: <UserMenu name="ganesha" role="superadmin" collapsed onSignOut={() => {}} />,
   },
 };

@@ -9,14 +9,16 @@ export type ChatGreetingProps = {
   greeting?: ReactNode;
   /** "Topic 4 of 5 · nothing sent yet". */
   meta?: ReactNode;
+  /** Lights the sigil's signal dot while the agent is live. */
+  live?: boolean;
 } & HTMLAttributes<HTMLDivElement>;
 
 /** What an empty topic shows in place of history (X34). */
-export function ChatGreeting({ agentId, name, greeting = "What shall we deliberate?", meta, className, ...rest }: ChatGreetingProps) {
+export function ChatGreeting({ agentId, name, greeting = "What shall we deliberate?", meta, live, className, ...rest }: ChatGreetingProps) {
   return (
     <div className={cx("flex flex-col items-center gap-6 text-center", className)} {...rest}>
       <span className="flex items-center gap-8">
-        <Sigil agentId={agentId} size="sm" />
+        <Sigil agentId={agentId} size="sm" live={live} />
         <span className="type-body-medium text-fg">{name}</span>
       </span>
       <h2 className="type-title text-fg">{greeting}</h2>

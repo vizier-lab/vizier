@@ -7,7 +7,7 @@ import { ConversationRow } from "../ConversationRow/ConversationRow";
 import { Kbd } from "../Kbd/Kbd";
 import { ListItem } from "../ListItem/ListItem";
 import { Segment } from "../Segment/Segment";
-import { Status } from "../Status/Status";
+import { Status, agentStatusLabel } from "../Status/Status";
 import { bundles, conversations, manyAgents, recentAgents, type AgentItem } from "./fixtures";
 import { HighlightMatch, Picker, PickerAction } from "./Picker";
 
@@ -33,9 +33,9 @@ const agentRow = (a: AgentItem, { query }: { query: string }, current?: string) 
   <ListItem
     shape="bare"
     className="w-full"
-    leading={<Sigil agentId={a.id} live={a.state === "live"} size="sm" />}
+    leading={<Sigil agentId={a.id} live={a.state === "live" || a.state === "running"} size="sm" />}
     title={<HighlightMatch text={a.name} query={query} />}
-    subtitle={<Status state={a.state} detail={a.detail} font="mono-xs" dot={false} />}
+    subtitle={<Status state={a.state} label={agentStatusLabel(a.state)} detail={a.detail} font="mono-xs" dot={false} />}
     trailing={
       <>
         {a.owner && <Badge tone="rank">Owner</Badge>}

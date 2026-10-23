@@ -10,7 +10,7 @@ const meta = {
     agentId: "archivist",
     name: "Archivist",
     description: "memory & research",
-    state: "live",
+    state: "running",
     detail: "replying",
     model: "anthropic/claude-sonnet-5-5",
     owned: true,
@@ -24,17 +24,17 @@ type Story = StoryObj<typeof meta>;
 
 export const Live: Story = {};
 
-/** Home's court: live, idle, failed; owned or not. */
+/** Home's court: running, live, failed; owned or not. */
 export const Court: Story = {
   decorators: [(Story) => <div className="grid w-710 grid-cols-3 gap-12">{Story()}</div>],
   render: () => (
     <>
-      <AgentCard agentId="archivist" name="Archivist" description="memory & research" state="live" detail="replying" model="anthropic/claude-sonnet-5-5" owned href="#" />
-      <AgentCard agentId="scout" name="Scout" description="web errands" state="live" detail="replying" model="openai/gpt-5-mini" href="#" />
-      <AgentCard agentId="herald" name="Herald" description="Discord announcer" state="idle" detail="2h ago" model="google/gemini-3-flash" href="#" />
-      <AgentCard agentId="treasurer" name="Treasurer" description="usage & cost reports" state="idle" detail="2h ago" model="ollama/qwen3:32b" owned href="#" />
+      <AgentCard agentId="archivist" name="Archivist" description="memory & research" state="running" detail="replying" model="anthropic/claude-sonnet-5-5" owned href="#" />
+      <AgentCard agentId="scout" name="Scout" description="web errands" state="running" detail="replying" model="openai/gpt-5-mini" href="#" />
+      <AgentCard agentId="herald" name="Herald" description="Discord announcer" state="live" detail="2h ago" model="google/gemini-3-flash" href="#" />
+      <AgentCard agentId="treasurer" name="Treasurer" description="usage & cost reports" state="live" detail="2h ago" model="ollama/qwen3:32b" owned href="#" />
       <AgentCard agentId="scribe" name="Scribe" description="meeting notes" state="failed" detail="retry in 40s" model="ollama/llama3.3:70b" href="#" />
-      <AgentCard agentId="chamberlain" name="Chamberlain" description="scheduling" state="idle" detail="2h ago" model="anthropic/claude-haiku-5-5" href="#" />
+      <AgentCard agentId="chamberlain" name="Chamberlain" description="scheduling" state="live" detail="2h ago" model="anthropic/claude-haiku-5-5" href="#" />
     </>
   ),
 };

@@ -34,8 +34,13 @@ function niceCeil(v: number) {
 /** Daily cost by activity (X70): stacked bars, a legend, and an optional dated marker. */
 export function StackedBarChart({ title, series, days, format = (v) => `$${v.toFixed(2)}`, annotation, className, ...rest }: StackedBarChartProps) {
   const totals = days.map((d) => series.reduce((s, x) => s + (d.values[x.key] ?? 0), 0));
-  const top = niceCeil(Math.max(0.01, ...totals));
-  const ticks = [top, top / 2, 0];
+  // Counts (tokens, calls) never get a fractional tick: the axis starts at 2 and drops its middle
+  // tick when that would be a half.
+  const whole = totals.every(Number.isInteger);
+  const top = niceCeil(Math.max(whole ? 2 : 0.01, ...totals));
+  const ticks = whole && !Number.isInteger(top / 2) ? [top, 0] : [top, top / 2, 0];
+  let labelled = -1;
+  const labelOrdinal = days.map((d) => (d.label ? ++labelled : -1));
   return (
     <section className={cx("flex flex-col gap-16 rounded-xl border border-border bg-surface px-20 py-16", className)} {...rest}>
       <header className="flex flex-wrap items-center justify-between gap-12">
@@ -83,7 +88,16 @@ export function StackedBarChart({ title, series, days, format = (v) => `$${v.toF
         <span />
         <div className="flex gap-4 pt-6">
           {days.map((d, i) => (
-            <span key={i} className="min-w-0 flex-1 overflow-visible text-center type-mono-xs whitespace-nowrap text-faint">
+            <span
+              key={i}
+              className={cx(
+                // Centred under its bar, except at the ends, where it would hang past the chart.
+                "flex min-w-0 flex-1 overflow-visible type-mono-xs whitespace-nowrap text-faint",
+                i === 0 ? "justify-start" : i === days.length - 1 ? "justify-end" : "justify-center",
+                // On a phone the bars are too narrow for every label: keep every other one.
+                labelOrdinal[i] % 2 === 1 && "max-sm:invisible",
+              )}
+            >
               {d.label ?? ""}
             </span>
           ))}

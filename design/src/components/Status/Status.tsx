@@ -7,6 +7,12 @@ export type StatusState =
   | "connected" | "reconnecting" | "disabled"
   | "reading" | "installed";
 
+/** An agent's states: live is up and waiting, running has a turn in progress. */
+export type AgentState = Extract<StatusState, "live" | "running" | "failed" | "retrying" | "starting" | "stopped">;
+
+/** Agents speak lowercase ("running"), unlike the task table's "Running". */
+export const agentStatusLabel = (state: AgentState) => (state === "running" ? "running" : undefined);
+
 export type StatusProps = {
   state: StatusState;
   /** Defaults to the state's own words. */
@@ -26,21 +32,21 @@ type Dot = "filled" | "ring" | "halo" | "hollow" | "dashed" | "spin";
  * added here and to the Status story, nowhere else.
  */
 const STATES: Record<StatusState, { dot: Dot; dotColour: string; text: string; words: string }> = {
-  live: { dot: "filled", dotColour: "bg-live", text: "text-live", words: "live" },
+  live: { dot: "filled", dotColour: "bg-live", text: "text-live-text", words: "live" },
   idle: { dot: "hollow", dotColour: "border-faint", text: "text-faint", words: "idle" },
   failed: { dot: "filled", dotColour: "bg-failed", text: "text-failed", words: "failed" },
   retrying: { dot: "filled", dotColour: "bg-retrying", text: "text-retrying", words: "retrying" },
   starting: { dot: "ring", dotColour: "border-muted bg-unlit", text: "text-muted", words: "starting" },
   stopped: { dot: "ring", dotColour: "border-unlit bg-dot-off", text: "text-faint", words: "stopped" },
   answered: { dot: "filled", dotColour: "bg-ink", text: "text-fg", words: "Answered" },
-  running: { dot: "halo", dotColour: "bg-live", text: "text-live", words: "Running" },
+  running: { dot: "halo", dotColour: "bg-live", text: "text-live-text", words: "Running" },
   "no-response": { dot: "hollow", dotColour: "border-retrying", text: "text-retrying", words: "No response" },
   "not-run": { dot: "hollow", dotColour: "border-faint", text: "text-faint", words: "Not run yet" },
   interrupted: { dot: "dashed", dotColour: "border-faint", text: "text-faint", words: "Interrupted" },
   connected: { dot: "filled", dotColour: "bg-ink", text: "text-fg", words: "Connected" },
   reconnecting: { dot: "spin", dotColour: "border-retrying", text: "text-retrying", words: "Reconnecting" },
   disabled: { dot: "hollow", dotColour: "border-faint", text: "text-muted", words: "Disabled" },
-  reading: { dot: "halo", dotColour: "bg-live", text: "text-live", words: "Reading" },
+  reading: { dot: "halo", dotColour: "bg-live", text: "text-live-text", words: "Reading" },
   installed: { dot: "filled", dotColour: "bg-ink", text: "text-muted", words: "Installed" },
 };
 

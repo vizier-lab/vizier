@@ -6,7 +6,7 @@ import { Badge } from "../Badge/Badge";
 import { ListItem } from "../ListItem/ListItem";
 import { HighlightMatch, Picker, PickerAction } from "../Picker/Picker";
 import { manyAgents, recentAgents } from "../Picker/fixtures";
-import { Status } from "../Status/Status";
+import { Status, agentStatusLabel } from "../Status/Status";
 import { StateGrid, statePseudo } from "../../stories/StateGrid";
 import { AgentSwitcher } from "./AgentSwitcher";
 
@@ -15,7 +15,7 @@ const meta = {
   component: AgentSwitcher,
   tags: ["approved"],
   parameters: { vizier: { id: "D4", replaces: null } },
-  args: { agentId: "archivist", name: "Archivist", state: "live", detail: "replying" },
+  args: { agentId: "archivist", name: "Archivist", state: "running", detail: "replying" },
   decorators: [(Story) => <div className="w-212">{Story()}</div>],
 } satisfies Meta<typeof AgentSwitcher>;
 
@@ -65,9 +65,9 @@ export const Open: Story = {
           <ListItem
             shape="bare"
             className="w-full"
-            leading={<Sigil agentId={a.id} live={a.state === "live"} size="sm" />}
+            leading={<Sigil agentId={a.id} live={a.state === "live" || a.state === "running"} size="sm" />}
             title={<HighlightMatch text={a.name} query={query} />}
-            subtitle={<Status state={a.state} detail={a.detail} font="mono-xs" dot={false} />}
+            subtitle={<Status state={a.state} label={agentStatusLabel(a.state)} detail={a.detail} font="mono-xs" dot={false} />}
             trailing={
               <>
                 {a.owner && <Badge tone="rank">Owner</Badge>}

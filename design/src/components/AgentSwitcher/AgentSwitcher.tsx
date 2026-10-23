@@ -2,12 +2,12 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Sigil } from "../../brand/Sigil/Sigil";
 import { Icon } from "../../icons/Icon";
 import { cx } from "../../lib/cx";
-import { Status, type StatusState } from "../Status/Status";
+import { Status, type AgentState, agentStatusLabel } from "../Status/Status";
 
 export type AgentSwitcherProps = {
   agentId: string;
   name: string;
-  state: Extract<StatusState, "live" | "idle" | "failed" | "retrying" | "starting" | "stopped">;
+  state: AgentState;
   /** "replying", "2h ago", "retry in 40s". */
   detail?: ReactNode;
   /** The 64px rail: sigil only. */
@@ -32,12 +32,12 @@ export function AgentSwitcher({ agentId, name, state, detail, collapsed, type = 
       )}
       {...rest}
     >
-      <Sigil agentId={agentId} live={state === "live"} />
+      <Sigil agentId={agentId} live={state === "live" || state === "running"} />
       {!collapsed && (
         <>
           <span className="flex min-w-0 flex-1 flex-col gap-2">
             <span className="truncate type-body-strong text-fg">{name}</span>
-            <Status state={state} detail={detail} font="mono-xs" dot={false} />
+            <Status state={state} label={agentStatusLabel(state)} detail={detail} font="mono-xs" dot={false} />
           </span>
           <Icon name="chevron-down" size={14} tone="faint" />
         </>

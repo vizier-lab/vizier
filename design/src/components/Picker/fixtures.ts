@@ -1,11 +1,11 @@
 // Sample data for the Picker and AgentSwitcher stories. Not exported from the package.
-export type AgentItem = { id: string; name: string; state: "live" | "idle" | "failed"; detail: string; owner?: boolean };
+export type AgentItem = { id: string; name: string; state: "live" | "running" | "failed"; detail: string; owner?: boolean };
 
 const NAMES = ["Almanac", "Auditor", "Bard", "Cartographer", "Chamberlain", "Courier", "Envoy", "Falconer", "Herald", "Jester", "Keeper", "Librarian", "Mason", "Oracle", "Page", "Quartermaster", "Sentinel", "Steward", "Tutor", "Warden"];
 
 export const recentAgents: AgentItem[] = [
-  { id: "archivist", name: "Archivist", state: "live", detail: "replying", owner: true },
-  { id: "scout", name: "Scout", state: "live", detail: "replying" },
+  { id: "archivist", name: "Archivist", state: "running", detail: "replying", owner: true },
+  { id: "scout", name: "Scout", state: "running", detail: "replying" },
   { id: "scribe", name: "Scribe", state: "failed", detail: "retry in 40s" },
 ];
 
@@ -15,7 +15,7 @@ export const manyAgents: AgentItem[] = Array.from({ length: 1000 }, (_, i): Agen
   return {
     id: `${base.toLowerCase()}-${i}`,
     name: i < NAMES.length ? base : `${base} ${Math.floor(i / NAMES.length) + 1}`,
-    state: i % 17 === 0 ? "failed" : i % 5 === 0 ? "live" : "idle",
+    state: i % 17 === 0 ? "failed" : i % 5 === 0 ? "running" : "live",
     detail: i % 17 === 0 ? "retry in 40s" : i % 5 === 0 ? "replying" : `${(i % 23) + 1}h ago`,
     owner: i % 9 === 1,
   };

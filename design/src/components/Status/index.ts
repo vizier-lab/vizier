@@ -1,1 +1,1 @@
-export { Status, statusStates, type StatusProps, type StatusState } from "./Status";
+export { Status, statusStates, agentStatusLabel, type AgentState, type StatusProps, type StatusState } from "./Status";

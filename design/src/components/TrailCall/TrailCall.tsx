@@ -28,7 +28,7 @@ const DOT: Record<TrailCallState, string> = {
 
 const DURATION: Record<TrailCallState, string> = {
   done: "text-faint",
-  running: "text-live",
+  running: "text-live-text",
   failed: "text-failed",
   limit: "text-retrying",
   lookup: "text-faint",

@@ -7,7 +7,7 @@ import { Tooltip } from "../Tooltip/Tooltip";
 
 export type SidebarPage =
   | "home" | "chat" | "core" | "memory" | "tasks" | "skills" | "dreams"
-  | "usage" | "integrations" | "config" | "settings";
+  | "channels" | "addons" | "mcp" | "usage" | "config" | "settings";
 
 const GROUPS: { label?: string; pages: { page: SidebarPage; label: string; icon: IconName }[] }[] = [
   {
@@ -22,10 +22,17 @@ const GROUPS: { label?: string; pages: { page: SidebarPage; label: string; icon:
     ],
   },
   {
+    label: "Integrations",
+    pages: [
+      { page: "channels", label: "Channels", icon: "channels" },
+      { page: "addons", label: "Addons", icon: "addons" },
+      { page: "mcp", label: "MCP", icon: "mcp" },
+    ],
+  },
+  {
     label: "Misc",
     pages: [
       { page: "usage", label: "Usage", icon: "usage" },
-      { page: "integrations", label: "Integrations", icon: "mcp" },
       { page: "config", label: "Config", icon: "agent" },
     ],
   },
@@ -85,14 +92,14 @@ export function Sidebar({
     <nav
       aria-label="Main"
       className={cx(
-        "flex h-full flex-col gap-4 border-r border-border bg-sidebar pt-20 pb-16",
+        "flex h-full flex-col gap-4 border-r border-border bg-sidebar pb-16",
         collapsed ? "w-64 items-center px-10" : "w-240 px-14",
         className,
       )}
       {...rest}
     >
-      {agent}
-      <span className="h-10" />
+      {/* The same height as a page's header band, so the switcher lines up with the title. */}
+      <div className={cx("flex h-76 shrink-0 items-center", collapsed ? "justify-center" : "w-full [&>*]:w-full")}>{agent}</div>
       {GROUPS.map((g, i) =>
         g.label ? (
           <NavSection key={g.label} label={g.label} collapsed={collapsed}>
