@@ -17,12 +17,15 @@ export default function AuthLayout() {
         serverStatus().then(setStatus, () => setStatus('down'))
     }, [])
 
+    // The brand goes live with the server, the same fact the status line below words.
+    const brand = status !== null && status !== 'down' ? 'live' : 'idle'
+
     return (
         <div className="grid min-h-screen grid-cols-1 bg-ground text-fg lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <aside className="relative hidden bg-ground lg:block" aria-label="Vizier">
-                <LedBoard className="absolute inset-0" />
+                <LedBoard className="absolute inset-0" state={brand} />
                 <div className="absolute inset-x-0 bottom-0 flex flex-col gap-16 px-48 pb-48">
-                    <Wordmark size={56} />
+                    <Wordmark size={56} state={brand} />
                     <p className="type-heading text-fg">A digital steward for Your Majesty.</p>
                     <p className="max-w-sm type-ui-para text-muted">AI agents that remember who they are, and who you are. Hosted by you.</p>
                     <dl className="flex gap-32">
@@ -39,7 +42,7 @@ export default function AuthLayout() {
                 <div className="flex flex-1 items-center justify-center">
                     <div className="w-full max-w-sm">
                         <div className="mb-32 lg:hidden">
-                            <Wordmark size={36} />
+                            <Wordmark size={36} state={brand} />
                         </div>
                         <Outlet />
                     </div>

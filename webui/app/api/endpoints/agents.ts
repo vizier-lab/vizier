@@ -15,6 +15,8 @@ export type AgentRunState = 'starting' | 'running' | 'failed' | 'stopped'
 export type AgentHealth = {
     agent_id: string
     alive: boolean
+    /** A turn is running now. */
+    live?: boolean
     state: AgentRunState
     last_error?: string
     failures: number
@@ -129,3 +131,12 @@ export const deleteAgent = (id: string) => api.delete<string>(`/agents/${encodeU
 export const getSharing = (id: string) => api.get<{ shared_to: string[] }>(`/agents/${encodeURIComponent(id)}/sharing`)
 export const updateSharing = (id: string, change: { add?: string[]; remove?: string[] }) =>
     api.patch<{ shared_to: string[] }>(`/agents/${encodeURIComponent(id)}/sharing`, change)
+
+/** The dot an agent shows: a turn running beats idle; failures and start-up states beat both. */
+export function agentState(h?: AgentHealth) {
+    if (!h) return 'idle' as const
+    if (h.state === 'failed') return h.next_retry_at ? ('retrying' as const) : ('failed' as const)
+    if (h.state === 'starting') return 'starting' as const
+    if (h.state === 'stopped') return 'stopped' as const
+    return h.live ? ('live' as const) : ('idle' as const)
+}

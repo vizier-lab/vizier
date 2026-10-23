@@ -107,7 +107,6 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
                     >
                         {text != null && <Markdown>{text}</Markdown>}
                         <ReplyMedia attachments={outcome?.content.Response?.attachments ?? []} transcript={text} />
-                        {clientCalls?.(turn, false)}
                     </AgentReply>
                 )}
                 {outcome?.content.Response?.resumed && <StoppedNote>Picked up where it left off after vizier restarted.</StoppedNote>}
@@ -125,7 +124,8 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
                 failed={!!(turn.outcome && replyError(turn.outcome.content.Response!.content))}
                 aborted={turn.aborted}
             />
-            {turn.outcome ? reply(turn) : clientCalls?.(turn, false)}
+            {clientCalls?.(turn, false)}
+            {turn.outcome && reply(turn)}
         </div>
     )
 

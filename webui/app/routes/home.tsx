@@ -2,7 +2,7 @@ import { AgentCard, Button, Callout, EmptyState, FilterTabs, LoadMore, PageHeade
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { paged } from '../api/client'
-import type { Agent, AgentHealth } from '../api/endpoints/agents'
+import { agentState, type Agent, type AgentHealth } from '../api/endpoints/agents'
 import { count, relativeTime } from '../lib/format'
 import { usePagedList } from '../lib/usePagedList'
 import { getOverview, type Overview } from '../api/endpoints/overview'
@@ -18,13 +18,7 @@ type AgentRow = Agent & { last_active?: string }
 
 const COURT = 6
 
-function cardState(h?: AgentHealth) {
-    if (!h) return 'idle' as const
-    if (h.state === 'failed') return h.next_retry_at ? ('retrying' as const) : ('failed' as const)
-    if (h.state === 'starting') return 'starting' as const
-    if (h.state === 'stopped') return 'stopped' as const
-    return 'idle' as const
-}
+const cardState = agentState
 
 function Card({ agent, health }: { agent: AgentRow; health?: AgentHealth }) {
     const state = cardState(health)

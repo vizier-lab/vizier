@@ -12,6 +12,7 @@ import {
 } from '@vizier/design'
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router'
+import { agentState } from '../api/endpoints/agents'
 import { relativeTime } from '../lib/format'
 import { useMobile } from '../lib/useMobile'
 import { useNav } from '../stores/nav'
@@ -110,15 +111,7 @@ export default function AppShell() {
         })
     }, [routeAgent])
 
-    const stateOf = (id: string) => {
-        const h = health[id]
-        if (!h) return 'idle' as const
-        if (h.state === 'failed')
-            return h.next_retry_at ? ('retrying' as const) : ('failed' as const)
-        if (h.state === 'starting') return 'starting' as const
-        if (h.state === 'stopped') return 'stopped' as const
-        return 'idle' as const
-    }
+    const stateOf = (id: string) => agentState(health[id])
 
     const sections = useMemo(() => {
         const q = query.trim().toLowerCase()

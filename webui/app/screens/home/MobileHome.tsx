@@ -1,6 +1,6 @@
 import { AgentRow, PageHeader } from '@vizier/design'
 import { useNavigate } from 'react-router'
-import type { Agent, AgentHealth } from '../../api/endpoints/agents'
+import { agentState, type Agent, type AgentHealth } from '../../api/endpoints/agents'
 import type { Overview } from '../../api/endpoints/overview'
 import { greetingMeta } from '../../lib/overview'
 import { relativeTime } from '../../lib/format'
@@ -17,14 +17,7 @@ type Props = {
     onShowAll: () => void
 }
 
-function stateOf(h?: AgentHealth) {
-    if (!h) return 'idle' as const
-    if (h.state === 'failed')
-        return h.next_retry_at ? ('retrying' as const) : ('failed' as const)
-    if (h.state === 'starting') return 'starting' as const
-    if (h.state === 'stopped') return 'stopped' as const
-    return 'idle' as const
-}
+const stateOf = agentState
 
 function detailOf(
     state: ReturnType<typeof stateOf>,

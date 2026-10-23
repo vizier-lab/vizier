@@ -10,6 +10,7 @@ import { emptyTopic, nextQueued, reduce, type Action, type TopicState } from '..
 import { handleClientCall } from '../lib/clientTools'
 import { topicKey, useConnection } from './connection'
 import { useSession } from './session'
+import { useAgents } from './agents'
 
 const PAGE = 50
 
@@ -73,6 +74,13 @@ export const useTurns = create<TurnStore>()((set, get) => {
         const key = topicKey(agentId, topicId)
         const state = get().topics[key]
         if (!state) return
+        // The agent's live dot follows its health, which is polled: read it at once when a turn
+        // starts or ends, and again once the server has settled its mark.
+        if ((before === 'idle') !== (state.phase === 'idle')) {
+            const { refreshHealth } = useAgents.getState()
+            void refreshHealth()
+            setTimeout(() => void refreshHealth(), 1000)
+        }
         if (before !== 'idle' && state.phase === 'idle') void refreshHistory(agentId, topicId)
         const next = nextQueued(state)
         if (next) {

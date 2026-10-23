@@ -44,7 +44,7 @@ async function readText(file: SessionFileRecord): Promise<Loaded> {
 }
 
 const kind = (f: SessionFileRecord) =>
-    f.mime_type.startsWith('image/') ? 'image' : f.mime_type === 'text/csv' || f.filename.endsWith('.csv') ? 'csv' : f.filename.endsWith('.md') ? 'markdown' : f.mime_type.startsWith('text/') || f.mime_type === 'application/json' ? 'text' : 'none'
+    f.mime_type.startsWith('image/') ? 'image' : f.mime_type === 'application/pdf' || f.filename.toLowerCase().endsWith('.pdf') ? 'pdf' : f.mime_type === 'text/csv' || f.filename.endsWith('.csv') ? 'csv' : f.filename.endsWith('.md') ? 'markdown' : f.mime_type.startsWith('text/') || f.mime_type === 'application/json' ? 'text' : 'none'
 
 type Props = {
     files: SessionFileRecord[]
@@ -68,12 +68,13 @@ export function FilePreviewDialog({ files, index, onIndex, onClose }: Props) {
         setSort(null)
         let revoke: string | null = null
         let alive = true
-        if (type === 'image') {
+        if (type === 'image' || type === 'pdf') {
             fetch(url(file), { headers: { Authorization: `Bearer ${getToken()}` } })
                 .then((r) => r.blob())
                 .then((b) => {
                     if (!alive) return
-                    revoke = URL.createObjectURL(b)
+                    // The stored type can be generic; a PDF only opens in the viewer as itself.
+                    revoke = URL.createObjectURL(type === 'pdf' ? new Blob([b], { type: 'application/pdf' }) : b)
                     setBlobUrl(revoke)
                 })
         } else if (type !== 'none') {
@@ -147,7 +148,13 @@ export function FilePreviewDialog({ files, index, onIndex, onClose }: Props) {
             onClose={onClose}
         >
             {type === 'image' ? (
-                blobUrl && <img src={blobUrl} alt={file.filename} className="max-h-full max-w-full object-contain" />
+                blobUrl && <img src={blobUrl} alt={file.filename} className="max-h-[calc(min(720px,88vh)-130px)] max-w-full object-contain" />
+            ) : type === 'pdf' ? (
+                blobUrl ? (
+                    <iframe src={blobUrl} title={file.filename} className="h-[calc(min(720px,88vh)-130px)] w-[min(880px,84vw)] rounded-sm border border-border bg-surface" />
+                ) : (
+                    <p className="type-small text-muted">Loading…</p>
+                )
             ) : type === 'none' ? (
                 <p className="type-small text-muted">No preview for this type. Download it to open it.</p>
             ) : !loaded ? (

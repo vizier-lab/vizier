@@ -214,6 +214,13 @@ export function Trail({
                     onClick={() => setAll(true)}
                 />
             )}
+            {all && trail.length > VISIBLE && (
+                <Fold
+                    label="show fewer"
+                    aria-expanded
+                    onClick={() => setAll(false)}
+                />
+            )}
             {shown.map((e) => (
                 <Event key={e.id} event={e} live={live} />
             ))}
