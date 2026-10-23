@@ -1,4 +1,4 @@
-import { ActivityItem, Card, LoadMore } from '@vizier/design'
+import { ActivityItem, LoadMore, PanelHeader, Skeleton } from '@vizier/design'
 import { useCallback, useEffect, useState } from 'react'
 import { integrationEvents, type IntegrationEvent } from '../../api/endpoints/integrations'
 import { eventText } from '../../lib/integrations'
@@ -39,9 +39,12 @@ export function ActivityCard({ agentId, version = 0 }: Props) {
     }, [load, version])
 
     return (
-        <Card title="Activity">
-            {loaded && events.length === 0 ? (
-                <p className="type-small text-faint">Nothing has changed yet.</p>
+        <section aria-label="Activity" className="flex flex-col gap-12">
+            <PanelHeader title="Activity" level={2} />
+            {!loaded ? (
+                <Skeleton variant="lines" lines={2} />
+            ) : events.length === 0 ? (
+                <p className="type-small text-faint">Nothing has changed yet. Every change to this agent’s integrations is listed here, with who made it.</p>
             ) : (
                 <div className="flex flex-col">
                     {events.map((e) => (
@@ -50,6 +53,6 @@ export function ActivityCard({ agentId, version = 0 }: Props) {
                     {next && <LoadMore label="Load older" loading={loading} onLoad={() => void load(next)} />}
                 </div>
             )}
-        </Card>
+        </section>
     )
 }

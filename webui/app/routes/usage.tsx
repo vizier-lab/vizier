@@ -1,4 +1,4 @@
-import { BarList, FilterTabs, KeyValueList, Notice, PanelHeader, SlideOver, SortSelect, StackedBarChart, StatGroup, Table, TableRow, TextLink } from '@vizier/design'
+import { EmptyState, FilterTabs, Meter, Skeleton, KeyValueList, Notice, PanelHeader, SlideOver, SortSelect, StackedBarChart, StatGroup, Table, TableRow, TextLink } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router'
 import {
@@ -59,7 +59,7 @@ export default function Usage() {
             title="Usage"
             meta={report ? `${absoluteTime(report.range.start, true)} – ${absoluteTime(report.range.end, true)} · ${count(report.summary.calls)} calls` : undefined}
             actions={
-                <div className="flex items-center gap-12">
+                <div className="flex flex-wrap items-center gap-12">
                     <FilterTabs
                         aria-label="Range"
                         value={range}
@@ -89,6 +89,13 @@ export default function Usage() {
                 </Notice>
             )}
 
+            {!report && !error && (
+                <>
+                    <Skeleton lines={2} />
+                    <Skeleton lines={6} />
+                </>
+            )}
+
             {s && (
                 <StatGroup
                     stats={[
@@ -101,7 +108,15 @@ export default function Usage() {
                 />
             )}
 
-            {report && (
+            {report && report.summary.calls === 0 && (
+                <EmptyState
+                    icon="usage"
+                    title={`No calls in the last ${range} days`}
+                    message="Every call this agent makes to its model is counted here: chats, tasks, dreams and compaction."
+                />
+            )}
+
+            {report && report.summary.calls > 0 && (
                 <section aria-label="Over time" className="flex flex-col gap-12">
                     <StackedBarChart
                         title={measure === 'cost' ? 'Estimated cost per day' : 'Tokens per day'}
@@ -113,12 +128,12 @@ export default function Usage() {
             )}
 
             <div className="grid grid-cols-1 items-start gap-24 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-            {report && (
+            {report && report.summary.calls > 0 && (
                 <section aria-label="Where it went" className="flex flex-col gap-12">
                     <PanelHeader title="Where it went" level={2} />
                     <Table
                         label="Where it went"
-                        columns={[{ label: by === 'model' ? 'Model' : by === 'channel' ? 'Channel' : 'Activity' }, { label: 'Calls', width: 90, align: 'end' }, { label: 'Tokens', width: 110, align: 'end' }, { label: 'Cost', width: 100, align: 'end' }, { label: 'Share', width: 120 }]}
+                        columns={[{ label: by === 'model' ? 'Model' : by === 'channel' ? 'Channel' : 'Activity' }, { label: 'Calls', width: 80, align: 'end' }, { label: 'Tokens', width: 110, align: 'end' }, { label: 'Cost', width: 90, align: 'end' }, { label: 'Share', width: 150 }]}
                     >
                         {rows.map((r) => (
                             <TableRow
@@ -132,7 +147,7 @@ export default function Usage() {
                                     count(r.calls),
                                     count(r.tokens),
                                     usd(r.cost_usd),
-                                    <BarList key="s" items={[{ label: '', share: shareOf(rows, r, measure), value: '' }]} />,
+                                    <Meter key="s" share={shareOf(rows, r, measure)} />,
                                 ]}
                             />
                         ))}

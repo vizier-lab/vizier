@@ -17,7 +17,7 @@ it('labels the first, every fifth and the last night', () => {
 })
 
 it('links a change to its document or to CORE', () => {
-    expect(changeHref('plug', { kind: 'wrote', bundle: 'infra', path: 'a b.md', seq: 1, at: '' })).toBe('/plug/memory/infra?doc=a%20b.md')
+    expect(changeHref('plug', { kind: 'wrote', bundle: 'infra', path: 'a b.md', seq: 1, at: '' })).toBe('/plug/memory/infra/a%20b')
     expect(changeHref('plug', { kind: 'core', bundle: null, path: null, seq: 4, at: '' })).toBe('/plug/core')
 })
 

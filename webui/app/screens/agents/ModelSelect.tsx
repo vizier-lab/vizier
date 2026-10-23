@@ -133,7 +133,7 @@ export function ModelSelect({ provider, model, onChange, providerLabel = 'Provid
                                         <HighlightMatch text={p.name} query={query} />
                                     </span>
                                     {p.origin === 'custom' && <Badge>custom</Badge>}
-                                    <span className={isConnected(p) ? 'type-mono-xs text-live' : 'type-mono-xs text-faint'}>
+                                    <span className={isConnected(p) ? 'type-mono-xs text-live-text' : 'type-mono-xs text-faint'}>
                                         {isConnected(p) ? (p.connection.source?.startsWith('env:') ? 'env' : 'connected') : ''}
                                     </span>
                                 </div>

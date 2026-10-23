@@ -1,22 +1,52 @@
-import { PageHeader, type PageHeaderProps } from '@vizier/design'
+import { Icon, PageHeader, type PageHeaderProps } from '@vizier/design'
 import type { ReactNode } from 'react'
+import { Link } from 'react-router'
 
 type Props = Omit<PageHeaderProps, 'children'> & {
     children?: ReactNode
-    /** Content width: the design's reading column, or the full page. */
-    width?: 'narrow' | 'wide' | 'full'
+    /**
+     * `full` (the default) uses the whole width, as Chat does; `narrow` holds a form to a readable
+     * measure, still starting on the same left edge. (`wide` and `workspace` are `full`.)
+     */
+    width?: 'narrow' | 'wide' | 'workspace' | 'full'
+    /** The body is panes that fill the page and scroll themselves (Chat, Memory, Core): no gutter, no page scroll. */
+    fill?: boolean
+    /** A sub-page (an editor, one item) goes back to its parent page. */
+    back?: { href: string; label: string }
 }
 
-const WIDTH = { narrow: 'max-w-3xl', wide: 'max-w-6xl', full: '' } as const
-
-/** The standard page body: a PageHeader over a content area at the design's width. */
-export function PageFrame({ children, width = 'wide', ...header }: Props) {
+/**
+ * The standard page: a header band the height of the agent switcher (and of the chat's), over a
+ * body that runs edge to edge like the chat's. Every page shares the chat's 24px gutter, so the
+ * header's title and the content line up on one left edge as you move between pages. Under `lg`
+ * the band grows and the actions wrap under the title instead of crowding it.
+ */
+export function PageFrame({ children, width = 'full', fill, back, description, ...header }: Props) {
     return (
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-            <div className={`mx-auto flex w-full flex-col gap-24 px-16 py-20 sm:px-32 sm:py-32 ${WIDTH[width]}`}>
-                <PageHeader {...header} />
-                {children}
+        <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-76 shrink-0 items-center border-b border-border px-16 py-12 sm:px-24 lg:h-76 lg:py-0">
+                {back && (
+                    <Link
+                        to={back.href}
+                        aria-label={`Back to ${back.label}`}
+                        title={`Back to ${back.label}`}
+                        className="-ml-8 mr-8 grid size-32 shrink-0 place-items-center self-center rounded-md text-muted hover:bg-raised hover:text-fg"
+                    >
+                        <Icon name="chevron-left" size={17} />
+                    </Link>
+                )}
+                <PageHeader {...header} className="min-w-0 flex-1 lg:flex-nowrap! lg:items-center!" />
             </div>
+            {fill ? (
+                <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+            ) : (
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                    <div className={`flex w-full flex-col gap-24 px-16 py-20 sm:px-24 sm:py-24 ${width === 'narrow' ? 'max-w-3xl' : ''}`}>
+                        {description && <p className="type-ui-para text-muted">{description}</p>}
+                        {children}
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

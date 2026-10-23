@@ -1,5 +1,7 @@
 import { EmptyState, PanelHeader, RecalledMemoryRow, TextLink } from '@vizier/design'
 import { useMemo, useState } from 'react'
+import { useLocation } from 'react-router'
+import { docFromChat } from '../../lib/memoryTree'
 import type { ChatMessage, RecalledPassage } from '../../api/frames'
 
 const SHOWN = 5
@@ -25,8 +27,8 @@ type Props = {
 export function RecalledMemoryPanel({ agentId, recalled }: Props) {
     const [all, setAll] = useState(false)
     const rows = useMemo(() => (all ? recalled : recalled.slice(0, SHOWN)), [all, recalled])
-    const href = (p: Recalled) =>
-        `/${agentId}/memory/${encodeURIComponent(p.bundle)}?doc=${encodeURIComponent(p.path)}`
+    const { pathname } = useLocation()
+    const href = (p: Recalled) => docFromChat(agentId, p.bundle, p.path, pathname)
 
     return (
         <section aria-label="Recalled memory" className="flex flex-col gap-8">

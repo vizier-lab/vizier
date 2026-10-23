@@ -1,5 +1,6 @@
-import { Button, Card, Dialog, EmptyState, Eyebrow, Menu, MenuItem, PageHeader, ProviderRow, Skeleton } from '@vizier/design'
+import { Button, Dialog, EmptyState, Menu, MenuItem, ProviderRow, Skeleton } from '@vizier/design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { ApiError } from '../api/client'
 import { allProviders, type ProviderSummary } from '../api/endpoints/catalogue'
 import {
@@ -17,11 +18,11 @@ import {
 import { relativeTime } from '../lib/format'
 import { credentialText, customCredentialText, inUseMessage, usageText } from '../lib/providers'
 import { invalidateCatalogue, logoOf } from '../lib/catalogue'
-import { AddProvider } from '../screens/providers/AddProvider'
 import { ConnectForm } from '../screens/providers/ConnectForm'
 import { CustomProviderForm } from '../screens/providers/CustomProviderForm'
 import { ModelsDrawer } from '../screens/providers/ModelsDrawer'
 import { ConfirmDialog } from '../screens/shared/ConfirmDialog'
+import { PageFrame } from '../screens/shared/PageFrame'
 import { toast } from '../stores/toasts'
 
 type Row =
@@ -31,6 +32,7 @@ type Row =
 type Pending = { row: Row; agents: AffectedAgent[] }
 
 export default function SettingsProviders() {
+    const navigate = useNavigate()
     const [connected, setConnected] = useState<ConnectedProvider[]>()
     const [custom, setCustom] = useState<CustomProvider[]>([])
     const [catalogue, setCatalogue] = useState<ProviderSummary[]>([])
@@ -38,8 +40,7 @@ export default function SettingsProviders() {
     const [error, setError] = useState<string>()
     const [menu, setMenu] = useState<string | null>(null)
     const [connecting, setConnecting] = useState<{ provider: ProviderSummary; editing: boolean } | null>(null)
-    const [editingCustom, setEditingCustom] = useState<CustomProvider | 'new' | null>(null)
-    const [customName, setCustomName] = useState<string>()
+    const [editingCustom, setEditingCustom] = useState<CustomProvider | null>(null)
     const [models, setModels] = useState<{ id: string; name: string; custom: boolean } | null>(null)
     const [pending, setPending] = useState<Pending | null>(null)
     const [refreshing, setRefreshing] = useState(false)
@@ -70,12 +71,6 @@ export default function SettingsProviders() {
     const rows: Row[] = useMemo(
         () => [...(connected ?? []).map((provider) => ({ kind: 'catalogue' as const, provider })), ...custom.map((provider) => ({ kind: 'custom' as const, provider }))],
         [connected, custom]
-    )
-
-    const connectedIds = new Set(rows.map((r) => r.provider.id))
-    const available = useMemo(
-        () => catalogue.filter((p) => !connectedIds.has(p.id) && p.origin !== 'custom' && p.fields.length > 0),
-        [catalogue, connected, custom] // eslint-disable-line react-hooks/exhaustive-deps
     )
 
     const remove = async (row: Row, confirm: boolean) => {
@@ -139,63 +134,56 @@ export default function SettingsProviders() {
     )
 
     return (
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-            <div className="mx-auto flex w-full max-w-4xl flex-col gap-24 px-16 py-20 sm:px-32 sm:py-32">
-                <PageHeader
-                    size="settings"
-                    title="Providers"
-                    description={`Catalogue from models.dev${status ? ` · refreshed ${relativeTime(status.checked_at ?? status.fetched_at)}` : ''}. Keys are stored in Vizier; environment variables still work.`}
-                    actions={
-                        <Button icon="refresh" loading={refreshing} onClick={refresh}>
-                            Refresh catalogue
+        <PageFrame
+            title="Providers"
+            meta={`${rows.length} connected · catalogue from models.dev${status ? `, refreshed ${relativeTime(status.checked_at ?? status.fetched_at)}` : ''}`}
+            description="Keys are stored in Vizier; environment variables still work."
+            actions={
+                <>
+                    <Button icon="refresh" loading={refreshing} onClick={refresh}>
+                        Refresh catalogue
+                    </Button>
+                    <Button variant="primary" icon="plus" onClick={() => navigate('/settings/providers/add')}>
+                        Add provider
+                    </Button>
+                </>
+            }
+        >
+            {error ? (
+                <EmptyState kind="error" title="Couldn’t load providers" message={error} />
+            ) : !connected ? (
+                <Skeleton className="h-120" />
+            ) : rows.length === 0 ? (
+                <EmptyState
+                    kind="empty"
+                    icon="cloud"
+                    title="Nothing is connected yet"
+                    message="Connect a provider to give your agents a model. Ollama runs models on your own machine, no key needed."
+                    action={
+                        <Button variant="primary" icon="plus" onClick={() => navigate('/settings/providers/add')}>
+                            Add provider
                         </Button>
                     }
                 />
-
-                {error ? (
-                    <EmptyState kind="error" title="Couldn’t load providers" message={error} />
-                ) : !connected ? (
-                    <Skeleton className="h-120" />
-                ) : (
-                    <>
-                        <Card>
-                            <Eyebrow count={rows.length}>Connected</Eyebrow>
-                            {rows.length === 0 ? (
-                                <p className="pt-8 type-small text-faint">Nothing is connected yet. Pick a provider below to give your agents a model.</p>
-                            ) : (
-                                <div className="flex flex-col">
-                                    {rows.map((row) => (
-                                        <div key={`${row.kind}:${row.provider.id}`} className="relative">
-                                            <ProviderRow
-                                                provider={row.provider.id}
-                                                name={row.provider.name}
-                                                logo={logoOf(summaryOf(row.provider.id))}
-                                                custom={row.kind === 'custom'}
-                                                credential={row.kind === 'custom' ? customCredentialText(row.provider) : credentialText(row.provider)}
-                                                usage={usageText(row.provider.used_by, row.kind === 'custom' ? row.provider.models.length : row.provider.model_count)}
-                                                onModels={() => setModels({ id: row.provider.id, name: row.provider.name, custom: row.kind === 'custom' })}
-                                                onMore={() => setMenu(menu === row.provider.id ? null : row.provider.id)}
-                                            />
-                                            {menu === row.provider.id && rowMenu(row)}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </Card>
-
-                        <Card title="Add a provider" description="Connect one to give your agents models. Keys are checked when you save.">
-                            <AddProvider
-                                providers={available}
-                                onConnected={(p) => {
-                                    toast.success(`${p.name} connected`)
-                                    void load()
-                                }}
-                                onCustom={(name) => (setCustomName(name), setEditingCustom('new'))}
+            ) : (
+                <section aria-label="Connected providers" className="-mx-16 flex flex-col">
+                    {rows.map((row) => (
+                        <div key={`${row.kind}:${row.provider.id}`} className="relative">
+                            <ProviderRow
+                                provider={row.provider.id}
+                                name={row.provider.name}
+                                logo={logoOf(summaryOf(row.provider.id))}
+                                custom={row.kind === 'custom'}
+                                credential={row.kind === 'custom' ? customCredentialText(row.provider) : credentialText(row.provider)}
+                                usage={usageText(row.provider.used_by, row.kind === 'custom' ? row.provider.models.length : row.provider.model_count)}
+                                onModels={() => setModels({ id: row.provider.id, name: row.provider.name, custom: row.kind === 'custom' })}
+                                onMore={() => setMenu(menu === row.provider.id ? null : row.provider.id)}
                             />
-                        </Card>
-                    </>
-                )}
-            </div>
+                            {menu === row.provider.id && rowMenu(row)}
+                        </div>
+                    ))}
+                </section>
+            )}
 
             <Dialog open={connecting !== null} title={connecting ? `${connecting.editing ? 'Replace credentials for' : 'Connect'} ${connecting.provider.name}` : ''} confirmLabel="" onConfirm={() => {}} onCancel={() => setConnecting(null)}>
                 {connecting && (
@@ -213,16 +201,14 @@ export default function SettingsProviders() {
                 )}
             </Dialog>
 
-            <Dialog open={editingCustom !== null} title={editingCustom === 'new' ? 'Add custom provider' : 'Edit custom provider'} confirmLabel="" onConfirm={() => {}} onCancel={() => setEditingCustom(null)}>
+            <Dialog open={editingCustom !== null} title="Edit custom provider" confirmLabel="" onConfirm={() => {}} onCancel={() => setEditingCustom(null)}>
                 {editingCustom !== null && (
                     <CustomProviderForm
-                        key={editingCustom === 'new' ? 'new' : editingCustom.id}
-                        provider={editingCustom === 'new' ? undefined : editingCustom}
-                        initialName={editingCustom === 'new' ? customName : undefined}
+                        key={editingCustom.id}
+                        provider={editingCustom}
                         onCancel={() => setEditingCustom(null)}
                         onDone={() => {
                             setEditingCustom(null)
-                            setCustomName(undefined)
                             void load()
                         }}
                     />
@@ -239,6 +225,6 @@ export default function SettingsProviders() {
                 onConfirm={() => pending && void remove(pending.row, true)}
                 onCancel={() => setPending(null)}
             />
-        </div>
+        </PageFrame>
     )
 }

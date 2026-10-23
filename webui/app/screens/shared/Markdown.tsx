@@ -1,13 +1,16 @@
 import { CodeBlock, Prose } from '@vizier/design'
 import type { ComponentProps } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { Link } from 'react-router'
 import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
 
 type Props = { children: string; size?: ComponentProps<typeof Prose>['size'] }
 
 const components: ComponentProps<typeof ReactMarkdown>['components'] = {
-    a: ({ node: _n, ...p }) => <a {...p} target="_blank" rel="noreferrer noopener" />,
+    // A link into the app (a memory wiki link) stays in the tab; anything else opens a new one.
+    a: ({ node: _n, href, ...p }) =>
+        href?.startsWith('/') && !href.startsWith('//') ? <Link to={href} {...p} /> : <a href={href} {...p} target="_blank" rel="noreferrer noopener" />,
     pre: ({ children }) => <>{children}</>,
     code: ({ className, children }) => {
         const text = String(children).replace(/\n$/, '')

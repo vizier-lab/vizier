@@ -8,7 +8,7 @@ import { EMBEDDING_PROVIDERS, fromDetail, problems, toInput, type AgentForm } fr
 import { uploadFile } from '../lib/upload'
 import { ModelSelect } from '../screens/agents/ModelSelect'
 import { ToolsFields } from '../screens/agents/ToolsFields'
-import { IntegrationsTab } from '../screens/integrations/IntegrationsTab'
+import { SelfManagementCard } from '../screens/integrations/SelfManagementCard'
 import { ConfirmDialog } from '../screens/shared/ConfirmDialog'
 import { PageFrame } from '../screens/shared/PageFrame'
 import { TwoColumn } from '../screens/shared/TwoColumn'
@@ -19,7 +19,6 @@ const TABS = [
     { key: 'config', label: 'Config' },
     { key: 'prompt', label: 'System Prompt' },
     { key: 'tools', label: 'Tools' },
-    { key: 'integrations', label: 'Integrations' },
     { key: 'sharing', label: 'Sharing' },
     { key: 'danger', label: 'Danger Zone' },
 ] as const
@@ -194,7 +193,6 @@ export default function AgentConfig() {
             title="Config"
             meta={`${form.name} · @${form.agentId}`}
             actions={
-                tab === 'integrations' ? undefined : (
                 <>
                     <span className="hidden type-small text-faint xl:inline">Saving rebuilds {form.name} and stops its running turns.</span>
                     {dirty && <UnsavedIndicator>Unsaved changes</UnsavedIndicator>}
@@ -207,7 +205,6 @@ export default function AgentConfig() {
                         Save changes
                     </Button>
                 </>
-                )
             }
         >
             {saveError && (
@@ -245,8 +242,14 @@ export default function AgentConfig() {
                         <MarkdownEditor look="compact" value={form.systemPrompt} onChange={(systemPrompt) => set({ systemPrompt })} className="h-640" />
                     </Card>
                 )}
-                {tab === 'tools' && <ToolsFields form={form} errors={errors} set={set} />}
-                {tab === 'integrations' && <IntegrationsTab agentId={agentId} />}
+                {tab === 'tools' && (
+                    <>
+                        <ToolsFields form={form} errors={errors} set={set} />
+                        <div className="mt-24">
+                            <SelfManagementCard agentId={agentId} />
+                        </div>
+                    </>
+                )}
                 {tab === 'sharing' && sharing}
                 {tab === 'danger' && danger}
             </div>

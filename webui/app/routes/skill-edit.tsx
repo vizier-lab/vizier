@@ -1,10 +1,11 @@
-import { ActionBar, Breadcrumb, Button, Dialog, KeywordInput, MarkdownEditor, Notice, TextField, UnsavedIndicator } from '@vizier/design'
+import { Button, Dialog, KeywordInput, MarkdownEditor, Notice, TextField, UnsavedIndicator } from '@vizier/design'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/client'
 import { createSkill, getSkill, updateSkill, type Skill } from '../api/endpoints/skills'
 import { absoluteTime } from '../lib/format'
 import { slugOf } from '../lib/tasks'
+import { PageFrame } from '../screens/shared/PageFrame'
 import { clearDraft, pendingDraft, saveDraft } from '../stores/drafts'
 import { toast } from '../stores/toasts'
 
@@ -71,7 +72,7 @@ export default function SkillEdit() {
                 await createSkill(scope, agentId, { name: finalName, description: form.description.trim(), content: form.content, keywords: form.keywords })
                 clearDraft(draftKey)
                 toast.success('Skill created')
-                navigate(`/${agentId}/skills?skill=${encodeURIComponent(finalName)}`)
+                navigate(`/${agentId}/skills/${encodeURIComponent(finalName)}?scope=${scope}`)
                 return
             }
             const saved = await updateSkill(scope, agentId, slug, {
@@ -84,6 +85,7 @@ export default function SkillEdit() {
             setLoaded(saved)
             setBase(form)
             toast.success('Skill saved')
+            navigate(`/${agentId}/skills/${encodeURIComponent(slug)}?scope=${scope}`)
         } catch (e) {
             if (e instanceof ApiError && e.status === 409) setConflict(e.data as Skill)
             else setError(e instanceof Error ? e.message : 'Something went wrong')
@@ -98,40 +100,45 @@ export default function SkillEdit() {
         if (creating) setName('')
     }
 
+    const back = creating ? `/${agentId}/skills` : `/${agentId}/skills/${encodeURIComponent(slug)}?scope=${scope}`
+
     return (
-        <div className="flex min-h-0 flex-1 flex-col">
-            <ActionBar
-                position="top"
-                start={
-                    <Breadcrumb
-                        back={{ label: 'Skills', href: `/${agentId}/skills` }}
-                        segments={[{ label: 'skills', href: `/${agentId}/skills` }, { label: creating ? 'new' : slug }]}
-                    />
-                }
-                end={
-                    <>
-                        {dirty && <UnsavedIndicator>Unsaved · draft kept in this browser</UnsavedIndicator>}
-                        <Button variant="ghost" disabled={!dirty} onClick={discard}>
-                            Discard
-                        </Button>
-                        <Button variant="primary" loading={saving} disabled={!canSave} shortcut="Ctrl S" onClick={() => void save()}>
-                            Save
-                        </Button>
-                    </>
-                }
-            />
-            <div className="flex min-h-0 flex-1 flex-col gap-16 overflow-y-auto px-32 py-24">
+        <PageFrame
+            fill
+            back={{ href: back, label: creating ? 'Skills' : `/${slug}` }}
+            title={creating ? 'New skill' : `Edit /${slug}`}
+            meta={`${scope === 'agent' ? 'This agent' : 'Global'} · SKILL.md`}
+            actions={
+                <>
+                    {dirty && <UnsavedIndicator>Unsaved · draft kept in this browser</UnsavedIndicator>}
+                    <Button variant="ghost" onClick={() => (dirty ? discard() : navigate(back))}>
+                        {dirty ? 'Discard' : 'Cancel'}
+                    </Button>
+                    <Button variant="primary" loading={saving} disabled={!canSave} shortcut="Ctrl S" onClick={() => void save()}>
+                        Save
+                    </Button>
+                </>
+            }
+        >
+            <div className="flex min-h-0 flex-1 flex-col gap-16 overflow-y-auto px-16 py-20 sm:px-24 sm:py-24">
                 {error && <Notice tone="failed" title="Couldn't save the skill">{error}</Notice>}
                 {draft && !dirty && (
-                    <div className="flex items-center gap-12 rounded-lg border border-border-strong bg-surface px-16 py-12 type-small text-muted">
-                        <span className="flex-1">You have an unsaved draft from {absoluteTime(draft.at)}.{draft.stale ? ' The skill has changed since.' : ''}</span>
-                        <Button size="sm" variant="secondary" onClick={() => (change({ content: draft.text }), setDraft(null))}>
-                            Restore draft
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => (clearDraft(draftKey), setDraft(null))}>
-                            Discard
-                        </Button>
-                    </div>
+                    <Notice
+                        tone="info"
+                        title={`Unsaved draft from ${absoluteTime(draft.at)}`}
+                        actions={
+                            <>
+                                <Button size="sm" variant="secondary" onClick={() => (change({ content: draft.text }), setDraft(null))}>
+                                    Restore draft
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => (clearDraft(draftKey), setDraft(null))}>
+                                    Discard
+                                </Button>
+                            </>
+                        }
+                    >
+                        {draft.stale ? 'The skill has changed since, so restoring it would replace those changes.' : 'It was kept in this browser.'}
+                    </Notice>
                 )}
                 <div className="grid grid-cols-1 gap-16 md:grid-cols-2">
                     <TextField
@@ -145,7 +152,7 @@ export default function SkillEdit() {
                     <TextField label="Description" value={form.description} onChange={(e) => change({ description: e.target.value })} helper="One line: when the agent should reach for it." />
                 </div>
                 <KeywordInput label="Keywords" value={form.keywords} onChange={(keywords) => change({ keywords })} placeholder="Add a keyword" />
-                <MarkdownEditor look="full" outline value={form.content} onChange={(content) => change({ content })} onSaveShortcut={() => void save()} className="h-640" />
+                <MarkdownEditor look="full" outline value={form.content} onChange={(content) => change({ content })} onSaveShortcut={() => void save()} className="min-h-[480px] flex-1" />
             </div>
 
             <Dialog
@@ -170,6 +177,6 @@ export default function SkillEdit() {
                     setConflict(null)
                 }}
             />
-        </div>
+        </PageFrame>
     )
 }

@@ -1,3 +1,4 @@
+import type { AgentState } from '@vizier/design'
 import { api } from '../client'
 
 export type Agent = {
@@ -132,11 +133,11 @@ export const getSharing = (id: string) => api.get<{ shared_to: string[] }>(`/age
 export const updateSharing = (id: string, change: { add?: string[]; remove?: string[] }) =>
     api.patch<{ shared_to: string[] }>(`/agents/${encodeURIComponent(id)}/sharing`, change)
 
-/** The dot an agent shows: a turn running beats idle; failures and start-up states beat both. */
-export function agentState(h?: AgentHealth) {
-    if (!h) return 'idle' as const
-    if (h.state === 'failed') return h.next_retry_at ? ('retrying' as const) : ('failed' as const)
-    if (h.state === 'starting') return 'starting' as const
-    if (h.state === 'stopped') return 'stopped' as const
-    return h.live ? ('live' as const) : ('idle' as const)
+/** The dot an agent shows: up is live, a turn in progress is running; failures and start-up states beat both. */
+export function agentState(h?: AgentHealth): AgentState {
+    if (!h) return 'live' 
+    if (h.state === 'failed') return h.next_retry_at ? 'retrying' : 'failed'
+    if (h.state === 'starting') return 'starting'
+    if (h.state === 'stopped') return 'stopped'
+    return h.live ? 'running' : 'live'
 }

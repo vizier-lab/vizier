@@ -48,7 +48,7 @@ describe('the grid', () => {
     })
 
     it('says the day in words for one agent', () => {
-        expect(summaryLine(base)).toBe('Archivist is replying now. 94 chat turns, 5 scheduled tasks and 2 dream stages today.')
+        expect(summaryLine(base)).toBe('Archivist is running now. 94 chat turns, 5 scheduled tasks and 2 dream stages today.')
         expect(summaryLine({ ...base, agent_total: 2 })).toBeUndefined()
     })
 

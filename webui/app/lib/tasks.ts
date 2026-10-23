@@ -1,4 +1,4 @@
-import type { Task, TaskRun, TaskSchedule } from '../api/endpoints/tasks'
+import type { Task, TaskInput, TaskRun, TaskSchedule } from '../api/endpoints/tasks'
 
 export const isCron = (s: TaskSchedule): s is { CronTask: string } => 'CronTask' in s
 
@@ -32,4 +32,16 @@ export function slugOf(title: string): string {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '')
         .slice(0, 60)
+}
+
+/** A task as the input that saves it again, with some of it changed. */
+export function toInput(task: Task, patch: Partial<TaskInput> = {}): TaskInput {
+    return {
+        slug: task.slug,
+        title: task.title,
+        instruction: task.instruction,
+        schedule: isCron(task.schedule) ? { type: 'Cron', expression: task.schedule.CronTask } : { type: 'OneTime', datetime: task.schedule.OneTimeTask },
+        is_active: task.is_active,
+        ...patch,
+    }
 }

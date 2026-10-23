@@ -13,7 +13,7 @@ import { useCan } from '../../lib/access'
 const RANKS: { value: Rank; label: string }[] = [
     { value: 'most_active', label: 'Most active' },
     { value: 'mine', label: 'Mine' },
-    { value: 'live', label: 'Live' },
+    { value: 'live', label: 'Running' },
     { value: 'failed', label: 'Failed' },
 ]
 

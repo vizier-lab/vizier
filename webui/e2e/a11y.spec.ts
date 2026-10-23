@@ -89,17 +89,17 @@ test.describe('Keyboard only (quickstart §8.3)', () => {
         await expect(page.getByText(text).first()).toBeVisible()
     })
 
-    test('Tasks: the new-task dialog opens, traps focus and closes with Escape', async ({ page }) => {
+    test('Tasks: New task opens its page with the title focused, and Cancel goes back', async ({ page }) => {
         await login(page)
         await createPlugAgent(page, AGENT)
         await page.goto(`/${AGENT}/tasks`)
         await page.getByRole('button', { name: 'New task' }).first().focus()
         await page.keyboard.press('Enter')
-        const dialog = page.getByRole('dialog')
-        await expect(dialog).toBeVisible()
-        await expect(dialog.getByLabel('Title')).toBeFocused()
-        await page.keyboard.press('Escape')
-        await expect(dialog).toBeHidden()
+        await expect(page).toHaveURL(new RegExp(`/${AGENT}/tasks/new/edit$`))
+        await expect(page.getByLabel('Title')).toBeFocused()
+        await page.getByRole('button', { name: 'Cancel' }).focus()
+        await page.keyboard.press('Enter')
+        await expect(page).toHaveURL(new RegExp(`/${AGENT}/tasks$`))
     })
 
     test('Roles: a role can be chosen and a permission toggled with the keyboard', async ({ page }) => {

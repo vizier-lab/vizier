@@ -5,8 +5,11 @@ import { toast } from '../../stores/toasts'
 
 const MIN = 8
 
-/** Change the password you sign in with. */
-export function PasswordCard() {
+/**
+ * Change the password you sign in with. On the Password page the page's own title and sentence
+ * already say so, and the card goes untitled (`titled={false}`).
+ */
+export function PasswordCard({ titled = true }: { titled?: boolean }) {
     const [current, setCurrent] = useState('')
     const [next, setNext] = useState('')
     const [confirm, setConfirm] = useState('')
@@ -18,7 +21,7 @@ export function PasswordCard() {
     const ready = current !== '' && next.length >= MIN && confirm === next
 
     return (
-        <Card title="Password" description="Change the password you sign in with.">
+        <Card title={titled ? 'Password' : undefined} description={titled ? 'Change the password you sign in with.' : undefined} aria-label="Password">
             <form
                 className="flex flex-col gap-16"
                 onSubmit={async (e) => {

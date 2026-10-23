@@ -68,10 +68,14 @@ const stripMd = (p: string) => p.replace(/\.md$/, '')
 export const searchMemory = (agentId: string, query: string, bundle?: string) =>
     api.get<Passage[]>(`${base(agentId)}/query?query=${encodeURIComponent(query)}&limit=20&threshold=0.2${bundle ? `&bundle=${encodeURIComponent(bundle)}` : ''}`)
 
-export const listDocs = (agentId: string, bundle: string, offset: number, limit: number) =>
+/** A bundle's documents, newest first, or by path with `bySlug` (the explorer's order). */
+export const listDocs = (agentId: string, bundle: string, offset: number, limit: number, bySlug = false) =>
     api.get<{ memories: MemorySummary[]; total: number; offset: number; limit: number }>(
-        `${base(agentId)}?bundle=${encodeURIComponent(bundle)}&offset=${offset}&limit=${limit}`
+        `${base(agentId)}?bundle=${encodeURIComponent(bundle)}&offset=${offset}&limit=${limit}${bySlug ? '&sort_by=slug' : ''}`
     )
+
+/** Every bundle, unpaged, for the explorer. */
+export const listBundles = (agentId: string) => api.get<Bundle[]>(`${base(agentId)}/bundles`)
 
 export const getDoc = (agentId: string, bundle: string, path: string) => api.get<MemoryDoc>(doc(agentId, bundle, stripMd(path)))
 
@@ -94,6 +98,9 @@ export const memoryHistory = (agentId: string, bundle: string, path: string, off
     )
 export const memoryDiff = (agentId: string, bundle: string, path: string, to: number, from?: number) =>
     api.get<RevisionDiff>(`${base(agentId)}/history/${encodeURIComponent(bundle)}/${stripMd(path)}?to=${to}${from != null ? `&from=${from}` : ''}`)
+/** One saved version; `content` is null on a deletion. */
+export const memoryRevision = (agentId: string, bundle: string, path: string, seq: number) =>
+    api.get<{ seq: number; content: string | null }>(`${base(agentId)}/history/${encodeURIComponent(bundle)}/${stripMd(path)}?seq=${seq}`)
 export const rollbackDoc = (agentId: string, bundle: string, path: string, seq: number) =>
     api.post(`${base(agentId)}/history/${encodeURIComponent(bundle)}/${stripMd(path)}`, { seq })
 

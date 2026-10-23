@@ -23,6 +23,8 @@ type Props = {
     onConnected: (provider: ProviderSummary) => void
     /** Open the custom provider form, with a name when the search found nothing. */
     onCustom: (name?: string) => void
+    /** On its own page: the list takes the height left, and "Add custom provider" is the page's. */
+    page?: boolean
 }
 
 const sub = (p: ProviderSummary) => (p.model_count ? `${count(p.model_count)} models` : p.kind === 'local' ? 'local server' : p.kind === 'media' ? 'speech, images, embeddings' : '')
@@ -31,7 +33,7 @@ const sub = (p: ProviderSummary) => (p.model_count ? `${count(p.model_count)} mo
  * Search the catalogue for a provider to connect. One list, popular first and then A to Z, and a
  * row opens its credentials form where it stands: nothing to dismiss, nowhere else to go.
  */
-export function AddProvider({ providers, onConnected, onCustom }: Props) {
+export function AddProvider({ providers, onConnected, onCustom, page }: Props) {
     const [query, setQuery] = useState('')
     const [filter, setFilter] = useState<Filter>('all')
     const [open, setOpen] = useState<string | null>(null)
@@ -49,7 +51,7 @@ export function AddProvider({ providers, onConnected, onCustom }: Props) {
     const popular = q ? 0 : shown.filter((p) => p.popular).length
 
     return (
-        <div className="flex flex-col gap-12">
+        <div className={page ? 'flex min-h-0 flex-1 flex-col gap-16' : 'flex flex-col gap-12'}>
             <div className="flex flex-wrap items-center gap-12">
                 <div className="min-w-220 flex-1">
                     <SearchField aria-label="Search providers" placeholder={`Search ${count(providers.length)} providers`} value={query} onValueChange={setQuery} />
@@ -57,7 +59,7 @@ export function AddProvider({ providers, onConnected, onCustom }: Props) {
                 <FilterTabs aria-label="Kind of provider" value={filter} onChange={setFilter} options={FILTERS} />
             </div>
 
-            <div className="max-h-[26rem] overflow-y-auto rounded-lg border border-border bg-ground" role="list" aria-label="Providers to connect">
+            <div className={`overflow-y-auto rounded-lg border border-border bg-ground ${page ? 'min-h-0 flex-1' : 'max-h-[26rem]'}`} role="list" aria-label="Providers to connect">
                 {shown.map((p, i) => (
                     <div key={p.id} role="listitem">
                         {popular > 0 && i === 0 && <p className="px-14 pt-10 pb-4 type-label uppercase text-faint">Popular</p>}
@@ -100,12 +102,14 @@ export function AddProvider({ providers, onConnected, onCustom }: Props) {
                 )}
             </div>
 
+            {!page && (
             <div className="flex flex-wrap items-center gap-12">
                 <Button icon="plus" onClick={() => onCustom()}>
                     Add custom provider
                 </Button>
                 <p className="type-small text-faint">Any OpenAI-compatible or Anthropic-protocol endpoint, with its own model list.</p>
             </div>
+            )}
         </div>
     )
 }

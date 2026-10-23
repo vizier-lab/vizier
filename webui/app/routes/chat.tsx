@@ -2,10 +2,12 @@ import { IconButton, JobsPill, SlideOver } from '@vizier/design'
 import { nanoid } from 'nanoid'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
+import { agentState } from '../api/endpoints/agents'
 import { cancelJob, listTopics, restartAgent } from '../api/endpoints/chat'
 import type { Topic, Turn } from '../api/frames'
 import type { ClientCallView } from '../api/frames'
 import { emptyTopic } from '../lib/frames'
+import { greeting } from '../lib/greetings'
 import { requestText } from '../lib/messages'
 import { ConversationHeader } from '../screens/chat/ConversationHeader'
 import { AgentStateBanner } from '../screens/chat/AgentStateBanner'
@@ -19,13 +21,16 @@ import {
     recalledFrom,
 } from '../screens/chat/RecalledMemoryPanel'
 import { SessionFilesPanel } from '../screens/chat/SessionFilesPanel'
+import { lastTopic, read, rememberTopic, write } from '../lib/remember'
 import { useMobile } from '../lib/useMobile'
 import { useAgents } from '../stores/agents'
 import { topicKey, useConnection } from '../stores/connection'
+import { useSession } from '../stores/session'
 import { toast } from '../stores/toasts'
 import { useTurns } from '../stores/turns'
 
 const EMPTY = emptyTopic()
+const PANEL_KEY = 'vizier.chat.panel'
 
 export default function Chat() {
     const { agentId = '', topicId } = useParams()
@@ -39,24 +44,41 @@ export default function Chat() {
 
     const [topics, setTopics] = useState<Topic[]>([])
     const mobile = useMobile()
-    const [panel, setPanel] = useState(true)
+    const userId = useSession((s) => s.user?.user_id)
+    const [panel, setPanel] = useState(() => read(PANEL_KEY, true))
+    const togglePanel = (open: boolean) => {
+        write(PANEL_KEY, open)
+        setPanel(open)
+    }
+    const composerBox = useRef<HTMLDivElement>(null)
+    const [composerHeight, setComposerHeight] = useState(120)
+    useEffect(() => {
+        const el = composerBox.current
+        if (!el) return
+        const ro = new ResizeObserver(() => setComposerHeight(el.offsetHeight))
+        ro.observe(el)
+        return () => ro.disconnect()
+    }, [])
     const [sheet, setSheet] = useState(false)
 
-    // No topic in the URL: the latest one, or a fresh one.
+    // No topic in the URL: the one this person last had open, else the latest, else a fresh one.
     useEffect(() => {
         let alive = true
+        const remembered = userId ? lastTopic(userId, agentId) : null
+        if (!topicId && remembered)
+            navigate(`/${agentId}/chat/${remembered}`, { replace: true })
         listTopics(agentId)
             .then((list) => {
                 if (!alive) return
                 setTopics(list ?? [])
-                if (!topicId)
+                if (!topicId && !remembered)
                     navigate(
                         `/${agentId}/chat/${list?.[0]?.topic_id ?? nanoid(10)}`,
                         { replace: true }
                     )
             })
             .catch(() => {
-                if (alive && !topicId)
+                if (alive && !topicId && !remembered)
                     navigate(`/${agentId}/chat/${nanoid(10)}`, {
                         replace: true,
                     })
@@ -65,6 +87,10 @@ export default function Chat() {
             alive = false
         }
     }, [agentId, topicId === undefined]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (userId && topicId) rememberTopic(userId, agentId, topicId)
+    }, [userId, agentId, topicId])
 
     const open = useTurns((s) => s.open)
     const close = useTurns((s) => s.close)
@@ -75,6 +101,7 @@ export default function Chat() {
     }, [agentId, topicId, open, close])
 
     const key = topicKey(agentId, topicId ?? '')
+    const opening = useMemo(() => greeting(), [key])
     const state = useTurns((s) => s.topics[key]) ?? EMPTY
     const meta = useTurns((s) => s.meta[key])
     const connection = useConnection((s) => s.state[key]) ?? 'connecting'
@@ -162,13 +189,11 @@ export default function Chat() {
                     current={{ topic: topicId }}
                     agentName={agentName}
                     status={{
-                        state: failed
-                            ? health?.next_retry_at
-                                ? 'retrying'
-                                : 'failed'
-                            : state.phase !== 'idle'
-                              ? 'live'
-                              : 'idle',
+                        // This topic's turn, not any of the agent's, decides running.
+                        state:
+                            !failed && state.phase !== 'idle'
+                                ? 'running'
+                                : agentState(health && { ...health, live: false }),
                         detail: state.phase !== 'idle' ? 'replying' : undefined,
                     }}
                     mobileTrailing={
@@ -192,17 +217,15 @@ export default function Chat() {
                         <>
                             <JobsPill
                                 count={runningJobs}
-                                onClick={() => setPanel(true)}
+                                onClick={() => togglePanel(true)}
                                 open={panel}
                             />
-                            <button
-                                type="button"
-                                className="type-small text-muted hover:text-fg"
-                                onClick={() => setPanel((p) => !p)}
+                            <IconButton
+                                icon="layers"
+                                aria-label={panel ? 'Hide conversation details' : 'Show conversation details'}
                                 aria-pressed={panel}
-                            >
-                                {panel ? 'Hide panel' : 'Show panel'}
-                            </button>
+                                onClick={() => togglePanel(!panel)}
+                            />
                         </>
                     }
                 />
@@ -226,9 +249,12 @@ export default function Chat() {
                     configHref={`/${agentId}/config`}
                 />
 
+                <div className="relative flex min-h-0 flex-1 flex-col">
                 <MessageList
+                    bottomInset={composerHeight}
                     state={state}
-                    agent={{ id: agentId, name: agentName }}
+                    agent={{ id: agentId, name: agentName, live: ['live', 'running'].includes(agentState(health)) }}
+                    greeting={opening}
                     hasOlder={!!meta?.loaded && !meta.exhausted}
                     loadingOlder={!!meta?.loadingOlder}
                     onLoadOlder={() => void loadOlder(agentId, topicId ?? '')}
@@ -257,7 +283,10 @@ export default function Chat() {
                     }
                 />
 
-                <div className="px-24 pb-16">
+                {/* The composer floats over the messages: its box is the frosted glass, over a fade to the page colour so the toggle below stays readable. */}
+                <div ref={composerBox} className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
+                    <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-ground via-ground/80 to-transparent" />
+                    <div className="pointer-events-auto relative mx-auto w-full max-w-4xl px-24 pt-24 pb-16">
                     <Composer
                         agentId={agentId}
                         agentName={agentName}
@@ -289,6 +318,8 @@ export default function Chat() {
                         onCommand={(c) => command(agentId, topicId ?? '', c)}
                         onStop={() => command(agentId, topicId ?? '', 'abort')}
                     />
+                    </div>
+                </div>
                 </div>
             </div>
 

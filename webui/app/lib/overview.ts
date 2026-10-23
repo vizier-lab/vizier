@@ -55,7 +55,7 @@ export function summaryLine(a: Activity): string | undefined {
     const parts = [plural(kinds.chat, 'chat turn'), plural(kinds.scheduled, 'scheduled task'), plural(kinds.dream_stages, 'dream stage')]
     if (kinds.background) parts.push(plural(kinds.background, 'background turn'))
     const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0]
-    return `${row.label} is ${row.live ? 'replying now' : 'idle'}. ${list} today.`
+    return `${row.label} is ${row.live ? 'running now' : 'live'}. ${list} today.`
 }
 
 /** "21:04" today, "yesterday", then a short date. */

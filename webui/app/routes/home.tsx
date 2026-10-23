@@ -64,7 +64,7 @@ function AllAgents({ health }: { health: Record<string, AgentHealth> }) {
                 options={[
                     { value: 'all', label: 'All', count: list.data ? count(list.data.counts.all ?? 0) : undefined },
                     { value: 'mine', label: 'Mine', count: list.data ? count(list.data.counts.mine ?? 0) : undefined },
-                    { value: 'live', label: 'Live', count: list.data ? count(list.data.counts.live ?? 0) : undefined },
+                    { value: 'live', label: 'Running', count: list.data ? count(list.data.counts.live ?? 0) : undefined },
                     { value: 'failed', label: 'Failed', count: list.data ? count(list.data.counts.failed ?? 0) : undefined },
                 ]}
             />
@@ -175,9 +175,10 @@ export default function Home() {
 
     return (
         <div className="flex min-h-0 flex-1">
-            <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
-                <div className="mx-auto flex w-full max-w-5xl flex-col gap-24 px-32 py-32">
+            <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex h-76 shrink-0 items-center border-b border-border px-24">
                     <PageHeader
+                        className="w-full flex-nowrap! items-center!"
                         title={hello}
                         meta={overview ? greetingMeta(overview) : undefined}
                         actions={
@@ -188,6 +189,9 @@ export default function Home() {
                             ) : undefined
                         }
                     />
+                </div>
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                <div className="mx-auto flex w-full max-w-5xl flex-col gap-24 px-24 py-24">
                     <ActivityPanel />
                     {firstRun ? (
                         <FirstRun hasProvider={hasProvider} />
@@ -212,6 +216,7 @@ export default function Home() {
                             )}
                         </section>
                     )}
+                </div>
                 </div>
             </div>
             <div className="hidden w-340 shrink-0 overflow-y-auto border-l border-border px-24 py-32 xl:block">

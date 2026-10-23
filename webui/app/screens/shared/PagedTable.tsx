@@ -1,4 +1,4 @@
-import { EmptyState, FilterTabs, Pagination, SearchField, SortSelect, Table, TableRow } from '@vizier/design'
+import { EmptyState, FilterTabs, Pagination, SearchField, Skeleton, SortSelect, Table, TableRow } from '@vizier/design'
 import type { ComponentProps, ReactNode } from 'react'
 import type { usePagedList } from '../../lib/usePagedList'
 import { count } from '../../lib/format'
@@ -35,34 +35,40 @@ export function PagedTable<T>({
     const total = data?.total ?? 0
     const all = data?.counts.all ?? 0
     const searching = state.q.trim() !== '' || state.filter !== 'all'
+    // Nothing at all: no search, filters or sort over an empty list, just what it's for.
+    const nothing = !!data && all === 0 && !searching
 
     return (
         <div className="flex flex-col gap-16">
-            <div className="flex flex-wrap items-center gap-12">
-                <div className="min-w-180 max-w-md flex-1">
-                    <SearchField
-                        aria-label={searchLabel}
-                        placeholder={searchLabel}
-                        value={list.search}
-                        onValueChange={list.setSearch}
-                        count={searching && data ? `${count(total)} of ${count(all)}` : data ? count(all) : undefined}
-                    />
+            {!nothing && (
+                <div className="flex flex-wrap items-center gap-12">
+                    <div className="min-w-180 max-w-md flex-1">
+                        <SearchField
+                            aria-label={searchLabel}
+                            placeholder={searchLabel}
+                            value={list.search}
+                            onValueChange={list.setSearch}
+                            count={searching && data ? `${count(total)} of ${count(all)}` : data ? count(all) : undefined}
+                        />
+                    </div>
+                    {filters && (
+                        <FilterTabs
+                            aria-label={`Filter ${label}`}
+                            value={state.filter}
+                            onChange={list.setFilter}
+                            options={filters.map((f) => ({ ...f, count: data ? count(data.counts[f.value] ?? 0) : undefined }))}
+                        />
+                    )}
+                    <span className="flex-1" />
+                    {sorts && <SortSelect label="Sort" value={state.sort || sorts[0].value} options={sorts} onChange={list.setSort} />}
+                    {toolbar}
                 </div>
-                {filters && (
-                    <FilterTabs
-                        aria-label={`Filter ${label}`}
-                        value={state.filter}
-                        onChange={list.setFilter}
-                        options={filters.map((f) => ({ ...f, count: data ? count(data.counts[f.value] ?? 0) : undefined }))}
-                    />
-                )}
-                <span className="flex-1" />
-                {sorts && <SortSelect label="Sort" value={state.sort || sorts[0].value} options={sorts} onChange={list.setSort} />}
-                {toolbar}
-            </div>
+            )}
             {error ? (
                 <EmptyState kind="error" title="Couldn't load this list" message={error.message} />
-            ) : data && all === 0 && !searching ? (
+            ) : !data ? (
+                <Skeleton lines={4} />
+            ) : nothing ? (
                 <EmptyState kind="empty" {...empty} />
             ) : data && total === 0 ? (
                 <EmptyState kind="no-results" title="Nothing matched" message="Try a different search or filter." />

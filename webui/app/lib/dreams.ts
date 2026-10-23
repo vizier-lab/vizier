@@ -1,5 +1,6 @@
 import type { DreamChange, DreamCycle, DreamNight } from '../api/endpoints/dream'
 import { absoluteTime } from './format'
+import { docHref } from './memoryTree'
 
 /** "Oct 20 · 3 memories · CORE", the line a night says on hover. */
 export function nightHint(n: DreamNight): string {
@@ -30,7 +31,7 @@ export function cycleWhen(c: Pick<DreamCycle, 'started_at' | 'ended_at' | 'state
 /** Where a change leads: the document in Memory, or the CORE revision. */
 export function changeHref(agentId: string, c: DreamChange): string {
     if (c.kind === 'core') return `/${agentId}/core`
-    return `/${agentId}/memory/${encodeURIComponent(c.bundle ?? '')}?doc=${encodeURIComponent(c.path ?? '')}`
+    return docHref(agentId, c.bundle ?? '', c.path ?? '')
 }
 
 export function changeText(c: DreamChange): string {

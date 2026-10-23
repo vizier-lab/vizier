@@ -32,9 +32,14 @@ import { Trail } from './Trail'
 
 type Props = {
     state: TopicState
-    agent: { id: string; name: string }
+    /** `live`: the agent is up (live or running), which lights its sigil's dot. */
+    agent: { id: string; name: string; live?: boolean }
+    /** What an empty topic opens with. */
+    greeting?: string
     /** Older history can still be loaded above. */
     hasOlder: boolean
+    /** Height of the composer floating over the bottom of the list, which the content scrolls clear of. */
+    bottomInset?: number
     loadingOlder: boolean
     onLoadOlder: () => void
     onReact: (uid: string, emoji: string, action: 'added' | 'removed') => void
@@ -50,7 +55,7 @@ function stopTime(entry: ChatMessage | undefined) {
     return entry?.timestamp ? time(entry.timestamp) : ''
 }
 
-export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder, onReact, error, clientCalls, recalledFor }: Props) {
+export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, recalledFor }: Props) {
     const { entries } = state
     const turns = useMemo(() => groupHistory(entries), [entries])
     const prices = usePrices()
@@ -103,8 +108,10 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
                             )
                         }
                     >
-                        {text != null && <Markdown>{text}</Markdown>}
-                        <ReplyMedia attachments={outcome?.content.Response?.attachments ?? []} transcript={text} />
+                        <div className="flex flex-col gap-16">
+                            {text != null && <Markdown>{text}</Markdown>}
+                            <ReplyMedia attachments={outcome?.content.Response?.attachments ?? []} transcript={text} />
+                        </div>
                     </AgentReply>
                 )}
                 {outcome?.content.Response?.resumed && <StoppedNote>Picked up where it left off after vizier restarted.</StoppedNote>}
@@ -115,7 +122,7 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
     // One turn: the agent's head, then its working folded into the same flow, then what it said.
     const block = (turn: Turn, key: string) => (
         <div key={key} className="flex flex-col gap-10">
-            <AgentHeader agentId={agent.id} name={agent.name} time={time(turn.outcome?.timestamp)} />
+            <AgentHeader agentId={agent.id} name={agent.name} live={agent.live} time={time(turn.outcome?.timestamp)} />
             <Trail
                 trail={turn.trail}
                 live={false}
@@ -192,7 +199,7 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
     if (open && (running || open.trail.length || open.clientCalls.length)) {
         items.push(
             <div key="live" className="flex flex-col gap-10">
-                <AgentHeader agentId={agent.id} name={agent.name} />
+                <AgentHeader agentId={agent.id} name={agent.name} live={agent.live} />
                 <Trail trail={open.trail} live recalled={recalledFor?.(open)} agentName={agent.name} />
                 {clientCalls?.(open, true)}
             </div>
@@ -200,7 +207,7 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
     } else if (running) {
         items.push(
             <div key="live-empty" className="flex flex-col gap-10">
-                <AgentHeader agentId={agent.id} name={agent.name} />
+                <AgentHeader agentId={agent.id} name={agent.name} live={agent.live} />
                 <Trail trail={[]} live agentName={agent.name} />
             </div>
         )
@@ -219,17 +226,20 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
         <div className="relative flex min-h-0 flex-1 flex-col">
             <div
                 ref={scroller}
-                className="flex min-h-0 flex-1 flex-col gap-20 overflow-y-auto px-24 py-24"
+                className="flex min-h-0 flex-1 flex-col overflow-y-auto px-24 pt-24"
+                style={{ paddingBottom: bottomInset + 16 }}
                 onScroll={(e) => {
                     const el = e.currentTarget
                     setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 48)
                 }}
             >
-                {hasOlder && <LoadMore look="auto" label="Load older" loading={loadingOlder} onLoad={onLoadOlder} />}
-                {items.length === 0 && !running ? <ChatGreeting agentId={agent.id} name={agent.name} meta="Nothing sent yet" /> : items}
+                <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-20">
+                    {hasOlder && <LoadMore look="auto" label="Load older" loading={loadingOlder} onLoad={onLoadOlder} />}
+                    {items.length === 0 && !running ? <ChatGreeting className="my-auto" agentId={agent.id} name={agent.name} live={agent.live} greeting={greeting} meta="Nothing sent yet" /> : items}
+                </div>
             </div>
             {!pinned && (
-                <div className="absolute inset-x-0 bottom-12 flex justify-center">
+                <div className="absolute inset-x-0 flex justify-center" style={{ bottom: bottomInset + 8 }}>
                     <JumpToLatest
                         count={unseen}
                         onClick={() => {

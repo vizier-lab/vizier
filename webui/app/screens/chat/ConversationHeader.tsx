@@ -1,5 +1,4 @@
 import {
-    Button,
     MobileTopBar,
     TopicHeader,
     type MobileTopBarProps,
@@ -32,7 +31,7 @@ type Props = {
     }
 }
 
-/** The top of a conversation: its title opens the conversation picker, and "New topic" starts a fresh one. */
+/** The top of a conversation: its title opens the conversation picker, which also starts a fresh one. */
 export function ConversationHeader({
     agentId,
     title,
@@ -64,7 +63,7 @@ export function ConversationHeader({
                         agentId,
                         agentName: agentName ?? agentId,
                         topic: title,
-                        state: status?.state ?? 'idle',
+                        state: status?.state ?? 'live',
                         detail: status?.detail,
                         onTopic: () => setOpen((o) => !o),
                     }}
@@ -97,7 +96,7 @@ export function ConversationHeader({
     }
 
     return (
-        <header className="flex items-center gap-12 border-b border-border px-24 py-12">
+        <header className="flex h-76 shrink-0 items-center gap-12 border-b border-border px-24">
             <ConversationPicker
                 agentId={agentId}
                 open={open}
@@ -110,9 +109,6 @@ export function ConversationHeader({
             />
             <div className="flex-1" />
             {trailing}
-            <Button icon="plus" size="sm" onClick={fresh}>
-                New topic
-            </Button>
         </header>
     )
 }

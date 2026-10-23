@@ -7,6 +7,8 @@ import { emptyForm, problems, slugOf, toInput, type AgentForm } from '../lib/age
 import { useMobile } from '../lib/useMobile'
 import { ModelSelect } from '../screens/agents/ModelSelect'
 import { ToolsFields } from '../screens/agents/ToolsFields'
+import { noGrants, SelfManagementDraft, type GrantDraft } from '../screens/integrations/SelfManagementCard'
+import { setGrant, type IntegrationFamily } from '../api/endpoints/integrations'
 import { PageFrame } from '../screens/shared/PageFrame'
 import { TwoColumn } from '../screens/shared/TwoColumn'
 import { useAgents } from '../stores/agents'
@@ -44,6 +46,7 @@ export default function AgentNew() {
     const [tried, setTried] = useState<Set<StepKey>>(new Set())
     const [busy, setBusy] = useState(false)
     const [refused, setRefused] = useState<string>()
+    const [grants, setGrants] = useState<GrantDraft>(noGrants)
 
     const asked = params.get('step')
     const index = Math.max(0, STEPS.findIndex((s) => s.key === asked))
@@ -83,6 +86,15 @@ export default function AgentNew() {
         setRefused(undefined)
         try {
             await createAgent(toInput(form))
+            // Grants live apart from the agent's config, so they are set once it exists.
+            for (const family of Object.keys(grants) as IntegrationFamily[]) {
+                if (!grants[family]) continue
+                try {
+                    await setGrant(form.agentId, family, true)
+                } catch (e) {
+                    toast.error(`Couldn’t switch on self-management for ${family}`, e instanceof Error ? e.message : undefined)
+                }
+            }
             await useAgents.getState().refresh()
             toast.success(`${form.name} created`)
             navigate(`/${form.agentId}/chat`)
@@ -171,7 +183,12 @@ export default function AgentNew() {
                         </Card>
                     )}
 
-                    {step === 'tools' && <ToolsFields form={form} errors={shown} set={set} />}
+                    {step === 'tools' && (
+                        <>
+                            <ToolsFields form={form} errors={shown} set={set} />
+                            <SelfManagementDraft value={grants} onChange={setGrants} />
+                        </>
+                    )}
 
                     {step === 'review' && (
                         <Card title="Ready to create" description="Check the preview on the right. You can change all of this later on Config, where you can also connect channels, addons and MCP servers.">

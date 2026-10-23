@@ -203,7 +203,6 @@ export function Trail({
         <div className="flex flex-col gap-10">
         {wait}
         <ActivityTrail
-            bare
             state={live ? 'live' : failed || aborted ? 'failed' : 'done'}
             title={title}
             counts={

@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router'
 import { agentState } from '../api/endpoints/agents'
 import { relativeTime } from '../lib/format'
+import { read, write } from '../lib/remember'
 import { useMobile } from '../lib/useMobile'
 import { useNav } from '../stores/nav'
 import { useAgents } from '../stores/agents'
@@ -32,45 +33,28 @@ const PAGE_PATH: Record<SidebarPage, string> = {
     tasks: '/tasks',
     skills: '/skills',
     dreams: '/dream',
+    channels: '/integrations/channels',
+    addons: '/integrations/addons',
+    mcp: '/integrations/mcp',
     usage: '/usage',
-    integrations: '/config?tab=integrations',
     config: '/config',
     settings: '/settings/profile',
 }
 
-function pageOf(pathname: string, search = ''): SidebarPage | undefined {
+function pageOf(pathname: string): SidebarPage | undefined {
     if (pathname === '/') return 'home'
-    // Integrations is a tab of Config, so it owns that URL while its tab is open.
-    if (/^\/[^/]+\/(config|integrations)(\/|$)/.test(pathname) && /[?&]tab=integrations\b/.test(search)) return 'integrations'
     if (pathname.startsWith('/settings')) return 'settings'
     const rest = '/' + pathname.split('/').slice(2).join('/')
     const hit = (Object.entries(PAGE_PATH) as [SidebarPage, string][]).find(
         ([page, p]) =>
-            p && page !== 'settings' && page !== 'integrations' && (rest === p || rest.startsWith(p + '/'))
+            p && page !== 'settings' && (rest === p || rest.startsWith(p + '/'))
     )
     return hit?.[0]
 }
 
-function read<T>(key: string, fallback: T): T {
-    try {
-        const v = localStorage.getItem(key)
-        return v ? (JSON.parse(v) as T) : fallback
-    } catch {
-        return fallback
-    }
-}
-
-function write(key: string, value: unknown) {
-    try {
-        localStorage.setItem(key, JSON.stringify(value))
-    } catch {
-        /* not remembered */
-    }
-}
-
 export default function AppShell() {
     const navigate = useNavigate()
-    const { pathname, search } = useLocation()
+    const { pathname } = useLocation()
     const params = useParams()
     const { user, toggleTheme, signOut, can } = useSession()
     const { agents, health, start } = useAgents()
@@ -159,7 +143,7 @@ export default function AppShell() {
                 <AgentSwitcher
                     agentId={agent?.agent_id ?? 'none'}
                     name={agent?.name ?? 'Choose an agent'}
-                    state={agent ? stateOf(agent.agent_id) : 'idle'}
+                    state={agent ? stateOf(agent.agent_id) : 'stopped'}
                     detail={
                         health[agent?.agent_id ?? '']?.next_retry_at
                             ? `retry ${relativeTime(health[agent!.agent_id].next_retry_at!)}`
@@ -216,7 +200,7 @@ export default function AppShell() {
                     }}
                 />
             }
-            active={pageOf(pathname, search)}
+            active={pageOf(pathname)}
             collapsed={inDrawer ? false : collapsed}
             className={inDrawer ? 'w-full! border-r-0!' : undefined}
             hrefFor={(page) =>

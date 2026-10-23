@@ -1,44 +1,39 @@
-import { Button, DiffView, LoadMore, MarkdownEditor, PanelHeader, RevisionRow, UnsavedIndicator } from '@vizier/design'
+import { Button, Dialog, DiffView, EmptyState, FilterTabs, LoadMore, Notice, PanelHeader, RevisionRow, Skeleton } from '@vizier/design'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useParams } from 'react-router'
-import { ApiError } from '../api/client'
-import {
-    coreDiff,
-    coreHistory,
-    coreRevision,
-    getCore,
-    rollbackCore,
-    saveCore,
-    type CoreRevisionSummary,
-} from '../api/endpoints/agentPages'
+import { useNavigate, useParams, useSearchParams } from 'react-router'
+import { coreDiff, coreHistory, coreRevision, getCore, rollbackCore, type CoreRevisionSummary } from '../api/endpoints/agentPages'
 import { absoluteTime, relativeTime } from '../lib/format'
 import { authorLabel, diffLines, type RevisionDiff } from '../lib/revisions'
-import { TwoColumn } from '../screens/shared/TwoColumn'
+import { Markdown } from '../screens/shared/Markdown'
 import { PageFrame } from '../screens/shared/PageFrame'
+import { Panes } from '../screens/shared/Panes'
 import { useAgents } from '../stores/agents'
-import { clearDraft, pendingDraft, saveDraft } from '../stores/drafts'
+import { pendingDraft } from '../stores/drafts'
 import { toast } from '../stores/toasts'
-import { Dialog } from '@vizier/design'
 
 const PAGE = 20
 
+/** CORE as it reads now, or as it read at a revision, with the history beside it. Editing is its own page. */
 export default function AgentCore() {
     const { agentId = '' } = useParams()
+    const navigate = useNavigate()
+    const [params, setParams] = useSearchParams()
     const agentName = useAgents((s) => s.agents.find((a) => a.agent_id === agentId)?.name)
-    const key = `core:${agentId}`
 
-    const [saved, setSaved] = useState<{ content: string; seq?: number } | null>(null)
-    const [text, setText] = useState('')
-    const [saving, setSaving] = useState(false)
-    const [conflict, setConflict] = useState<{ content: string; seq: number } | null>(null)
-    const [draft, setDraft] = useState<ReturnType<typeof pendingDraft>>(null)
-
+    const [core, setCore] = useState<{ content: string; seq?: number } | null>(null)
     const [history, setHistory] = useState<CoreRevisionSummary[]>([])
     const [total, setTotal] = useState(0)
     const [loadingMore, setLoadingMore] = useState(false)
-    const [selected, setSelected] = useState<number | null>(null)
-    const [diff, setDiff] = useState<RevisionDiff | null>(null)
     const [restoring, setRestoring] = useState<number | null>(null)
+    const draft = useMemo(() => (core ? pendingDraft(`core:${agentId}`, core.content) : null), [core, agentId])
+
+    // The revision being looked at, from the URL so it can be linked; none is the current text.
+    const asked = Number(params.get('rev')) || null
+    const current = history[0]
+    const rev = asked !== null && asked !== current?.seq ? asked : null
+    const view = params.get('view') === 'changes' ? 'changes' : 'text'
+    const [old, setOld] = useState<{ seq: number; content: string } | null>(null)
+    const [diff, setDiff] = useState<RevisionDiff | null>(null)
 
     const loadHistory = useCallback(
         async (offset: number) => {
@@ -50,197 +45,184 @@ export default function AgentCore() {
     )
 
     const load = useCallback(async () => {
-        const core = await getCore(agentId)
-        setSaved({ content: core.content, seq: core.seq })
-        setText(core.content)
-        setDraft(pendingDraft(key, core.content))
+        const c = await getCore(agentId)
+        setCore({ content: c.content, seq: c.seq })
         await loadHistory(0).catch(() => {})
-    }, [agentId, key, loadHistory])
+    }, [agentId, loadHistory])
 
     useEffect(() => {
-        setSaved(null)
+        setCore(null)
         setHistory([])
-        setSelected(null)
-        setDiff(null)
         load().catch((e) => toast.error("Couldn't load CORE", e.message))
     }, [load])
 
-    const dirty = saved !== null && text !== saved.content
-    const edit = (value: string) => {
-        setText(value)
-        if (saved) saveDraft(key, value, saved.content)
-    }
-
-    const save = useCallback(async () => {
-        if (!saved || saving || !dirty) return
-        setSaving(true)
-        try {
-            const res = await saveCore(agentId, text, saved.seq)
-            clearDraft(key)
-            setSaved({ content: text, seq: res?.seq ?? saved.seq })
-            toast.success('CORE saved')
-            await loadHistory(0).catch(() => {})
-        } catch (e) {
-            if (e instanceof ApiError && e.status === 409) {
-                const data = e.data as { latest_seq: number; content: string }
-                setConflict({ content: data.content, seq: data.latest_seq })
-            } else toast.error("Couldn't save CORE", e instanceof Error ? e.message : undefined)
-        } finally {
-            setSaving(false)
-        }
-    }, [agentId, dirty, key, loadHistory, saved, saving, text])
-
-    // "Keep mine" saves over theirs, now knowing which revision that is; "Reload theirs" drops the edit.
-    const resolveConflict = async (keepMine: boolean) => {
-        if (!conflict) return
-        if (keepMine) {
-            setSaved({ content: conflict.content, seq: conflict.seq })
-            setConflict(null)
-            setSaving(true)
-            try {
-                const res = await saveCore(agentId, text, conflict.seq)
-                clearDraft(key)
-                setSaved({ content: text, seq: res?.seq ?? conflict.seq })
-                toast.success('CORE saved')
-                await loadHistory(0).catch(() => {})
-            } catch (e) {
-                toast.error("Couldn't save CORE", e instanceof Error ? e.message : undefined)
-            } finally {
-                setSaving(false)
-            }
-        } else {
-            clearDraft(key)
-            setSaved({ content: conflict.content, seq: conflict.seq })
-            setText(conflict.content)
-            setConflict(null)
-            await loadHistory(0).catch(() => {})
-        }
-    }
-
-    const open = async (seq: number) => {
-        setSelected(seq)
+    // A past revision: its text, and what it changed from the one before.
+    const shown = rev ?? current?.seq ?? null
+    useEffect(() => {
         setDiff(null)
-        const previous = history.find((r) => r.seq < seq)?.seq
-        try {
-            setDiff(await coreDiff(agentId, seq, previous))
-        } catch (e) {
-            toast.error("Couldn't load that revision", e instanceof Error ? e.message : undefined)
+        if (shown === null) return
+        let live = true
+        if (rev !== null) coreRevision(agentId, rev).then((r) => live && setOld(r), () => live && setOld(null))
+        if (view === 'changes') {
+            const previous = history.find((r) => r.seq < shown)?.seq
+            coreDiff(agentId, shown, previous).then((d) => live && setDiff(d), () => live && setDiff(null))
         }
-    }
+        return () => {
+            live = false
+        }
+    }, [agentId, rev, shown, view, history])
+
+    const choose = (seq: number | null, nextView = view) =>
+        setParams(
+            (p) => {
+                const n = new URLSearchParams(p)
+                if (seq === null || seq === current?.seq) n.delete('rev')
+                else n.set('rev', String(seq))
+                if (nextView === 'changes') n.set('view', 'changes')
+                else n.delete('view')
+                return n
+            },
+            { replace: true }
+        )
 
     const restore = async (seq: number) => {
         try {
             const res = await rollbackCore(agentId, seq)
             toast.success(res.no_change ? 'CORE already matches that revision' : `Restored rev ${seq}`)
             setRestoring(null)
-            setSelected(null)
-            setDiff(null)
+            choose(null)
             await load()
         } catch (e) {
             toast.error("Couldn't restore", e instanceof Error ? e.message : undefined)
         }
     }
 
-    const current = history[0]
-    const meta = useMemo(
-        () =>
-            current
-                ? `CORE.md · rev ${current.seq} · last written by ${authorLabel(current.actor, current.trigger, agentName)} · ${relativeTime(current.created_at)}`
-                : 'CORE.md',
-        [current, agentName]
-    )
-
-    const preview = async (seq: number) => {
-        const rev = await coreRevision(agentId, seq)
-        setText(rev.content)
-        setSelected(null)
-    }
+    const meta = current
+        ? `CORE.md · rev ${current.seq} · last written by ${authorLabel(current.actor, current.trigger, agentName)} · ${relativeTime(current.created_at)}`
+        : 'CORE.md'
+    const at = history.find((r) => r.seq === shown)
+    const text = rev !== null ? (old?.seq === rev ? old.content : null) : (core?.content ?? null)
 
     return (
         <PageFrame
             title="Core"
             meta={meta}
-            width="wide"
+            fill
             actions={
-                <div className="flex items-center gap-12">
-                    {dirty && <UnsavedIndicator>Unsaved · draft kept in this browser</UnsavedIndicator>}
-                    <Button variant="ghost" disabled={!dirty} onClick={() => (clearDraft(key), setText(saved?.content ?? ''))}>
-                        Discard
-                    </Button>
-                    <Button variant="primary" loading={saving} disabled={!dirty} shortcut="Ctrl S" onClick={() => void save()}>
-                        Save
-                    </Button>
-                </div>
+                <Button variant="primary" icon="pencil" disabled={core === null} onClick={() => navigate(`/${agentId}/core/edit`)}>
+                    Edit
+                </Button>
             }
         >
-            {draft && !dirty && (
-                <div className="flex items-center gap-12 rounded-lg border border-border-strong bg-surface px-16 py-12 type-small text-muted">
-                    <span className="flex-1">
-                        You have an unsaved draft from {absoluteTime(draft.at)}.{draft.stale ? ' CORE has changed since, so restoring it would replace those changes.' : ''}
-                    </span>
-                    <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                            setText(draft.text)
-                            setDraft(null)
-                        }}
-                    >
-                        Restore draft
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => (clearDraft(key), setDraft(null))}>
-                        Discard
-                    </Button>
-                </div>
-            )}
-
-            <TwoColumn
-                aside={
-                    <section aria-label="History" className="flex flex-col gap-8 rounded-xl border border-border bg-surface p-16">
-                                    <PanelHeader title="History" meta={total ? `${total} revision${total === 1 ? '' : 's'}` : undefined} level={2} />
-                                    {history.map((r, i) => (
-                                        <RevisionRow
-                                            key={r.seq}
-                                            revision={r.seq}
-                                            author={authorLabel(r.actor, r.trigger, agentName)}
-                                            time={relativeTime(r.created_at)}
-                                            selected={selected === r.seq}
-                                            onSelect={() => void open(r.seq)}
-                                            trailing={i === 0 ? <span className="type-mono-xs text-faint">current</span> : undefined}
-                                        />
-                                    ))}
-                                    {history.length < total && (
-                                        <LoadMore
-                                            label="Load older"
-                                            remaining={total - history.length}
-                                            loading={loadingMore}
-                                            onLoad={async () => {
-                                                setLoadingMore(true)
-                                                await loadHistory(history.length).catch(() => {})
-                                                setLoadingMore(false)
-                                            }}
-                                        />
-                                    )}
-                                    {selected !== null && diff && (
-                                        <DiffView
-                                            title={`rev ${diff.from_seq} → ${diff.to_seq}`}
-                                            lines={diffLines(diff)}
-                                            restoreLabel={selected !== current?.seq ? `Restore rev ${selected}` : undefined}
-                                            onRestore={selected !== current?.seq ? () => setRestoring(selected) : undefined}
-                                        />
-                                    )}
-                                    {selected !== null && selected !== current?.seq && (
-                                        <div>
-                                            <Button size="sm" variant="ghost" onClick={() => void preview(selected)}>
-                                                Load rev {selected} into the editor
-                                            </Button>
-                                        </div>
-                                    )}
-                                </section>
+            <Panes
+                paneLabel="History"
+                pane={
+                    <>
+                        <PanelHeader title="History" meta={total ? `${total} revision${total === 1 ? '' : 's'}` : undefined} level={2} />
+                        <div className="-mt-12 flex flex-col gap-2">
+                            {core === null && <Skeleton variant="lines" lines={3} />}
+                            {history.map((r, i) => (
+                                <RevisionRow
+                                    key={r.seq}
+                                    revision={r.seq}
+                                    author={authorLabel(r.actor, r.trigger, agentName)}
+                                    time={relativeTime(r.created_at)}
+                                    selected={shown === r.seq}
+                                    onSelect={() => choose(r.seq)}
+                                    trailing={i === 0 ? <span className="type-mono-xs text-faint">current</span> : undefined}
+                                />
+                            ))}
+                            {history.length < total && (
+                                <LoadMore
+                                    label="Load older"
+                                    remaining={total - history.length}
+                                    loading={loadingMore}
+                                    onLoad={async () => {
+                                        setLoadingMore(true)
+                                        await loadHistory(history.length).catch(() => {})
+                                        setLoadingMore(false)
+                                    }}
+                                />
+                            )}
+                        </div>
+                    </>
                 }
             >
-                <MarkdownEditor look="compact" value={text} onChange={edit} onSaveShortcut={() => void save()} className="h-640" />
-            </TwoColumn>
+                {draft && (
+                    <Notice
+                        tone="info"
+                        title={`Unsaved edit from ${absoluteTime(draft.at)}`}
+                        actions={
+                            <Button size="sm" variant="secondary" onClick={() => navigate(`/${agentId}/core/edit`)}>
+                                Continue editing
+                            </Button>
+                        }
+                    >
+                        {draft.stale ? 'CORE has changed since you started it.' : 'It is kept in this browser until you save or discard it.'}
+                    </Notice>
+                )}
+
+                <div className="flex flex-wrap items-center gap-12">
+                    <span className="flex min-w-0 flex-1 flex-col gap-2">
+                        <span className="type-body-strong text-fg">{rev !== null ? `Revision ${rev}` : 'Current version'}</span>
+                        {at && (
+                            <span className="type-mono-xs text-faint">
+                                rev {at.seq} · {authorLabel(at.actor, at.trigger, agentName)} · {absoluteTime(at.created_at)}
+                            </span>
+                        )}
+                    </span>
+                    <FilterTabs
+                        aria-label="Show"
+                        value={view}
+                        onChange={(v) => choose(shown, v)}
+                        options={[
+                            { value: 'text', label: 'Text' },
+                            { value: 'changes', label: 'Changes' },
+                        ]}
+                    />
+                    {rev !== null && (
+                        <>
+                            <Button variant="ghost" onClick={() => choose(null)}>
+                                Back to current
+                            </Button>
+                            <Button variant="secondary" onClick={() => navigate(`/${agentId}/core/edit?from=${rev}`)}>
+                                Edit from here
+                            </Button>
+                            <Button variant="primary" onClick={() => setRestoring(rev)}>
+                                Restore rev {rev}
+                            </Button>
+                        </>
+                    )}
+                </div>
+
+                {view === 'changes' ? (
+                    diff ? (
+                        <DiffView title={`rev ${diff.from_seq} → ${diff.to_seq}`} lines={diffLines(diff)} />
+                    ) : shown === null && core ? (
+                        <EmptyState kind="empty" icon="history" title="No revisions yet" message="Each save is kept here, so you can see what changed." />
+                    ) : (
+                        <Skeleton lines={8} />
+                    )
+                ) : text === null ? (
+                    <Skeleton lines={12} />
+                ) : text.trim() === '' ? (
+                    <EmptyState
+                        kind="empty"
+                        icon="core"
+                        title="CORE is empty"
+                        message={`It is ${agentName ?? 'the agent'}’s persistent self: who it is and how it works.`}
+                        action={
+                            <Button variant="primary" icon="pencil" onClick={() => navigate(`/${agentId}/core/edit`)}>
+                                Write it
+                            </Button>
+                        }
+                    />
+                ) : (
+                    <article className="max-w-[72ch]">
+                        <Markdown size="document">{text}</Markdown>
+                    </article>
+                )}
+            </Panes>
 
             <Dialog
                 open={restoring !== null}
@@ -249,16 +231,6 @@ export default function AgentCore() {
                 confirmLabel="Restore"
                 onConfirm={() => restoring !== null && void restore(restoring)}
                 onCancel={() => setRestoring(null)}
-            />
-
-            <Dialog
-                open={conflict !== null}
-                title="CORE changed while you were editing"
-                message={`Someone saved revision ${conflict?.seq ?? ''} after you opened it. Reload theirs to drop your edit, or keep yours to save it over theirs as a new revision.`}
-                confirmLabel="Keep mine"
-                cancelLabel="Reload theirs"
-                onConfirm={() => void resolveConflict(true)}
-                onCancel={() => void resolveConflict(false)}
             />
         </PageFrame>
     )
