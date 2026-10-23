@@ -743,6 +743,41 @@ pub async fn list_roles(
     page::respond(response, &RoleListing, &query)
 }
 
+/// One role with how many people hold it: what the Roles page opens when the role is not on the
+/// page of the list it is showing.
+pub async fn get_role(
+    State(state): State<HTTPState>,
+    Path(role_id): Path<String>,
+) -> models::response::Response<RoleItem> {
+    let role = match state.storage.get_role(&role_id).await {
+        Ok(Some(role)) => role,
+        Ok(None) => return models::response::err_response(StatusCode::NOT_FOUND, "Role not found".to_string()),
+        Err(e) => {
+            tracing::error!("Failed to get role: {}", e);
+            return models::response::err_response(StatusCode::INTERNAL_SERVER_ERROR, "Failed to get role".to_string());
+        }
+    };
+    let people = state
+        .storage
+        .list_users()
+        .await
+        .map(|users| users.iter().filter(|u| u.role_id == role.role_id).count())
+        .unwrap_or(0);
+    api_response(
+        StatusCode::OK,
+        RoleItem {
+            people,
+            role: RoleResponse {
+                role_id: role.role_id,
+                name: role.name,
+                permissions: role.permissions,
+                is_system: role.is_system,
+                created_at: role.created_at,
+            },
+        },
+    )
+}
+
 pub async fn create_role(
     State(state): State<HTTPState>,
     Json(req): Json<CreateRoleRequest>,

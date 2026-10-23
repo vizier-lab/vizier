@@ -92,6 +92,12 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
         )
         .route(
             "/auth/roles/{role_id}",
+            get(auth::get_role)
+                .layer(middleware::from_fn_with_state(PermissionState { permission: "roles:manage".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+        )
+        .route(
+            "/auth/roles/{role_id}",
             put(auth::update_role)
                 .layer(middleware::from_fn_with_state(PermissionState { permission: "roles:manage".to_string() }, require_permission))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),

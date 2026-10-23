@@ -183,11 +183,47 @@ Use the returned `url` as `{ "local": url }` in an attachment, or reference file
 |--------|------|-------------|
 | `GET` | `/embedding-models/local` | The fastembed model list with size profiles |
 
+## Home: overview, activity and feed
+
+Limited to the agents the signed-in person can see. `tz` is the person's UTC offset (`+07:00`); encode the `+` as `%2B`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/overview?tz=` | `{ agents: { total, live, failed }, cost_today_usd, accounting_since }`. Cost is priced from the catalogue; models without a price add nothing |
+| `GET` | `/overview/activity?rank=most_active\|mine\|live\|failed` | The last 24 hours: `hours` (24 hour starts, oldest first), `rows` (at most 6) of `{ agent_id, label, turns[24], live }`, an `all` row when there are 7 or more agents, `agent_total`, and `today_by_kind` when there is exactly one agent |
+| `GET` | `/overview/feed?before=&limit=` | "Since you were away": events since the person's previous visit (else 24 hours), newest first, `limit` 1–50 (default 20), `next` is the cursor for `before`. Start failures are pinned to the top of the first page |
+
+A visit is a run of requests with a JWT, with no gap over 30 minutes; API-key requests are never visits.
+
+## Conversations
+
+`GET /agents/{id}/conversations?q=&channel=webui|discord|telegram&cursor=&limit=` lists the conversations a person can open with an agent, newest first: their own WebUI topics (one row per topic), and the agent's Discord and Telegram conversations (one row per channel). The response is `{ items, counts: { all, webui, discord, telegram }, total, next }`. `q` matches titles and the text of the agent's newest 5,000 messages only, so an older match may not be found.
+
+Read-only routes under `/agents/{id}/channel/{channel_id}` (`history`, `files`, `detail`) also accept a Discord or Telegram channel slug (`discord__123`, `telegram__-9`) as `channel_id`, with any `topic_id`, to read those conversations.
+
+## Paged lists
+
+A list endpoint answers with the plain array it always did. Add `limit` (1–100) and it answers `{ items, total, counts }` instead, with `q`, `filter`, `sort`, `order` and `offset`. `counts` has a count for `all` and for each filter, ignoring the current `filter`.
+
+| Route | Filters | Sorts |
+|-------|---------|-------|
+| `GET /agents` | `mine`, `live`, `failed` | `last_active`, `name` |
+| `GET /agents/{id}/tasks` | `active`, `last_run_failed` | `next_run`, `name`, `last_run` |
+| `GET /skills`, `GET /agents/{id}/skills` | `agent`, `global` | `name`, `updated` |
+| `GET /auth/users` | `role:<name>` | `created`, `username` |
+| `GET /auth/roles` (adds `people` to each role) | `builtin`, `custom` | `people`, `name` |
+| `GET /auth/api-keys` (adds `prefix` to each key) | none | `created`, `last_used` |
+| `GET /agents/{id}/integrations?family=mcp` | `down`, `disabled` | `name`, `tools` |
+| `GET /agents/{id}/memory/bundles` | none | `documents`, `updated`, `links` |
+
+An unknown `filter` is a `400`.
+
 ## Misc
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/ping` | `"pong"`, no auth |
+| `GET` | `/status` | No auth. `{ online, version, setup_required }`: what the sign-in page shows before anyone has signed in |
 
 ## WebSocket chat
 
@@ -256,6 +292,10 @@ Each frame:
 | `error` | `{ "kind": "completion" \| "tool_timeout" \| "prompt_timeout", "message" }` | Request failed |
 | `abort` | `null` | Response was aborted |
 | `empty` | `null` | No response (e.g. ignored `silent_read`) |
+
+### Server → client: a file was added (`session_file`)
+
+`{ "type": "session_file", "file": SessionFileRecord }` is sent to every connection on a topic when a file is added to it (an upload, or one the agent attached). The WebUI prepends it to the Session files panel. Clients that don't know it ignore it.
 
 ### Server → client: saved steps (`history_entry`)
 

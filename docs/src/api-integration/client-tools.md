@@ -243,6 +243,8 @@ A client event appears as a `Request` entry whose `content` is `{ "client_event"
 | C → S | request with `content.client_event` | §5 |
 | C ↔ S | `client_call_state` | §6 |
 
+Frames that are not part of the client tools protocol (for example `session_file`, sent when a file is added to the conversation) are listed in the [REST API](rest-api.md#server--client-a-file-was-added-session_file); a client ignores them like any other unknown frame.
+
 ### `client_error` codes
 
 Every refusal goes to the sending connection only.

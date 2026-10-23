@@ -471,7 +471,7 @@
 
 ## Phase 10: Polish & cross-cutting concerns
 
-- [ ] T136 [P] Run the library's token lint over the app: make `design/scripts/lint-tokens.mjs` take a path argument, add `"lint:tokens": "node ../design/scripts/lint-tokens.mjs app"` to `webui/package.json`, and fix any findings
+- [X] T136 [P] Run the library's token lint over the app: make `design/scripts/lint-tokens.mjs` take a path argument, add `"lint:tokens": "node ../design/scripts/lint-tokens.mjs app"` to `webui/package.json`, and fix any findings
 - [ ] T137 [P] Add #82 checklist entries for the backward-compat code added here:
   - the `dream_cycle_id` column adds and the legacy time-window attribution (T072–T074)
   - the `last_seen_at`/`previous_visit_at` column adds (T114)
@@ -479,11 +479,11 @@
   - the unpaged-response path kept for old clients on each paged list (T066–T070, T091, T103)
 
   Use `gh issue view 82` / `gh issue edit` (confirm before editing)
-- [ ] T138 [P] Document the new and changed endpoints and the `session_file` frame in `docs/src/api-integration/rest-api.md`, and note the frame in `docs/src/api-integration/client-tools.md`'s frame list where frames are enumerated
-- [ ] T139 [P] Add a legacy-link check to `webui/e2e/redirects.spec.ts` (quickstart §9)
-- [ ] T140 Confirm no user-facing copy mentions dummyplug: `grep -rni dummyplug webui/app` returns nothing outside dev-only code paths (FR-017)
-- [ ] T141 Run `cargo clippy`, `cargo test`, `npm run typecheck && npm test && npm run lint:tokens` in `webui/`, and `npm run typecheck && npm test && npm run lint:tokens` in `design/`. Fix everything
-- [ ] T142 End-to-end check with a `dummyplug` agent on a running binary (constitution e2e gate): walk every quickstart.md section (§0–§9) and run the full `npm run e2e` in `webui/`
+- [X] T138 [P] Document the new and changed endpoints and the `session_file` frame in `docs/src/api-integration/rest-api.md`, and note the frame in `docs/src/api-integration/client-tools.md`'s frame list where frames are enumerated
+- [X] T139 [P] Add a legacy-link check to `webui/e2e/redirects.spec.ts` (quickstart §9)
+- [X] T140 Confirm no user-facing copy mentions dummyplug: `grep -rni dummyplug webui/app` returns nothing outside dev-only code paths (FR-017)
+- [X] T141 Run `cargo clippy`, `cargo test`, `npm run typecheck && npm test && npm run lint:tokens` in `webui/`, and `npm run typecheck && npm test && npm run lint:tokens` in `design/`. Fix everything
+- [X] T142 End-to-end check with a `dummyplug` agent on a running binary (constitution e2e gate): walk every quickstart.md section (§0–§9) and run the full `npm run e2e` in `webui/`
 - [ ] T143 Commit order and pins: commit and push `design/`, then `webui/` (confirm before pushing). Bump both submodule pins in vizier in one commit (`chore: pin design and webui for the rewrite`), and check that `git submodule status` is clean
 
 ---
