@@ -52,7 +52,7 @@ Replace the WebUI with a rewrite built on the "Celestial Court" design:
 - No dummyplug in user-facing copy (FR-017).
 - WCAG AA in both themes (SC-008).
 
-**Scale/Scope**: 21 screens plus variants (Home first run, Chat collapsed, Skill editor, Mobile Home/Chat); about 30 routes; 8 new server endpoints and 10 changed ones; 6 new and 5 changed library components.
+**Scale/Scope**: 21 screens plus variants (Home first run, Chat collapsed, Skill editor, Mobile Home/Chat); about 30 routes; 9 new server endpoints and 10 changed ones; 6 new and 5 changed library components.
 
 ## Constitution Check
 

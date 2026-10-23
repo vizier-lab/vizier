@@ -99,6 +99,10 @@ The signed-in person's agents only.
   "total": 2, "counts": {} }
 ```
 
+### `POST /agents/{id}/restart`
+
+"Retry now" on the agent-failed banner (States page). It sends the existing `AgentCommand::Restart` for the agent and answers `202` with the agent's current `AgentHealthStatus`. Needs `user_can_edit_agent`. While a build is in flight, it returns `409 busy`, like other agent commands.
+
 ## Changed
 
 ### List endpoints: opt-in paging (`ListQuery` → `Page<T>`)
