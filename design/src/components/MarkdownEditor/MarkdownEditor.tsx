@@ -65,7 +65,7 @@ function RichPane({
 
   useEffect(() => onEditor?.(editor), [editor]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    editor?.setEditable(editable);
+    editor?.setEditable(editable, false);
   }, [editor, editable]);
 
   // A value that came from elsewhere (a revision restored, the other pane) replaces the document.

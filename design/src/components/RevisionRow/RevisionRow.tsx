@@ -6,8 +6,9 @@ export type RevisionRowProps = {
   /** "ganesha · WebUI", "dream cycle", "Archivist · write_core". */
   author: ReactNode;
   time: ReactNode;
-  added: number;
-  removed: number;
+  /** Lines added and removed against the revision before; omit when the list doesn't know them. */
+  added?: number;
+  removed?: number;
 } & Omit<ListItemProps, "title" | "subtitle" | "meta" | "leading">;
 
 /** One revision in a history (X27): rev N, who and how, when, +n −m. Built on ListItem. */
@@ -19,9 +20,11 @@ export function RevisionRow({ revision, author, time, added, removed, ...rest }:
       title={author}
       subtitle={<span className="type-mono-xs text-faint">{time}</span>}
       meta={
-        <span aria-label={`${added} lines added, ${removed} removed`}>
-          +{added} −{removed}
-        </span>
+        added === undefined || removed === undefined ? undefined : (
+          <span aria-label={`${added} lines added, ${removed} removed`}>
+            +{added} −{removed}
+          </span>
+        )
       }
       {...rest}
     />

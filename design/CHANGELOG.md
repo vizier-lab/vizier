@@ -13,3 +13,4 @@
 - X56 DreamJournalEntry: a `removed` change kind and `href` on a change.
 - Icons: `calendar`.
 - X76 MarkdownEditor: Tiptap 3 with markdown in and out; rich, markdown and split modes (the library's only new runtime dependency).
+- RevisionRow: `added`/`removed` are optional.
