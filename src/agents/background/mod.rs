@@ -828,6 +828,7 @@ mod tests {
         let jobs = BackgroundJobs::new(Arc::new(storage), VizierTransport::new());
         let ctx = ToolContext {
             loaded_images: Default::default(),
+            recalled: Default::default(),
             client: None,
             session: VizierSession("a".into(), VizierChannelId::Subagent, None),
             pending_attachments: Arc::new(tokio::sync::Mutex::new(vec![])),

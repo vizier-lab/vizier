@@ -45,6 +45,8 @@ impl SessionFileStorage for FileSystemStorage {
             size,
             file_id: file_id.to_string(),
             added_at: Utc::now(),
+            sender: None,
+            history_uid: None,
         };
 
         let json = serde_json::to_string_pretty(&record)?;

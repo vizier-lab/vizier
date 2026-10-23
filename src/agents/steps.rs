@@ -167,6 +167,17 @@ impl StepRecorder {
         }
     }
 
+    /// Records one entry that is not a model message (a `Recall`). It does not count toward
+    /// `recorded`, which indexes the turn's messages.
+    pub async fn record_entry(
+        &mut self,
+        storage: &VizierStorage,
+        transport: &VizierTransport,
+        content: SessionHistoryContent,
+    ) {
+        record_step(storage, transport, &self.session, content).await;
+    }
+
     /// Records the entries of `delta` (the turn's messages, in order) beyond those already
     /// recorded.
     pub async fn flush(

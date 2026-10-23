@@ -40,7 +40,7 @@ pub use integration::{
     IntegrationGrant, IntegrationStatus,
 };
 pub use history::{
-    ClientCallOutcome, SessionHistory, SessionHistoryContent, history_entries_to_messages, message_for_model,
+    ClientCallOutcome, RecallOrigin, RecalledPassage, SessionHistory, SessionHistoryContent, dedupe_passages, history_entries_to_messages, message_for_model,
     messages_for_model, messages_to_history_entries, open_tool_calls, seal_tool_calls, split_at_request,
 };
 pub use provider::{CustomModel, CustomProtocol, CustomProvider, ProviderCredentials, ProviderEntry};

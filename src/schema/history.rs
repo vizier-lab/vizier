@@ -58,6 +58,49 @@ pub enum SessionHistoryContent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         state: Option<serde_json::Value>,
     },
+    /// Memory passages the agent was given or went looking for during a turn
+    /// (`specs/024-webui-rewrite`, FR-018e). Display only: never part of the model's input.
+    Recall {
+        origin: RecallOrigin,
+        passages: Vec<RecalledPassage>,
+    },
+}
+
+/// How recalled passages reached the turn.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, JsonSchema, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RecallOrigin {
+    /// Retrieved automatically from the message, before the first model call.
+    Auto,
+    /// Returned by a `memory_search` call.
+    Search,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema, utoipa::ToSchema)]
+pub struct RecalledPassage {
+    pub bundle: String,
+    pub path: String,
+    pub ordinal: u32,
+    pub score: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// One entry per `(bundle, path, ordinal)`, keeping the highest score, best first.
+pub fn dedupe_passages(passages: Vec<RecalledPassage>) -> Vec<RecalledPassage> {
+    let mut out: Vec<RecalledPassage> = Vec::new();
+    for p in passages {
+        match out
+            .iter_mut()
+            .find(|o| o.bundle == p.bundle && o.path == p.path && o.ordinal == p.ordinal)
+        {
+            Some(o) if p.score > o.score => *o = p,
+            Some(_) => {}
+            None => out.push(p),
+        }
+    }
+    out.sort_by(|a, b| b.score.total_cmp(&a.score));
+    out
 }
 
 /// How a client tool call ended, or `Pending` while it is in flight.
@@ -267,6 +310,10 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
             }
             SessionHistoryContent::Command(_) => {
                 // Skip command entries - they are for display only, not agent context
+            }
+            SessionHistoryContent::Recall { .. } => {
+                // Display only: what was recalled is already in the turn's context or tool
+                // results, and replaying it would show the model the same passages twice.
             }
             SessionHistoryContent::ClientToolCall { .. } => {
                 // Skipped without flushing anything: the turn's own `execute_python` report
@@ -612,6 +659,7 @@ mod tests {
                 SessionHistoryContent::Checkpoint(_) => "Checkpoint",
                 SessionHistoryContent::Command(_) => "Command",
                 SessionHistoryContent::ClientToolCall { .. } => "ClientToolCall",
+                SessionHistoryContent::Recall { .. } => "Recall",
             })
             .collect()
     }
@@ -962,5 +1010,34 @@ mod tests {
         let calls: Vec<String> = messages.iter().flat_map(tool_call_ids).collect();
         let results: Vec<String> = messages.iter().filter_map(|m| result_id(m).map(str::to_string)).collect();
         assert_eq!(calls.len(), results.len());
+    }
+
+    #[test]
+    fn recall_entries_are_not_model_input() {
+        let with = history_entries_to_messages(&[
+            entry(SessionHistoryContent::Recall {
+                origin: RecallOrigin::Auto,
+                passages: vec![],
+            }),
+            entry(SessionHistoryContent::AssistantMessage("hello".into())),
+        ]);
+        let without =
+            history_entries_to_messages(&[entry(SessionHistoryContent::AssistantMessage("hello".into()))]);
+        assert_eq!(with.len(), without.len());
+    }
+
+    #[test]
+    fn duplicate_passages_keep_the_highest_score() {
+        let p = |ordinal, score| RecalledPassage {
+            bundle: "infra".into(),
+            path: "qdrant.md".into(),
+            ordinal,
+            score,
+            title: None,
+        };
+        let out = dedupe_passages(vec![p(1, 0.4), p(2, 0.9), p(1, 0.7)]);
+        assert_eq!(out.len(), 2);
+        assert_eq!((out[0].ordinal, out[0].score), (2, 0.9));
+        assert_eq!((out[1].ordinal, out[1].score), (1, 0.7));
     }
 }

@@ -89,6 +89,7 @@ pub fn agents() -> Router<HTTPState> {
         .route("/{agent_id}/usage", get(agent_usage))
         .route("/{agent_id}/usage/conversation", get(agent_usage_conversation))
         .route("/{agent_id}/ping", get(ping_agent))
+        .route("/{agent_id}/restart", post(restart_agent))
         .route("/{agent_id}/chat", post(agent_chat))
         .route(
             "/{agent_id}/sharing",
@@ -717,6 +718,59 @@ async fn delete_agent(
             StatusCode::INTERNAL_SERVER_ERROR,
             "agent manager unavailable".into(),
         ),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/agents/{agent_id}/restart",
+    params(("agent_id" = String, Path, description = "Agent ID")),
+    responses(
+        (status = 202, description = "Restart started; the agent's health follows", body = APIResponse<AgentHealthStatus>),
+        (status = 403, description = "Not allowed to edit this agent", body = APIResponse<String>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>),
+        (status = 409, description = "The agent is still being created or updated", body = APIResponse<String>)
+    )
+)]
+pub(crate) async fn restart_agent(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<AgentHealthStatus> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, "agent not found".into()),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    if !user_can_edit_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
+    let (resp, rx) = tokio::sync::oneshot::channel();
+    if let Err(e) = state
+        .transport
+        .send_agent_command(AgentCommand::Restart { agent_id: agent_id.clone(), resp })
+        .await
+    {
+        return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("failed to send command: {e}"));
+    }
+    match rx.await {
+        Ok(AgentCommandResult::Ok(_)) => {}
+        Ok(AgentCommandResult::Error(e)) if e.contains("still being created or updated") => {
+            return err_response(StatusCode::CONFLICT, e);
+        }
+        Ok(AgentCommandResult::Error(e)) => return err_response(StatusCode::BAD_REQUEST, e),
+        Err(_) => {
+            return err_response(StatusCode::INTERNAL_SERVER_ERROR, "agent manager unavailable".into());
+        }
+    }
+
+    match state.transport.agent_health().await {
+        Ok(statuses) => match statuses.into_iter().find(|s| s.agent_id == agent_id) {
+            Some(status) => api_response(StatusCode::ACCEPTED, status),
+            None => err_response(StatusCode::NOT_FOUND, "agent not found".into()),
+        },
+        Err(e) => err_response(StatusCode::SERVICE_UNAVAILABLE, e.to_string()),
     }
 }
 

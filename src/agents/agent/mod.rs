@@ -656,6 +656,7 @@ impl VizierAgent {
         };
         let ctx = ToolContext {
             loaded_images: Default::default(),
+            recalled: Default::default(),
             session: session.clone(),
             pending_attachments: Arc::new(Mutex::new(vec![])),
             hooks: hooks.clone(),
@@ -700,10 +701,12 @@ impl VizierAgent {
                 unavailable.push(attachment.filename.clone());
             }
         }
+        let attachment_names: Vec<String> = req.attachments.iter().map(|a| a.filename.clone()).collect();
         // Clear attachments so they don't get injected directly into the conversation
         req.attachments.clear();
 
         // Always save request to history (even for SilentRead that may not get a response)
+        let resumed_request_uid_was_none = resumed_request_uid.is_none();
         let request_uid = match resumed_request_uid {
             Some(uid) => Some(uid),
             None => {
@@ -711,6 +714,42 @@ impl VizierAgent {
                     .await
             }
         };
+        // Files the person attached are theirs, and belong to this request.
+        for name in &attachment_names {
+            if let Err(e) = self
+                .storage
+                .label_session_file(&session, name, Some(&req.user), request_uid.as_deref())
+                .await
+            {
+                tracing::warn!("could not label session file '{name}': {e}");
+            }
+        }
+        // What the turn was handed from memory, for the WebUI's Recalled memory panel. Once
+        // per turn: a resumed turn already has its entry.
+        if resumed_request_uid_was_none && !memory.is_empty() {
+            let passages = crate::schema::dedupe_passages(
+                memory
+                    .iter()
+                    .map(|p| crate::schema::RecalledPassage {
+                        bundle: p.bundle.clone(),
+                        path: p.path.clone(),
+                        ordinal: p.ordinal as u32,
+                        score: p.score as f32,
+                        title: Some(p.title.clone()).filter(|t| !t.is_empty()),
+                    })
+                    .collect(),
+            );
+            crate::agents::steps::record_step(
+                &self.storage,
+                &self.transport,
+                &session,
+                SessionHistoryContent::Recall {
+                    origin: crate::schema::RecallOrigin::Auto,
+                    passages,
+                },
+            )
+            .await;
+        }
         if let (Some(id), Some(uid)) = (turn.id, request_uid.as_deref())
             && let Err(e) = self.storage.set_turn_request_uid(id, uid).await
         {
@@ -1164,6 +1203,22 @@ impl VizierAgent {
 
             // Images the round's tools loaded go in separate user messages, since most
             // providers drop images from tool results.
+            // What `memory_search` returned this round, shown beside the reply.
+            let recalled: Vec<_> = ctx.recalled.lock().await.drain(..).collect();
+            if !recalled.is_empty()
+                && let Some(recorder) = steps.as_deref_mut()
+            {
+                recorder
+                    .record_entry(
+                        &self.storage,
+                        &self.transport,
+                        SessionHistoryContent::Recall {
+                            origin: crate::schema::RecallOrigin::Search,
+                            passages: crate::schema::dedupe_passages(recalled),
+                        },
+                    )
+                    .await;
+            }
             for attachment in ctx.loaded_images.lock().await.drain(..) {
                 pending_images.push(attachment.to_part(&self.global_workspace).map_err(|e| {
                     fail_turn(e, full_history.clone(), None, tool_responses.clone())
@@ -1482,6 +1537,7 @@ impl VizierAgent {
                 deps,
                 &ToolContext {
                     loaded_images: Default::default(),
+                    recalled: Default::default(),
                     client: None,
                     session,
                     pending_attachments: Arc::new(Mutex::new(vec![])),

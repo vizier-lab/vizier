@@ -377,6 +377,24 @@ impl SessionFileStorage for VizierStorage {
         self.0.list_session_files(session).await
     }
 
+    async fn label_session_file(
+        &self,
+        session: &VizierSession,
+        filename: &str,
+        sender: Option<&str>,
+        history_uid: Option<&str>,
+    ) -> Result<()> {
+        self.0
+            .label_session_file(session, filename, sender, history_uid)
+            .await
+    }
+
+    fn subscribe_session_files(
+        &self,
+    ) -> Option<tokio::sync::broadcast::Receiver<(VizierSession, SessionFileRecord)>> {
+        self.0.subscribe_session_files()
+    }
+
     async fn get_session_file(
         &self,
         session: &VizierSession,

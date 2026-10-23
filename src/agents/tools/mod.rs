@@ -176,6 +176,9 @@ pub struct ToolContext {
     /// directly, or from an `execute_python` script. The agent loop adds them to the
     /// conversation after the round's tool results (FR-033).
     pub loaded_images: Arc<Mutex<Vec<VizierAttachment>>>,
+    /// Memory passages a tool returned during the round (`memory_search`), drained by the
+    /// agent loop into a `Recall { Search }` history entry (`specs/024-webui-rewrite`, FR-018e).
+    pub recalled: Arc<Mutex<Vec<crate::schema::RecalledPassage>>>,
     /// The tools the person's client offers for this turn (`specs/019-client-tools`): set
     /// only for a chat turn whose request came over a WebSocket that declared some and is
     /// still open, `None` everywhere else.
@@ -1536,6 +1539,7 @@ mod tests {
             hooks: None,
             background_depth: 0,
             loaded_images: Default::default(),
+            recalled: Default::default(),
             client,
         }
     }

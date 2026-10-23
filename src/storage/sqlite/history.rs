@@ -150,6 +150,7 @@ fn content_type_discriminant(content: &SessionHistoryContent) -> &'static str {
         SessionHistoryContent::Checkpoint(_) => "Checkpoint",
         SessionHistoryContent::Command(_) => "Command",
         SessionHistoryContent::ClientToolCall { .. } => "ClientToolCall",
+        SessionHistoryContent::Recall { .. } => "Recall",
     }
 }
 

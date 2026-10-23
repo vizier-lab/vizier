@@ -28,6 +28,8 @@ impl SessionFileStorage for SqliteStorage {
             size,
             file_id: file_id.to_string(),
             added_at: Utc::now(),
+            sender: Some(session.0.clone()),
+            history_uid: None,
         };
 
         let data = serde_json::to_string(&record)?;
@@ -37,6 +39,8 @@ impl SessionFileStorage for SqliteStorage {
             rusqlite::params![id, session_slug, session.0, data],
         )?;
 
+        drop(conn);
+        let _ = self.session_files.send((session.clone(), record.clone()));
         Ok(record)
     }
 
@@ -82,5 +86,39 @@ impl SessionFileStorage for SqliteStorage {
         let conn = self.conn.lock();
         conn.execute("DELETE FROM session_file WHERE id = ?1", rusqlite::params![id])?;
         Ok(())
+    }
+
+    async fn label_session_file(
+        &self,
+        session: &VizierSession,
+        filename: &str,
+        sender: Option<&str>,
+        history_uid: Option<&str>,
+    ) -> Result<()> {
+        let Some(mut record) = self.get_session_file(session, filename).await? else {
+            return Ok(());
+        };
+        if let Some(sender) = sender {
+            record.sender = Some(sender.to_string());
+        }
+        if let Some(uid) = history_uid {
+            record.history_uid = Some(uid.to_string());
+        }
+        let data = serde_json::to_string(&record)?;
+        {
+            let conn = self.conn.lock();
+            conn.execute(
+                "UPDATE session_file SET data = ?2 WHERE id = ?1",
+                rusqlite::params![record.id, data],
+            )?;
+        }
+        let _ = self.session_files.send((session.clone(), record));
+        Ok(())
+    }
+
+    fn subscribe_session_files(
+        &self,
+    ) -> Option<tokio::sync::broadcast::Receiver<(VizierSession, SessionFileRecord)>> {
+        Some(self.session_files.subscribe())
     }
 }

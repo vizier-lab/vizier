@@ -43,6 +43,9 @@ use crate::{
 };
 
 use super::user_can_view_agent;
+use crate::channels::http::models::page::Page;
+use crate::schema::session_file::SessionFileRecord;
+use crate::storage::session_file::SessionFileStorage;
 
 pub fn channel() -> Router<HTTPState> {
     Router::new()
@@ -52,6 +55,7 @@ pub fn channel() -> Router<HTTPState> {
             "/{channel_id}/topic/{topic_id}/history",
             get(get_topic_history),
         )
+        .route("/{channel_id}/topic/{topic_id}/files", get(list_topic_files))
         .route(
             "/{channel_id}/topic/{topic_id}/detail",
             get(get_topic_detail),
@@ -149,6 +153,57 @@ pub async fn get_topic_history(
         Ok(history) => api_response(StatusCode::OK, history),
         Err(_) => err_response(StatusCode::NOT_FOUND, "Not found".into()),
     }
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct FilesQuery {
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/files",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("channel_id" = String, Path, description = "Channel ID"),
+        ("topic_id" = String, Path, description = "Topic ID"),
+        FilesQuery
+    ),
+    responses(
+        (status = 200, description = "Files saved to the topic, newest first", body = APIResponse<Page<SessionFileRecord>>),
+        (status = 403, description = "Access denied", body = APIResponse<String>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>)
+    )
+)]
+pub async fn list_topic_files(
+    Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
+    Query(params): Query<FilesQuery>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<Page<SessionFileRecord>> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
+    let session = VizierSession(agent_id, VizierChannelId::HTTP(user.username, channel_id), Some(topic_id));
+    let mut files = match state.storage.list_session_files(&session).await {
+        Ok(files) => files,
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    files.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+    let total = files.len();
+    let items = files
+        .into_iter()
+        .skip(params.offset.unwrap_or(0))
+        .take(params.limit.unwrap_or(100).clamp(1, 100))
+        .collect();
+    api_response(StatusCode::OK, Page { items, total, counts: Default::default() })
 }
 
 #[utoipa::path(
@@ -716,6 +771,9 @@ pub async fn handle_socket(
                             }
                             SessionFrame::HistoryEntry(entry) => {
                                 serde_json::to_string(&serde_json::json!({ "history_entry": entry })).ok()
+                            }
+                            SessionFrame::File(file) => {
+                                Some(serde_json::json!({ "session_file": { "file": file } }).to_string())
                             }
                             SessionFrame::ClientCallState { call_id, state } => Some(
                                 serde_json::json!({

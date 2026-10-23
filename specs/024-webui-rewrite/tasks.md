@@ -120,17 +120,17 @@
 
 ### Server for User Story 1
 
-- [ ] T028 [US1] Add `RecallOrigin`, `RecalledPassage` and `SessionHistoryContent::Recall { origin, passages }` in `src/schema/history.rs` (serialized `content_type: "recall"`), and make `history_entries_to_messages` skip `Recall`. Unit tests: model input is unchanged with Recall entries present, and duplicate passages keep the highest score (data-model §2.5)
-- [ ] T029 [US1] Add `recalled: Arc<Mutex<Vec<RecalledPassage>>>` to `ToolContext` in `src/agents/tools/mod.rs` and initialise it at every `ToolContext` construction site (dreams, tasks, handovers, background pieces included)
-- [ ] T030 [US1] Make `memory_search` in `src/agents/tools/vector_memory/` push each returned passage (bundle, path, ordinal, score, title) into `ToolContext.recalled`
-- [ ] T031 [US1] In `src/agents/process.rs`, record `Recall { origin: Auto }` through the turn's `StepRecorder` right after `retrieve_auto_context` returns a non-empty result, before the first model call
-- [ ] T032 [US1] In `src/agents/agent/mod.rs`, drain `ToolContext.recalled` after each tool round (next to the existing `loaded_images` drain) and record one `Recall { origin: Search }` when it is non-empty
-- [ ] T033 [P] [US1] Add `sender: Option<String>` and `history_uid: Option<String>` (`#[serde(default)]`) to `SessionFileRecord` in `src/schema/session_file.rs`. Set them in every `save_session_file` caller: `src/agents/tools/{tts,stt,image_gen,read_image,session_files}/` and the upload path in `src/channels/http/api/v1/files.rs`
-- [ ] T034 [US1] Add `SessionFrame::File(SessionFileRecord)` in `src/transport.rs`, publish it after each successful `save_session_file`, and emit it on the socket as `{ "type": "session_file", "file": … }` in `src/channels/http/api/v1/agents/channel.rs`'s socket writer
-- [ ] T035 [US1] Add `GET /agents/{id}/channel/{channel}/topic/{topic}/files?offset&limit` in `src/channels/http/api/v1/agents/channel.rs` (newest first, `Page<SessionFileRecord>`, view check as in `get_topic_history`, `#[utoipa::path]`, registered in `ApiDoc`)
-- [ ] T036 [P] [US1] Support a single `Range: bytes=a-b` on `GET /files/{file_id}` in `src/channels/http/api/v1/files.rs`: `206` + `Content-Range` + `Accept-Ranges: bytes`, `416` when out of bounds, unchanged without the header
-- [ ] T037 [P] [US1] Add `POST /agents/{id}/restart` in `src/channels/http/api/v1/agents/mod.rs`: `user_can_edit_agent`, send `AgentCommand::Restart`, answer `202` with the health status, `409 busy` while a build is in flight ([contracts/http-api.md](contracts/http-api.md))
-- [ ] T038 [US1] Run `scripts/openapi.mjs` against the updated server and commit `webui/openapi.json` + `webui/app/api/schema.d.ts`
+- [X] T028 [US1] Add `RecallOrigin`, `RecalledPassage` and `SessionHistoryContent::Recall { origin, passages }` in `src/schema/history.rs` (serialized `content_type: "recall"`), and make `history_entries_to_messages` skip `Recall`. Unit tests: model input is unchanged with Recall entries present, and duplicate passages keep the highest score (data-model §2.5)
+- [X] T029 [US1] Add `recalled: Arc<Mutex<Vec<RecalledPassage>>>` to `ToolContext` in `src/agents/tools/mod.rs` and initialise it at every `ToolContext` construction site (dreams, tasks, handovers, background pieces included)
+- [X] T030 [US1] Make `memory_search` in `src/agents/tools/vector_memory/` push each returned passage (bundle, path, ordinal, score, title) into `ToolContext.recalled`
+- [X] T031 [US1] In `src/agents/process.rs`, record `Recall { origin: Auto }` through the turn's `StepRecorder` right after `retrieve_auto_context` returns a non-empty result, before the first model call
+- [X] T032 [US1] In `src/agents/agent/mod.rs`, drain `ToolContext.recalled` after each tool round (next to the existing `loaded_images` drain) and record one `Recall { origin: Search }` when it is non-empty
+- [X] T033 [P] [US1] Add `sender: Option<String>` and `history_uid: Option<String>` (`#[serde(default)]`) to `SessionFileRecord` in `src/schema/session_file.rs`. Set them in every `save_session_file` caller: `src/agents/tools/{tts,stt,image_gen,read_image,session_files}/` and the upload path in `src/channels/http/api/v1/files.rs`
+- [X] T034 [US1] Add `SessionFrame::File(SessionFileRecord)` in `src/transport.rs`, publish it after each successful `save_session_file`, and emit it on the socket as `{ "type": "session_file", "file": … }` in `src/channels/http/api/v1/agents/channel.rs`'s socket writer
+- [X] T035 [US1] Add `GET /agents/{id}/channel/{channel}/topic/{topic}/files?offset&limit` in `src/channels/http/api/v1/agents/channel.rs` (newest first, `Page<SessionFileRecord>`, view check as in `get_topic_history`, `#[utoipa::path]`, registered in `ApiDoc`)
+- [X] T036 [P] [US1] Support a single `Range: bytes=a-b` on `GET /files/{file_id}` in `src/channels/http/api/v1/files.rs`: `206` + `Content-Range` + `Accept-Ranges: bytes`, `416` when out of bounds, unchanged without the header
+- [X] T037 [P] [US1] Add `POST /agents/{id}/restart` in `src/channels/http/api/v1/agents/mod.rs`: `user_can_edit_agent`, send `AgentCommand::Restart`, answer `202` with the health status, `409 busy` while a build is in flight ([contracts/http-api.md](contracts/http-api.md))
+- [X] T038 [US1] Run `scripts/openapi.mjs` against the updated server and commit `webui/openapi.json` + `webui/app/api/schema.d.ts`
 
 ### Design library for User Story 1
 

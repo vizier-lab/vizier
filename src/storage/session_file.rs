@@ -22,4 +22,24 @@ pub trait SessionFileStorage {
     ) -> Result<Option<SessionFileRecord>>;
 
     async fn delete_session_file(&self, session: &VizierSession, filename: &str) -> Result<()>;
+
+    /// Sets who a saved file came from and the history entry it arrived with. Files a tool
+    /// makes are labelled with the agent id when saved; a person's attachment is relabelled
+    /// here once the request is saved. A backend that doesn't track this does nothing.
+    async fn label_session_file(
+        &self,
+        _session: &VizierSession,
+        _filename: &str,
+        _sender: Option<&str>,
+        _history_uid: Option<&str>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Saves and relabels, as they happen, for whoever shows the session live.
+    fn subscribe_session_files(
+        &self,
+    ) -> Option<tokio::sync::broadcast::Receiver<(VizierSession, SessionFileRecord)>> {
+        None
+    }
 }

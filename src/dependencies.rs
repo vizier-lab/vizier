@@ -156,6 +156,24 @@ impl VizierDependencies {
         let storage = Arc::new(storage);
         let background_jobs = BackgroundJobs::new(storage.clone(), transport.clone());
 
+        // Files saved to a session (by any tool or attachment) reach its open sockets as
+        // `session_file` frames.
+        if let Some(mut files) = crate::storage::session_file::SessionFileStorage::subscribe_session_files(&*storage) {
+            let transport = transport.clone();
+            tokio::spawn(async move {
+                loop {
+                    match files.recv().await {
+                        Ok((session, file)) => transport.publish_session_event(crate::transport::SessionEvent {
+                            session,
+                            frame: crate::transport::SessionFrame::File(file),
+                        }),
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            });
+        }
+
         Ok(Self {
             config: Arc::new(config.clone()),
             storage,

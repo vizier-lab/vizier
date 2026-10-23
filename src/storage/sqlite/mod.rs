@@ -36,6 +36,11 @@ mod user;
 pub struct SqliteStorage {
     pub conn: Arc<Mutex<Connection>>,
     pub document_store: Arc<dyn DocumentStore>,
+    /// Every saved or relabelled session file, for `SessionFrame::File`.
+    pub session_files: tokio::sync::broadcast::Sender<(
+        crate::schema::VizierSession,
+        crate::schema::session_file::SessionFileRecord,
+    )>,
 }
 
 /// The Memory Graph Index tables (`memory_node`/`memory_edge`, data-model.md) plus the derived
@@ -175,6 +180,7 @@ impl SqliteStorage {
         Self {
             conn,
             document_store,
+            session_files: tokio::sync::broadcast::channel(64).0,
         }
     }
 

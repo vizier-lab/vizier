@@ -56,6 +56,8 @@ pub enum SessionFrame {
     /// One step of a running turn, saved as it happened (`specs/023-persist-turn-activity`),
     /// in the shape `GET …/history` returns so a client can merge it by uid.
     HistoryEntry(crate::schema::SessionHistory),
+    /// A file saved to the session: from a tool, or attached to a request.
+    File(crate::schema::session_file::SessionFileRecord),
     /// A client tool call's newly saved state, echoed to the saver as its confirmation.
     ClientCallState {
         call_id: String,

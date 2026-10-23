@@ -15,4 +15,10 @@ pub struct SessionFileRecord {
     pub size: u64,
     pub file_id: String,
     pub added_at: DateTime<Utc>,
+    /// Who the file came from: a person's username, or the agent id.
+    #[serde(default)]
+    pub sender: Option<String>,
+    /// The request entry the file arrived with, when it was attached to one.
+    #[serde(default)]
+    pub history_uid: Option<String>,
 }
