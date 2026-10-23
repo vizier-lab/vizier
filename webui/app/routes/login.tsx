@@ -27,13 +27,17 @@ export default function Login() {
 
     return (
         <form onSubmit={submit} className="flex flex-col gap-16">
-            <h1 className="type-title text-fg">Sign in</h1>
+            <div className="flex flex-col gap-6">
+                <h1 className="type-display text-fg">Welcome back</h1>
+                <p className="type-ui-para text-muted">Sign in to your digital steward.</p>
+            </div>
             {error && <Notice tone="failed" title="Couldn't sign you in">{error}</Notice>}
             <TextField label="Username" size="lg" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus />
-            <TextField label="Password" size="lg" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+            <TextField label="Password" size="lg" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" placeholder="Enter your password" invalid={error !== null} />
             <Button type="submit" variant="primary" size="lg" block loading={busy}>
                 Sign in
             </Button>
+            <p className="type-small text-faint">No account? Ask whoever runs this Vizier to invite you.</p>
         </form>
     )
 }

@@ -900,6 +900,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/utils/setup-state": {
         parameters: {
             query?: never;
@@ -1251,8 +1267,14 @@ export interface components {
             data?: {
                 /** @description May add integrations to this agent. */
                 can_manage: boolean;
+                /** @description With `limit`: matches per filter key (`all`, `down`) after `q`, ignoring `filter`. */
+                counts?: {
+                    [key: string]: number;
+                } | null;
                 family?: components["schemas"]["IntegrationFamily"] | null;
                 items: components["schemas"]["IntegrationItem"][];
+                /** @description With `limit`: matches after `q` and `filter`, before `offset`/`limit`. */
+                total?: number | null;
             };
             message?: string | null;
             /** Format: int32 */
@@ -1418,6 +1440,18 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_ServerStatus: {
+            /** @description What the sign-in page needs before anyone has signed in. */
+            data?: {
+                online: boolean;
+                /** @description No one has been set up yet: show Onboarding. */
+                setup_required: boolean;
+                version: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_SetupStates: {
             /** @description The answer of `GET /api/v1/utils/setup-state`. */
             data?: {
@@ -1559,6 +1593,8 @@ export interface components {
                 /** Format: date-time */
                 last_used_at?: string | null;
                 name: string;
+                /** @description The first characters of the key; empty for a key made before they were kept. */
+                prefix?: string | null;
             }[];
             message?: string | null;
             /** Format: int32 */
@@ -1953,6 +1989,8 @@ export interface components {
             /** Format: date-time */
             last_used_at?: string | null;
             name: string;
+            /** @description The first characters of the key; empty for a key made before they were kept. */
+            prefix?: string | null;
         };
         AttachmentBody: {
             attached: boolean;
@@ -2301,6 +2339,8 @@ export interface components {
         };
         CreateTaskRequest: {
             instruction: string;
+            /** @description Whether the task is switched on. Omitted means on, which is what both routes always did. */
+            is_active?: boolean | null;
             schedule: components["schemas"]["ScheduleRequest"];
             slug: string;
             title: string;
@@ -2625,8 +2665,14 @@ export interface components {
         IntegrationList: {
             /** @description May add integrations to this agent. */
             can_manage: boolean;
+            /** @description With `limit`: matches per filter key (`all`, `down`) after `q`, ignoring `filter`. */
+            counts?: {
+                [key: string]: number;
+            } | null;
             family?: components["schemas"]["IntegrationFamily"] | null;
             items: components["schemas"]["IntegrationItem"][];
+            /** @description With `limit`: matches after `q` and `filter`, before `offset`/`limit`. */
+            total?: number | null;
         };
         IntegrationRemoved: {
             affected_agents: components["schemas"]["String"][];
@@ -3066,6 +3112,18 @@ export interface components {
             /** @enum {string} */
             type: "baseline";
         };
+        /** @description A role with how many people have it. */
+        RoleItem: components["schemas"]["RoleResponse"] & {
+            people: number;
+        };
+        RoleResponse: {
+            /** Format: date-time */
+            created_at: string;
+            is_system: boolean;
+            name: string;
+            permissions: string[];
+            role_id: string;
+        };
         RollbackRequest: {
             /** Format: int64 */
             seq: number;
@@ -3104,6 +3162,13 @@ export interface components {
             datetime: string;
             /** @enum {string} */
             type: "OneTime";
+        };
+        /** @description What the sign-in page needs before anyone has signed in. */
+        ServerStatus: {
+            online: boolean;
+            /** @description No one has been set up yet: show Onboarding. */
+            setup_required: boolean;
+            version: string;
         };
         SessionFileRecord: {
             /** Format: date-time */
@@ -4464,12 +4529,22 @@ export interface operations {
                 /** @description Agent ID */
                 agent_id: string;
                 family: components["schemas"]["IntegrationFamily"] | null;
+                /** @description Free-text search, matched by the entity's own rule. */
+                q: string | null;
+                /** @description One filter key (e.g. `active`); `all` or absent means no filter. */
+                filter: string | null;
+                /** @description The entity's sort key; an unknown one uses the default. */
+                sort: string | null;
+                order: components["schemas"]["SortOrder"] | null;
+                offset: number | null;
+                /** @description Present switches the response to a `Page`; clamped to 1..=100. */
+                limit: number | null;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The agent's integrations */
+            /** @description The agent's integrations. With `family=mcp` and `limit`, one page of them, with `total` and `counts` */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5627,12 +5702,23 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description Free-text search, matched by the entity's own rule. */
+                q: string | null;
+                /** @description One filter key (e.g. `active`); `all` or absent means no filter. */
+                filter: string | null;
+                /** @description The entity's sort key; an unknown one uses the default. */
+                sort: string | null;
+                order: components["schemas"]["SortOrder"] | null;
+                offset: number | null;
+                /** @description Present switches the response to a `Page`; clamped to 1..=100. */
+                limit: number | null;
+            };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description List of API keys */
+            /** @description List of API keys, or one page of them with `limit` */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6583,6 +6669,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIResponse_TestResult"];
+                };
+            };
+        };
+    };
+    status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public. Whether vizier is up, its version, and whether first-run setup is still needed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ServerStatus"];
                 };
             };
         };

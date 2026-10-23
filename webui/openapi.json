@@ -1433,11 +1433,87 @@
                 }
               ]
             }
+          },
+          {
+            "name": "q",
+            "in": "path",
+            "description": "Free-text search, matched by the entity's own rule.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "filter",
+            "in": "path",
+            "description": "One filter key (e.g. `active`); `all` or absent means no filter.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "path",
+            "description": "The entity's sort key; an unknown one uses the default.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "order",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SortOrder"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "offset",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Present switches the response to a `Page`; clamped to 1..=100.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "The agent's integrations",
+            "description": "The agent's integrations. With `family=mcp` and `limit`, one page of them, with `total` and `counts`",
             "content": {
               "application/json": {
                 "schema": {
@@ -3264,9 +3340,87 @@
           "api::v1::auth"
         ],
         "operationId": "list_api_keys",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "description": "Free-text search, matched by the entity's own rule.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "filter",
+            "in": "path",
+            "description": "One filter key (e.g. `active`); `all` or absent means no filter.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "path",
+            "description": "The entity's sort key; an unknown one uses the default.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "order",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SortOrder"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "offset",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Present switches the response to a `Page`; clamped to 1..=100.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "List of API keys",
+            "description": "List of API keys, or one page of them with `limit`",
             "content": {
               "application/json": {
                 "schema": {
@@ -4443,6 +4597,26 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/APIResponse_TestResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "tags": [
+          "api::v1"
+        ],
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "description": "Public. Whether vizier is up, its version, and whether first-run setup is still needed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ServerStatus"
                 }
               }
             }
@@ -5812,6 +5986,20 @@
                 "type": "boolean",
                 "description": "May add integrations to this agent."
               },
+              "counts": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "With `limit`: matches per filter key (`all`, `down`) after `q`, ignoring `filter`.",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
               "family": {
                 "oneOf": [
                   {
@@ -5827,6 +6015,14 @@
                 "items": {
                   "$ref": "#/components/schemas/IntegrationItem"
                 }
+              },
+              "total": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "With `limit`: matches after `q` and `filter`, before `offset`/`limit`.",
+                "minimum": 0
               }
             }
           },
@@ -6473,6 +6669,46 @@
           }
         }
       },
+      "APIResponse_ServerStatus": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "What the sign-in page needs before anyone has signed in.",
+            "required": [
+              "online",
+              "version",
+              "setup_required"
+            ],
+            "properties": {
+              "online": {
+                "type": "boolean"
+              },
+              "setup_required": {
+                "type": "boolean",
+                "description": "No one has been set up yet: show Onboarding."
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_SetupStates": {
         "type": "object",
         "required": [
@@ -7043,6 +7279,13 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "prefix": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The first characters of the key; empty for a key made before they were kept."
                 }
               }
             }
@@ -8585,6 +8828,13 @@
           },
           "name": {
             "type": "string"
+          },
+          "prefix": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The first characters of the key; empty for a key made before they were kept."
           }
         }
       },
@@ -9974,6 +10224,13 @@
           "instruction": {
             "type": "string"
           },
+          "is_active": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the task is switched on. Omitted means on, which is what both routes always did."
+          },
           "schedule": {
             "$ref": "#/components/schemas/ScheduleRequest"
           },
@@ -11083,6 +11340,20 @@
             "type": "boolean",
             "description": "May add integrations to this agent."
           },
+          "counts": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "With `limit`: matches per filter key (`all`, `down`) after `q`, ignoring `filter`.",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "family": {
             "oneOf": [
               {
@@ -11098,6 +11369,14 @@
             "items": {
               "$ref": "#/components/schemas/IntegrationItem"
             }
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "With `limit`: matches after `q` and `filter`, before `offset`/`limit`.",
+            "minimum": 0
           }
         }
       },
@@ -12760,6 +13039,57 @@
         ],
         "description": "What caused a save."
       },
+      "RoleItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RoleResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "people"
+            ],
+            "properties": {
+              "people": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        ],
+        "description": "A role with how many people have it."
+      },
+      "RoleResponse": {
+        "type": "object",
+        "required": [
+          "role_id",
+          "name",
+          "permissions",
+          "is_system",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "is_system": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "role_id": {
+            "type": "string"
+          }
+        }
+      },
       "RollbackRequest": {
         "type": "object",
         "required": [
@@ -12864,6 +13194,27 @@
             }
           }
         ]
+      },
+      "ServerStatus": {
+        "type": "object",
+        "description": "What the sign-in page needs before anyone has signed in.",
+        "required": [
+          "online",
+          "version",
+          "setup_required"
+        ],
+        "properties": {
+          "online": {
+            "type": "boolean"
+          },
+          "setup_required": {
+            "type": "boolean",
+            "description": "No one has been set up yet: show Onboarding."
+          },
+          "version": {
+            "type": "string"
+          }
+        }
       },
       "SessionFileRecord": {
         "type": "object",

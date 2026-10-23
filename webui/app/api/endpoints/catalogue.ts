@@ -10,6 +10,9 @@ export type ProviderSummary = {
     model_count: number
     connection: { status: 'connected' | 'missing' | 'unreachable'; source?: string | null }
     popular: boolean
+    fields: ('api_key' | 'endpoint' | 'base_url' | 'access_token' | 'account_id')[]
+    endpoint?: string | null
+    doc?: string | null
 }
 
 export type ModelSummary = {
@@ -27,3 +30,6 @@ export type ModelSummary = {
 export const chatProviders = () =>
     api.get<ProviderSummary[]>('/catalogue/providers').then((all) => (all ?? []).filter((p) => p.kind !== 'media'))
 export const providerModels = (id: string) => api.get<ModelSummary[]>(`/catalogue/providers/${encodeURIComponent(id)}/models`)
+
+/** Every provider the catalogue lists, for the "Add a provider" grid. */
+export const allProviders = () => api.get<ProviderSummary[]>('/catalogue/providers')

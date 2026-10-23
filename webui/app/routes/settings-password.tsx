@@ -1,10 +1,10 @@
-import { EmptyState } from '@vizier/design'
-import { PageFrame } from '../screens/shared/PageFrame'
+import { PasswordCard } from '../screens/settings/PasswordCard'
+import { SettingsFrame } from '../screens/shared/SettingsFrame'
 
-export default function Route() {
+export default function SettingsPassword() {
     return (
-        <PageFrame title="Password">
-            <EmptyState kind="empty" title="Password" message="This page is being rebuilt." />
-        </PageFrame>
+        <SettingsFrame title="Password" description="Change the password you sign in with.">
+            <PasswordCard />
+        </SettingsFrame>
     )
 }
