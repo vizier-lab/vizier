@@ -262,49 +262,49 @@
 
 ### WebUI for User Story 3
 
-- [ ] T081 [P] [US3] Implement `webui/app/stores/drafts.ts`: unsaved text per document key (`core:<agent>`, `skill:<agent>:<slug>`, `memory:<agent>:<bundle>/<path>`) in localStorage with try/catch, plus a restore/discard prompt helper
-- [ ] T082 [US3] Implement Home (court and first run) in `webui/app/routes/home.tsx`:
+- [X] T081 [P] [US3] Implement `webui/app/stores/drafts.ts`: unsaved text per document key (`core:<agent>`, `skill:<agent>:<slug>`, `memory:<agent>:<bundle>/<path>`) in localStorage with try/catch, plus a restore/discard prompt helper
+- [X] T082 [US3] Implement Home (court and first run) in `webui/app/routes/home.tsx`:
   - greeting PageHeader, with the counts taken from the agents store for now
   - the court: the 6 most recently active AgentCard, then "Show all N agents", which opens the paged agent list (SearchField + FilterTabs All/Mine/Live/Failed on `GET /agents?limit`)
   - the first-run variant: SetupStepCard ×3 and the Ollama Callout
   - (design page: Home)
-- [ ] T083 [US3] Implement Core in `webui/app/routes/agent-core.tsx`:
+- [X] T083 [US3] Implement Core in `webui/app/routes/agent-core.tsx`:
   - PageHeader meta "CORE.md · rev N · last written by …"
   - MarkdownEditor compact, with UnsavedIndicator and the drafts store
   - Save sends `base_seq`; a `409 stale_revision` opens "Reload theirs / Keep mine"
   - History: a RevisionRow list (newest 20 + LoadMore), DiffView between revisions, and Restore through the existing rollback
-- [ ] T084 [US3] Implement Memory in `webui/app/routes/memory.tsx` and `webui/app/screens/memory/`:
+- [X] T084 [US3] Implement Memory in `webui/app/routes/memory.tsx` and `webui/app/screens/memory/`:
   - passage search (SearchField → existing query endpoint), with "Nothing matched" EmptyState
   - inside a bundle: Breadcrumb, MemoryGraph neighbourhood (1 hop / 2 hops / Whole bundle, at most 40 stars) and DocumentDetail (links to/from, provenance, Edit through MarkdownEditor, History through memory revisions)
   - "All bundles": the bundle-level MemoryGraph of the 24 largest (Largest/Recently changed/Most linked) + a paged bundle Table + the selected-bundle card (Open, Export .zip, Delete with ConfirmDialog)
   - Import / Export / New memory / New bundle
   - a bundle Picker in server mode
-- [ ] T085 [US3] Implement Tasks in `webui/app/routes/tasks.tsx` and `webui/app/screens/tasks/`:
+- [X] T085 [US3] Implement Tasks in `webui/app/routes/tasks.tsx` and `webui/app/screens/tasks/`:
   - PagedTable (TASK, SCHEDULE with cron, REQUESTED BY, LATEST RUN Status, ACTIVE Switch)
   - a detail panel (KeyValueList, RunRow list newest 20 + LoadMore, the selected run's reply in Markdown, "Open run conversation")
   - a create/edit dialog (cron or one-time with DateTimeField; requester own/person)
   - Delete with ConfirmDialog
   - the EmptyState "No duties scheduled"
-- [ ] T086 [US3] Implement Skills in `webui/app/routes/skills.tsx` and the editor in `webui/app/routes/skill-edit.tsx`:
+- [X] T086 [US3] Implement Skills in `webui/app/routes/skills.tsx` and the editor in `webui/app/routes/skill-edit.tsx`:
   - a PagedTable of skills (All/Agent/Global), with a detail panel (keywords as Badge, SKILL.md CodeBlock, resources FileRow, invoke hint)
   - the editor: ActionBar with Breadcrumb, UnsavedIndicator, Discard and Save (Kbd Ctrl S); MarkdownEditor full with outline and modes; KeywordInput; resources with DropZone
   - drafts restore
   - `base_hash` on save, with the 409 dialog
   - New skill, and Delete with ConfirmDialog
-- [ ] T087 [US3] Implement Dreams in `webui/app/routes/agent-dream.tsx`:
+- [X] T087 [US3] Implement Dreams in `webui/app/routes/agent-dream.tsx`:
   - PageHeader meta (schedule, last and next dream) and "Dream now" (existing trigger)
   - NightStrip from `GET …/dream/nights?days=30&tz`, with per-night hints, a live running night, and selection scrolling to the cycle
   - a DreamJournalEntry feed from `GET …/dream/cycles` (newest 20 + LoadMore), with change lines linking to memory documents and Core revisions (FR-018d)
   - a status card (KeyValueList: state, schedule, dream model, last cost, "reflects on") and the restricted-tools note
-- [ ] T088 [US3] Implement Usage in `webui/app/routes/usage.tsx` and `webui/app/screens/usage/`:
+- [X] T088 [US3] Implement Usage in `webui/app/routes/usage.tsx` and `webui/app/screens/usage/`:
   - Segment 7 days/30 days/Custom and SortSelect "Break down by" (Activity/Channel/Model)
   - StatGroup (cost, tokens, calls, cache hit rate, spent on failed turns)
   - StackedBarChart (top 6 + Other) with Legend and a dated marker
   - "Where it went" Table with BarList share
   - costliest conversations, opening a SlideOver drawer (conversation usage)
   - the cost-estimate footnote
-- [ ] T089 [US3] Write `webui/e2e/pages.spec.ts` covering quickstart §5 (UI part) and §7 steps 1–3
-- [ ] T090 [US3] Walk quickstart §5 and §7 steps 1–3 on a running binary (dummyplug), including the legacy-row checks in §5.4
+- [X] T089 [US3] Write `webui/e2e/pages.spec.ts` covering quickstart §5 (UI part) and §7 steps 1–3
+- [X] T090 [US3] Walk quickstart §5 and §7 steps 1–3 on a running binary (dummyplug), including the legacy-row checks in §5.4
 
 **Checkpoint**: every day-to-day page works, with CORE and skill saves protected from overwriting newer versions.
 

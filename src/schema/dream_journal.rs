@@ -131,10 +131,10 @@ pub fn journal_window(timestamps: &[DateTime<Utc>]) -> Option<(DateTime<Utc>, Da
 }
 
 /// The cycle whose window holds `at`; the one starting latest when windows overlap.
-pub fn attribute_by_window<'a>(
+pub fn attribute_by_window(
     at: DateTime<Utc>,
-    windows: &'a [(String, DateTime<Utc>, DateTime<Utc>)],
-) -> Option<&'a str> {
+    windows: &[(String, DateTime<Utc>, DateTime<Utc>)],
+) -> Option<&str> {
     windows
         .iter()
         .filter(|(_, from, to)| at >= *from && at <= *to)
@@ -409,7 +409,7 @@ pub fn assemble_cycles(
             }
         })
         .collect();
-    cycles.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+    cycles.sort_by_key(|c| std::cmp::Reverse(c.started_at));
     (cycles, unattributed)
 }
 

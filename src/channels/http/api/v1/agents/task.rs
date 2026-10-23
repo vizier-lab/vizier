@@ -86,6 +86,9 @@ pub struct CreateTaskRequest {
     title: String,
     instruction: String,
     schedule: ScheduleRequest,
+    /// Whether the task is switched on. Omitted means on, which is what both routes always did.
+    #[serde(default)]
+    is_active: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -425,7 +428,7 @@ pub async fn create_task(
         agent_id,
         title: body.title,
         instruction: body.instruction,
-        is_active: true,
+        is_active: body.is_active.unwrap_or(true),
         schedule: body.schedule.into(),
         last_executed_at: None,
         timestamp: Utc::now(),
@@ -490,7 +493,7 @@ pub async fn update_task(
         agent_id,
         title: body.title,
         instruction: body.instruction,
-        is_active: true,
+        is_active: body.is_active.unwrap_or(true),
         schedule: body.schedule.into(),
         last_executed_at: None,
         timestamp: Utc::now(),

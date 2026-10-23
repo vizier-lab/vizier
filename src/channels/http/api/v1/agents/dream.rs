@@ -316,7 +316,7 @@ async fn running_cycle(state: &HTTPState, agent_id: &str) -> Option<(String, Dat
 /// What each cycle in `cycles` cost, from the usage rows its conversations wrote.
 async fn price_cycles(state: &HTTPState, agent_id: &str, cycles: &mut [DreamCycle]) {
     use crate::{
-        schema::{metrics::TokenCounts, usage::UsageActivity},
+        schema::usage::UsageActivity,
         storage::usage::{UsageGrouping, UsageQuery, UsageStorage},
         usage::Pricer,
     };
@@ -333,8 +333,7 @@ async fn price_cycles(state: &HTTPState, agent_id: &str, cycles: &mut [DreamCycl
     for cycle in cycles {
         let mut total: Option<f64> = None;
         for g in groups.iter().filter(|g| g.topic.as_deref() == Some(cycle.cycle_id.as_str())) {
-            let tokens = TokenCounts { ..g.tokens.clone() };
-            if let Some(c) = pricer.cost(&g.provider, &g.model, &tokens) {
+            if let Some(c) = pricer.cost(&g.provider, &g.model, &g.tokens) {
                 *total.get_or_insert(0.0) += c;
             }
         }
