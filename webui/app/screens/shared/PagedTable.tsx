@@ -10,7 +10,9 @@ type Props<T> = {
     list: List<T>
     columns: ComponentProps<typeof Table>['columns']
     /** Cells for one row. */
-    row: (item: T) => ReactNode[]
+    row?: (item: T) => ReactNode[]
+    /** A whole row, for components that are rows themselves (ServerRow). Used instead of `row`. */
+    renderRow?: (item: T) => ReactNode
     rowKey: (item: T) => string
     onSelect?: (item: T) => void
     selectedKey?: string
@@ -26,7 +28,7 @@ type Props<T> = {
 
 /** SearchField + FilterTabs + SortSelect + Table + Pagination over a `usePagedList`. */
 export function PagedTable<T>({
-    label, list, columns, row, rowKey, onSelect, selectedKey, endAligned,
+    label, list, columns, row, renderRow, rowKey, onSelect, selectedKey, endAligned,
     filters, sorts, searchLabel, empty, toolbar,
 }: Props<T>) {
     const { data, state, error, loading } = list
@@ -78,15 +80,19 @@ export function PagedTable<T>({
                             />
                         }
                     >
-                        {(data?.items ?? []).map((item) => (
-                            <TableRow
-                                key={rowKey(item)}
-                                cells={row(item)}
-                                endAligned={endAligned}
-                                selected={selectedKey === rowKey(item)}
-                                onSelect={onSelect ? () => onSelect(item) : undefined}
-                            />
-                        ))}
+                        {(data?.items ?? []).map((item) =>
+                            renderRow ? (
+                                renderRow(item)
+                            ) : (
+                                <TableRow
+                                    key={rowKey(item)}
+                                    cells={row?.(item) ?? []}
+                                    endAligned={endAligned}
+                                    selected={selectedKey === rowKey(item)}
+                                    onSelect={onSelect ? () => onSelect(item) : undefined}
+                                />
+                            )
+                        )}
                     </Table>
                 </div>
             )}
