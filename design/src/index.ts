@@ -115,6 +115,7 @@ export * from "./components/SettingsNav";
 export * from "./components/SetupStepCard";
 export * from "./components/ShareList";
 export * from "./components/Sidebar";
+export * from "./components/ConversationRow";
 export * from "./components/ImageCropper";
 export * from "./components/SigilPicker";
 export * from "./components/Skeleton";

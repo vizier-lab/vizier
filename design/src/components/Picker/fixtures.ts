@@ -31,7 +31,7 @@ export const bundles: BundleItem[] = [
   return { name, docs: Number(docs) };
 });
 
-export type ConversationItem = { id: string; title: string; channel: "webui" | "discord" | "telegram"; where: string; time: string; live?: boolean; day: "Today" | "Yesterday" };
+export type ConversationItem = { id: string; title: string; channel: "webui" | "discord" | "telegram"; where: string; time: string; live?: boolean; day: "Today" | "Yesterday" | "Older" };
 
 export const conversations: ConversationItem[] = [
   { id: "c1", title: "vector-db-review", channel: "webui", where: "WebUI · topic 3 of 5", time: "14:02", live: true, day: "Today" },
@@ -39,4 +39,7 @@ export const conversations: ConversationItem[] = [
   { id: "c3", title: "DM · ana", channel: "telegram", where: "Telegram", time: "11:05", day: "Today" },
   { id: "c4", title: "pricing-notes", channel: "webui", where: "WebUI · 2 topics", time: "18:22", day: "Yesterday" },
   { id: "c5", title: "#general", channel: "discord", where: "Discord · Home server", time: "16:10", day: "Yesterday" },
+  { id: "c6", title: "family-chat", channel: "telegram", where: "Telegram", time: "Oct 14", day: "Older" },
+  { id: "c7", title: "#support", channel: "discord", where: "Discord · Vizier Lab", time: "Oct 12", day: "Older" },
+  { id: "c8", title: "migration-plan", channel: "webui", where: "WebUI · topic 1 of 1", time: "Oct 9", day: "Older" },
 ];

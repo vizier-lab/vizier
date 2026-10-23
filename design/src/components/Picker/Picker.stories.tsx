@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { Sigil } from "../../brand/Sigil/Sigil";
 import { Icon } from "../../icons/Icon";
 import { Badge } from "../Badge/Badge";
+import { ConversationRow } from "../ConversationRow/ConversationRow";
 import { Kbd } from "../Kbd/Kbd";
 import { ListItem } from "../ListItem/ListItem";
 import { Segment } from "../Segment/Segment";
@@ -72,7 +73,6 @@ export const Conversation: Story = {
   render: function Render() {
     const [q, setQ] = useState("");
     const [f, setF] = useState<"all" | "webui" | "discord" | "telegram">("all");
-    const icon = { webui: "chat", discord: "channels", telegram: "paper-plane" } as const;
     const items = conversations.filter((c) => (f === "all" || c.channel === f) && c.title.toLowerCase().includes(q.toLowerCase()));
     return (
       <Picker
@@ -91,22 +91,11 @@ export const Conversation: Story = {
         sections={[
           { label: "Today", items: items.filter((c) => c.day === "Today") },
           { label: "Yesterday", items: items.filter((c) => c.day === "Yesterday") },
+          { label: "Older", items: items.filter((c) => c.day === "Older") },
         ]}
         getKey={(c) => c.id}
         renderItem={(c, { query }) => (
-          <ListItem
-            shape="bare"
-            className="w-full"
-            leading={<Icon name={icon[c.channel]} tone="muted" />}
-            title={
-              <span className="flex items-center gap-6">
-                <HighlightMatch text={c.title} query={query} />
-                {c.live && <span role="img" aria-label="live" className="size-6 rounded-pill bg-live" />}
-              </span>
-            }
-            subtitle={<span className="type-mono-xs text-faint">{c.where}</span>}
-            meta={c.time}
-          />
+          <ConversationRow kind={c.channel} title={c.title} query={query} place={c.where} live={c.live} time={c.time} />
         )}
         onSelect={() => {}}
         remainder="Older conversations load as you scroll"

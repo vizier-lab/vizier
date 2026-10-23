@@ -9,6 +9,8 @@ export type ActivityRow = {
   live?: boolean;
   /** The "All N" total row: set apart. */
   total?: boolean;
+  /** One tooltip per hour ("14:00 · 3 turns"); 24 values. Gives every dot a name and a place in the tab order. */
+  hints?: string[];
 };
 
 export type ActivityGridProps = {
@@ -35,6 +37,8 @@ export function ActivityGrid({ rows, meta, summary, empty, footer, compact, clas
   const dot = (v: number, scale: number) => (v <= 0 ? 2 : Math.max(4, Math.round((v / scale) * big)));
   const showLabels = !single && !compact && rows.length > 0;
   const cols = `${showLabels ? "88px " : ""}repeat(24, minmax(0, 1fr))`;
+  // Dots that can be focused can't sit inside an image, so the grid becomes a labelled group.
+  const hinted = rows.some((r) => r.hints?.length);
   return (
     <section className={cx("flex flex-col gap-12 rounded-xl border border-border bg-surface px-20 py-16", className)} {...rest}>
       <header className="flex items-baseline justify-between gap-12">
@@ -42,7 +46,7 @@ export function ActivityGrid({ rows, meta, summary, empty, footer, compact, clas
         {meta && <span className="type-mono-xs text-faint">{meta}</span>}
       </header>
       <div
-        role="img"
+        role={hinted ? "group" : "img"}
         aria-label={
           rows.length
             ? `Turns per hour over the last 24 hours for ${rows.map((r) => r.label).join(", ")}`
@@ -58,14 +62,24 @@ export function ActivityGrid({ rows, meta, summary, empty, footer, compact, clas
               {showLabels && (
                 <span className={cx("truncate type-mono-xs", r.total ? "text-fg" : "text-faint")}>{r.label}</span>
               )}
-              {r.hours.map((v, h) => (
-                <span key={h} className="flex h-18 items-center justify-center">
+              {r.hours.map((v, h) => {
+                const hint = r.hints?.[h];
+                return (
+                <span
+                  key={h}
+                  title={hint}
+                  aria-label={hint ? `${r.label ? `${r.label}, ` : ""}${hint}` : undefined}
+                  role={hint ? "img" : undefined}
+                  tabIndex={hint ? 0 : undefined}
+                  className={cx("flex h-18 items-center justify-center rounded-xs", hint && "focus-visible:outline-2 focus-visible:outline-focus")}
+                >
                   <span
                     className={cx("rounded-pill", v <= 0 ? "bg-dot-off" : r.live && h === 23 ? "bg-live" : "bg-ink")}
                     style={{ width: dot(v, scale), height: dot(v, scale) }}
                   />
                 </span>
-              ))}
+                );
+              })}
             </div>
           );
         })}

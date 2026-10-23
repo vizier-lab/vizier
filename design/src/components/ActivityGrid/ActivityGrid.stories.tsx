@@ -22,6 +22,13 @@ const FOUR: ActivityRow[] = [
   { label: "Treasurer", hours: hours(4, 0.5) },
 ];
 
+/** "14:00 · 3 turns" for each of the 24 hours ending at "now". */
+function hints(values: number[]): string[] {
+  return values.map((v, h) => `${String((h + 1) % 24).padStart(2, "0")}:00 · ${v === 0 ? "no turns" : v === 1 ? "1 turn" : `${v} turns`}`);
+}
+
+const withHints = (rows: ActivityRow[]): ActivityRow[] => rows.map((r) => ({ ...r, hints: hints(r.hours) }));
+
 const meta = {
   title: "Components/Visualisation/ActivityGrid",
   component: ActivityGrid,
@@ -101,3 +108,30 @@ export const Thousand: Story = {
 
 /** Mobile. */
 export const Compact: Story = { args: { compact: true, meta: undefined }, decorators: [(Story) => <div className="w-343">{Story()}</div>] };
+
+/** Every dot has a tooltip and can be focused, so the numbers are reachable without a pointer. */
+export const WithHintsNone: Story = { args: { rows: [], empty: { title: "No activity yet", message: "This fills in once an agent takes its first turn." } } };
+
+export const WithHintsOne: Story = {
+  args: {
+    rows: withHints([{ label: "Archivist", hours: hours(1, 0.2), live: true }]),
+    meta: "101 turns · busiest 18:00",
+    summary: "Archivist is replying now. 94 chat turns, 5 scheduled tasks and 2 dream stages today.",
+  },
+};
+
+export const WithHintsFour: Story = { args: { rows: withHints(FOUR) } };
+
+export const WithHintsThousand: Story = {
+  args: {
+    meta: "all agents + 5 most active · 37 live now",
+    rows: withHints([
+      { label: "All 1,000", hours: hours(9, 0.05).map((v) => v * 40), live: true, total: true },
+      { label: "Archivist", hours: hours(1), live: true },
+      { label: "Scout", hours: hours(2), live: true },
+      { label: "Herald", hours: hours(3) },
+      { label: "Treasurer", hours: hours(4) },
+      { label: "Scribe", hours: hours(5) },
+    ]),
+  },
+};
