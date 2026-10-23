@@ -19,5 +19,5 @@ export const Inline: Story = {};
 /** Chat: covers the column while files are dragged over it. */
 export const Overlay: Story = {
   decorators: [(Story) => <div className="relative h-320 w-560 rounded-xl border border-border bg-surface">{Story()}</div>],
-  args: { look: "overlay", active: true },
+  args: { look: "overlay", active: true, hint: "Files, images and audio" },
 };

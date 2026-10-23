@@ -18,8 +18,10 @@ const BASE = [
   "[&_blockquote]:border-l-2 [&_blockquote]:border-border-strong [&_blockquote]:pl-12 [&_blockquote]:text-muted",
   "[&_:not(pre)>code]:rounded-xs [&_:not(pre)>code]:bg-raised [&_:not(pre)>code]:px-4 [&_:not(pre)>code]:type-code [&_:not(pre)>code]:text-soft",
   "[&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border [&_pre]:bg-surface [&_pre]:px-16 [&_pre]:py-12 [&_pre]:type-code-block [&_pre]:text-soft",
-  "[&_table]:w-full [&_table]:border-collapse [&_th]:border-b [&_th]:border-border [&_th]:px-8 [&_th]:py-6 [&_th]:text-left [&_th]:type-label [&_th]:uppercase [&_th]:text-faint",
-  "[&_td]:border-b [&_td]:border-border [&_td]:px-8 [&_td]:py-6 [&_td]:type-ui [&_td]:text-soft",
+  // Tables sit in a rounded frame, as in replies.
+  "[&_table]:w-full [&_table]:border-separate [&_table]:border-spacing-0 [&_table]:overflow-hidden [&_table]:rounded-md [&_table]:border [&_table]:border-border",
+  "[&_th]:bg-surface [&_th]:px-14 [&_th]:py-8 [&_th]:text-left [&_th]:type-small [&_th]:text-muted",
+  "[&_td]:border-t [&_td]:border-border [&_td]:px-14 [&_td]:py-8 [&_td]:type-ui [&_td]:text-fg",
   "[&_hr]:border-border",
 ].join(" ");
 

@@ -11,10 +11,12 @@ export type DropZoneProps = {
   accept?: string;
   multiple?: boolean;
   children?: ReactNode;
+  /** Overlay only: what can be dropped ("Files, images and audio"). */
+  hint?: ReactNode;
 } & Omit<HTMLAttributes<HTMLDivElement>, "onDrop">;
 
 /** Where files are dropped (X19). */
-export function DropZone({ onFiles, look = "inline", active, accept, multiple = true, children, className, ...rest }: DropZoneProps) {
+export function DropZone({ onFiles, look = "inline", active, accept, multiple = true, children, hint, className, ...rest }: DropZoneProps) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const handlers = {
@@ -33,12 +35,13 @@ export function DropZone({ onFiles, look = "inline", active, accept, multiple = 
     if (!active) return null;
     return (
       <div
-        className={cx("absolute inset-0 z-20 flex flex-col items-center justify-center gap-8 rounded-xl border border-dashed border-live bg-ground/90", className)}
+        className={cx("absolute inset-16 z-20 flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-border-hover bg-ground/90", className)}
         {...handlers}
         {...rest}
       >
-        <Icon name="attach" size={22} tone="live" />
+        <Icon name="upload" size={20} tone="default" />
         <p className="type-body-medium text-fg">{children ?? "Drop to attach"}</p>
+        {hint && <p className="type-small text-faint">{hint}</p>}
       </div>
     );
   }

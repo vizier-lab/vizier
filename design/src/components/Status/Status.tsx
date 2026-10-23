@@ -4,7 +4,8 @@ import { cx } from "../../lib/cx";
 export type StatusState =
   | "live" | "idle" | "failed" | "retrying" | "starting" | "stopped"
   | "answered" | "running" | "no-response" | "not-run" | "interrupted"
-  | "connected" | "reconnecting" | "disabled";
+  | "connected" | "reconnecting" | "disabled"
+  | "reading" | "installed";
 
 export type StatusProps = {
   state: StatusState;
@@ -36,9 +37,11 @@ const STATES: Record<StatusState, { dot: Dot; dotColour: string; text: string; w
   "no-response": { dot: "hollow", dotColour: "border-retrying", text: "text-retrying", words: "No response" },
   "not-run": { dot: "hollow", dotColour: "border-faint", text: "text-faint", words: "Not run yet" },
   interrupted: { dot: "dashed", dotColour: "border-faint", text: "text-faint", words: "Interrupted" },
-  connected: { dot: "halo", dotColour: "bg-live", text: "text-live", words: "Connected" },
+  connected: { dot: "filled", dotColour: "bg-ink", text: "text-fg", words: "Connected" },
   reconnecting: { dot: "spin", dotColour: "border-retrying", text: "text-retrying", words: "Reconnecting" },
   disabled: { dot: "hollow", dotColour: "border-faint", text: "text-muted", words: "Disabled" },
+  reading: { dot: "halo", dotColour: "bg-live", text: "text-live", words: "Reading" },
+  installed: { dot: "filled", dotColour: "bg-ink", text: "text-muted", words: "Installed" },
 };
 
 function DotMark({ dot, colour }: { dot: Dot; colour: string }) {

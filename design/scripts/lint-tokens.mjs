@@ -21,7 +21,9 @@ const BRAND_FILES = new Set([
 
 const SPACE_SCALE = new Set(["0", "px", "2", "4", "6", "8", "10", "12", "14", "16", "20", "24", "32", "48", "auto"]);
 
-const COLOUR = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g;
+// Hex colours and rgb()/hsl(). Three- or four-digit runs of plain digits ("PR #418")
+// are issue numbers, not colours.
+const COLOUR = /#(?![0-9]{3,4}\b)[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g;
 // Arbitrary values on colour, spacing, radius, size and type utilities.
 const ARBITRARY =
   /(?<![\w-])-?(?:bg|text|border(?:-[trblxy])?|ring|outline|fill|stroke|shadow|from|via|to|divide|accent|caret|decoration|p[trblxy]?|m[trblxy]?|gap(?:-[xy])?|space-[xy]|inset(?:-[xy])?|top|right|bottom|left|rounded(?:-[trbl]{1,2})?|leading|tracking)-\[[^\]]+\]/g;

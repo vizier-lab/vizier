@@ -54,3 +54,19 @@ export const Limit: Story = {
 export const Compact: Story = {
   args: { compact: true, title: undefined, children: "memory_write failed: bundle “infra” is read-only", actions: <TextLink>Retry</TextLink> },
 };
+
+/** In chat, in place of a reply: a dot, the problem, and the action that fixes it. */
+export const ChatError: Story = {
+  args: {
+    marker: "dot",
+    tone: "retrying",
+    title: "Rate limited",
+    children: "anthropic asked to wait. Retried 4 times over 90 s, then gave up.",
+    actions: (
+      <>
+        <TextLink>Retry</TextLink>
+        <TextLink>Switch model</TextLink>
+      </>
+    ),
+  },
+};

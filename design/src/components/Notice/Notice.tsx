@@ -15,6 +15,8 @@ export type NoticeProps = {
   compact?: boolean;
   /** Overrides the tone's icon, e.g. `alert` for a limit. */
   icon?: IconName;
+  /** Chat error notices lead with a dot instead of an icon. */
+  marker?: "icon" | "dot";
 } & Omit<HTMLAttributes<HTMLDivElement>, "title">;
 
 const TONES: Record<NoticeTone, { box: string; title: string; icon: IconName; tone: ToneMode }> = {
@@ -23,8 +25,10 @@ const TONES: Record<NoticeTone, { box: string; title: string; icon: IconName; to
   info: { box: "border-border-strong bg-raised", title: "text-fg", icon: "info", tone: "default" },
 };
 
+const DOT: Record<NoticeTone, string> = { failed: "bg-failed", retrying: "bg-retrying", info: "bg-muted" };
+
 /** An inline message with tone, title, message and actions (D25). */
-export function Notice({ tone = "info", title, actions, compact, icon, className, children, ...rest }: NoticeProps) {
+export function Notice({ tone = "info", title, actions, compact, icon, marker = "icon", className, children, ...rest }: NoticeProps) {
   const t = TONES[tone];
   if (compact) {
     return (
@@ -41,7 +45,11 @@ export function Notice({ tone = "info", title, actions, compact, icon, className
       className={cx("flex items-start gap-12 rounded-lg border px-14 py-12", t.box, className)}
       {...rest}
     >
-      <Icon name={icon ?? t.icon} tone={t.tone} className="mt-px" />
+      {marker === "dot" ? (
+        <span aria-hidden className={cx("mt-6 size-7 shrink-0 rounded-pill", DOT[tone])} />
+      ) : (
+        <Icon name={icon ?? t.icon} tone={t.tone} className="mt-px" />
+      )}
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         {title && <p className={cx("type-ui-strong", t.title)}>{title}</p>}
         {children && <div className="type-small-para text-muted">{children}</div>}
