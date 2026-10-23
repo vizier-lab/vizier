@@ -36,7 +36,15 @@ const meta = {
   title: "Components/Visualisation/MemoryGraph",
   component: MemoryGraph,
   tags: ["needs-review"],
-  parameters: { vizier: { id: "X73", replaces: "webui/app/components/MemoryGraph.tsx" } },
+  parameters: {
+    vizier: { id: "X73", replaces: "webui/app/components/MemoryGraph.tsx" },
+    docs: {
+      description: {
+        component:
+          "Live, like the WebUI's graph: a force layout (d3-force). Drag a star to move it, drag the background to pan, scroll or use the buttons to zoom. Hover lights a star's links; click selects; double-click (or Enter) opens.",
+      },
+    },
+  },
   args: {
     nodes: DOCS,
     edges: LINKS,
@@ -52,8 +60,14 @@ type Story = StoryObj<typeof meta>;
 /** A document's neighbourhood. Click a star to select it. */
 export const Neighbourhood: Story = {
   render: function Render(args) {
-    const [sel, setSel] = useState(args.selectedId);
-    return <MemoryGraph {...args} selectedId={sel} onSelect={setSel} className="h-full" />;
+    const [sel, setSel] = useState<string | undefined>(args.selectedId);
+    const [opened, setOpened] = useState<string | null>(null);
+    return (
+      <div className="flex h-full flex-col gap-8">
+        <MemoryGraph {...args} selectedId={sel} onSelect={(id) => setSel(id ?? undefined)} onOpen={setOpened} className="min-h-0 flex-1" />
+        <p className="type-mono-xs text-faint">{opened ? `Opened ${opened}` : "Double-click a star to open it."}</p>
+      </div>
+    );
   },
 };
 
@@ -61,6 +75,7 @@ export const Neighbourhood: Story = {
 export const Bundles: Story = {
   render: function Render() {
     const [order, setOrder] = useState("largest");
+    const [sel, setSel] = useState<string | undefined>("infra");
     const nodes: GraphNode[] = [
       { id: "infra", label: "infra", x: 0.7, y: 0.2, weight: 42 },
       { id: "archive", label: "projects/2025-archive", x: 0.5, y: 0.55, weight: 1402 },
@@ -80,7 +95,8 @@ export const Bundles: Story = {
       <MemoryGraph
         nodes={nodes}
         edges={[...edges, { from: "journal", to: "people" }, { from: "journal", to: "meetings" }, { from: "books", to: "evals" }]}
-        selectedId="infra"
+        selectedId={sel}
+        onSelect={(id) => setSel(id ?? undefined)}
         className="h-full"
         controls={
           <FilterTabs
