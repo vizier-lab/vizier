@@ -1057,10 +1057,11 @@ impl TurnRenderer {
                     content: VizierResponseContent::Message { content, stats: _ },
                     attachments,
                     history_uid,
+                    resumed,
                     ..
                 } => {
                     typing = None;
-                    let content = remove_think_tags(&content);
+                    let content = crate::channels::continued_note(resumed, remove_think_tags(&content));
                     let mut posted = crate::utils::discord::send_message(
                         http.clone(),
                         discord_channel_id,

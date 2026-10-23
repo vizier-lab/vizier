@@ -27,6 +27,8 @@ interface MessageItemProps {
   stats?: VizierResponseStats
   onCopy: (content: string) => void
   onPreviewAttachment?: (attachment: VizierAttachment) => void
+  // The reply to a turn a restart interrupted and that then carried on.
+  resumed?: boolean
   attachments?: VizierAttachment[]
   reactions?: ReactionEntry[]
   // Emoji of this message whose change was sent and not yet confirmed by the server.
@@ -74,6 +76,7 @@ function MessageItemComponent({
   voiceSrc,
   audioReplySrc,
   isError = false,
+  resumed = false,
   trail,
   trailDurationMs,
   trailLabel,
@@ -193,6 +196,11 @@ function MessageItemComponent({
             label={trailLabel}
             variant="inset"
           />
+        )}
+        {!isUserMessage && resumed && (
+          <div style={{ fontSize: '12px', opacity: 0.7, marginBottom: '6px' }}>
+            Continued after a restart
+          </div>
         )}
         {clientCalls && clientCalls.length > 0 && renderClientCall && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' }}>

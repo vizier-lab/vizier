@@ -118,6 +118,7 @@ pub async fn agent_process(
     indexer: Option<crate::indexer::VizierIndexer>,
     recv: flume::Receiver<VizierRequestEnvelope>,
     mut shutdown_rx: watch::Receiver<bool>,
+    deleting: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<()> {
     let mut turns = SessionTurns::default();
     let mut thinking_handles = HashMap::<VizierSession, Arc<JoinHandle<()>>>::new();
@@ -300,15 +301,27 @@ pub async fn agent_process(
 
     // This instance's turns stop with it, so none outlives an update or delete and carries
     // on with the old config, tools and MCP clients (#52).
-    for (session, response_tx, _turn) in turns.stop_all(TURN_STOP_TIMEOUT).await {
+    //
+    // An update or restart resumes what it stopped on the next instance (`specs/023`), and
+    // says nothing to the sender; a delete tells the sender, as before.
+    let replacing = !deleting.load(std::sync::atomic::Ordering::SeqCst);
+    let mut resumed_turns = Vec::new();
+    for (session, response_tx, turn) in turns.stop_all(TURN_STOP_TIMEOUT).await {
         seal_open_calls(&deps.storage, &deps.transport, &session, None, StopReason::AgentRestarted).await;
+        if replacing && turn.id.is_some() {
+            if let Some(handle) = thinking_handles.remove(&session) {
+                handle.abort();
+            }
+            resumed_turns.push((session, response_tx, TurnRef { resumed: true, ..turn }));
+            continue;
+        }
         notify_turn_stopped(&session, response_tx, &mut thinking_handles, &deps.storage).await;
         // A session whose queue is handed on carries on in the next instance, scratch and all.
         if session_queues.get(&session).is_none_or(|queue| queue.is_empty()) {
             clear_idle_scratch(&deps.storage, &session).await;
         }
     }
-    hand_on_queued(session_queues, &deps).await;
+    hand_on_queued(session_queues, resumed_turns, &deps).await;
     Ok(())
 }
 
@@ -359,8 +372,36 @@ async fn notify_turn_stopped(
 /// delete), their senders are told so.
 async fn hand_on_queued(
     session_queues: HashMap<VizierSession, SessionQueue>,
+    resumed_turns: Vec<(VizierSession, Option<flume::Sender<VizierResponse>>, TurnRef)>,
     deps: &VizierDependencies,
 ) {
+    // Turns that were running go first, ahead of their session's queue, on their own sender.
+    for (session, response_tx, turn) in resumed_turns {
+        let request = match turn.id {
+            Some(id) => deps
+                .storage
+                .pending_turns(&session.0)
+                .await
+                .ok()
+                .and_then(|rows| rows.into_iter().find(|row| row.id == id))
+                .map(|row| row.request),
+            None => None,
+        };
+        let Some(request) = request else { continue };
+        if let Err(e) = deps
+            .transport
+            .resend(VizierRequestEnvelope {
+                session: session.clone(),
+                request,
+                response_tx,
+                turn_id: turn.id,
+                resumed: true,
+            })
+            .await
+        {
+            tracing::debug!(agent_id = %session.0, "could not hand a running turn on: {e}");
+        }
+    }
     for (session, queue) in session_queues {
         for (request, response_tx, turn) in queue {
             if let Err(e) = deps

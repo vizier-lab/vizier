@@ -746,6 +746,8 @@ export interface ChatMessage {
       timestamp: string
       content: VizierResponseContent
       attachments?: VizierAttachment[]
+      // The turn was interrupted by a restart and carried on afterwards.
+      resumed?: boolean
     }
     // Intermediate narration: text the agent wrote alongside its tool calls.
     AssistantMessage?: string
@@ -929,6 +931,8 @@ export interface WebSocketResponse {
   attachments?: VizierAttachment[]
   // The history uid the final frame of a turn was saved as; absent on every other frame.
   history_uid?: string
+  // The reply to a turn that a restart interrupted and that then carried on.
+  resumed?: boolean
 }
 
 // ============================================================================

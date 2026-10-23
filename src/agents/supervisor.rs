@@ -180,6 +180,8 @@ pub struct Supervisor {
     pub config: AgentConfig,
     pub recv: flume::Receiver<VizierRequestEnvelope>,
     pub shutdown_rx: watch::Receiver<bool>,
+    /// True when the stop in progress is a delete (see `AgentProcess::deleting`).
+    pub deleting: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub status: SharedStatus,
     pub current: CurrentAgent,
 }
@@ -296,6 +298,7 @@ impl Supervisor {
             indexer,
             self.recv.clone(),
             self.shutdown_rx.clone(),
+            self.deleting.clone(),
         )));
         let result = (&mut process.0).await;
         *self.current.write().unwrap_or_else(|p| p.into_inner()) = None;

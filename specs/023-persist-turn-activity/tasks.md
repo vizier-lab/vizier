@@ -158,15 +158,15 @@ on the same socket.
 - [X] T023 [US2] Startup clean-up in `src/dependencies.rs`:
   - Replace `clear_all_scratch` with clearing only sessions not in `sessions_with_pending_turns()`. Add `clear_scratch_except(&[VizierSession])` to `ScratchStorage` (`src/storage/scratch.rs`, `src/storage/sqlite/scratch.rs`) or loop `clear_scratch` over the difference, whichever is smaller.
   - Reset `is_thinking` to false for every session with no `running` row (one `UPDATE` in `src/storage/sqlite/session.rs` behind a `SessionStorage` method).
-- [ ] T024 [P] [US2] Show `resumed` replies:
+- [X] T024 [P] [US2] Show `resumed` replies:
   - WebUI: add `resumed?: boolean` to the response types in `webui/app/interfaces/types.ts`, and a small "continued after a restart" label in `webui/app/components/chat_bubble.tsx` when the reply's stored `Response` has it.
   - Discord/Telegram: in the shared place where a response's text is turned into messages (find the renderer `src/channels/woken.rs` hands frames to, and the person-turn renderer in `src/channels/discord/mod.rs` and `src/channels/telegram/mod.rs`), prefix `_continued after a restart_` when `response.resumed`. Use one helper in `src/channels/mod.rs` if both renderers can share it.
 - [ ] T025 [US2] Dummyplug check: quickstart §3 and §4 (`kill -9`, then `just shutdown`).
-- [ ] T026 [US2] Agent update/restart stop reason, in `src/agents/supervisor.rs` and `src/agents/mod.rs`: make the instance shutdown signal say why it is stopping. Change `watch::Receiver<bool>` to `watch::Receiver<Option<StopKind>>` with `enum StopKind { Replace, Delete }`, or add a sibling field read when the bool flips, whichever touches fewer call sites. Set `Replace` for `AgentCommand::Update`/`Restart` (including the provider-credentials restart) and `Delete` for delete. Process exit is unaffected (`std::process::exit`).
-- [ ] T027 [US2] Resume across an agent update (FR-019), in `src/agents/process.rs` at the end of `agent_process`:
+- [X] T026 [US2] Agent update/restart stop reason, in `src/agents/supervisor.rs` and `src/agents/mod.rs`: make the instance shutdown signal say why it is stopping. Change `watch::Receiver<bool>` to `watch::Receiver<Option<StopKind>>` with `enum StopKind { Replace, Delete }`, or add a sibling field read when the bool flips, whichever touches fewer call sites. Set `Replace` for `AgentCommand::Update`/`Restart` (including the provider-credentials restart) and `Delete` for delete. Process exit is unaffected (`std::process::exit`).
+- [X] T027 [US2] Resume across an agent update (FR-019), in `src/agents/process.rs` at the end of `agent_process`:
   - On `Replace`: for each turn returned by `turns.stop_all`, run T008's `seal_open_calls(AgentRestarted)`, **don't** call `notify_turn_stopped` (no `AgentUnavailable`), and hand the turn on **ahead of** its session's queue as a `resumed` envelope (same `turn_id`) with its original `response_tx` (`SessionTurns::stop_all` must return it). Update `hand_on_queued` to `transport.resend` queued envelopes with their `turn_id`.
   - On `Delete`: today's behaviour, plus `cancel_session_turns` for each session.
-- [ ] T028 [US2] Update `CLAUDE.md`:
+- [X] T028 [US2] Update `CLAUDE.md`:
   - Architecture › Agents (#52 sentence): turns stopped by an update or restart now resume on the new instance; delete drops them.
   - Add a short paragraph on durable turns: `session_turn` and `TurnStorage`, steps recorded as they happen, `history_entry` frames, startup re-send, `steps.rs` (`StopReason`, `seal_open_calls`), and `resumed`.
 - [ ] T029 [US2] Dummyplug check: quickstart §6b steps 4–5 (settings change and delete mid-call).

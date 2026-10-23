@@ -789,12 +789,13 @@ impl TurnRenderer {
                     content: VizierResponseContent::Message { content, stats: _ },
                     attachments,
                     history_uid,
+                    resumed,
                     ..
                 } => {
                     if let Some(handle) = typing_handle.take() {
                         handle.abort();
                     }
-                    let content = remove_think_tags(&content);
+                    let content = crate::channels::continued_note(resumed, remove_think_tags(&content));
                     let mut posted =
                         crate::utils::telegram::send_message(&bot, chat_id_copy, content)
                             .await

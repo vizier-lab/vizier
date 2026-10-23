@@ -1095,6 +1095,7 @@ export default function Chat() {
                 timestamp,
                 content,
                 attachments: wsResponse.attachments,
+                resumed: wsResponse.resumed,
               },
             },
           }
@@ -1134,6 +1135,7 @@ export default function Chat() {
                 timestamp,
                 content,
                 attachments: wsResponse.attachments,
+                resumed: wsResponse.resumed,
               },
             },
           }
@@ -1175,6 +1177,7 @@ export default function Chat() {
                 timestamp,
                 content,
                 attachments: wsResponse.attachments,
+                resumed: wsResponse.resumed,
               },
             },
           }
@@ -2253,6 +2256,7 @@ export default function Chat() {
                     voiceSrc={voiceSrc}
                     audioReplySrc={audioReplySrc}
                     isError={isError}
+                    resumed={msg.content.Response?.resumed === true}
                     trail={isUserMessage ? undefined : own?.trail}
                     trailDurationMs={own?.durationMs}
                     trailLabel={toolLabel}

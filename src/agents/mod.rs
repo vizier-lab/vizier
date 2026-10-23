@@ -4,6 +4,7 @@ use std::time::Duration;
 use tokio::sync::{oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use crate::agents::supervisor::{AgentStatus, BuiltAgent, CurrentAgent, SharedStatus, Supervisor};
 use crate::constant::CORE_MD;
 use crate::dependencies::VizierDependencies;
@@ -38,6 +39,9 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 struct AgentProcess {
     handle: JoinHandle<()>,
     shutdown: watch::Sender<bool>,
+    /// Set before a stop that is a delete: a replacement instance (update, restart) resumes
+    /// the turns this one was running, a delete does not.
+    deleting: Arc<AtomicBool>,
     status: SharedStatus,
     current: CurrentAgent,
     /// The agent's request channel, registered once and handed from one supervisor to the
@@ -146,7 +150,9 @@ impl VizierAgents {
         let (shutdown, shutdown_rx) = watch::channel(false);
         let status = SharedStatus::default();
         let current = CurrentAgent::default();
+        let deleting = Arc::new(AtomicBool::new(false));
         let supervisor = Supervisor {
+            deleting: deleting.clone(),
             current: current.clone(),
             agent_id: agent_id.clone(),
             deps: self.deps.clone(),
@@ -161,6 +167,7 @@ impl VizierAgents {
             AgentProcess {
                 handle,
                 shutdown,
+                deleting,
                 status,
                 current,
                 recv,
@@ -521,6 +528,7 @@ impl VizierAgents {
             .unregister_agent(&agent_id.to_string())
             .await;
         if let Some(process) = self.processes.remove(agent_id) {
+            process.deleting.store(true, Ordering::SeqCst);
             process.stop(agent_id).await;
         }
         self.deps

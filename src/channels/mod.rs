@@ -70,3 +70,24 @@ impl VizierChannels {
         Err(anyhow::anyhow!("the http server stopped"))
     }
 }
+
+/// The note put ahead of a reply to a turn that vizier's restart interrupted
+/// (`specs/023-persist-turn-activity`).
+pub fn continued_note(resumed: bool, content: String) -> String {
+    if resumed {
+        format!("_continued after a restart_\n\n{content}")
+    } else {
+        content
+    }
+}
+
+#[cfg(test)]
+mod continued_tests {
+    use super::continued_note;
+
+    #[test]
+    fn only_a_resumed_reply_is_marked() {
+        assert_eq!(continued_note(false, "hi".into()), "hi");
+        assert!(continued_note(true, "hi".into()).starts_with("_continued after a restart_"));
+    }
+}
