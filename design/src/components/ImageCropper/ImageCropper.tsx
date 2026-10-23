@@ -109,9 +109,9 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512, title =
         e.preventDefault();
         onCancel();
       }}
-      className="m-auto bg-transparent p-0 backdrop:bg-ground/60"
+      className="m-auto max-w-full bg-transparent p-0 backdrop:bg-ground/60"
     >
-      <div className="flex w-440 flex-col gap-16 rounded-xl border border-border-strong bg-surface px-24 py-20 shadow-dialog">
+      <div className="flex w-440 max-w-full flex-col gap-16 rounded-xl border border-border-strong bg-surface px-24 py-20 shadow-dialog">
         <h2 id={titleId} className="type-heading text-fg">
           {title}
         </h2>

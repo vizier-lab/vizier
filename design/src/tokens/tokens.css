@@ -25,7 +25,7 @@
   --vz-unlit: #d4d4da; /* dot/unlit */
   --vz-dot-off: #e4e4e7; /* dot/off */
 
-  --vz-text-faint: #8a8a94; /* text/faint */
+  --vz-text-faint: #6e6e78; /* text/faint */
   --vz-text-muted: #5b5b66; /* text/muted */
   --vz-text-soft: #3f3f46; /* text/soft */
   --vz-text: #111114; /* text/default */
@@ -93,7 +93,7 @@
     --vz-unlit: #3a3a42; /* dot/unlit */
     --vz-dot-off: #26262b; /* dot/off */
 
-    --vz-text-faint: #6f6f7a; /* text/faint */
+    --vz-text-faint: #8b8b96; /* text/faint */
     --vz-text-muted: #a0a0aa; /* text/muted */
     --vz-text-soft: #d6d6dc; /* text/soft */
     --vz-text: #ededef; /* text/default */
@@ -142,7 +142,7 @@
   --vz-unlit: #3a3a42; /* dot/unlit */
   --vz-dot-off: #26262b; /* dot/off */
 
-  --vz-text-faint: #6f6f7a; /* text/faint */
+  --vz-text-faint: #8b8b96; /* text/faint */
   --vz-text-muted: #a0a0aa; /* text/muted */
   --vz-text-soft: #d6d6dc; /* text/soft */
   --vz-text: #ededef; /* text/default */

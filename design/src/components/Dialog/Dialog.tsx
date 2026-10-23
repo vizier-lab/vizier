@@ -48,6 +48,7 @@ export function DialogPanel({
       className={cx(
         "flex flex-col gap-16 rounded-xl border border-border-strong bg-surface px-24 py-20 shadow-dialog",
         size === "md" ? "w-440" : "w-760",
+        "max-w-full",
         className,
       )}
       {...rest}
@@ -106,7 +107,7 @@ export function Dialog({ open, onCancel, ...panel }: DialogProps) {
         e.preventDefault();
         onCancel();
       }}
-      className="m-auto bg-transparent p-0 backdrop:bg-ground/60"
+      className="m-auto max-w-full bg-transparent p-0 backdrop:bg-ground/60"
     >
       {open && <DialogPanel {...panel} titleId={titleId} onCancel={onCancel} />}
     </dialog>

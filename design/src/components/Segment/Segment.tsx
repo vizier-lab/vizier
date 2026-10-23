@@ -21,7 +21,7 @@ export function Segment({ selected, count, type = "button", className, children,
       {...rest}
     >
       {children}
-      {count != null && <span className="type-mono-xs text-faint">{count}</span>}
+      {count != null && <span className={cx("type-mono-xs", selected ? "text-muted" : "text-faint")}>{count}</span>}
     </button>
   );
 }
