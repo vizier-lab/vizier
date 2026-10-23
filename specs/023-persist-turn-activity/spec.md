@@ -199,6 +199,12 @@ run of that task.
 - **A client tool call was pending** at the stop: it is reported to the agent as interrupted
   with unknown outcome. A *deferrable* call keeps its current behaviour and is delivered to the
   next client that connects.
+- **The person aborts while a tool call is running**: the call is stopped, and its step is
+  recorded as stopped by the person with an unknown outcome. The trail stays in the
+  conversation, folded, showing what the agent had done before the abort. Today an aborted
+  turn's trail disappears. The next message is answered normally.
+- **A turn is stopped by a settings change, or by an internal error, while a tool call is
+  running**: same as an abort, with the reason it was stopped.
 - **A blocking HTTP chat request** was waiting for the answer: the connection is gone, and the
   answer is in the conversation's history.
 - **A dream cycle was in progress**: it is not resumed. Its next cycle runs when due, and that
@@ -267,6 +273,18 @@ run of that task.
   does today.
 - **FR-018**: Resumption MUST work the same after a crash and after a clean shutdown.
 
+**Stopping a turn**
+
+- **FR-021**: Whenever a turn ends without finishing its own steps (aborted by the person,
+  including the commands that abort; stopped for an agent settings change, restart or
+  deletion; or ended by an internal error), every tool call it started without a recorded
+  result MUST be given a result stating why it stopped and that its outcome is unknown. Calls
+  stopped this way MUST NOT be run again.
+- **FR-022**: After such a stop, no view MUST show a call of that turn as still running, and the
+  next turn in that conversation MUST proceed normally.
+- **FR-023**: An aborted turn's recorded steps MUST stay in the conversation as a folded trail,
+  marked as aborted.
+
 **Unchanged**
 
 - **FR-019**: Stopping an agent instance for a settings change, restart or deletion MUST keep
@@ -283,8 +301,9 @@ run of that task.
 - **Step**: one entry of a turn's progress (reasoning, narration, tool call, tool result),
   recorded as it happens and in the conversation's history, in the same form finished turns
   already use.
-- **Resumption notice**: what a resumed turn tells the agent about a cut-off call, and what the
-  conversation shows to mark a reply as continued after a restart.
+- **Stop notice**: the result recorded for a tool call that never finished, which says why it
+  stopped (a restart, an abort, an agent restart, an internal error) and that its outcome is
+  unknown. Also, the label that marks a reply as continued after a restart.
 
 ## Success Criteria *(mandatory)*
 
@@ -303,6 +322,8 @@ run of that task.
   and returned, reloaded, or opened the conversation after a restart.
 - **SC-007**: A turn that crashes the process every time is given up after at most 3
   resumptions, and the conversation's queue carries on.
+- **SC-008**: After any abort or stop mid-call, zero tool calls in that conversation are left
+  without a recorded result, and the next message is answered normally.
 
 ## Assumptions
 

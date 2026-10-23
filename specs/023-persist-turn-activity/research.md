@@ -96,7 +96,7 @@ whatever rows remain.
 - `resume`:
   1. Split the session history at the request uid: before → prior messages, the entry → the
      request message (automatic context computed again), after → progress.
-  2. `seal_tool_calls(progress, [], RESTART_NOTICE)`, and save each sealing result as a
+  2. `seal_tool_calls(progress, [], StopReason::Restart)`, and save each sealing result as a
      `ToolResult` (FR-009).
   3. Call `prompt_with` with the progress already in history, so the next completion follows
      the last recorded step.
@@ -147,6 +147,46 @@ reply bubble.
 **Rationale**: delivering a reply nobody is waiting on is exactly what woken turns already do.
 The flag travels on the response, so every channel decides how to show it once, in its
 renderer.
+
+## Decision 8: Seal unfinished calls on every stop the turn can't clean up after
+
+**Problem**: once steps are saved as they happen, a turn stopped mid-call leaves a `ToolCall`
+with no `ToolResult` in history. This happens with `/abort` (and `/checkpoint`/`/lobotomy`,
+which abort through `abort_session_silent`), with an instance stop for an update or delete
+(`turns.stop_all`, #52), and with a turn task that panics (`recover_failed_turn`). The task is
+cancelled, so it can't seal anything itself. Replay wouldn't break, because
+`repair_tool_pairing` already fills such gaps with `NO_RESULT_RECORDED` (`schema/history.rs`).
+But the record would be vague, and the WebUI would show the call as running forever.
+
+**Decision**: one helper in `agents/process.rs`:
+
+```text
+seal_open_calls(storage, transport, session, request_uid, reason)
+```
+
+It reads the session's entries after `request_uid`, finds `ToolCall`s with no `ToolResult`, and
+for each one saves a `ToolResult` carrying `reason`'s notice and publishes it as a
+`history_entry`. It is called, **after** the task is stopped, from:
+
+| Path | Reason |
+|---|---|
+| `abort_session_notify` / the handover-command abort | `StopReason::Aborted` |
+| end of `agent_process` after `stop_all` | `StopReason::AgentRestarted` |
+| `join_next` with a panicked outcome (`recover_failed_turn`) | `StopReason::InternalError` |
+| `resume()` (Decision 4) | `StopReason::Restart`, followed by continuing the turn |
+
+Turn timeouts and failures inside the loop are already sealed by `fail_turn`, and unchanged.
+The `request_uid` comes from the turn's `session_turn` row, which is read before the row is
+deleted. When the row doesn't exist (not durable, or the insert failed), the helper scans back to
+the session's last `Request` entry instead.
+
+**Rationale**: one place, one rule: "a turn that didn't seal itself is sealed by whoever stopped
+it". The restart path differs only in continuing afterwards. Sealing after the task is stopped
+means a sealing result can't race a real one, because the task can no longer write.
+
+**WebUI**: an aborted turn's trail is no longer cleared. `groupHistory` already shows a turn
+with no outcome as an unanchored trail, and the `Command(abort)` entry after it marks it as
+aborted (FR-023). The `abort` frame now only stops the indicator.
 
 ## Decision 7: Startup clean-up respects pending work
 

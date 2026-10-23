@@ -21,6 +21,10 @@ and a restart silently loses running turns, queues and agent work.
    kept, and cut-off calls are sealed with a restart notice, never re-run. Background jobs and
    task runs backed by a row re-attach by session instead of being swept. Replies go out on
    the session broadcast (the woken-turn path) marked `resumed`.
+3. **Stops**: any turn stopped mid-call (abort, agent restart, internal error) has its
+   unfinished calls sealed by whoever stopped it, through one `seal_open_calls` helper with a
+   `StopReason`. History never holds a call without a result, and an aborted turn's trail stays
+   visible.
 
 ## Technical Context
 
@@ -81,8 +85,8 @@ src/
 ├── storage/mod.rs                               # supertrait + VizierStorage forwarding; delete_session/delete_agent clean-up
 ├── transport.rs                                 # holds storage; send_request journals; resend; broadcast_sender (moved); await_session_outcome; SessionFrame::HistoryEntry
 ├── schema/request.rs, schema/response.rs        # is_durable; VizierResponse.resumed
-├── agents/agent/mod.rs                          # step recorder in prompt_with; chat saves only Response/Error; resume(); RESTART_NOTICE
-├── agents/process.rs                            # envelope turn_id/resumed; start/finish/cancel rows; resumed jobs; crash-loop guard; hand_on_queued via resend
+├── agents/agent/mod.rs                          # step recorder in prompt_with; chat saves only Response/Error; resume(); StopReason::Restart
+├── agents/process.rs                            # envelope turn_id/resumed; start/finish/cancel rows; resumed jobs; crash-loop guard; hand_on_queued via resend; seal_open_calls + StopReason
 ├── agents/mod.rs                                # boot: re-send pending turns before supervisors build
 ├── agents/background/mod.rs                     # recover(): re-attach running/reporting jobs; uses transport.broadcast_sender
 ├── scheduler/mod.rs                             # recover(): close resumed task runs via await_session_outcome
@@ -107,7 +111,7 @@ Nothing branches per channel except the one-line rendering of `resumed` in each 
 ## Phasing (for /speckit-tasks)
 
 1. **Foundation**: `session_turn` + `TurnStorage`, envelope fields, `is_durable`, `VizierResponse.resumed`, `SessionFrame::HistoryEntry`.
-2. **US1 (P1)**: per-step history writes plus `history_entry` frames, then the WebUI merge by uid and the trail from history. This can ship on its own: it fixes the reported bug with no restart work.
+2. **US1 (P1)**: per-step history writes plus `history_entry` frames, `seal_open_calls` on abort/stop/panic (required as soon as steps are saved mid-turn), then the WebUI merge by uid and the trail from history, keeping aborted trails. This can ship on its own: it fixes the reported bug with no restart work.
 3. **US2 + US3**: journaling in `send_request`, row lifecycle in the loop, startup re-send, `resume()`, the crash-loop guard, resumed delivery and rendering, and the startup clean-up changes.
 4. **US4 + US5**: `await_session_outcome`, background job and task run recovery, and sweeps limited to unbacked work.
 5. **Polish**: docs, e2e script, `cargo clippy`/`test`, typecheck, quickstart.

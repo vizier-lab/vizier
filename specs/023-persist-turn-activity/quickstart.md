@@ -71,6 +71,20 @@ Repeat §3 with `just shutdown` instead of `kill -9`. Same expectations.
 2. **Expect**: an `abort` frame, no lorem replies for `first`/`second`, and `session_turn`
    empty.
 
+## §6b Abort mid-call (FR-021/022/023, SC-008)
+
+1. Socket A: send `HOLD(30)`. After A receives the `ToolCall` `history_entry`, send
+   `{"command":"abort"}`.
+2. **Expect**:
+   - A receives an `abort` frame and a `history_entry` `ToolResult` for that call whose content
+     is the "aborted" notice (contracts §3).
+   - History reads `Request`, `ToolCall`, `ToolResult` (aborted notice), `Command(abort)`.
+   - No `sleep` is still running, and `session_turn` is empty.
+3. Send `hello`. **Expect**: a normal lorem-ipsum reply. Every `ToolCall` in the session's
+   history has a `ToolResult`.
+4. Repeat steps 1–2, but instead of aborting, change the agent's settings (`PUT /agents/plug`)
+   mid-call. **Expect**: the "agent was restarted" notice, then the same clean follow-up.
+
 ## §7 Crash-loop guard (FR-016, SC-007)
 
 Dummyplug can't produce a turn that crashes the process, and every resume records a sealing

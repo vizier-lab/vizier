@@ -65,6 +65,10 @@ instance stop for update: running → deleted (aborted, #52); queued → re-sent
 
 ## Constants
 
-- `RESTART_NOTICE` (result of a cut-off tool call): "Interrupted: vizier restarted before this
-  call finished, so its outcome is unknown. It was not run again."
+- `StopReason` (`agents/process.rs`): the result recorded for a tool call that never finished.
+  Each text ends with "…so its outcome is unknown. It was not run again."
+  - `Restart`: "Interrupted: vizier restarted before this call finished, …"
+  - `Aborted`: "Stopped: the person aborted the turn before this call finished, …"
+  - `AgentRestarted`: "Stopped: the agent was restarted before this call finished, …"
+  - `InternalError`: "Stopped: the turn failed with an internal error before this call finished, …"
 - `MAX_RESUMES_WITHOUT_PROGRESS = 3`.

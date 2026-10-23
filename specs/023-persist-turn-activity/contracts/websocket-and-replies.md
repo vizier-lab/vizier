@@ -31,14 +31,20 @@ Rendering:
 - **WebUI**: a "continued after a restart" label on the reply.
 - **Discord/Telegram**: a short italic line before the reply text.
 
-## 3. Restart notice (agent-facing)
+## 3. Stop notices (agent-facing)
 
-A tool call with no recorded result when its turn resumes gets this as its result, saved as a
-`ToolResult` like any other:
+A tool call that never finished is given one of these as its result, saved as a `ToolResult`
+like any other and sent as a `history_entry`:
 
-```text
-Interrupted: vizier restarted before this call finished, so its outcome is unknown. It was not run again.
-```
+| When | Result text |
+|---|---|
+| Its turn resumes after a restart | `Interrupted: vizier restarted before this call finished, so its outcome is unknown. It was not run again.` |
+| The person aborted (`abort`, or a `checkpoint`/`lobotomy` that aborts) | `Stopped: the person aborted the turn before this call finished, so its outcome is unknown. It was not run again.` |
+| The agent was restarted (settings change, restart, delete) | `Stopped: the agent was restarted before this call finished, so its outcome is unknown. It was not run again.` |
+| The turn failed internally | `Stopped: the turn failed with an internal error before this call finished, so its outcome is unknown. It was not run again.` |
+
+After any of these, the WebSocket never leaves a call of that turn without a result. An
+aborted turn's entries stay in history, followed by the `abort` command entry.
 
 ## 4. Delivery of resumed turns
 
