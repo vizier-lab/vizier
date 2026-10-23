@@ -7,6 +7,8 @@ import { count, relativeTime } from '../lib/format'
 import { usePagedList } from '../lib/usePagedList'
 import { getOverview, type Overview } from '../api/endpoints/overview'
 import { greetingMeta } from '../lib/overview'
+import { useMobile } from '../lib/useMobile'
+import { MobileHome } from '../screens/home/MobileHome'
 import { ActivityPanel } from '../screens/home/ActivityPanel'
 import { AwayFeed } from '../screens/home/AwayFeed'
 import { useAgents } from '../stores/agents'
@@ -171,6 +173,11 @@ export default function Home() {
     const hour = new Date().getHours()
     const hello = user ? `Good ${hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'}, ${user.username}.` : 'Welcome'
     const firstRun = loaded && agents.length === 0
+    const mobile = useMobile()
+
+    if (mobile && !firstRun && !showAll) {
+        return <MobileHome greeting={hello} overview={overview} agents={recent ?? []} health={health} total={agents.length} onShowAll={() => setShowAll(true)} />
+    }
 
     return (
         <div className="flex min-h-0 flex-1">

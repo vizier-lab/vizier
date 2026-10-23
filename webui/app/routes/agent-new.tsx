@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router'
 import { ApiError } from '../api/client'
 import { createAgent } from '../api/endpoints/agents'
 import { emptyForm, problems, slugOf, toInput, type AgentForm } from '../lib/agentForm'
+import { useMobile } from '../lib/useMobile'
 import { ModelSelect } from '../screens/agents/ModelSelect'
 import { ToolsFields } from '../screens/agents/ToolsFields'
 import { PageFrame } from '../screens/shared/PageFrame'
@@ -35,6 +36,7 @@ function toolNames(f: AgentForm): string[] {
 
 /** New agent: four steps, and nothing is saved until "Create agent". */
 export default function AgentNew() {
+    const mobile = useMobile()
     const navigate = useNavigate()
     const [params, setParams] = useSearchParams()
     const [form, setForm] = useState<AgentForm>(emptyForm)
@@ -119,8 +121,13 @@ export default function AgentNew() {
             <PageFrame
                 title="New agent"
                 meta={`Step ${index + 1} of ${STEPS.length} · nothing is saved until you create it`}
-                actions={<Stepper aria-label="New agent steps" steps={steps} />}
+                actions={mobile ? undefined : <Stepper aria-label="New agent steps" steps={steps} />}
             >
+                {mobile && (
+                    <div className="relative overflow-x-auto">
+                        <Stepper aria-label="New agent steps" steps={steps} look="compact" />
+                    </div>
+                )}
                 <TwoColumn aside={preview}>
                     {step === 'config' && (
                         <>

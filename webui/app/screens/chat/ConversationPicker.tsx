@@ -1,13 +1,33 @@
-import { ConversationRow, Picker, PickerAction, Segment, type PickerProps } from '@vizier/design'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import { listConversations, type ConversationItem, type ConversationKind, type ConversationPage } from '../../api/endpoints/conversations'
+import {
+    ConversationRow,
+    Picker,
+    PickerAction,
+    Segment,
+    type PickerProps,
+} from '@vizier/design'
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ReactElement,
+} from 'react'
+import {
+    listConversations,
+    type ConversationItem,
+    type ConversationKind,
+    type ConversationPage,
+} from '../../api/endpoints/conversations'
 import { count } from '../../lib/format'
 import { rowTime, sections } from '../../lib/conversations'
 
 type Props = {
     agentId: string
     /** The button that opens the picker (the TopicHeader). */
-    trigger: PickerProps<ConversationItem>['trigger'] & ReactElement
+    /** Absent: the list shows inline, always open (the phone layout). */
+    trigger?: PickerProps<ConversationItem>['trigger'] & ReactElement
+    width?: number
     open: boolean
     onOpenChange: (open: boolean) => void
     onSelect: (conversation: ConversationItem) => void
@@ -32,7 +52,17 @@ const SEARCH_MS = 250
  * change of search or filter fetches a page from the server; scrolling to the end fetches the
  * next, so a thousand conversations cost one page at a time.
  */
-export function ConversationPicker({ agentId, trigger, open, onOpenChange, onSelect, onNew, current, liveTopics = [] }: Props) {
+export function ConversationPicker({
+    agentId,
+    trigger,
+    width = 400,
+    open,
+    onOpenChange,
+    onSelect,
+    onNew,
+    current,
+    liveTopics = [],
+}: Props) {
     const [query, setQuery] = useState('')
     const [kind, setKind] = useState<ConversationKind | 'all'>('all')
     const [items, setItems] = useState<ConversationItem[]>([])
@@ -48,9 +78,15 @@ export function ConversationPicker({ agentId, trigger, open, onOpenChange, onSel
             const mine = ++generation.current
             setLoading(true)
             try {
-                const page = await listConversations(agentId, { q: query.trim(), channel: kind, cursor })
+                const page = await listConversations(agentId, {
+                    q: query.trim(),
+                    channel: kind,
+                    cursor,
+                })
                 if (mine !== generation.current) return
-                setItems((prev) => (cursor ? [...prev, ...page.items] : page.items))
+                setItems((prev) =>
+                    cursor ? [...prev, ...page.items] : page.items
+                )
                 setCounts(page.counts)
                 setTotal(page.total)
                 setNext(page.next ?? null)
@@ -75,21 +111,34 @@ export function ConversationPicker({ agentId, trigger, open, onOpenChange, onSel
     const remaining = Math.max(0, total - items.length)
     const key = (c: ConversationItem) => `${c.channel}#${c.latest_topic}`
     const isCurrent = (c: ConversationItem) =>
-        current?.channel ? c.channel === current.channel : c.kind === 'webui' && c.latest_topic === current?.topic
+        current?.channel
+            ? c.channel === current.channel
+            : c.kind === 'webui' && c.latest_topic === current?.topic
 
     return (
         <Picker<ConversationItem>
             label="Conversations"
-            width={400}
+            width={width}
             itemHeight={52}
             open={open}
             onOpenChange={onOpenChange}
             trigger={trigger}
-            search={{ placeholder: 'Search conversations', total: counts ? count(counts.all) : undefined, value: query, onChange: setQuery, mode: 'server' }}
+            search={{
+                placeholder: 'Search conversations',
+                total: counts ? count(counts.all) : undefined,
+                value: query,
+                onChange: setQuery,
+                mode: 'server',
+            }}
             filters={
                 <>
                     {KINDS.map((k) => (
-                        <Segment key={k.value} selected={kind === k.value} count={counts ? count(counts[k.value]) : undefined} onClick={() => setKind(k.value)}>
+                        <Segment
+                            key={k.value}
+                            selected={kind === k.value}
+                            count={counts ? count(counts[k.value]) : undefined}
+                            onClick={() => setKind(k.value)}
+                        >
                             {k.label}
                         </Segment>
                     ))}
@@ -105,13 +154,24 @@ export function ConversationPicker({ agentId, trigger, open, onOpenChange, onSel
                     title={c.title}
                     query={q}
                     place={c.place}
-                    live={c.kind === 'webui' && liveTopics.includes(c.latest_topic)}
+                    live={
+                        c.kind === 'webui' &&
+                        liveTopics.includes(c.latest_topic)
+                    }
                     time={rowTime(c.last_activity)}
                     selected={isCurrent(c)}
                 />
             )}
             onSelect={onSelect}
-            remainder={failed ? 'Couldn’t load conversations' : remaining > 0 ? `${count(remaining)} more · scroll to load` : items.length === 0 && !loading ? 'No conversation matched' : undefined}
+            remainder={
+                failed
+                    ? 'Couldn’t load conversations'
+                    : remaining > 0
+                      ? `${count(remaining)} more · scroll to load`
+                      : items.length === 0 && !loading
+                        ? 'No conversation matched'
+                        : undefined
+            }
             footer={
                 <PickerAction icon="plus" onClick={onNew}>
                     New conversation

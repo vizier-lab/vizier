@@ -1,18 +1,38 @@
-import { Attachment, Composer as LibraryComposer, DropZone, Switch, VoiceRecorder, type SkillMenuItem } from '@vizier/design'
+import {
+    Attachment,
+    Composer as LibraryComposer,
+    DropZone,
+    Switch,
+    VoiceRecorder,
+    type SkillMenuItem,
+} from '@vizier/design'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
+import { abbreviate } from '../../lib/format'
+import { useMobile } from '../../lib/useMobile'
 import { toast } from '../../stores/toasts'
 import { fileSize, MAX_UPLOAD_BYTES, uploadFile } from '../../lib/upload'
 import type { VizierAttachment } from '../../api/frames'
 
 const BUILTIN: SkillMenuItem[] = [
-    { name: 'checkpoint', description: 'Hand the conversation over to a fresh context' },
-    { name: 'lobotomy', description: 'Clear the conversation context without a handover' },
+    {
+        name: 'checkpoint',
+        description: 'Hand the conversation over to a fresh context',
+    },
+    {
+        name: 'lobotomy',
+        description: 'Clear the conversation context without a handover',
+    },
     { name: 'abort', description: 'Stop what the agent is doing' },
     { name: 'skills', description: "List this agent's skills" },
 ]
 
-type Pending = { id: number; file: File; state: 'ready' | 'failed'; reason?: string }
+type Pending = {
+    id: number
+    file: File
+    state: 'ready' | 'failed'
+    reason?: string
+}
 
 type Props = {
     agentId: string
@@ -21,7 +41,11 @@ type Props = {
     /** Why it can't send (the agent is down), in place of the placeholder. */
     disabledReason?: string
     context: { used: number; window: number; detail?: string } | null
-    onSend: (text: string, attachments: VizierAttachment[], spoken: boolean) => void
+    onSend: (
+        text: string,
+        attachments: VizierAttachment[],
+        spoken: boolean
+    ) => void
     onSendAudio: (attachment: VizierAttachment) => void
     onCommand: (command: 'abort' | 'checkpoint' | 'lobotomy') => void
     onStop: () => void
@@ -30,12 +54,27 @@ type Props = {
 let pendingId = 1
 
 /** The library Composer wired to uploads, voice, the slash menu and the context ring. */
-export function Composer({ agentId, agentName, busy, disabledReason, context, onSend, onSendAudio, onCommand, onStop }: Props) {
+export function Composer({
+    agentId,
+    agentName,
+    busy,
+    disabledReason,
+    context,
+    onSend,
+    onSendAudio,
+    onCommand,
+    onStop,
+}: Props) {
+    const mobile = useMobile()
     const [value, setValue] = useState('')
     const [pending, setPending] = useState<Pending[]>([])
     const [skills, setSkills] = useState<SkillMenuItem[]>(BUILTIN)
     const [dragging, setDragging] = useState(false)
-    const [voice, setVoice] = useState<{ mode: 'recording' | 'recorded'; elapsed: number; blob?: Blob } | null>(null)
+    const [voice, setVoice] = useState<{
+        mode: 'recording' | 'recorded'
+        elapsed: number
+        blob?: Blob
+    } | null>(null)
     const [spoken, setSpoken] = useState(false)
     const input = useRef<HTMLInputElement>(null)
     const recorder = useRef<MediaRecorder | null>(null)
@@ -43,11 +82,23 @@ export function Composer({ agentId, agentName, busy, disabledReason, context, on
 
     useEffect(() => {
         let alive = true
-        Promise.allSettled([api.get<{ name: string; description: string }[]>(`/agents/${agentId}/skills`), api.get<{ name: string; description: string }[]>('/skills')]).then(([mine, global]) => {
+        Promise.allSettled([
+            api.get<{ name: string; description: string }[]>(
+                `/agents/${agentId}/skills`
+            ),
+            api.get<{ name: string; description: string }[]>('/skills'),
+        ]).then(([mine, global]) => {
             if (!alive) return
-            const list = [...(mine.status === 'fulfilled' ? mine.value ?? [] : []), ...(global.status === 'fulfilled' ? global.value ?? [] : [])]
+            const list = [
+                ...(mine.status === 'fulfilled' ? (mine.value ?? []) : []),
+                ...(global.status === 'fulfilled' ? (global.value ?? []) : []),
+            ]
             const seen = new Set<string>()
-            const skills = list.filter((s) => (seen.has(s.name) ? false : (seen.add(s.name), true))).map((s) => ({ name: s.name, description: s.description }))
+            const skills = list
+                .filter((s) =>
+                    seen.has(s.name) ? false : (seen.add(s.name), true)
+                )
+                .map((s) => ({ name: s.name, description: s.description }))
             setSkills([...BUILTIN, ...skills])
         })
         return () => {
@@ -60,7 +111,12 @@ export function Composer({ agentId, agentName, busy, disabledReason, context, on
             ...p,
             ...files.map((file): Pending =>
                 file.size > MAX_UPLOAD_BYTES
-                    ? { id: pendingId++, file, state: 'failed', reason: 'over 25 MB' }
+                    ? {
+                          id: pendingId++,
+                          file,
+                          state: 'failed',
+                          reason: 'over 25 MB',
+                      }
                     : { id: pendingId++, file, state: 'ready' }
             ),
         ])
@@ -68,7 +124,8 @@ export function Composer({ agentId, agentName, busy, disabledReason, context, on
 
     const send = async () => {
         const text = value.trim()
-        const command = /^\/(checkpoint|lobotomy|abort)$/.exec(text)?.[1] as 'abort' | 'checkpoint' | 'lobotomy' | undefined
+        const command = /^\/(checkpoint|lobotomy|abort)$/.exec(text)?.[1] as
+            'abort' | 'checkpoint' | 'lobotomy' | undefined
         if (command) {
             onCommand(command)
             setValue('')
@@ -77,12 +134,17 @@ export function Composer({ agentId, agentName, busy, disabledReason, context, on
         const ready = pending.filter((p) => p.state === 'ready')
         if (!text && ready.length === 0) return
         try {
-            const uploaded = await Promise.all(ready.map((p) => uploadFile(p.file)))
+            const uploaded = await Promise.all(
+                ready.map((p) => uploadFile(p.file))
+            )
             onSend(text, uploaded, spoken)
             setValue('')
             setPending([])
         } catch (e) {
-            toast.error("Couldn't upload the attachment", e instanceof Error ? e.message : undefined)
+            toast.error(
+                "Couldn't upload the attachment",
+                e instanceof Error ? e.message : undefined
+            )
         }
     }
 
@@ -93,7 +155,9 @@ export function Composer({ agentId, agentName, busy, disabledReason, context, on
 
     const startRecording = async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+            })
             const chunks: Blob[] = []
             const rec = new MediaRecorder(stream)
             recorder.current = rec
@@ -101,13 +165,28 @@ export function Composer({ agentId, agentName, busy, disabledReason, context, on
             rec.onstop = () => {
                 stream.getTracks().forEach((t) => t.stop())
                 stopTimer()
-                setVoice((v) => (v ? { ...v, mode: 'recorded', blob: new Blob(chunks, { type: rec.mimeType }) } : v))
+                setVoice((v) =>
+                    v
+                        ? {
+                              ...v,
+                              mode: 'recorded',
+                              blob: new Blob(chunks, { type: rec.mimeType }),
+                          }
+                        : v
+                )
             }
             rec.start()
             setVoice({ mode: 'recording', elapsed: 0 })
-            timer.current = setInterval(() => setVoice((v) => (v ? { ...v, elapsed: v.elapsed + 1 } : v)), 1000)
+            timer.current = setInterval(
+                () =>
+                    setVoice((v) => (v ? { ...v, elapsed: v.elapsed + 1 } : v)),
+                1000
+            )
         } catch {
-            toast.error('Microphone unavailable', 'Allow microphone access to record a voice message.')
+            toast.error(
+                'Microphone unavailable',
+                'Allow microphone access to record a voice message.'
+            )
         }
     }
 
@@ -115,12 +194,25 @@ export function Composer({ agentId, agentName, busy, disabledReason, context, on
 
     const sendVoice = async () => {
         if (!voice?.blob) return
-        const ext = voice.blob.type.includes('ogg') ? 'ogg' : voice.blob.type.includes('mp4') ? 'm4a' : 'webm'
+        const ext = voice.blob.type.includes('ogg')
+            ? 'ogg'
+            : voice.blob.type.includes('mp4')
+              ? 'm4a'
+              : 'webm'
         try {
-            onSendAudio(await uploadFile(new File([voice.blob], `voice-message.${ext}`, { type: voice.blob.type })))
+            onSendAudio(
+                await uploadFile(
+                    new File([voice.blob], `voice-message.${ext}`, {
+                        type: voice.blob.type,
+                    })
+                )
+            )
             setVoice(null)
         } catch (e) {
-            toast.error("Couldn't send the voice message", e instanceof Error ? e.message : undefined)
+            toast.error(
+                "Couldn't send the voice message",
+                e instanceof Error ? e.message : undefined
+            )
         }
     }
 
@@ -131,7 +223,8 @@ export function Composer({ agentId, agentName, busy, disabledReason, context, on
                 if (e.dataTransfer.types.includes('Files')) setDragging(true)
             }}
             onDragLeave={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false)
+                if (!e.currentTarget.contains(e.relatedTarget as Node))
+                    setDragging(false)
             }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => setDragging(false)}
@@ -144,15 +237,27 @@ export function Composer({ agentId, agentName, busy, disabledReason, context, on
                 agentName={agentName}
                 value={value}
                 onValueChange={setValue}
-                onSend={() => void (voice?.mode === 'recorded' ? sendVoice() : send())}
+                onSend={() =>
+                    void (voice?.mode === 'recorded' ? sendVoice() : send())
+                }
                 busy={busy}
                 onStop={onStop}
                 disabledReason={disabledReason}
                 skills={skills}
                 context={context ?? undefined}
+                tokenText={
+                    mobile && context
+                        ? `${abbreviate(context.used)} / ${abbreviate(context.window)}`
+                        : undefined
+                }
                 recording={voice?.mode === 'recording'}
                 onAttach={() => input.current?.click()}
-                onMic={() => (voice ? recorder.current?.state === 'recording' && recorder.current.stop() : void startRecording())}
+                onMic={() =>
+                    voice
+                        ? recorder.current?.state === 'recording' &&
+                          recorder.current.stop()
+                        : void startRecording()
+                }
                 voice={
                     voice && (
                         <VoiceRecorder
@@ -168,7 +273,11 @@ export function Composer({ agentId, agentName, busy, disabledReason, context, on
                 }
                 below={
                     <label className="flex items-center gap-8 type-small text-muted">
-                        <Switch checked={spoken} onCheckedChange={setSpoken} aria-label="Ask for a spoken reply" />
+                        <Switch
+                            checked={spoken}
+                            onCheckedChange={setSpoken}
+                            aria-label="Ask for a spoken reply"
+                        />
                         Ask for a spoken reply
                     </label>
                 }
@@ -181,7 +290,11 @@ export function Composer({ agentId, agentName, busy, disabledReason, context, on
                                     name={p.file.name}
                                     state={p.state}
                                     detail={p.reason ?? fileSize(p.file.size)}
-                                    onRemove={() => setPending((all) => all.filter((x) => x.id !== p.id))}
+                                    onRemove={() =>
+                                        setPending((all) =>
+                                            all.filter((x) => x.id !== p.id)
+                                        )
+                                    }
                                 />
                             ))}
                         </>
@@ -198,7 +311,15 @@ export function Composer({ agentId, agentName, busy, disabledReason, context, on
                     e.target.value = ''
                 }}
             />
-            <DropZone look="overlay" active={dragging} hint="Files, images and audio" onFiles={(files) => { setDragging(false); add(files) }} />
+            <DropZone
+                look="overlay"
+                active={dragging}
+                hint="Files, images and audio"
+                onFiles={(files) => {
+                    setDragging(false)
+                    add(files)
+                }}
+            />
         </div>
     )
 }

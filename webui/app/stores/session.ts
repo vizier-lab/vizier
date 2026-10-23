@@ -31,6 +31,8 @@ type SessionStore = {
     load: () => Promise<void>
     signOut: () => void
     setTheme: (theme: Theme) => void
+    /** The other of dark and light than the one showing now, whatever chose it. */
+    toggleTheme: () => void
     can: (permission: string) => boolean
     canEditAgent: (agent: Pick<Agent, 'owner_id'>) => boolean
 }
@@ -74,6 +76,12 @@ export const useSession = create<SessionStore>()((set, get) => ({
         }
         applyTheme(theme)
         set({ theme })
+    },
+
+    toggleTheme: () => {
+        const { theme, setTheme } = get()
+        const showing = theme === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme
+        setTheme(showing === 'dark' ? 'light' : 'dark')
     },
 
     can: (permission) => !!get().user?.permissions.includes(permission),

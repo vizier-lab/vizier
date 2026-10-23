@@ -80,7 +80,7 @@ export default function SettingsUsers() {
                         {u.username}
                         {u.user_id === me?.user_id && <span className="type-small text-faint"> (you)</span>}
                     </span>,
-                    <Select key="r" look="badge" aria-label={`Role of ${u.username}`} options={roleOptions(u)} value={u.role_id} onChange={(v) => void changeRole(u, v)} />,
+                    <Select key="r" look="badge" aria-label={`${roleOptions(u).find((o) => o.value === u.role_id)?.label ?? 'Role'}, role of ${u.username}`} options={roleOptions(u)} value={u.role_id} onChange={(v) => void changeRole(u, v)} />,
                     <span key="c" className="type-small text-muted" title={absoluteTime(u.created_at)}>{absoluteTime(u.created_at, true)}</span>,
                     u.user_id === me?.user_id ? null : <IconButton key="d" icon="trash" aria-label={`Delete ${u.username}`} onClick={() => setDeleting(u)} />,
                 ]}

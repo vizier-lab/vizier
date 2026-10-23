@@ -1,4 +1,10 @@
-import { ActivityItem, EmptyState, LoadMore, Sigil, Skeleton } from '@vizier/design'
+import {
+    ActivityItem,
+    EmptyState,
+    LoadMore,
+    Sigil,
+    Skeleton,
+} from '@vizier/design'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { getFeed, type FeedEvent } from '../../api/endpoints/overview'
@@ -19,7 +25,9 @@ export function AwayFeed() {
         try {
             const page = await getFeed(before)
             // Start failures lead the first page only, so a later page never repeats one.
-            setEvents((e) => (before ? [...(e ?? []), ...page.events] : page.events))
+            setEvents((e) =>
+                before ? [...(e ?? []), ...page.events] : page.events
+            )
             setNext(page.next ?? null)
             setFailed(false)
         } catch {
@@ -30,13 +38,21 @@ export function AwayFeed() {
     }, [])
     useEffect(() => void load(), [load])
 
-    const nameOf = (id: string) => agents.find((a) => a.agent_id === id)?.name ?? id
+    const nameOf = (id: string) =>
+        agents.find((a) => a.agent_id === id)?.name ?? id
 
     return (
-        <aside aria-label="Since you were away" className="flex flex-col gap-16">
+        <aside
+            aria-label="Since you were away"
+            className="flex flex-col gap-16"
+        >
             <h2 className="type-ui-strong text-fg">Since you were away</h2>
             {failed && !events ? (
-                <EmptyState kind="error" title="Couldn’t load this" message="It will load again when you come back." />
+                <EmptyState
+                    kind="error"
+                    title="Couldn’t load this"
+                    message="It will load again when you come back."
+                />
             ) : !events ? (
                 <div className="flex flex-col gap-12">
                     <Skeleton className="h-52" />
@@ -44,7 +60,12 @@ export function AwayFeed() {
                     <Skeleton className="h-52" />
                 </div>
             ) : events.length === 0 ? (
-                <EmptyState kind="empty" icon="home" title="Nothing happened" message="No tasks ran, no dreams were had and nothing failed since you were last here." />
+                <EmptyState
+                    kind="empty"
+                    icon="home"
+                    title="Nothing happened"
+                    message="No tasks ran, no dreams were had and nothing failed since you were last here."
+                />
             ) : (
                 <div className="flex flex-col">
                     {events.map((e) => (
@@ -58,7 +79,13 @@ export function AwayFeed() {
                             onSelect={() => navigate(e.href)}
                         />
                     ))}
-                    {next && <LoadMore label="Load older" loading={loading} onLoad={() => void load(next)} />}
+                    {next && (
+                        <LoadMore
+                            label="Load older"
+                            loading={loading}
+                            onLoad={() => void load(next)}
+                        />
+                    )}
                 </div>
             )}
         </aside>

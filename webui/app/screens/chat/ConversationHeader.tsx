@@ -1,9 +1,16 @@
-import { Button, TopicHeader } from '@vizier/design'
+import {
+    Button,
+    MobileTopBar,
+    TopicHeader,
+    type MobileTopBarProps,
+} from '@vizier/design'
 import { nanoid } from 'nanoid'
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 import type { ConversationItem } from '../../api/endpoints/conversations'
 import { conversationHref } from '../../lib/conversations'
+import { useMobile } from '../../lib/useMobile'
+import { useNav } from '../../stores/nav'
 import { ConversationPicker } from './ConversationPicker'
 
 type Props = {
@@ -15,13 +22,79 @@ type Props = {
     liveTopics?: string[]
     /** The jobs pill and the panel switch. */
     trailing?: ReactNode
+    /** The phone bar's right slot: the jobs count. */
+    mobileTrailing?: ReactNode
+    /** The agent and how it is doing, for the phone bar. */
+    agentName?: string
+    status?: {
+        state: NonNullable<MobileTopBarProps['chat']>['state']
+        detail?: ReactNode
+    }
 }
 
 /** The top of a conversation: its title opens the conversation picker, and "New topic" starts a fresh one. */
-export function ConversationHeader({ agentId, title, meta, current, liveTopics, trailing }: Props) {
+export function ConversationHeader({
+    agentId,
+    title,
+    meta,
+    current,
+    liveTopics,
+    trailing,
+    mobileTrailing,
+    agentName,
+    status,
+}: Props) {
+    const mobile = useMobile()
+    const setNavOpen = useNav((s) => s.setOpen)
     const navigate = useNavigate()
     const [open, setOpen] = useState(false)
     const fresh = () => navigate(`/${agentId}/chat/${nanoid(10)}`)
+
+    const select = (c: ConversationItem) => {
+        setOpen(false)
+        navigate(conversationHref(agentId, c))
+    }
+
+    if (mobile) {
+        return (
+            <div className="relative">
+                <MobileTopBar
+                    onMenu={() => setNavOpen(true)}
+                    chat={{
+                        agentId,
+                        agentName: agentName ?? agentId,
+                        topic: title,
+                        state: status?.state ?? 'idle',
+                        detail: status?.detail,
+                        onTopic: () => setOpen((o) => !o),
+                    }}
+                    trailing={mobileTrailing}
+                />
+                {open && (
+                    <>
+                        <button
+                            type="button"
+                            aria-label="Close conversations"
+                            className="fixed inset-0 z-20 cursor-default"
+                            onClick={() => setOpen(false)}
+                        />
+                        <div className="absolute inset-x-8 top-60 z-30">
+                            <ConversationPicker
+                                agentId={agentId}
+                                open
+                                onOpenChange={setOpen}
+                                width={Math.min(400, window.innerWidth - 16)}
+                                current={current}
+                                liveTopics={liveTopics}
+                                onSelect={select}
+                                onNew={fresh}
+                            />
+                        </div>
+                    </>
+                )}
+            </div>
+        )
+    }
 
     return (
         <header className="flex items-center gap-12 border-b border-border px-24 py-12">
@@ -32,7 +105,7 @@ export function ConversationHeader({ agentId, title, meta, current, liveTopics, 
                 trigger={<TopicHeader topic={title} meta={meta} />}
                 current={current}
                 liveTopics={liveTopics}
-                onSelect={(c: ConversationItem) => navigate(conversationHref(agentId, c))}
+                onSelect={select}
                 onNew={fresh}
             />
             <div className="flex-1" />
