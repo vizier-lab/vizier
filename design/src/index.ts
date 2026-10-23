@@ -95,6 +95,7 @@ export * from "./components/ProviderLogo";
 export * from "./components/ProviderRow";
 export * from "./components/ProviderTile";
 export * from "./components/Radio";
+export * from "./components/EmojiPicker";
 export * from "./components/Reaction";
 export * from "./components/RecalledMemoryRow";
 export * from "./components/RevisionRow";
