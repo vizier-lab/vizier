@@ -7,7 +7,7 @@ const PASSWORD = process.env.VIZIER_PASSWORD ?? 'admin'
 export const HOLD = (n: number) =>
     JSON.stringify({
         tool: 'execute_python',
-        arguments: { intent: 'hold', code: `shell_exec(command="sleep ${n}")` },
+        arguments: { intent: 'hold', code: `shell_exec(commands="sleep ${n}")` },
     })
 
 export async function login(page: Page) {
@@ -36,14 +36,17 @@ export async function createPlugAgent(page: Page, id: string) {
             description: 'e2e dummyplug agent',
             provider: 'dummyplug',
             model: 'dummyplug',
+            // A local shell, so HOLD(n) can keep a turn open.
+            tools: { shell: { environment: 'local', path: process.env.VIZIER_SHELL_DIR ?? '/tmp' } },
         },
     })
-    expect(res.ok()).toBeTruthy()
+    // 400 when the agent already exists: reused across runs.
+    expect(res.ok() || res.status() === 400 || res.status() === 409).toBeTruthy()
 }
 
 /** Types into the chat composer and sends. */
 export async function send(page: Page, text: string) {
-    const box = page.getByRole('textbox', { name: /message/i })
+    const box = page.getByRole('textbox').first()
     await box.fill(text)
     await box.press('Enter')
 }

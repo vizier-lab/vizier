@@ -207,6 +207,9 @@ export interface VizierResponseStats {
   total_cache_creation_input_tokens: number
   current_context_size?: number
   context_window?: number
+  // The provider and model that answered.
+  provider?: string
+  model?: string
 }
 
 export interface ChatMessage {

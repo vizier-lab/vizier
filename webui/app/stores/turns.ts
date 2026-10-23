@@ -7,6 +7,7 @@ import {
 } from '../api/endpoints/chat'
 import { classifyFrame, type ChatMessage, type VizierRequestContent } from '../api/frames'
 import { emptyTopic, nextQueued, reduce, type Action, type TopicState } from '../lib/frames'
+import { handleClientCall } from '../lib/clientTools'
 import { topicKey, useConnection } from './connection'
 import { useSession } from './session'
 
@@ -25,21 +26,26 @@ type TurnStore = {
     /** Opens a topic: history, files and jobs, then the socket. Safe to call again. */
     open: (agentId: string, topicId: string) => Promise<void>
     close: (agentId: string, topicId: string) => void
-    send: (agentId: string, topicId: string, text: string, attachments?: object[]) => void
+    send: (agentId: string, topicId: string, text: string, attachments?: object[], spoken?: boolean) => void
+    sendAudio: (agentId: string, topicId: string, attachment: object) => void
+    clientEvent: (agentId: string, topicId: string, text: string, data?: unknown, sourceCallId?: string) => void
+    saveClientState: (agentId: string, topicId: string, callId: string, state: unknown) => void
     command: (agentId: string, topicId: string, command: 'abort' | 'checkpoint' | 'lobotomy') => void
+    react: (agentId: string, topicId: string, uid: string, emoji: string, action: 'added' | 'removed') => void
     loadOlder: (agentId: string, topicId: string) => Promise<void>
     dispatch: (agentId: string, topicId: string, action: Action) => void
 }
 
 let nextId = 1
 
-function request(content: VizierRequestContent, attachments?: object[]) {
+function request(content: VizierRequestContent, attachments?: object[], spoken?: boolean) {
     return {
         timestamp: new Date().toISOString(),
         user: useSession.getState().user?.username ?? '',
         content,
         metadata: null,
         ...(attachments?.length ? { attachments } : {}),
+        ...(spoken ? { expect_audio_reply: true } : {}),
     }
 }
 
@@ -118,7 +124,20 @@ export const useTurns = create<TurnStore>()((set, get) => {
             useConnection.getState().open(agentId, topicId, {
                 onFrame: (raw) => {
                     const frame = classifyFrame(raw)
-                    if (frame) dispatch(agentId, topicId, { type: 'frame', frame, now: new Date().toISOString() })
+                    if (!frame) return
+                    // A call for a tool this client declared: run it here and answer on this socket.
+                    if (frame.kind === 'client' && 'client_tool_call' in frame.frame && frame.frame.client_tool_call.answer) {
+                        const call = frame.frame.client_tool_call
+                        const send = (payload: object) => useConnection.getState().send(agentId, topicId, payload)
+                        void handleClientCall(call, {
+                            callId: call.call_id,
+                            agentId,
+                            topicId,
+                            sendEvent: (text, data) => get().clientEvent(agentId, topicId, text, data, call.call_id),
+                            saveState: (state) => get().saveClientState(agentId, topicId, call.call_id, state),
+                        }).then((answer) => send({ client_tool_result: { call_id: call.call_id, ...answer } }))
+                    }
+                    dispatch(agentId, topicId, { type: 'frame', frame, now: new Date().toISOString() })
                 },
                 // After a drop, what happened meanwhile is read back, not replayed.
                 onOpen: (reopened) => {
@@ -144,7 +163,7 @@ export const useTurns = create<TurnStore>()((set, get) => {
             })
         },
 
-        send: (agentId, topicId, text, attachments) => {
+        send: (agentId, topicId, text, attachments, spoken) => {
             const key = topicKey(agentId, topicId)
             const state = get().topics[key] ?? emptyTopic()
             const id = String(nextId++)
@@ -152,8 +171,34 @@ export const useTurns = create<TurnStore>()((set, get) => {
                 dispatch(agentId, topicId, { type: 'send', id, text })
                 return
             }
-            const sent = useConnection.getState().send(agentId, topicId, request({ chat: text }, attachments))
+            const sent = useConnection.getState().send(agentId, topicId, request({ chat: text }, attachments, spoken))
             if (sent) dispatch(agentId, topicId, { type: 'send', id, text, now: new Date().toISOString() })
+        },
+
+        sendAudio: (agentId, topicId, attachment) => {
+            const key = topicKey(agentId, topicId)
+            if ((get().topics[key]?.phase ?? 'idle') !== 'idle') return
+            const frame = { ...request({ audio_chat: [attachment, null] } as never), expect_audio_reply: true }
+            if (useConnection.getState().send(agentId, topicId, frame)) {
+                dispatch(agentId, topicId, { type: 'send', id: String(nextId++), text: '[Voice message]', now: new Date().toISOString() })
+            }
+        },
+
+        react: (agentId, topicId, uid, emoji, action) => {
+            useConnection.getState().send(agentId, topicId, { reaction: { message_uid: uid, emoji, action } })
+        },
+
+        clientEvent: (agentId, topicId, text, data, sourceCallId) => {
+            const content = { client_event: { text, data, source_call_id: sourceCallId } } as VizierRequestContent
+            const key = topicKey(agentId, topicId)
+            const idle = (get().topics[key]?.phase ?? 'idle') === 'idle'
+            if (useConnection.getState().send(agentId, topicId, request(content)) && idle) {
+                dispatch(agentId, topicId, { type: 'send', id: String(nextId++), text, now: new Date().toISOString() })
+            }
+        },
+
+        saveClientState: (agentId, topicId, callId, state) => {
+            useConnection.getState().send(agentId, topicId, { client_call_state: { call_id: callId, state } })
         },
 
         command: (agentId, topicId, command) => {

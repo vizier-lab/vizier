@@ -43,19 +43,19 @@ export type Palette = Record<(typeof PALETTE_KEYS)[number], string>
 
 /** The WebUI's own variable each palette colour is read from. */
 export const PALETTE_SOURCES: Palette = {
-  bg: '--background',
-  surface: '--surface',
-  border: '--border',
-  text: '--text-primary',
-  muted: '--text-secondary',
-  faint: '--text-tertiary',
-  accent: '--accent-primary',
-  ok: '--color-success-text',
-  'ok-bg': '--color-success-bg',
-  warn: '--color-warning-text',
-  'warn-bg': '--color-warning-bg',
-  error: '--color-error',
-  'error-bg': '--color-error-bg',
+  bg: '--vz-ground',
+  surface: '--vz-surface',
+  border: '--vz-border',
+  text: '--vz-text',
+  muted: '--vz-text-muted',
+  faint: '--vz-text-faint',
+  accent: '--vz-live',
+  ok: '--vz-live',
+  'ok-bg': '--vz-raised',
+  warn: '--vz-retrying',
+  'warn-bg': '--vz-retrying-bg',
+  error: '--vz-failed-text',
+  'error-bg': '--vz-failed-bg',
 }
 
 // The theme's values, should a WebUI variable be missing or unusable.

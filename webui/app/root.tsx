@@ -1,5 +1,6 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router'
 import './app.css'
+import './lib/clientTools/builtin'
 
 // Applies the stored theme before first paint; no stored choice follows the OS.
 const themeScript = `try{var t=localStorage.getItem('vizier.theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t)}catch(e){}`

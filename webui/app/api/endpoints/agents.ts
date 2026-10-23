@@ -20,6 +20,7 @@ export type AgentHealth = {
     failures: number
     next_retry_at?: string
     warnings?: string[]
+    model?: { provider: string; model: string; context_window?: number | null; max_output?: number | null }
 }
 
 export type SetupState = {
