@@ -10,7 +10,7 @@ export type ComposerProps = {
   onValueChange: (value: string) => void;
   /** Sends the text (or "/skill input"). */
   onSend: () => void;
-  /** The agent is working: Send turns into Stop, which sends /abort. */
+  /** The agent is working: Send turns into Stop, which sends /abort. With text typed it queues the message instead. */
   busy?: boolean;
   onStop?: () => void;
   /** Can't send: the reason replaces the placeholder ("Archivist can't answer until it restarts"). */
@@ -64,7 +64,10 @@ export function Composer({
   const slash = /^\/(\S*)$/.exec(value);
   const matches = slash ? skills.filter((s) => s.name.toLowerCase().includes(slash[1].toLowerCase())) : [];
   const menuOpen = !!slash && skills.length > 0;
-  const canSend = !disabled && !busy && (value.trim().length > 0 || !!attachments || !!voice);
+  const hasContent = value.trim().length > 0 || !!attachments || !!voice;
+  // While the agent works, typing something turns Stop back into Send: the message queues.
+  const canSend = !disabled && hasContent;
+  const showStop = busy && !hasContent;
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (menuOpen && matches.length) {
@@ -153,7 +156,7 @@ export function Composer({
             ) : (
               context && <ContextRing used={context.used} window={context.window} detail={context.detail} />
             )}
-            {busy ? (
+            {showStop ? (
               <button
                 type="button"
                 aria-label="Stop"
@@ -165,7 +168,7 @@ export function Composer({
             ) : (
               <button
                 type="button"
-                aria-label="Send"
+                aria-label={busy ? "Queue message" : "Send"}
                 onClick={onSend}
                 disabled={!canSend}
                 className="flex size-34 items-center justify-center rounded-pill bg-ink text-ground enabled:hover:bg-ink-hover enabled:active:bg-ink-pressed disabled:opacity-40"

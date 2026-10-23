@@ -104,3 +104,33 @@ export const Dense: Story = {
     </Table>
   ),
 };
+
+/** Columns with `onSort` become buttons that report their direction (the CSV preview). */
+export const Sortable: Story = {
+  render: function Render() {
+    const [sort, setSort] = useState<{ col: number; dir: "asc" | "desc" } | null>({ col: 2, dir: "desc" });
+    const cols = ["date", "agent", "tokens"];
+    const rows = [
+      ["2026-10-01", "Archivist", 41220],
+      ["2026-10-01", "Scout", 8104],
+      ["2026-10-02", "Treasurer", 2311],
+    ];
+    const sorted = [...rows].sort((a, b) => (sort ? (a[sort.col] > b[sort.col] ? 1 : -1) * (sort.dir === "asc" ? 1 : -1) : 0));
+    return (
+      <Table
+        label="usage.csv"
+        dense
+        columns={cols.map((label, i) => ({
+          label,
+          align: i === 2 ? ("end" as const) : undefined,
+          sorted: sort?.col === i ? sort.dir : undefined,
+          onSort: () => setSort((s) => (s?.col === i ? (s.dir === "asc" ? { col: i, dir: "desc" } : null) : { col: i, dir: "asc" })),
+        }))}
+      >
+        {sorted.map((r, i) => (
+          <TableRow key={i} cells={r.map(String)} endAligned={[2]} />
+        ))}
+      </Table>
+    );
+  },
+};
