@@ -12,8 +12,10 @@ export type StatusProps = {
   label?: ReactNode;
   /** After a middle dot: "retry in 40s", "timed out listing tools". */
   detail?: ReactNode;
-  /** Mono (agents, the design-system default) or sans (task and integration tables). */
-  font?: "mono" | "sans";
+  /** Mono (agents, the design-system default), small mono (row subtitles), or sans (task and integration tables). */
+  font?: "mono" | "mono-xs" | "sans";
+  /** Words only, coloured by state (the agent switcher's status line). */
+  dot?: boolean;
 } & HTMLAttributes<HTMLSpanElement>;
 
 type Dot = "filled" | "ring" | "halo" | "hollow" | "dashed" | "spin";
@@ -58,14 +60,14 @@ function DotMark({ dot, colour }: { dot: Dot; colour: string }) {
 }
 
 /** A state dot with its words (D24, widened to task runs, MCP servers and integrations). */
-export function Status({ state, label, detail, font = "mono", className, ...rest }: StatusProps) {
+export function Status({ state, label, detail, font = "mono", dot = true, className, ...rest }: StatusProps) {
   const s = STATES[state];
   return (
     <span
-      className={cx("inline-flex items-center gap-6", font === "mono" ? "type-mono-sm" : "type-ui", s.text, className)}
+      className={cx("inline-flex items-center gap-6", font === "mono" ? "type-mono-sm" : font === "mono-xs" ? "type-mono-xs" : "type-ui", s.text, className)}
       {...rest}
     >
-      <DotMark dot={s.dot} colour={s.dotColour} />
+      {dot && <DotMark dot={s.dot} colour={s.dotColour} />}
       <span className="whitespace-nowrap">
         {label ?? s.words}
         {detail != null && <> · {detail}</>}

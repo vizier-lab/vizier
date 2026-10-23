@@ -1,0 +1,111 @@
+import { useEffect, useId, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
+import { cx } from "../../lib/cx";
+import { Button } from "../Button/Button";
+import { TextField } from "../TextField/TextField";
+
+export type DialogPanelProps = {
+  title: ReactNode;
+  /** The consequence, in a sentence or two. */
+  message?: ReactNode;
+  /** Default: a primary confirm. Danger: a destructive confirm. */
+  tone?: "default" | "danger";
+  /** Asks the person to type this word before the confirm enables. */
+  confirmWord?: string;
+  confirmLabel: ReactNode;
+  confirmIcon?: React.ComponentProps<typeof Button>["icon"];
+  cancelLabel?: ReactNode;
+  onConfirm: () => void;
+  onCancel: () => void;
+  /** Large: a content dialog (file preview) with no actions row of its own. */
+  size?: "md" | "lg";
+  /** Content dialogs put their body here. */
+  children?: ReactNode;
+  titleId?: string;
+} & Omit<HTMLAttributes<HTMLDivElement>, "title">;
+
+/** The dialog surface, without the modal behaviour. */
+export function DialogPanel({
+  title,
+  message,
+  tone = "default",
+  confirmWord,
+  confirmLabel,
+  confirmIcon,
+  cancelLabel = "Cancel",
+  onConfirm,
+  onCancel,
+  size = "md",
+  children,
+  titleId,
+  className,
+  ...rest
+}: DialogPanelProps) {
+  const [typed, setTyped] = useState("");
+  const ready = !confirmWord || typed === confirmWord;
+  return (
+    <div
+      className={cx(
+        "flex flex-col gap-16 rounded-xl border border-border-strong bg-surface px-24 py-20 shadow-dialog",
+        size === "md" ? "w-440" : "w-760",
+        className,
+      )}
+      {...rest}
+    >
+      <h2 id={titleId} className="type-heading text-fg">
+        {title}
+      </h2>
+      {message && <p className="type-ui-para text-muted">{message}</p>}
+      {children}
+      {confirmWord && (
+        <TextField
+          label={
+            <>
+              Type <span className="type-code">{confirmWord}</span> to confirm
+            </>
+          }
+          mono
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+        />
+      )}
+      <div className="flex justify-end gap-10 pt-4">
+        <Button onClick={onCancel}>{cancelLabel}</Button>
+        <Button variant={tone === "danger" ? "destructive" : "primary"} icon={confirmIcon} disabled={!ready} onClick={onConfirm}>
+          {confirmLabel}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export type DialogProps = DialogPanelProps & { open: boolean };
+
+/**
+ * A modal confirmation over a 60% ground scrim (D28). Native `<dialog>`:
+ * focus moves in, Tab stays inside, Esc cancels.
+ */
+export function Dialog({ open, onCancel, ...panel }: DialogProps) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) d.showModal();
+    if (!open && d.open) d.close();
+  }, [open]);
+  return (
+    <dialog
+      ref={ref}
+      aria-labelledby={titleId}
+      onCancel={(e) => {
+        e.preventDefault();
+        onCancel();
+      }}
+      className="m-auto bg-transparent p-0 backdrop:bg-ground/60"
+    >
+      {open && <DialogPanel {...panel} titleId={titleId} onCancel={onCancel} />}
+    </dialog>
+  );
+}

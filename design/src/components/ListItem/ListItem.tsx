@@ -19,6 +19,10 @@ export type ListItemProps = {
   href?: string;
   /** A button row. Without href or onSelect the row is static. */
   onSelect?: () => void;
+  /** Rounded rows sit in pickers and panels; flush rows fill a divided list edge to edge; bare rows have no inset. */
+  shape?: "rounded" | "flush" | "bare";
+  /** Start-align for multi-line subtitles (activity); centre otherwise. */
+  align?: "center" | "start";
 } & Omit<HTMLAttributes<HTMLElement>, "title" | "onSelect">;
 
 /**
@@ -36,12 +40,16 @@ export function ListItem({
   disabled,
   href,
   onSelect,
+  shape = "rounded",
+  align = "center",
   className,
   ...rest
 }: ListItemProps) {
   const interactive = href !== undefined || onSelect !== undefined;
   const classes = cx(
-    "flex w-full min-w-0 items-center gap-10 rounded-md px-12 py-6 text-left",
+    "flex w-full min-w-0 gap-10 text-left",
+    align === "center" ? "items-center" : "items-start",
+    shape === "rounded" ? "rounded-md px-12 py-6" : shape === "flush" ? "px-16 py-10" : "py-2",
     selected && "bg-raised",
     interactive && !disabled && !selected && "hover:bg-raised active:bg-pressed",
     interactive && "cursor-pointer",

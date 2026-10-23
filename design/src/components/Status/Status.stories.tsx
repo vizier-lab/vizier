@@ -17,7 +17,7 @@ const meta = {
   args: { state: "live", detail: "replying" },
   argTypes: {
     state: { control: "select", options: statusStates },
-    font: { control: "inline-radio", options: ["mono", "sans"] },
+    font: { control: "inline-radio", options: ["mono", "mono-xs", "sans"] },
   },
 } satisfies Meta<typeof Status>;
 

@@ -46,6 +46,7 @@ import {
   PanelLeftClose,
   Paperclip,
   Pencil,
+  Send,
   Play,
   Plug,
   Plus,
@@ -154,6 +155,8 @@ export const icons = {
   "circle-check": CircleCheck,
   "ban": Ban,
   "arrow-up-right": ArrowUpRight,
+  // Found in the final checks: Telegram in the conversation picker
+  "paper-plane": Send,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof icons;
@@ -232,6 +235,7 @@ export const lucideNames: Record<IconName, string> = {
   "circle-check": "circle-check",
   "ban": "ban",
   "arrow-up-right": "arrow-up-right",
+  "paper-plane": "send",
 };
 
 export const iconNames = Object.keys(icons) as IconName[];
