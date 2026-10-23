@@ -11,7 +11,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const src = path.join(root, "src");
+// An optional path argument lints another tree (the WebUI's `app`) by the same rules.
+const target = process.argv[2];
+const src = target ? path.resolve(process.cwd(), target) : path.join(root, "src");
 
 const EXEMPT_DIRS = [path.join(src, "tokens")];
 const BRAND_FILES = new Set([
@@ -43,14 +45,18 @@ function walk(dir, out = []) {
 const violations = [];
 for (const file of walk(src)) {
   // Blank out block comments, keeping line numbers.
-  const text = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
+  const raw = readFileSync(file, "utf8");
+  // A file that must carry raw values (a palette written into a sandboxed iframe, where tokens
+  // don't reach) says so on its first lines, with its reason.
+  if (/lint-tokens-exempt:/.test(raw.slice(0, 400))) continue;
+  const text = raw.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
   const lines = text.split("\n");
   const isCss = file.endsWith(".css");
   const brand = BRAND_FILES.has(file);
   lines.forEach((line, i) => {
     // Comments may mention values.
     const code = line.replace(/(^|[^:])\/\/.*$/, "$1");
-    const report = (m) => violations.push(`${path.relative(root, file)}:${i + 1}: ${m}`);
+    const report = (m) => violations.push(`${path.relative(target ? process.cwd() : root, file)}:${i + 1}: ${m}`);
     if (!brand) for (const m of code.matchAll(COLOUR)) report(m[0]);
     for (const m of code.matchAll(ARBITRARY)) report(m[0]);
     if (!isCss) for (const m of code.matchAll(SPACING)) if (!SPACE_SCALE.has(m[1])) report(m[0]);
