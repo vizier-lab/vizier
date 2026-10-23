@@ -47,6 +47,26 @@ use crate::channels::http::models::page::Page;
 use crate::schema::session_file::SessionFileRecord;
 use crate::storage::session_file::SessionFileStorage;
 
+/// The channel a read-only route means by `channel_id`: a Discord or Telegram conversation by its
+/// slug (`discord__123`, `telegram__-9`, which the conversation picker lists), anything else a
+/// WebUI channel of the caller's own. Routes that write never use this: nobody chats on Discord
+/// through the WebUI.
+fn readable_channel(username: &str, channel_id: &str) -> (VizierChannelId, bool) {
+    if let Some(id) = channel_id.strip_prefix("discord__").and_then(|id| id.parse::<u64>().ok()) {
+        return (VizierChannelId::DiscordChanel(id), true);
+    }
+    if let Some(id) = channel_id.strip_prefix("telegram__").and_then(|id| id.parse::<i64>().ok()) {
+        return (VizierChannelId::TelegramChannel(id), true);
+    }
+    (VizierChannelId::HTTP(username.to_string(), channel_id.to_string()), false)
+}
+
+/// The session a read-only route opens. Discord and Telegram conversations have no topic.
+fn readable_session(agent_id: String, username: &str, channel_id: &str, topic_id: TopicId) -> VizierSession {
+    let (channel, platform) = readable_channel(username, channel_id);
+    VizierSession(agent_id, channel, if platform { None } else { Some(topic_id) })
+}
+
 pub fn channel() -> Router<HTTPState> {
     Router::new()
         .route("/{channel_id}/topics", get(list_topics))
@@ -139,7 +159,7 @@ pub async fn get_topic_history(
         return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
-    let session = VizierSession(agent_id, VizierChannelId::HTTP(user.username, channel_id), Some(topic_id));
+    let session = readable_session(agent_id, &user.username, &channel_id, topic_id);
 
     let response = state
         .storage
@@ -191,7 +211,7 @@ pub async fn list_topic_files(
         return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
-    let session = VizierSession(agent_id, VizierChannelId::HTTP(user.username, channel_id), Some(topic_id));
+    let session = readable_session(agent_id, &user.username, &channel_id, topic_id);
     let mut files = match state.storage.list_session_files(&session).await {
         Ok(files) => files,
         Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
@@ -301,11 +321,11 @@ pub async fn get_topic_detail(
         return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
-    let channel = VizierChannelId::HTTP(user.username, channel_id);
+    let (channel, platform) = readable_channel(&user.username, &channel_id);
 
     match state
         .storage
-        .get_session_detail_by_topic(agent_id, channel, Some(topic_id))
+        .get_session_detail_by_topic(agent_id, channel, if platform { None } else { Some(topic_id) })
         .await
     {
         Ok(Some(detail)) => api_response(StatusCode::OK, TopicEntry::from(detail)),

@@ -400,53 +400,53 @@
 
 ### Server for User Story 6
 
-- [ ] T114 [US6] Add the `last_seen_at` and `previous_visit_at` columns to `"user"` (`add_column_if_missing`) in `src/storage/sqlite/mod.rs`, with read and write methods in `src/storage/sqlite/user.rs` behind `UserStorage` (`src/storage/user.rs`, forwarded in `src/storage/mod.rs`)
-- [ ] T115 [US6] Update the visit on JWT-authenticated requests in `src/channels/http/auth/middleware.rs`:
+- [X] T114 [US6] Add the `last_seen_at` and `previous_visit_at` columns to `"user"` (`add_column_if_missing`) in `src/storage/sqlite/mod.rs`, with read and write methods in `src/storage/sqlite/user.rs` behind `UserStorage` (`src/storage/user.rs`, forwarded in `src/storage/mod.rs`)
+- [X] T115 [US6] Update the visit on JWT-authenticated requests in `src/channels/http/auth/middleware.rs`:
   - at most once a minute per person, using an in-memory throttle map on `HTTPState` in `src/channels/http/state.rs`
   - when the gap is over 30 min, copy `last_seen_at` into `previous_visit_at` first
   - never for API-key requests
-- [ ] T116 [US6] Add the hourly activity query to `src/storage/sqlite/usage.rs` behind `UsageStorage`:
+- [X] T116 [US6] Add the hourly activity query to `src/storage/sqlite/usage.rs` behind `UsageStorage`:
   - `COUNT(DISTINCT turn_id)` per agent per hour bucket over the last 24 h, a turn counted in the hour of its first event, plus per-activity counts for today
   - today's priced groups across a set of agents since a timestamp
   - units on an in-memory DB (the existing usage test setup)
-- [ ] T117 [US6] Add `src/channels/http/api/v1/overview.rs` with `GET /overview?tz` (counts from `AgentCommand::HealthCheck` filtered by `user_can_view_agent`; cost through `metrics::estimate_cost`) and `GET /overview/activity?rank`:
+- [X] T117 [US6] Add `src/channels/http/api/v1/overview.rs` with `GET /overview?tz` (counts from `AgentCommand::HealthCheck` filtered by `user_can_view_agent`; cost through `metrics::estimate_cost`) and `GET /overview/activity?rank`:
   - the top 5 + `all` when there are 7 or more agents, otherwise every agent up to 6
   - `live` from thinking sessions
   - `today_by_kind` when there is exactly one agent
   - nested in `src/channels/http/api/v1/mod.rs`, with `#[utoipa::path]`
-- [ ] T118 [US6] Add the `FeedSource` trait and one impl per source (`task_run`, dream cycles via T074, `background_job`, `integration_event`, Discord/Telegram channel replies collapsed per conversation-hour, live start failures pinned first) in `src/channels/http/api/v1/overview/feed.rs`, and `GET /overview/feed?before&limit`:
+- [X] T118 [US6] Add the `FeedSource` trait and one impl per source (`task_run`, dream cycles via T074, `background_job`, `integration_event`, Discord/Telegram channel replies collapsed per conversation-hour, live start failures pinned first) in `src/channels/http/api/v1/overview/feed.rs`, and `GET /overview/feed?before&limit`:
   - key-set cursor
   - the lower bound is `previous_visit_at`, else 24 h
   - text from stored fields only
   - unit tests for merge order and the cursor
-- [ ] T119 [US6] Make `is_non_user_channel` `pub(crate)` and share one copy from `src/storage/sqlite/history.rs`. Add the conversation listing query to `src/storage/sqlite/session.rs` behind `SessionStorage`:
+- [X] T119 [US6] Make `is_non_user_channel` `pub(crate)` and share one copy from `src/storage/sqlite/history.rs`. Add the conversation listing query to `src/storage/sqlite/session.rs` behind `SessionStorage`:
   - grouped by channel, with topic count, latest title and `MAX(session_history.timestamp)`
   - per-kind counts
   - title `LIKE` + message `LIKE` over the agent's newest 5,000 history rows
   - key-set cursor on `(last_activity, channel)`
-- [ ] T120 [US6] Add `GET /agents/{id}/conversations?q&channel&cursor&limit` in `src/channels/http/api/v1/agents/conversations.rs`, registered in `src/channels/http/api/v1/agents/mod.rs`: view check, a WebUI person sees only their own WebUI channel, and the 5,000-message bound stated in the `#[utoipa::path]` description
-- [ ] T121 [P] [US6] Add `scripts/seed-scale.mjs` (Node ≥ 22, no dependencies), which seeds 50 agents, 300 tasks, 1,000 bundles, 600 conversations and 1,000 roles through the API, for quickstart §6
-- [ ] T122 [US6] Regenerate `webui/openapi.json` + `webui/app/api/schema.d.ts`
+- [X] T120 [US6] Add `GET /agents/{id}/conversations?q&channel&cursor&limit` in `src/channels/http/api/v1/agents/conversations.rs`, registered in `src/channels/http/api/v1/agents/mod.rs`: view check, a WebUI person sees only their own WebUI channel, and the 5,000-message bound stated in the `#[utoipa::path]` description
+- [X] T121 [P] [US6] Add `scripts/seed-scale.mjs` (Node ≥ 22, no dependencies), which seeds 50 agents, 300 tasks, 1,000 bundles, 600 conversations and 1,000 roles through the API, for quickstart §6
+- [X] T122 [US6] Regenerate `webui/openapi.json` + `webui/app/api/schema.d.ts`
 
 ### Design library for User Story 6
 
-- [ ] T123 [P] [US6] Extend the ActivityGrid (X68) in `design/src/components/ActivityGrid/ActivityGrid.tsx`: `ActivityRow.hints` (24 per-dot tooltips, with dots focusable when set). Add a story with hints for each variant (none, one, four, a thousand)
-- [ ] T124 [P] [US6] Add the ConversationRow component (X80) in `design/src/components/ConversationRow/`, built on ListItem: channel kind icon, title with match highlight, place, topic count and time. Add a Picker story with the Today/Yesterday/Older sections
+- [X] T123 [P] [US6] Extend the ActivityGrid (X68) in `design/src/components/ActivityGrid/ActivityGrid.tsx`: `ActivityRow.hints` (24 per-dot tooltips, with dots focusable when set). Add a story with hints for each variant (none, one, four, a thousand)
+- [X] T124 [P] [US6] Add the ConversationRow component (X80) in `design/src/components/ConversationRow/`, built on ListItem: channel kind icon, title with match highlight, place, topic count and time. Add a Picker story with the Today/Yesterday/Older sections
 
 ### WebUI for User Story 6
 
-- [ ] T125 [US6] On Home in `webui/app/routes/home.tsx` and `webui/app/screens/home/`:
+- [X] T125 [US6] On Home in `webui/app/routes/home.tsx` and `webui/app/screens/home/`:
   - the greeting meta from `GET /overview?tz` ("48 agents at court · 2 live · 1 failed · ~$4.12 today")
   - ActivityGrid from `GET /overview/activity` in every variant (none, one with the summary line from `today_by_kind`, 2–6, 7+ with the "All N" row), with per-dot hints, and the Most active · Mine · Live · Failed switch through `rank`
   - the panel height fixed at 7 rows (FR-018b)
-- [ ] T126 [US6] Implement "Since you were away" in `webui/app/screens/home/AwayFeed.tsx`: ActivityItem with sigils from `GET /overview/feed`, failed tone, `href` links, pinned failures first, newest 20 + LoadMore, and EmptyState when nothing happened
-- [ ] T127 [US6] Implement the conversation Picker in `webui/app/screens/chat/ConversationPicker.tsx`:
+- [X] T126 [US6] Implement "Since you were away" in `webui/app/screens/home/AwayFeed.tsx`: ActivityItem with sigils from `GET /overview/feed`, failed tone, `href` links, pinned failures first, newest 20 + LoadMore, and EmptyState when nothing happened
+- [X] T127 [US6] Implement the conversation Picker in `webui/app/screens/chat/ConversationPicker.tsx`:
   - server mode with `onEndReached`, on `GET /agents/{id}/conversations`
   - FilterTabs All/WebUI/Discord/Telegram with counts, ConversationRow, Today/Yesterday/Older sections, and "New conversation"
 
   Wire it into TopicHeader in `webui/app/routes/chat.tsx`. Discord and Telegram conversations open read-only (history, no composer)
-- [ ] T128 [US6] Write `webui/e2e/scale.spec.ts` against seeded data: every listed page shows first content in under 2 s, and no response body carries more than one page (network assertions)
-- [ ] T129 [US6] Walk quickstart §4 and §6 on a running binary, including `scripts/client-tools-e2e.mjs` and `scripts/durable-turns-e2e.mjs` passing unchanged (SC-009)
+- [X] T128 [US6] Write `webui/e2e/scale.spec.ts` against seeded data: every listed page shows first content in under 2 s, and no response body carries more than one page (network assertions)
+- [X] T129 [US6] Walk quickstart §4 and §6 on a running binary, including `scripts/client-tools-e2e.mjs` and `scripts/durable-turns-e2e.mjs` passing unchanged (SC-009)
 
 **Checkpoint**: Home shows live court activity and what happened while away; every list stays fast at the seeded scale.
 

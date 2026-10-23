@@ -615,10 +615,10 @@ fn name_cache() -> &'static parking_lot::Mutex<NameCache> {
 /// [`NAME_TIMEOUT`] and cached. A conversation whose bot is gone, disabled or unreachable keeps
 /// its id.
 #[derive(Default)]
-struct NameBook(HashMap<String, ConversationNames>);
+pub(crate) struct NameBook(HashMap<String, ConversationNames>);
 
 impl NameBook {
-    async fn resolve<'p>(
+    pub(crate) async fn resolve<'p>(
         storage: &VizierStorage,
         kinds: &IntegrationKinds,
         agent_id: &str,
@@ -678,6 +678,11 @@ impl NameBook {
         book
     }
 
+    /// The server and conversation names found for a place like `discord:123`.
+    pub(crate) fn names(&self, place: &str) -> Option<&ConversationNames> {
+        self.0.get(place)
+    }
+
     /// `Vizier HQ / #general`, `Family chat`, or `fallback()` when nothing was found.
     fn label(&self, place: &str, fallback: impl FnOnce() -> String) -> String {
         let parts: Vec<&str> = self
@@ -690,7 +695,7 @@ impl NameBook {
 }
 
 /// The place a Discord or Telegram channel slug is, for a name lookup.
-fn slug_place(channel: &str) -> Option<String> {
+pub(crate) fn slug_place(channel: &str) -> Option<String> {
     match slug_kind(channel) {
         SlugKind::Discord(id) => Some(format!("discord:{id}")),
         SlugKind::Telegram(id) => Some(format!("telegram:{id}")),

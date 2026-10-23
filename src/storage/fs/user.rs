@@ -167,6 +167,15 @@ impl UserStorage for FileSystemStorage {
         Ok(())
     }
 
+    // The filesystem backend is only a read source for the migration; visits live in sqlite.
+    async fn record_visit(&self, _user_id: &str, _now: DateTime<Utc>) -> Result<crate::storage::user::Visit> {
+        Ok(Default::default())
+    }
+
+    async fn get_visit(&self, _user_id: &str) -> Result<crate::storage::user::Visit> {
+        Ok(Default::default())
+    }
+
     async fn user_exists(&self) -> Result<bool> {
         let path = build_path(&self.workspace, &[USERS_PATH]);
 

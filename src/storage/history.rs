@@ -6,6 +6,16 @@ use crate::{
     storage::VizierStorage,
 };
 
+/// Channels no person talks on: the system, subagents, dreams, tasks and agent-to-agent. The one
+/// copy every backend and the conversation listing use.
+pub(crate) fn is_non_user_channel(channel_slug: &str) -> bool {
+    channel_slug == "SYSTEM"
+        || channel_slug == "SUBAGENT"
+        || channel_slug.starts_with("DREAM__")
+        || channel_slug.starts_with("task__")
+        || channel_slug.starts_with("inter_agent__")
+}
+
 #[async_trait::async_trait]
 pub trait HistoryStorage {
     /// The newest history entry of each agent that has any: when it was last active.

@@ -73,8 +73,33 @@ pub struct ConversationRows {
     pub longest_failed_turn: Option<u32>,
 }
 
+/// Turns one agent started in one UTC hour.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HourlyTurns {
+    pub agent_id: String,
+    /// The start of the hour.
+    pub hour: DateTime<Utc>,
+    pub turns: u64,
+}
+
 #[async_trait::async_trait]
 pub trait UsageStorage {
+    /// Turns per agent per UTC hour since `since`, a turn counted in the hour of its first
+    /// recorded call (one that began before `since` counts from its first call after it).
+    async fn hourly_turns(&self, agents: &[String], since: DateTime<Utc>) -> Result<Vec<HourlyTurns>>;
+
+    /// Turns since `since` by activity, across `agents`.
+    async fn turns_by_activity(
+        &self,
+        agents: &[String],
+        since: DateTime<Utc>,
+    ) -> Result<Vec<(UsageActivity, u64)>>;
+
+    /// Token sums since `since` across `agents`, split by `(provider, model)` and by
+    /// failed/not failed, for the caller to price. Only the provider, model, failed, tokens and
+    /// counts of each group are set.
+    async fn usage_groups_since(&self, agents: &[String], since: DateTime<Utc>) -> Result<Vec<UsageGroup>>;
+
     async fn record_usage(&self, event: UsageEvent) -> Result<()>;
 
     /// Idempotent: a turn is failed once.
@@ -117,6 +142,22 @@ pub trait UsageStorage {
 
 #[async_trait::async_trait]
 impl UsageStorage for VizierStorage {
+    async fn hourly_turns(&self, agents: &[String], since: DateTime<Utc>) -> Result<Vec<HourlyTurns>> {
+        self.0.hourly_turns(agents, since).await
+    }
+
+    async fn turns_by_activity(
+        &self,
+        agents: &[String],
+        since: DateTime<Utc>,
+    ) -> Result<Vec<(UsageActivity, u64)>> {
+        self.0.turns_by_activity(agents, since).await
+    }
+
+    async fn usage_groups_since(&self, agents: &[String], since: DateTime<Utc>) -> Result<Vec<UsageGroup>> {
+        self.0.usage_groups_since(agents, since).await
+    }
+
     async fn record_usage(&self, event: UsageEvent) -> Result<()> {
         self.0.record_usage(event).await
     }

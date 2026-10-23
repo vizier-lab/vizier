@@ -8,7 +8,7 @@ use crate::{
         ClientCallOutcome, ReactionEntry, SessionHistory, SessionHistoryContent, VizierResponseContent,
         VizierSession,
     },
-    storage::{history::HistoryStorage, sqlite::SqliteStorage},
+    storage::{history::{HistoryStorage, is_non_user_channel}, sqlite::SqliteStorage},
 };
 
 /// The only insert into `session_history`, shared by `save_session_history` and
@@ -152,14 +152,6 @@ fn content_type_discriminant(content: &SessionHistoryContent) -> &'static str {
         SessionHistoryContent::ClientToolCall { .. } => "ClientToolCall",
         SessionHistoryContent::Recall { .. } => "Recall",
     }
-}
-
-fn is_non_user_channel(channel_slug: &str) -> bool {
-    channel_slug == "SYSTEM"
-        || channel_slug == "SUBAGENT"
-        || channel_slug.starts_with("DREAM__")
-        || channel_slug.starts_with("task__")
-        || channel_slug.starts_with("inter_agent__")
 }
 
 #[async_trait::async_trait]

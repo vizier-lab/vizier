@@ -4,8 +4,27 @@ use uuid::Uuid;
 
 use crate::storage::{
     sqlite::SqliteStorage,
-    user::{ApiKey, Role, User, UserProfile, UserStorage},
+    user::{ApiKey, Role, User, UserProfile, UserStorage, Visit},
 };
+
+fn parse_time(text: Option<String>) -> Option<DateTime<Utc>> {
+    text.and_then(|t| DateTime::parse_from_rfc3339(&t).ok()).map(|t| t.with_timezone(&Utc))
+}
+
+fn read_visit(conn: &rusqlite::Connection, user_id: &str) -> Result<Visit> {
+    let mut stmt =
+        conn.prepare(r#"SELECT last_seen_at, previous_visit_at FROM "user" WHERE user_id = ?1"#)?;
+    let mut rows = stmt.query_map(rusqlite::params![user_id], |row| {
+        Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?))
+    })?;
+    Ok(match rows.next() {
+        Some(row) => {
+            let (last, previous) = row?;
+            Visit { last_seen_at: parse_time(last), previous_visit_at: parse_time(previous) }
+        }
+        None => Visit::default(),
+    })
+}
 
 #[async_trait::async_trait]
 impl UserStorage for SqliteStorage {
@@ -147,6 +166,24 @@ impl UserStorage for SqliteStorage {
             rusqlite::params![new_data, user_id],
         )?;
         Ok(())
+    }
+
+    async fn record_visit(&self, user_id: &str, now: DateTime<Utc>) -> Result<Visit> {
+        let conn = self.conn.lock();
+        let visit = read_visit(&conn, user_id)?.seen_at(now);
+        conn.execute(
+            r#"UPDATE "user" SET last_seen_at = ?1, previous_visit_at = ?2 WHERE user_id = ?3"#,
+            rusqlite::params![
+                visit.last_seen_at.map(|t| t.to_rfc3339()),
+                visit.previous_visit_at.map(|t| t.to_rfc3339()),
+                user_id
+            ],
+        )?;
+        Ok(visit)
+    }
+
+    async fn get_visit(&self, user_id: &str) -> Result<Visit> {
+        read_visit(&self.conn.lock(), user_id)
     }
 
     async fn user_exists(&self) -> Result<bool> {

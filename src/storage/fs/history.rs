@@ -11,7 +11,7 @@ use crate::{
     },
     storage::{
         fs::{FileSystemStorage, HISTORY_PATH},
-        history::HistoryStorage,
+        history::{HistoryStorage, is_non_user_channel},
     },
 };
 
@@ -244,11 +244,4 @@ impl HistoryStorage for FileSystemStorage {
     }
 }
 
-fn is_non_user_channel(channel_slug: &str) -> bool {
-    channel_slug == "SYSTEM"
-        || channel_slug == "SUBAGENT"
-        || channel_slug.starts_with("DREAM__")
-        || channel_slug.starts_with("task__")
-        || channel_slug.starts_with("inter_agent__")
-}
 

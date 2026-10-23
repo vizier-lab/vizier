@@ -1,8 +1,13 @@
 use anyhow::Result;
+use chrono::DateTime;
 
 use crate::{
     schema::{AgentId, TopicId, VizierChannelId, VizierSessionDetail},
-    storage::{session::SessionStorage, sqlite::SqliteStorage},
+    storage::{
+        history::is_non_user_channel,
+        session::{CONVERSATION_SEARCH_ROWS, ConversationRow, SessionStorage},
+        sqlite::SqliteStorage,
+    },
 };
 
 fn session_detail_id(agent_id: &str, channel: &VizierChannelId, topic: &Option<TopicId>) -> String {
@@ -35,6 +40,105 @@ impl SessionStorage for SqliteStorage {
             rusqlite::params![data, session.agent_id, session.channel.to_slug(), session.topic],
         )?;
         Ok(())
+    }
+
+    async fn conversation_rows(&self, agent_id: &str, q: Option<&str>) -> Result<Vec<ConversationRow>> {
+        use std::collections::{BTreeMap, HashMap, HashSet};
+        let conn = self.conn.lock();
+
+        // Every (channel, topic) with when it began and last moved.
+        let mut stmt = conn.prepare(
+            "SELECT channel, COALESCE(topic, ''), MIN(timestamp), MAX(timestamp) FROM session_history \
+             WHERE agent_id = ?1 GROUP BY channel, topic",
+        )?;
+        let spans = stmt
+            .query_map(rusqlite::params![agent_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        let mut titles: HashMap<(String, String), String> = HashMap::new();
+        let mut stmt = conn.prepare("SELECT data FROM session_detail WHERE agent_id = ?1")?;
+        for data in stmt.query_map(rusqlite::params![agent_id], |row| row.get::<_, String>(0))?.flatten() {
+            if let Ok(detail) = serde_json::from_str::<VizierSessionDetail>(&data) {
+                titles.insert((detail.channel.to_slug(), detail.topic.unwrap_or_default()), detail.title);
+            }
+        }
+
+        let needle = q.map(|q| q.trim().to_lowercase()).filter(|q| !q.is_empty());
+        // Where the text was found: (channel, topic) pairs among the newest messages.
+        let mut by_message: HashSet<(String, String)> = HashSet::new();
+        if let Some(needle) = &needle {
+            // The text lives in the entry's JSON; the bound keeps this a bounded scan, newest first.
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT channel, COALESCE(topic, '') FROM (SELECT channel, topic, data FROM session_history \
+                 WHERE agent_id = ?1 ORDER BY timestamp DESC LIMIT ?2) WHERE data LIKE ?3 ESCAPE '\\'",
+            )?;
+            let like = format!("%{}%", needle.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+            by_message.extend(
+                stmt.query_map(rusqlite::params![agent_id, CONVERSATION_SEARCH_ROWS as i64, like], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .flatten(),
+            );
+        }
+        let title_has = |channel: &str, topic: &str| {
+            needle.as_ref().is_some_and(|n| {
+                titles.get(&(channel.to_string(), topic.to_string())).is_some_and(|t| t.to_lowercase().contains(n))
+            })
+        };
+
+        // Per channel: topics by when they began.
+        let mut channels: BTreeMap<String, Vec<(i64, i64, String)>> = BTreeMap::new();
+        for (channel, topic, first, last) in spans {
+            if is_non_user_channel(&channel) {
+                continue;
+            }
+            channels.entry(channel).or_default().push((first, last, topic));
+        }
+
+        let mut rows: Vec<ConversationRow> = vec![];
+        for (channel, mut topics) in channels {
+            topics.sort();
+            let count = topics.len() as u64;
+            if channel.starts_with("http__") {
+                // A WebUI conversation is a topic: each is its own row.
+                for (i, (_, last, topic)) in topics.iter().enumerate() {
+                    if needle.is_some() && !title_has(&channel, topic) && !by_message.contains(&(channel.clone(), topic.clone())) {
+                        continue;
+                    }
+                    let Some(last_activity) = DateTime::from_timestamp_millis(*last) else { continue };
+                    rows.push(ConversationRow {
+                        title: titles.get(&(channel.clone(), topic.clone())).cloned(),
+                        channel: channel.clone(),
+                        topics: count,
+                        last_activity,
+                        latest_topic: topic.clone(),
+                        latest_ordinal: i as u64 + 1,
+                    });
+                }
+            } else {
+                // Anywhere else the channel is the conversation.
+                let Some(latest) = topics.iter().max_by_key(|t| (t.1, t.0)).cloned() else { continue };
+                let matched = needle.is_none()
+                    || topics.iter().any(|t| title_has(&channel, &t.2) || by_message.contains(&(channel.clone(), t.2.clone())));
+                if !matched {
+                    continue;
+                }
+                let Some(last_activity) = DateTime::from_timestamp_millis(latest.1) else { continue };
+                let ordinal = topics.iter().position(|t| t.2 == latest.2).unwrap_or(0) as u64 + 1;
+                rows.push(ConversationRow {
+                    title: titles.get(&(channel.clone(), latest.2.clone())).cloned(),
+                    channel,
+                    topics: count,
+                    last_activity,
+                    latest_topic: latest.2,
+                    latest_ordinal: ordinal,
+                });
+            }
+        }
+        rows.sort_by(|a, b| b.last_activity.cmp(&a.last_activity).then_with(|| b.key().cmp(&a.key())));
+        Ok(rows)
     }
 
     async fn thinking_agents(&self) -> Result<std::collections::HashSet<String>> {
@@ -213,5 +317,104 @@ impl SessionStorage for SqliteStorage {
             rusqlite::params![agent_id, channel.to_slug(), topic],
         )?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
+    use rusqlite::Connection;
+
+    use super::*;
+    use crate::storage::document::LocalDocumentStore;
+
+    fn setup() -> (SqliteStorage, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        crate::storage::sqlite::init_history_schema(&conn).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE session_detail (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, channel TEXT NOT NULL, \
+             topic TEXT, data TEXT NOT NULL);",
+        )
+        .unwrap();
+        let storage = SqliteStorage::new(
+            Arc::new(Mutex::new(conn)),
+            Arc::new(LocalDocumentStore::new(dir.path().to_path_buf())),
+        );
+        (storage, dir)
+    }
+
+    fn say(s: &SqliteStorage, n: &mut i64, agent: &str, channel: &str, topic: Option<&str>, ts: i64, text: &str) {
+        *n += 1;
+        s.conn
+            .lock()
+            .execute(
+                "INSERT INTO session_history (uid, agent_id, channel, topic, timestamp, content_type, data, seq) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'Request', ?6, ?1)",
+                rusqlite::params![n.to_string(), agent, channel, topic, ts, serde_json::json!({ "text": text }).to_string()],
+            )
+            .unwrap();
+    }
+
+    fn title(s: &SqliteStorage, agent: &str, channel: VizierChannelId, topic: &str, title: &str) {
+        let detail = VizierSessionDetail {
+            agent_id: agent.into(),
+            channel: channel.clone(),
+            topic: Some(topic.into()),
+            title: title.into(),
+            is_thinking: false,
+        };
+        s.conn
+            .lock()
+            .execute(
+                "INSERT INTO session_detail (id, agent_id, channel, topic, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![format!("{agent}#{}#{topic}", channel.to_slug()), agent, channel.to_slug(), topic, serde_json::to_string(&detail).unwrap()],
+            )
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn conversations_are_channels_newest_first_without_the_ones_nobody_talks_on() {
+        let (s, _d) = setup();
+        let mut n = 0;
+        let web = "http__ana__vizier-webui";
+        say(&s, &mut n, "a", "discord__1", None, 100, "hello");
+        say(&s, &mut n, "a", web, Some("t1"), 50, "first");
+        say(&s, &mut n, "a", web, Some("t2"), 300, "second");
+        say(&s, &mut n, "a", web, Some("t1"), 200, "again");
+        say(&s, &mut n, "a", "task__digest__1", None, 999, "scheduled");
+        say(&s, &mut n, "a", "DREAM__x__extraction", None, 999, "dreaming");
+        say(&s, &mut n, "b", "telegram__9", None, 999, "someone else's");
+        title(&s, "a", VizierChannelId::HTTP("ana".into(), "vizier-webui".into()), "t2", "vector-db-review");
+
+        let rows = s.conversation_rows("a", None).await.unwrap();
+        let shown: Vec<(&str, u64, &str, u64)> =
+            rows.iter().map(|r| (r.channel.as_str(), r.topics, r.latest_topic.as_str(), r.latest_ordinal)).collect();
+        // A WebUI topic is a row of its own (topic 2 moved last, then Discord, then topic 1 at 200).
+        assert_eq!(shown, vec![(web, 2, "t2", 2), (web, 2, "t1", 1), ("discord__1", 1, "", 1)]);
+        assert_eq!(rows[0].title.as_deref(), Some("vector-db-review"));
+        assert_eq!(rows[1].title, None);
+    }
+
+    #[tokio::test]
+    async fn q_finds_a_title_or_a_message_and_treats_wildcards_as_text() {
+        let (s, _d) = setup();
+        let mut n = 0;
+        say(&s, &mut n, "a", "discord__1", None, 100, "the quarterly budget");
+        say(&s, &mut n, "a", "discord__2", None, 200, "50% off");
+        say(&s, &mut n, "a", "http__ana__vizier-webui", Some("t1"), 300, "hi");
+        title(&s, "a", VizierChannelId::HTTP("ana".into(), "vizier-webui".into()), "t1", "Budget planning");
+
+        let ids = |rows: Vec<ConversationRow>| rows.into_iter().map(|r| r.channel).collect::<Vec<_>>();
+        assert_eq!(ids(s.conversation_rows("a", Some("BUDGET")).await.unwrap()), vec!["http__ana__vizier-webui", "discord__1"]);
+        // Only the topic that has the word, not its sibling.
+        say(&s, &mut n, "a", "http__ana__vizier-webui", Some("t2"), 400, "unrelated");
+        let both = s.conversation_rows("a", Some("budget")).await.unwrap();
+        assert_eq!(both.iter().filter(|r| r.channel.starts_with("http__")).count(), 1);
+        assert_eq!(ids(s.conversation_rows("a", Some("50%")).await.unwrap()), vec!["discord__2"]);
+        assert_eq!(ids(s.conversation_rows("a", Some("%")).await.unwrap()), vec!["discord__2"]);
+        assert!(s.conversation_rows("a", Some("nothing like this")).await.unwrap().is_empty());
     }
 }

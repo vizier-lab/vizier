@@ -28,6 +28,7 @@ use crate::{
     storage::{VizierStorage, agent::AgentStorage, history::HistoryStorage, user::UserStorage},
 };
 
+pub mod conversations;
 pub mod channel;
 pub mod core;
 pub mod dream;
@@ -104,6 +105,7 @@ pub fn agents() -> Router<HTTPState> {
         .nest("/{agent_id}/tasks", task())
         .nest("/{agent_id}/dream", dream())
         .nest("/{agent_id}/integrations", integrations::integrations())
+        .nest("/{agent_id}/conversations", conversations::conversations())
 }
 
 /// One row of `GET /agents`: the summary, plus when the agent was last active.

@@ -64,6 +64,10 @@ impl VizierChannel for HTTPChannel {
                 2,
                 std::time::Duration::from_secs(1),
             )),
+            visit_throttle: std::sync::Arc::new(rate_limit::RateLimiter::new(
+                1,
+                std::time::Duration::from_secs(60),
+            )),
             deferred_client_calls: Default::default(),
         };
 
@@ -96,6 +100,10 @@ impl VizierChannel for HTTPChannel {
     paths(
         api::v1::ping,
         api::v1::status,
+        api::v1::overview::overview_counts,
+        api::v1::overview::activity,
+        api::v1::overview::feed::feed,
+        api::v1::agents::conversations::list,
         api::v1::auth::login,
         api::v1::auth::change_password,
         api::v1::auth::create_api_key,
@@ -178,6 +186,18 @@ impl VizierChannel for HTTPChannel {
         schemas(
             crate::channels::http::models::page::SortOrder,
             api::v1::ServerStatus,
+            api::v1::overview::Overview,
+            api::v1::overview::Rank,
+            api::v1::overview::ActivityRow,
+            api::v1::overview::TodayByKind,
+            api::v1::overview::AgentCounts,
+            api::v1::overview::feed::FeedEvent,
+            api::v1::agents::conversations::ConversationKind,
+            api::v1::agents::conversations::ConversationItem,
+            api::v1::agents::conversations::ConversationCounts,
+            api::v1::overview::Activity,
+            api::v1::overview::feed::Feed,
+            api::v1::agents::conversations::ConversationPage,
             api::v1::auth::RoleItem,
             api::v1::agents::AgentListItem,
             api::v1::agents::dream::DreamCycles,

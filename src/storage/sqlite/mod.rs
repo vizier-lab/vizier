@@ -15,6 +15,7 @@ mod catalogue;
 mod client_call;
 pub(crate) mod core_revision;
 mod dream_journal;
+mod feed;
 mod global_config;
 mod history;
 mod integration;
@@ -369,6 +370,11 @@ impl SqliteStorage {
             END;
             ",
         )?;
+
+        // When a person was last seen and the visit before it (spec 024, "Since you were
+        // away"). Tracked for removal in #82.
+        add_column_if_missing(conn, "user", "last_seen_at", "TEXT")?;
+        add_column_if_missing(conn, "user", "previous_visit_at", "TEXT")?;
 
         init_history_schema(conn)?;
         init_reaction_schema(conn)?;

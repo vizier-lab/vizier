@@ -230,7 +230,7 @@ fn union(lists: impl IntoIterator<Item = Vec<AgentId>>) -> Vec<AgentId> {
         .collect()
 }
 
-fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<IntegrationEvent>> {
+pub(super) fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<IntegrationEvent>> {
     let family: String = row.get(4)?;
     let actor: String = row.get(5)?;
     let action: String = row.get(6)?;

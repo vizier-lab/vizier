@@ -15,7 +15,7 @@ use crate::{
         memory::MemoryStorage,
         provider::{CustomProviderStorage, ProviderStorage}, reaction::ReactionStorage, scratch::ScratchStorage, turn::TurnStorage, session::SessionStorage, session_file::SessionFileStorage,
         state::StateStorage, task::TaskStorage, task_run::TaskRunStorage,
-        usage::UsageStorage, user::UserStorage,
+        usage::UsageStorage, user::UserStorage, feed::FeedStorage,
     },
 };
 
@@ -23,6 +23,7 @@ pub mod agent;
 pub mod background_job;
 pub mod catalogue;
 pub mod chunk;
+pub mod feed;
 pub mod client_call;
 pub mod diff;
 pub mod document;
@@ -70,6 +71,7 @@ where
         + ReactionStorage
         + IntegrationStorage
         + UsageStorage
+        + FeedStorage
         + ClientCallStorage
         + ScratchStorage
         + TurnStorage,
@@ -129,6 +131,18 @@ impl UserStorage for VizierStorage {
 
     async fn user_exists(&self) -> Result<bool> {
         self.0.user_exists().await
+    }
+
+    async fn record_visit(
+        &self,
+        user_id: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<crate::storage::user::Visit> {
+        self.0.record_visit(user_id, now).await
+    }
+
+    async fn get_visit(&self, user_id: &str) -> Result<crate::storage::user::Visit> {
+        self.0.get_visit(user_id).await
     }
 
     async fn create_role(

@@ -5,8 +5,44 @@ use crate::{
     storage::VizierStorage,
 };
 
+/// One conversation a person could open (spec 024, conversation picker). A Discord or Telegram
+/// channel is one conversation; a WebUI channel holds several, one per topic the person made, and
+/// each topic is its own row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationRow {
+    /// The channel slug: `discord__123`, `telegram__-9`, `http__ana__vizier-webui`.
+    pub channel: String,
+    pub topics: u64,
+    pub last_activity: chrono::DateTime<chrono::Utc>,
+    /// The topic with the newest message ("" for a channel without topics).
+    pub latest_topic: String,
+    /// Where the latest topic falls among the topics, oldest first, from 1.
+    pub latest_ordinal: u64,
+    /// The latest topic's title, when it has one.
+    pub title: Option<String>,
+}
+
+impl ConversationRow {
+    /// Orders rows that moved at the same instant, and names a row in a cursor: a WebUI
+    /// conversation is a topic, anywhere else it is the channel.
+    pub fn key(&self) -> String {
+        if self.channel.starts_with("http__") { format!("{}#{}", self.channel, self.latest_topic) } else { self.channel.clone() }
+    }
+}
+
+/// Only the newest this many history rows are searched for message text.
+pub const CONVERSATION_SEARCH_ROWS: usize = 5000;
+
 #[async_trait::async_trait]
 pub trait SessionStorage {
+    /// The agent's conversations on channels people talk on, newest first, each once. With `q`,
+    /// only those whose title contains it (any topic's) or that have it in a message among the
+    /// agent's newest [`CONVERSATION_SEARCH_ROWS`], case-insensitively.
+    async fn conversation_rows(&self, agent_id: &str, q: Option<&str>) -> Result<Vec<ConversationRow>> {
+        let _ = (agent_id, q);
+        Ok(vec![])
+    }
+
     async fn save_session_detail(&self, session: VizierSessionDetail) -> Result<()>;
     async fn update_session_detail(&self, session: VizierSessionDetail) -> Result<()>;
     async fn update_thinking_state(
@@ -50,6 +86,10 @@ pub trait SessionStorage {
 
 #[async_trait::async_trait]
 impl SessionStorage for VizierStorage {
+    async fn conversation_rows(&self, agent_id: &str, q: Option<&str>) -> Result<Vec<ConversationRow>> {
+        self.0.conversation_rows(agent_id, q).await
+    }
+
     async fn thinking_agents(&self) -> Result<std::collections::HashSet<String>> {
         self.0.thinking_agents().await
     }
