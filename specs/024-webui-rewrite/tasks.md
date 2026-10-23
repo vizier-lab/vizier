@@ -250,15 +250,15 @@
 
 ### Design library for User Story 3
 
-- [ ] T077 [P] [US3] Add the MarkdownEditor component (X76) in `design/src/components/MarkdownEditor/` on Tiptap 3 with markdown in and out (research R5: check for a markdown extension maintained by Tiptap, else `tiptap-markdown`):
+- [X] T077 [P] [US3] Add the MarkdownEditor component (X76) in `design/src/components/MarkdownEditor/` on Tiptap 3 with markdown in and out (research R5: check for a markdown extension maintained by Tiptap, else `tiptap-markdown`):
   - rich, markdown and split modes
   - compact and full looks, composing EditorToolbar, OutlineNav and `Prose size="document"`
   - Ctrl/Cmd+S → `onSaveShortcut`
   - read-only
   - a round-trip story test with a fixture document of headings, lists, a table, code, links and a quote
-- [ ] T078 [P] [US3] Add the DateTimeField component (X77) in `design/src/components/DateTimeField/`: a TextField-styled trigger, a month grid + time row popover, keyboard (arrows, PgUp/PgDn, Enter, Esc), `min`, `invalid`, `disabled`
-- [ ] T079 [P] [US3] Extend the NightStrip (X69) in `design/src/components/NightStrip/NightStrip.tsx`: `Night.live`, `Night.hint` (hover/focus label), `selected`, and `onSelectNight` (nights become buttons). Add stories for selected and running nights
-- [ ] T080 [P] [US3] Extend the DreamJournalEntry (X56) in `design/src/components/DreamJournalEntry/DreamJournalEntry.tsx`: a `"removed"` change kind and `DreamChange.href`, with a story showing all four kinds
+- [X] T078 [P] [US3] Add the DateTimeField component (X77) in `design/src/components/DateTimeField/`: a TextField-styled trigger, a month grid + time row popover, keyboard (arrows, PgUp/PgDn, Enter, Esc), `min`, `invalid`, `disabled`
+- [X] T079 [P] [US3] Extend the NightStrip (X69) in `design/src/components/NightStrip/NightStrip.tsx`: `Night.live`, `Night.hint` (hover/focus label), `selected`, and `onSelectNight` (nights become buttons). Add stories for selected and running nights
+- [X] T080 [P] [US3] Extend the DreamJournalEntry (X56) in `design/src/components/DreamJournalEntry/DreamJournalEntry.tsx`: a `"removed"` change kind and `DreamChange.href`, with a story showing all four kinds
 
 ### WebUI for User Story 3
 
