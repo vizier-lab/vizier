@@ -1,6 +1,7 @@
 import {
     AgentHeader,
     AgentReply,
+    Attachment,
     BackgroundReportCard,
     ChatGreeting,
     CheckpointDivider,
@@ -25,6 +26,7 @@ import {
 import { usePrices } from '../../lib/prices'
 import { groupHistory, outcomeDurationMs } from '../../lib/trail'
 import { Markdown } from '../shared/Markdown'
+import { ReplyMedia } from './ReplyMedia'
 import { Reactions } from './Reactions'
 import { Trail } from './Trail'
 
@@ -89,10 +91,10 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
         return (
             <div key={`reply-${turn.key}`} className="flex flex-col gap-8">
                 <AgentHeader agentId={agent.id} name={agent.name} time={time(outcome?.timestamp)} />
-                {text != null && (
+                {(text != null || (outcome?.content.Response?.attachments?.length ?? 0) > 0) && (
                     <AgentReply
                         stats={stats ? statsLine(stats, price) : undefined}
-                        onCopy={() => void navigator.clipboard?.writeText(text)}
+                        onCopy={text != null ? () => void navigator.clipboard?.writeText(text) : undefined}
                         reactions={
                             outcome && (
                                 <Reactions
@@ -103,7 +105,8 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
                             )
                         }
                     >
-                        <Markdown>{text}</Markdown>
+                        {text != null && <Markdown>{text}</Markdown>}
+                        <ReplyMedia attachments={outcome?.content.Response?.attachments ?? []} transcript={text} />
                         {clientCalls?.(turn, false)}
                     </AgentReply>
                 )}
@@ -147,7 +150,20 @@ export function MessageList({ state, agent, hasOlder, loadingOlder, onLoadOlder,
             }
             const skill = (c.Request.metadata as { invoked_skill?: string } | undefined)?.invoked_skill
             items.push(
-                <UserMessage key={e.uid} meta={`You · ${time(c.Request.timestamp)}`} skill={skill}>
+                <UserMessage
+                    key={e.uid}
+                    meta={`You · ${time(c.Request.timestamp)}`}
+                    skill={skill}
+                    attachments={
+                        c.Request.attachments?.length ? (
+                            <>
+                                {c.Request.attachments.map((a) => (
+                                    <Attachment key={a.filename} name={a.filename} />
+                                ))}
+                            </>
+                        ) : undefined
+                    }
+                >
                     {requestText(content)}
                 </UserMessage>
             )
