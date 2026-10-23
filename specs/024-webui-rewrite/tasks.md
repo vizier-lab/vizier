@@ -75,38 +75,38 @@
   - an unknown sort uses the default
 
   Add `#[cfg(test)]` units for each of these (data-model §2.1)
-- [ ] T011 [P] Add the LoadMore component (X81) in `design/src/components/LoadMore/` (`LoadMore.tsx`, `LoadMore.stories.tsx`, `index.ts`): `onLoad`, `loading`, `label`, `remaining`, and `look: "button" | "auto"` (`auto` uses an IntersectionObserver)
-- [ ] T012 [P] Extend the Picker (X41) in `design/src/components/Picker/Picker.tsx`: add `onEndReached`, `loading`, and `search.mode: "client" | "server"` (default `client`, which keeps today's filtering). Add a "Server paged" story in `design/src/components/Picker/Picker.stories.tsx`
-- [ ] T013 Implement the typed client in `webui/app/api/client.ts`:
+- [X] T011 [P] Add the LoadMore component (X81) in `design/src/components/LoadMore/` (`LoadMore.tsx`, `LoadMore.stories.tsx`, `index.ts`): `onLoad`, `loading`, `label`, `remaining`, and `look: "button" | "auto"` (`auto` uses an IntersectionObserver)
+- [X] T012 [P] Extend the Picker (X41) in `design/src/components/Picker/Picker.tsx`: add `onEndReached`, `loading`, and `search.mode: "client" | "server"` (default `client`, which keeps today's filtering). Add a "Server paged" story in `design/src/components/Picker/Picker.stories.tsx`
+- [X] T013 Implement the typed client in `webui/app/api/client.ts`:
   - `request<T>(method, path, body?)` unwraps the `APIResponse` envelope, adds `Authorization: Bearer`, and maps the error body to `ApiError { status, code, message, data }`
   - a 401 clears the session and redirects to `/login`
   - `paged<T>(path, ListQuery)` builds the query string
 
   Put domain wrappers in `webui/app/api/endpoints/*.ts`, typed from `schema.d.ts`
-- [ ] T014 [P] Implement `webui/app/lib/paging.ts` (query-string ⇄ `ListQuery`, page math, "1–25 of 312") and the `usePagedList(path, defaults)` hook in `webui/app/lib/usePagedList.ts` (URL-synced `q`/`filter`/`sort`/`page`, debounced search). Test in `webui/app/lib/paging.test.ts`
-- [ ] T015 [P] Implement `webui/app/lib/format.ts`: middle truncation (re-exporting the library's helper), counts with separators, chart-only abbreviation (61,880 → 61.9k), relative and absolute times, `~$0.03` cost formatting, durations ("2m 14s"). Test in `webui/app/lib/format.test.ts`
-- [ ] T016 Implement `webui/app/stores/session.ts`: token, current user (`GET /auth/users/me`), the permission list, `can(permission)`, `canEditAgent(agent)`, and the theme (`system | dark | light`) applied to `<html data-theme>`. Every localStorage access goes in try/catch
-- [ ] T017 [P] Implement `webui/app/stores/toasts.ts` and the `webui/app/layouts/ToastRegion.tsx` stack, using the library's Toast
-- [ ] T018 Implement `webui/app/stores/agents.ts`:
+- [X] T014 [P] Implement `webui/app/lib/paging.ts` (query-string ⇄ `ListQuery`, page math, "1–25 of 312") and the `usePagedList(path, defaults)` hook in `webui/app/lib/usePagedList.ts` (URL-synced `q`/`filter`/`sort`/`page`, debounced search). Test in `webui/app/lib/paging.test.ts`
+- [X] T015 [P] Implement `webui/app/lib/format.ts`: middle truncation (re-exporting the library's helper), counts with separators, chart-only abbreviation (61,880 → 61.9k), relative and absolute times, `~$0.03` cost formatting, durations ("2m 14s"). Test in `webui/app/lib/format.test.ts`
+- [X] T016 Implement `webui/app/stores/session.ts`: token, current user (`GET /auth/users/me`), the permission list, `can(permission)`, `canEditAgent(agent)`, and the theme (`system | dark | light`) applied to `<html data-theme>`. Every localStorage access goes in try/catch
+- [X] T017 [P] Implement `webui/app/stores/toasts.ts` and the `webui/app/layouts/ToastRegion.tsx` stack, using the library's Toast
+- [X] T018 Implement `webui/app/stores/agents.ts`:
   - visible agents from `GET /agents`
   - health from `GET /agents/health`, polled every 10 s while the tab is visible
   - setup progress from `GET /utils/setup-state`, polled every 1 s only while some agent is starting, keeping the last 5 samples for the ETA (research R15)
-- [ ] T019 Write the full route table in `webui/app/routes.ts` per [contracts/webui-routes.md](contracts/webui-routes.md):
+- [X] T019 Write the full route table in `webui/app/routes.ts` per [contracts/webui-routes.md](contracts/webui-routes.md):
   - placeholder modules in `webui/app/routes/*.tsx` that render PageHeader + EmptyState
   - redirects in `webui/app/routes/redirects.tsx`: `/settings` → `/settings/profile`, `/:agentId/settings` → `/:agentId/config`, and a catch-all to `/`
-- [ ] T020 Implement `webui/app/layouts/AuthLayout.tsx` (Login/Onboarding split panel, without the LED board, which comes in US5) and the auth guard in `webui/app/layouts/RequireAuth.tsx` (no token → `/login`; `setup_required` → `/onboarding`)
-- [ ] T021 Implement `webui/app/layouts/AppShell.tsx` with the library Sidebar:
+- [X] T020 Implement `webui/app/layouts/AuthLayout.tsx` (Login/Onboarding split panel, without the LED board, which comes in US5) and the auth guard in `webui/app/layouts/RequireAuth.tsx` (no token → `/login`; `setup_required` → `/onboarding`)
+- [X] T021 Implement `webui/app/layouts/AppShell.tsx` with the library Sidebar:
   - AgentSwitcher opens the agent Picker: search with count, Recent, All A–Z, an Owner badge, "Create agent"
   - NavSections App / Integrations / Misc, filtered by permission
   - UserMenu with the theme toggle and sign out
   - collapse to the rail, remembered per device
   - the active item comes from the route
-- [ ] T022 [P] Implement `webui/app/layouts/SettingsLayout.tsx` with the library SettingsNav (Account: Profile, Password, API keys; Administration: Providers, Users, Roles, each gated by permission)
-- [ ] T023 [P] Implement `webui/app/lib/access.ts` (permission names, `canManageIntegrations`, `canViewUsage`) and `webui/app/layouts/RequirePermission.tsx` (EmptyState "You don't have access to this page", FR-012)
-- [ ] T024 [P] Implement `webui/app/screens/shared/ConfirmDialog.tsx`: the library Dialog with tone Danger, a list of what will be removed, and an optional type-to-confirm field (States page, FR spec US4-4)
-- [ ] T025 [P] Implement `webui/app/screens/shared/PagedTable.tsx`: SearchField with a total count, FilterTabs with server counts, SortSelect, Table, Pagination (25 per page), and EmptyState for empty or no results, all bound to `usePagedList`
-- [ ] T026 [P] Implement `webui/app/screens/shared/Markdown.tsx`: react-markdown + remark-gfm + rehype-highlight inside `<Prose>`, with code blocks through the library CodeBlock (copy button) and links opening in a new tab
-- [ ] T027 [P] Implement `webui/app/screens/shared/PageFrame.tsx`, the standard page body (PageHeader with mono meta, a right slot, a content area at the design's widths) used by every agent page
+- [X] T022 [P] Implement `webui/app/layouts/SettingsLayout.tsx` with the library SettingsNav (Account: Profile, Password, API keys; Administration: Providers, Users, Roles, each gated by permission)
+- [X] T023 [P] Implement `webui/app/lib/access.ts` (permission names, `canManageIntegrations`, `canViewUsage`) and `webui/app/layouts/RequirePermission.tsx` (EmptyState "You don't have access to this page", FR-012)
+- [X] T024 [P] Implement `webui/app/screens/shared/ConfirmDialog.tsx`: the library Dialog with tone Danger, a list of what will be removed, and an optional type-to-confirm field (States page, FR spec US4-4)
+- [X] T025 [P] Implement `webui/app/screens/shared/PagedTable.tsx`: SearchField with a total count, FilterTabs with server counts, SortSelect, Table, Pagination (25 per page), and EmptyState for empty or no results, all bound to `usePagedList`
+- [X] T026 [P] Implement `webui/app/screens/shared/Markdown.tsx`: react-markdown + remark-gfm + rehype-highlight inside `<Prose>`, with code blocks through the library CodeBlock (copy button) and links opening in a new tab
+- [X] T027 [P] Implement `webui/app/screens/shared/PageFrame.tsx`, the standard page body (PageHeader with mono meta, a right slot, a content area at the design's widths) used by every agent page
 
 **Checkpoint**: signed in, the shell renders every route as a placeholder with correct navigation and permission gating. `cargo test` passes for `page.rs`.
 
