@@ -316,16 +316,16 @@
 
 **Independent Test**: quickstart §7 steps 4–6, plus `webui/e2e/agents.spec.ts`.
 
-- [ ] T091 [US4] Add an `McpListing` (filter `down` from live server status; sorts `name`/`tools`) and opt-in paging on `GET /agents/{id}/integrations?family=mcp` in `src/channels/http/api/v1/agents/integrations.rs`
-- [ ] T092 [P] [US4] Add the ImageCropper component (X79) in `design/src/components/ImageCropper/`: square crop, drag, zoom slider + wheel, keyboard nudging, `onCrop(blob)`, `onCancel`, in a Dialog. Wire SigilPicker's upload story to it in `design/src/components/SigilPicker/SigilPicker.stories.tsx`
-- [ ] T093 [US4] Implement the model and provider selection composition in `webui/app/screens/agents/ModelSelect.tsx`: Select with a leading ProviderLogo, the catalogue and custom providers from `GET /catalogue/*` and `GET /providers`, the capability line "Text, image and tool input · 200k context · $3 / $15 per M tokens", and a search past ~8 items
-- [ ] T094 [US4] Implement the New agent wizard in `webui/app/routes/agent-new.tsx` and `webui/app/screens/agents/wizard/`:
+- [X] T091 [US4] Add an `McpListing` (filter `down` from live server status; sorts `name`/`tools`) and opt-in paging on `GET /agents/{id}/integrations?family=mcp` in `src/channels/http/api/v1/agents/integrations.rs`
+- [X] T092 [P] [US4] Add the ImageCropper component (X79) in `design/src/components/ImageCropper/`: square crop, drag, zoom slider + wheel, keyboard nudging, `onCrop(blob)`, `onCancel`, in a Dialog. Wire SigilPicker's upload story to it in `design/src/components/SigilPicker/SigilPicker.stories.tsx`
+- [X] T093 [US4] Implement the model and provider selection composition in `webui/app/screens/agents/ModelSelect.tsx`: Select with a leading ProviderLogo, the catalogue and custom providers from `GET /catalogue/*` and `GET /providers`, the capability line "Text, image and tool input · 200k context · $3 / $15 per M tokens", and a search past ~8 items
+- [X] T094 [US4] Implement the New agent wizard in `webui/app/routes/agent-new.tsx` and `webui/app/screens/agents/wizard/`:
   - Stepper Config → System Prompt → Tools → Review, synced to `?step=`
   - Tools: ToggleChip "Always on", SwitchRow (fetch, HTTP, WebUI messaging), ToggleSection for Text-to-Speech, Speech-to-Text, Read Image (InlineSelect vision model), Image Generation and Shell (Local/Docker FilterTabs, image, Dockerfile, environment Textarea)
   - AgentPreviewCard
   - ActionBar Back/Continue
   - nothing is persisted until "Create agent" (`POST /agents`); refused configs show the server's reason in a Notice
-- [ ] T095 [US4] Implement Config in `webui/app/routes/agent-config.tsx` and `webui/app/screens/agents/config/`:
+- [X] T095 [US4] Implement Config in `webui/app/routes/agent-config.tsx` and `webui/app/screens/agents/config/`:
   - Tabs Identity / System Prompt / Tools / Sharing / Danger Zone
   - Identity: SigilPicker + ImageCropper upload, name, locked Agent ID, description
   - Model: ModelSelect, context window and max output with unit suffixes, thinking depth
@@ -334,20 +334,20 @@
   - Sharing: ShareList on `GET/PUT /agents/{id}/sharing`
   - the "Saving rebuilds … and stops its running turns" warning before save
   - Danger zone: ConfirmDialog with typed agent ID
-- [ ] T096 [US4] Implement the shared integration parts in `webui/app/screens/integrations/`:
+- [X] T096 [US4] Implement the shared integration parts in `webui/app/screens/integrations/`:
   - `SelfManagementCard.tsx`: SwitchRow for this page's family only, using `PUT …/integrations/grants`, disabled with a helper for people without permission
   - `ActivityCard.tsx`: an ActivityItem list from `GET …/integrations/events`, newest 20 + LoadMore
-- [ ] T097 [P] [US4] Implement Channels in `webui/app/routes/integrations-channels.tsx`:
+- [X] T097 [P] [US4] Implement Channels in `webui/app/routes/integrations-channels.tsx`:
   - an IntegrationCard per Discord/Telegram connection: Status, Switch, SecretField + Replace token, slash command sync, silent reading, provenance, Delete
   - the failed state shows a Notice with the cause and "Replace token" (from `AgentHealthStatus.channels`)
   - add connection; SelfManagementCard (channel) and ActivityCard
-- [ ] T098 [P] [US4] Implement Addons in `webui/app/routes/integrations-addons.tsx`: a search over `GET /integrations/kinds` addons; an IntegrationCard with SecretField and ToolList; install and unlink; the "That's every addon" Callout; SelfManagementCard (addon) and ActivityCard
-- [ ] T099 [P] [US4] Implement MCP in `webui/app/routes/integrations-mcp.tsx`:
+- [X] T098 [P] [US4] Implement Addons in `webui/app/routes/integrations-addons.tsx`: a search over `GET /integrations/kinds` addons; an IntegrationCard with SecretField and ToolList; install and unlink; the "That's every addon" Callout; SelfManagementCard (addon) and ActivityCard
+- [X] T099 [P] [US4] Implement MCP in `webui/app/routes/integrations-mcp.tsx`:
   - PagedTable of ServerRow (SERVER, STATUS with detail, CATEGORY with the `_mcp` note, TOOLS, ON Switch), All/Down filters
   - the Add/Edit server dialog: Remote URL / Local command FilterTabs, name, command, arguments Textarea mono, KeyValueEditor env with SecretField values, Enabled
   - Delete with ConfirmDialog; SelfManagementCard (mcp) and ActivityCard
-- [ ] T100 [US4] Write `webui/e2e/agents.spec.ts` covering quickstart §7 steps 4–6
-- [ ] T101 [US4] Walk quickstart §7 steps 4–6 on a running binary
+- [X] T100 [US4] Write `webui/e2e/agents.spec.ts` covering quickstart §7 steps 4–6
+- [X] T101 [US4] Walk quickstart §7 steps 4–6 on a running binary
 
 **Checkpoint**: an agent can be created, configured, shared, connected and deleted from the new UI.
 

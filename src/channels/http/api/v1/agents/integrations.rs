@@ -5,7 +5,7 @@
 //! `integrations::service`, which publishes `IntegrationChanged` after it commits; the response
 //! never waits for agents or readers to catch up.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use axum::{
     Extension, Json, Router,
@@ -26,6 +26,7 @@ use crate::{
                 service_error, storage_error, usernames, view,
             },
             auth::AuthenticatedUser,
+            models::page::{Listing, ListQuery, SortKey, SortOrder, paginate},
             state::HTTPState,
         },
     },
@@ -83,6 +84,63 @@ pub struct IntegrationList {
     /// May add integrations to this agent.
     pub can_manage: bool,
     pub items: Vec<IntegrationItem>,
+    /// With `limit`: matches after `q` and `filter`, before `offset`/`limit`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<usize>,
+    /// With `limit`: matches per filter key (`all`, `down`) after `q`, ignoring `filter`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counts: Option<BTreeMap<String, usize>>,
+}
+
+/// MCP servers on the agent's page. Filters `down` (a connection that is not up) and `disabled`;
+/// sorts `name` and `tools` (most first).
+pub struct McpListing;
+
+impl McpListing {
+    fn tool_count(item: &IntegrationItem) -> i64 {
+        match item.status {
+            IntegrationStatus::Running { tools } => tools.unwrap_or(0) as i64,
+            _ => 0,
+        }
+    }
+}
+
+impl Listing<IntegrationItem> for McpListing {
+    fn matches(&self, item: &IntegrationItem, q: &str) -> bool {
+        item.integration.name.to_lowercase().contains(q)
+    }
+
+    fn filter_keys(&self, _: &[IntegrationItem]) -> Vec<String> {
+        vec!["down".into(), "disabled".into()]
+    }
+
+    fn in_filter(&self, filter: &str, item: &IntegrationItem) -> bool {
+        match filter {
+            "down" => matches!(
+                item.status,
+                IntegrationStatus::Reconnecting { .. }
+                    | IntegrationStatus::Failed { .. }
+                    | IntegrationStatus::Unreachable { .. }
+            ),
+            "disabled" => !item.integration.enabled,
+            _ => false,
+        }
+    }
+
+    fn sort_key(&self, item: &IntegrationItem, sort: &str) -> SortKey {
+        match sort {
+            "tools" => SortKey::Num(Self::tool_count(item)),
+            _ => SortKey::text(&item.integration.name),
+        }
+    }
+
+    fn sorts(&self) -> &'static [&'static str] {
+        &["name", "tools"]
+    }
+
+    fn default_order(&self, sort: &str) -> SortOrder {
+        if sort == "tools" { SortOrder::Desc } else { SortOrder::Asc }
+    }
 }
 
 /// The agent, if the caller can view it; otherwise the `404` to answer with.
@@ -152,9 +210,9 @@ impl ItemContext<'_> {
 #[utoipa::path(
     get,
     path = "/agents/{agent_id}/integrations",
-    params(("agent_id" = String, Path, description = "Agent ID"), FamilyQuery),
+    params(("agent_id" = String, Path, description = "Agent ID"), FamilyQuery, ListQuery),
     responses(
-        (status = 200, description = "The agent's integrations", body = crate::channels::http::models::response::APIResponse<IntegrationList>),
+        (status = 200, description = "The agent's integrations. With `family=mcp` and `limit`, one page of them, with `total` and `counts`", body = crate::channels::http::models::response::APIResponse<IntegrationList>),
         (status = 404, description = "Agent not found or not visible")
     )
 )]
@@ -163,6 +221,7 @@ pub async fn list(
     Extension(user): Extension<AuthenticatedUser>,
     Path(agent_id): Path<String>,
     Query(query): Query<FamilyQuery>,
+    Query(paging): Query<ListQuery>,
 ) -> Response {
     let agent = match viewable_agent(&state, &user, &agent_id).await {
         Ok(agent) => agent,
@@ -183,18 +242,31 @@ pub async fn list(
         users: &users,
         statuses: &statuses,
     };
-    let items = integrations
+    let items: Vec<IntegrationItem> = integrations
         .iter()
         .filter(|i| query.family.is_none_or(|f| i.family == f))
         .map(|i| ctx.item(i))
         .collect();
+    let can_manage = can_manage_on_agent(Caller::from(&user), &agent);
+    // Paging is the MCP page's: the other families hold a handful of rows.
+    if paging.is_paged() && query.family == Some(IntegrationFamily::Mcp) {
+        return match paginate(items, &McpListing, &paging) {
+            Ok(page) => ok(
+                StatusCode::OK,
+                IntegrationList {
+                    family: query.family,
+                    can_manage,
+                    items: page.items,
+                    total: Some(page.total),
+                    counts: Some(page.counts),
+                },
+            ),
+            Err(e) => plain(StatusCode::BAD_REQUEST, e.code),
+        };
+    }
     ok(
         StatusCode::OK,
-        IntegrationList {
-            family: query.family,
-            can_manage: can_manage_on_agent(Caller::from(&user), &agent),
-            items,
-        },
+        IntegrationList { family: query.family, can_manage, items, total: None, counts: None },
     )
 }
 
