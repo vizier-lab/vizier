@@ -91,6 +91,11 @@ async fn abort_session_notify(
     if had_in_flight {
         seal_open_calls(storage, transport, session, None, StopReason::Aborted).await;
     }
+    // Nothing of the session is left to resume: the aborted turn and everything queued
+    // behind it are dropped, so a restart does not bring them back.
+    if let Err(e) = storage.cancel_session_turns(session).await {
+        tracing::warn!(agent_id = %session.0, "could not cancel the session's journaled turns: {e}");
+    }
     // The turn and its queue are gone, so a message sent straight after starts afresh.
     clear_idle_scratch(storage, session).await;
     if had_in_flight {
@@ -219,13 +224,7 @@ pub async fn agent_process(
                 // the turn in progress finishes first, and messages sent before or during
                 // the handover carry on after it, reading the new checkpoint (#57).
                 if is_handover_command(&request) && session_is_busy(&turns, &session_queues, &session) {
-                    let queue = session_queues.entry(session.clone()).or_default();
-                    // Ahead of queued messages, behind any handover already waiting.
-                    let position = queue
-                        .iter()
-                        .position(|(queued, _, _)| !is_handover_command(queued))
-                        .unwrap_or(queue.len());
-                    queue.insert(position, (request, response_tx, turn));
+                    queue_handover(session_queues.entry(session.clone()).or_default(), (request, response_tx, turn));
                     continue;
                 }
 
@@ -323,6 +322,15 @@ pub async fn agent_process(
     }
     hand_on_queued(session_queues, resumed_turns, &deps).await;
     Ok(())
+}
+
+/// Queues a handover ahead of the queued messages and behind any handover already waiting.
+fn queue_handover(queue: &mut SessionQueue, item: (VizierRequest, Option<flume::Sender<VizierResponse>>, TurnRef)) {
+    let position = queue
+        .iter()
+        .position(|(queued, _, _)| !is_handover_command(queued))
+        .unwrap_or(queue.len());
+    queue.insert(position, item);
 }
 
 /// A session with nothing running or queued loses its scratch files (`specs/020-scratchpad-tools`
@@ -1891,6 +1899,24 @@ mod session_turns_tests {
         assert_eq!(finished.session, session("a"));
         assert!(!turns.is_running(&session("a")));
         assert!(turns.is_running(&session("b")));
+    }
+
+    #[test]
+    fn handovers_re_sent_in_order_keep_their_place_ahead_of_messages() {
+        let req = |content| VizierRequest { content, ..Default::default() };
+        let chat = |t: &str| req(VizierRequestContent::Chat(t.into()));
+        let handover = || req(VizierRequestContent::Command("checkpoint".into()));
+        let mut queue = SessionQueue::new();
+        // Re-sent in acceptance order: message A, handover H, message B.
+        for item in [chat("A"), handover(), chat("B")] {
+            if is_handover_command(&item) {
+                queue_handover(&mut queue, (item, None, TurnRef::default()));
+            } else {
+                queue.push_back((item, None, TurnRef::default()));
+            }
+        }
+        let order: Vec<_> = queue.iter().map(|(r, _, _)| is_handover_command(r)).collect();
+        assert_eq!(order, vec![true, false, false]);
     }
 
     #[test]

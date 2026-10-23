@@ -181,8 +181,8 @@ on the same socket.
 
 **Independent Test**: quickstart §5 and §6.
 
-- [ ] T030 [US3] In `src/agents/process.rs`, call `cancel_session_turns(session)` wherever the queue is discarded: `abort_session_silent`/`abort_session_notify`, and the handover commands that abort. Do it after T008's sealing and before the `abort` frame is sent.
-- [ ] T031 [US3] Check that re-sent queued envelopes keep handover priority. They arrive in `id` order through the receive arm in `agent_process`, which applies the same `is_handover_command` insertion as live requests. Add a unit test on the queue-insertion step: a sequence `[running X, queued msg A, queued handover H, queued msg B]` re-sent in `id` order yields queue `[H, A, B]`, the same as the live order produced. Extract the insertion into a small fn if needed.
+- [X] T030 [US3] In `src/agents/process.rs`, call `cancel_session_turns(session)` wherever the queue is discarded: `abort_session_silent`/`abort_session_notify`, and the handover commands that abort. Do it after T008's sealing and before the `abort` frame is sent.
+- [X] T031 [US3] Check that re-sent queued envelopes keep handover priority. They arrive in `id` order through the receive arm in `agent_process`, which applies the same `is_handover_command` insertion as live requests. Add a unit test on the queue-insertion step: a sequence `[running X, queued msg A, queued handover H, queued msg B]` re-sent in `id` order yields queue `[H, A, B]`, the same as the live order produced. Extract the insertion into a small fn if needed.
 - [ ] T032 [US3] Dummyplug check: quickstart §5 and §6.
 
 **Checkpoint**: nothing waiting in a queue is lost to a restart.
