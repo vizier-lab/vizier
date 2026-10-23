@@ -11,6 +11,9 @@ pub struct AgentHealthStatus {
     pub agent_id: AgentId,
     /// `state == Running`, kept for clients that only read this.
     pub alive: bool,
+    /// A turn is running now. Filled by the HTTP handler from the session state, not the supervisor.
+    #[serde(default)]
+    pub live: bool,
     #[serde(default)]
     pub state: AgentRunState,
     /// Why the agent last failed to start or stopped running, while it is `Failed`.

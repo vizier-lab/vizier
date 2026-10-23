@@ -160,6 +160,7 @@ impl AgentStatus {
             channels: health_for(board, agent_id),
             agent_id: agent_id.clone(),
             alive: status.state == AgentRunState::Running,
+            live: false,
             state: status.state,
             last_error: status.last_error,
             failures: status.failures,

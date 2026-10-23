@@ -1139,7 +1139,13 @@ async fn health_check(
     State(state): State<HTTPState>,
 ) -> models::response::Response<Vec<AgentHealthStatus>> {
     match state.transport.agent_health().await {
-        Ok(statuses) => api_response(StatusCode::OK, statuses),
+        Ok(mut statuses) => {
+            let live = state.storage.thinking_agents().await.unwrap_or_default();
+            for s in &mut statuses {
+                s.live = s.alive && live.contains(&s.agent_id.to_string());
+            }
+            api_response(StatusCode::OK, statuses)
+        }
         Err(e) => err_response(StatusCode::SERVICE_UNAVAILABLE, e.to_string()),
     }
 }
