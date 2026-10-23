@@ -20,13 +20,101 @@
           "api::v1::agents"
         ],
         "operationId": "list_agents",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "path",
+            "description": "Free-text search, matched by the entity's own rule.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "filter",
+            "in": "path",
+            "description": "One filter key (e.g. `active`); `all` or absent means no filter.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "path",
+            "description": "The entity's sort key; an unknown one uses the default.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "order",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SortOrder"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "offset",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Present switches the response to a `Page`; clamped to 1..=100.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "List of agents",
+            "description": "List of agents; with `limit`, a page `{items, total, counts}` (filters `mine`, `live`, `failed`; sorts `last_active`, `name`)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/APIResponse_Vec_AgentSummary"
+                  "$ref": "#/components/schemas/APIResponse_Vec_AgentListItem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown filter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
                 }
               }
             }
@@ -988,6 +1076,16 @@
               }
             }
           },
+          "409": {
+            "description": "`base_seq` is not the current revision (`stale_revision`); `data` holds the current one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_CoreConflict"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal server error",
             "content": {
@@ -1140,6 +1238,160 @@
           },
           "404": {
             "description": "Agent or version not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/dream/cycles": {
+      "get": {
+        "tags": [
+          "api::v1::agents::dream"
+        ],
+        "operationId": "dream_cycles",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "path",
+            "description": "The `next` of the previous page: an RFC 3339 start time; cycles older than it follow.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "1–50; default 20.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dream cycles, newest first, with their changes and cost",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_DreamCycles"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/dream/nights": {
+      "get": {
+        "tags": [
+          "api::v1::agents::dream"
+        ],
+        "operationId": "dream_nights",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "days",
+            "in": "path",
+            "description": "1–90; default 30.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "tz",
+            "in": "path",
+            "description": "The person's UTC offset, e.g. `+07:00`; default UTC.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One entry per night, oldest first, with what each dream changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_DreamNights"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -1610,6 +1862,113 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/memory/bundles": {
+      "get": {
+        "tags": [
+          "api::v1::agents::memory"
+        ],
+        "operationId": "list_bundles",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "path",
+            "description": "Free-text search, matched by the entity's own rule.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "filter",
+            "in": "path",
+            "description": "One filter key (e.g. `active`); `all` or absent means no filter.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "path",
+            "description": "The entity's sort key; an unknown one uses the default.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "order",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SortOrder"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "offset",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Present switches the response to a `Page`; clamped to 1..=100.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bundles; with `limit`, a page `{items, total, counts}` (sorts `documents`, `updated`, `links`, `name`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Vec_BundleSummary"
                 }
               }
             }
@@ -2116,6 +2475,82 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "q",
+            "in": "path",
+            "description": "Free-text search, matched by the entity's own rule.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "filter",
+            "in": "path",
+            "description": "One filter key (e.g. `active`); `all` or absent means no filter.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "path",
+            "description": "The entity's sort key; an unknown one uses the default.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "order",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SortOrder"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "offset",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Present switches the response to a `Page`; clamped to 1..=100.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
           }
         ],
         "requestBody": {
@@ -2130,7 +2565,7 @@
         },
         "responses": {
           "200": {
-            "description": "List of tasks",
+            "description": "List of tasks; with `limit`, a page `{items, total, counts}` (filters `active`, `last_run_failed`; sorts `next_run`, `name`, `last_run`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4718,6 +5153,42 @@
           }
         }
       },
+      "APIResponse_CoreConflict": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "`data` of a `409 stale_revision`.",
+            "required": [
+              "latest_seq",
+              "content"
+            ],
+            "properties": {
+              "content": {
+                "type": "string"
+              },
+              "latest_seq": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_CoreContentResponse": {
         "type": "object",
         "required": [
@@ -4732,6 +5203,14 @@
             "properties": {
               "content": {
                 "type": "string"
+              },
+              "seq": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "The current revision, to send back as `base_seq`. Absent when CORE has no history yet."
               }
             }
           },
@@ -4984,6 +5463,88 @@
               },
               "used_by": {
                 "$ref": "#/components/schemas/UsedBy"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_DreamCycles": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "cycles"
+            ],
+            "properties": {
+              "cycles": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DreamCycle"
+                }
+              },
+              "next": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "description": "Pass as `before` for the next page; `null` at the end."
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_DreamNights": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "nights",
+              "unattributed"
+            ],
+            "properties": {
+              "nights": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DreamNight"
+                },
+                "description": "One per night, oldest first."
+              },
+              "unattributed": {
+                "type": "integer",
+                "format": "int32",
+                "description": "Dream revisions that belong to no cycle: written before cycles were recorded and\noutside every cycle's journal window.",
+                "minimum": 0
               }
             }
           },
@@ -6010,6 +6571,14 @@
                   }
                 ]
               },
+              "next_run": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "description": "When it runs next: a cron task's next occurrence, a one-time task's moment while it is\nstill ahead; `null` when inactive or finished."
+              },
               "requester": {
                 "$ref": "#/components/schemas/Requester"
               },
@@ -6326,6 +6895,48 @@
           }
         }
       },
+      "APIResponse_Vec_AgentListItem": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/AgentSummary"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "last_active": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    }
+                  }
+                }
+              ],
+              "description": "One row of `GET /agents`: the summary, plus when the agent was last active."
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_Vec_AgentSummary": {
         "type": "object",
         "required": [
@@ -6525,6 +7136,56 @@
                   "type": "integer",
                   "format": "int64",
                   "minimum": 0
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_Vec_BundleSummary": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "concept_count"
+              ],
+              "properties": {
+                "concept_count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "link_count": {
+                  "type": "integer",
+                  "description": "Links from this bundle's documents (to anywhere), for the \"Most linked\" sort.",
+                  "minimum": 0
+                },
+                "name": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
                 }
               }
             }
@@ -7347,6 +8008,14 @@
                     }
                   ]
                 },
+                "next_run": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time",
+                  "description": "When it runs next: a cron task's next occurrence, a one-time task's moment while it is\nstill ahead; `null` when inactive or finished."
+                },
                 "requester": {
                   "$ref": "#/components/schemas/Requester"
                 },
@@ -7720,6 +8389,26 @@
             "description": "Configuration that works but probably isn't what was meant (FR-033)."
           }
         }
+      },
+      "AgentListItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AgentSummary"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "last_active": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            }
+          }
+        ],
+        "description": "One row of `GET /agents`: the summary, plus when the agent was last active."
       },
       "AgentModelInfo": {
         "type": "object",
@@ -8116,6 +8805,34 @@
           }
         }
       },
+      "BundleSummary": {
+        "type": "object",
+        "required": [
+          "name",
+          "concept_count"
+        ],
+        "properties": {
+          "concept_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "link_count": {
+            "type": "integer",
+            "description": "Links from this bundle's documents (to anywhere), for the \"Most linked\" sort.",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "CallRow": {
         "type": "object",
         "required": [
@@ -8257,6 +8974,16 @@
             "description": "`bundled` (the build-time seed) or `cached` (a refreshed copy)."
           }
         }
+      },
+      "ChangeKind": {
+        "type": "string",
+        "description": "What a dream did to one document.",
+        "enum": [
+          "wrote",
+          "revised",
+          "removed",
+          "core"
+        ]
       },
       "ChangePasswordRequest": {
         "type": "object",
@@ -8678,6 +9405,23 @@
           }
         }
       },
+      "CoreConflict": {
+        "type": "object",
+        "description": "`data` of a `409 stale_revision`.",
+        "required": [
+          "latest_seq",
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "latest_seq": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "CoreContentResponse": {
         "type": "object",
         "required": [
@@ -8686,6 +9430,14 @@
         "properties": {
           "content": {
             "type": "string"
+          },
+          "seq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The current revision, to send back as `base_seq`. Absent when CORE has no history yet."
           }
         }
       },
@@ -9675,6 +10427,222 @@
           "total": {
             "type": "integer",
             "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "DreamChange": {
+        "type": "object",
+        "required": [
+          "kind",
+          "seq",
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bundle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Memory changes only."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChangeKind"
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The revision's `seq` (of the document, or of CORE)."
+          }
+        }
+      },
+      "DreamCycle": {
+        "type": "object",
+        "required": [
+          "cycle_id",
+          "started_at",
+          "state",
+          "sessions_read",
+          "sources",
+          "written",
+          "revised",
+          "removed",
+          "core",
+          "changes",
+          "more"
+        ],
+        "properties": {
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DreamChange"
+            },
+            "description": "At most [`MAX_CHANGES`]; `more` counts the rest."
+          },
+          "core": {
+            "type": "boolean"
+          },
+          "cost_usd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "cycle_id": {
+            "type": "string"
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "more": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "removed": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "revised": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sessions_read": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The conversations it read, by session slug."
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "$ref": "#/components/schemas/DreamCycleState"
+          },
+          "written": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "DreamCycleState": {
+        "type": "string",
+        "enum": [
+          "running",
+          "complete",
+          "failed"
+        ]
+      },
+      "DreamCycles": {
+        "type": "object",
+        "required": [
+          "cycles"
+        ],
+        "properties": {
+          "cycles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DreamCycle"
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Pass as `before` for the next page; `null` at the end."
+          }
+        }
+      },
+      "DreamNight": {
+        "type": "object",
+        "required": [
+          "date",
+          "memories",
+          "core"
+        ],
+        "properties": {
+          "core": {
+            "type": "boolean"
+          },
+          "cycle_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The latest cycle of the night."
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "memories": {
+            "type": "integer",
+            "format": "int32",
+            "description": "written + revised + removed",
+            "minimum": 0
+          },
+          "state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DreamCycleState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "DreamNights": {
+        "type": "object",
+        "required": [
+          "nights",
+          "unattributed"
+        ],
+        "properties": {
+          "nights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DreamNight"
+            },
+            "description": "One per night, oldest first."
+          },
+          "unattributed": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Dream revisions that belong to no cycle: written before cycles were recorded and\noutside every cycle's journal window.",
             "minimum": 0
           }
         }
@@ -12296,6 +13264,13 @@
           }
         ]
       },
+      "SortOrder": {
+        "type": "string",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      },
       "String": {
         "type": "string"
       },
@@ -12369,6 +13344,14 @@
                 "type": "null"
               }
             ]
+          },
+          "next_run": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When it runs next: a cron task's next occurrence, a one-time task's moment while it is\nstill ahead; `null` when inactive or finished."
           },
           "requester": {
             "$ref": "#/components/schemas/Requester"
@@ -12620,6 +13603,14 @@
           "content"
         ],
         "properties": {
+          "base_seq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The revision this edit started from (`seq` of `GET /core`). When CORE has moved on, the\nsave is refused with `409 stale_revision` instead of overwriting the newer text."
+          },
           "content": {
             "type": "string"
           }

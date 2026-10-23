@@ -228,6 +228,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agent_id}/dream/cycles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["dream_cycles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/dream/nights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["dream_nights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agent_id}/integrations": {
         parameters: {
             query?: never;
@@ -318,6 +350,22 @@ export interface paths {
         get: operations["get_all_memories"];
         put?: never;
         post: operations["create_memory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/memory/bundles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_bundles"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1028,9 +1076,25 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_CoreConflict: {
+            /** @description `data` of a `409 stale_revision`. */
+            data?: {
+                content: string;
+                /** Format: int64 */
+                latest_seq: number;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_CoreContentResponse: {
             data?: {
                 content: string;
+                /**
+                 * Format: int64
+                 * @description The current revision, to send back as `base_seq`. Absent when CORE has no history yet.
+                 */
+                seq?: number | null;
             };
             message?: string | null;
             /** Format: int32 */
@@ -1094,6 +1158,34 @@ export interface components {
                 protocol: components["schemas"]["CustomProtocol"];
                 reachable?: boolean | null;
                 used_by: components["schemas"]["UsedBy"];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_DreamCycles: {
+            data?: {
+                cycles: components["schemas"]["DreamCycle"][];
+                /**
+                 * Format: date-time
+                 * @description Pass as `before` for the next page; `null` at the end.
+                 */
+                next?: string | null;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_DreamNights: {
+            data?: {
+                /** @description One per night, oldest first. */
+                nights: components["schemas"]["DreamNight"][];
+                /**
+                 * Format: int32
+                 * @description Dream revisions that belong to no cycle: written before cycles were recorded and
+                 *     outside every cycle's journal window.
+                 */
+                unattributed: number;
             };
             message?: string | null;
             /** Format: int32 */
@@ -1348,6 +1440,12 @@ export interface components {
                 /** Format: date-time */
                 last_executed_at?: string | null;
                 last_run?: components["schemas"]["TaskRunResponse"] | null;
+                /**
+                 * Format: date-time
+                 * @description When it runs next: a cron task's next occurrence, a one-time task's moment while it is
+                 *     still ahead; `null` when inactive or finished.
+                 */
+                next_run?: string | null;
                 requester: components["schemas"]["Requester"];
                 schedule: components["schemas"]["TaskSchedule"];
                 slug: string;
@@ -1428,6 +1526,15 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_Vec_AgentListItem: {
+            data?: (components["schemas"]["AgentSummary"] & {
+                /** Format: date-time */
+                last_active?: string | null;
+            })[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_Vec_AgentSummary: {
             data?: {
                 agent_id: string;
@@ -1472,6 +1579,19 @@ export interface components {
                 state: components["schemas"]["JobState"];
                 /** Format: int64 */
                 timeout_secs: number;
+            }[];
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_Vec_BundleSummary: {
+            data?: {
+                concept_count: number;
+                /** @description Links from this bundle's documents (to anywhere), for the "Most linked" sort. */
+                link_count?: number;
+                name: string;
+                /** Format: date-time */
+                updated_at?: string | null;
             }[];
             message?: string | null;
             /** Format: int32 */
@@ -1682,6 +1802,12 @@ export interface components {
                 /** Format: date-time */
                 last_executed_at?: string | null;
                 last_run?: components["schemas"]["TaskRunResponse"] | null;
+                /**
+                 * Format: date-time
+                 * @description When it runs next: a cron task's next occurrence, a one-time task's moment while it is
+                 *     still ahead; `null` when inactive or finished.
+                 */
+                next_run?: string | null;
                 requester: components["schemas"]["Requester"];
                 schedule: components["schemas"]["TaskSchedule"];
                 slug: string;
@@ -1769,6 +1895,11 @@ export interface components {
             state?: components["schemas"]["AgentRunState"];
             /** @description Configuration that works but probably isn't what was meant (FR-033). */
             warnings?: string[];
+        };
+        /** @description One row of `GET /agents`: the summary, plus when the agent was last active. */
+        AgentListItem: components["schemas"]["AgentSummary"] & {
+            /** Format: date-time */
+            last_active?: string | null;
         };
         /** @description The model an agent runs on, with its effective limits and where they came from. */
         AgentModelInfo: {
@@ -1879,6 +2010,14 @@ export interface components {
             /** Format: int64 */
             tokens: number;
         };
+        BundleSummary: {
+            concept_count: number;
+            /** @description Links from this bundle's documents (to anywhere), for the "Most linked" sort. */
+            link_count?: number;
+            name: string;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
         CallRow: {
             activity: components["schemas"]["UsageActivity"];
             /** Format: date-time */
@@ -1917,6 +2056,11 @@ export interface components {
             /** @description `bundled` (the build-time seed) or `cached` (a refreshed copy). */
             source: string;
         };
+        /**
+         * @description What a dream did to one document.
+         * @enum {string}
+         */
+        ChangeKind: "wrote" | "revised" | "removed" | "core";
         ChangePasswordRequest: {
             current_password: string;
             new_password: string;
@@ -2027,8 +2171,19 @@ export interface components {
             no_link_reason?: components["schemas"]["NoLinkReason"] | null;
             summary: components["schemas"]["UsageSummary"];
         };
+        /** @description `data` of a `409 stale_revision`. */
+        CoreConflict: {
+            content: string;
+            /** Format: int64 */
+            latest_seq: number;
+        };
         CoreContentResponse: {
             content: string;
+            /**
+             * Format: int64
+             * @description The current revision, to send back as `base_seq`. Absent when CORE has no history yet.
+             */
+            seq?: number | null;
         };
         /** @description The three shapes `GET /history` can answer with, depending on the query. */
         CoreHistoryResponse: components["schemas"]["PaginatedCoreRevisions"] | components["schemas"]["CoreRevision"] | components["schemas"]["RevisionDiff"];
@@ -2279,6 +2434,77 @@ export interface components {
             status: string;
             /** Format: int64 */
             total: number;
+        };
+        DreamChange: {
+            /** Format: date-time */
+            at: string;
+            /** @description Memory changes only. */
+            bundle?: string | null;
+            kind: components["schemas"]["ChangeKind"];
+            path?: string | null;
+            /**
+             * Format: int64
+             * @description The revision's `seq` (of the document, or of CORE).
+             */
+            seq: number;
+        };
+        DreamCycle: {
+            /** @description At most [`MAX_CHANGES`]; `more` counts the rest. */
+            changes: components["schemas"]["DreamChange"][];
+            core: boolean;
+            /** Format: double */
+            cost_usd?: number | null;
+            cycle_id: string;
+            /** Format: date-time */
+            ended_at?: string | null;
+            model?: string | null;
+            /** Format: int32 */
+            more: number;
+            /** Format: int32 */
+            removed: number;
+            /** Format: int32 */
+            revised: number;
+            sessions_read: number;
+            /** @description The conversations it read, by session slug. */
+            sources: string[];
+            /** Format: date-time */
+            started_at: string;
+            state: components["schemas"]["DreamCycleState"];
+            /** Format: int32 */
+            written: number;
+        };
+        /** @enum {string} */
+        DreamCycleState: "running" | "complete" | "failed";
+        DreamCycles: {
+            cycles: components["schemas"]["DreamCycle"][];
+            /**
+             * Format: date-time
+             * @description Pass as `before` for the next page; `null` at the end.
+             */
+            next?: string | null;
+        };
+        DreamNight: {
+            core: boolean;
+            /** @description The latest cycle of the night. */
+            cycle_id?: string | null;
+            /** Format: date */
+            date: string;
+            /**
+             * Format: int32
+             * @description written + revised + removed
+             */
+            memories: number;
+            state?: components["schemas"]["DreamCycleState"] | null;
+        };
+        DreamNights: {
+            /** @description One per night, oldest first. */
+            nights: components["schemas"]["DreamNight"][];
+            /**
+             * Format: int32
+             * @description Dream revisions that belong to no cycle: written before cycles were recorded and
+             *     outside every cycle's journal window.
+             */
+            unattributed: number;
         };
         EmbeddingConfig: {
             model: string;
@@ -2990,6 +3216,8 @@ export interface components {
             /** @enum {string} */
             environment: "local";
         });
+        /** @enum {string} */
+        SortOrder: "asc" | "desc";
         String: string;
         /** @enum {string} */
         SttProvider: "openai" | "elevenlabs" | "groq" | "mistral" | "huggingface" | "gemini" | "whisper";
@@ -3007,6 +3235,12 @@ export interface components {
             /** Format: date-time */
             last_executed_at?: string | null;
             last_run?: components["schemas"]["TaskRunResponse"] | null;
+            /**
+             * Format: date-time
+             * @description When it runs next: a cron task's next occurrence, a one-time task's moment while it is
+             *     still ahead; `null` when inactive or finished.
+             */
+            next_run?: string | null;
             requester: components["schemas"]["Requester"];
             schedule: components["schemas"]["TaskSchedule"];
             slug: string;
@@ -3095,6 +3329,12 @@ export interface components {
             tokens: number;
         };
         UpdateCoreRequest: {
+            /**
+             * Format: int64
+             * @description The revision this edit started from (`seq` of `GET /core`). When CORE has moved on, the
+             *     save is refused with `409 stale_revision` instead of overwriting the newer text.
+             */
+            base_seq?: number | null;
             content: string;
         };
         UpdateIntegration: {
@@ -3365,18 +3605,38 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description Free-text search, matched by the entity's own rule. */
+                q: string | null;
+                /** @description One filter key (e.g. `active`); `all` or absent means no filter. */
+                filter: string | null;
+                /** @description The entity's sort key; an unknown one uses the default. */
+                sort: string | null;
+                order: components["schemas"]["SortOrder"] | null;
+                offset: number | null;
+                /** @description Present switches the response to a `Page`; clamped to 1..=100. */
+                limit: number | null;
+            };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description List of agents */
+            /** @description List of agents; with `limit`, a page `{items, total, counts}` (filters `mine`, `live`, `failed`; sorts `last_active`, `name`) */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["APIResponse_Vec_AgentSummary"];
+                    "application/json": components["schemas"]["APIResponse_Vec_AgentListItem"];
+                };
+            };
+            /** @description Unknown filter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
                 };
             };
         };
@@ -4013,6 +4273,15 @@ export interface operations {
                     "application/json": components["schemas"]["APIResponse_String"];
                 };
             };
+            /** @description `base_seq` is not the current revision (`stale_revision`); `data` holds the current one */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_CoreConflict"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -4087,6 +4356,96 @@ export interface operations {
                 };
             };
             /** @description Agent or version not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    dream_cycles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description The `next` of the previous page: an RFC 3339 start time; cycles older than it follow. */
+                before: string | null;
+                /** @description 1–50; default 20. */
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dream cycles, newest first, with their changes and cost */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_DreamCycles"];
+                };
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Agent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    dream_nights: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description 1–90; default 30. */
+                days: number | null;
+                /** @description The person's UTC offset, e.g. `+07:00`; default UTC. */
+                tz: string | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One entry per night, oldest first, with what each dream changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_DreamNights"];
+                };
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Agent not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4452,6 +4811,39 @@ export interface operations {
             };
         };
     };
+    list_bundles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Free-text search, matched by the entity's own rule. */
+                q: string | null;
+                /** @description One filter key (e.g. `active`); `all` or absent means no filter. */
+                filter: string | null;
+                /** @description The entity's sort key; an unknown one uses the default. */
+                sort: string | null;
+                order: components["schemas"]["SortOrder"] | null;
+                offset: number | null;
+                /** @description Present switches the response to a `Page`; clamped to 1..=100. */
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bundles; with `limit`, a page `{items, total, counts}` (sorts `documents`, `updated`, `links`, `name`) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Vec_BundleSummary"];
+                };
+            };
+        };
+    };
     get_memory_history: {
         parameters: {
             query?: never;
@@ -4759,6 +5151,16 @@ export interface operations {
             path: {
                 /** @description Agent ID */
                 agent_id: string;
+                /** @description Free-text search, matched by the entity's own rule. */
+                q: string | null;
+                /** @description One filter key (e.g. `active`); `all` or absent means no filter. */
+                filter: string | null;
+                /** @description The entity's sort key; an unknown one uses the default. */
+                sort: string | null;
+                order: components["schemas"]["SortOrder"] | null;
+                offset: number | null;
+                /** @description Present switches the response to a `Page`; clamped to 1..=100. */
+                limit: number | null;
             };
             cookie?: never;
         };
@@ -4768,7 +5170,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description List of tasks */
+            /** @description List of tasks; with `limit`, a page `{items, total, counts}` (filters `active`, `last_run_failed`; sorts `next_run`, `name`, `last_run`) */
             200: {
                 headers: {
                     [name: string]: unknown;
