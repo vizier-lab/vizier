@@ -1,3 +1,4 @@
+// lint-tokens-exempt: the palette of a sandboxed iframe, where the app's CSS variables do not reach.
 // The documents an interactive page is drawn from (`srcdoc`) and downloaded as. Pure and
 // free of JSX, so they can be unit-tested (`node --test app/lib/pageDocument.test.ts`).
 

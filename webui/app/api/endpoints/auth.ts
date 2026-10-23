@@ -47,6 +47,7 @@ export const deleteApiKey = (id: string) => api.delete<string>(`/auth/api-keys/$
 
 export type Role = { role_id: string; name: string; permissions: string[]; is_system: boolean; created_at: string; people: number }
 export const availablePermissions = () => api.get<{ permissions: string[] }>('/auth/roles/available-permissions').then((r) => r?.permissions ?? [])
+export const getRole = (id: string) => api.get<Role>(`/auth/roles/${encodeURIComponent(id)}`)
 export const createRole = (name: string, permissions: string[]) => api.post<Role>('/auth/roles', { name, permissions })
 export const updateRole = (id: string, name: string, permissions: string[]) => api.put<void>(`/auth/roles/${encodeURIComponent(id)}`, { name, permissions })
 export const deleteRole = (id: string) => api.delete<void>(`/auth/roles/${encodeURIComponent(id)}`)

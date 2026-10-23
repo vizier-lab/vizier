@@ -8,7 +8,8 @@
     "typecheck": "react-router typegen && tsc",
     "test": "vitest run",
     "e2e": "playwright test",
-    "gen:api": "openapi-typescript openapi.json -o app/api/schema.d.ts"
+    "gen:api": "openapi-typescript openapi.json -o app/api/schema.d.ts",
+    "lint:tokens": "node ../design/scripts/lint-tokens.mjs app"
   },
   "dependencies": {
     "@react-router/node": "^7.12.0",

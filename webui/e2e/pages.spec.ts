@@ -97,7 +97,7 @@ test.describe('Day-to-day pages (quickstart §5, §7)', () => {
     test('Memory: a document opens from its bundle, with its links', async ({ page }) => {
         await page.goto(`/${AGENT}/memory`)
         await expect(page.getByRole('heading', { name: 'Memory' })).toBeVisible()
-        await page.getByRole('button', { name: 'New memory' }).click()
+        await page.getByRole('button', { name: 'New memory' }).first().click()
         const bundle = unique('e2e')
         const dialog = page.getByRole('dialog')
         await dialog.getByLabel('Bundle').fill(bundle)

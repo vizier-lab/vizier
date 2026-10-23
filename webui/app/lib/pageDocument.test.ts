@@ -1,3 +1,4 @@
+// lint-tokens-exempt: asserts the sandboxed-iframe palette in pageDocument.ts.
 // Unit tests for the interactive page documents (specs/019-client-tools R12, FR-026b).
 //
 //   cd webui && npx vitest run app/lib/pageDocument.test.ts

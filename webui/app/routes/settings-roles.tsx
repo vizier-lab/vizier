@@ -1,8 +1,7 @@
 import { Button, Card, Dialog, EmptyState, Eyebrow, FilterTabs, Notice, PermissionGroup, PermissionRow, Pagination, RoleRow, SearchField, Skeleton, SortSelect, TextField } from '@vizier/design'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { paged } from '../api/client'
-import { availablePermissions, createRole, deleteRole, updateRole, type Role } from '../api/endpoints/auth'
+import { availablePermissions, getRole, createRole, deleteRole, updateRole, type Role } from '../api/endpoints/auth'
 import { count } from '../lib/format'
 import { groupsFor, permissionCount } from '../lib/permissions'
 import { usePagedList } from '../lib/usePagedList'
@@ -47,7 +46,7 @@ export default function SettingsRoles() {
     useEffect(() => {
         if (!selectedId || items.some((r) => r.role_id === selectedId) || loose?.role_id === selectedId) return
         let live = true
-        paged<Role>('/auth/roles', { limit: 100, sort: 'people' }).then((p) => live && setLoose(p?.items.find((r) => r.role_id === selectedId)))
+        getRole(selectedId).then((r) => live && setLoose(r), () => live && setLoose(undefined))
         return () => {
             live = false
         }

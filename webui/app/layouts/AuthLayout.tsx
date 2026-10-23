@@ -21,7 +21,7 @@ export default function AuthLayout() {
         <div className="grid min-h-screen grid-cols-1 bg-ground text-fg lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <aside className="relative hidden bg-ground lg:block" aria-label="Vizier">
                 <LedBoard className="absolute inset-0" />
-                <div className="absolute inset-x-0 bottom-0 flex flex-col gap-16 px-72 pb-64">
+                <div className="absolute inset-x-0 bottom-0 flex flex-col gap-16 px-48 pb-48">
                     <Wordmark size={56} />
                     <p className="type-heading text-fg">A digital steward for Your Majesty.</p>
                     <p className="max-w-sm type-ui-para text-muted">AI agents that remember who they are, and who you are. Hosted by you.</p>
