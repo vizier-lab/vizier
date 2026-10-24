@@ -95,8 +95,14 @@ jobs:
         env:
           PR_NUMBER: ${{ github.event.issue.number || inputs.pr }}
         run: |
-          gh pr view "$PR_NUMBER" --json headRefName,headRefOid,headRepositoryOwner \
-            --jq '"branch=\(.headRefName)\nhead_sha=\(.headRefOid)\nowner=\(.headRepositoryOwner.login)"' \
+          # This runs before the checkout, so there is no repository to infer
+          # from the working directory: name it explicitly, or `gh` fails with
+          # "not a git repository" and the outputs stay empty. `pipefail` keeps
+          # that failure from being swallowed by the `tee` pipe.
+          set -euo pipefail
+          gh pr view "$PR_NUMBER" -R "$GITHUB_REPOSITORY" \
+            --json headRefName,headRefOid,headRepositoryOwner \
+            --jq '"branch=\(.headRefName)\nhead_sha=\(.headRefOid)\nowner=\(.headRepositoryOwner.login // "")"' \
             | tee -a "$GITHUB_OUTPUT"
           echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
