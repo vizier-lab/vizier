@@ -5,7 +5,7 @@ import { cx } from "../../lib/cx";
 export type TrailHeadProps = {
   /** Live while the turn works; done once it answered; failed when it ended in an error. */
   state: "live" | "done" | "failed";
-  /** "Worked 18.4s", "Failed after 12.0s"; while live, a line like "Archivist is gathering thoughts" (the three wave dots follow it). */
+  /** "Worked 18.4s", "Failed after 12.0s"; while live, a line like "Archivist is gathering thoughts" (three dots follow it). */
   title: ReactNode;
   /** "3 python runs · 4 passages". */
   counts?: ReactNode;
@@ -28,10 +28,10 @@ export function TrailHead({ state, title, counts, expanded = true, plain, type =
       {state === "failed" && <span aria-hidden className="size-6 shrink-0 rounded-pill bg-failed" />}
       <span className={cx("type-small-medium", state === "failed" ? "text-failed-text" : "text-fg")}>{title}</span>
       {state === "live" && (
-        // The same three dots as Thinking: two quiet, the last live.
+        // Three dots; the same wave as Thinking, brightest in the live colour.
         <span aria-hidden className="flex shrink-0 gap-4">
-          {["bg-muted", "bg-muted", "bg-live"].map((c, i) => (
-            <span key={i} className={cx("size-5 rounded-pill animate-dot-wave motion-reduce:animate-none", c)} style={{ animationDelay: `${i * 0.2}s` }} />
+          {[0, 1, 2].map((i) => (
+            <span key={i} className="size-5 rounded-pill bg-muted animate-dot-wave-live motion-reduce:animate-none motion-reduce:last:bg-live" style={{ animationDelay: `${i * 0.2}s` }} />
           ))}
         </span>
       )}

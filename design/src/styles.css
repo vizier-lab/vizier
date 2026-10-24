@@ -83,6 +83,12 @@
     0%, 100% { opacity: 0.35; }
     50% { opacity: 1; }
   }
+  /* dot-wave, with the brightest moment in the live colour: the same wave, tinted at its peak. */
+  --animate-dot-wave-live: dot-wave-live 1.2s ease-in-out infinite;
+  @keyframes dot-wave-live {
+    0%, 100% { background-color: var(--color-muted); opacity: 0.35; }
+    50% { background-color: var(--color-live); opacity: 1; }
+  }
   /* Skeleton shimmer and indeterminate progress. */
   --animate-shimmer: shimmer 1.6s ease-in-out infinite;
   @keyframes shimmer {
