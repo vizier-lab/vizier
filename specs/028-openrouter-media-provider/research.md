@@ -60,7 +60,7 @@ The previous TTS default `openai/gpt-4o-mini-tts-2025-12-15` is **not in the liv
 
 **Decision**: Replace `OpenAiImages.sizing` with `ImageApi::{Generations(ImageSizing), OpenRouter}` (set by the factory). `OpenRouter`:
 - posts to `/images` (base already ends in `/api/v1`);
-- sends `{model, prompt}` plus `size` exactly as configured only when a size was requested (no `response_format`, no `parse_size` rewrite);
+- sends `{model, prompt}` plus `size` exactly as supplied by the call or the agent's configured fallback, only when present (no `response_format`, no `parse_size` rewrite);
 - decodes `data[0].b64_json` and reads `data[0].media_type`; falls back to `image/png` only when the field is absent; for a `url` reply, keeps the existing Content-Type logic;
 - returns `(bytes, mime)` to the tool, which chooses the default extension from the MIME.
 

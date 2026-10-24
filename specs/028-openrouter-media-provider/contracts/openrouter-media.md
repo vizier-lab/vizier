@@ -70,7 +70,7 @@ The existing `OpenAiStt` sends exactly the first three. Multipart is documented 
 }
 ```
 
-- `size` is optional and sent only when the agent/tool supplied one. The string is passed through as configured: explicit pixels (`WxH`) or a tier (`2K`); OpenRouter normalizes it per provider. Do **not** send `size` with a client-chosen default when the setting is empty, and do not rewrite a malformed value to `256x256` (let OpenRouter explain it).
+- `size` is optional. It comes from the `image_generate` call's `size` argument; when the call omits it, the agent's configured `image_gen_settings.size` is the fallback, and when both are empty it is omitted so OpenRouter chooses. The string is passed through as configured: explicit pixels (`WxH`) or a tier (`2K`); OpenRouter normalizes it per provider. Do **not** rewrite a malformed value to `256x256` (let OpenRouter explain it).
 - Do **not** send `response_format`; it is an OpenAI `/images/generations` field and is not part of the OpenRouter `/images` schema.
 - Single prompt, single result; no reference images, streaming, `n` or provider routing.
 
