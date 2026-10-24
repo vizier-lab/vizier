@@ -40,3 +40,23 @@ export const Modal: Story = {
     );
   },
 };
+
+/**
+ * The panel as it actually appears. A native dialog is sized by the browser
+ * (fit-content), so this story fails if the panel ever loses its size.
+ */
+export const Open: Story = {
+  render: function Render(args) {
+    return <SlideOver {...args} open onClose={() => {}} />;
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = canvasElement.querySelector("dialog");
+    if (!dialog) throw new Error("no dialog");
+    const box = dialog.getBoundingClientRect();
+    if (box.width < 200 || box.height < 200) {
+      throw new Error(`the panel has no size: ${box.width}x${box.height}`);
+    }
+    const heading = canvasElement.querySelector("h2")?.getBoundingClientRect();
+    if (!heading || heading.width < 100) throw new Error("the panel is not showing");
+  },
+};

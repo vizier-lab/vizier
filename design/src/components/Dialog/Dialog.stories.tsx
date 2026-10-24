@@ -47,3 +47,26 @@ export const Modal: Story = {
     );
   },
 };
+
+/**
+ * The dialog as it actually appears. A native dialog is sized by the browser
+ * (fit-content), so this story fails if the dialog and its panel ever lose
+ * their size again.
+ */
+export const Open: Story = {
+  render: function Render(args) {
+    return <Dialog {...args} open onCancel={() => {}} onConfirm={() => {}} />;
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = canvasElement.querySelector("dialog");
+    if (!dialog) throw new Error("no dialog");
+    const box = dialog.getBoundingClientRect();
+    if (box.width < 200 || box.height < 200) {
+      throw new Error(`the dialog has no size: ${box.width}x${box.height}`);
+    }
+    const panel = dialog.querySelector("[role='dialog'], h2")?.getBoundingClientRect();
+    if (!panel || panel.width < 100 || panel.height < 40) {
+      throw new Error("the dialog panel is not showing");
+    }
+  },
+};

@@ -104,7 +104,10 @@ export function Dialog({ open, onCancel, ...panel }: DialogProps) {
         e.preventDefault();
         onCancel();
       }}
-      className="fixed inset-0 m-0 max-h-none max-w-none bg-transparent p-0 backdrop:bg-transparent"
+      // A native dialog is sized fit-content by the browser, so it needs its
+      // own size: the scrim and panel inside are absolute, and would
+      // otherwise give it nothing to size to.
+      className="fixed inset-0 h-dvh w-full m-0 max-h-none max-w-none bg-transparent p-0 backdrop:bg-transparent"
     >
       <Presence onExitComplete={onExitComplete}>
         {open && <motion.div key="scrim" aria-hidden {...scrimMotion} className="absolute inset-0 bg-ground/60" />}
@@ -132,7 +135,10 @@ export function Modal({ open, onClose, label, children }: { open: boolean; onClo
         e.preventDefault();
         onClose();
       }}
-      className="fixed inset-0 m-0 max-h-none max-w-none bg-transparent p-0 backdrop:bg-transparent"
+      // A native dialog is sized fit-content by the browser, so it needs its
+      // own size: the scrim and panel inside are absolute, and would
+      // otherwise give it nothing to size to.
+      className="fixed inset-0 h-dvh w-full m-0 max-h-none max-w-none bg-transparent p-0 backdrop:bg-transparent"
     >
       <Presence onExitComplete={onExitComplete}>
         {open && <motion.div key="scrim" aria-hidden {...scrimMotion} className="absolute inset-0 bg-ground/60" />}
