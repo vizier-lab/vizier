@@ -25,6 +25,8 @@ export type ComposerProps = {
   voice?: ReactNode;
   /** Under the composer: the "Ask for a spoken reply" switch. */
   below?: ReactNode;
+  /** Laid over the input box exactly (a DropZone overlay while files are dragged in). */
+  overlay?: ReactNode;
   /** The agent's skills, for the slash menu. */
   skills?: SkillMenuItem[];
   /** The context meter beside Send. */
@@ -52,6 +54,7 @@ export function Composer({
   recording,
   voice,
   below,
+  overlay,
   skills = [],
   context,
   tokenText,
@@ -178,6 +181,7 @@ export function Composer({
             )}
           </div>
         </div>
+        {overlay}
       </div>
       {below}
     </div>

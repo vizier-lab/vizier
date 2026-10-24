@@ -35,7 +35,7 @@ export function DropZone({ onFiles, look = "inline", active, accept, multiple = 
     if (!active) return null;
     return (
       <div
-        className={cx("absolute inset-16 z-20 flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-border-hover bg-ground/90", className)}
+        className={cx("absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border-hover bg-ground/90", className)}
         {...handlers}
         {...rest}
       >
