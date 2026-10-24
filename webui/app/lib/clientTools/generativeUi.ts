@@ -20,7 +20,7 @@ export const UI_RENDER_DESCRIPTION = [
     'Events: "on":{"press":{"action":"setState","params":{"statePath":"/tab","value":"b"}}}. Actions: setState, pushState, removeState, validateForm, sendMessage {text,data} (sends a message as the person), run {fn,args,into} (calls a function from "logic").',
     '"logic" holds small pure JS functions {"name":{"params":["a"],"body":"return …"}} for rules and maths; they run locally, with no network or page access. State keys starting "_" are derived and not saved.',
     'Show files of this conversation with Image/Audio/Video/FileCard/Gallery by file name (see list_session_files); make the file first. Link takes https/http/mailto only.',
-    'Limits: 256 KB, 1500 elements, depth 16. A mistake returns every problem with the valid options; fix and call again.',
+    'Write the spec once and call ui_render in the same script: it checks everything and returns every problem with the valid options, so do not build it first to test. One ui_components(names=[…]) for all the components you will use is usually enough. Every element must be reachable from root. Limits: 256 KB, 1500 elements.',
     'Returns {"ui_id","status":"rendered"}. The person sees it after your turn, so do all other work first.',
 ].join('\n')
 
