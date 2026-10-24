@@ -17,6 +17,8 @@ export type ComponentDef = {
   children: ChildRule;
   /** Events the component emits, for `on`. */
   events: readonly string[];
+  /** Where it may appear: only as a descendant of this component (the 3D parts inside `Scene3D`). */
+  parent?: "Scene3D";
   /** A minimal valid element: its props, and whether it is shown with a child. */
   example: { props: Record<string, unknown>; children?: boolean };
 };

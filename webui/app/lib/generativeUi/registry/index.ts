@@ -2,6 +2,9 @@
 // be built apart; this file lists them for json-render's `Renderer`.
 import type { ComponentRegistry } from '@json-render/react'
 import { ButtonC } from './action'
+import { Canvas2DC } from './canvas2d'
+import { EffectC } from './control'
+import { scene3dRegistry } from './scene3d'
 import { ChartC, KeyValueC, ProgressC, StatC, TableC } from './data'
 import { CheckboxC, NumberInputC, RadioGroupC, SelectC, SliderC, SwitchC, TextInputC } from './input'
 import { CardC, DividerC, FoldC, GridC, RowC, StackC, TabsC } from './layout'
@@ -33,4 +36,7 @@ export const registry: ComponentRegistry = {
     Switch: SwitchC,
     RadioGroup: RadioGroupC,
     Button: ButtonC,
+    Canvas2D: Canvas2DC,
+    Effect: EffectC,
+    ...scene3dRegistry,
 }

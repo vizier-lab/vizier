@@ -12,6 +12,7 @@ import { COMPUTED_FUNCTIONS } from '../../../lib/generativeUi/functions'
 import { guarded } from '../../../lib/generativeUi/registry/guard'
 import { registry as baseRegistry } from '../../../lib/generativeUi/registry/index'
 import { createPageState, saveable, type PageState } from '../../../lib/generativeUi/state'
+import { useLogicRunner } from '../../../lib/generativeUi/logic/useLogic'
 import { currentChainIsTrusted } from '../../../lib/generativeUi/trust'
 import { formatIssues, validateUi, type UiSpec } from '../../../lib/generativeUi/validate'
 import { collectWatches, startWatching, type WatchBinding } from '../../../lib/generativeUi/watch'
@@ -88,10 +89,12 @@ function Drawn({ call, ctx, spec, title }: { call: ClientCallView; ctx: ClientCa
         if (JSON.stringify(saveable(incoming as Record<string, unknown>)) !== current) page.mergeRemote(incoming as Record<string, unknown>)
     }, [call.state, page])
 
+    const runLogic = useLogicRunner(spec.logic)
     const handlers = useMemo(
         () =>
             createActionHandlers({
                 store: page.store,
+                runLogic,
                 sendEvent: (text, data) => ctxRef.current.sendEvent(text, data),
                 isTrusted: currentChainIsTrusted,
                 onSent: () => {
@@ -105,7 +108,7 @@ function Drawn({ call, ctx, spec, title }: { call: ClientCallView; ctx: ClientCa
                 },
                 onOk: () => setLogicError(null),
             }),
-        [page]
+        [page, runLogic]
     )
 
     const renderSpec = useMemo(() => withoutWatch(spec), [spec])

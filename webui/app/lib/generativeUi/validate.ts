@@ -223,6 +223,22 @@ export function validateUi(args: unknown, ctx: ValidateContext = {}): Validated 
     const logic = checkLogic(spec.logic, issues)
     if (spec.state !== undefined && !isObject(spec.state)) issues.push({ path: 'spec.state', message: 'must be an object' })
 
+    // Who each element's parent is, for the rule that 3D parts live inside a Scene3D.
+    const parentOf = new Map<string, string>()
+    for (const [key, element] of Object.entries(elements)) {
+        if (!isObject(element)) continue
+        const kids = [...((element.children as string[] | undefined) ?? []), ...Object.values((element.slots as Record<string, string[]> | undefined) ?? {}).flat()]
+        for (const kid of kids) if (typeof kid === 'string') parentOf.set(kid, key)
+    }
+    const insideScene = (key: string): boolean => {
+        for (let at = parentOf.get(key), hops = 0; at !== undefined && hops < LIMITS.depth + 2; at = parentOf.get(at), hops++) {
+            const type = (elements[at] as { type?: string } | undefined)?.type
+            if (type === 'Scene3D') return true
+            if (type !== 'Group3D') return false
+        }
+        return false
+    }
+
     for (const key of keys) {
         const element = elements[key]
         const path = `elements.${key}`
@@ -241,6 +257,24 @@ export function validateUi(args: unknown, ctx: ValidateContext = {}): Validated 
             continue
         }
         checkProps(key, def, element.props, issues, ctx)
+
+        if (def.parent && !insideScene(key)) issues.push({ path: `${path}.type`, message: `${def.name} is a 3D part: put it inside a Scene3D (or a Group3D inside one)` })
+        if (def.children === 'three_d') {
+            for (const child of (element.children as string[] | undefined) ?? []) {
+                const childDef = catalog[(elements[child] as { type?: string } | undefined)?.type ?? '']
+                if (childDef && !childDef.parent) issues.push({ path: `${path}.children`, message: `${def.name} holds 3D parts only; "${child}" is a ${childDef.name}` })
+            }
+        }
+        if (def.name === 'Heightfield' && isObject(element.props)) {
+            const { resolution, heights } = element.props
+            if (typeof resolution === 'number' && Array.isArray(heights) && heights.length !== resolution * resolution) {
+                issues.push({ path: `${path}.props.heights`, message: `has ${heights.length} numbers; resolution ${resolution} needs ${resolution * resolution} (resolution², row by row)` })
+            }
+        }
+        if (isObject(element.repeat) && typeof element.repeat.statePath === 'string' && isObject(spec.state)) {
+            const list = element.repeat.statePath.split('/').filter(Boolean).reduce<unknown>((at, part) => (isObject(at) || Array.isArray(at) ? (at as Record<string, unknown>)[part] : undefined), spec.state)
+            if (Array.isArray(list) && list.length > LIMITS.repeatItems) issues.push({ path: `${path}.repeat`, message: `repeats ${list.length} items; the limit is ${LIMITS.repeatItems}` })
+        }
 
         const children = [...((element.children as string[] | undefined) ?? []), ...Object.values((element.slots as Record<string, string[]> | undefined) ?? {}).flat()]
         if (def.children === 'none' && children.length > 0) issues.push({ path: `${path}.children`, message: `${def.name} cannot have children` })

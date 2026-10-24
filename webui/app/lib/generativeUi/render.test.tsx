@@ -43,4 +43,21 @@ describe('drawing the recipes', () => {
         expect(html).not.toContain('Tabs and filters change what is shown')
         expect(html).not.toContain('could not be drawn')
     })
+
+    it('draws the board as 64 pressable cells with their pieces', () => {
+        const html = draw('board_game')
+        expect(html.match(/<button/g)?.length).toBe(64 + 1)
+        expect(html).toContain('♔')
+        expect(html).toContain('White')
+        expect(html).toContain('Ask the agent for a move')
+        expect(html).not.toContain('could not be drawn')
+    })
+
+    it('draws the 2D canvas with its shapes', () => {
+        const html = draw('canvas_2d')
+        expect(html).toContain('<svg')
+        expect(html).toContain('<circle')
+        expect(html).toContain('viewBox="0 0 200 100"')
+        expect(html).not.toContain('could not be drawn')
+    })
 })

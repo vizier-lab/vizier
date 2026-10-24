@@ -94,6 +94,41 @@ describe('validateUi', () => {
     })
 })
 
+describe('surfaces', () => {
+    const scene = (extra: Record<string, unknown>) => ({
+        title: 'T',
+        spec: { root: 's', elements: { s: { type: 'Scene3D', props: {}, children: ['x'] }, x: { type: 'Box', props: {} }, ...extra } },
+    })
+
+    it('accepts a 3D part inside a scene, directly or in a group', () => {
+        expect(validateUi(scene({})).ok).toBe(true)
+        expect(validateUi({ title: 'T', spec: { root: 's', elements: { s: { type: 'Scene3D', props: {}, children: ['g'] }, g: { type: 'Group3D', props: {}, children: ['x'] }, x: { type: 'Box', props: {} } } } }).ok).toBe(true)
+    })
+
+    it('refuses a 3D part outside a scene and a 2D child inside one', () => {
+        const outside = messages({ title: 'T', spec: { root: 'a', elements: { a: { type: 'Stack', props: {}, children: ['x'] }, x: { type: 'Box', props: {} } } } })
+        expect(outside[0]).toContain('Box is a 3D part: put it inside a Scene3D')
+        const inside = messages({ title: 'T', spec: { root: 's', elements: { s: { type: 'Scene3D', props: {}, children: ['t'] }, t: { type: 'Text', props: { text: 'x' } } } } })
+        expect(inside.join('\n')).toContain('Scene3D holds 3D parts only; "t" is a Text')
+    })
+
+    it('checks a heightfield has resolution² heights and a resolution within the limit', () => {
+        const field = (props: Record<string, unknown>) => scene({ x: { type: 'Heightfield', props: { size: [10, 10], ...props } } })
+        expect(messages(field({ resolution: 3, heights: [0, 0, 0] }))[0]).toContain('has 3 numbers; resolution 3 needs 9')
+        expect(messages(field({ resolution: 500, heights: [] })).join('\n')).toMatch(/resolution/)
+        expect(validateUi(field({ resolution: 2, heights: [0, 1, 1, 0] })).ok).toBe(true)
+        expect(validateUi(field({ resolution: 3, heights: { $state: '/_h' } })).ok).toBe(true)
+    })
+
+    it('limits shapes and repeated items', () => {
+        const shapes = Array.from({ length: 5001 }, () => ({ kind: 'rect' }))
+        expect(messages({ title: 'T', spec: { root: 'c', elements: { c: { type: 'Canvas2D', props: { width: 10, height: 10, shapes } } } } }).join('\n')).toMatch(/shapes/)
+        const items = Array.from({ length: 2049 }, (_, i) => i)
+        const out = messages({ title: 'T', spec: { root: 'a', state: { items }, elements: { a: { type: 'Stack', props: {}, repeat: { statePath: '/items' }, children: ['b'] }, b: { type: 'Divider', props: {} } } } })
+        expect(out.join('\n')).toContain('repeats 2049 items; the limit is 2048')
+    })
+})
+
 describe('formatIssues', () => {
     it('lists every problem, caps at 20 and never echoes the spec', () => {
         const issues = Array.from({ length: 25 }, (_, i) => ({ path: `elements.e${i}.type`, message: 'bad' }))
