@@ -12,6 +12,8 @@ import {
 } from '@vizier/design'
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router'
+import { motion } from 'motion/react'
+import { motionDurations, motionEases } from '@vizier/design'
 import { agentState } from '../api/endpoints/agents'
 import { relativeTime } from '../lib/format'
 import { read, write } from '../lib/remember'
@@ -243,7 +245,23 @@ export default function AppShell() {
                     />
                 )}
                 <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    <Outlet />
+                    {/* Each screen rises into place, so the shell feels like one
+                        room the person moves through rather than a set of cuts. */}
+                    <motion.div
+                        key={pathname}
+                        className="flex min-h-0 min-w-0 flex-1 flex-col"
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{
+                            opacity: 1,
+                            y: 0,
+                            transition: {
+                                duration: motionDurations.base,
+                                ease: motionEases.arrive,
+                            },
+                        }}
+                    >
+                        <Outlet />
+                    </motion.div>
                 </main>
                 <SlideOver
                     open={navOpen}
@@ -263,7 +281,23 @@ export default function AppShell() {
         <div className="flex h-screen bg-ground text-fg" onClick={onClick}>
             {sidebar(false)}
             <main className="flex min-w-0 flex-1 flex-col">
-                <Outlet />
+                {/* Each screen rises into place, so the shell feels like one
+                    room the person moves through rather than a set of cuts. */}
+                <motion.div
+                    key={pathname}
+                    className="flex min-h-0 min-w-0 flex-1 flex-col"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{
+                        opacity: 1,
+                        y: 0,
+                        transition: {
+                            duration: motionDurations.base,
+                            ease: motionEases.arrive,
+                        },
+                    }}
+                >
+                    <Outlet />
+                </motion.div>
             </main>
             <ToastRegion />
         </div>

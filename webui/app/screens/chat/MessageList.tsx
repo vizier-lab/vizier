@@ -12,6 +12,8 @@ import {
     UserMessage,
 } from '@vizier/design'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { motion } from 'motion/react'
+import { Presence } from '@vizier/design'
 import type { ChatMessage, Turn } from '../../api/frames'
 import type { TopicState } from '../../lib/frames'
 import {
@@ -23,6 +25,7 @@ import {
     statsLine,
     time,
 } from '../../lib/messages'
+import { Enter, stagger } from '../../lib/motion'
 import { usePrices } from '../../lib/prices'
 import { groupHistory, outcomeDurationMs } from '../../lib/trail'
 import { Markdown } from '../shared/Markdown'
@@ -138,6 +141,16 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
     )
 
     const items: ReactNode[] = []
+    // Arrivals wait a beat on one another, so a batch of history reads as one
+    // movement instead of a pile-up.
+    let order = 0
+    const arrive = (node: ReactNode, key: string) => {
+        items.push(
+            <Enter key={key} delay={stagger(order++)}>
+                {node}
+            </Enter>
+        )
+    }
     for (const e of entries) {
         const c = e.content
         if (c.Request) {
@@ -145,7 +158,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
             if ('unattended' in content) continue
             if (isBackgroundReport(content)) {
                 const r = content.background_report
-                items.push(
+                arrive(
                     <BackgroundReportCard
                         key={e.uid}
                         agentId={agent.id}
@@ -160,12 +173,13 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                                 {en.truncated && <p className="type-small text-faint">The answer was cut short here.</p>}
                             </div>
                         ))}
-                    />
+                    />,
+                    e.uid
                 )
                 continue
             }
             const skill = (c.Request.metadata as { invoked_skill?: string } | undefined)?.invoked_skill
-            items.push(
+            arrive(
                 <UserMessage
                     key={e.uid}
                     meta={`You · ${time(c.Request.timestamp)}`}
@@ -181,18 +195,21 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                     }
                 >
                     <Markdown size="document">{requestText(content)}</Markdown>
-                </UserMessage>
+                </UserMessage>,
+                e.uid
             )
             continue
         }
         const turn = byAnchor.get(e.uid)
         if (turn && (c.Response || c.Checkpoint !== undefined || c.Command !== undefined)) {
-            if (c.Response || turn.trail.length || turn.clientCalls.length) items.push(block(turn, `turn-${e.uid}`))
-            if (c.Command === 'abort' && turn.aborted) items.push(<StoppedNote key={`stop-${e.uid}`}>Stopped by you at {stopTime(e)}</StoppedNote>)
+            // The finished turn settles in as one piece: the work it did and
+            // what it said arrive together.
+            if (c.Response || turn.trail.length || turn.clientCalls.length) arrive(block(turn, `turn-${e.uid}`), `turn-${e.uid}`)
+            if (c.Command === 'abort' && turn.aborted) arrive(<StoppedNote key={`stop-${e.uid}`}>Stopped by you at {stopTime(e)}</StoppedNote>, `stop-${e.uid}`)
         }
         if (c.Checkpoint !== undefined) {
             const handover = typeof c.Checkpoint === 'string' ? c.Checkpoint : c.Checkpoint?.handover
-            items.push(<CheckpointEntry key={`cp-${e.uid}`} handover={handover ?? null} />)
+            arrive(<CheckpointEntry key={`cp-${e.uid}`} handover={handover ?? null} />, `cp-${e.uid}`)
         }
     }
 
@@ -214,13 +231,14 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
     }
 
     state.queued.forEach((q) =>
-        items.push(
+        arrive(
             <UserMessage key={`q-${q.id}`} queued={{ agentName: agent.name }}>
                 <Markdown size="document">{q.text}</Markdown>
-            </UserMessage>
+            </UserMessage>,
+            `q-${q.id}`
         )
     )
-    if (error) items.push(<div key="error">{error}</div>)
+    if (error) arrive(<div key="error">{error}</div>, 'error')
 
     return (
         <div className="relative flex min-h-0 flex-1 flex-col">
@@ -238,18 +256,27 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                     {items.length === 0 && !running ? <ChatGreeting className="my-auto" agentId={agent.id} name={agent.name} live={agent.live} greeting={greeting} meta="Nothing sent yet" /> : items}
                 </div>
             </div>
-            {!pinned && (
-                <div className="absolute inset-x-0 flex justify-center" style={{ bottom: bottomInset + 8 }}>
-                    <JumpToLatest
-                        count={unseen}
-                        onClick={() => {
-                            const el = scroller.current
-                            if (el) el.scrollTop = el.scrollHeight
-                            setPinned(true)
-                        }}
-                    />
-                </div>
-            )}
+            <Presence>
+                {!pinned && (
+                    <motion.div
+                        key="jump"
+                        className="absolute inset-x-0 flex justify-center"
+                        style={{ bottom: bottomInset + 8 }}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 8 }}
+                    >
+                        <JumpToLatest
+                            count={unseen}
+                            onClick={() => {
+                                const el = scroller.current
+                                if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+                                setPinned(true)
+                            }}
+                        />
+                    </motion.div>
+                )}
+            </Presence>
         </div>
     )
 }
@@ -259,11 +286,21 @@ function CheckpointEntry({ handover }: { handover: string | null }) {
     return (
         <div className="flex flex-col gap-8">
             <CheckpointDivider detail={handover ? 'handed over' : undefined} open={open} onClick={() => handover && setOpen((o) => !o)} />
-            {open && handover && (
-                <HandoverSummary>
-                    <Markdown>{handover}</Markdown>
-                </HandoverSummary>
-            )}
+            <Presence>
+                {open && handover && (
+                    <motion.div
+                        key="handover"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden"
+                    >
+                        <HandoverSummary>
+                            <Markdown>{handover}</Markdown>
+                        </HandoverSummary>
+                    </motion.div>
+                )}
+            </Presence>
         </div>
     )
 }

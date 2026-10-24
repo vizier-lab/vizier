@@ -1,6 +1,7 @@
-import { IconButton, JobsPill, SlideOver } from '@vizier/design'
+import { IconButton, JobsPill, Presence, SlideOver, motionDurations, motionEases } from '@vizier/design'
 import { nanoid } from 'nanoid'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { motion, useReducedMotion } from 'motion/react'
 import { useNavigate, useParams } from 'react-router'
 import { agentState } from '../api/endpoints/agents'
 import { cancelJob, listTopics, restartAgent } from '../api/endpoints/chat'
@@ -52,6 +53,8 @@ export default function Chat() {
     }
     const composerBox = useRef<HTMLDivElement>(null)
     const [composerHeight, setComposerHeight] = useState(120)
+    // A person who asked for less movement gets the panel, not the choreography.
+    const reducedMotion = useReducedMotion() ?? false
     useEffect(() => {
         const el = composerBox.current
         if (!el) return
@@ -323,14 +326,23 @@ export default function Chat() {
                 </div>
             </div>
 
-            {!mobile && panel && (
-                <aside
-                    aria-label="Conversation details"
-                    className="flex w-320 shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto border-l border-border p-16 [&>*]:min-w-0"
-                >
-                    {details}
-                </aside>
-            )}
+            <Presence>
+                {!mobile && panel && (
+                    <motion.aside
+                        key="details"
+                        aria-label="Conversation details"
+                        className="flex w-320 shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto border-l border-border p-16 [&>*]:min-w-0"
+                        // The conversation makes room for the panel instead of
+                        // jumping when it appears.
+                        initial={{ width: reducedMotion ? 320 : 0, opacity: reducedMotion ? 1 : 0 }}
+                        animate={{ width: 320, opacity: 1 }}
+                        exit={reducedMotion ? { opacity: 0 } : { width: 0, opacity: 0 }}
+                        transition={{ duration: motionDurations.slow, ease: motionEases.standard }}
+                    >
+                        {details}
+                    </motion.aside>
+                )}
+            </Presence>
             {mobile && (
                 <SlideOver
                     open={sheet}

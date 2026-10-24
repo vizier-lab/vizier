@@ -1,5 +1,6 @@
-import { Button, Callout, Notice, ProviderTile, Stepper, TextField } from '@vizier/design'
+import { Button, Callout, Notice, ProviderTile, Stepper, TextField, motionDurations, motionEases } from '@vizier/design'
 import { useEffect, useState, type FormEvent } from 'react'
+import { motion } from 'motion/react'
 import { Navigate, useNavigate, useSearchParams } from 'react-router'
 import { setToken } from '../api/client'
 import { createAgent } from '../api/endpoints/agents'
@@ -44,9 +45,20 @@ export default function Onboarding() {
                     { label: 'First agent', state: step === 'agent' ? 'current' : 'upcoming' },
                 ]}
             />
-            {step === 'account' && <AccountStep onDone={() => go('provider')} />}
-            {step === 'provider' && <ProviderStep onDone={() => go('agent')} />}
-            {step === 'agent' && <AgentStep />}
+            {/* Each setup step settles in as the stepper moves. */}
+            <motion.div
+                key={step}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{
+                    opacity: 1,
+                    y: 0,
+                    transition: { duration: motionDurations.base, ease: motionEases.arrive },
+                }}
+            >
+                {step === 'account' && <AccountStep onDone={() => go('provider')} />}
+                {step === 'provider' && <ProviderStep onDone={() => go('agent')} />}
+                {step === 'agent' && <AgentStep />}
+            </motion.div>
         </div>
     )
 }

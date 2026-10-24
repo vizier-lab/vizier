@@ -1,4 +1,5 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router'
+import { MotionProvider } from '@vizier/design'
 import './app.css'
 import './lib/clientTools/builtin'
 
@@ -17,7 +18,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 <Links />
             </head>
             <body className="bg-ground text-fg">
-                {children}
+                <MotionProvider>{children}</MotionProvider>
                 <ScrollRestoration />
                 <Scripts />
             </body>

@@ -1,4 +1,5 @@
 import { Button, Dialog, DiffView, EmptyState, FilterTabs, LoadMore, Notice, PanelHeader, RevisionRow, Skeleton } from '@vizier/design'
+import { Enter, stagger } from '../lib/motion'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { coreDiff, coreHistory, coreRevision, getCore, rollbackCore, type CoreRevisionSummary } from '../api/endpoints/agentPages'
@@ -122,15 +123,16 @@ export default function AgentCore() {
                         <div className="-mt-12 flex flex-col gap-2">
                             {core === null && <Skeleton variant="lines" lines={3} />}
                             {history.map((r, i) => (
-                                <RevisionRow
-                                    key={r.seq}
-                                    revision={r.seq}
-                                    author={authorLabel(r.actor, r.trigger, agentName)}
-                                    time={relativeTime(r.created_at)}
-                                    selected={shown === r.seq}
-                                    onSelect={() => choose(r.seq)}
-                                    trailing={i === 0 ? <span className="type-mono-xs text-faint">current</span> : undefined}
-                                />
+                                <Enter key={r.seq} delay={stagger(i, 0.03)}>
+                                    <RevisionRow
+                                        revision={r.seq}
+                                        author={authorLabel(r.actor, r.trigger, agentName)}
+                                        time={relativeTime(r.created_at)}
+                                        selected={shown === r.seq}
+                                        onSelect={() => choose(r.seq)}
+                                        trailing={i === 0 ? <span className="type-mono-xs text-faint">current</span> : undefined}
+                                    />
+                                </Enter>
                             ))}
                             {history.length < total && (
                                 <LoadMore

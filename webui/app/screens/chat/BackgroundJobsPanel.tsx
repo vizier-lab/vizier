@@ -1,6 +1,7 @@
 import { BackgroundJob, EmptyState, PanelHeader, TextLink } from '@vizier/design'
 import { useEffect, useState } from 'react'
 import type { BackgroundJobSnapshot } from '../../api/frames'
+import { Enter, stagger } from '../../lib/motion'
 
 const SHOWN = 5
 
@@ -41,17 +42,18 @@ export function BackgroundJobsPanel({ jobs, onCancel, onJumpToStart }: Props) {
                 <EmptyState kind="empty" icon="layers" title="No background jobs" message="Work the agent hands off appears here." />
             ) : (
                 <>
-                    {rows.map((j) => (
-                        <BackgroundJob
-                            key={j.id}
-                            title={title(j)}
-                            goal={j.pieces[0]?.prompt ?? ''}
-                            state={j.state}
-                            elapsed={elapsed(j, now)}
-                            pieces={{ done: j.pieces.filter((p) => p.state !== 'running').length, total: j.pieces.length }}
-                            onJumpToStart={() => onJumpToStart(j.id)}
-                            onCancel={j.state === 'running' ? () => onCancel(j.id) : undefined}
-                        />
+                    {rows.map((j, i) => (
+                        <Enter key={j.id} delay={stagger(i, 0.04)}>
+                            <BackgroundJob
+                                title={title(j)}
+                                goal={j.pieces[0]?.prompt ?? ''}
+                                state={j.state}
+                                elapsed={elapsed(j, now)}
+                                pieces={{ done: j.pieces.filter((p) => p.state !== 'running').length, total: j.pieces.length }}
+                                onJumpToStart={() => onJumpToStart(j.id)}
+                                onCancel={j.state === 'running' ? () => onCancel(j.id) : undefined}
+                            />
+                        </Enter>
                     ))}
                     {jobs.length > SHOWN && <TextLink onClick={() => setAll((a) => !a)}>{all ? 'Show fewer' : `Show all ${jobs.length}`}</TextLink>}
                 </>

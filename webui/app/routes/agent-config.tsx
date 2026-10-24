@@ -1,4 +1,5 @@
-import { Button, Card, Dialog, EmptyState, Notice, Select, ShareList, SigilPicker, Skeleton, Tab, TabList, TextField, ToggleSection, UnsavedIndicator, ImageCropper, MarkdownEditor } from '@vizier/design'
+import { Button, Card, Dialog, EmptyState, Notice, Select, ShareList, SigilPicker, Skeleton, Tab, TabList, TextField, ToggleSection, UnsavedIndicator, ImageCropper, MarkdownEditor, motionDurations, motionEases } from '@vizier/design'
+import { motion } from 'motion/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/client'
@@ -222,6 +223,16 @@ export default function AgentConfig() {
             </TabList>
 
             <div role="tabpanel" aria-label={TABS.find((t) => t.key === tab)?.label}>
+                {/* The panel settles in as the underline glides across. */}
+                <motion.div
+                    key={tab}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{
+                        opacity: 1,
+                        y: 0,
+                        transition: { duration: motionDurations.base, ease: motionEases.arrive },
+                    }}
+                >
                 {tab === 'config' && (
                     <TwoColumn
                         aside={
@@ -252,6 +263,7 @@ export default function AgentConfig() {
                 )}
                 {tab === 'sharing' && sharing}
                 {tab === 'danger' && danger}
+                </motion.div>
             </div>
 
             <Dialog

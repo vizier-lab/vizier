@@ -8,6 +8,7 @@ import {
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { getFeed, type FeedEvent } from '../../api/endpoints/overview'
+import { Enter, stagger } from '../../lib/motion'
 import { feedTime } from '../../lib/overview'
 import { useAgents } from '../../stores/agents'
 
@@ -68,16 +69,17 @@ export function AwayFeed() {
                 />
             ) : (
                 <div className="flex flex-col">
-                    {events.map((e) => (
-                        <ActivityItem
-                            key={e.id}
-                            leading={<Sigil agentId={e.agent_id} size="sm" />}
-                            actor={nameOf(e.agent_id)}
-                            time={<time dateTime={e.at}>{feedTime(e.at)}</time>}
-                            text={e.text}
-                            failed={e.tone === 'failed'}
-                            onSelect={() => navigate(e.href)}
-                        />
+                    {events.map((e, i) => (
+                        <Enter key={e.id} delay={stagger(i, 0.03)}>
+                            <ActivityItem
+                                leading={<Sigil agentId={e.agent_id} size="sm" />}
+                                actor={nameOf(e.agent_id)}
+                                time={<time dateTime={e.at}>{feedTime(e.at)}</time>}
+                                text={e.text}
+                                failed={e.tone === 'failed'}
+                                onSelect={() => navigate(e.href)}
+                            />
+                        </Enter>
                     ))}
                     {next && (
                         <LoadMore

@@ -8,10 +8,11 @@ import {
     TrailCall,
     Thinking,
 } from '@vizier/design'
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { thinkingWord } from '../../lib/thinkingWords'
 import type { ExecutionReport, TrailEvent } from '../../api/frames'
 import { duration } from '../../lib/format'
+import { Enter } from '../../lib/motion'
 import { trailSummary } from '../../lib/trail'
 import { useMobile } from '../../lib/useMobile'
 
@@ -237,9 +238,19 @@ export function Trail({
                     onClick={() => setAll(false)}
                 />
             )}
-            {shown.map((e) => (
-                <Event key={e.id} event={e} live={live} />
-            ))}
+            {shown.map((e) => {
+                const step = <Event event={e} live={live} />
+                // While the turn runs, each step ticks in as it arrives. A
+                // finished trail is left still, so it doesn't replay on the
+                // turn's closing swap.
+                return live ? (
+                    <Enter key={e.id} y={4}>
+                        {step}
+                    </Enter>
+                ) : (
+                    <Fragment key={e.id}>{step}</Fragment>
+                )
+            })}
         </ActivityTrail>
         </div>
     )

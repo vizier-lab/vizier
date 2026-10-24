@@ -1,4 +1,5 @@
 import { Button, DreamJournalEntry, KeyValueList, LoadMore, NightStrip, Notice, PanelHeader } from '@vizier/design'
+import { Enter, stagger } from '../lib/motion'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
 import {
@@ -118,20 +119,22 @@ export default function AgentDream() {
                 <section aria-label="Journal" className="flex flex-col gap-16">
                     <PanelHeader title="Dream journal" level={2} />
                     {cycles.length === 0 && <p className="type-small text-muted">No dreams yet. The first one runs on its schedule, or press Dream now.</p>}
-                    {cycles.map((c) => (
-                        <div key={c.cycle_id} ref={(el) => void (el ? entryRefs.current.set(c.cycle_id, el) : entryRefs.current.delete(c.cycle_id))} className={selected === c.cycle_id ? 'rounded-xl outline-2 outline-offset-4 outline-focus' : undefined}>
-                            <DreamJournalEntry
-                                when={cycleWhen(c)}
-                                state={c.state}
-                                meta={[c.model, c.cost_usd != null ? cost(c.cost_usd) : null].filter(Boolean).join(' · ') || undefined}
-                                extraction={`${c.sessions_read} conversation${c.sessions_read === 1 ? '' : 's'} read`}
-                                consolidation={cycleSummary(c)}
-                                changes={[
-                                    ...c.changes.map((ch) => ({ kind: ch.kind, text: changeText(ch), href: changeHref(agentId, ch) })),
-                                    ...(c.more ? [{ kind: 'revised' as const, text: `…and ${c.more} more` }] : []),
-                                ]}
-                            />
-                        </div>
+                    {cycles.map((c, i) => (
+                        <Enter key={c.cycle_id} delay={stagger(i, 0.03)}>
+                            <div ref={(el) => void (el ? entryRefs.current.set(c.cycle_id, el) : entryRefs.current.delete(c.cycle_id))} className={selected === c.cycle_id ? 'rounded-xl outline-2 outline-offset-4 outline-focus' : undefined}>
+                                <DreamJournalEntry
+                                    when={cycleWhen(c)}
+                                    state={c.state}
+                                    meta={[c.model, c.cost_usd != null ? cost(c.cost_usd) : null].filter(Boolean).join(' · ') || undefined}
+                                    extraction={`${c.sessions_read} conversation${c.sessions_read === 1 ? '' : 's'} read`}
+                                    consolidation={cycleSummary(c)}
+                                    changes={[
+                                        ...c.changes.map((ch) => ({ kind: ch.kind, text: changeText(ch), href: changeHref(agentId, ch) })),
+                                        ...(c.more ? [{ kind: 'revised' as const, text: `…and ${c.more} more` }] : []),
+                                    ]}
+                                />
+                            </div>
+                        </Enter>
                     ))}
                     {next && <LoadMore label="Load older" loading={loading} onLoad={() => void more()} />}
                 </section>

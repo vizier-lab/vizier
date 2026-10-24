@@ -1,4 +1,5 @@
 import { Button, EmptyState, KeyValueList, LoadMore, PanelHeader, RunRow, Skeleton, Status, Switch } from '@vizier/design'
+import { Enter, stagger } from '../lib/motion'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/client'
@@ -154,15 +155,16 @@ export default function TaskPage() {
                             <PanelHeader title="Runs" meta={runs.length ? `${runs.length}${more ? '+' : ''}` : undefined} level={3} />
                             {runs.length === 0 && !loading && <p className="type-small text-faint">It hasn’t run yet. Each run is listed here with what the agent answered.</p>}
                             <div className="flex flex-col gap-2">
-                                {runs.map((r) => (
-                                    <RunRow
-                                        key={r.id}
-                                        time={absoluteTime(r.ran_at)}
-                                        state={runStatus(r) as never}
-                                        duration={runDuration(r)}
-                                        selected={open?.id === r.id}
-                                        onSelect={() => setParams({ run: r.run_id }, { replace: true })}
-                                    />
+                                {runs.map((r, i) => (
+                                    <Enter key={r.id} delay={stagger(i, 0.03)}>
+                                        <RunRow
+                                            time={absoluteTime(r.ran_at)}
+                                            state={runStatus(r) as never}
+                                            duration={runDuration(r)}
+                                            selected={open?.id === r.id}
+                                            onSelect={() => setParams({ run: r.run_id }, { replace: true })}
+                                        />
+                                    </Enter>
                                 ))}
                             </div>
                             {more && <LoadMore label="Load older" loading={loading} onLoad={() => void load(runs[runs.length - 1])} />}

@@ -1,5 +1,6 @@
-import { Button, Dialog, EmptyState, Menu, MenuItem, ProviderRow, Skeleton } from '@vizier/design'
+import { Button, Dialog, EmptyState, Menu, MenuItem, Presence, ProviderRow, Skeleton, popoverMotion } from '@vizier/design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { motion } from 'motion/react'
 import { useNavigate } from 'react-router'
 import { ApiError } from '../api/client'
 import { allProviders, type ProviderSummary } from '../api/endpoints/catalogue'
@@ -106,7 +107,12 @@ export default function SettingsProviders() {
 
     const summaryOf = (id: string) => catalogue.find((p) => p.id === id)
     const rowMenu = (row: Row) => (
-        <div className="absolute top-44 right-16 z-30" ref={menuRoot}>
+        <motion.div
+            key={row.provider.id}
+            className="absolute top-44 right-16 z-30"
+            ref={menuRoot}
+            {...popoverMotion}
+        >
             <Menu aria-label={`${row.provider.name} actions`}>
                 <MenuItem
                     icon="pencil"
@@ -130,7 +136,7 @@ export default function SettingsProviders() {
                     }}
                 />
             </Menu>
-        </div>
+        </motion.div>
     )
 
     return (
@@ -179,7 +185,9 @@ export default function SettingsProviders() {
                                 onModels={() => setModels({ id: row.provider.id, name: row.provider.name, custom: row.kind === 'custom' })}
                                 onMore={() => setMenu(menu === row.provider.id ? null : row.provider.id)}
                             />
-                            {menu === row.provider.id && rowMenu(row)}
+                            <Presence>
+                                {menu === row.provider.id && rowMenu(row)}
+                            </Presence>
                         </div>
                     ))}
                 </section>

@@ -18,8 +18,24 @@ function readTheme(): Theme {
 export function applyTheme(theme: Theme) {
     if (typeof document === 'undefined') return
     const el = document.documentElement
-    if (theme === 'system') el.removeAttribute('data-theme')
-    else el.setAttribute('data-theme', theme)
+    const apply = () => {
+        if (theme === 'system') el.removeAttribute('data-theme')
+        else el.setAttribute('data-theme', theme)
+    }
+    // The court changes light in one breath: the old and new grounds cross-fade
+    // instead of snapping. Browsers without the API, and people who asked for
+    // less movement, get the change straight away.
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const start = (
+        document as Document & {
+            startViewTransition?: (cb: () => void) => unknown
+        }
+    ).startViewTransition
+    if (reduced || !start) {
+        apply()
+        return
+    }
+    start.call(document, apply)
 }
 
 type SessionStore = {

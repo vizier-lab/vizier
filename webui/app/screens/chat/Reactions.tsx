@@ -1,6 +1,7 @@
 import { AddReaction, EmojiPicker, Reaction } from '@vizier/design'
 import { useMemo } from 'react'
 import type { ReactionEntry } from '../../api/frames'
+import { Pop } from '../../lib/motion'
 import { useSession } from '../../stores/session'
 
 type Props = {
@@ -27,7 +28,9 @@ export function Reactions({ reactions, onToggle, disabled }: Props) {
     return (
         <>
             {groups.map(([emoji, g]) => (
-                <Reaction key={emoji} emoji={emoji} count={g.count} mine={g.mine} disabled={disabled} onClick={() => onToggle(emoji, g.mine ? 'removed' : 'added')} />
+                <Pop key={emoji}>
+                    <Reaction emoji={emoji} count={g.count} mine={g.mine} disabled={disabled} onClick={() => onToggle(emoji, g.mine ? 'removed' : 'added')} />
+                </Pop>
             ))}
             {!disabled && (
                 <EmojiPicker

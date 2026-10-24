@@ -1,5 +1,6 @@
-import { Button, Notice, TextField } from '@vizier/design'
+import { Button, Notice, TextField, motionDurations, motionEases } from '@vizier/design'
 import { useState, type FormEvent } from 'react'
+import { motion } from 'motion/react'
 import { useNavigate } from 'react-router'
 import { useSession } from '../stores/session'
 
@@ -26,7 +27,17 @@ export default function Login() {
     }
 
     return (
-        <form onSubmit={submit} className="flex flex-col gap-16">
+        <motion.form
+            onSubmit={submit}
+            className="flex flex-col gap-16"
+            // The first thing anyone sees: it arrives, it doesn't appear.
+            initial={{ opacity: 0, y: 8 }}
+            animate={{
+                opacity: 1,
+                y: 0,
+                transition: { duration: motionDurations.slow, ease: motionEases.arrive },
+            }}
+        >
             <div className="flex flex-col gap-6">
                 <h1 className="type-display text-fg">Welcome back</h1>
                 <p className="type-ui-para text-muted">Sign in to your digital steward.</p>
@@ -38,6 +49,6 @@ export default function Login() {
                 Sign in
             </Button>
             <p className="type-small text-faint">No account? Ask whoever runs this Vizier to invite you.</p>
-        </form>
+        </motion.form>
     )
 }

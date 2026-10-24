@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router'
 import { paged } from '../api/client'
 import { agentState, type Agent, type AgentHealth } from '../api/endpoints/agents'
 import { count, relativeTime } from '../lib/format'
+import { Enter, stagger } from '../lib/motion'
 import { usePagedList } from '../lib/usePagedList'
 import { getOverview, type Overview } from '../api/endpoints/overview'
 import { greetingMeta } from '../lib/overview'
@@ -72,8 +73,10 @@ function AllAgents({ health }: { health: Record<string, AgentHealth> }) {
                 <EmptyState kind="no-results" title="No agents match" message="Try a different search or filter." />
             ) : (
                 <div className="grid grid-cols-1 gap-12 md:grid-cols-2 xl:grid-cols-3">
-                    {items.map((a) => (
-                        <Card key={a.agent_id} agent={a} health={health[a.agent_id]} />
+                    {items.map((a, i) => (
+                        <Enter key={a.agent_id} delay={stagger(i, 0.025)} className="h-full">
+                            <Card agent={a} health={health[a.agent_id]} />
+                        </Enter>
                     ))}
                 </div>
             )}

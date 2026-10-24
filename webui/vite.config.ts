@@ -7,7 +7,7 @@ const target = process.env.VIZIER_URL ?? 'http://localhost:9999'
 
 export default defineConfig({
     plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
-    resolve: { dedupe: ['react', 'react-dom'] },
+    resolve: { dedupe: ['react', 'react-dom', 'motion'] },
     server: {
         port: 5173,
         strictPort: true,

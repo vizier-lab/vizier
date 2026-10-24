@@ -234,6 +234,8 @@ export function InteractivePage({ call, ctx }: { call: ClientCallView; ctx: Clie
                         height: fullscreen ? '100%' : `${Math.min(height, maxHeight)}px`,
                         background: 'transparent',
                         colorScheme: look.dark ? 'dark' : 'light',
+                        // The page reports its own height; the frame eases to it.
+                        transition: fullscreen ? undefined : 'height var(--vz-duration-slow) var(--vz-ease-standard)',
                     }}
                     scrolling={fullscreen || height > maxHeight ? 'auto' : 'no'}
                 />

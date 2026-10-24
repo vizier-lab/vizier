@@ -1,4 +1,5 @@
-import { EmptyState, FilterTabs, Pagination, SearchField, Skeleton, SortSelect, Table, TableRow } from '@vizier/design'
+import { EmptyState, FilterTabs, Pagination, SearchField, Skeleton, SortSelect, Table, TableRow, motionDurations } from '@vizier/design'
+import { motion } from 'motion/react'
 import type { ComponentProps, ReactNode } from 'react'
 import type { usePagedList } from '../../lib/usePagedList'
 import { count } from '../../lib/format'
@@ -74,33 +75,44 @@ export function PagedTable<T>({
                 <EmptyState kind="no-results" title="Nothing matched" message="Try a different search or filter." />
             ) : (
                 <div aria-busy={loading}>
-                    <Table
-                        label={label}
-                        columns={columns}
-                        footer={
-                            <Pagination
-                                page={state.page}
-                                pageCount={list.pageCount}
-                                total={total}
-                                perPage={list.perPage}
-                                onPageChange={list.setPage}
-                            />
-                        }
+                    {/* A new filter, sort or page replaces the rows: they fade
+                        in rather than snapping into place. */}
+                    <motion.div
+                        key={`${state.filter}|${state.sort}|${state.page}|${state.q}`}
+                        initial={{ opacity: 0 }}
+                        animate={{
+                            opacity: 1,
+                            transition: { duration: motionDurations.fast },
+                        }}
                     >
-                        {(data?.items ?? []).map((item) =>
-                            renderRow ? (
-                                renderRow(item)
-                            ) : (
-                                <TableRow
-                                    key={rowKey(item)}
-                                    cells={row?.(item) ?? []}
-                                    endAligned={endAligned}
-                                    selected={selectedKey === rowKey(item)}
-                                    onSelect={onSelect ? () => onSelect(item) : undefined}
+                        <Table
+                            label={label}
+                            columns={columns}
+                            footer={
+                                <Pagination
+                                    page={state.page}
+                                    pageCount={list.pageCount}
+                                    total={total}
+                                    perPage={list.perPage}
+                                    onPageChange={list.setPage}
                                 />
-                            )
-                        )}
-                    </Table>
+                            }
+                        >
+                            {(data?.items ?? []).map((item) =>
+                                renderRow ? (
+                                    renderRow(item)
+                                ) : (
+                                    <TableRow
+                                        key={rowKey(item)}
+                                        cells={row?.(item) ?? []}
+                                        endAligned={endAligned}
+                                        selected={selectedKey === rowKey(item)}
+                                        onSelect={onSelect ? () => onSelect(item) : undefined}
+                                    />
+                                )
+                            )}
+                        </Table>
+                    </motion.div>
                 </div>
             )}
         </div>

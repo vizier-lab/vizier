@@ -1,4 +1,5 @@
-import { EmptyState, FilterTabs, Meter, Skeleton, KeyValueList, Notice, PanelHeader, SlideOver, SortSelect, StackedBarChart, StatGroup, Table, TableRow, TextLink } from '@vizier/design'
+import { EmptyState, FilterTabs, Meter, Skeleton, KeyValueList, Notice, PanelHeader, SlideOver, SortSelect, StackedBarChart, StatGroup, Table, TableRow, TextLink, motionDurations } from '@vizier/design'
+import { motion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router'
 import {
@@ -97,6 +98,16 @@ export default function Usage() {
             )}
 
             {s && (
+                <motion.div
+                    // A new range or dimension replaces the whole report: it
+                    // fades up rather than snapping into place.
+                    key={`${range}-${by}`}
+                    initial={{ opacity: 0 }}
+                    animate={{
+                        opacity: 1,
+                        transition: { duration: motionDurations.fast },
+                    }}
+                >
                 <StatGroup
                     stats={[
                         { label: 'Estimated cost', value: usd(s.cost_usd), sub: versusPrevious(s.cost_usd, report?.previous?.cost_usd, `previous ${range} days`) },
@@ -106,6 +117,7 @@ export default function Usage() {
                         { label: 'Spent on failed turns', value: usd(s.failed.cost_usd), sub: `${s.failed.turns} turn${s.failed.turns === 1 ? '' : 's'}`, tone: s.failed.turns > 0 ? 'failed' : 'default' },
                     ]}
                 />
+                </motion.div>
             )}
 
             {report && report.summary.calls === 0 && (

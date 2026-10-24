@@ -1,4 +1,5 @@
 import { Badge, Button, DiffView, EmptyState, Eyebrow, FilterTabs, Icon, KeyValueList, LoadMore, MarkdownEditor, Notice, PanelHeader, RevisionRow, Skeleton, UnsavedIndicator, type DocLink } from '@vizier/design'
+import { Enter, stagger } from '../lib/motion'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/client'
@@ -235,15 +236,16 @@ function ReadDoc({ agentId, bundle, path }: DocProps) {
                             <PanelHeader title="History" meta={total ? `${total} revision${total === 1 ? '' : 's'}` : undefined} level={3} />
                             <div className="flex flex-col gap-2">
                                 {history.map((r, i) => (
-                                    <RevisionRow
-                                        key={r.seq}
-                                        revision={r.seq}
-                                        author={`${authorLabel(r.actor, r.trigger, agentName)}${r.deleted ? ' · deleted' : ''}`}
-                                        time={relativeTime(r.created_at)}
-                                        selected={shown === r.seq}
-                                        onSelect={() => choose(r.seq)}
-                                        trailing={i === 0 ? <span className="type-mono-xs text-faint">current</span> : undefined}
-                                    />
+                                    <Enter key={r.seq} delay={stagger(i, 0.03)}>
+                                        <RevisionRow
+                                            revision={r.seq}
+                                            author={`${authorLabel(r.actor, r.trigger, agentName)}${r.deleted ? ' · deleted' : ''}`}
+                                            time={relativeTime(r.created_at)}
+                                            selected={shown === r.seq}
+                                            onSelect={() => choose(r.seq)}
+                                            trailing={i === 0 ? <span className="type-mono-xs text-faint">current</span> : undefined}
+                                        />
+                                    </Enter>
                                 ))}
                                 {history.length < total && <LoadMore label="Load older" remaining={total - history.length} onLoad={() => void loadHistory(history.length)} />}
                             </div>

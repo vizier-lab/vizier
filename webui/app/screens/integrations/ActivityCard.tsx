@@ -1,4 +1,5 @@
 import { ActivityItem, LoadMore, PanelHeader, Skeleton } from '@vizier/design'
+import { Enter, stagger } from '../../lib/motion'
 import { useCallback, useEffect, useState } from 'react'
 import { integrationEvents, type IntegrationEvent } from '../../api/endpoints/integrations'
 import { eventText } from '../../lib/integrations'
@@ -47,8 +48,10 @@ export function ActivityCard({ agentId, version = 0 }: Props) {
                 <p className="type-small text-faint">Nothing has changed yet. Every change to this agent’s integrations is listed here, with who made it.</p>
             ) : (
                 <div className="flex flex-col">
-                    {events.map((e) => (
-                        <ActivityItem key={e.id} actor={e.actor_name} time={<time dateTime={e.at} title={absoluteTime(e.at)}>{relativeTime(e.at)}</time>} text={eventText(e)} />
+                    {events.map((e, i) => (
+                        <Enter key={e.id} delay={stagger(i, 0.03)}>
+                            <ActivityItem actor={e.actor_name} time={<time dateTime={e.at} title={absoluteTime(e.at)}>{relativeTime(e.at)}</time>} text={eventText(e)} />
+                        </Enter>
                     ))}
                     {next && <LoadMore label="Load older" loading={loading} onLoad={() => void load(next)} />}
                 </div>
