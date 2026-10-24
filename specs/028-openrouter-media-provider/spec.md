@@ -14,7 +14,7 @@ Vizier lets an operator connect each model provider once and then choose a provi
 
 This feature makes OpenRouter a first-class media provider across all three capabilities. The value is one credential and one bill for chat, hearing, speaking and drawing: selecting OpenRouter in any of the three media sections of an agent's configuration is enough, with a sensible default model so that no other field is mandatory. The existing per-capability settings (model, voice, speed, language, size) keep working unchanged and are passed through to OpenRouter.
 
-OpenRouter's text-to-speech support already exists in Vizier; this feature treats it as part of the same promise — it must be selectable, documented and exercised alongside the two new capabilities, and any gap found in it is closed here rather than deferred. Only the three media capabilities are in scope. Chat, embeddings, read-image/vision, usage accounting for media calls, image-to-image reference images, and per-capability credentials are not.
+OpenRouter's text-to-speech support already exists in Vizier; this feature treats it as part of the same promise — it must be selectable, documented and exercised alongside the two new capabilities, and any gap found in it is closed here rather than deferred (a gap already identified: a person had to know a model id from memory, because the media model fields are free text). The same feature therefore gives OpenRouter's media models the catalogue treatment chat models already have: the provider's current speech, transcription and image models are listed per capability, with readable names, supported voices for speech, and a documented default. A typed model id remains as a fallback, so a stale or unreachable list never blocks configuration. Only the three media capabilities are in scope. Chat, embeddings, read-image/vision, usage accounting for media calls, image-to-image reference images, per-capability credentials, and model discovery for media providers other than OpenRouter are not.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -71,20 +71,24 @@ A person enables text-to-speech on an agent and chooses OpenRouter, keeping or c
 
 ---
 
-### User Story 4 - Choosing OpenRouter media features is obvious in the WebUI (Priority: P2)
+### User Story 4 - OpenRouter media models are discoverable and selectable (Priority: P2)
 
-A person editing an agent opens the Tools section and sees OpenRouter in the provider lists for text-to-speech, speech-to-text and image generation. Each list shows the default model or voice the agent will use when the field is left empty. Settings › Providers places OpenRouter among the media-capable providers so its key is easy to connect.
+A person editing an agent chooses OpenRouter for speech-to-text and opens the model field. Instead of an empty box expecting a raw identifier, they see a searchable list of OpenRouter's current transcription models with readable names and the documented default marked. They pick one without leaving the form. For text-to-speech the list holds speech models, and choosing one offers the voices that model supports. For image generation the list holds image models. A model that is not listed yet can still be typed by its identifier.
 
-**Why this priority**: A supported capability that cannot be found or configured is not usable. This is independent of the provider mechanics and can be verified by inspection.
+**Why this priority**: A supported capability that cannot be found or configured is not usable, and OpenRouter's media model identifiers are long and change over time. This is independent of the provider mechanics and can be verified by inspection.
 
-**Independent Test**: In the WebUI, open an agent's Tools section and confirm OpenRouter is selectable in all three media provider lists, that default placeholders appear when model or voice is empty, and that OpenRouter appears under the media filter in Settings › Providers.
+**Independent Test**: In the WebUI, open an agent's Tools section with OpenRouter selected for each capability and confirm a searchable list of that capability's models appears with the default marked. Choose a non-default model, save, reopen, and confirm it persisted. Type an id that is not in the list and confirm it is accepted. Then disconnect the network, reopen the editor, and confirm the last-known list still appears and an agent can still be saved and used.
 
 **Acceptance Scenarios**:
 
-1. **Given** a person is editing an agent, **When** they open the text-to-speech, speech-to-text or image-generation section, **Then** OpenRouter is offered as a provider in each.
-2. **Given** OpenRouter is selected and the model field is empty, **When** the field is displayed, **Then** it shows the default model that will be used.
-3. **Given** a person opens Settings › Providers and filters to media-capable providers, **Then** OpenRouter is listed and can be connected with one key.
-4. **Given** an agent is saved with OpenRouter for a media capability, **When** the agent is reopened, **Then** the same provider and any overrides are shown.
+1. **Given** a person chooses OpenRouter for a media capability, **When** the model field is opened, **Then** it lists models valid for that capability with their readable names and identifiers, and the documented default is marked.
+2. **Given** the OpenRouter media list was fetched recently, **When** the picker is opened again within the refresh interval, **Then** it is served immediately from the stored list without waiting on the network.
+3. **Given** the refresh interval has passed, **When** a person opens the picker or asks to refresh, **Then** the list is refreshed in the background while the current list stays usable.
+4. **Given** the network is unreachable or OpenRouter refuses the model list, **When** the picker is opened, **Then** the last successful list (or the bundled seed on a fresh install) is shown with a non-blocking notice, and saving and using the agent still work.
+5. **Given** a person selects a text-to-speech model, **When** the voice field is shown, **Then** voices the model publishes are offered, while a typed voice remains accepted; when the model publishes no voices, the previous free-text behavior remains.
+6. **Given** a model is missing from the list, **When** the person types its identifier, **Then** it is accepted and stored exactly as typed, like a listed model.
+7. **Given** a media capability is set to OpenRouter with no model chosen, **Then** the documented default is what the field shows as its effective value and what the agent uses.
+8. **Given** a person opens Settings › Providers and filters to media-capable providers, **Then** OpenRouter is listed and can be connected with one key.
 
 ---
 
@@ -99,6 +103,10 @@ A person editing an agent opens the Tools section and sees OpenRouter in the pro
 - The provider is rate-limited or times out during a turn: the tool call reports the failure and the agent can continue or retry later.
 - An agent uses OpenRouter for more than one media capability: one saved OpenRouter credential serves all of them, and changing the key takes effect for all of them together.
 - An existing agent configured for another media provider keeps working untouched after upgrade.
+- A listed model is retired upstream after the stored list was fetched: it keeps being offered until the next refresh, and attempting to use it surfaces the provider's error rather than a silent fallback to a different model.
+- The stored list is empty, absent or unreadable and the network is down: the image, speech and transcription fields still accept a typed identifier, and the documented default still applies when the field is left empty.
+- A refresh is running while a person edits the form: their current selection is never changed or cleared by the refreshed list, even if the selected model disappeared upstream.
+- A model appears in more than one OpenRouter capability list: each picker offers only the models valid for its own capability.
 
 ## Requirements *(mandatory)*
 
@@ -119,6 +127,16 @@ A person editing an agent opens the Tools section and sees OpenRouter in the pro
 - **FR-013**: Existing agents and requests that do not select OpenRouter for media MUST behave exactly as before, and existing stored agent configurations MUST remain valid without migration.
 - **FR-014**: The documentation that lists media providers and their defaults MUST include OpenRouter for all three capabilities, with its default model/voice and the shared credential it uses.
 - **FR-015**: Generated audio and images MUST follow the same conversation-file lifecycle as the existing generated media: visible in the conversation, downloadable, and subject to the same retention and deletion rules.
+- **FR-016**: When OpenRouter is selected for a media capability, the model field MUST offer a list of that capability's models published by OpenRouter, each with its identifier and a human-readable name, and MUST mark the documented default.
+- **FR-017**: The list MUST be specific to the capability: speech models for text-to-speech, transcription models for speech-to-text, and image models for image generation, with no model from another capability offered.
+- **FR-018**: The list MUST be fetched from OpenRouter only when a person opens or explicitly refreshes it; startup, agent builds, turns, scheduled tasks and the dream cycle MUST NOT fetch it.
+- **FR-019**: A successful fetch MUST be stored persistently and reused across restarts, and a person-triggered refresh MUST be available. Refreshing MUST follow the same interval, failure backoff and manual-refresh rules as the existing provider and model catalogue.
+- **FR-020**: A bundled seed of known OpenRouter media models MUST ship with the build, so a fresh install or an offline install still offers choices. A failed refresh MUST keep the last successful list or the seed usable and MUST show a non-blocking notice with the failure reason.
+- **FR-021**: The model picker MUST be searchable by name and identifier, MUST accept an identifier that is not in the list, and MUST store and use a typed identifier exactly as entered.
+- **FR-022**: For text-to-speech, the voice field MUST offer the voices the selected model publishes where OpenRouter publishes them, while continuing to accept a typed voice; an empty voice field MUST fall back to the documented default.
+- **FR-023**: Refreshing the list MUST NOT change, clear or invalidate the model, voice, language or size already selected in an open form, even when the selected model is absent from the refreshed list.
+- **FR-024**: Refresh failures and stale-list state MUST NOT prevent saving an agent or making a media call with the last-known or typed model.
+- **FR-025**: The lists and refresh status MUST be available through the same API surface the WebUI uses, and access to them MUST follow the existing permissions for viewing or editing the agent and for provider settings.
 
 ### Key Entities
 
@@ -126,6 +144,8 @@ A person editing an agent opens the Tools section and sees OpenRouter in the pro
 - **OpenRouter credentials**: one provider credential entry shared by chat, embeddings and all three media capabilities, resolved from the saved provider settings first and then from the provider's environment variable.
 - **Generated media artifact**: an audio or image file attached to a conversation's session files, with a filename, media type and size, produced by the capability and delivered to the channel.
 - **Provider default**: the model (and default voice for speech) used when the agent has not set an override, documented per capability.
+- **Media model listing**: one entry in the discoverable list for a capability: model identifier, readable name, capability it belongs to, and published metadata relevant to that capability (voices for speech, supported sizing for images) plus whether it is the documented default.
+- **Media model snapshot**: the last successfully fetched per-capability model lists, with when they were fetched and the last failure if a later check failed. It may be absent, in which case the bundled seed stands in.
 
 ## Success Criteria *(mandatory)*
 
@@ -139,16 +159,26 @@ A person editing an agent opens the Tools section and sees OpenRouter in the pro
 - **SC-006**: 100% of generated images open in a standard image viewer and 100% of generated audio plays, including when the override fields are left empty.
 - **SC-007**: In 100% of injected provider failures (unknown model, rejected parameter, exhausted credits, rate limit, timeout), the person or agent sees the provider's explanation and the agent remains healthy and able to run another turn.
 - **SC-008**: A person can find and select OpenRouter in all three media sections and in the media filter of Settings › Providers on the first attempt, without consulting external documentation.
+- **SC-009**: A person can choose a non-default model for each of the three capabilities entirely from the offered list, without typing an identifier, in under 1 minute per capability.
+- **SC-010**: After a refresh, models OpenRouter has added or retired are reflected in the pickers without upgrading the binary; with the network unavailable, the last-known or bundled list remains usable in 100% of checks.
+- **SC-011**: Zero automatic network requests are made for the media model list during startup, agent builds, turns, scheduled tasks or the dream cycle; every fetch is traceable to a person opening or refreshing the list.
+- **SC-012**: In 100% of refresh-failure trials, saving an agent and producing media still succeed using the last-known, bundled or typed model.
+- **SC-013**: For 100% of speech models whose voices OpenRouter publishes, the offered voice choices match the published set for the selected model.
 
 ## Assumptions
 
-- OpenRouter text-to-speech support already exists in Vizier through the shared OpenAI-compatible speech path. This feature verifies it end to end, fixes any gaps found (defaults, error text, documentation), and keeps it consistent with the two new capabilities rather than redesigning it.
+- OpenRouter text-to-speech support already exists in Vizier through the shared OpenAI-compatible speech path. This feature verifies it end to end, fixes any gaps found (defaults, error text, documentation, model discovery), and keeps it consistent with the two new capabilities rather than redesigning it.
 - OpenRouter offers all three media capabilities under its public API, with its own accepted audio formats, size limits, output formats and error responses. The exact request and response shapes are implementation concerns for the planning phase.
+- OpenRouter publishes per-capability model lists (speech, transcription and image) with model identifiers and names, and publishes supported voices for speech models. Those lists are readable without a credential; if that changes, the saved OpenRouter credential is used, and a missing credential still leaves the bundled seed usable.
 - Reasonable defaults, to be confirmed against OpenRouter's live model list during planning and recorded in the documentation: text-to-speech `openai/gpt-4o-mini-tts-2025-12-15` (already the current default), speech-to-text `openai/whisper-large-v3`, image generation `bytedance-seed/seedream-4.5`. If any of these is retired or unavailable at implementation time, the nearest stable OpenRouter model of the same modality is substituted and the documentation updated in the same change.
+- The bundled media model seed lists known OpenRouter models per capability at release time. It may be incomplete and may list a model that has since been retired; the live list and the provider's response are authoritative when available.
+- The refresh rules mirror the existing provider catalogue: a lazy check only when a person reads the list, a configurable interval with the same default, a failure backoff, a manual refresh, and no startup, agent, scheduler or dream traffic.
 - The default voice for OpenRouter text-to-speech stays the existing `alloy` unless the chosen default model requires another voice.
 - Language overrides follow the existing convention (a short language code such as `en`); when the provider cannot auto-detect or the code is unsupported, the provider's error is surfaced rather than a guessed language.
 - The OpenRouter account has credit available. Free or promotional models may appear, disappear or behave differently; selecting one is the operator's choice and its provider errors follow FR-010.
 - Media calls remain excluded from Vizier's token usage accounting, exactly as the existing speech, transcription and image capabilities are. Adding cost tracking for media is a separate concern.
+- Model prices and other commercial metadata may be displayed alongside a model when OpenRouter publishes them, but selection and billing stay with OpenRouter; this feature does not route between upstream providers.
 - Image-to-image generation with reference images, streaming partial images, and multiple images per request are out of scope; the existing single-prompt, single-result contract of the image tool is preserved.
 - Per-capability credentials, separate OpenRouter accounts, and provider-specific routing preferences (choosing upstream sub-providers) are out of scope.
-- The WebUI is the configuration surface under test; API clients use the same fields and receive the same accepted provider values.
+- Model discovery is OpenRouter-only in this feature. The other media providers keep their current free-text model fields; generalizing discovery to them is a possible follow-up.
+- The WebUI is the configuration surface under test; API clients use the same fields and receive the same accepted provider values, and the same discoverable model lists and refresh status.
