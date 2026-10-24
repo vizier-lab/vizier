@@ -39,3 +39,42 @@ export const providerModels = (id: string) => api.get<ModelSummary[]>(`/catalogu
 
 /** Every provider the catalogue lists, for the "Add a provider" grid. */
 export const allProviders = () => api.get<ProviderSummary[]>('/catalogue/providers')
+
+/** One of OpenRouter's media model capabilities (spec 028). */
+export type MediaCapability = 'speech' | 'transcription' | 'image'
+
+/** One entry in a capability's list: the model plus whether it is the documented default. */
+export type MediaModelSummary = {
+    id: string
+    name: string
+    default: boolean
+    /** False only for a documented default injected because the fetched list no longer has it. */
+    listed: boolean
+    voices: string[]
+    aspect_ratios: string[]
+    resolutions: string[]
+}
+
+/** One capability's listing and refresh status. */
+export type MediaModels = {
+    capability: MediaCapability
+    source: 'bundled' | 'cached'
+    fetched_at: string
+    checked_at?: string | null
+    default_voice?: string | null
+    refresh: {
+        enabled: boolean
+        ttl: string
+        in_progress: boolean
+        last_error?: string | null
+        failed_at?: string | null
+    }
+    models: MediaModelSummary[]
+}
+
+export const mediaModels = (capability: MediaCapability) =>
+    api.get<MediaModels>(`/catalogue/media-models?capability=${capability}`)
+
+/** A person-triggered refresh; needs `settings:providers`. */
+export const refreshMediaModels = (capability: MediaCapability) =>
+    api.post<MediaModels>(`/catalogue/media-models/${capability}/refresh`)

@@ -4,12 +4,16 @@ import {
     IMAGE_GEN_PROVIDERS,
     STT_DEFAULT_MODELS,
     STT_PROVIDERS,
+    TTS_DEFAULT_MODELS,
     TTS_DEFAULT_VOICES,
     TTS_PROVIDERS,
     type AgentForm,
 } from '../../lib/agentForm'
 import { useCan, PERMISSIONS } from '../../lib/access'
+import { MediaModelSelect } from './MediaModelSelect'
+import { MediaVoiceSelect } from './MediaVoiceSelect'
 import { ModelSelect } from './ModelSelect'
+import { useMediaModels } from './useMediaModels'
 
 type Props = {
     form: AgentForm
@@ -22,6 +26,11 @@ const options = (values: string[]) => values.map((v) => ({ value: v, label: v })
 /** The Tools step of the wizard and Config's Tools tab: what the agent may use beyond memory. */
 export function ToolsFields({ form, errors, set }: Props) {
     const canShell = useCan(PERMISSIONS.shellConfig)
+    // One per capability, shared by its model and voice pickers. Mounting them makes no
+    // request: each fetches when its picker is first opened (spec 028, FR-018/SC-011).
+    const ttsMedia = useMediaModels('speech')
+    const sttMedia = useMediaModels('transcription')
+    const imageMedia = useMediaModels('image')
 
     return (
         <div className="flex flex-col gap-16">
@@ -40,14 +49,34 @@ export function ToolsFields({ form, errors, set }: Props) {
                         value={form.ttsProvider}
                         onChange={(ttsProvider) => set({ ttsProvider, ttsModel: '', ttsVoice: '' })}
                     />
-                    <TextField label="Model" mono value={form.ttsModel} placeholder="Provider default" onChange={(e) => set({ ttsModel: e.target.value })} />
-                    <TextField
-                        label="Voice"
-                        mono
-                        value={form.ttsVoice}
-                        placeholder={TTS_DEFAULT_VOICES[form.ttsProvider] ?? 'Provider default'}
-                        onChange={(e) => set({ ttsVoice: e.target.value })}
-                    />
+                    {form.ttsProvider === 'openrouter' ? (
+                        <MediaModelSelect
+                            capability="speech"
+                            model={form.ttsModel}
+                            fallbackDefault={TTS_DEFAULT_MODELS.openrouter}
+                            media={ttsMedia}
+                            onChange={(ttsModel) => set({ ttsModel })}
+                        />
+                    ) : (
+                        <TextField label="Model" mono value={form.ttsModel} placeholder={TTS_DEFAULT_MODELS[form.ttsProvider] ?? 'Provider default'} onChange={(e) => set({ ttsModel: e.target.value })} />
+                    )}
+                    {form.ttsProvider === 'openrouter' ? (
+                        <MediaVoiceSelect
+                            model={form.ttsModel}
+                            voice={form.ttsVoice}
+                            fallbackDefault={TTS_DEFAULT_VOICES.openrouter}
+                            media={ttsMedia}
+                            onChange={(ttsVoice) => set({ ttsVoice })}
+                        />
+                    ) : (
+                        <TextField
+                            label="Voice"
+                            mono
+                            value={form.ttsVoice}
+                            placeholder={TTS_DEFAULT_VOICES[form.ttsProvider] ?? 'Provider default'}
+                            onChange={(e) => set({ ttsVoice: e.target.value })}
+                        />
+                    )}
                     <TextField
                         label="Speed"
                         inputMode="decimal"
@@ -68,13 +97,23 @@ export function ToolsFields({ form, errors, set }: Props) {
                         value={form.sttProvider}
                         onChange={(sttProvider) => set({ sttProvider, sttModel: '' })}
                     />
-                    <TextField
-                        label="Model"
-                        mono
-                        value={form.sttModel}
-                        placeholder={STT_DEFAULT_MODELS[form.sttProvider] ?? 'Provider default'}
-                        onChange={(e) => set({ sttModel: e.target.value })}
-                    />
+                    {form.sttProvider === 'openrouter' ? (
+                        <MediaModelSelect
+                            capability="transcription"
+                            model={form.sttModel}
+                            fallbackDefault={STT_DEFAULT_MODELS.openrouter}
+                            media={sttMedia}
+                            onChange={(sttModel) => set({ sttModel })}
+                        />
+                    ) : (
+                        <TextField
+                            label="Model"
+                            mono
+                            value={form.sttModel}
+                            placeholder={STT_DEFAULT_MODELS[form.sttProvider] ?? 'Provider default'}
+                            onChange={(e) => set({ sttModel: e.target.value })}
+                        />
+                    )}
                     <TextField
                         label="Language"
                         mono
@@ -117,13 +156,23 @@ export function ToolsFields({ form, errors, set }: Props) {
                         value={form.imageGenProvider}
                         onChange={(imageGenProvider) => set({ imageGenProvider, imageGenModel: '' })}
                     />
-                    <TextField
-                        label="Model"
-                        mono
-                        value={form.imageGenModel}
-                        placeholder={IMAGE_GEN_DEFAULT_MODELS[form.imageGenProvider] ?? 'Provider default'}
-                        onChange={(e) => set({ imageGenModel: e.target.value })}
-                    />
+                    {form.imageGenProvider === 'openrouter' ? (
+                        <MediaModelSelect
+                            capability="image"
+                            model={form.imageGenModel}
+                            fallbackDefault={IMAGE_GEN_DEFAULT_MODELS.openrouter}
+                            media={imageMedia}
+                            onChange={(imageGenModel) => set({ imageGenModel })}
+                        />
+                    ) : (
+                        <TextField
+                            label="Model"
+                            mono
+                            value={form.imageGenModel}
+                            placeholder={IMAGE_GEN_DEFAULT_MODELS[form.imageGenProvider] ?? 'Provider default'}
+                            onChange={(e) => set({ imageGenModel: e.target.value })}
+                        />
+                    )}
                     <TextField label="Size" mono value={form.imageGenSize} placeholder="Provider default" helper="Such as 1024x1024." onChange={(e) => set({ imageGenSize: e.target.value })} />
                 </div>
             </ToggleSection>

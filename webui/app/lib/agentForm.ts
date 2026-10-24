@@ -59,11 +59,12 @@ export type AgentForm = {
 }
 
 export const TTS_PROVIDERS = ['openai', 'openrouter', 'elevenlabs', 'xai', 'hyperbolic', 'kokoro']
-export const STT_PROVIDERS = ['openai', 'elevenlabs', 'groq', 'mistral', 'huggingface', 'gemini', 'whisper']
-export const IMAGE_GEN_PROVIDERS = ['openai', 'xai', 'huggingface', 'hyperbolic']
+export const STT_PROVIDERS = ['openai', 'openrouter', 'elevenlabs', 'groq', 'mistral', 'huggingface', 'gemini', 'whisper']
+export const IMAGE_GEN_PROVIDERS = ['openai', 'openrouter', 'xai', 'huggingface', 'hyperbolic']
 /** What each provider uses when the model is left empty (mirrors the server's defaults). */
 export const STT_DEFAULT_MODELS: Record<string, string> = {
     openai: 'whisper-1',
+    openrouter: 'openai/whisper-large-v3',
     elevenlabs: 'scribe_v1',
     groq: 'whisper-large-v3',
     mistral: 'voxtral-mini-2507',
@@ -73,13 +74,22 @@ export const STT_DEFAULT_MODELS: Record<string, string> = {
 }
 export const IMAGE_GEN_DEFAULT_MODELS: Record<string, string> = {
     openai: 'dall-e-3',
+    openrouter: 'bytedance-seed/seedream-4.5',
     xai: 'grok-2-image-1212',
     huggingface: 'stabilityai/stable-diffusion-xl-base-1.0',
     hyperbolic: 'SDXL1.0-base',
 }
+export const TTS_DEFAULT_MODELS: Record<string, string> = {
+    openai: 'tts-1',
+    openrouter: 'hexgrad/kokoro-82m',
+    elevenlabs: 'eleven_multilingual_v2',
+    xai: 'grok-2-tts',
+    hyperbolic: 'Melo-TTS',
+    kokoro: 'kokoro-en-v0_19',
+}
 export const TTS_DEFAULT_VOICES: Record<string, string> = {
     openai: 'alloy',
-    openrouter: 'alloy',
+    openrouter: 'af_alloy',
     elevenlabs: 'pqHfZKP75CvOlQylNhV4',
     xai: 'default',
     hyperbolic: 'default',
