@@ -35,7 +35,7 @@ export const Done: Story = {
 
 /** Working: a thought, then the running call. */
 export const Live: Story = {
-  args: { state: "live", title: "Working 3.2s", counts: "1 thought" },
+  args: { state: "live", title: "Archivist is gathering thoughts", counts: "1 thought" },
   render: (args) => (
     <ActivityTrail {...args}>
       <Thought>The benchmark notes live in the infra bundle. Search there first rather than the whole memory, then read the three newest.</Thought>
@@ -91,7 +91,7 @@ export const Lookups: Story = {
 
 /** A long trail: the middle folds so the newest stays in view. */
 export const Long: Story = {
-  args: { state: "live", title: "Working 48s", counts: "2 thoughts · 12 python runs" },
+  args: { state: "live", title: "Archivist is weighing it up", counts: "2 thoughts · 12 python runs" },
   render: (args) => (
     <ActivityTrail {...args}>
       <TrailCall name="execute_python" intent="search infra for benchmark notes" duration="1.1s" />

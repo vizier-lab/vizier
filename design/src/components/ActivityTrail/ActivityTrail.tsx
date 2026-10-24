@@ -1,4 +1,4 @@
-import { useState, type HTMLAttributes, type ReactNode } from "react";
+import { Children, useState, type HTMLAttributes, type ReactNode } from "react";
 import { cx } from "../../lib/cx";
 import { TrailHead, type TrailHeadProps } from "../TrailHead/TrailHead";
 
@@ -18,6 +18,7 @@ export type ActivityTrailProps = {
 
 /** A turn's work, on a timeline (D49): TrailHead over a spine of calls. */
 export function ActivityTrail({ state, title, counts, defaultExpanded, children, mini, bare, className, ...rest }: ActivityTrailProps) {
+  const empty = Children.toArray(children).length === 0;
   const [expanded, setExpanded] = useState(defaultExpanded ?? state === "live");
   if (mini) {
     return (
@@ -34,9 +35,11 @@ export function ActivityTrail({ state, title, counts, defaultExpanded, children,
   }
   return (
     <div className={cx("flex flex-col gap-10", !bare && "rounded-lg border border-border bg-surface px-16 py-12", className)} {...rest}>
-      <TrailHead state={state} title={title} counts={counts} expanded={expanded} onClick={() => setExpanded(!expanded)} />
-      {expanded && children && (
-        <ul className="relative flex flex-col">
+      <TrailHead state={state} title={title} counts={counts} expanded={expanded} plain={empty} onClick={() => setExpanded(!expanded)} />
+      {expanded && !empty && (
+        // While live, each step rises in as it arrives. It is the li itself that animates, so the spine's
+        // not-last rule still sees its siblings.
+        <ul className={cx("relative flex flex-col", state === "live" && "[&>li]:animate-rise-in motion-reduce:[&>li]:animate-none")}>
           {children}
         </ul>
       )}

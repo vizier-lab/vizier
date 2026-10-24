@@ -6,7 +6,7 @@ const meta = {
   component: TrailHead,
   tags: ["approved"],
   parameters: { vizier: { id: "D50", replaces: null } },
-  args: { state: "live", title: "Working 6.4s", counts: "2 python runs" },
+  args: { state: "live", title: "Archivist is gathering thoughts", counts: "2 python runs" },
   argTypes: { state: { control: "inline-radio", options: ["live", "done", "failed"] } },
   decorators: [(Story) => <div className="w-480">{Story()}</div>],
 } satisfies Meta<typeof TrailHead>;
