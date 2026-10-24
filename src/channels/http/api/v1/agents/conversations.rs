@@ -27,7 +27,7 @@ use crate::{
     usage::{NameBook, slug_place},
 };
 
-use super::user_can_view_agent;
+use super::{user_can_show_platform_chats, user_can_view_agent};
 
 pub fn conversations() -> Router<HTTPState> {
     Router::new().route("/", get(list))
@@ -146,12 +146,12 @@ pub async fn list(
     Path(agent_id): Path<String>,
     Query(query): Query<ConversationQuery>,
 ) -> models::response::Response<ConversationPage> {
-    match state.storage.get_agent(&agent_id).await {
-        Ok(Some(config)) if user_can_view_agent(&user, &config) => {}
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) if user_can_view_agent(&user, &config) => config,
         Ok(Some(_)) => return err_response(StatusCode::FORBIDDEN, "Access denied".into()),
         Ok(None) => return err_response(StatusCode::NOT_FOUND, "agent not found".into()),
         Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    }
+    };
     let cursor = match query.cursor.as_deref().map(decode_cursor) {
         Some(Some(c)) => Some(c),
         Some(None) => return err_response(StatusCode::BAD_REQUEST, "malformed cursor".into()),
@@ -163,8 +163,17 @@ pub async fn list(
         Ok(rows) => rows,
         Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
-    let rows: Vec<(ConversationKind, ConversationRow)> =
-        rows.into_iter().filter_map(|r| Some((kind_of(&r.channel, &user.username)?, r))).collect();
+    let show_discord = user_can_show_platform_chats(&user, &config, "discord");
+    let show_telegram = user_can_show_platform_chats(&user, &config, "telegram");
+    let rows: Vec<(ConversationKind, ConversationRow)> = rows
+        .into_iter()
+        .filter_map(|r| Some((kind_of(&r.channel, &user.username)?, r)))
+        .filter(|(kind, _)| match kind {
+            ConversationKind::Webui => true,
+            ConversationKind::Discord => show_discord,
+            ConversationKind::Telegram => show_telegram,
+        })
+        .collect();
 
     let mut counts = ConversationCounts { all: rows.len(), ..Default::default() };
     for (kind, _) in &rows {

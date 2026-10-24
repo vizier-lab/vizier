@@ -66,6 +66,34 @@ pub fn user_can_view_agent(
     false
 }
 
+/// Whether `user` may read this agent's Discord (`platform` = `"discord"`) or Telegram
+/// (`"telegram"`) conversations: `all_agents:show_<platform>_chats` for any agent,
+/// `owned_agents:show_<platform>_chats` for agents they own.
+pub fn user_can_show_platform_chats(
+    user: &crate::channels::http::auth::AuthenticatedUser,
+    config: &AgentConfig,
+    platform: &str,
+) -> bool {
+    let has = |scope: &str| {
+        let wanted = format!("{scope}_agents:show_{platform}_chats");
+        user.permissions.iter().any(|p| *p == wanted)
+    };
+    user.role.is_system
+        || has("all")
+        || (has("owned") && config.owner_id.as_deref() == Some(user.user_id.as_str()))
+}
+
+/// The platform a conversation slug belongs to, if it is a Discord or Telegram one.
+pub fn platform_of_slug(channel: &str) -> Option<&'static str> {
+    if channel.starts_with("discord__") {
+        Some("discord")
+    } else if channel.starts_with("telegram__") {
+        Some("telegram")
+    } else {
+        None
+    }
+}
+
 fn user_can_edit_agent(
     user: &crate::channels::http::auth::AuthenticatedUser,
     config: &AgentConfig,

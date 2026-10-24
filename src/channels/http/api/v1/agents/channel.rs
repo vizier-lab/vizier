@@ -42,7 +42,7 @@ use crate::{
     transport::{SessionEvent, SessionFrame, VizierTransport},
 };
 
-use super::user_can_view_agent;
+use super::{platform_of_slug, user_can_show_platform_chats, user_can_view_agent};
 use crate::channels::http::models::page::Page;
 use crate::schema::session_file::SessionFileRecord;
 use crate::storage::session_file::SessionFileStorage;
@@ -164,6 +164,12 @@ pub async fn get_topic_history(
         return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
+    if let Some(platform) = platform_of_slug(&channel_id) {
+        if !user_can_show_platform_chats(&user, &config, platform) {
+            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+        }
+    }
+
     let session = readable_session(agent_id, &user.username, &channel_id, topic_id);
 
     let response = state
@@ -214,6 +220,12 @@ pub async fn list_topic_files(
     };
     if !user_can_view_agent(&user, &config) {
         return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
+    if let Some(platform) = platform_of_slug(&channel_id) {
+        if !user_can_show_platform_chats(&user, &config, platform) {
+            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+        }
     }
 
     let session = readable_session(agent_id, &user.username, &channel_id, topic_id);
@@ -324,6 +336,12 @@ pub async fn get_topic_detail(
 
     if !user_can_view_agent(&user, &config) {
         return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
+    if let Some(platform) = platform_of_slug(&channel_id) {
+        if !user_can_show_platform_chats(&user, &config, platform) {
+            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+        }
     }
 
     let (channel, platform) = readable_channel(&user.username, &channel_id);

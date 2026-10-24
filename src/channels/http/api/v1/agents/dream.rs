@@ -178,7 +178,7 @@ pub async fn dream_status(
         completed_sessions,
         last_dream,
         next_dream,
-        dream_provider: config.dream_provider.map(|p| format!("{:?}", p)),
+        dream_provider: config.dream_provider.map(|p| p.to_string()),
         dream_model: config.dream_model,
     };
 
