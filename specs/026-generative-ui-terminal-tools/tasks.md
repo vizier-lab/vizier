@@ -19,8 +19,8 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Add pinned dependencies to `webui/package.json`: `@json-render/core@0.21.3`, `@json-render/react@0.21.3` (exact versions, no caret) and `zod@^4`; run `npm install` in `webui/`; confirm `npm run typecheck` and `npm run build` still pass (research R3)
-- [ ] T002 Record the baseline: run `cargo test`, `cargo clippy`, `cd webui && npm run typecheck && npm test` and note any failures that exist before this feature, so later regressions are attributable
+- [X] T001 Add pinned dependencies to `webui/package.json`: `@json-render/core@0.21.3`, `@json-render/react@0.21.3` (exact versions, no caret) and `zod@^4`; run `npm install` in `webui/`; confirm `npm run typecheck` and `npm run build` still pass (research R3)
+- [X] T002 Record the baseline: run `cargo test`, `cargo clippy`, `cd webui && npm run typecheck && npm test` and note any failures that exist before this feature, so later regressions are attributable
 
 ---
 
@@ -28,16 +28,16 @@
 
 **Purpose**: the design-library components the catalogue needs and the generative UI scaffolding every story fills in.
 
-- [ ] T003 [P] Add `Stack` (gap, align) to `design/src/components/Stack/` with a story and tokens-only styling (`Stack.tsx`, `Stack.stories.tsx`, `index.ts`)
-- [ ] T004 [P] Add `Row` (gap, align, justify, wrap) to `design/src/components/Row/` with a story
-- [ ] T005 [P] Add `Grid` (cols 1–12, gap, minCol responsive) to `design/src/components/Grid/` with a story
-- [ ] T006 [P] Add `Slider` (min, max, step, label, value, onChange, disabled; keyboard and ARIA complete) to `design/src/components/Slider/` with a story
-- [ ] T007 [P] Add `Chart` (kind `bar`/`line`/`area`/`pie`, data `[{label,value,series?}]`, legend, height, `onPress`) to `design/src/components/Chart/`, reusing `BarList`/series tokens, with a story per kind and an accessible text alternative
-- [ ] T008 Export the new components from `design/src/index.ts`, run the design Storybook build and token lint, commit in `design/`, then bump the `design` pin in `webui/` (`npm install ../design`) (depends on the five tasks above)
-- [ ] T009 Create the catalogue core in `webui/app/lib/generativeUi/catalog/index.ts`: a `defineComponent` helper taking `{ group, description, props (zod), children rule, events, example }`, the json-render `defineSchema`/`defineCatalog` wiring with built-in actions, group metadata, and a test `catalog.test.ts` that fails when an entry has no `description` or no `example` that validates against its own schema (contracts/ui-catalogue.md §6)
-- [ ] T010 [P] Create `webui/app/lib/generativeUi/functions.ts` with the pure `$computed` set (`add sub mul div mod min max abs round floor eq not and or len at concat join slice includes range`) and `functions.test.ts` (including bad-argument behaviour: returns `null`, never throws)
-- [ ] T011 [P] Create `webui/app/lib/generativeUi/state.ts`: a json-render `StateStore` wrapper that seeds from `spec.state` overlaid with saved state, excludes top-level `_`-prefixed keys from the saved snapshot, coalesces saves to one per 500 ms, and merges state arriving from another tab without firing `watch`; `state.test.ts` (data-model §3)
-- [ ] T012 Create `webui/app/lib/generativeUi/registry/index.ts` combining per-group registry maps through json-render `defineRegistry`, plus `registry.test.ts` asserting every catalogue entry has a registered component (fails today by design; each story adds its group)
+- [X] T003 [P] Add `Stack` (gap, align) to `design/src/components/Stack/` with a story and tokens-only styling (`Stack.tsx`, `Stack.stories.tsx`, `index.ts`)
+- [X] T004 [P] Add `Row` (gap, align, justify, wrap) to `design/src/components/Row/` with a story
+- [X] T005 [P] Add `Grid` (cols 1–12, gap, minCol responsive) to `design/src/components/Grid/` with a story
+- [X] T006 [P] Add `Slider` (min, max, step, label, value, onChange, disabled; keyboard and ARIA complete) to `design/src/components/Slider/` with a story
+- [X] T007 [P] Add `Chart` (kind `bar`/`line`/`area`/`pie`, data `[{label,value,series?}]`, legend, height, `onPress`) to `design/src/components/Chart/`, reusing `BarList`/series tokens, with a story per kind and an accessible text alternative
+- [X] T008 Export the new components from `design/src/index.ts`, run the design Storybook build and token lint, commit in `design/`, then bump the `design` pin in `webui/` (`npm install ../design`) (depends on the five tasks above)
+- [X] T009 Create the catalogue core in `webui/app/lib/generativeUi/catalog/index.ts`: a `defineComponent` helper taking `{ group, description, props (zod), children rule, events, example }`, the json-render `defineSchema`/`defineCatalog` wiring with built-in actions, group metadata, and a test `catalog.test.ts` that fails when an entry has no `description` or no `example` that validates against its own schema (contracts/ui-catalogue.md §6)
+- [X] T010 [P] Create `webui/app/lib/generativeUi/functions.ts` with the pure `$computed` set (`add sub mul div mod min max abs round floor eq not and or len at concat join slice includes range`) and `functions.test.ts` (including bad-argument behaviour: returns `null`, never throws)
+- [X] T011 [P] Create `webui/app/lib/generativeUi/state.ts`: a json-render `StateStore` wrapper that seeds from `spec.state` overlaid with saved state, excludes top-level `_`-prefixed keys from the saved snapshot, coalesces saves to one per 500 ms, and merges state arriving from another tab without firing `watch`; `state.test.ts` (data-model §3)
+- [X] T012 Create `webui/app/lib/generativeUi/registry/index.ts` combining per-group registry maps through json-render `defineRegistry`, plus `registry.test.ts` asserting every catalogue entry has a registered component (fails today by design; each story adds its group)
 
 **Checkpoint**: the scaffolding exists; user stories can start.
 
@@ -49,20 +49,20 @@
 
 **Independent Test** (verified by the maintainer): quickstart §2 steps 1–7 and 9 on a dummyplug agent: `tools` shows the `ui` category, `ui_components` returns the index and a recipe, `ui_render` of the dashboard recipe draws and survives a reload and a second tab, an invalid spec lists every problem and the turn continues, a theme switch re-themes it.
 
-- [ ] T013 [P] [US1] Add layout entries (`Stack`, `Row`, `Grid`, `Card`, `Tabs`, `Fold`, `Divider`) to `webui/app/lib/generativeUi/catalog/layout.ts` per contracts/ui-catalogue.md §1, each with a description and example
-- [ ] T014 [P] [US1] Add text entries (`Heading`, `Text`, `Badge`, `Callout`, `Code`) to `webui/app/lib/generativeUi/catalog/text.ts`
-- [ ] T015 [P] [US1] Add data entries (`Stat`, `Table`, `KeyValue`, `Progress`, `Chart`) to `webui/app/lib/generativeUi/catalog/data.ts`
-- [ ] T016 [P] [US1] Implement the layout components in `webui/app/lib/generativeUi/registry/layout.tsx` on `@vizier/design` (`Tabs` over `FilterTabs`/`Tab`, `Fold`, `Card`, the new `Stack`/`Row`/`Grid`)
-- [ ] T017 [P] [US1] Implement the text components in `webui/app/lib/generativeUi/registry/text.tsx`; `Text` renders the markdown subset through the existing sanitised `react-markdown` pipeline, rendering links as plain text until US7
-- [ ] T018 [P] [US1] Implement the data components in `webui/app/lib/generativeUi/registry/data.tsx` (`Table` on design `Table`/`TableRow` with `maxRows`, `Stat` on `StatGroup`, `Chart`, `Progress` on `ProgressBar`)
-- [ ] T019 [US1] Implement `webui/app/lib/generativeUi/validate.ts`: zod per-component props, json-render `validateSpec`/`autoFixSpec` (lossless fixes applied and reported, lossy ones are errors), the size/element/depth/logic limits of contracts/ui-catalogue.md §4, nearest-name suggestions, and the model-facing error text of contracts/generative-ui-tools.md §5 (all issues, JSON paths, valid options, capped at 20)
-- [ ] T020 [P] [US1] Write `webui/app/lib/generativeUi/validate.test.ts`: unknown component, wrong prop type, enum miss with suggestions, dangling child, misplaced `visible`, oversize, over 20 issues, and that no error echoes the whole spec
-- [ ] T021 [US1] Implement `webui/app/lib/generativeUi/reference.ts`: generate the `ui_components` index, per-component detail (compact signature from the zod schema, children rule, events, example) and recipe output from the catalogue (contracts/generative-ui-tools.md §2), capped at 24 KB; `reference.test.ts` checks every component appears and output size
-- [ ] T022 [P] [US1] Add the `dashboard` recipe in `webui/app/lib/generativeUi/recipes/dashboard.ts` and `recipes/index.ts` (name, intent, notes, spec), plus `recipes.test.ts` validating **every** recipe in the index against the catalogue (fails if any recipe is invalid)
-- [ ] T023 [US1] Create `webui/app/screens/chat/client/GenerativeUi.tsx`: json-render `Renderer` + `StateProvider` + `ActionProvider` for one saved call; a per-component error boundary showing an inline chip; accessible region named by the call's `title`; light/dark follows the app; keeps the 019 expand and download controls (download exports the spec as `.json`)
-- [ ] T024 [US1] Create `webui/app/lib/clientTools/generativeUi.ts`: the `ui` category description (≤512 bytes, "Start with ui_components"), the `ui_components` and `ui_render` descriptions per contracts/generative-ui-tools.md §2–§3, and the `ui_render` input schema with the `type` enum generated from the catalogue; `generativeUi.test.ts` asserts `ui_render`'s description is ≤ 2048 bytes (leaving room for the ends-turn notice) and the schema ≤ 16 KB
-- [ ] T025 [US1] Register the tools in `webui/app/lib/clientTools/builtin.tsx`: `registerClientCategory({name:'ui'})`, `ui_components` (read-only, handler returns the reference output), and `ui_render` (not deferrable; handler validates, enforces the 256 KB cap, returns `{ui_id, status:'rendered', fixed?}` or throws the model-facing error; `render` uses `GenerativeUi`, `renderAfterTurn`, `latestPerTurn`)
-- [ ] T026 [US1] Make a reply with empty text still draw its bubble when it has a visible client call: find the history-grouping code (`groupHistory` in `webui/app/lib/`, used by `trail.ts`/`frames.ts`) and the reply bubble in `webui/app/screens/chat/`, fix, and add a case to `webui/app/lib/trail.test.ts`
+- [X] T013 [P] [US1] Add layout entries (`Stack`, `Row`, `Grid`, `Card`, `Tabs`, `Fold`, `Divider`) to `webui/app/lib/generativeUi/catalog/layout.ts` per contracts/ui-catalogue.md §1, each with a description and example
+- [X] T014 [P] [US1] Add text entries (`Heading`, `Text`, `Badge`, `Callout`, `Code`) to `webui/app/lib/generativeUi/catalog/text.ts`
+- [X] T015 [P] [US1] Add data entries (`Stat`, `Table`, `KeyValue`, `Progress`, `Chart`) to `webui/app/lib/generativeUi/catalog/data.ts`
+- [X] T016 [P] [US1] Implement the layout components in `webui/app/lib/generativeUi/registry/layout.tsx` on `@vizier/design` (`Tabs` over `FilterTabs`/`Tab`, `Fold`, `Card`, the new `Stack`/`Row`/`Grid`)
+- [X] T017 [P] [US1] Implement the text components in `webui/app/lib/generativeUi/registry/text.tsx`; `Text` renders the markdown subset through the existing sanitised `react-markdown` pipeline, rendering links as plain text until US7
+- [X] T018 [P] [US1] Implement the data components in `webui/app/lib/generativeUi/registry/data.tsx` (`Table` on design `Table`/`TableRow` with `maxRows`, `Stat` on `StatGroup`, `Chart`, `Progress` on `ProgressBar`)
+- [X] T019 [US1] Implement `webui/app/lib/generativeUi/validate.ts`: zod per-component props, json-render `validateSpec`/`autoFixSpec` (lossless fixes applied and reported, lossy ones are errors), the size/element/depth/logic limits of contracts/ui-catalogue.md §4, nearest-name suggestions, and the model-facing error text of contracts/generative-ui-tools.md §5 (all issues, JSON paths, valid options, capped at 20)
+- [X] T020 [P] [US1] Write `webui/app/lib/generativeUi/validate.test.ts`: unknown component, wrong prop type, enum miss with suggestions, dangling child, misplaced `visible`, oversize, over 20 issues, and that no error echoes the whole spec
+- [X] T021 [US1] Implement `webui/app/lib/generativeUi/reference.ts`: generate the `ui_components` index, per-component detail (compact signature from the zod schema, children rule, events, example) and recipe output from the catalogue (contracts/generative-ui-tools.md §2), capped at 24 KB; `reference.test.ts` checks every component appears and output size
+- [X] T022 [P] [US1] Add the `dashboard` recipe in `webui/app/lib/generativeUi/recipes/dashboard.ts` and `recipes/index.ts` (name, intent, notes, spec), plus `recipes.test.ts` validating **every** recipe in the index against the catalogue (fails if any recipe is invalid)
+- [X] T023 [US1] Create `webui/app/screens/chat/client/GenerativeUi.tsx`: json-render `Renderer` + `StateProvider` + `ActionProvider` for one saved call; a per-component error boundary showing an inline chip; accessible region named by the call's `title`; light/dark follows the app; keeps the 019 expand and download controls (download exports the spec as `.json`)
+- [X] T024 [US1] Create `webui/app/lib/clientTools/generativeUi.ts`: the `ui` category description (≤512 bytes, "Start with ui_components"), the `ui_components` and `ui_render` descriptions per contracts/generative-ui-tools.md §2–§3, and the `ui_render` input schema with the `type` enum generated from the catalogue; `generativeUi.test.ts` asserts `ui_render`'s description is ≤ 2048 bytes (leaving room for the ends-turn notice) and the schema ≤ 16 KB
+- [X] T025 [US1] Register the tools in `webui/app/lib/clientTools/builtin.tsx`: `registerClientCategory({name:'ui'})`, `ui_components` (read-only, handler returns the reference output), and `ui_render` (not deferrable; handler validates, enforces the 256 KB cap, returns `{ui_id, status:'rendered', fixed?}` or throws the model-facing error; `render` uses `GenerativeUi`, `renderAfterTurn`, `latestPerTurn`)
+- [X] T026 [US1] Make a reply with empty text still draw its bubble when it has a visible client call: find the history-grouping code (`groupHistory` in `webui/app/lib/`, used by `trail.ts`/`frames.ts`) and the reply bubble in `webui/app/screens/chat/`, fix, and add a case to `webui/app/lib/trail.test.ts`
 
 **Checkpoint**: US1 works end to end except the turn does not yet end by itself (US3).
 
@@ -74,13 +74,13 @@
 
 **Independent Test** (verified by the maintainer): quickstart §2 steps 4, 5 and 8: the Add counter increments with no turn, state survives reload and a second tab, `sendMessage` from the `form` recipe posts the person's message with data, a second press within one second is ignored.
 
-- [ ] T027 [P] [US2] Add input entries (`TextInput`, `NumberInput`, `Slider`, `Select`, `Checkbox`, `Switch`, `RadioGroup`; shared `label`, `value` bind, `disabled`, `checks`) to `webui/app/lib/generativeUi/catalog/input.ts`
-- [ ] T028 [P] [US2] Add the `Button` entry (variant, tone, disabled, selected; event `press`) to `webui/app/lib/generativeUi/catalog/action.ts`
-- [ ] T029 [P] [US2] Implement the input components in `webui/app/lib/generativeUi/registry/input.tsx` on design `TextField`, `Select`, `Checkbox`, `Switch`, `Radio`, `Slider`, using json-render bound props and `checks` validation display
-- [ ] T030 [P] [US2] Implement `Button` in `webui/app/lib/generativeUi/registry/action.tsx` (emits `press`, carries the originating event's `isTrusted`)
-- [ ] T031 [US2] Implement `webui/app/lib/generativeUi/actions.ts`: wire json-render built-ins (`setState`, `pushState`, `removeState`, `validateForm`) and `sendMessage {text,data}` through `ClientCallContext.sendEvent`, allowed only when the action chain began at a trusted DOM event, ≤ 1 per second per interface, text ≤ 4000 chars, data ≤ 64 KB (research R9, data-model §4); `actions.test.ts` covers trusted vs untrusted, rate limit, and size refusals
-- [ ] T032 [US2] Connect `GenerativeUi.tsx` to `state.ts`: load the call's saved state, save non-`_` changes through `ctx.saveState`, merge `client_call_state` from other tabs without firing watchers, and show the existing short "sent" notice for `sendMessage` (spec 019 FR-028a)
-- [ ] T033 [P] [US2] Add recipes `form` (inputs with `checks`, `validateForm`, `sendMessage` with the values) and `tabs_and_filter` (`Tabs` + `visible`, a `Select` driving a `repeat`) in `webui/app/lib/generativeUi/recipes/form.ts` and `tabs_and_filter.ts`; register in `recipes/index.ts`
+- [X] T027 [P] [US2] Add input entries (`TextInput`, `NumberInput`, `Slider`, `Select`, `Checkbox`, `Switch`, `RadioGroup`; shared `label`, `value` bind, `disabled`, `checks`) to `webui/app/lib/generativeUi/catalog/input.ts`
+- [X] T028 [P] [US2] Add the `Button` entry (variant, tone, disabled, selected; event `press`) to `webui/app/lib/generativeUi/catalog/action.ts`
+- [X] T029 [P] [US2] Implement the input components in `webui/app/lib/generativeUi/registry/input.tsx` on design `TextField`, `Select`, `Checkbox`, `Switch`, `Radio`, `Slider`, using json-render bound props and `checks` validation display
+- [X] T030 [P] [US2] Implement `Button` in `webui/app/lib/generativeUi/registry/action.tsx` (emits `press`, carries the originating event's `isTrusted`)
+- [X] T031 [US2] Implement `webui/app/lib/generativeUi/actions.ts`: wire json-render built-ins (`setState`, `pushState`, `removeState`, `validateForm`) and `sendMessage {text,data}` through `ClientCallContext.sendEvent`, allowed only when the action chain began at a trusted DOM event, ≤ 1 per second per interface, text ≤ 4000 chars, data ≤ 64 KB (research R9, data-model §4); `actions.test.ts` covers trusted vs untrusted, rate limit, and size refusals
+- [X] T032 [US2] Connect `GenerativeUi.tsx` to `state.ts`: load the call's saved state, save non-`_` changes through `ctx.saveState`, merge `client_call_state` from other tabs without firing watchers, and show the existing short "sent" notice for `sendMessage` (spec 019 FR-028a)
+- [X] T033 [P] [US2] Add recipes `form` (inputs with `checks`, `validateForm`, `sendMessage` with the values) and `tabs_and_filter` (`Tabs` + `visible`, a `Select` driving a `repeat`) in `webui/app/lib/generativeUi/recipes/form.ts` and `tabs_and_filter.ts`; register in `recipes/index.ts`
 
 **Checkpoint**: US1 and US2 give a complete, interactive catalogue-only generative UI.
 
@@ -102,7 +102,7 @@
 - [X] T041 [US3] In `chat_turn` (same file) flush **every** new message when `stats.ended_by_tool` is set instead of dropping the last one, so the final tool result is recorded; test with a fixture history ending in a tool result
 - [X] T042 [US3] Resume: in `chat_turn`/`prompt_with`, when a resumed turn's last recorded message is an `execute_python` result whose report `ended_turn()`, finalise with `ended_by_tool` instead of requesting a completion (data-model §1); unit test using `history_entries_to_messages`
 - [X] T043 [P] [US3] Telemetry: `vizier.tool.ends_turn` on the `execute_tool` span (`traced_tool_call` and `ToolRouter::call` in `src/agents/tools/mod.rs`) and `vizier.turn.ended_by_tool` on `invoke_agent` (`src/agents/agent/mod.rs`); no content attributes outside `capture_content()`
-- [ ] T044 [P] [US3] Add `ends_turn?: boolean` to `ClientToolDeclaration` in `webui/app/api/frames.ts` and set `ends_turn: true` on the `ui_render` definition in `webui/app/lib/clientTools/builtin.tsx`
+- [X] T044 [P] [US3] Add `ends_turn?: boolean` to `ClientToolDeclaration` in `webui/app/api/frames.ts` and set `ends_turn: true` on the `ui_render` definition in `webui/app/lib/clientTools/builtin.tsx`
 
 **Checkpoint**: US1 + US2 + US3 deliver the headline: a generated, interactive interface that is the turn's final answer.
 
@@ -174,8 +174,8 @@
 
 **Independent Test** (verified by the maintainer): quickstart §2 steps 1 and 10: `tools` lists only the new tools; an old saved page still draws with its state; calling the old name returns the retired hint.
 
-- [ ] T072 [US6] Add `declare?: boolean` (default true) to `ClientToolRegistration` and filter it in `declaredClientTools()` in `webui/app/lib/clientTools.ts`; add a test that a non-declared registration still resolves in `findClientTool`
-- [ ] T073 [US6] In `webui/app/lib/clientTools/builtin.tsx` keep `render_interactive_ui` registered as render-only (`declare: false`, `handle` rejecting, `render` unchanged), drop `RENDER_INTERACTIVE_UI_DESCRIPTION` from `webui/app/lib/clientTools/interactiveUi.ts` and update `interactiveUi.test.ts`
+- [X] T072 [US6] Add `declare?: boolean` (default true) to `ClientToolRegistration` and filter it in `declaredClientTools()` in `webui/app/lib/clientTools.ts`; add a test that a non-declared registration still resolves in `findClientTool`
+- [X] T073 [US6] In `webui/app/lib/clientTools/builtin.tsx` keep `render_interactive_ui` registered as render-only (`declare: false`, `handle` rejecting, `render` unchanged), drop `RENDER_INTERACTIVE_UI_DESCRIPTION` from `webui/app/lib/clientTools/interactiveUi.ts` and update `interactiveUi.test.ts`
 - [X] T074 [P] [US6] Add `ui_render_interactive_ui` to `RETIRED_TOOL_NAMES` in `src/agents/tools/mod.rs` with the hint "render_interactive_ui was replaced by ui_render. Start with ui_components()." and a test of `retired_hint`
 - [X] T075 [P] [US6] Remove the skill template `templates/skills/interactive-ui/` and any embedding or listing of it (`grep -rn "interactive-ui" src templates build.rs Cargo.toml docs`); update the tool names in the fixtures at `src/agents/agent/system_prompt/sandbox.rs` tests and the comment in `src/schema/history.rs`
 
