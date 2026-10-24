@@ -1,4 +1,6 @@
-import { Select, SettingsNav, type SettingsPage } from '@vizier/design'
+import { Select, SettingsNav, motionDurations, type SettingsPage } from '@vizier/design'
+import { type ReactNode } from 'react'
+import { motion } from 'motion/react'
 import { Outlet, useLocation, useNavigate } from 'react-router'
 import { useMobile } from '../lib/useMobile'
 import { useSession } from '../stores/session'
@@ -13,6 +15,26 @@ const ADMIN: { value: SettingsPage; label: string }[] = [
     { value: 'users', label: 'Users' },
     { value: 'roles', label: 'Roles' },
 ]
+
+/**
+ * The panel beside the settings menu. Only the panel changes when the person
+ * moves between settings pages: the menu is the frame, and it stays.
+ */
+function SettingsPanel({ pathname, children }: { pathname: string; children: ReactNode }) {
+    return (
+        <motion.div
+            key={pathname}
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
+            initial={{ opacity: 0.7 }}
+            animate={{
+                opacity: 1,
+                transition: { duration: motionDurations.fast },
+            }}
+        >
+            {children}
+        </motion.div>
+    )
+}
 
 export default function SettingsLayout() {
     const { pathname } = useLocation()
@@ -33,18 +55,18 @@ export default function SettingsLayout() {
                         onChange={(page) => navigate(`/settings/${page}`)}
                     />
                 </div>
-                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <SettingsPanel pathname={pathname}>
                     <Outlet />
-                </div>
+                </SettingsPanel>
             </div>
         )
     }
     return (
         <div className="flex min-h-0 flex-1">
             <SettingsNav active={active} hrefFor={(p) => `/settings/${p}`} showAdministration={admin} />
-            <div className="flex min-w-0 flex-1 flex-col">
+            <SettingsPanel pathname={pathname}>
                 <Outlet />
-            </div>
+            </SettingsPanel>
         </div>
     )
 }

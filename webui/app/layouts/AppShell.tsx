@@ -11,7 +11,7 @@ import {
     type SidebarPage,
 } from '@vizier/design'
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
-import { Outlet, useLocation, useNavigate, useParams } from 'react-router'
+import { Outlet, useLocation, useMatches, useNavigate, useParams } from 'react-router'
 import { motion } from 'motion/react'
 import { motionDurations, motionEases } from '@vizier/design'
 import { agentState } from '../api/endpoints/agents'
@@ -58,6 +58,7 @@ export default function AppShell() {
     const navigate = useNavigate()
     const { pathname } = useLocation()
     const params = useParams()
+    const matches = useMatches()
     const { user, toggleTheme, signOut, can } = useSession()
     const { agents, health, start } = useAgents()
     const [collapsed, setCollapsed] = useState(() => read(COLLAPSED_KEY, false))
@@ -98,6 +99,14 @@ export default function AppShell() {
     }, [routeAgent])
 
     const stateOf = (id: string) => agentState(health[id])
+
+    // Which screen is showing, rather than which URL: a screen keeps its
+    // identity while its parameters change, so switching conversation or
+    // document doesn't re-animate the app around it.
+    const screen = matches[matches.length - 1]?.id ?? pathname
+    // The settings pages share one frame: moving between them must not
+    // re-animate the menu beside them.
+    const routeKey = pathname.startsWith('/settings') ? 'settings' : screen
 
     const sections = useMemo(() => {
         const q = query.trim().toLowerCase()
@@ -245,12 +254,12 @@ export default function AppShell() {
                     />
                 )}
                 <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    {/* Each screen rises into place, so the shell feels like one
-                        room the person moves through rather than a set of cuts. */}
+                    {/* A new screen settles into place: it dims and lifts a
+                        little, it doesn't slide in from nowhere. */}
                     <motion.div
-                        key={pathname}
+                        key={routeKey}
                         className="flex min-h-0 min-w-0 flex-1 flex-col"
-                        initial={{ opacity: 0, y: 6 }}
+                        initial={{ opacity: 0.7, y: 2 }}
                         animate={{
                             opacity: 1,
                             y: 0,
@@ -281,12 +290,12 @@ export default function AppShell() {
         <div className="flex h-screen bg-ground text-fg" onClick={onClick}>
             {sidebar(false)}
             <main className="flex min-w-0 flex-1 flex-col">
-                {/* Each screen rises into place, so the shell feels like one
-                    room the person moves through rather than a set of cuts. */}
+                {/* A new screen settles into place: it dims and lifts a
+                    little, it doesn't slide in from nowhere. */}
                 <motion.div
-                    key={pathname}
+                    key={routeKey}
                     className="flex min-h-0 min-w-0 flex-1 flex-col"
-                    initial={{ opacity: 0, y: 6 }}
+                    initial={{ opacity: 0.7, y: 2 }}
                     animate={{
                         opacity: 1,
                         y: 0,

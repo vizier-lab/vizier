@@ -102,7 +102,7 @@ export default function Usage() {
                     // A new range or dimension replaces the whole report: it
                     // fades up rather than snapping into place.
                     key={`${range}-${by}`}
-                    initial={{ opacity: 0 }}
+                    initial={{ opacity: 0.7 }}
                     animate={{
                         opacity: 1,
                         transition: { duration: motionDurations.fast },

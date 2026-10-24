@@ -226,7 +226,7 @@ export default function AgentConfig() {
                 {/* The panel settles in as the underline glides across. */}
                 <motion.div
                     key={tab}
-                    initial={{ opacity: 0, y: 4 }}
+                    initial={{ opacity: 0.7, y: 2 }}
                     animate={{
                         opacity: 1,
                         y: 0,
