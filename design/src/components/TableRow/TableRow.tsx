@@ -26,7 +26,7 @@ export function TableRow({ cells, endAligned = [], selected, onSelect, className
         }
       }}
       className={cx(
-        "border-b border-border",
+        "border-b border-border transition-colors",
         // Faint text falls under 4.5:1 on the pressed ground, so a selected row lifts it to muted.
         selected ? "bg-pressed [&_.text-faint]:text-muted [&_[data-title]]:type-body-strong" : interactive && "cursor-pointer hover:bg-raised",
         "focus-visible:-outline-offset-2",

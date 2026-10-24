@@ -1,5 +1,7 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import { useId, type HTMLAttributes, type ReactNode } from "react";
+import { motion } from "motion/react";
 import { cx } from "../../lib/cx";
+import { motionSprings } from "../../tokens/tokens";
 
 export type Night = {
   /** Shown under some nights: "Sep 21", "today". */
@@ -27,6 +29,8 @@ export type NightStripProps = {
 export function NightStrip({ nights, meta = "dot size = memories written or revised · ring = CORE changed", selected, onSelectNight, className, ...rest }: NightStripProps) {
   const max = Math.max(1, ...nights.map((n) => n.memories));
   const size = (m: number) => (m <= 0 ? 3 : Math.max(5, Math.round((m / max) * 12)));
+  // One id per strip, so the selection halo glides from night to night.
+  const haloId = useId();
   return (
     <section className={cx("flex flex-col gap-16 rounded-xl border border-border bg-surface px-20 py-16", className)} {...rest}>
       <header className="flex items-baseline justify-between gap-12">
@@ -46,7 +50,6 @@ export function NightStrip({ nights, meta = "dot size = memories written or revi
                 "rounded-pill",
                 n.live ? "bg-live" : n.memories <= 0 ? "bg-unlit" : "bg-ink",
                 n.core && "ring-2 ring-ink ring-offset-2 ring-offset-surface",
-                selected === i && "outline-2 outline-offset-4 outline-focus",
               )}
               style={{ width: size(n.memories), height: size(n.memories) }}
             />
@@ -59,9 +62,19 @@ export function NightStrip({ nights, meta = "dot size = memories written or revi
               aria-label={n.hint ?? n.label}
               aria-pressed={selected === i}
               onClick={() => onSelectNight(i)}
-              className="flex h-24 items-center justify-center rounded-sm hover:bg-raised"
+              className="relative flex h-24 items-center justify-center rounded-sm transition-colors hover:bg-raised"
             >
               {dot}
+              {/* The halo is shared between nights: it slides and resizes with the dot. */}
+              {selected === i && (
+                <motion.span
+                  aria-hidden
+                  layoutId={haloId}
+                  className="absolute inset-0 m-auto rounded-pill outline-2 outline-offset-4 outline-focus"
+                  style={{ width: size(n.memories), height: size(n.memories) }}
+                  transition={motionSprings.glide}
+                />
+              )}
             </button>
           ) : (
             <span key={i} title={n.hint} className="flex h-24 items-center justify-center">

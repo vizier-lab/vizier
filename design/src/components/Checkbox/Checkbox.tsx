@@ -26,7 +26,7 @@ export function Checkbox({ label, className, disabled, ...rest }: CheckboxProps)
         name="check"
         size={12}
         tone="inverse"
-        className="pointer-events-none absolute top-2 left-2 hidden peer-checked:block peer-disabled:opacity-40"
+        className="pointer-events-none absolute top-2 left-2 hidden peer-checked:block peer-checked:animate-pop-in motion-reduce:animate-none peer-disabled:opacity-40"
       />
     </span>
   );

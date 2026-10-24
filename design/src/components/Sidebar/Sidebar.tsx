@@ -92,7 +92,9 @@ export function Sidebar({
     <nav
       aria-label="Main"
       className={cx(
-        "flex h-full flex-col gap-4 border-r border-border bg-sidebar pb-16",
+        // The rail eases between its two widths; the labels are clipped by the
+        // shrinking edge rather than popped out of existence.
+        "flex h-full flex-col gap-4 overflow-hidden border-r border-border bg-sidebar pb-16 transition-[width] duration-[var(--vz-duration-slow)] ease-standard",
         collapsed ? "w-64 items-center px-10" : "w-240 px-14",
         className,
       )}

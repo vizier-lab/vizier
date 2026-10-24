@@ -1,5 +1,7 @@
-import { useEffect, useId, useRef, type HTMLAttributes, type ReactNode } from "react";
+import { useId, type HTMLAttributes, type ReactNode } from "react";
+import { motion } from "motion/react";
 import { cx } from "../../lib/cx";
+import { Presence, scrimMotion, slideOverMotion, useNativeDialog } from "../../lib/Motion";
 import { IconButton } from "../IconButton/IconButton";
 
 export type SlideOverPanelProps = {
@@ -29,16 +31,10 @@ export function SlideOverPanel({ title, footer, onClose, children, titleId, clas
 
 export type SlideOverProps = SlideOverPanelProps & { open: boolean };
 
-/** A right-hand panel over the page, full height (D35). Esc closes it. */
+/** A right-hand panel over the page, full height (D35). Esc closes it; the panel slides with its scrim. */
 export function SlideOver({ open, onClose, ...panel }: SlideOverProps) {
-  const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
-  useEffect(() => {
-    const d = ref.current;
-    if (!d) return;
-    if (open && !d.open) d.showModal();
-    if (!open && d.open) d.close();
-  }, [open]);
+  const { ref, onExitComplete } = useNativeDialog(open);
   return (
     <dialog
       ref={ref}
@@ -47,9 +43,16 @@ export function SlideOver({ open, onClose, ...panel }: SlideOverProps) {
         e.preventDefault();
         onClose();
       }}
-      className="ml-auto h-dvh max-h-none max-w-full bg-transparent p-0 backdrop:bg-ground/60"
+      className="fixed inset-0 m-0 max-h-none max-w-none bg-transparent p-0 backdrop:bg-transparent"
     >
-      {open && <SlideOverPanel {...panel} titleId={titleId} onClose={onClose} />}
+      <Presence onExitComplete={onExitComplete}>
+        {open && <motion.div key="scrim" aria-hidden {...scrimMotion} className="absolute inset-0 bg-ground/60" />}
+        {open && (
+          <motion.div key="panel" {...slideOverMotion} className="absolute inset-y-0 right-0 flex max-w-full">
+            <SlideOverPanel {...panel} titleId={titleId} onClose={onClose} />
+          </motion.div>
+        )}
+      </Presence>
     </dialog>
   );
 }

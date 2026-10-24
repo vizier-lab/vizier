@@ -1,5 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import { motion } from "motion/react";
 import { cx } from "../../lib/cx";
+import { motionDurations, motionEases } from "../../tokens/tokens";
 
 export type ActivityRow = {
   label: string;
@@ -73,9 +75,17 @@ export function ActivityGrid({ rows, meta, summary, empty, footer, compact, clas
                   tabIndex={hint ? 0 : undefined}
                   className={cx("flex h-18 items-center justify-center rounded-xs", hint && "focus-visible:outline-2 focus-visible:outline-focus")}
                 >
-                  <span
+                  <motion.span
                     className={cx("rounded-pill", v <= 0 ? "bg-dot-off" : r.live && h === 23 ? "bg-live" : "bg-ink")}
                     style={{ width: dot(v, scale), height: dot(v, scale) }}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{
+                      duration: motionDurations.base,
+                      ease: motionEases.arrive,
+                      // Rows come in one after another, never a wave per dot.
+                      delay: Math.min(ri * 0.03, 0.24),
+                    }}
                   />
                 </span>
                 );

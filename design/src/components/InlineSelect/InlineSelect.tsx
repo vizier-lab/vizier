@@ -18,7 +18,7 @@ export function InlineSelect({ label, value, open, type = "button", className, .
       type={type}
       aria-haspopup="listbox"
       aria-expanded={open ?? false}
-      className={cx("inline-flex items-center gap-4 rounded-xs type-ui-medium text-fg hover:underline underline-offset-2 disabled:opacity-40", className)}
+      className={cx("inline-flex items-center gap-4 rounded-xs type-ui-medium text-fg transition-colors hover:underline underline-offset-2 disabled:opacity-40", className)}
       {...rest}
     >
       <span>

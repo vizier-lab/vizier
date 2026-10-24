@@ -83,6 +83,16 @@
   --vz-scrollbar-thumb: var(--vz-unlit); /* scrollbar/thumb */
   --vz-scrollbar-thumb-hover: var(--vz-border-hover); /* scrollbar/thumb-hover */
   --vz-scrollbar-thumb-active: var(--vz-text-faint); /* scrollbar/thumb-active */
+
+  /* Motion: fast = immediate feedback (hover, press, small state), base =
+     state changes and entrances, slow = overlays and layout. Arrive is a
+     deceleration for confident arrivals; exits go faster on the standard
+     ease. Distances come from the space scale above, never new values. */
+  --vz-duration-fast: 120ms; /* motion/fast */
+  --vz-duration-base: 180ms; /* motion/base */
+  --vz-duration-slow: 280ms; /* motion/slow */
+  --vz-ease-standard: cubic-bezier(0.2, 0, 0, 1); /* motion/standard */
+  --vz-ease-arrive: cubic-bezier(0.16, 1, 0.3, 1); /* motion/arrive */
 }
 
 @media (prefers-color-scheme: dark) {

@@ -43,7 +43,7 @@ export function FieldFrame({
 /** The box around a text control: hover edge, emerald focus, error, disabled and read-only grounds. */
 export function fieldBox({ invalid, disabled, readOnly }: { invalid?: boolean; disabled?: boolean; readOnly?: boolean }) {
   return cx(
-    "flex w-full items-center rounded-md border",
+    "flex w-full items-center rounded-md border transition-colors",
     disabled
       ? "border-border-strong bg-surface text-muted"
       : readOnly

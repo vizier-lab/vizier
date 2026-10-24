@@ -23,7 +23,8 @@ export function AgentCard({ agentId, name, description, state, detail, model, ow
     <a
       href={href}
       className={cx(
-        "flex flex-col gap-14 rounded-lg border bg-surface px-16 py-14 hover:bg-raised",
+        // Cards sit in a grid, so each fills its cell to the row's height.
+        "flex h-full flex-col gap-14 rounded-lg border bg-surface px-16 py-14 transition-colors hover:bg-raised",
         state === "failed" ? "border-failed-line" : "border-border",
         className,
       )}

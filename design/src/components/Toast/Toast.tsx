@@ -1,8 +1,10 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import { motion, type HTMLMotionProps } from "motion/react";
 import { Icon } from "../../icons/Icon";
 import type { IconName } from "../../icons/map";
 import type { ToneMode } from "../../tokens/tokens";
 import { cx } from "../../lib/cx";
+import { motionDurations, motionEases } from "../../tokens/tokens";
 
 export type ToastTone = "success" | "error" | "warning" | "info";
 
@@ -20,14 +22,32 @@ const TONES: Record<ToastTone, { edge: string; title: string; icon: IconName; to
   info: { edge: "border-border-strong", title: "text-fg", icon: "info", tone: "muted" },
 };
 
-/** A transient confirmation or failure, with a close button (D27). */
+/**
+ * A transient confirmation or failure, with a close button (D27).
+ *
+ * The toast carries its own entrance and exit, and `layout` so the ones below
+ * it glide up when one is dismissed. Wrap the toasts in `Presence` so the
+ * exit can play.
+ */
 export function Toast({ tone = "success", title, message, onClose, className, ...rest }: ToastProps) {
   const t = TONES[tone];
   return (
-    <div
+    <motion.div
       role={tone === "error" ? "alert" : "status"}
+      layout
+      initial={{ opacity: 0, x: 12 }}
+      animate={{
+        opacity: 1,
+        x: 0,
+        transition: { duration: motionDurations.base, ease: motionEases.arrive },
+      }}
+      exit={{
+        opacity: 0,
+        x: 8,
+        transition: { duration: motionDurations.fast, ease: motionEases.standard },
+      }}
       className={cx("flex w-380 items-start gap-12 rounded-lg border bg-raised px-14 py-12 shadow-popover", t.edge, className)}
-      {...rest}
+      {...(rest as HTMLMotionProps<"div">)}
     >
       <Icon name={t.icon} tone={t.tone} />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -35,11 +55,16 @@ export function Toast({ tone = "success", title, message, onClose, className, ..
         {message && <p className="type-small text-muted">{message}</p>}
       </div>
       {onClose && (
-        <button type="button" aria-label="Dismiss" onClick={onClose} className="flex size-18 items-center justify-center rounded-xs text-faint hover:text-fg">
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={onClose}
+          className="flex size-18 items-center justify-center rounded-xs text-faint transition-colors hover:text-fg"
+        >
           <Icon name="close" size={13} />
         </button>
       )}
-    </div>
+    </motion.div>
   );
 }
 

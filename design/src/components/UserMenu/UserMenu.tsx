@@ -27,7 +27,7 @@ export function UserMenu({ name, role, avatarSrc, collapsed, onOpenProfile, onSi
         type="button"
         onClick={onOpenProfile}
         aria-label={collapsed ? `${name}, profile` : undefined}
-        className={cx("flex min-w-0 items-center gap-10 rounded-md text-left hover:opacity-80", collapsed ? "justify-center" : "flex-1")}
+        className={cx("flex min-w-0 items-center gap-10 rounded-md text-left transition-opacity hover:opacity-80", collapsed ? "justify-center" : "flex-1")}
       >
         <Avatar name={name} src={avatarSrc} size="sm" />
         {!collapsed && (
@@ -42,7 +42,7 @@ export function UserMenu({ name, role, avatarSrc, collapsed, onOpenProfile, onSi
           type="button"
           aria-label="Sign out"
           onClick={onSignOut}
-          className="flex size-28 shrink-0 items-center justify-center rounded-sm text-faint hover:bg-raised hover:text-fg"
+          className="flex size-28 shrink-0 items-center justify-center rounded-sm text-faint transition-colors hover:bg-raised hover:text-fg"
         >
           <Icon name="logout" size={16} />
         </button>

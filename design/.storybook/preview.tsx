@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { addons } from "storybook/preview-api";
 import { GLOBALS_UPDATED, SET_GLOBALS } from "storybook/internal/core-events";
 import { SourceBlock } from "./blocks/Source";
+import { MotionProvider } from "../src/lib/Motion";
 import "../src/styles.css";
 import "./docs.css";
 
@@ -32,6 +33,13 @@ const withTheme: Decorator = (Story, context) => {
   useEffect(() => applyTheme(theme), [theme]);
   return <Story />;
 };
+
+// Motion behaves as it does in the app: reduced-motion preference honoured.
+const withMotion: Decorator = (Story) => (
+  <MotionProvider>
+    <Story />
+  </MotionProvider>
+);
 
 // Every catalogue entry outside Foundations and Icons names its inventory id
 // (contracts/story-metadata.md); a story without one fails `npm test`.
@@ -62,7 +70,7 @@ const failOnCriticalA11y: Preview["afterEach"] = async ({ title, name, parameter
 };
 
 const preview: Preview = {
-  decorators: [withTheme, requireInventoryId],
+  decorators: [withTheme, withMotion, requireInventoryId],
   afterEach: failOnCriticalA11y,
   initialGlobals: { theme: "system" },
   parameters: {

@@ -1,5 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import { motion } from "motion/react";
 import { cx } from "../../lib/cx";
+import { motionDurations, motionEases } from "../../tokens/tokens";
 import { Legend, type SeriesColour } from "../Legend/Legend";
 
 export type ChartSeries = { key: string; label: string; colour: SeriesColour };
@@ -64,12 +66,24 @@ export function StackedBarChart({ title, series, days, format = (v) => `$${v.toF
                 className="relative flex h-full min-w-0 flex-1 flex-col-reverse"
                 aria-label={`${d.label ?? `Day ${i + 1}`}: ${format(totals[i])}, ${series.map((s) => `${s.label} ${format(d.values[s.key] ?? 0)}`).join(", ")}`}
               >
-                {series.map((s) => {
-                  const v = d.values[s.key] ?? 0;
-                  return v > 0 ? (
-                    <span key={s.key} className={cx("w-full first:rounded-b-xs last:rounded-t-xs", FILL[s.colour])} style={{ height: `${(v / top) * 100}%` }} />
-                  ) : null;
-                })}
+                {/* The day's stack grows from the baseline, a beat behind its neighbours. */}
+                <motion.div
+                  className="flex origin-bottom flex-col-reverse"
+                  initial={{ scaleY: 0, opacity: 0 }}
+                  animate={{ scaleY: 1, opacity: 1 }}
+                  transition={{
+                    duration: motionDurations.slow,
+                    ease: motionEases.arrive,
+                    delay: Math.min(i * 0.02, 0.24),
+                  }}
+                >
+                  {series.map((s) => {
+                    const v = d.values[s.key] ?? 0;
+                    return v > 0 ? (
+                      <span key={s.key} className={cx("w-full first:rounded-b-xs last:rounded-t-xs", FILL[s.colour])} style={{ height: `${(v / top) * 100}%` }} />
+                    ) : null;
+                  })}
+                </motion.div>
                 {annotation?.index === i && (
                   <span aria-hidden className="absolute -top-8 bottom-0 left-1/2 w-0 border-l border-dashed border-retrying" />
                 )}

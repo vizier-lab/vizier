@@ -95,6 +95,43 @@
     100% { transform: translateX(250%); }
   }
 
+  /* Entrances and state pops. One-shot (no loop), so each use pairs with
+     motion-reduce:animate-none; under reduced motion the change still
+     happens, only instantly. Distances borrow the space scale. */
+  --animate-rise-in: rise-in var(--vz-duration-base) var(--vz-ease-arrive) both;
+  @keyframes rise-in {
+    from { opacity: 0; transform: translateY(var(--vz-space-6)); }
+  }
+  --animate-fade-in: fade-in var(--vz-duration-fast) var(--vz-ease-standard) both;
+  @keyframes fade-in {
+    from { opacity: 0; }
+  }
+  --animate-pop-in: pop-in var(--vz-duration-base) var(--vz-ease-arrive) both;
+  @keyframes pop-in {
+    from { opacity: 0; transform: scale(0.94); }
+  }
+  --animate-slide-in-right: slide-in-right var(--vz-duration-base) var(--vz-ease-arrive) both;
+  @keyframes slide-in-right {
+    from { opacity: 0; transform: translateX(var(--vz-space-12)); }
+  }
+  --animate-slide-down-in: slide-down-in var(--vz-duration-base) var(--vz-ease-arrive) both;
+  @keyframes slide-down-in {
+    from { opacity: 0; transform: translateY(calc(-1 * var(--vz-space-6))); }
+  }
+  /* A live light breathes, so a running thing never looks switched off. */
+  --animate-live-glow: live-glow 2.4s ease-in-out infinite;
+  @keyframes live-glow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+
+  /* House timing: every `transition-*` utility and its `animate-` keyframes
+     resolve to the motion tokens, so nothing hand-writes a duration. */
+  --default-transition-duration: var(--vz-duration-fast);
+  --default-transition-timing-function: var(--vz-ease-standard);
+  --ease-standard: var(--vz-ease-standard);
+  --ease-arrive: var(--vz-ease-arrive);
+
   --shadow-*: initial;
   --shadow-popover: var(--vz-shadow-popover);
   --shadow-dialog: var(--vz-shadow-dialog);
@@ -122,6 +159,16 @@
 
   ::selection {
     background: var(--vz-raised);
+  }
+
+  /* The theme cross-fade: when the view transition runs, the old and new
+     grounds dissolve into one another at house timing. */
+  @media (prefers-reduced-motion: no-preference) {
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation-duration: var(--vz-duration-slow);
+      animation-timing-function: var(--vz-ease-standard);
+    }
   }
 
   /* Scrollbars: every scroll container gets the same pill thumb, so nothing

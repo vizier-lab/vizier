@@ -129,3 +129,27 @@ export const elevations = [
   { name: "Elevation/popover", utility: "shadow-popover", description: "Menus, pickers, toasts" },
   { name: "Elevation/dialog", utility: "shadow-dialog", description: "Dialogs and confirmations" },
 ] as const;
+
+/**
+ * Motion presets for motion/react. Durations and easings mirror the CSS motion
+ * tokens (--vz-duration-*, --vz-ease-* in tokens.css) — seconds there, seconds
+ * here, one conceptual scale in two runtimes. Springs have no CSS analog, so
+ * this is their only home.
+ */
+export const motionDurations = { fast: 0.12, base: 0.18, slow: 0.28 } as const;
+
+export type MotionEase = [number, number, number, number];
+
+export const motionEases = {
+  /** The house ease: hover, press and other immediate feedback. */
+  standard: [0.2, 0, 0, 1] as MotionEase,
+  /** Deceleration for confident arrivals; exits run faster on the standard ease. */
+  arrive: [0.16, 1, 0.3, 1] as MotionEase,
+} as const;
+
+export const motionSprings = {
+  /** Switches, checkboxes, checks: a crisp settle with a breath of overshoot. */
+  crisp: { type: "spring", stiffness: 600, damping: 45 },
+  /** Sliding indicators (tabs, night strip): glides to rest. */
+  glide: { type: "spring", stiffness: 420, damping: 36 },
+} as const;

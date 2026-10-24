@@ -18,7 +18,7 @@ export function SearchField({ value, onValueChange, count, className, disabled, 
     <div
       className={cx(
         "flex h-34 items-center gap-8 rounded-md border border-border-strong bg-surface px-12",
-        "hover:border-border-hover focus-within:border-live hover:focus-within:border-live",
+        "hover:border-border-hover focus-within:border-live hover:focus-within:border-live transition-colors",
         disabled && "pointer-events-none opacity-40",
         className,
       )}

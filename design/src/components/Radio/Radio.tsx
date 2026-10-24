@@ -19,7 +19,7 @@ export function Radio({ label, className, disabled, ...rest }: RadioProps) {
           )}
           {...rest}
         />
-        <span aria-hidden className="pointer-events-none absolute top-4 left-4 hidden size-8 rounded-pill bg-ink peer-checked:block" />
+        <span aria-hidden className="pointer-events-none absolute top-4 left-4 hidden size-8 rounded-pill bg-ink peer-checked:block peer-checked:animate-pop-in motion-reduce:animate-none" />
       </span>
       {label}
     </label>

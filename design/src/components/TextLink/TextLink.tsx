@@ -18,7 +18,7 @@ export type TextLinkProps = Common &
 /** A text-only action (X7): Retry, Switch model, Open Providers →, Delete skill. */
 export function TextLink({ tone = "default", arrow, size = "small", className, children, ...rest }: TextLinkProps) {
   const classes = cx(
-    "inline-flex items-center gap-4 rounded-xs underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-40",
+    "inline-flex items-center gap-4 rounded-xs underline-offset-2 transition-colors hover:underline disabled:pointer-events-none disabled:opacity-40",
     size === "small" ? "type-small-medium" : "type-ui-medium",
     tone === "danger" ? "text-failed" : "text-fg",
     className,

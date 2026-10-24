@@ -37,7 +37,18 @@ export function Tooltip({ label, shortcut, detail, side = "top", children }: Too
       onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
     >
       {cloneElement(children, { "aria-describedby": id })}
-      <TooltipBubble id={id} label={label} shortcut={shortcut} detail={detail} className={cx("absolute z-10", SIDES[side], !open && "hidden")} />
+      <TooltipBubble
+        id={id}
+        label={label}
+        shortcut={shortcut}
+        detail={detail}
+        className={cx(
+          "absolute z-10 transition-opacity",
+          SIDES[side],
+          !open && "hidden",
+          open && "animate-fade-in motion-reduce:animate-none",
+        )}
+      />
     </span>
   );
 }

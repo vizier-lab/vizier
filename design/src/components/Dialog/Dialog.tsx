@@ -1,5 +1,7 @@
-import { useEffect, useId, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
+import { useId, useState, type HTMLAttributes, type ReactNode } from "react";
+import { motion } from "motion/react";
 import { cx } from "../../lib/cx";
+import { Presence, dialogMotion, scrimMotion, useNativeDialog } from "../../lib/Motion";
 import { Button } from "../Button/Button";
 import { TextField } from "../TextField/TextField";
 
@@ -88,17 +90,12 @@ export type DialogProps = DialogPanelProps & { open: boolean };
 
 /**
  * A modal confirmation over a 60% ground scrim (D28). Native `<dialog>`:
- * focus moves in, Tab stays inside, Esc cancels.
+ * focus moves in, Tab stays inside, Esc cancels. The scrim and panel settle
+ * in and animate out before the dialog closes.
  */
 export function Dialog({ open, onCancel, ...panel }: DialogProps) {
-  const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
-  useEffect(() => {
-    const d = ref.current;
-    if (!d) return;
-    if (open && !d.open) d.showModal();
-    if (!open && d.open) d.close();
-  }, [open]);
+  const { ref, onExitComplete } = useNativeDialog(open);
   return (
     <dialog
       ref={ref}
@@ -107,25 +104,26 @@ export function Dialog({ open, onCancel, ...panel }: DialogProps) {
         e.preventDefault();
         onCancel();
       }}
-      className="m-auto max-w-full bg-transparent p-0 backdrop:bg-ground/60"
+      className="fixed inset-0 m-0 max-h-none max-w-none bg-transparent p-0 backdrop:bg-transparent"
     >
-      {open && <DialogPanel {...panel} titleId={titleId} onCancel={onCancel} />}
+      <Presence onExitComplete={onExitComplete}>
+        {open && <motion.div key="scrim" aria-hidden {...scrimMotion} className="absolute inset-0 bg-ground/60" />}
+        {open && (
+          <motion.div key="panel" {...dialogMotion} className="absolute inset-0 flex overflow-y-auto p-20">
+            <DialogPanel {...panel} titleId={titleId} onCancel={onCancel} className="m-auto" />
+          </motion.div>
+        )}
+      </Presence>
     </dialog>
   );
 }
 
 /**
  * The modal shell alone: a native `<dialog>` with the ground scrim, holding whatever you give it
- * (a file preview). Esc and the scrim's cancel call `onClose`.
+ * (a file preview). Esc, an outside click and the scrim's cancel call `onClose`.
  */
 export function Modal({ open, onClose, label, children }: { open: boolean; onClose: () => void; label: string; children: ReactNode }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const d = ref.current;
-    if (!d) return;
-    if (open && !d.open) d.showModal();
-    if (!open && d.open) d.close();
-  }, [open]);
+  const { ref, onExitComplete } = useNativeDialog(open);
   return (
     <dialog
       ref={ref}
@@ -134,10 +132,21 @@ export function Modal({ open, onClose, label, children }: { open: boolean; onClo
         e.preventDefault();
         onClose();
       }}
-      onClick={(e) => e.target === ref.current && onClose()}
-      className="m-auto max-h-[92vh] max-w-[94vw] overflow-visible bg-transparent p-0 backdrop:bg-ground/60"
+      className="fixed inset-0 m-0 max-h-none max-w-none bg-transparent p-0 backdrop:bg-transparent"
     >
-      {open && children}
+      <Presence onExitComplete={onExitComplete}>
+        {open && <motion.div key="scrim" aria-hidden {...scrimMotion} className="absolute inset-0 bg-ground/60" />}
+        {open && (
+          <motion.div
+            key="panel"
+            {...dialogMotion}
+            className="absolute inset-0 flex overflow-y-auto p-20"
+            onClick={(e) => e.target === e.currentTarget && onClose()}
+          >
+            <div className="m-auto max-h-[92vh] max-w-[94vw] overflow-visible">{children}</div>
+          </motion.div>
+        )}
+      </Presence>
     </dialog>
   );
 }

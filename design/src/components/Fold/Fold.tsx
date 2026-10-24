@@ -18,7 +18,7 @@ export function Fold({ label, type = "button", className, ...rest }: FoldProps) 
       <button
         type={type}
         aria-expanded={false}
-        className={cx("h-22 rounded-pill border border-border-strong px-8 type-mono-xs text-muted hover:bg-raised hover:text-fg", className)}
+        className={cx("h-22 rounded-pill border border-border-strong px-8 type-mono-xs text-muted transition-colors hover:bg-raised hover:text-fg", className)}
         {...rest}
       >
         {label}

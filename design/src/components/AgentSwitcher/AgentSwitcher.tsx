@@ -25,7 +25,7 @@ export function AgentSwitcher({ agentId, name, state, detail, collapsed, type = 
       type={type}
       aria-label={collapsed ? `${name}, switch agent` : undefined}
       className={cx(
-        "flex items-center gap-10 rounded-lg border text-left",
+        "flex items-center gap-10 rounded-lg border text-left transition-colors",
         collapsed ? "size-44 justify-center p-4" : "w-full p-10",
         open ? "border-border-strong bg-raised" : "border-border bg-surface hover:bg-raised",
         className,

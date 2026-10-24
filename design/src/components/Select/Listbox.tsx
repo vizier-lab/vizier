@@ -1,5 +1,7 @@
 import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { motion } from "motion/react";
 import { cx } from "../../lib/cx";
+import { popoverMotion } from "../../lib/Motion";
 import { Floating, inFloating } from "../Floating/Floating";
 import { MenuItem } from "../MenuItem/MenuItem";
 
@@ -57,7 +59,8 @@ export function ListboxPopup<V extends string>({
   };
   return (
     <Floating anchor={anchor} align={align} matchWidth={matchWidth}>
-      <div
+      <motion.div
+        {...popoverMotion}
         ref={ref}
         id={id}
         role="listbox"
@@ -84,7 +87,7 @@ export function ListboxPopup<V extends string>({
             className="whitespace-nowrap"
           />
         ))}
-      </div>
+      </motion.div>
     </Floating>
   );
 }

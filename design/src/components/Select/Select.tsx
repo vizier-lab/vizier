@@ -1,6 +1,7 @@
 import { useCallback, useId, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../../icons/Icon";
 import { cx } from "../../lib/cx";
+import { Presence } from "../../lib/Motion";
 import { Badge } from "../Badge/Badge";
 import { FieldFrame, fieldBox } from "../TextField/Field";
 import { ListboxPopup, useOutsideClose, type ListboxOption } from "./Listbox";
@@ -102,25 +103,28 @@ export function Select<V extends string>({
   const control = (
     <div ref={root} className="relative">
       {trigger}
-      {open && (
-        <ListboxPopup
-          anchor={root}
-          matchWidth
-          id={`${id}-list`}
-          label={name}
-          options={options}
-          value={value}
-          onPick={(v) => {
-            onChange(v);
-            setOpen(false);
-            button.current?.focus();
-          }}
-          onClose={() => {
-            setOpen(false);
-            button.current?.focus();
-          }}
-        />
-      )}
+      <Presence>
+        {open && (
+          <ListboxPopup
+            key="listbox"
+            anchor={root}
+            matchWidth
+            id={`${id}-list`}
+            label={name}
+            options={options}
+            value={value}
+            onPick={(v) => {
+              onChange(v);
+              setOpen(false);
+              button.current?.focus();
+            }}
+            onClose={() => {
+              setOpen(false);
+              button.current?.focus();
+            }}
+          />
+        )}
+      </Presence>
     </div>
   );
 

@@ -1,7 +1,9 @@
 import type { ButtonHTMLAttributes } from "react";
+import { motion, type HTMLMotionProps } from "motion/react";
 import { Icon } from "../../icons/Icon";
 import type { IconName } from "../../icons/map";
 import { cx } from "../../lib/cx";
+import { motionSprings } from "../../tokens/tokens";
 
 export type IconButtonProps = {
   icon: IconName;
@@ -39,20 +41,22 @@ export function IconButton({
 }: IconButtonProps) {
   const v = VARIANTS[variant];
   return (
-    <button
+    <motion.button
       type={type}
       aria-pressed={selected}
+      whileTap={{ scale: 0.94 }}
+      transition={motionSprings.crisp}
       className={cx(
-        "inline-flex shrink-0 items-center justify-center disabled:opacity-40",
+        "inline-flex shrink-0 items-center justify-center transition-colors disabled:opacity-40",
         SIZES[size].box,
         v.base,
         selected && v.selected,
         className,
       )}
-      {...rest}
+      {...(rest as HTMLMotionProps<"button">)}
     >
       <Icon name={icon} size={SIZES[size].icon} />
-    </button>
+    </motion.button>
   );
 }
 

@@ -1,4 +1,7 @@
 import { useId, type ReactNode } from "react";
+import { motion } from "motion/react";
+import { Presence } from "../../lib/Motion";
+import { motionDurations, motionEases } from "../../tokens/tokens";
 import { Card, type CardProps } from "../Card/Card";
 import { Switch } from "../Switch/Switch";
 
@@ -22,7 +25,28 @@ export function ToggleSection({ title, description, checked, onCheckedChange, di
       headerTrailing={<Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} aria-labelledby={id} />}
       {...rest}
     >
-      {checked && children}
+      {/* The settings unfold with the switch, rather than snapping into place. */}
+      <Presence>
+        {checked && (
+          <motion.div
+            key="settings"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{
+              height: "auto",
+              opacity: 1,
+              transition: { duration: motionDurations.base, ease: motionEases.arrive },
+            }}
+            exit={{
+              height: 0,
+              opacity: 0,
+              transition: { duration: motionDurations.fast, ease: motionEases.standard },
+            }}
+            className="overflow-hidden"
+          >
+            {children}
+          </motion.div>
+        )}
+      </Presence>
     </Card>
   );
 }

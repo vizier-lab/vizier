@@ -63,7 +63,7 @@ export function LedBoard({ state = "idle", placement = "upper", className, ...re
         <svg
           width={cols * PITCH}
           height={rows * PITCH}
-          className="absolute"
+          className="absolute animate-fade-in motion-reduce:animate-none"
           style={{ left: (box.w - cols * PITCH) / 2, top: (box.h - rows * PITCH) / 2 }}
           aria-hidden
         >
@@ -73,7 +73,9 @@ export function LedBoard({ state = "idle", placement = "upper", className, ...re
               cx={d.cx}
               cy={d.cy}
               r={d.k === "off" ? OFF_R : LIT_R}
-              className={d.k === "off" ? "fill-dot-off" : d.k === "live" ? "fill-live" : "fill-ink"}
+              className={cx(
+                d.k === "off" ? "fill-dot-off" : d.k === "live" ? "fill-live animate-live-glow motion-reduce:animate-none" : "fill-ink",
+              )}
             />
           ))}
         </svg>

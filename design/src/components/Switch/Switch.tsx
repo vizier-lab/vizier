@@ -1,5 +1,7 @@
 import type { ButtonHTMLAttributes } from "react";
+import { motion } from "motion/react";
 import { cx } from "../../lib/cx";
+import { motionSprings } from "../../tokens/tokens";
 
 export type SwitchProps = {
   checked: boolean;
@@ -20,15 +22,19 @@ export function Switch({ checked, onCheckedChange, onClick, className, type = "b
         if (!e.defaultPrevented) onCheckedChange?.(!checked);
       }}
       className={cx(
-        "inline-flex h-18 w-32 shrink-0 items-center rounded-pill p-2 disabled:opacity-40",
-        checked
-          ? "justify-end bg-ink enabled:hover:bg-ink-hover enabled:active:bg-ink-pressed"
-          : "justify-start bg-border-strong enabled:hover:bg-border-hover",
+        "inline-flex h-18 w-32 shrink-0 items-center rounded-pill p-2 transition-colors disabled:opacity-40",
+        checked ? "bg-ink enabled:hover:bg-ink-hover enabled:active:bg-ink-pressed" : "bg-border-strong enabled:hover:bg-border-hover",
         className,
       )}
       {...rest}
     >
-      <span aria-hidden className={cx("size-14 rounded-pill", checked ? "bg-ground" : "bg-muted")} />
+      {/* The thumb travels the track's inner width (32 - 2*2 - 14) and springs to rest. */}
+      <motion.span
+        aria-hidden
+        className={cx("size-14 rounded-pill transition-colors", checked ? "bg-ground" : "bg-muted")}
+        animate={{ x: checked ? 14 : 0 }}
+        transition={motionSprings.crisp}
+      />
     </button>
   );
 }

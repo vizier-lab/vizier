@@ -1,6 +1,7 @@
 import { useCallback, useId, useRef, useState } from "react";
 import { Icon } from "../../icons/Icon";
 import { cx } from "../../lib/cx";
+import { Presence } from "../../lib/Motion";
 import { ListboxPopup, useOutsideClose } from "../Select/Listbox";
 
 export type SortSelectProps = {
@@ -33,7 +34,7 @@ export function SortSelect({ label, value, options, onChange, look = "bordered",
         aria-controls={open ? `${id}-list` : undefined}
         onClick={() => setOpen(!open)}
         className={cx(
-          "inline-flex items-center gap-6 whitespace-nowrap",
+          "inline-flex items-center gap-6 whitespace-nowrap transition-colors",
           look === "bordered"
             ? "h-34 rounded-md border border-border-strong px-12 hover:bg-raised"
             : "rounded-xs hover:underline",
@@ -43,25 +44,28 @@ export function SortSelect({ label, value, options, onChange, look = "bordered",
         <span className={look === "bordered" ? "type-ui-medium text-fg" : "type-small text-muted"}>{current?.label}</span>
         <Icon name="chevron-down" size={13} tone={look === "bordered" ? "muted" : "faint"} />
       </button>
-      {open && (
-        <ListboxPopup
-          anchor={root}
-          id={`${id}-list`}
-          label={label}
-          options={options}
-          value={value}
-          align="end"
-          onPick={(v) => {
-            onChange(v);
-            setOpen(false);
-            button.current?.focus();
-          }}
-          onClose={() => {
-            setOpen(false);
-            button.current?.focus();
-          }}
-        />
-      )}
+      <Presence>
+        {open && (
+          <ListboxPopup
+            key="listbox"
+            anchor={root}
+            id={`${id}-list`}
+            label={label}
+            options={options}
+            value={value}
+            align="end"
+            onPick={(v) => {
+              onChange(v);
+              setOpen(false);
+              button.current?.focus();
+            }}
+            onClose={() => {
+              setOpen(false);
+              button.current?.focus();
+            }}
+          />
+        )}
+      </Presence>
     </div>
   );
 }

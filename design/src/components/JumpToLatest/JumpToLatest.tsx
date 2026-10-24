@@ -13,7 +13,7 @@ export function JumpToLatest({ count = 0, type = "button", className, ...rest }:
     <button
       type={type}
       className={cx(
-        "inline-flex h-27 items-center gap-6 rounded-pill bg-ink px-12 type-small-strong text-ground shadow-popover hover:bg-ink-hover active:bg-ink-pressed",
+        "inline-flex h-27 items-center gap-6 rounded-pill bg-ink px-12 type-small-strong text-ground shadow-popover transition-colors hover:bg-ink-hover active:bg-ink-pressed",
         className,
       )}
       {...rest}

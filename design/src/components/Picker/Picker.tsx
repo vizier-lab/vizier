@@ -10,7 +10,9 @@ import {
   type ReactNode,
 } from "react";
 import { Icon } from "../../icons/Icon";
+import { motion } from "motion/react";
 import { cx } from "../../lib/cx";
+import { Presence, popoverMotion } from "../../lib/Motion";
 import { Floating, inFloating } from "../Floating/Floating";
 
 export type PickerSection<T> = { label?: ReactNode; items: T[] };
@@ -176,7 +178,9 @@ export function Picker<T>({
   const optionId = (i: number) => `${id}-opt-${i}`;
 
   const panel = (
-    <div
+    <motion.div
+      // The inline panel is page furniture: it does not arrive, so it does not animate.
+      {...(trigger ? popoverMotion : {})}
       className={cx(
         "flex flex-col overflow-hidden rounded-xl border border-border-strong bg-surface",
         trigger && "shadow-popover",
@@ -238,7 +242,7 @@ export function Picker<T>({
                   onSelect(r.item);
                   if (trigger) setOpen(false);
                 }}
-                className={cx("absolute inset-x-0 flex cursor-pointer items-center px-14", isActive && "bg-raised")}
+                className={cx("absolute inset-x-0 flex cursor-pointer items-center px-14 transition-colors", isActive && "bg-raised")}
                 style={{ top: at, height: itemHeight }}
               >
                 {renderItem(r.item, { active: isActive, query: search.value })}
@@ -254,7 +258,7 @@ export function Picker<T>({
       </div>
       {remainder && <p className="px-14 pt-6 pb-10 type-small text-faint">{remainder}</p>}
       {footer && <div className="flex items-center gap-16 border-t border-border px-14 py-10">{footer}</div>}
-    </div>
+    </motion.div>
   );
 
   if (!trigger) return panel;
@@ -265,7 +269,13 @@ export function Picker<T>({
         "aria-expanded": open,
         "aria-haspopup": "dialog",
       })}
-      {open && <Floating anchor={root}>{panel}</Floating>}
+      <Presence>
+        {open && (
+          <Floating key="picker" anchor={root}>
+            {panel}
+          </Floating>
+        )}
+      </Presence>
     </div>
   );
 }

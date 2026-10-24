@@ -23,7 +23,7 @@ export function Banner({ tone, title, message, actions, className, ...rest }: Ba
     return (
       <div
         role="alert"
-        className={cx("flex items-center gap-14 rounded-lg border border-failed-line bg-failed-bg py-14 pr-14 pl-16", className)}
+        className={cx("flex items-center gap-14 rounded-lg border border-failed-line bg-failed-bg py-14 pr-14 pl-16 animate-slide-down-in motion-reduce:animate-none", className)}
         {...rest}
       >
         <Icon name="alert" tone="failed" />
@@ -40,7 +40,7 @@ export function Banner({ tone, title, message, actions, className, ...rest }: Ba
     <div
       role="status"
       className={cx(
-        "flex items-center gap-8 rounded-md border px-12 py-8",
+        "flex items-center gap-8 rounded-md border px-12 py-8 animate-slide-down-in motion-reduce:animate-none",
         offline ? "border-retrying-line bg-retrying-bg" : "border-border-strong bg-surface",
         className,
       )}

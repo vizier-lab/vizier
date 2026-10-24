@@ -38,7 +38,7 @@ export function Pagination({ page, pageCount, total, perPage, onPageChange, comp
         aria-label={dir === "prev" ? "Previous page" : "Next page"}
         disabled={off}
         onClick={() => onPageChange(target)}
-        className="flex size-24 items-center justify-center rounded-sm text-muted enabled:hover:bg-raised enabled:hover:text-fg disabled:opacity-30"
+        className="flex size-24 items-center justify-center rounded-sm text-muted transition-colors enabled:hover:bg-raised enabled:hover:text-fg disabled:opacity-30"
       >
         <Icon name={dir === "prev" ? "chevron-left" : "chevron-right"} size={13} />
       </button>
@@ -67,7 +67,7 @@ export function Pagination({ page, pageCount, total, perPage, onPageChange, comp
                   aria-label={`Page ${p}`}
                   onClick={() => onPageChange(p)}
                   className={cx(
-                    "flex h-24 min-w-24 items-center justify-center rounded-sm px-4",
+                    "flex h-24 min-w-24 items-center justify-center rounded-sm px-4 transition-colors",
                     p === page ? "bg-raised type-mono-xs-medium text-fg" : "type-mono-xs text-muted hover:bg-raised hover:text-fg",
                   )}
                 >

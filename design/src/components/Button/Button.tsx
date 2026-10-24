@@ -1,7 +1,9 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { motion, type HTMLMotionProps } from "motion/react";
 import { Icon } from "../../icons/Icon";
 import type { IconName } from "../../icons/map";
 import { cx } from "../../lib/cx";
+import { motionSprings } from "../../tokens/tokens";
 import { DotLoader } from "../DotLoader/DotLoader";
 import { Kbd } from "../Kbd/Kbd";
 
@@ -72,12 +74,14 @@ export function Button({
   const s = SIZES[size];
   const leading = loading || icon;
   return (
-    <button
+    <motion.button
       type={type}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
+      whileTap={{ scale: 0.97 }}
+      transition={motionSprings.crisp}
       className={cx(
-        "inline-flex shrink-0 items-center justify-center whitespace-nowrap select-none disabled:opacity-40",
+        "inline-flex shrink-0 items-center justify-center whitespace-nowrap select-none transition-colors disabled:opacity-40",
         loading && "disabled:opacity-100",
         s.box,
         leading && s.withIcon,
@@ -86,12 +90,12 @@ export function Button({
         block && "w-full",
         className,
       )}
-      {...rest}
+      {...(rest as HTMLMotionProps<"button">)}
     >
       {loading ? <DotLoader /> : icon ? <Icon name={icon} size={s.icon} /> : null}
       {children}
       {shortcut && <Kbd look="inside">{shortcut}</Kbd>}
       {trailingIcon && <Icon name={trailingIcon} size={s.icon} />}
-    </button>
+    </motion.button>
   );
 }

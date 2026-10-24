@@ -36,7 +36,7 @@ export function MenuItem({
       aria-checked={role === "menuitemradio" || role === "menuitemcheckbox" ? (selected ?? false) : undefined}
       aria-selected={role === "option" ? (selected ?? false) : undefined}
       className={cx(
-        "group flex h-30 w-full items-center gap-10 rounded-sm px-8 text-left disabled:opacity-40",
+        "group flex h-30 w-full items-center gap-10 rounded-sm px-8 text-left transition-colors disabled:opacity-40",
         danger ? "text-failed" : selected ? "text-fg type-ui-medium" : "text-soft",
         !selected && "type-ui",
         danger ? "enabled:hover:bg-failed-bg" : "enabled:hover:bg-raised enabled:hover:text-fg",

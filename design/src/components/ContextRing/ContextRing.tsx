@@ -1,5 +1,7 @@
 import type { HTMLAttributes } from "react";
+import { motion } from "motion/react";
 import { cx } from "../../lib/cx";
+import { motionDurations, motionEases } from "../../tokens/tokens";
 import { Tooltip } from "../Tooltip/Tooltip";
 
 export type ContextRingProps = {
@@ -37,13 +39,17 @@ export function ContextRing({ used, window, detail, className, ...rest }: Contex
       >
         <svg viewBox="0 0 18 18" width={18} height={18} aria-hidden className="-rotate-90">
           <circle cx="9" cy="9" r={r} fill="none" strokeWidth="2.5" className="stroke-border-strong" />
-          <circle
+          {/* The arc is drawn full-circle and uncovered by its offset, so it sweeps on. */}
+          <motion.circle
             cx="9"
             cy="9"
             r={r}
             fill="none"
             strokeWidth="2.5"
-            strokeDasharray={`${pct * c} ${c}`}
+            strokeDasharray={c}
+            initial={{ strokeDashoffset: c }}
+            animate={{ strokeDashoffset: c * (1 - pct) }}
+            transition={{ duration: motionDurations.slow, ease: motionEases.arrive }}
             className="stroke-fg"
           />
         </svg>

@@ -51,7 +51,7 @@ export function ListItem({
 }: ListItemProps) {
   const interactive = href !== undefined || onSelect !== undefined;
   const classes = cx(
-    "flex w-full min-w-0 gap-10 text-left",
+    "flex w-full min-w-0 gap-10 text-left transition-colors",
     align === "center" ? "items-center" : "items-start",
     shape === "rounded" ? "rounded-md px-12 py-6" : shape === "flush" ? "px-16 py-10" : "py-2",
     selected && "bg-raised",

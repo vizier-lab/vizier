@@ -19,7 +19,7 @@ export type NavItemProps = {
 /** One sidebar destination (D2). Renders a link with `href`, else a button. */
 export function NavItem({ icon, label, active, collapsed, live, href, onSelect, className, ...rest }: NavItemProps) {
   const classes = cx(
-    "group flex h-31 items-center gap-10 rounded-md text-left",
+    "group flex h-31 items-center gap-10 rounded-md text-left transition-colors",
     collapsed ? "w-44 justify-center" : "w-full px-10",
     active ? "bg-raised text-fg type-body-medium" : "text-muted type-body hover:bg-surface hover:text-soft",
     className,

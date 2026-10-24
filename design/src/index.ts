@@ -10,6 +10,7 @@ export * from "./brand";
 
 // Helpers
 export { MiddleTruncate, middleTruncate, type MiddleTruncateProps } from "./lib/MiddleTruncate";
+export { MotionProvider, Presence, useNativeDialog, dialogMotion, slideOverMotion, popoverMotion, scrimMotion } from "./lib/Motion";
 
 // Components
 export * from "./components/ActionBar";
