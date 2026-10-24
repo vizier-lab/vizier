@@ -94,7 +94,7 @@ impl RouterBridge {
             match &client {
                 Some(client) => {
                     let arguments = serde_json::from_str(&arguments).map_err(anyhow::Error::from)?;
-                    let (id, result) = client.call(&tool, arguments).await;
+                    let (id, result) = client.call(&tool, arguments, Some(&self.ctx.secret_redactor)).await;
                     if let Ok(mut slot) = call_id.lock() {
                         *slot = id;
                     }
@@ -191,10 +191,18 @@ impl SandboxBridge for RouterBridge {
 
         // A client call's arguments are already stored in full on its `ClientToolCall` entry
         // (a page can be 256 KB), so the report keeps a reference to it instead.
-        let arguments = match is_client {
+        let mut arguments = match is_client {
             true => serde_json::json!({ "client_call": call_id }),
             false => arguments,
         };
+
+        // The script keeps the real result and error; every copy that leaves the turn is
+        // scrubbed first (`specs/027-agent-secrets` research R4).
+        self.ctx.secret_redactor.json(&mut arguments);
+        let logged_error = result
+            .as_ref()
+            .err()
+            .map(|err| self.ctx.secret_redactor.text(err));
 
         tracing::info!(
             agent_id = %self.ctx.session.0,
@@ -215,13 +223,13 @@ impl SandboxBridge for RouterBridge {
                 name: tool,
                 arguments,
                 ok: result.is_ok(),
-                error: result.as_ref().err().cloned(),
+                error: logged_error,
                 duration_ms,
                 ends_turn,
             });
         }
 
-        result.map_err(BridgeError::Tool)
+        result.map_err(|err| BridgeError::Tool(self.ctx.secret_redactor.text(&err)))
     }
 }
 

@@ -16,7 +16,7 @@ use tracing::Instrument;
 use crate::{
     agents::tools::{
         CatalogueEntry, CategorySummary, ToolTarget, assign_names, client_category_name, with_ends_turn_notice,
-        execute_tool_span, record_tool_result,
+        execute_tool_span, record_tool_arguments, record_tool_result,
     },
     llm::types::ToolDefinition,
     schema::{
@@ -242,13 +242,16 @@ impl ClientTools {
         &self,
         name: &str,
         arguments: serde_json::Value,
+        redactor: Option<&crate::secrets::SecretRedactor>,
     ) -> (Option<String>, anyhow::Result<VizierResponse>) {
-        let span = execute_tool_span(name, &arguments.to_string(), None);
+        let span = execute_tool_span(name, None);
         if self.entries.iter().any(|entry| entry.name == name && entry.declaration.ends_turn) {
             span.record("vizier.tool.ends_turn", true);
         }
+        let recorded = arguments.to_string();
         let (call_id, result) = self.round_trip(name, arguments).instrument(span.clone()).await;
-        record_tool_result(&span, &result);
+        record_tool_arguments(&span, &recorded, redactor);
+        record_tool_result(&span, &result, redactor);
         (call_id, result)
     }
 
@@ -752,7 +755,7 @@ mod tests {
         let mut s = setup(vec![declaration("pick", Some("palette"))], vec![]);
         let mut events = s.transport.subscribe_session_events();
         let tools = s.tools.clone();
-        let call = tokio::spawn(async move { tools.call("palette_pick", json!({ "prompt": "x" })).await.1 });
+        let call = tokio::spawn(async move { tools.call("palette_pick", json!({ "prompt": "x" }), None).await.1 });
 
         let frame = next_call(&mut s.rx).await;
         assert_eq!(frame["answer"], true);
@@ -776,7 +779,7 @@ mod tests {
     async fn a_client_error_is_an_error() {
         let mut s = setup(vec![declaration("pick", None)], vec![]);
         let tools = s.tools.clone();
-        let call = tokio::spawn(async move { tools.call("client_pick", json!({})).await.1 });
+        let call = tokio::spawn(async move { tools.call("client_pick", json!({}), None).await.1 });
         let id = next_call(&mut s.rx).await["call_id"].as_str().unwrap().to_string();
         s.connection.answer(&id, ClientAnswer::Err("closed".into()));
         assert_eq!(call.await.unwrap().unwrap_err().to_string(), "closed");
@@ -787,7 +790,7 @@ mod tests {
     async fn closing_the_connection_mid_call_disconnects_it() {
         let mut s = setup(vec![declaration("pick", None)], vec![]);
         let tools = s.tools.clone();
-        let call = tokio::spawn(async move { tools.call("client_pick", json!({})).await.1 });
+        let call = tokio::spawn(async move { tools.call("client_pick", json!({}), None).await.1 });
         let id = next_call(&mut s.rx).await["call_id"].as_str().unwrap().to_string();
         s.connection.close();
         let err = call.await.unwrap().unwrap_err().to_string();
@@ -801,7 +804,7 @@ mod tests {
         timed.timeout_secs = Some(1);
         let mut s = setup(vec![timed], vec![]);
         let tools = s.tools.clone();
-        let call = tokio::spawn(async move { tools.call("client_pick", json!({})).await.1 });
+        let call = tokio::spawn(async move { tools.call("client_pick", json!({}), None).await.1 });
         let id = next_call(&mut s.rx).await["call_id"].as_str().unwrap().to_string();
 
         let err = call.await.unwrap().unwrap_err().to_string();
@@ -817,7 +820,7 @@ mod tests {
     async fn a_dropped_call_is_cancelled() {
         let mut s = setup(vec![declaration("pick", None)], vec![]);
         let tools = s.tools.clone();
-        let call = tokio::spawn(async move { tools.call("client_pick", json!({})).await.1 });
+        let call = tokio::spawn(async move { tools.call("client_pick", json!({}), None).await.1 });
         let id = next_call(&mut s.rx).await["call_id"].as_str().unwrap().to_string();
 
         call.abort();
@@ -840,7 +843,7 @@ mod tests {
         let mut events = s.transport.subscribe_session_events();
         s.connection.close();
 
-        let (call_id, result) = s.tools.call("client_pick", json!({ "prompt": "x" })).await;
+        let (call_id, result) = s.tools.call("client_pick", json!({ "prompt": "x" }), None).await;
         let call_id = call_id.unwrap();
         let response = result.unwrap();
         assert!(matches!(response.content, VizierResponseContent::ToolResponse { ref response } if response["status"] == "deferred"));
@@ -884,7 +887,7 @@ mod tests {
     async fn a_deferrable_call_whose_client_drops_mid_call_is_deferred() {
         let mut s = setup(vec![deferrable("pick")], vec![]);
         let tools = s.tools.clone();
-        let call = tokio::spawn(async move { tools.call("client_pick", json!({})).await });
+        let call = tokio::spawn(async move { tools.call("client_pick", json!({}), None).await });
         let id = next_call(&mut s.rx).await["call_id"].as_str().unwrap().to_string();
         s.connection.close();
         let (_, result) = call.await.unwrap();
@@ -896,7 +899,7 @@ mod tests {
     async fn a_call_on_a_closed_connection_fails_at_once() {
         let s = setup(vec![declaration("pick", None)], vec![]);
         s.connection.close();
-        let err = s.tools.call("client_pick", json!({})).await.1.unwrap_err().to_string();
+        let err = s.tools.call("client_pick", json!({}), None).await.1.unwrap_err().to_string();
         assert!(err.starts_with("client_disconnected"), "{err}");
     }
 

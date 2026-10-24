@@ -886,6 +886,7 @@ mod tests {
             hooks: None,
             background_depth: MAX_BACKGROUND_DEPTH,
             deadline: None,
+            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
         };
 
         let err = jobs

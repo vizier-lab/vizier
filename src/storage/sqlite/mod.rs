@@ -24,6 +24,7 @@ pub(crate) mod memory_revision;
 mod provider;
 mod reaction;
 mod scratch;
+mod secret;
 mod session;
 mod session_file;
 mod state;
@@ -387,9 +388,43 @@ impl SqliteStorage {
         init_client_call_schema(conn)?;
         init_scratch_schema(conn)?;
         init_turn_schema(conn)?;
+        init_secret_schema(conn)?;
 
         Ok(())
     }
+}
+
+/// The `agent_secret` and `agent_secret_event` tables (`specs/027-agent-secrets/data-model.md`
+/// §1–2): an agent's named values and the append-only log of who changed which name. New
+/// tables, so no migration is needed; the event log never holds a value. Split out like
+/// [`init_scratch_schema`] so the tests in `src/storage/sqlite/secret.rs` can stand them up
+/// against an in-memory connection.
+pub fn init_secret_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS agent_secret (
+            agent_id   TEXT NOT NULL,
+            name       TEXT NOT NULL,
+            value      TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            updated_by TEXT NOT NULL,
+            PRIMARY KEY (agent_id, name)
+        );
+
+        CREATE TABLE IF NOT EXISTS agent_secret_event (
+            id       TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL,
+            name     TEXT NOT NULL,
+            action   TEXT NOT NULL,
+            actor    TEXT NOT NULL,
+            at       TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_secret_event_agent
+            ON agent_secret_event(agent_id, at DESC);
+        ",
+    )?;
+    Ok(())
 }
 
 /// The `client_tool_call` table (`specs/019-client-tools/data-model.md`): the outcome and

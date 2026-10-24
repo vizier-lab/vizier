@@ -544,6 +544,7 @@ async fn refresh_session_detail(
         hooks: None,
         background_depth: 0,
         deadline: None,
+        secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
     };
     let Ok((title, _, _, _)) = agent
         .prompt(Message::User(vec![crate::llm::types::Part::Text(prompt)]), vec![], 0, None, false, &ctx)
@@ -950,6 +951,7 @@ async fn run_checkpoint(
         hooks: None,
         background_depth: 0,
         deadline: None,
+        secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
     };
 
     // Generate handover

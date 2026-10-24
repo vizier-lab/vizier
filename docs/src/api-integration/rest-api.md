@@ -57,7 +57,7 @@ POST /api/v1/auth/login
 | `PUT` / `DELETE` | `/auth/roles/{role_id}` | `roles:manage` | same |
 | `GET` | `/auth/roles/available-permissions` | `roles:manage` | All permission strings |
 
-Permissions: `all_agents:view|create|edit|delete`, `owned_agents:view|edit|delete`, `agents:view`, `agents:mcp_config`, `agents:shell_config`, `settings:providers|password|api_keys`, `users:manage`, `roles:manage`. The built-in `superadmin` role is a *system* role that bypasses all checks; a default `user` role gets `agents:view`, `settings:password`, `settings:api_keys`.
+Permissions: `all_agents:view|create|edit|delete`, `owned_agents:view|edit|delete`, `agents:view`, `agents:mcp_config`, `agents:shell_config`, `settings:providers|password|api_keys`, `users:manage`, `roles:manage`, `all_agents:secret`, `owned_agents:secret`. The built-in `superadmin` role is a *system* role that bypasses all checks; a default `user` role gets `agents:view`, `settings:password`, `settings:api_keys`.
 
 ## Agents
 
@@ -77,6 +77,10 @@ All agent routes require auth. Visibility: owner, users in `shared_to`, or `all_
 | `GET` / `PATCH` | `/agents/{id}/sharing` | `{ "add": [user_id], "remove": [user_id] }` |
 | `GET` / `PUT` | `/agents/{id}/core` | `CORE.md` |
 | `GET` / `POST` | `/agents/{id}/core/history` | **Version history** of `CORE.md` (see below) |
+| `GET` | `/agents/{id}/secrets` | Secret names, masks and last change — see [Agent Secrets](../configuration/secrets.md#http-api) |
+| `PUT` | `/agents/{id}/secrets/{name}` | Create (`201`) or replace (`200`) one secret; body `{ "value": "…" }` |
+| `DELETE` | `/agents/{id}/secrets/{name}` | Delete one secret; `404` when absent |
+| `GET` | `/agents/{id}/secrets/events?limit=20` | Secret change log (no values) |
 | `POST` | `/agents/{id}/chat` | **Synchronous chat** (see below) |
 
 ### Synchronous chat

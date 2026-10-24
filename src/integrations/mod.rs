@@ -21,18 +21,7 @@ pub mod service;
 
 use kind::{AgentToolContext, Contribution, IntegrationKind};
 
-/// The prefix of every redacted secret.
-pub const MASK: &str = "••••";
-
-/// `••••` and the secret's last four characters, or only the mask for a short secret.
-pub fn mask_secret(secret: &str) -> String {
-    let chars: Vec<char> = secret.chars().collect();
-    if chars.len() <= 8 {
-        return MASK.to_string();
-    }
-    let last: String = chars[chars.len() - 4..].iter().collect();
-    format!("{MASK}{last}")
-}
+pub use crate::utils::{MASK, mask_secret};
 
 /// Every integration kind the binary knows, registered in one place.
 pub struct IntegrationKinds {
@@ -337,11 +326,5 @@ mod tests {
                 assert!(name.starts_with(&format!("{}_", kind.id())), "{name}");
             }
         }
-    }
-
-    #[test]
-    fn secrets_are_masked_to_their_last_four() {
-        assert_eq!(mask_secret("ghp_1234567890a91c"), "••••a91c");
-        assert_eq!(mask_secret("short"), "••••");
     }
 }

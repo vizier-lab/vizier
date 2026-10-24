@@ -24,6 +24,7 @@ scheduler::{
 },
         read_image::ReadImageFile,
         scratchpad::{AppendTmp, ReadTmp, WriteTmp},
+        secrets::{GetSecret, SetSecret},
         session_files::{GetSessionFilePath, ListSessionFiles, LoadPathAsSessionFile, ReadDocumentFile, SendAttachment},
         shell::ShellExec,
         skill::{
@@ -59,6 +60,7 @@ mod python;
 mod read_image;
 mod scheduler;
 mod scratchpad;
+mod secrets;
 pub mod self_integrations;
 mod session_files;
 mod shell;
@@ -94,10 +96,11 @@ pub enum ToolCategory {
     Webui,
     Shell,
     Integrations,
+    Secrets,
 }
 
 impl ToolCategory {
-    pub const ALL: [ToolCategory; 15] = [
+    pub const ALL: [ToolCategory; 16] = [
         Self::Memory,
         Self::Identity,
         Self::Scheduling,
@@ -113,6 +116,7 @@ impl ToolCategory {
         Self::Webui,
         Self::Shell,
         Self::Integrations,
+        Self::Secrets,
     ];
 
     pub fn name(self) -> &'static str {
@@ -132,6 +136,7 @@ impl ToolCategory {
             Self::Webui => "webui",
             Self::Shell => "shell",
             Self::Integrations => "integrations",
+            Self::Secrets => "secrets",
         }
     }
 
@@ -158,6 +163,9 @@ impl ToolCategory {
             Self::Webui => "Message WebUI users and list their topics",
             Self::Shell => "Run shell commands",
             Self::Integrations => "Manage your own MCP servers, addons and channel connections",
+            Self::Secrets => {
+                "Credentials stored for this agent only; values are usable in scripts but never shown to the model"
+            }
         }
     }
 }
@@ -208,6 +216,10 @@ pub struct ToolContext {
     /// only for a chat turn whose request came over a WebSocket that declared some and is
     /// still open, `None` everywhere else.
     pub client: Option<Arc<crate::agents::client::ClientTools>>,
+    /// The values this turn handled through `set_secret`/`get_secret`, scrubbed from the
+    /// script report, logs and telemetry (`specs/027-agent-secrets`). Empty — and so a no-op —
+    /// on every turn that touches no secret.
+    pub secret_redactor: Arc<crate::secrets::SecretRedactor>,
 }
 
 #[derive(Clone, Default)]
@@ -259,9 +271,11 @@ impl VizierToolSet {
 
 /// The GenAI `execute_tool` span. `call_id` is the model's tool call id: a call made from a
 /// script has none. Arguments and result are content, recorded only when the GenAI content
-/// capture is on (`crate::llm::telemetry::capture_content`).
-pub(crate) fn execute_tool_span(function_name: &str, args: &str, call_id: Option<&str>) -> tracing::Span {
-    let span = tracing::info_span!(
+/// capture is on (`crate::llm::telemetry::capture_content`) and only after the call — a
+/// script that retrieved a secret has armed the turn's redactor by then
+/// (`specs/027-agent-secrets` research R4).
+pub(crate) fn execute_tool_span(function_name: &str, call_id: Option<&str>) -> tracing::Span {
+    tracing::info_span!(
         "execute_tool",
         otel.name = %format!("execute_tool {function_name}"),
         otel.status_code = tracing::field::Empty,
@@ -273,33 +287,93 @@ pub(crate) fn execute_tool_span(function_name: &str, args: &str, call_id: Option
         gen_ai.tool.call.result = tracing::field::Empty,
         error.type = tracing::field::Empty,
         vizier.tool.ends_turn = tracing::field::Empty,
-    );
-    if crate::llm::telemetry::capture_content() {
-        span.record("gen_ai.tool.call.arguments", args);
-    }
-    span
+    )
 }
 
-pub(crate) fn record_tool_result(span: &tracing::Span, result: &Result<VizierResponse>) {
+/// Record what the tool was called with, with the turn's secrets scrubbed out. Called after
+/// dispatch, never at span creation, so a value the call itself handled is covered.
+pub(crate) fn record_tool_arguments(
+    span: &tracing::Span,
+    arguments: &str,
+    redactor: Option<&crate::secrets::SecretRedactor>,
+) {
+    if !crate::llm::telemetry::capture_content() {
+        return;
+    }
+    let recorded = match redactor {
+        Some(redactor) if redactor.is_armed() => redact_arguments(arguments, redactor),
+        _ => arguments.to_string(),
+    };
+    span.record("gen_ai.tool.call.arguments", recorded);
+}
+
+/// A JSON argument object scrubbed value-by-value, so a secret containing quotes or line
+/// breaks is matched before serialisation escapes it; anything else falls back to exact
+/// text replacement.
+fn redact_arguments(arguments: &str, redactor: &crate::secrets::SecretRedactor) -> String {
+    match serde_json::from_str::<serde_json::Value>(arguments) {
+        Ok(mut value) => {
+            redactor.json(&mut value);
+            value.to_string()
+        }
+        Err(_) => redactor.text(arguments),
+    }
+}
+
+pub(crate) fn record_tool_result(
+    span: &tracing::Span,
+    result: &Result<VizierResponse>,
+    redactor: Option<&crate::secrets::SecretRedactor>,
+) {
     let capture = crate::llm::telemetry::capture_content();
     match result {
         Ok(response) => {
             if capture {
-                // What the model is given back, without the response envelope.
-                let content = match &response.content {
-                    crate::schema::VizierResponseContent::ToolResponse { response } => response.to_string(),
-                    other => serde_json::to_string(other).unwrap_or_default(),
-                };
-                span.record("gen_ai.tool.call.result", content);
+                span.record("gen_ai.tool.call.result", recorded_tool_result(response, redactor));
             }
         }
         Err(err) => {
             span.record("otel.status_code", "ERROR");
             span.record("error.type", "tool_error");
             if capture {
-                span.record("gen_ai.tool.call.result", err.to_string());
+                span.record("gen_ai.tool.call.result", recorded_tool_error(&err.to_string(), redactor));
             }
         }
+    }
+}
+
+/// What a successful call records as its result: the model's copy, without the response
+/// envelope, with the turn's secrets scrubbed.
+fn recorded_tool_result(
+    response: &VizierResponse,
+    redactor: Option<&crate::secrets::SecretRedactor>,
+) -> String {
+    match &response.content {
+        crate::schema::VizierResponseContent::ToolResponse { response } => match redactor {
+            Some(redactor) if redactor.is_armed() => {
+                let mut response = response.clone();
+                redactor.json(&mut response);
+                response.to_string()
+            }
+            _ => response.to_string(),
+        },
+        other => {
+            let text = serde_json::to_string(other).unwrap_or_default();
+            match redactor {
+                Some(redactor) => redactor.text(&text),
+                None => text,
+            }
+        }
+    }
+}
+
+fn recorded_tool_error(
+    message: &str,
+    redactor: Option<&crate::secrets::SecretRedactor>,
+) -> String {
+    match redactor {
+        Some(redactor) => redactor.text(message),
+        None => message.to_string(),
     }
 }
 
@@ -309,12 +383,14 @@ pub async fn traced_tool_call(
     call_id: &str,
     args: &str,
     limit: std::time::Duration,
+    redactor: Option<&crate::secrets::SecretRedactor>,
     call: impl std::future::Future<Output = Result<VizierResponse>>,
 ) -> std::result::Result<Result<VizierResponse>, tokio::time::error::Elapsed> {
-    let span = execute_tool_span(function_name, args, Some(call_id));
+    let span = execute_tool_span(function_name, Some(call_id));
     let outcome = tokio::time::timeout(limit, call).instrument(span.clone()).await;
+    record_tool_arguments(&span, args, redactor);
     match &outcome {
-        Ok(result) => record_tool_result(&span, result),
+        Ok(result) => record_tool_result(&span, result, redactor),
         Err(_) => {
             span.record("otel.status_code", "ERROR");
             span.record("error.type", "timeout");
@@ -758,12 +834,14 @@ impl ToolRouter {
         params: String,
         ctx: &ToolContext,
     ) -> Result<VizierResponse> {
-        let span = execute_tool_span(&function_name, &params, None);
+        let span = execute_tool_span(&function_name, None);
         if self.get_native(&function_name).is_some_and(|tool| tool.ends_turn()) {
             span.record("vizier.tool.ends_turn", true);
         }
+        let recorded = params.clone();
         let result = self.dispatch(function_name, params, ctx).instrument(span.clone()).await;
-        record_tool_result(&span, &result);
+        record_tool_arguments(&span, &recorded, Some(&ctx.secret_redactor));
+        record_tool_result(&span, &result, Some(&ctx.secret_redactor));
         result
     }
 
@@ -1049,6 +1127,16 @@ impl BaseTools {
             })
             .tool(ReadTmp {
                 storage: deps.storage.clone(),
+            })
+            // The agent's own credentials (`specs/027-agent-secrets`): always available, never
+            // to the dream cycle, because a dream turn is unattended.
+            .tool(SetSecret {
+                storage: deps.storage.clone(),
+                agent_id: agent_id.clone(),
+            })
+            .tool(GetSecret {
+                storage: deps.storage.clone(),
+                agent_id: agent_id.clone(),
             });
 
         if let Some(ref shell_config) = agent_config.tools.shell {
@@ -1353,6 +1441,8 @@ mod tests {
             entry::<self_integrations::CreateIntegration>(),
             entry::<self_integrations::UpdateIntegration>(),
             entry::<self_integrations::DeleteIntegration>(),
+            entry::<SetSecret>(),
+            entry::<GetSecret>(),
             entry::<ThinkTool>(),
             entry::<ExecutePython>(),
             entry::<ListToolFunctions>(),
@@ -1428,6 +1518,8 @@ mod tests {
             ("create_integration", Integrations),
             ("update_integration", Integrations),
             ("delete_integration", Integrations),
+            ("set_secret", Secrets),
+            ("get_secret", Secrets),
         ];
         // Listed under their addon's id rather than a built-in category (research R12).
         const ADDON: &[(&str, &str)] = &[
@@ -1510,6 +1602,61 @@ mod tests {
         ] {
             assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&name), "{name} is a dream tool");
         }
+    }
+
+    #[test]
+    fn secrets_tools_never_reach_the_dream_cycle() {
+        for name in [SetSecret::name(), GetSecret::name()] {
+            assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&name.as_str()), "{name} is a dream tool");
+        }
+        // Nor does the list grow a name the dream cycle would not find in the toolset.
+        assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&"set_secret"));
+        assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&"get_secret"));
+    }
+
+    /// The category list ends with `secrets`: it was appended, never slotted in among the
+    /// categories older prompts and scripts already saw.
+    #[test]
+    fn secrets_is_the_last_built_in_category() {
+        let names: Vec<&str> = ToolCategory::ALL.iter().map(|category| category.name()).collect();
+        assert_eq!(names.last(), Some(&"secrets"));
+        assert_eq!(names.len(), 16);
+        assert_eq!(ToolCategory::Secrets.name(), "secrets");
+    }
+
+    /// An `execute_tool` span records a scrubbed result and scrubbed arguments once the turn
+    /// has handled a secret (`specs/027-agent-secrets` T047).
+    #[test]
+    fn execute_tool_telemetry_never_records_a_secret() {
+        const TOKEN: &str = "agent-token-abc123";
+        let redactor = crate::secrets::SecretRedactor::default();
+        redactor.arm(TOKEN);
+
+        let response = VizierResponse {
+            timestamp: Utc::now(),
+            content: crate::schema::VizierResponseContent::ToolResponse {
+                response: serde_json::json!({ "status": "found", "value": TOKEN }),
+            },
+            attachments: vec![],
+            ..Default::default()
+        };
+        let recorded = recorded_tool_result(&response, Some(&redactor));
+        assert!(!recorded.contains(TOKEN), "{recorded}");
+        assert!(recorded.contains("[redacted]"));
+
+        let arguments = redact_arguments(&format!(r#"{{"header":"Bearer {TOKEN}"}}"#), &redactor);
+        assert!(!arguments.contains(TOKEN), "{arguments}");
+        assert!(arguments.contains("[redacted]"));
+
+        let err = VizierError(format!("request failed for {TOKEN}"));
+        let recorded = recorded_tool_error(&err.to_string(), Some(&redactor));
+        assert!(!recorded.contains(TOKEN), "{recorded}");
+        assert!(recorded.contains("[redacted]"));
+
+        // Unarmed, the same helpers leave the text alone.
+        let plain = crate::secrets::SecretRedactor::default();
+        assert!(!recorded_tool_result(&response, Some(&plain)).contains("[redacted]"));
+        assert_eq!(recorded_tool_error(&err.to_string(), Some(&plain)), err.to_string());
     }
 
     #[test]
@@ -1600,6 +1747,7 @@ mod tests {
     fn a_server_named_like_a_built_in_category_gets_a_suffix() {
         assert_eq!(mcp_category_name("memory", &[]), "memory_mcp");
         assert_eq!(mcp_category_name("discord", &[]), "discord_mcp");
+        assert_eq!(mcp_category_name("secrets", &[]), "secrets_mcp");
         assert_eq!(mcp_category_name("github", &[]), "github");
     }
 
@@ -1636,6 +1784,7 @@ mod tests {
             loaded_images: Default::default(),
             recalled: Default::default(),
             client,
+            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
         }
     }
 

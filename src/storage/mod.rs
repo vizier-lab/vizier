@@ -14,6 +14,7 @@ use crate::{
         global_config::GlobalConfigStorage, history::HistoryStorage, integration::IntegrationStorage,
         memory::MemoryStorage,
         provider::{CustomProviderStorage, ProviderStorage}, reaction::ReactionStorage, scratch::ScratchStorage, turn::TurnStorage, session::SessionStorage, session_file::SessionFileStorage,
+        secret::SecretStorage,
         state::StateStorage, task::TaskStorage, task_run::TaskRunStorage,
         usage::UsageStorage, user::UserStorage, feed::FeedStorage,
     },
@@ -38,6 +39,7 @@ pub mod provider;
 pub mod reaction;
 pub mod rerank;
 pub mod scratch;
+pub mod secret;
 pub mod session;
 pub mod session_file;
 pub mod state;
@@ -74,7 +76,8 @@ where
         + FeedStorage
         + ClientCallStorage
         + ScratchStorage
-        + TurnStorage,
+        + TurnStorage
+        + SecretStorage,
 {
 }
 

@@ -81,6 +81,10 @@ Every agent has a persistent markdown document, seeded from the built-in templat
 - **WebUI**: agent → Core (markdown editor)
 - **API**: `GET|PUT /api/v1/agents/{id}/core`
 
+## Secrets
+
+An agent can keep named credentials in its own store, read them from Python scripts, and never show them to the model. The `secrets` tool category (`set_secret`, `get_secret`) is in every ordinary, scheduled and background turn but never in the dream cycle. People manage the store in **WebUI → Secrets** or over `GET|PUT|DELETE /api/v1/agents/{id}/secrets[/{name}]` (plus `GET …/secrets/events`), under `all_agents:secret` or `owned_agents:secret` for the agent's owner. No route returns a value; see [Agent Secrets](./secrets.md) for the limits and the redaction boundary.
+
 ## Sessions, topics, and checkpoints
 
 A session is `(agent, channel, topic)`. History is stored per session and replayed in full into the model context on each request.

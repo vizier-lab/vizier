@@ -658,6 +658,7 @@ impl VizierAgent {
             background_depth,
             deadline: None,
             client,
+            secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
         };
 
         let mut history = self
@@ -1145,7 +1146,7 @@ impl VizierAgent {
                 let mut ctx_clone = ctx.clone();
                 ctx_clone.deadline = Some(tokio::time::Instant::now() + *self.config.tools.timeout);
                 let traced_args = args.clone();
-                let mut tool_res = match traced_tool_call(&function_name, call_id, &traced_args, *self.config.tools.timeout, async {
+                let mut tool_res = match traced_tool_call(&function_name, call_id, &traced_args, *self.config.tools.timeout, Some(&ctx_clone.secret_redactor), async {
                     tool_server
                         .call(function_name.clone(), args, &ctx_clone)
                         .await
@@ -1590,6 +1591,7 @@ impl VizierAgent {
                     hooks: hooks.clone(),
                     background_depth: 0,
                     deadline: None,
+                    secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
                 },
             )
             .await?;
@@ -1724,7 +1726,7 @@ impl VizierAgent {
                     // Use dream_call for dream tool dispatch
                     let ctx_clone = ctx.clone();
                     let traced_args = args.clone();
-                    let mut tool_res = match traced_tool_call(&function_name, call_id, &traced_args, *self.config.tools.timeout, async {
+                    let mut tool_res = match traced_tool_call(&function_name, call_id, &traced_args, *self.config.tools.timeout, Some(&ctx_clone.secret_redactor), async {
                         snapshot
                             .dream_call(
                                 function_name.clone(),

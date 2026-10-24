@@ -11,6 +11,7 @@ pub mod provider;
 mod request;
 mod response;
 pub mod revision;
+pub mod secret;
 mod session;
 pub mod session_file;
 mod storage;
@@ -58,6 +59,7 @@ pub use session::{
     AgentId, DreamStage, DreamStatus, TopicId, VizierChannelId, VizierSession, VizierSessionDetail,
 };
 pub use session_file::SessionFileRecord;
+pub use secret::{AgentSecretEvent, SecretAction};
 pub use storage::{
     BundleSummary, DEFAULT_BUNDLE, DocumentIndex, ImportReport, Memory, MemoryFrontMatter,
     MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryPassageResult, MemoryQueryParams,

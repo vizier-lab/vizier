@@ -104,6 +104,11 @@ impl VizierTool for ExecutePython {
             None => vec![],
         };
 
+        // The script got the real values; everything that leaves this point — the log line,
+        // the returned report, its history entry and the model's copy — is scrubbed first
+        // (`specs/027-agent-secrets`). A turn that handled no secret pays one empty check.
+        ctx.secret_redactor.report(&mut report);
+
         span.in_scope(|| match &report.error {
             None => tracing::info!(ok = true, duration_ms = report.duration_ms, "python script finished"),
             Some(err) if err.limit.is_some() => tracing::warn!(

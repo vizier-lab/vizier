@@ -35,6 +35,7 @@ pub mod dream;
 pub mod integrations;
 pub mod jobs;
 pub mod memory;
+pub mod secrets;
 pub mod skills;
 pub mod task;
 
@@ -45,6 +46,7 @@ use core::core;
 use dream::dream;
 use jobs::jobs;
 use memory::memory;
+use secrets::secrets;
 use skills::agent_skills;
 use task::task;
 
@@ -129,6 +131,7 @@ pub fn agents() -> Router<HTTPState> {
         .nest("/{agent_id}/channel", channel().merge(jobs()))
         .nest("/{agent_id}/core", core())
         .nest("/{agent_id}/memory", memory())
+        .nest("/{agent_id}/secrets", secrets())
         .nest("/{agent_id}/skills", agent_skills())
         .nest("/{agent_id}/tasks", task())
         .nest("/{agent_id}/dream", dream())

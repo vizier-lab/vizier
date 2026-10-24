@@ -10,32 +10,12 @@ use std::collections::HashMap;
 
 use crate::schema::{AgentConfig, AgentId, Integration, IntegrationFamily};
 
+pub use crate::access::Caller;
+
 pub const MANAGE_ALL: &str = "all_agents:integrations:manage";
 pub const MANAGE_OWNED: &str = "owned_agents:integrations:manage";
 
-/// The signed-in user, as far as integration access is concerned.
-#[derive(Debug, Clone, Copy)]
-pub struct Caller<'a> {
-    pub user_id: &'a str,
-    pub is_system: bool,
-    pub permissions: &'a [String],
-}
-
-impl<'a> From<&'a crate::channels::http::auth::AuthenticatedUser> for Caller<'a> {
-    fn from(user: &'a crate::channels::http::auth::AuthenticatedUser) -> Self {
-        Self {
-            user_id: &user.user_id,
-            is_system: user.role.is_system,
-            permissions: &user.permissions,
-        }
-    }
-}
-
 impl Caller<'_> {
-    fn has(&self, permission: &str) -> bool {
-        self.permissions.iter().any(|p| p == permission)
-    }
-
     /// May manage the integrations of every agent.
     pub fn manages_all(&self) -> bool {
         self.is_system || self.has(MANAGE_ALL)
@@ -44,10 +24,6 @@ impl Caller<'_> {
     /// May manage the integrations of the agents they own.
     pub fn manages_owned(&self) -> bool {
         self.has(MANAGE_OWNED)
-    }
-
-    fn owns_agent(&self, agent: &AgentConfig) -> bool {
-        agent.owner_id.as_deref() == Some(self.user_id)
     }
 }
 
@@ -59,7 +35,7 @@ pub struct Access {
 
 /// May manage this agent's integrations, and so switch its self-management on or off.
 pub fn can_manage_on_agent(caller: Caller<'_>, agent: &AgentConfig) -> bool {
-    caller.manages_all() || (caller.manages_owned() && caller.owns_agent(agent))
+    caller.manages(agent, MANAGE_ALL, MANAGE_OWNED)
 }
 
 /// What `caller` may do with `integration`. `agents` resolves its linked agents; `can_view`

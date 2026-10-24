@@ -26,6 +26,7 @@ mod llm;
 mod sandbox;
 mod scheduler;
 mod schema;
+mod secrets;
 mod setup;
 
 mod skill;
@@ -39,6 +40,7 @@ mod image_generation;
 mod provider_keys;
 mod provider_migration;
 mod utils;
+mod access;
 
 fn main() -> Result<()> {
     dotenvy::dotenv().ok();

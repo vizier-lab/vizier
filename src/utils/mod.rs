@@ -281,3 +281,34 @@ pub fn get_mime_type(filename: &str) -> String {
         .first_or_text_plain()
         .to_string()
 }
+
+/// The prefix of every masked value.
+pub const MASK: &str = "••••";
+
+/// `••••` and the value's last four characters, or only the mask for a short value. Shared by
+/// integrations and agent secrets so they mask identically (`specs/027-agent-secrets` R8).
+pub fn mask_secret(secret: &str) -> String {
+    let chars: Vec<char> = secret.chars().collect();
+    if chars.len() <= 8 {
+        return MASK.to_string();
+    }
+    let last: String = chars[chars.len() - 4..].iter().collect();
+    format!("{MASK}{last}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secrets_are_masked_to_their_last_four() {
+        assert_eq!(mask_secret("ghp_1234567890a91c"), "••••a91c");
+        assert_eq!(mask_secret("short"), "••••");
+        assert_eq!(mask_secret(""), "••••");
+        // Exactly eight characters is still short.
+        assert_eq!(mask_secret("12345678"), "••••");
+        assert_eq!(mask_secret("123456789"), "••••6789");
+        // Characters, not bytes: a multi-byte tail is kept whole.
+        assert_eq!(mask_secret("abcdefghé漢字"), "••••hé漢字");
+    }
+}
