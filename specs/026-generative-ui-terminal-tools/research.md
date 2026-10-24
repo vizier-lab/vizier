@@ -150,7 +150,8 @@ Requirements: synchronous-looking results are not needed (actions are async), no
 
 **Decision**: a **sandboxed iframe runner**, reusing the isolation the 019 interactive page already proved: `sandbox="allow-scripts"` (opaque origin, no cookies/tokens/parent DOM) with a CSP of `default-src 'none'` (no network). The runner is a ~60-line fixed script; the logic bodies are compiled inside it with `new Function`, called over `postMessage` with `{id, fn, args}`, and answer `{id, result}` or `{id, error}`.
 
-- **Timeout**: the host starts a 250 ms timer per call; on expiry the iframe is destroyed and recreated (the only reliable way to stop an infinite loop in a same-thread frame), the call fails with a `logic_timeout` error. Concurrent calls queue (one at a time, FIFO, max 16 queued).
+- **Thread**: implementation finding: the functions run in a Worker started inside the frame, not in the frame itself. In Chromium a sandboxed frame can share the page's thread, so a `while(true)` froze the page and the timer below could not fire; in a worker it burns only its own thread (verified in a browser).
+- **Timeout**: the host starts a 250 ms timer per call; on expiry the iframe (and its worker) is destroyed and recreated (the only reliable way to stop an infinite loop), the call fails with a `logic_timeout` error. Concurrent calls queue (one at a time, FIFO, max 16 queued).
 - **Data**: arguments and results are JSON only (structured clone of plain data), results ≤ 256 KB, args ≤ 256 KB.
 - **No capabilities**: the frame has no `allow-same-origin`, no forms, no popups; `fetch`/`XMLHttpRequest`/`WebSocket` are blocked by CSP; `import()` is blocked by CSP.
 - **One runner per drawn interface**, created on first call, destroyed when the interface unmounts or goes off screen.

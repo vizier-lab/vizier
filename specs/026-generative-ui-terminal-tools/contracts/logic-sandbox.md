@@ -18,8 +18,9 @@ Agent-written functions are the only agent-written code that runs on the person'
 | Layer | Rule |
 |---|---|
 | Container | `<iframe sandbox="allow-scripts" srcdoc=… referrerpolicy="no-referrer">`: no `allow-same-origin`, so an opaque origin; no forms, popups, modals, top navigation, downloads. |
-| CSP (meta, first in the document) | `default-src 'none'; script-src 'unsafe-eval' 'unsafe-inline'; connect-src 'none'; img-src 'none'; style-src 'none'` — the runner needs `unsafe-eval` for `new Function`, and nothing else. |
-| Messages | The host accepts messages only from this frame's `contentWindow`; the runner accepts only from `parent`. Each carries a call id; unknown ids are dropped. |
+| Thread | The frame holds only a relay. The functions run in a **Worker** the relay starts from a blob, so a loop that never ends burns the worker's thread and nothing else. (Measured: in Chromium a script in a sandboxed frame can share the page's thread, and an infinite loop then froze the page and the host's timer; with the worker the page kept running.) Destroying the frame ends the worker. |
+| CSP (meta, first in the document) | `default-src 'none'; script-src 'unsafe-eval' 'unsafe-inline' blob:; worker-src blob:; connect-src 'none'; img-src 'none'; style-src 'none'` — `unsafe-eval` for `new Function` and a blob worker, and nothing else. The worker inherits it, so it has no network either. |
+| Messages | The host accepts messages only from this frame's `contentWindow`; the relay accepts only from `parent` and passes them to the worker. Each carries a call id; unknown ids are dropped. |
 | Data | Arguments and results cross as structured-clone plain data. Functions, DOM nodes and class instances are rejected. Args ≤ 256 KB, results ≤ 256 KB. |
 
 ## 3. Limits and failure
