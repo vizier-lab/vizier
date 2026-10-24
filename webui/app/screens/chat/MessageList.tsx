@@ -112,7 +112,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                         }
                     >
                         <div className="flex flex-col gap-16">
-                            {text != null && <Markdown>{text}</Markdown>}
+                            {text != null && text !== '' && <Markdown>{text}</Markdown>}
                             <ReplyMedia attachments={outcome?.content.Response?.attachments ?? []} transcript={text} />
                         </div>
                     </AgentReply>

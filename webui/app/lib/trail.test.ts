@@ -508,3 +508,15 @@ test('an aborted turn has no outcome and is marked aborted, not open', () => {
   assert.equal(turns[0].aborted, true)
   assert.equal(openTurn(turns), undefined)
 })
+
+test('a turn ended by a turn-ending call keeps the call and its empty reply together', () => {
+  const turns = groupHistory([
+    request('chart it'),
+    clientCall('call-1', { outcome: { status: 'ok', result: { status: 'rendered' } } }),
+    response(''),
+  ])
+  assert.equal(turns.length, 1)
+  assert.equal(turns[0].clientCalls.length, 1)
+  assert.ok(turns[0].outcome)
+  assert.equal(turns[0].anchorUid, turns[0].outcome?.uid)
+})

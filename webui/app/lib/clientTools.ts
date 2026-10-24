@@ -36,6 +36,11 @@ export interface ClientToolRegistration {
   renderAfterTurn?: boolean
   /** Of this tool's calls in one turn, draw only the last. */
   latestPerTurn?: boolean
+  /**
+   * `false` keeps a retired tool drawable (saved calls still render) without offering it to the
+   * agent: it is left out of what every request declares. Default `true`.
+   */
+  declare?: boolean
 }
 
 const DEFAULT_CATEGORY = 'client'
@@ -66,7 +71,7 @@ export function declaredClientTools(): {
   client_tools: ClientToolDeclaration[]
   client_categories: ClientCategoryDeclaration[]
 } {
-  const declared = [...tools.values()].map((registration) => registration.definition)
+  const declared = [...tools.values()].filter((registration) => registration.declare !== false).map((registration) => registration.definition)
   const used = new Set(declared.map((tool) => tool.category ?? DEFAULT_CATEGORY))
   return {
     client_tools: declared,

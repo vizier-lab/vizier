@@ -12,6 +12,8 @@
     "lint:tokens": "node ../design/scripts/lint-tokens.mjs app"
   },
   "dependencies": {
+    "@json-render/core": "0.21.3",
+    "@json-render/react": "0.21.3",
     "@react-router/node": "^7.12.0",
     "@vizier/design": "file:../design",
     "isbot": "^5",
@@ -23,6 +25,7 @@
     "react-router": "7.12.0",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
+    "zod": "^4.6.7",
     "zustand": "^5.0.11"
   },
   "devDependencies": {

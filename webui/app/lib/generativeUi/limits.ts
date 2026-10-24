@@ -1,0 +1,20 @@
+// The limits of contracts/ui-catalogue.md §4, in one place for the validator and the runtime.
+export const LIMITS = {
+    specBytes: 256 * 1024,
+    elements: 1500,
+    depth: 16,
+    repeatItems: 2048,
+    logicBytes: 64 * 1024,
+    logicFunctions: 32,
+    logicParams: 8,
+    heightfieldResolution: 192,
+    canvasShapes: 5000,
+    galleryFiles: 200,
+    distinctFiles: 100,
+    hrefLength: 2048,
+    titleLength: 120,
+    sendMessageText: 4000,
+    sendMessageDataBytes: 64 * 1024,
+    sendMessageIntervalMs: 1000,
+    maxIssuesShown: 20,
+} as const

@@ -1,0 +1,80 @@
+import { z } from "zod";
+import { align, defineComponent, gap, label, tone } from "./define";
+
+export const layout = [
+  defineComponent({
+    name: "Stack",
+    group: "layout",
+    description: "Children in a column with one gap between them.",
+    props: { gap: gap.optional(), align: align.optional() },
+    children: "any",
+    events: [],
+    example: { props: { gap: "md" }, children: true },
+  }),
+  defineComponent({
+    name: "Row",
+    group: "layout",
+    description: "Children in a line; wrap lets them drop to the next line.",
+    props: {
+      gap: gap.optional(),
+      align: align.optional(),
+      justify: z.enum(["start", "center", "end", "between"]).optional(),
+      wrap: z.boolean().optional(),
+    },
+    children: "any",
+    events: [],
+    example: { props: { gap: "sm", justify: "between" }, children: true },
+  }),
+  defineComponent({
+    name: "Grid",
+    group: "layout",
+    description: "Children in equal columns. minCol makes it responsive: fewer columns as the space narrows. Pair with repeat for a list of items.",
+    props: {
+      cols: z.number().int().min(1).max(12).describe("columns, 1–12"),
+      gap: gap.optional(),
+      minCol: z.number().min(40).max(2000).optional().describe("smallest column width in px"),
+    },
+    children: "any",
+    events: [],
+    example: { props: { cols: 3, gap: "md" }, children: true },
+  }),
+  defineComponent({
+    name: "Card",
+    group: "layout",
+    description: "A bordered panel with an optional title and subtitle.",
+    props: { title: label.optional(), subtitle: label.optional(), tone: tone.optional() },
+    children: "any",
+    events: [],
+    example: { props: { title: "Summary" }, children: true },
+  }),
+  defineComponent({
+    name: "Tabs",
+    group: "layout",
+    description: "A tab strip bound to a state value. Show each panel with visible on its element.",
+    props: {
+      tabs: z.array(z.object({ id: z.string().max(100), label })).min(1).max(20).describe("the tabs, {id,label}"),
+      value: z.string().optional().describe("the selected tab id; bind with $bindState"),
+    },
+    children: "any",
+    events: ["change"],
+    example: { props: { tabs: [{ id: "a", label: "First" }, { id: "b", label: "Second" }], value: "a" }, children: true },
+  }),
+  defineComponent({
+    name: "Fold",
+    group: "layout",
+    description: "A section the person can open and close.",
+    props: { title: label, open: z.boolean().optional() },
+    children: "any",
+    events: [],
+    example: { props: { title: "Details", open: true }, children: true },
+  }),
+  defineComponent({
+    name: "Divider",
+    group: "layout",
+    description: "A thin line between sections.",
+    props: {},
+    children: "none",
+    events: [],
+    example: { props: {} },
+  }),
+];

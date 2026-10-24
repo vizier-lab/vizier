@@ -326,6 +326,8 @@ export interface ClientToolDeclaration {
   timeout_secs?: number
   // Keep a call made while no client is connected, and run it when one reconnects.
   deferrable?: boolean
+  // A successful call is the turn's final answer: no further model round (spec 026).
+  ends_turn?: boolean
 }
 
 export interface ClientCategoryDeclaration {
