@@ -7,7 +7,7 @@ import { Tooltip } from "../Tooltip/Tooltip";
 
 export type SidebarPage =
   | "home" | "chat" | "core" | "memory" | "tasks" | "skills" | "dreams"
-  | "channels" | "addons" | "mcp" | "usage" | "config" | "settings";
+  | "channels" | "addons" | "mcp" | "secrets" | "usage" | "config" | "settings";
 
 const GROUPS: { label?: string; pages: { page: SidebarPage; label: string; icon: IconName }[] }[] = [
   {
@@ -33,6 +33,7 @@ const GROUPS: { label?: string; pages: { page: SidebarPage; label: string; icon:
     label: "Misc",
     pages: [
       { page: "usage", label: "Usage", icon: "usage" },
+      { page: "secrets", label: "Secrets", icon: "key" },
       { page: "config", label: "Config", icon: "agent" },
     ],
   },
@@ -49,6 +50,8 @@ export type SidebarProps = {
   collapsed?: boolean;
   /** Chat shows the live ring while the agent replies. */
   chatLive?: boolean;
+  /** Pages the person may not see here, dropped from every group before rendering. */
+  hiddenPages?: SidebarPage[];
   hrefFor: (page: SidebarPage) => string;
   onToggleTheme: () => void;
   onToggleCollapsed: () => void;
@@ -61,6 +64,7 @@ export function Sidebar({
   active,
   collapsed,
   chatLive,
+  hiddenPages,
   hrefFor,
   onToggleTheme,
   onToggleCollapsed,
@@ -75,6 +79,12 @@ export function Sidebar({
     ) : (
       node
     );
+  // A page the person may not open is dropped from its group; a group left with
+  // no pages loses its label too, rather than showing an empty heading.
+  const hidden = new Set(hiddenPages ?? []);
+  const groups = GROUPS.map((g) => ({ ...g, pages: g.pages.filter((p) => !hidden.has(p.page)) })).filter(
+    (g) => g.pages.length > 0,
+  );
   const item = (p: { page: SidebarPage; label: string; icon: IconName }) =>
     wrap(
       p.label,
@@ -102,7 +112,7 @@ export function Sidebar({
     >
       {/* The same height as a page's header band, so the switcher lines up with the title. */}
       <div className={cx("flex h-76 shrink-0 items-center", collapsed ? "justify-center" : "w-full [&>*]:w-full")}>{agent}</div>
-      {GROUPS.map((g, i) =>
+      {groups.map((g, i) =>
         g.label ? (
           <NavSection key={g.label} label={g.label} collapsed={collapsed}>
             {g.pages.map(item)}
@@ -114,7 +124,8 @@ export function Sidebar({
         ),
       )}
       <span className="flex-1" />
-      {wrap("Settings", <NavItem icon="settings" label="Settings" href={hrefFor("settings")} active={active === "settings"} collapsed={collapsed} />)}
+      {!hidden.has("settings") &&
+        wrap("Settings", <NavItem icon="settings" label="Settings" href={hrefFor("settings")} active={active === "settings"} collapsed={collapsed} />)}
       {wrap("Theme", <NavItem icon="theme" label="Theme" onSelect={onToggleTheme} collapsed={collapsed} />)}
       {wrap(
         collapsed ? "Expand sidebar" : "Collapse sidebar",

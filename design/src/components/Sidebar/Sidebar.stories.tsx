@@ -4,7 +4,7 @@ import { AgentSwitcher } from "../AgentSwitcher/AgentSwitcher";
 import { UserMenu } from "../UserMenu/UserMenu";
 import { Sidebar, type SidebarPage } from "./Sidebar";
 
-const PAGES: SidebarPage[] = ["home", "chat", "core", "memory", "tasks", "skills", "dreams", "channels", "addons", "mcp", "usage", "config", "settings"];
+const PAGES: SidebarPage[] = ["home", "chat", "core", "memory", "tasks", "skills", "dreams", "channels", "addons", "mcp", "secrets", "usage", "config", "settings"];
 
 const meta = {
   title: "Components/Shell/Sidebar",
@@ -20,7 +20,10 @@ const meta = {
     onToggleTheme: () => {},
     onToggleCollapsed: () => {},
   },
-  argTypes: { active: { control: "select", options: PAGES } },
+  argTypes: {
+    active: { control: "select", options: PAGES },
+    hiddenPages: { control: "multi-select", options: PAGES },
+  },
   decorators: [(Story) => <div className="h-1024">{Story()}</div>],
 } satisfies Meta<typeof Sidebar>;
 
@@ -53,3 +56,15 @@ export const Collapsed: Story = {
 
 /** No page active, as on pages outside the sidebar. */
 export const NoneActive: Story = { args: { active: undefined, chatLive: false } };
+
+/** A page the person may not open is missing from Misc; the rest stay put. */
+export const WithoutSecrets: Story = {
+  args: { hiddenPages: ["secrets"], chatLive: false },
+  parameters: {
+    docs: {
+      description: {
+        story: "Secrets is hidden unless the person may manage the selected agent's secrets.",
+      },
+    },
+  },
+};
