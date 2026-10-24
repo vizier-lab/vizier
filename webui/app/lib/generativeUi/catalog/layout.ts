@@ -33,6 +33,7 @@ export const layout = [
       cols: z.number().int().min(1).max(12).describe("columns, 1–12"),
       gap: gap.optional(),
       minCol: z.number().min(40).max(2000).optional().describe("smallest column width in px"),
+      maxWidth: z.number().min(40).max(4000).optional().describe("keep the grid at most this wide, in px, and centred (a board)"),
     },
     children: "any",
     events: [],

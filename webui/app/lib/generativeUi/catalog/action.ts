@@ -12,6 +12,8 @@ export const action = [
       tone: tone.optional(),
       disabled: bool.optional(),
       selected: bool.optional(),
+      size: z.enum(["sm", "md", "lg"]).optional(),
+      square: bool.optional().describe("a centred square that fills its grid cell, for boards and keypads"),
     },
     children: "none",
     events: ["press"],

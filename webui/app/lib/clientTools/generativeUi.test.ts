@@ -32,3 +32,23 @@ describe('generative UI tool definitions', () => {
         expect(UI_CATEGORY_DESCRIPTION).toContain('Start with ui_components')
     })
 })
+
+describe('what the agent calls the tools', () => {
+    it('resolves to ui_components and ui_render: a tool is named <category>_<tool>', async () => {
+        await import('./builtin')
+        const { declaredClientTools } = await import('../clientTools')
+        const names = declaredClientTools().client_tools.map((t) => `${t.category ?? 'client'}_${t.name}`)
+        expect(names).toContain('ui_components')
+        expect(names).toContain('ui_render')
+        // The retired tool is not offered.
+        expect(names).not.toContain('ui_render_interactive_ui')
+    })
+
+    it('flags only ui_render as ending the turn', async () => {
+        await import('./builtin')
+        const { declaredClientTools } = await import('../clientTools')
+        const tools = declaredClientTools().client_tools
+        expect(tools.find((t) => t.name === 'render')?.ends_turn).toBe(true)
+        expect(tools.find((t) => t.name === 'components')?.ends_turn).toBeUndefined()
+    })
+})

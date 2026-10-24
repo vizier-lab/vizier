@@ -24,7 +24,7 @@ registerClientCategory({ name: 'ui', description: UI_CATEGORY_DESCRIPTION })
 
 registerClientTool({
     definition: {
-        name: 'ui_components',
+        name: 'components',
         category: 'ui',
         description: UI_COMPONENTS_DESCRIPTION,
         input_schema: uiComponentsSchema(),
@@ -34,7 +34,7 @@ registerClientTool({
 
 registerClientTool({
     definition: {
-        name: 'ui_render',
+        name: 'render',
         category: 'ui',
         description: UI_RENDER_DESCRIPTION,
         input_schema: uiRenderSchema(),

@@ -119,7 +119,7 @@ export const boardGame: Recipe = {
         elements: {
             page: { type: 'Stack', props: { gap: 'md' }, children: ['status', 'board', 'ask'] },
             status: { type: 'Text', props: { text: { $template: '**${/game/turn}** to move. ${/game/status}' } } },
-            board: { type: 'Grid', props: { cols: 8, gap: 'none' }, repeat: { statePath: '/game/board' }, children: ['cell'] },
+            board: { type: 'Grid', props: { cols: 8, gap: 'none', maxWidth: 400 }, repeat: { statePath: '/game/board' }, children: ['cell'] },
             cell: {
                 type: 'Button',
                 props: {
@@ -127,6 +127,7 @@ export const boardGame: Recipe = {
                     variant: { $item: 's' },
                     tone: { $cond: { $item: 'm' }, $then: 'accent', $else: 'default' },
                     selected: { $item: 'sel' },
+                    square: true,
                 },
                 on: { press: { action: 'run', params: { fn: 'step', args: [{ $state: '/game' }, { $index: true }], into: '/game' } } },
             },

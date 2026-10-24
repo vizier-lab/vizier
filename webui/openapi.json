@@ -5216,6 +5216,10 @@
                 ],
                 "description": "Why the agent last failed to start or stopped running, while it is `Failed`."
               },
+              "live": {
+                "type": "boolean",
+                "description": "A turn is running now. Filled by the HTTP handler from the session state, not the supervisor."
+              },
               "model": {
                 "oneOf": [
                   {
@@ -9161,6 +9165,10 @@
             ],
             "description": "Why the agent last failed to start or stopped running, while it is `Failed`."
           },
+          "live": {
+            "type": "boolean",
+            "description": "A turn is running now. Filled by the HTTP handler from the session state, not the supervisor."
+          },
           "model": {
             "oneOf": [
               {
@@ -10129,7 +10137,7 @@
         "properties": {
           "channel": {
             "type": "string",
-            "description": "The channel slug, which names the conversation in `/agents/{id}/channel/{channel}/…`."
+            "description": "The channel slug. A WebUI conversation is the one topic `latest_topic` of its channel."
           },
           "kind": {
             "$ref": "#/components/schemas/ConversationKind"
@@ -10140,7 +10148,7 @@
           },
           "latest_topic": {
             "type": "string",
-            "description": "The topic with the newest message; empty without topics."
+            "description": "The WebUI topic to open, or a Discord or Telegram conversation's newest; empty without topics."
           },
           "place": {
             "type": "string",
@@ -15650,6 +15658,13 @@
           },
           "duration": {
             "type": "string"
+          },
+          "ended_by_tool": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The turn ended because this turn-ending tool succeeded, not because the model answered."
           },
           "input_tokens": {
             "type": "integer",

@@ -1071,6 +1071,8 @@ export interface components {
                 failures?: number;
                 /** @description Why the agent last failed to start or stopped running, while it is `Failed`. */
                 last_error?: string | null;
+                /** @description A turn is running now. Filled by the HTTP handler from the session state, not the supervisor. */
+                live?: boolean;
                 model?: components["schemas"]["AgentModelInfo"] | null;
                 /** Format: date-time */
                 next_retry_at?: string | null;
@@ -2076,6 +2078,8 @@ export interface components {
             failures?: number;
             /** @description Why the agent last failed to start or stopped running, while it is `Failed`. */
             last_error?: string | null;
+            /** @description A turn is running now. Filled by the HTTP handler from the session state, not the supervisor. */
+            live?: boolean;
             model?: components["schemas"]["AgentModelInfo"] | null;
             /** Format: date-time */
             next_retry_at?: string | null;
@@ -2338,12 +2342,12 @@ export interface components {
             webui: number;
         };
         ConversationItem: {
-            /** @description The channel slug, which names the conversation in `/agents/{id}/channel/{channel}/…`. */
+            /** @description The channel slug. A WebUI conversation is the one topic `latest_topic` of its channel. */
             channel: string;
             kind: components["schemas"]["ConversationKind"];
             /** Format: date-time */
             last_activity: string;
-            /** @description The topic with the newest message; empty without topics. */
+            /** @description The WebUI topic to open, or a Discord or Telegram conversation's newest; empty without topics. */
             latest_topic: string;
             /** @description Under the title: "topic 3 of 5", or the server a Discord channel is in. */
             place: string;
@@ -3875,6 +3879,8 @@ export interface components {
             /** @description The turn reached `thinking_depth`, and the reply is what it had by then (#48). */
             depth_exhausted?: boolean;
             duration: string;
+            /** @description The turn ended because this turn-ending tool succeeded, not because the model answered. */
+            ended_by_tool?: string | null;
             /** Format: int64 */
             input_tokens: number;
             model?: string | null;

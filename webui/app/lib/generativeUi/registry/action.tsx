@@ -14,12 +14,19 @@ export function ButtonC({ element, emit }: ComponentRenderProps<P>) {
     return (
         <Button
             variant={VARIANT[(p.variant as keyof typeof VARIANT) ?? 'secondary'] ?? 'secondary'}
+            size={p.size === 'sm' || p.size === 'lg' ? p.size : p.square ? 'lg' : 'md'}
             disabled={p.disabled === true}
             aria-pressed={p.selected === undefined ? undefined : selected}
-            className={selected ? 'ring-2 ring-ink' : accent ? 'ring-1 ring-chart-1' : undefined}
+            className={[
+                selected ? 'ring-2 ring-ink' : accent ? 'ring-2 ring-chart-1' : '',
+                // A square fills its grid cell: no fixed height or side padding.
+                p.square === true ? 'aspect-square h-auto! w-full px-0!' : '',
+            ]
+                .filter(Boolean)
+                .join(' ')}
             onClick={(e) => send('press', e.nativeEvent)}
         >
-            {String(p.label ?? '')}
+            {p.square === true ? <span className="type-title">{String(p.label ?? '')}</span> : String(p.label ?? '')}
         </Button>
     )
 }

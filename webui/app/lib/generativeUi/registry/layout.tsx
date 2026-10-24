@@ -30,11 +30,12 @@ export function RowC({ element, children }: ComponentRenderProps<P>) {
 
 export function GridC({ element, children }: ComponentRenderProps<P>) {
     const p = element.props
-    return (
+    const grid = (
         <Grid cols={typeof p.cols === 'number' ? p.cols : 2} gap={gapOf(p.gap)} minCol={typeof p.minCol === 'number' ? p.minCol : undefined}>
             {children}
         </Grid>
     )
+    return typeof p.maxWidth === 'number' ? <div style={{ maxWidth: p.maxWidth, width: '100%', marginInline: 'auto' }}>{grid}</div> : grid
 }
 
 export function CardC({ element, children }: ComponentRenderProps<P>) {
