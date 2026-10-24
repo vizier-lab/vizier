@@ -19,13 +19,13 @@ export function UserMessage({ meta, skill, attachments, queued, className, child
     <div className={cx("flex flex-col items-end gap-6", className)} {...rest}>
       <div
         className={cx(
-          "flex max-w-480 flex-col items-start gap-6 rounded-lg px-14 py-10",
+          "flex max-w-480 min-w-0 flex-col items-start gap-6 rounded-lg px-14 py-10 [overflow-wrap:anywhere]",
           queued ? "border border-dashed border-border-strong" : "bg-surface",
         )}
       >
         {skill && <SkillChip skill={skill} />}
-        {attachments && <div className="flex flex-wrap gap-6">{attachments}</div>}
-        <div className={cx("type-body-para", queued ? "text-muted" : "text-fg")}>{children}</div>
+        {attachments && <div className="flex w-full flex-col gap-6">{attachments}</div>}
+        <div className={cx("type-body-para min-w-0 max-w-full", queued ? "text-muted" : "text-fg")}>{children}</div>
       </div>
       <span className="type-mono-xs text-faint">{queued ? `Queued · sends when ${queued.agentName} finishes` : meta}</span>
     </div>

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Sigil } from "./Sigil";
-import { sigilCells, SIGIL_MAX_LIT, SIGIL_MIN_LIT } from "./sigil";
+import { sigilCells, SIGIL_MAX_LIT, SIGIL_MIN_LIT } from "./sigilCells";
 
 const AGENTS = [
   "Archivist",
