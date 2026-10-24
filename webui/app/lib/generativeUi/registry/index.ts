@@ -8,6 +8,7 @@ import { scene3dRegistry } from './scene3d'
 import { ChartC, KeyValueC, ProgressC, StatC, TableC } from './data'
 import { CheckboxC, NumberInputC, RadioGroupC, SelectC, SliderC, SwitchC, TextInputC } from './input'
 import { CardC, DividerC, FoldC, GridC, RowC, StackC, TabsC } from './layout'
+import { AudioC, FileCardC, GalleryC, ImageC, LinkC, VideoC } from './media'
 import { BadgeC, CalloutC, CodeC, HeadingC, TextC } from './text'
 
 export const registry: ComponentRegistry = {
@@ -36,6 +37,12 @@ export const registry: ComponentRegistry = {
     Switch: SwitchC,
     RadioGroup: RadioGroupC,
     Button: ButtonC,
+    Link: LinkC,
+    Image: ImageC,
+    Audio: AudioC,
+    Video: VideoC,
+    FileCard: FileCardC,
+    Gallery: GalleryC,
     Canvas2D: Canvas2DC,
     Effect: EffectC,
     ...scene3dRegistry,

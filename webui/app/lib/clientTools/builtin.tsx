@@ -4,6 +4,8 @@
 import { ClientCallChip } from '../../screens/chat/ClientCalls'
 import { GenerativeUi } from '../../screens/chat/client/GenerativeUi'
 import { InteractivePage } from '../../screens/chat/client/InteractivePage'
+import { topicKey } from '../../stores/connection'
+import { useTurns } from '../../stores/turns'
 import { registerClientCategory, registerClientTool } from '../clientTools'
 import { answerComponents } from '../generativeUi/reference'
 import { LIMITS } from '../generativeUi/limits'
@@ -43,7 +45,9 @@ registerClientTool({
         if (byteLength(JSON.stringify(args.spec ?? null)) > LIMITS.specBytes) {
             throw new Error(`the interface is larger than ${LIMITS.specBytes / 1024} KB; make it smaller`)
         }
-        const result = validateUi(args)
+        // The conversation's files as the topic holds them (kept current by its own frames).
+        const held = useTurns.getState().topics[topicKey(ctx.agentId, ctx.topicId)]?.files
+        const result = validateUi(args, { files: held?.map((f) => ({ name: f.filename, mime: f.mime_type })) })
         if (!result.ok) throw new Error(formatIssues(result.issues))
         return { ui_id: ctx.callId, status: 'rendered', ...(result.fixed.length ? { fixed: result.fixed } : {}) }
     },

@@ -1,11 +1,12 @@
 // The component catalogue: the single source for validating a spec, drawing it, the `type` enum
 // of `ui_render`'s schema and the reference the agent reads through `ui_components`. A component
-// is one entry here plus one in `../registry`. Media is added by its own file below once its registry exists.
+// is one entry here plus one in `../registry`. 
 import { action } from "./action";
 import { control } from "./control";
 import { data } from "./data";
 import { input } from "./input";
 import { layout } from "./layout";
+import { media } from "./media";
 import { surface } from "./surface";
 import { surface3d } from "./surface3d";
 import { textGroup } from "./text";
@@ -14,7 +15,7 @@ import { GROUPS, type ComponentDef, type Group } from "./define";
 export { GROUPS, defineComponent } from "./define";
 export type { ChildRule, ComponentDef, Group } from "./define";
 
-const entries: ComponentDef[] = [...layout, ...textGroup, ...data, ...input, ...action, ...surface, ...surface3d, ...control];
+const entries: ComponentDef[] = [...layout, ...textGroup, ...data, ...media, ...input, ...action, ...surface, ...surface3d, ...control];
 
 export const catalog: Record<string, ComponentDef> = Object.fromEntries(entries.map((entry) => [entry.name, entry]));
 

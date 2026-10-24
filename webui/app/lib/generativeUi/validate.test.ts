@@ -129,6 +129,60 @@ describe('surfaces', () => {
     })
 })
 
+describe('links and media', () => {
+    const ui = (el: Record<string, unknown>) => ({ title: 'T', spec: { root: 'a', elements: { a: el } } })
+    const files = { files: [{ name: 'forecast.png', mime: 'image/png' }, { name: 'report.pdf', mime: 'application/pdf' }] }
+    const out = (args: unknown, ctx = files) => {
+        const r = validateUi(args, ctx)
+        return r.ok ? [] : r.issues.map((i) => `${i.path}: ${i.message}`)
+    }
+
+    it('accepts files of the conversation by name', () => {
+        expect(validateUi(ui({ type: 'Image', props: { file: 'forecast.png', alt: 'x' } }), files).ok).toBe(true)
+        expect(validateUi(ui({ type: 'FileCard', props: { file: 'report.pdf' } }), files).ok).toBe(true)
+        expect(validateUi(ui({ type: 'Gallery', props: { files: ['forecast.png'] } }), files).ok).toBe(true)
+    })
+
+    it('refuses an unknown file and lists the available ones', () => {
+        const [issue] = out(ui({ type: 'Image', props: { file: 'cat.png', alt: 'x' } }))
+        expect(issue).toContain('elements.a.props.file: "cat.png" is not a file of this conversation.')
+        expect(issue).toContain('Available: forecast.png (image/png), report.pdf (application/pdf).')
+        expect(issue).toContain('list_session_files')
+    })
+
+    it('says so when the conversation has no files, and skips the check when it is not known', () => {
+        expect(out(ui({ type: 'Audio', props: { file: 'a.mp3' } }), { files: [] })[0]).toContain('This conversation has no files yet.')
+        expect(validateUi(ui({ type: 'Audio', props: { file: 'a.mp3' } })).ok).toBe(true)
+    })
+
+    it('refuses an external image address and an image with no source', () => {
+        expect(out(ui({ type: 'Image', props: { src: 'https://example.com/x.png', alt: 'x' } }))[0]).toContain('must be a data:image/ URL')
+        expect(out(ui({ type: 'Image', props: { alt: 'x' } }))[0]).toContain('Image needs file')
+        expect(validateUi(ui({ type: 'Image', props: { src: 'data:image/png;base64,AAAA', alt: 'x' } }), files).ok).toBe(true)
+    })
+
+    it('refuses links that break the rules, naming the allowed schemes', () => {
+        for (const href of ['javascript:alert(1)', 'data:text/html,x', '//host', 'file:///etc/passwd']) {
+            expect(out(ui({ type: 'Link', props: { text: 'x', href } }))[0]).toContain('Links take https, http, mailto')
+        }
+        expect(validateUi(ui({ type: 'Link', props: { text: 'Docs', href: 'https://example.com' } }), files).ok).toBe(true)
+        expect(validateUi(ui({ type: 'Link', props: { text: 'Get', file: 'report.pdf' } }), files).ok).toBe(true)
+        expect(out(ui({ type: 'Link', props: { text: 'x' } }))[0]).toContain('Link needs href')
+    })
+
+    it('checks the links written in markdown text', () => {
+        expect(out(ui({ type: 'Text', props: { text: 'see [a](javascript:alert(1))' } }))[0]).toContain('is not allowed')
+        expect(validateUi(ui({ type: 'Text', props: { text: 'see [a](https://example.com)' } }), files).ok).toBe(true)
+    })
+
+    it('limits the number of different files', () => {
+        const many = Array.from({ length: 101 }, (_, i) => `f${i}.png`)
+        const known = { files: many.map((name) => ({ name, mime: 'image/png' })) }
+        const issues = out({ title: 'T', spec: { root: 'a', elements: { a: { type: 'Stack', props: {}, children: ['b', 'c', 'd'] }, b: { type: 'Gallery', props: { files: many.slice(0, 40) } }, c: { type: 'Gallery', props: { files: many.slice(40, 80) } }, d: { type: 'Gallery', props: { files: many.slice(80) } } } } }, known)
+        expect(issues.join('\n')).toContain('refers to 101 different files; the limit is 100')
+    })
+})
+
 describe('formatIssues', () => {
     it('lists every problem, caps at 20 and never echoes the spec', () => {
         const issues = Array.from({ length: 25 }, (_, i) => ({ path: `elements.e${i}.type`, message: 'bad' }))

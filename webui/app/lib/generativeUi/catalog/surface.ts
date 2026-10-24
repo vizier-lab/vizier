@@ -5,7 +5,7 @@ const n = z.number().finite();
 
 const shape = z.object({
   id: z.string().max(100).optional().describe("reported by press"),
-  kind: z.enum(["rect", "circle", "line", "path", "text"]),
+  kind: z.enum(["rect", "circle", "line", "path", "text", "image"]),
   x: n.optional(),
   y: n.optional(),
   w: n.optional(),
@@ -20,6 +20,7 @@ const shape = z.object({
   stroke: colour.optional(),
   strokeWidth: n.optional(),
   text: z.string().max(500).optional(),
+  file: z.string().max(255).optional().describe("image: a session file name, drawn in x,y,w,h"),
   size: n.optional().describe("text size"),
 });
 
@@ -33,7 +34,7 @@ export const surface = [
       width: z.number().min(10).max(4000),
       height: z.number().min(10).max(4000),
       background: colour.optional(),
-      shapes: z.array(shape).max(5000).describe("rect {x,y,w,h}, circle {x,y,r}, line {x1,y1,x2,y2}, path {d}, text {x,y,text,size}"),
+      shapes: z.array(shape).max(5000).describe("rect {x,y,w,h}, circle {x,y,r}, line {x1,y1,x2,y2}, path {d}, text {x,y,text,size}, image {file,x,y,w,h}"),
     },
     children: "none",
     events: ["press", "move"],

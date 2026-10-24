@@ -29,7 +29,7 @@ function asRecord(a: VizierAttachment, url: string): SessionFileRecord {
     }
 }
 
-function Audio({ src, transcript }: { src: string; transcript?: string }) {
+export function Audio({ src, transcript }: { src: string; transcript?: string }) {
     const el = useRef<HTMLAudioElement>(null)
     const [playing, setPlaying] = useState(false)
     const [position, setPosition] = useState(0)
@@ -65,7 +65,7 @@ function Audio({ src, transcript }: { src: string; transcript?: string }) {
     )
 }
 
-function Video({ a, src }: { a: VizierAttachment; src: string }) {
+export function Video({ a, src }: { a: Pick<VizierAttachment, 'filename'>; src: string }) {
     const [on, setOn] = useState(false)
     return on ? (
         <video src={src} controls autoPlay className="max-h-360 w-full rounded-lg" />

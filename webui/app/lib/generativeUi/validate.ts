@@ -5,6 +5,8 @@ import { autoFixSpec, validateSpec, type Spec } from '@json-render/core'
 import { ACTION_NAMES, catalog, COMPONENT_NAMES, type ComponentDef } from './catalog/index'
 import { FUNCTION_NAMES } from './functions'
 import { LIMITS } from './limits'
+import { markdownLinks, parseHref, ALLOWED_SCHEMES } from './links'
+import { availableFiles, fileReferences } from './media'
 import { nearest } from './suggest'
 
 export type UiSpec = Spec & { state?: Record<string, unknown>; logic?: Record<string, { params: string[]; body: string }>; format?: number }
@@ -184,6 +186,49 @@ function depthOf(elements: Record<string, { children?: string[]; slots?: Record<
     return deepest
 }
 
+const SCHEMES = ALLOWED_SCHEMES.join(', ')
+
+/** Links and files: addresses must follow the link rules, files must be files of this conversation. */
+function checkMedia(elements: Record<string, { type?: string; props?: Record<string, unknown> }>, issues: Issue[], ctx: ValidateContext): void {
+    for (const [key, element] of Object.entries(elements)) {
+        const props = isObject(element?.props) ? element.props : {}
+        const at = (prop: string) => `elements.${key}.props.${prop}`
+        if (element?.type === 'Link') {
+            if (typeof props.href === 'string' && !parseHref(props.href)) {
+                issues.push({ path: at('href'), message: `${JSON.stringify(props.href)} is not allowed. Links take ${SCHEMES} addresses only (no credentials in the address).` })
+            } else if (props.href === undefined && props.file === undefined && !isExpression(props.href)) {
+                issues.push({ path: `elements.${key}.props`, message: 'Link needs href (an https, http or mailto address) or file (a conversation file to download)' })
+            }
+        }
+        if (element?.type === 'Image') {
+            // (An external `src` is refused by the prop's own rule.)
+            if (props.src === undefined && props.file === undefined) {
+                issues.push({ path: `elements.${key}.props`, message: 'Image needs file (a conversation file) or src (a data:image/ URL)' })
+            }
+        }
+        if ((element?.type === 'Text' || element?.type === 'Callout') && typeof props.text === 'string') {
+            for (const href of markdownLinks(props.text)) {
+                if (!parseHref(href)) issues.push({ path: at('text'), message: `the link ${JSON.stringify(href)} is not allowed. Links take ${SCHEMES} addresses only.` })
+            }
+        }
+    }
+
+    const refs = fileReferences(elements)
+    const distinct = new Set(refs.map((ref) => ref.name))
+    if (distinct.size > LIMITS.distinctFiles) issues.push({ path: 'spec.elements', message: `refers to ${distinct.size} different files; the limit is ${LIMITS.distinctFiles}` })
+    if (ctx.files) {
+        const known = new Set(ctx.files.map((f) => f.name))
+        const all = ctx.files.map((f) => ({ filename: f.name, mime_type: f.mime }))
+        for (const ref of refs) {
+            if (known.has(ref.name)) continue
+            issues.push({
+                path: ref.path,
+                message: `${JSON.stringify(ref.name)} is not a file of this conversation. ${availableFiles(all as never)} Make the file first (see list_session_files).`,
+            })
+        }
+    }
+}
+
 /** Check a `ui_render` call's arguments. */
 export function validateUi(args: unknown, ctx: ValidateContext = {}): Validated {
     const issues: Issue[] = []
@@ -295,6 +340,8 @@ export function validateUi(args: unknown, ctx: ValidateContext = {}): Validated 
         }
         if (element.visible !== undefined) checkExpressions(element.visible, `${path}.visible`, issues)
     }
+
+    checkMedia(elements as never, issues, ctx)
 
     if (issues.length > 0) return { ok: false, issues }
     return { ok: true, spec, title: String(title), fixed }

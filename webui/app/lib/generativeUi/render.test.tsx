@@ -60,4 +60,28 @@ describe('drawing the recipes', () => {
         expect(html).toContain('viewBox="0 0 200 100"')
         expect(html).not.toContain('could not be drawn')
     })
+
+    it('draws a link with the host beside a label that hides it, and refuses a bad scheme in text', () => {
+        const spec = {
+            root: 'a',
+            elements: {
+                a: { type: 'Stack', props: {}, children: ['l', 'm', 'i'] },
+                l: { type: 'Link', props: { text: 'paypal.com', href: 'https://evil.test/x' } },
+                m: { type: 'Text', props: { text: 'bad [click](javascript:alert(1)) good [ok](https://example.com)' } },
+                i: { type: 'Image', props: { file: 'gone.png', alt: 'gone' } },
+            },
+        }
+        const store = createStateStore({})
+        const html = renderToString(
+            <JSONUIProvider registry={guarded(registry)} store={store} functions={COMPUTED_FUNCTIONS}>
+                <Renderer spec={spec as never} registry={guarded(registry)} />
+            </JSONUIProvider>
+        ).replace(/<!-- -->/g, '')
+        expect(html).toContain('href="https://evil.test/x"')
+        expect(html).toContain('rel="noopener noreferrer nofollow"')
+        expect(html).toContain('(evil.test)')
+        expect(html).not.toContain('javascript:')
+        expect(html).toContain('href="https://example.com/"')
+        expect(html).toContain('File not available: gone.png')
+    })
 })

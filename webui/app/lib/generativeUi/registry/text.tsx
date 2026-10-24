@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prose } from '@vizier/design'
 import type { ComponentRenderProps } from '@json-render/react'
+import { SafeLink } from './anchor'
 
 type P = Record<string, unknown>
 
@@ -21,7 +22,7 @@ export function HeadingC({ element }: ComponentRenderProps<P>) {
 
 const ALLOWED = ['p', 'strong', 'em', 'code', 'ul', 'ol', 'li', 'a', 'br', 'del']
 
-/** The markdown subset an interface may use. Links are plain text until the link rules (US7) draw them. */
+/** The markdown subset an interface may use. A link is drawn by `renderLink` (the link rules), or as plain text. */
 export function MarkdownText({ children, renderLink }: { children: string; renderLink?: (href: string, label: React.ReactNode) => React.ReactNode }) {
     return (
         <Prose size="reply">
@@ -43,7 +44,7 @@ export function TextC({ element }: ComponentRenderProps<P>) {
     const size = TEXT_SIZE[(p.size as keyof typeof TEXT_SIZE) ?? 'md'] ?? TEXT_SIZE.md
     return (
         <div className={`${tone} ${size}`}>
-            <MarkdownText>{String(p.text ?? '')}</MarkdownText>
+            <MarkdownText renderLink={(href, label) => <SafeLink href={href} label={label} />}>{String(p.text ?? '')}</MarkdownText>
         </div>
     )
 }

@@ -1,11 +1,15 @@
 import type { ComponentRenderProps } from '@json-render/react'
+import { getToken } from '../../../api/client'
 import { cssColour } from './colours'
+import { fileUrl, findFile } from '../media'
+import { useSessionFiles } from './mediaContext'
 import { useEmitter } from './shared'
 
 type P = Record<string, unknown>
 type Shape = {
     id?: string
-    kind: 'rect' | 'circle' | 'line' | 'path' | 'text'
+    kind: 'rect' | 'circle' | 'line' | 'path' | 'text' | 'image'
+    file?: string
     x?: number
     y?: number
     w?: number
@@ -27,6 +31,7 @@ const num = (value: unknown, fallback = 0) => (typeof value === 'number' && Numb
 
 /** One shape as SVG; unknown geometry draws nothing rather than failing the page. */
 function ShapeSvg({ shape }: { shape: Shape }) {
+    const files = useSessionFiles()
     const paint = {
         fill: shape.kind === 'line' ? 'none' : shape.fill ? cssColour(shape.fill) : 'none',
         stroke: shape.stroke ? cssColour(shape.stroke) : shape.kind === 'line' ? cssColour('ink') : 'none',
@@ -39,6 +44,11 @@ function ShapeSvg({ shape }: { shape: Shape }) {
             return <circle cx={num(shape.x)} cy={num(shape.y)} r={num(shape.r)} {...paint} />
         case 'line':
             return <line x1={num(shape.x1)} y1={num(shape.y1)} x2={num(shape.x2)} y2={num(shape.y2)} {...paint} />
+        case 'image': {
+            const file = typeof shape.file === 'string' ? findFile(files, shape.file) : undefined
+            // A missing file draws nothing in its place; the rest of the drawing stays.
+            return file ? <image href={fileUrl(file, getToken())} x={num(shape.x)} y={num(shape.y)} width={num(shape.w)} height={num(shape.h)} preserveAspectRatio="xMidYMid meet" /> : null
+        }
         case 'path':
             return typeof shape.d === 'string' ? <path d={shape.d} {...paint} /> : null
         case 'text':

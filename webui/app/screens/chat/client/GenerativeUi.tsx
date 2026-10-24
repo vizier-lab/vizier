@@ -13,11 +13,15 @@ import { guarded } from '../../../lib/generativeUi/registry/guard'
 import { registry as baseRegistry } from '../../../lib/generativeUi/registry/index'
 import { createPageState, saveable, type PageState } from '../../../lib/generativeUi/state'
 import { useLogicRunner } from '../../../lib/generativeUi/logic/useLogic'
+import { MediaFiles } from '../../../lib/generativeUi/registry/mediaContext'
 import { currentChainIsTrusted } from '../../../lib/generativeUi/trust'
 import { formatIssues, validateUi, type UiSpec } from '../../../lib/generativeUi/validate'
+import { topicKey } from '../../../stores/connection'
+import { useTurns } from '../../../stores/turns'
 import { collectWatches, startWatching, type WatchBinding } from '../../../lib/generativeUi/watch'
 
 const registry: ComponentRegistry = guarded(baseRegistry)
+const NO_FILES: never[] = []
 const MAX_HEIGHT_RATIO = 0.8
 const SENT_NOTICE_MS = 2500
 
@@ -112,6 +116,8 @@ function Drawn({ call, ctx, spec, title }: { call: ClientCallView; ctx: ClientCa
     )
 
     const renderSpec = useMemo(() => withoutWatch(spec), [spec])
+    // The conversation's files, kept current by the topic's own frames: a file made later appears.
+    const files = useTurns((s) => s.topics[topicKey(ctx.agentId, ctx.topicId)]?.files) ?? NO_FILES
 
     // Expanded, the interface covers the chat area, pinned over its rectangle.
     const wrapperRef = useRef<HTMLDivElement>(null)
@@ -168,10 +174,12 @@ function Drawn({ call, ctx, spec, title }: { call: ClientCallView; ctx: ClientCa
                     className="flex min-w-0 flex-col gap-12 overflow-auto p-16"
                     style={{ maxHeight: fullscreen ? '100%' : `${Math.round(window.innerHeight * MAX_HEIGHT_RATIO)}px` }}
                 >
-                    <JSONUIProvider registry={registry} store={page.store} handlers={handlers} functions={COMPUTED_FUNCTIONS}>
-                        <Watchers spec={spec} page={page} />
-                        <Renderer spec={renderSpec} registry={registry} />
-                    </JSONUIProvider>
+                    <MediaFiles.Provider value={files}>
+                        <JSONUIProvider registry={registry} store={page.store} handlers={handlers} functions={COMPUTED_FUNCTIONS}>
+                            <Watchers spec={spec} page={page} />
+                            <Renderer spec={renderSpec} registry={registry} />
+                        </JSONUIProvider>
+                    </MediaFiles.Provider>
                     {logicError && (
                         <p role="alert" className="type-mono-xs text-failed-text">
                             {logicError.fn}: {logicError.message}

@@ -1,17 +1,16 @@
 // The real runner script, run in a Node `vm` against a fake window: it is the text that ships.
 import vm from 'node:vm'
 import { describe, expect, it } from 'vitest'
-import { MAX_CALL_DEPTH, RUNNER_DOCUMENT, RUNNER_SOURCE } from './runnerSource'
+import { MAX_CALL_DEPTH, RELAY_SOURCE, RUNNER_DOCUMENT, WORKER_SOURCE } from './runnerSource'
 
 function boot() {
     const posted: any[] = []
     const listeners: ((e: any) => void)[] = []
-    const parent = { postMessage: (m: unknown) => posted.push(m) }
-    const window: any = { parent, addEventListener: (_: string, l: (e: any) => void) => listeners.push(l), setTimeout: () => 1, fetch: () => 1, localStorage: {} }
-    const context = vm.createContext({ window, Proxy, JSON, Object, Array, Function, String, Error, Math })
-    vm.runInContext(RUNNER_SOURCE, context)
-    const send = (data: unknown, source: unknown = parent) => listeners.forEach((l) => l({ source, data }))
-    return { posted, window, send, parent }
+    const self: any = { postMessage: (m: unknown) => posted.push(m), addEventListener: (_: string, l: (e: any) => void) => listeners.push(l), setTimeout: () => 1, fetch: () => 1, localStorage: {} }
+    const context = vm.createContext({ self, Proxy, JSON, Object, Array, Function, String, Error, Math })
+    vm.runInContext(WORKER_SOURCE, context)
+    const send = (data: unknown) => listeners.forEach((l) => l({ data }))
+    return { posted, window: self, send }
 }
 
 const defs = {
@@ -27,7 +26,7 @@ const defs = {
 
 const results = (posted: any[]) => posted.filter((m) => m.type === 'result')
 
-describe('the runner script', () => {
+describe('the worker script', () => {
     it('says hello and removes what a function could reach for', () => {
         const { posted, window } = boot()
         expect(posted[0]).toEqual({ type: 'hello' })
@@ -76,13 +75,6 @@ describe('the runner script', () => {
         expect(MAX_CALL_DEPTH).toBe(32)
     })
 
-    it('believes only its parent', () => {
-        const { posted, send } = boot()
-        send({ type: 'init', defs })
-        send({ type: 'call', id: 1, fn: 'add', args: [1, 2] }, { postMessage() {} })
-        expect(results(posted)).toEqual([])
-    })
-
     it('ignores messages that are not calls', () => {
         const { posted, send } = boot()
         send(null)
@@ -99,13 +91,33 @@ describe('the runner script', () => {
     })
 })
 
-describe('the runner document', () => {
-    it('opens with a CSP that allows no network, style or image', () => {
+describe('the frame document', () => {
+    it('opens with a CSP that allows no network, style or image, and only a blob worker', () => {
         const meta = RUNNER_DOCUMENT.indexOf('Content-Security-Policy')
         expect(meta).toBeGreaterThan(0)
         expect(meta).toBeLessThan(RUNNER_DOCUMENT.indexOf('<script>'))
         expect(RUNNER_DOCUMENT).toContain("default-src 'none'")
         expect(RUNNER_DOCUMENT).toContain("connect-src 'none'")
-        expect(RUNNER_DOCUMENT).toContain("script-src 'unsafe-eval' 'unsafe-inline'")
+        expect(RUNNER_DOCUMENT).toContain("worker-src blob:")
+        expect(RUNNER_DOCUMENT).toContain("script-src 'unsafe-eval' 'unsafe-inline' blob:")
+    })
+
+    it('embeds the worker without a way out of the script element', () => {
+        expect(RELAY_SOURCE).not.toContain('</script')
+        expect(RUNNER_DOCUMENT.match(/<\/script>/g)?.length).toBe(1)
+    })
+
+    it('relays only from its parent window', () => {
+        const calls: unknown[] = []
+        const listeners: ((e: { source: unknown; data: unknown }) => void)[] = []
+        const parent = { postMessage: () => {} }
+        const worker = { postMessage: (m: unknown) => calls.push(m), onmessage: null as unknown }
+        const window = { parent, addEventListener: (_: string, l: (e: { source: unknown; data: unknown }) => void) => listeners.push(l) }
+        const sandbox = { window, URL: { createObjectURL: () => 'blob:x' }, Blob: class {}, Worker: function () { return worker } }
+        vm.runInContext(RELAY_SOURCE, vm.createContext(sandbox))
+        listeners.forEach((l) => l({ source: { postMessage() {} }, data: { type: 'call', id: 1 } }))
+        expect(calls).toEqual([])
+        listeners.forEach((l) => l({ source: parent, data: { type: 'call', id: 2 } }))
+        expect(calls).toEqual([{ type: 'call', id: 2 }])
     })
 })
