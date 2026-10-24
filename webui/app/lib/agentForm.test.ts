@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentDetail } from '../api/endpoints/agents'
-import { emptyForm, formatEnv, fromDetail, parseEnv, problems, slugOf, toInput } from './agentForm'
+import { IMAGE_GEN_DEFAULT_MODELS, IMAGE_GEN_PROVIDERS, STT_DEFAULT_MODELS, STT_PROVIDERS, TTS_DEFAULT_MODELS, TTS_DEFAULT_VOICES, TTS_PROVIDERS, emptyForm, formatEnv, fromDetail, parseEnv, problems, slugOf, toInput } from './agentForm'
 
 const detail = (patch: Partial<AgentDetail> = {}): AgentDetail => ({
     agent_id: 'archivist',
@@ -102,5 +102,44 @@ describe('embedding', () => {
         expect(toInput({ ...emptyForm(), embeddingModel: 'm' }).embedding).toEqual({ provider: 'local', model: 'm' })
         expect(problems({ ...emptyForm(), embeddingProvider: 'openai' }, 'all').embeddingModel).toBeTruthy()
         expect(problems(emptyForm(), 'config').embeddingModel).toBeUndefined()
+    })
+})
+
+describe('media providers', () => {
+    it('gives every listed speech-to-text and image provider a default model', () => {
+        for (const provider of STT_PROVIDERS) expect(STT_DEFAULT_MODELS[provider], `stt ${provider}`).toBeTruthy()
+        for (const provider of IMAGE_GEN_PROVIDERS) expect(IMAGE_GEN_DEFAULT_MODELS[provider], `image ${provider}`).toBeTruthy()
+    })
+
+    it('gives every text-to-speech provider a default model and voice', () => {
+        for (const provider of TTS_PROVIDERS) {
+            expect(TTS_DEFAULT_MODELS[provider], `tts model ${provider}`).toBeTruthy()
+            expect(TTS_DEFAULT_VOICES[provider], `tts voice ${provider}`).toBeTruthy()
+        }
+        // `alloy` is an OpenAI voice; Kokoro publishes `af_alloy`.
+        expect(TTS_DEFAULT_MODELS.openrouter).toBe('hexgrad/kokoro-82m')
+        expect(TTS_DEFAULT_VOICES.openrouter).toBe('af_alloy')
+        expect(TTS_DEFAULT_VOICES.openai).toBe('alloy')
+    })
+
+    it('round-trips OpenRouter with every override empty', () => {
+        const f = { ...emptyForm(), stt: true, sttProvider: 'openrouter', imageGen: true, imageGenProvider: 'openrouter' }
+        const tools = toInput(f).tools
+        expect(tools?.stt_settings).toMatchObject({ provider: 'openrouter', model: null, language: null })
+        expect(tools?.image_gen_settings).toMatchObject({ provider: 'openrouter', model: null, size: null })
+    })
+
+    it('reads an OpenRouter setting back into the form', () => {
+        const d = detail({
+            stt: true,
+            stt_settings: { provider: 'openrouter', model: null, language: null },
+            image_gen: true,
+            image_gen_settings: { provider: 'openrouter', model: null, size: null },
+        })
+        const f = fromDetail(d)
+        expect(f.sttProvider).toBe('openrouter')
+        expect(f.sttModel).toBe('')
+        expect(f.imageGenProvider).toBe('openrouter')
+        expect(f.imageGenModel).toBe('')
     })
 })

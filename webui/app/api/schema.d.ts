@@ -693,6 +693,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/catalogue/media-models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["media_models"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalogue/media-models/{capability}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["refresh_media"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/catalogue/providers": {
         parameters: {
             query?: never;
@@ -1459,6 +1491,25 @@ export interface components {
         APIResponse_LoginResponse: {
             data?: {
                 token: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_MediaModels: {
+            /** @description One OpenRouter media capability's listing (spec 028, contract `media-catalogue-api.md`). */
+            data?: {
+                capability: components["schemas"]["MediaCapability"];
+                /** Format: date-time */
+                checked_at?: string | null;
+                /** @description The documented default voice; `Some` for speech, `None` otherwise. */
+                default_voice?: string | null;
+                /** Format: date-time */
+                fetched_at: string;
+                models: components["schemas"]["MediaModelSummary"][];
+                refresh: components["schemas"]["RefreshStatus"];
+                /** @description `bundled` (the embedded seed) or `cached` (a refreshed copy). */
+                source: string;
             };
             message?: string | null;
             /** Format: int32 */
@@ -2900,7 +2951,7 @@ export interface components {
             limit?: number | null;
         };
         /** @enum {string} */
-        ImageGenProvider: "openai" | "xai" | "huggingface" | "hyperbolic";
+        ImageGenProvider: "openai" | "openrouter" | "xai" | "huggingface" | "hyperbolic";
         ImageGenToolSettings: {
             /** @default null */
             model: string | null;
@@ -3077,6 +3128,39 @@ export interface components {
         };
         LoginResponse: {
             token: string;
+        };
+        /**
+         * @description The one axis discovery varies on (data-model §1). It is also the storage key and the API
+         *     query value.
+         * @enum {string}
+         */
+        MediaCapability: "speech" | "transcription" | "image";
+        /**
+         * @description The listing the API serves: `MediaModel` plus whether it is the documented default and
+         *     whether it came from a fetched list (data-model §2).
+         */
+        MediaModelSummary: {
+            aspect_ratios: string[];
+            default: boolean;
+            id: string;
+            listed: boolean;
+            name: string;
+            resolutions: string[];
+            voices: string[];
+        };
+        /** @description One OpenRouter media capability's listing (spec 028, contract `media-catalogue-api.md`). */
+        MediaModels: {
+            capability: components["schemas"]["MediaCapability"];
+            /** Format: date-time */
+            checked_at?: string | null;
+            /** @description The documented default voice; `Some` for speech, `None` otherwise. */
+            default_voice?: string | null;
+            /** Format: date-time */
+            fetched_at: string;
+            models: components["schemas"]["MediaModelSummary"][];
+            refresh: components["schemas"]["RefreshStatus"];
+            /** @description `bundled` (the embedded seed) or `cached` (a refreshed copy). */
+            source: string;
         };
         MemoryDetail: {
             agent_id: string;
@@ -3644,7 +3728,7 @@ export interface components {
         SortOrder: "asc" | "desc";
         String: string;
         /** @enum {string} */
-        SttProvider: "openai" | "elevenlabs" | "groq" | "mistral" | "huggingface" | "gemini" | "whisper";
+        SttProvider: "openai" | "openrouter" | "elevenlabs" | "groq" | "mistral" | "huggingface" | "gemini" | "whisper";
         SttToolSettings: {
             /** @default null */
             language: string | null;
@@ -6538,6 +6622,88 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    media_models: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `speech`, `transcription` or `image`. */
+                capability: string | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One capability's models, default marked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_MediaModels"];
+                };
+            };
+            /** @description Missing or unknown capability */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    refresh_media: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `speech`, `transcription` or `image` */
+                capability: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Refreshed (or already current) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_MediaModels"];
+                };
+            };
+            /** @description Unknown capability */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Refresh is disabled in the config */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description The check failed; the previous/seed list is still in use */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
             };
         };
     };

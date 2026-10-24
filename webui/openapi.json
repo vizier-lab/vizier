@@ -3964,6 +3964,111 @@
         }
       }
     },
+    "/catalogue/media-models": {
+      "get": {
+        "tags": [
+          "api::v1::catalogue"
+        ],
+        "operationId": "media_models",
+        "parameters": [
+          {
+            "name": "capability",
+            "in": "path",
+            "description": "`speech`, `transcription` or `image`.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One capability's models, default marked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_MediaModels"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or unknown capability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/catalogue/media-models/{capability}/refresh": {
+      "post": {
+        "tags": [
+          "api::v1::catalogue"
+        ],
+        "operationId": "refresh_media",
+        "parameters": [
+          {
+            "name": "capability",
+            "in": "path",
+            "description": "`speech`, `transcription` or `image`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Refreshed (or already current)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_MediaModels"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown capability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refresh is disabled in the config",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The check failed; the previous/seed list is still in use",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/catalogue/providers": {
       "get": {
         "tags": [
@@ -6739,6 +6844,72 @@
             "properties": {
               "token": {
                 "type": "string"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_MediaModels": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One OpenRouter media capability's listing (spec 028, contract `media-catalogue-api.md`).",
+            "required": [
+              "capability",
+              "source",
+              "fetched_at",
+              "refresh",
+              "models"
+            ],
+            "properties": {
+              "capability": {
+                "$ref": "#/components/schemas/MediaCapability"
+              },
+              "checked_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "default_voice": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The documented default voice; `Some` for speech, `None` otherwise."
+              },
+              "fetched_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MediaModelSummary"
+                }
+              },
+              "refresh": {
+                "$ref": "#/components/schemas/RefreshStatus"
+              },
+              "source": {
+                "type": "string",
+                "description": "`bundled` (the embedded seed) or `cached` (a refreshed copy)."
               }
             }
           },
@@ -12196,6 +12367,7 @@
         "type": "string",
         "enum": [
           "openai",
+          "openrouter",
           "xai",
           "huggingface",
           "hyperbolic"
@@ -12892,6 +13064,107 @@
         "properties": {
           "token": {
             "type": "string"
+          }
+        }
+      },
+      "MediaCapability": {
+        "type": "string",
+        "description": "The one axis discovery varies on (data-model §1). It is also the storage key and the API\nquery value.",
+        "enum": [
+          "speech",
+          "transcription",
+          "image"
+        ]
+      },
+      "MediaModelSummary": {
+        "type": "object",
+        "description": "The listing the API serves: `MediaModel` plus whether it is the documented default and\nwhether it came from a fetched list (data-model §2).",
+        "required": [
+          "id",
+          "name",
+          "default",
+          "listed",
+          "voices",
+          "aspect_ratios",
+          "resolutions"
+        ],
+        "properties": {
+          "aspect_ratios": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "default": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "listed": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "resolutions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "voices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "MediaModels": {
+        "type": "object",
+        "description": "One OpenRouter media capability's listing (spec 028, contract `media-catalogue-api.md`).",
+        "required": [
+          "capability",
+          "source",
+          "fetched_at",
+          "refresh",
+          "models"
+        ],
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/MediaCapability"
+          },
+          "checked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "default_voice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The documented default voice; `Some` for speech, `None` otherwise."
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MediaModelSummary"
+            }
+          },
+          "refresh": {
+            "$ref": "#/components/schemas/RefreshStatus"
+          },
+          "source": {
+            "type": "string",
+            "description": "`bundled` (the embedded seed) or `cached` (a refreshed copy)."
           }
         }
       },
@@ -14888,6 +15161,7 @@
         "type": "string",
         "enum": [
           "openai",
+          "openrouter",
           "elevenlabs",
           "groq",
           "mistral",
