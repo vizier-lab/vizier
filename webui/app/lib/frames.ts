@@ -11,6 +11,7 @@ import type {
     ChatMessage,
     Frame,
     SessionFileRecord,
+    VizierAttachment,
     VizierResponseContent,
     WebSocketResponse,
 } from '../api/frames'
@@ -21,6 +22,8 @@ export type Phase = 'idle' | 'thinking' | 'working'
 export interface QueuedMessage {
     id: string
     text: string
+    attachments?: VizierAttachment[]
+    spoken?: boolean
 }
 
 export interface TopicError {
@@ -55,7 +58,7 @@ export type Action =
     | { type: 'frame'; frame: Frame; now?: string }
     | { type: 'history'; entries: ChatMessage[]; position?: 'latest' | 'older' }
     | { type: 'busy'; thinking: boolean }
-    | { type: 'send'; id: string; text: string; now?: string }
+    | { type: 'send'; id: string; text: string; attachments?: VizierAttachment[]; spoken?: boolean; now?: string }
     | { type: 'dequeue'; now?: string }
     | { type: 'abort' }
     | { type: 'files'; files: SessionFileRecord[] }
@@ -88,9 +91,9 @@ const live = (state: TopicState, uid: string, timestamp: string, content: ChatMe
     serverUid: false,
 })
 
-function requestEntry(state: TopicState, id: string, text: string, now: string): ChatMessage {
+function requestEntry(state: TopicState, id: string, text: string, now: string, attachments?: VizierAttachment[]): ChatMessage {
     return live(state, `req-${id}`, now, {
-        Request: { timestamp: now, user: '', content: { chat: text } },
+        Request: { timestamp: now, user: '', content: { chat: text }, ...(attachments?.length ? { attachments } : {}) },
     })
 }
 
@@ -250,14 +253,14 @@ export function reduce(state: TopicState, action: Action): TopicState {
         case 'send': {
             const now = action.now ?? new Date(0).toISOString()
             if (state.phase !== 'idle') {
-                return { ...state, queued: [...state.queued, { id: action.id, text: action.text }] }
+                return { ...state, queued: [...state.queued, { id: action.id, text: action.text, attachments: action.attachments, spoken: action.spoken }] }
             }
             return {
                 ...state,
                 phase: 'thinking',
                 error: null,
                 stopped: false,
-                entries: mergeEntries(state.entries, [requestEntry(state, action.id, action.text, now)]),
+                entries: mergeEntries(state.entries, [requestEntry(state, action.id, action.text, now, action.attachments)]),
             }
         }
 
@@ -271,7 +274,7 @@ export function reduce(state: TopicState, action: Action): TopicState {
                 phase: 'thinking',
                 error: null,
                 stopped: false,
-                entries: mergeEntries(state.entries, [requestEntry(state, next.id, next.text, now)]),
+                entries: mergeEntries(state.entries, [requestEntry(state, next.id, next.text, now, next.attachments)]),
             }
         }
 

@@ -84,7 +84,7 @@ export const useTurns = create<TurnStore>()((set, get) => {
         if (before !== 'idle' && state.phase === 'idle') void refreshHistory(agentId, topicId)
         const next = nextQueued(state)
         if (next) {
-            const sent = useConnection.getState().send(agentId, topicId, request({ chat: next.text }))
+            const sent = useConnection.getState().send(agentId, topicId, request({ chat: next.text }, next.attachments, next.spoken))
             if (sent) update(key, (s) => reduce(s, { type: 'dequeue', now: new Date().toISOString() }))
         }
     }
@@ -176,11 +176,11 @@ export const useTurns = create<TurnStore>()((set, get) => {
             const state = get().topics[key] ?? emptyTopic()
             const id = String(nextId++)
             if (state.phase !== 'idle') {
-                dispatch(agentId, topicId, { type: 'send', id, text })
+                dispatch(agentId, topicId, { type: 'send', id, text, attachments: attachments as never, spoken })
                 return
             }
             const sent = useConnection.getState().send(agentId, topicId, request({ chat: text }, attachments, spoken))
-            if (sent) dispatch(agentId, topicId, { type: 'send', id, text, now: new Date().toISOString() })
+            if (sent) dispatch(agentId, topicId, { type: 'send', id, text, attachments: attachments as never, now: new Date().toISOString() })
         },
 
         sendAudio: (agentId, topicId, attachment) => {

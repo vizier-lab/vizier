@@ -271,6 +271,17 @@ export function Composer({
                         />
                     )
                 }
+                overlay={
+                    <DropZone
+                        look="overlay"
+                        active={dragging}
+                        hint="Files, images and audio"
+                        onFiles={(files) => {
+                            setDragging(false)
+                            add(files)
+                        }}
+                    />
+                }
                 below={
                     <label className="flex items-center gap-8 type-small text-muted">
                         <Switch
@@ -309,15 +320,6 @@ export function Composer({
                 onChange={(e) => {
                     add(Array.from(e.target.files ?? []))
                     e.target.value = ''
-                }}
-            />
-            <DropZone
-                look="overlay"
-                active={dragging}
-                hint="Files, images and audio"
-                onFiles={(files) => {
-                    setDragging(false)
-                    add(files)
                 }}
             />
         </div>

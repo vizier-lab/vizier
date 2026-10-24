@@ -1,7 +1,6 @@
 import {
     AgentHeader,
     AgentReply,
-    Attachment,
     BackgroundReportCard,
     ChatGreeting,
     CheckpointDivider,
@@ -184,15 +183,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                     key={e.uid}
                     meta={`You · ${time(c.Request.timestamp)}`}
                     skill={skill}
-                    attachments={
-                        c.Request.attachments?.length ? (
-                            <>
-                                {c.Request.attachments.map((a) => (
-                                    <Attachment key={a.filename} name={a.filename} />
-                                ))}
-                            </>
-                        ) : undefined
-                    }
+                    attachments={c.Request.attachments?.length ? <ReplyMedia attachments={c.Request.attachments} /> : undefined}
                 >
                     <Markdown size="document">{requestText(content)}</Markdown>
                 </UserMessage>,
@@ -232,7 +223,11 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
 
     state.queued.forEach((q) =>
         arrive(
-            <UserMessage key={`q-${q.id}`} queued={{ agentName: agent.name }}>
+            <UserMessage
+                key={`q-${q.id}`}
+                queued={{ agentName: agent.name }}
+                attachments={q.attachments?.length ? <ReplyMedia attachments={q.attachments} /> : undefined}
+            >
                 <Markdown size="document">{q.text}</Markdown>
             </UserMessage>,
             `q-${q.id}`
