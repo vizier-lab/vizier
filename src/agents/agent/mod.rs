@@ -103,53 +103,42 @@ impl VizierAgent {
             .to_string_lossy()
             .to_string();
 
-        // Create STT instance if enabled (shared between auto-transcription and stt_transcribe tool)
+        // Create STT instance if enabled (shared between auto-transcription and stt_transcribe tool).
+        // A factory failure is fatal: an enabled capability with no usable credential or provider
+        // must be reported (spec 028 FR-009), never silently disabled.
         let stt = if agent_config.tools.stt.enabled {
-            match VizierStt::new(&agent_config.tools.stt.settings, &deps, &workspace, &agent_id).await
-            {
-                Ok(instance) => Some(Arc::new(instance)),
-                Err(e) => {
-                    tracing::error!("failed to create STT for agent {}: {}", agent_id, e);
-                    None
-                }
-            }
+            Some(Arc::new(
+                VizierStt::new(&agent_config.tools.stt.settings, &deps, &workspace, &agent_id)
+                    .await
+                    .map_err(|e| VizierError(format!("speech-to-text is enabled but cannot start: {e}")))?,
+            ))
         } else {
             None
         };
 
         // Create TTS instance if enabled (shared between audio reply and tts_generate tool)
         let tts = if agent_config.tools.tts.enabled {
-            match VizierTts::new(
-                &agent_config.tools.tts.settings,
-                &deps,
-                &deps.config.workspace,
-                &agent_id,
-            )
-            .await
-            {
-                Ok(instance) => Some(Arc::new(instance)),
-                Err(e) => {
-                    tracing::error!("failed to create TTS for agent {}: {}", agent_id, e);
-                    None
-                }
-            }
+            Some(Arc::new(
+                VizierTts::new(
+                    &agent_config.tools.tts.settings,
+                    &deps,
+                    &deps.config.workspace,
+                    &agent_id,
+                )
+                .await
+                .map_err(|e| VizierError(format!("text-to-speech is enabled but cannot start: {e}")))?,
+            ))
         } else {
             None
         };
 
         // Create image generation instance if enabled (used by image_generate tool)
         let image_gen = if agent_config.tools.image_gen.enabled {
-            match VizierImageGen::new(&agent_config.tools.image_gen.settings, &deps).await {
-                Ok(instance) => Some(Arc::new(instance)),
-                Err(e) => {
-                    tracing::error!(
-                        "failed to create image generation for agent {}: {}",
-                        agent_id,
-                        e
-                    );
-                    None
-                }
-            }
+            Some(Arc::new(
+                VizierImageGen::new(&agent_config.tools.image_gen.settings, &deps)
+                    .await
+                    .map_err(|e| VizierError(format!("image generation is enabled but cannot start: {e}")))?,
+            ))
         } else {
             None
         };

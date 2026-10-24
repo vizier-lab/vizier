@@ -92,19 +92,35 @@ pub struct OpenAiTts {
 #[async_trait::async_trait]
 impl VizierTtsModel for OpenAiTts {
     async fn generate_speech(&self, text: &str, voice: &str, speed: f32) -> Result<Vec<u8>> {
-        let mut body = json!({
-            "model": self.endpoint.model,
-            "input": text,
-            "voice": voice,
-            "speed": speed,
-        });
-        if let Some(format) = self.response_format {
-            body["response_format"] = json!(format);
-        }
+        let body = speech_body(&self.endpoint.model, text, voice, speed, self.response_format);
         let req = self.endpoint.post("/audio/speech").await.map_err(|e| err("speech", e))?;
         let response = http::send(req.json(&body)).await.map_err(|e| err("speech", e))?;
         mp3_to_wav(&response.body)
     }
+}
+
+/// The speech request body. `speed` is sent only when it is not the neutral 1.0: a model
+/// without speed control may reject the field, and an unset speed must never become one
+/// (research R5).
+fn speech_body(
+    model: &str,
+    text: &str,
+    voice: &str,
+    speed: f32,
+    response_format: Option<&str>,
+) -> Value {
+    let mut body = json!({
+        "model": model,
+        "input": text,
+        "voice": voice,
+    });
+    if speed != 1.0 {
+        body["speed"] = json!(speed);
+    }
+    if let Some(format) = response_format {
+        body["response_format"] = json!(format);
+    }
+    body
 }
 
 /// xAI's own speech API: `POST {base}/tts` with `{text, voice_id, language}`; no model field,
@@ -131,10 +147,19 @@ pub enum ImageSizing {
     AspectRatio(&'static str),
 }
 
-/// `POST {base}/images/generations`, decoding `b64_json` (or fetching `url`).
+/// Which image API to call: OpenAI's `/images/generations`, or OpenRouter's `/images`, which
+/// takes the router's own `size` convenience and reports the returned `media_type`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ImageApi {
+    Generations(ImageSizing),
+    OpenRouter,
+}
+
+/// `POST {base}/images/generations` (OpenAI, xAI) or `{base}/images` (OpenRouter), decoding
+/// `b64_json` (or fetching `url`).
 pub struct OpenAiImages {
     pub endpoint: Endpoint,
-    pub sizing: ImageSizing,
+    pub api: ImageApi,
 }
 
 /// rig 0.39's default when no size was asked for.
@@ -146,28 +171,52 @@ fn parse_size(size: Option<&str>) -> (u32, u32) {
         .unwrap_or(DEFAULT_SIZE)
 }
 
+/// The path and body for one image request, from the factory-set API variant (research R4).
+fn image_request(api: ImageApi, model: &str, prompt: &str, size: Option<&str>) -> (&'static str, Value) {
+    let mut body = json!({"model": model, "prompt": prompt});
+    match api {
+        ImageApi::Generations(ImageSizing::Size) => {
+            let (w, h) = parse_size(size);
+            body["size"] = json!(format!("{w}x{h}"));
+            // The GPT image models always answer in base64 and refuse the parameter.
+            if !model.starts_with("gpt-image") {
+                body["response_format"] = json!("b64_json");
+            }
+            ("/images/generations", body)
+        }
+        ImageApi::Generations(ImageSizing::AspectRatio(ratio)) => {
+            body["response_format"] = json!("b64_json");
+            body["aspect_ratio"] = json!(ratio);
+            ("/images/generations", body)
+        }
+        ImageApi::OpenRouter => {
+            // OpenRouter normalizes the router's `size` convenience per provider, so it is
+            // passed through as given and omitted when nobody asked for one.
+            if let Some(size) = size {
+                body["size"] = json!(size);
+            }
+            ("/images", body)
+        }
+    }
+}
+
+/// The media type of a base64 image reply: what the provider says, else PNG as before.
+fn media_type_of(first: &Value) -> String {
+    first
+        .get("media_type")
+        .and_then(Value::as_str)
+        .filter(|m| m.starts_with("image/"))
+        .unwrap_or("image/png")
+        .to_string()
+}
+
 #[async_trait::async_trait]
 impl VizierImageGenModel for OpenAiImages {
     async fn generate(&self, prompt: &str, size: Option<&str>) -> Result<(Vec<u8>, String)> {
-        let model = &self.endpoint.model;
-        let mut body = json!({"model": model, "prompt": prompt});
-        match self.sizing {
-            ImageSizing::Size => {
-                let (w, h) = parse_size(size);
-                body["size"] = json!(format!("{w}x{h}"));
-                // The GPT image models always answer in base64 and refuse the parameter.
-                if !model.starts_with("gpt-image") {
-                    body["response_format"] = json!("b64_json");
-                }
-            }
-            ImageSizing::AspectRatio(ratio) => {
-                body["response_format"] = json!("b64_json");
-                body["aspect_ratio"] = json!(ratio);
-            }
-        }
+        let (path, body) = image_request(self.api, &self.endpoint.model, prompt, size);
         let req = self
             .endpoint
-            .post("/images/generations")
+            .post(path)
             .await
             .map_err(|e| err("image generation", e))?;
         let reply = http::send_json(req.json(&body))
@@ -180,7 +229,7 @@ impl VizierImageGenModel for OpenAiImages {
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(b64)
                 .map_err(|e| VizierError(format!("image generation: {e}")))?;
-            return Ok((bytes, "image/png".into()));
+            return Ok((bytes, media_type_of(first)));
         }
         if let Some(url) = first.get("url").and_then(Value::as_str) {
             let image = http::send(self.endpoint.http.get(url))
@@ -283,6 +332,62 @@ mod tests {
         assert_eq!(parse_size(None), (256, 256));
         assert_eq!(parse_size(Some("1024x768")), (1024, 768));
         assert_eq!(parse_size(Some("big")), (256, 256));
+    }
+
+    /// Research R4: OpenRouter's `/images` takes the router's `size` as given, never
+    /// `response_format`, and omits the size when nobody asked for one.
+    #[test]
+    fn openrouter_image_requests_go_to_images_with_the_size_as_given() {
+        let (path, body) = image_request(ImageApi::OpenRouter, "bytedance-seed/seedream-4.5", "a fox", None);
+        assert_eq!(path, "/images");
+        assert_eq!(body, json!({"model": "bytedance-seed/seedream-4.5", "prompt": "a fox"}));
+
+        let (_, body) = image_request(ImageApi::OpenRouter, "m", "a fox", Some("1792x1024"));
+        assert_eq!(body["size"], json!("1792x1024"));
+        assert!(body.get("response_format").is_none(), "{body}");
+
+        // A tier is passed through too: OpenRouter normalizes it per provider.
+        let (_, body) = image_request(ImageApi::OpenRouter, "m", "a fox", Some("2K"));
+        assert_eq!(body["size"], json!("2K"));
+    }
+
+    /// The OpenAI and xAI bodies are unchanged by the `ImageApi` split.
+    #[test]
+    fn generation_requests_keep_their_size_and_response_format() {
+        let (path, body) = image_request(ImageApi::Generations(ImageSizing::Size), "dall-e-3", "a fox", None);
+        assert_eq!(path, "/images/generations");
+        assert_eq!(body["size"], json!("256x256"));
+        assert_eq!(body["response_format"], json!("b64_json"));
+
+        let (_, gpt) = image_request(ImageApi::Generations(ImageSizing::Size), "gpt-image-1", "a fox", Some("1024x1024"));
+        assert_eq!(gpt["size"], json!("1024x1024"));
+        assert!(gpt.get("response_format").is_none(), "{gpt}");
+
+        let (_, xai) = image_request(ImageApi::Generations(ImageSizing::AspectRatio("16:9")), "grok", "a fox", None);
+        assert_eq!(xai["aspect_ratio"], json!("16:9"));
+        assert_eq!(xai["response_format"], json!("b64_json"));
+        assert!(xai.get("size").is_none(), "{xai}");
+    }
+
+    #[test]
+    fn a_base64_image_keeps_the_media_type_it_reports() {
+        assert_eq!(media_type_of(&json!({"b64_json": "x", "media_type": "image/webp"})), "image/webp");
+        assert_eq!(media_type_of(&json!({"b64_json": "x", "media_type": "image/svg+xml"})), "image/svg+xml");
+        assert_eq!(media_type_of(&json!({"b64_json": "x"})), "image/png");
+        assert_eq!(media_type_of(&json!({"b64_json": "x", "media_type": "text/plain"})), "image/png");
+    }
+
+    /// Research R5: a model without speed control must not reject an unset speed, so the field
+    /// is omitted at 1.0 and sent for anything else.
+    #[test]
+    fn the_speech_body_omits_the_neutral_speed() {
+        let body = speech_body("hexgrad/kokoro-82m", "hi", "af_alloy", 1.0, Some("mp3"));
+        assert_eq!(body, json!({"model": "hexgrad/kokoro-82m", "input": "hi", "voice": "af_alloy", "response_format": "mp3"}));
+        assert!(body.get("speed").is_none(), "{body}");
+
+        let body = speech_body("m", "hi", "v", 1.25, None);
+        assert_eq!(body["speed"], json!(1.25));
+        assert!(body.get("response_format").is_none(), "{body}");
     }
 
     #[test]

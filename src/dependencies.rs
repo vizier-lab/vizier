@@ -152,6 +152,9 @@ impl VizierDependencies {
         // The refreshed catalogue cached in SQLite, when it's newer than the seed. Never
         // touches the network.
         catalogue.swap(crate::catalogue::cache::newest(&storage, (*catalogue.snapshot()).clone()).await);
+        // The cached OpenRouter media lists, also newer-only, and their stored last failures.
+        // Never touches the network (spec 028 FR-019/SC-011).
+        catalogue.load_media_cache(&storage).await;
 
         let storage = Arc::new(storage);
         let background_jobs = BackgroundJobs::new(storage.clone(), transport.clone());

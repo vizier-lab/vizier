@@ -19,6 +19,7 @@ mod feed;
 mod global_config;
 mod history;
 mod integration;
+mod media_catalogue;
 mod memory;
 pub(crate) mod memory_revision;
 mod provider;
@@ -389,6 +390,7 @@ impl SqliteStorage {
         init_scratch_schema(conn)?;
         init_turn_schema(conn)?;
         init_secret_schema(conn)?;
+        init_media_catalogue_schema(conn)?;
 
         Ok(())
     }
@@ -476,9 +478,29 @@ pub fn init_scratch_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Accepted work that has not finished (`specs/023-persist-turn-activity/data-model.md`).
-pub fn init_turn_schema(conn: &Connection) -> Result<()> {
+/// The per-capability OpenRouter media model snapshots (`specs/028-openrouter-media-provider`
+/// contract `media-catalogue-storage.md` § Table). Provider-wide, not agent-scoped, so deleting
+/// an agent never touches it. Split out so `src/storage/sqlite/media_catalogue.rs` can stand it
+/// up against an in-memory connection.
+pub fn init_media_catalogue_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS media_catalogue_snapshot (
+            capability  TEXT PRIMARY KEY CHECK (capability IN ('speech', 'transcription', 'image')),
+            schema      INTEGER NOT NULL,
+            fetched_at  INTEGER NOT NULL,
+            checked_at  INTEGER NOT NULL,
+            last_error  TEXT,
+            failed_at   INTEGER,
+            data        BLOB NOT NULL
+        );
+        ",
+    )?;
+    Ok(())
+}
+
+/// Accepted work that has not finished (`specs/023-persist-turn-activity/data-model.md`).
+pub fn init_turn_schema(conn: &Connection) -> Result<()> {    conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS session_turn (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,

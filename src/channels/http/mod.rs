@@ -184,11 +184,16 @@ impl VizierChannel for HTTPChannel {
         api::v1::catalogue::get_model,
         api::v1::catalogue::logo,
         api::v1::catalogue::refresh,
+        api::v1::catalogue::media_models,
+        api::v1::catalogue::refresh_media,
         api::v1::utils::setup_state,
     ),
     components(
         schemas(
             crate::channels::http::models::page::SortOrder,
+            crate::catalogue::media::MediaCapability,
+            crate::catalogue::media::MediaModelSummary,
+            api::v1::catalogue::MediaModels,
             api::v1::ServerStatus,
             api::v1::overview::Overview,
             api::v1::overview::Rank,

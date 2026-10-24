@@ -15,6 +15,14 @@ pub trait VizierTtsModel: Send + Sync {
 
 pub struct VizierTts(Arc<dyn VizierTtsModel>);
 
+/// The model a setting resolves to: what it names, or the provider's documented default.
+fn resolved_model(settings: &TtsToolSettings) -> String {
+    settings
+        .model
+        .clone()
+        .unwrap_or_else(|| settings.provider.default_model().into())
+}
+
 impl VizierTts {
     pub async fn new(
         settings: &TtsToolSettings,
@@ -23,17 +31,7 @@ impl VizierTts {
         agent_id: &str,
     ) -> Result<Self> {
         let provider = &settings.provider;
-        let model = settings.model.clone().unwrap_or_else(|| {
-            match provider {
-                TtsProvider::Openai => "tts-1",
-                TtsProvider::Openrouter => "openai/gpt-4o-mini-tts-2025-12-15",
-                TtsProvider::Elevenlabs => "eleven_multilingual_v2",
-                TtsProvider::Xai => "grok-2-tts",
-                TtsProvider::Hyperbolic => "Melo-TTS",
-                TtsProvider::Kokoro => "kokoro-en-v0_19",
-            }
-            .into()
-        });
+        let model = resolved_model(settings);
         let model: Arc<dyn VizierTtsModel> = match (provider, provider.credentials()) {
             (TtsProvider::Kokoro, _) => Arc::new(kokoro::KokoroTtsModel::new(
                 model,
@@ -160,4 +158,38 @@ pub fn mp3_to_wav(mp3_bytes: &[u8]) -> Result<Vec<u8>> {
     }
 
     Ok(wav_buf.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Spec 028 FR-008: the OpenRouter default pair must be a live model and one of its
+    /// published voices — the retired OpenAI id and `alloy` must not come back.
+    #[test]
+    fn openrouter_resolves_its_documented_model_and_voice() {
+        let settings = TtsToolSettings {
+            provider: TtsProvider::Openrouter,
+            model: None,
+            voice: None,
+            speed: None,
+        };
+        assert_eq!(resolved_model(&settings), "hexgrad/kokoro-82m");
+        assert_eq!(TtsProvider::Openrouter.default_voice(), "af_alloy");
+
+        // OpenAI keeps its own voice.
+        assert_eq!(TtsProvider::Openai.default_voice(), "alloy");
+        assert_eq!(TtsProvider::Openai.default_model(), "tts-1");
+    }
+
+    #[test]
+    fn an_explicit_tts_model_wins_over_the_default() {
+        let settings = TtsToolSettings {
+            provider: TtsProvider::Openrouter,
+            model: Some("someone/other".into()),
+            voice: None,
+            speed: None,
+        };
+        assert_eq!(resolved_model(&settings), "someone/other");
+    }
 }

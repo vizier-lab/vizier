@@ -37,6 +37,7 @@ fn main() {
     println!("cargo:rerun-if-changed=design/src");
 
     embed_catalogue_seed();
+    validate_media_seed();
 }
 
 /// Gzip the committed model catalogue seed into `$OUT_DIR/catalogue.json.gz`, which
@@ -62,4 +63,20 @@ fn embed_catalogue_seed() {
         .write_all(&bytes)
         .and_then(|_| encoder.finish().map(|_| ()))
         .unwrap_or_else(|e| panic!("cannot write {}: {e}", out.display()));
+}
+
+/// Validate the committed OpenRouter media seed (spec 028, research R8). It is embedded as-is by
+/// `src/catalogue/seed.rs` (small enough not to gzip), so only its syntax is checked here: a
+/// malformed file should fail the build early, while a logically empty one is still tolerated
+/// at runtime.
+fn validate_media_seed() {
+    println!("cargo:rerun-if-changed=assets/catalogue/openrouter_media.json");
+
+    let seed = Path::new("assets/catalogue/openrouter_media.json");
+    let hint = "run `just catalogue-update` to fetch the OpenRouter media model lists";
+    let bytes = std::fs::read(seed)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}; {hint}", seed.display()));
+    if let Err(e) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+        panic!("{} is not valid JSON ({e}); {hint}", seed.display());
+    }
 }

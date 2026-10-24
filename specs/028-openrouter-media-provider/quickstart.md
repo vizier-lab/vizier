@@ -130,8 +130,13 @@ This step needs the network to be unavailable for `openrouter.ai` (disconnect, f
    just run
    ```
 
-2. Configure the dummyplug agent with OpenRouter for speech-to-text (or TTS/image), no model, and save.
-3. Confirm the agent does **not** silently run without listening/speaking/drawing: its health/agent page reports a failed build with a message naming `openrouter` and pointing to **Settings › Providers** (or `OPENROUTER_API_KEY`).
+2. Configure a **new** dummyplug agent with OpenRouter for speech-to-text (or TTS/image), no model, and save.
+   The save is **refused** with `400` and a message naming `openrouter` and pointing to **Settings › Providers** (or `OPENROUTER_API_KEY`); nothing is persisted, and there is no silently unlistening agent.
+
+3. To see the failed-health path, create the same agent while the key is present (a placeholder is enough), then remove the key and restart vizier. Confirm the agent reports `state: failed` with
+   `speech-to-text is enabled but cannot start: no API key found for provider "openrouter": add one in Settings › Providers or set OPENROUTER_API_KEY`
+   (the wording depends on which capability is enabled). It must **not** silently run without listening/speaking/drawing.
+
 4. Save the key in Settings › Providers. Confirm the agent recovers without a special media restart step.
 
 ## 6. LIVE — real artifacts
@@ -143,21 +148,21 @@ Use the same dummyplug agent and leave every override empty for the first pass.
 ### Speech-to-text
 
 1. In the agent's WebUI topic, attach a short spoken clip (2–5 s, `.mp3` or `.wav`).
-2. Send `stt_transcribe` to the dummyplug agent to get the sample request, then send:
+2. The model calls media tools from inside `execute_python`. Send the JSON to run the call:
 
    ```json
-   {"tool":"stt_transcribe","filename":"<the uploaded filename>"}
+   {"tool":"execute_python","arguments":{"intent":"transcribe the attached clip","code":"result = stt_transcribe(filename=\"<the uploaded filename>\")\nresult"}}
    ```
 
-3. Expect a transcript that matches the clip. Repeat with `"language":"en"` and an explicit model such as `openai/whisper-large-v3`.
+3. Expect a transcript that matches the clip. Repeat with `language="en"` and an explicit model such as `openai/whisper-large-v3`.
 4. Send a short voice message through a configured Discord/Telegram channel (or the WebUI's audio path) with a live chat model. Confirm the transcript reaches the agent and the reply reflects what was said; this is the channel path, not just the tool.
 
 ### Text-to-speech
 
-1. Send `tts_generate` to get the sample, then:
+1. Run the speech tool:
 
    ```json
-   {"tool":"tts_generate","text":"Vizier is speaking through OpenRouter."}
+   {"tool":"execute_python","arguments":{"intent":"speak a short sentence","code":"result = tts_generate(text=\"Vizier is speaking through OpenRouter.\")\nresult"}}
    ```
 
 2. Expect a new `.wav` session file that plays in the WebUI; download it and play it in a standard player.
@@ -165,17 +170,17 @@ Use the same dummyplug agent and leave every override empty for the first pass.
 
 ### Image generation
 
-1. Send `image_generate` to get the sample, then:
+1. Run the image tool:
 
    ```json
-   {"tool":"image_generate","prompt":"a small red panda astronaut, studio lighting"}
+   {"tool":"execute_python","arguments":{"intent":"draw a red panda astronaut","code":"result = image_generate(prompt=\"a small red panda astronaut, studio lighting\")\nresult"}}
    ```
 
 2. Expect an image session file. Confirm:
    - the file opens in a standard viewer;
    - its stored MIME and extension agree (PNG in the common case; use a Recraft vector model to see `image/svg+xml`);
    - `send_attachment` with the filename delivers it in the topic.
-3. Repeat with `"size":"1792x1024"` and an explicit model; OpenRouter may return its nearest supported size, but the file must still open.
+3. Repeat with `size="1792x1024"` and an explicit model; OpenRouter may return its nearest supported size, but the file must still open.
 
 ### Provider failure
 
@@ -207,3 +212,28 @@ just shutdown
 ```
 
 Remove the temporary `OPENROUTER_API_KEY` placeholder from the shell; do not commit a real key. If a temporary hosts entry was added for §4, remove it.
+
+## 10. Validation record (2026-10-25, offline environment)
+
+Run against `./target/debug/vizier` with temp workspaces; no live `OPENROUTER_API_KEY` (a
+placeholder was used where a key had to resolve, and no key at all for §5).
+
+| Step | Result |
+|---|---|
+| §1 offline seed | All three capabilities listed from the embedded seed (speech 36, transcription 28, image 61), defaults marked, `default_voice: "af_alloy"`, 54 Kokoro voices including `af_alloy`, 0 media-list network requests |
+| §2 API shape | `source: "bundled"`, one `default: true` per capability, invalid capability → `400`, refresh with `catalogue.refresh: false` → `409`, unauthenticated refresh → `401` |
+| §3 refresh online | `POST …/speech/refresh` → `200`, `source: "cached"`, new `fetched_at`, structure preserved; same for transcription (28) and image (61, with `resolutions`/`aspect_ratios`) |
+| §3 persistence | Restart serves `source: "cached"` with the same `fetched_at`, no network |
+| §4 refresh failure | With `HTTPS_PROXY` pointed at a closed port: `502` with the connection reason, the cached 61-model list stays, `refresh.last_error`/`failed_at` recorded, no automatic retry within the 1 h backoff, notice restored after restart, later success clears it |
+| §5 missing credential | A new save is refused `400` with `no API key found for provider "openrouter": add one in Settings › Providers or set OPENROUTER_API_KEY`; an existing agent becomes `state: failed` with the same hint; saving the key recovers it to `running` |
+| Dummyplug tools | `list_tool_functions` shows `image_generate` (media) and `stt_transcribe`/`tts_generate` (audio); each real call reached OpenRouter's endpoint and surfaced `401 … User not found.` as a tool error while the agent stayed `running` with 0 failures and answered the next turn |
+| §7 regression | An OpenAI TTS + Whisper STT agent builds and runs; OpenAI TTS still defaults to `alloy`; `GET /catalogue/providers?kind=media` lists `openrouter` |
+| Typed ids | `someone/not-listed` (STT), a non-default speech model with `voice_3150`, and a non-default image model with `size: 2K` all persisted exactly across save and reopen |
+| SC-011 | Refresh disabled: 0 startup/build/turn media-list requests. Refresh enabled: 0 at startup with a cache; fetches happened only on the manual refresh |
+
+Not run here (marked **LIVE** in §6, needs a funded key): a real transcript, playable audio, a
+generated image, and their MIME/extension at the provider. The pure mappings behind them are
+covered by `cargo test` (`the_speech_body_omits_the_neutral_speed`,
+`a_base64_image_keeps_the_media_type_it_reports`,
+`the_default_extension_follows_the_returned_media_type`) and the payload shapes were checked
+against live OpenRouter responses during planning and seed generation.

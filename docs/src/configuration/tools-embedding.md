@@ -86,22 +86,23 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 
 ### TTS providers (`tts_settings.provider`)
 
-| Provider | Default voice | Credential |
-|----------|---------------|------------|
-| `openai` (default) | `alloy` | `openai` provider key |
-| `openrouter` | `alloy` | `openrouter` key |
-| `elevenlabs` | `pqHfZKP75CvOlQylNhV4` | `elevenlabs` key |
-| `xai` | `default` | `xai` key |
-| `hyperbolic` | `default` | `hyperbolic` key |
-| `kokoro` | `af` | none (local) |
+| Provider | Default model | Default voice | Credential |
+|----------|---------------|---------------|------------|
+| `openai` (default) | `tts-1` | `alloy` | `openai` provider key |
+| `openrouter` | `hexgrad/kokoro-82m` | `af_alloy` | `openrouter` key |
+| `elevenlabs` | `eleven_multilingual_v2` | `pqHfZKP75CvOlQylNhV4` | `elevenlabs` key |
+| `xai` | `grok-2-tts` | `default` | `xai` key |
+| `hyperbolic` | `Melo-TTS` | `default` | `hyperbolic` key |
+| `kokoro` | `kokoro-en-v0_19` | `af` | none (local) |
 
-`model`, `voice`, `speed` are optional overrides.
+`model`, `voice`, `speed` are optional overrides. OpenRouter returns MP3, which Vizier converts to WAV; a non-default `speed` is passed through, so a speech model without speed control may reject it (the provider's explanation is surfaced and the agent stays available). OpenRouter's default pair is `hexgrad/kokoro-82m` with its published voice `af_alloy`; if you pick a different speech model, choose one of the voices **it** publishes.
 
 ### STT providers (`stt_settings.provider`)
 
 | Provider | Default model | Credential |
 |----------|---------------|------------|
 | `openai` (default) | `whisper-1` | `openai` key |
+| `openrouter` | `openai/whisper-large-v3` | `openrouter` key (the same one chat and embeddings use) |
 | `elevenlabs` | `scribe_v1` | `elevenlabs` key |
 | `groq` | `whisper-large-v3` | `groq` key |
 | `mistral` | `voxtral-mini-2507` | `mistral` key |
@@ -109,16 +110,23 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 | `gemini` | `gemini-1.5-flash` | `google` key |
 | `whisper` | `large-v3` | none — runs locally via sherpa-onnx; model downloaded into `<workspace>/.runtime/stt/whisper/` |
 
-`language` is optional (auto-detect when unset).
+`language` is optional (auto-detect when unset). OpenRouter caps multipart uploads at 25 MB; an oversized clip comes back as the provider's error.
 
 ### Image generation providers (`image_gen_settings.provider`)
 
-| Provider | Default model |
-|----------|---------------|
-| `openai` (default) | `dall-e-3` |
-| `xai` | `grok-2-image-1212` |
-| `huggingface` | `stabilityai/stable-diffusion-xl-base-1.0` |
-| `hyperbolic` | `SDXL1.0-base` |
+| Provider | Default model | Credential |
+|----------|---------------|------------|
+| `openai` (default) | `dall-e-3` | `openai` key |
+| `openrouter` | `bytedance-seed/seedream-4.5` | `openrouter` key |
+| `xai` | `grok-2-image-1212` | `xai` key |
+| `huggingface` | `stabilityai/stable-diffusion-xl-base-1.0` | `huggingface` key |
+| `hyperbolic` | `SDXL1.0-base` | `hyperbolic` key |
+
+`size` is optional. OpenRouter receives it as its `size` convenience (explicit pixels such as `1792x1024`, or a tier such as `2K`) and normalizes it per model; leave it empty to let the provider choose. The saved file keeps the media type the provider actually returned (PNG, JPEG, WebP or SVG) and its default filename extension follows that type.
+
+### Choosing OpenRouter media models
+
+When a capability's provider is `openrouter`, the WebUI model field is a searchable list of that capability's current models, with the documented default marked first. The list comes from the embedded seed on a fresh or offline install and is refreshed lazily from OpenRouter's public lists when a person opens it (never at startup, on agent build, or during a turn; the same `catalogue.refresh` / `catalogue.ttl` policy as chat models applies, with a manual refresh for people who manage providers). A typed model id is always accepted, so a missing or unreachable list never blocks saving. For text-to-speech, the voice field offers the selected model's published voices and still accepts a typed voice.
 
 ### `read_image_settings`
 

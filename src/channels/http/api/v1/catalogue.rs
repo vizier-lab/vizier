@@ -44,9 +44,11 @@ pub fn catalogue(state: HTTPState) -> Router<HTTPState> {
         .route("/providers", get(list_providers))
         .route("/providers/{id}/models", get(list_models))
         .route("/providers/{id}/models/{*model}", get(get_model))
+        .route("/media-models", get(media_models))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
     let admin = Router::new()
         .route("/refresh", axum::routing::post(refresh))
+        .route("/media-models/{capability}/refresh", axum::routing::post(refresh_media))
         .route_layer(middleware::from_fn_with_state(
             PermissionState {
                 permission: "settings:providers".to_string(),
@@ -91,6 +93,105 @@ pub(crate) fn status(state: &HTTPState) -> CatalogueStatus {
         refresh,
         provider_count: data.providers.len(),
         model_count: data.model_count(),
+    }
+}
+
+/// One OpenRouter media capability's listing (spec 028, contract `media-catalogue-api.md`).
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct MediaModels {
+    pub capability: crate::catalogue::media::MediaCapability,
+    /// `bundled` (the embedded seed) or `cached` (a refreshed copy).
+    pub source: String,
+    pub fetched_at: DateTime<Utc>,
+    pub checked_at: Option<DateTime<Utc>>,
+    /// The documented default voice; `Some` for speech, `None` otherwise.
+    pub default_voice: Option<String>,
+    pub refresh: RefreshStatus,
+    pub models: Vec<crate::catalogue::media::MediaModelSummary>,
+}
+
+impl MediaModels {
+    fn build(state: &HTTPState, capability: crate::catalogue::media::MediaCapability) -> Self {
+        use crate::catalogue::data::CatalogueSource;
+        use crate::catalogue::media;
+        let list = state.catalogue.media_list(capability);
+        MediaModels {
+            capability,
+            source: match list.source {
+                CatalogueSource::Bundled => "bundled".into(),
+                CatalogueSource::Cached => "cached".into(),
+            },
+            fetched_at: list.fetched_at,
+            checked_at: list.checked_at,
+            default_voice: capability.default_voice().map(str::to_string),
+            refresh: media::status(&state.deps, capability),
+            models: media::listing(capability, &list.models),
+        }
+    }
+}
+
+const UNKNOWN_CAPABILITY: &str = "capability must be one of: speech, transcription, image";
+
+fn parse_capability(value: &str) -> Option<crate::catalogue::media::MediaCapability> {
+    crate::catalogue::media::MediaCapability::parse(value)
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct MediaModelsQuery {
+    /// `speech`, `transcription` or `image`.
+    pub capability: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/catalogue/media-models",
+    params(MediaModelsQuery),
+    responses(
+        (status = 200, description = "One capability's models, default marked", body = APIResponse<MediaModels>),
+        (status = 400, description = "Missing or unknown capability", body = APIResponse<String>)
+    )
+)]
+pub async fn media_models(
+    State(state): State<HTTPState>,
+    Query(query): Query<MediaModelsQuery>,
+) -> models::response::Response<MediaModels> {
+    let Some(capability) = query.capability.as_deref().and_then(parse_capability) else {
+        return err_response(StatusCode::BAD_REQUEST, UNKNOWN_CAPABILITY.into());
+    };
+    state.catalogue.media().maybe_refresh(&state.deps, capability);
+    api_response(StatusCode::OK, MediaModels::build(&state, capability))}
+
+#[utoipa::path(
+    post,
+    path = "/catalogue/media-models/{capability}/refresh",
+    params(("capability" = String, Path, description = "`speech`, `transcription` or `image`")),
+    responses(
+        (status = 200, description = "Refreshed (or already current)", body = APIResponse<MediaModels>),
+        (status = 400, description = "Unknown capability", body = APIResponse<String>),
+        (status = 409, description = "Refresh is disabled in the config", body = APIResponse<String>),
+        (status = 502, description = "The check failed; the previous/seed list is still in use", body = APIResponse<String>)
+    )
+)]
+pub async fn refresh_media(
+    State(state): State<HTTPState>,
+    Path(capability): Path<String>,
+) -> models::response::Response<MediaModels> {
+    use crate::catalogue::refresh::RefreshError;
+    let Some(capability) = parse_capability(&capability) else {
+        return err_response(StatusCode::BAD_REQUEST, UNKNOWN_CAPABILITY.into());
+    };
+    match state
+        .catalogue
+        .media()
+        .refresh_now(&state.deps, capability)
+        .await
+    {
+        Ok(()) => api_response(StatusCode::OK, MediaModels::build(&state, capability)),
+        Err(RefreshError::Disabled) => err_response(
+            StatusCode::CONFLICT,
+            "catalogue refresh is disabled (catalogue.refresh: false)".into(),
+        ),
+        Err(RefreshError::Failed(e)) => err_response(StatusCode::BAD_GATEWAY, e),
     }
 }
 
@@ -608,5 +709,48 @@ pub async fn logo(State(state): State<HTTPState>, Path(file): Path<String>) -> R
     match crate::catalogue::refresh::logo(&state.deps, id).await {
         Some(svg) => svg_response(svg),
         None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn media_capabilities_parse_and_anything_else_is_refused() {
+        for (value, expected) in [
+            ("speech", "speech"),
+            ("transcription", "transcription"),
+            ("image", "image"),
+        ] {
+            assert_eq!(parse_capability(value).map(|c| c.as_str()), Some(expected));
+        }
+        for bad in ["", "video", "Speech", " speech", "images"] {
+            assert!(parse_capability(bad).is_none(), "{bad} parsed");
+        }
+        assert_eq!(UNKNOWN_CAPABILITY, "capability must be one of: speech, transcription, image");
+    }
+
+    /// FR-008/FR-023: the documented default is always visible, even when a refresh retired it.
+    #[test]
+    fn the_listing_injects_a_default_the_list_lost() {
+        use crate::catalogue::media::{MediaCapability, MediaModel, listing};
+
+        let models = vec![MediaModel {
+            id: "someone/other".into(),
+            name: "Other".into(),
+            ..Default::default()
+        }];
+        let listed = listing(MediaCapability::Speech, &models);
+        assert_eq!(listed[0].id, MediaCapability::Speech.default_model());
+        assert!(listed[0].default && !listed[0].listed);
+        assert_eq!(listed[1].id, "someone/other");
+        assert!(!listed[1].default && listed[1].listed);
+
+        // An empty list still shows the default, so the effective value is never invisible.
+        let empty = listing(MediaCapability::Image, &[]);
+        assert_eq!(empty.len(), 1);
+        assert_eq!(empty[0].id, "bytedance-seed/seedream-4.5");
+        assert!(empty[0].default && !empty[0].listed);
     }
 }

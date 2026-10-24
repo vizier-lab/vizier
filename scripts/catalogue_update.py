@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Refresh the bundled model catalogue seed in assets/catalogue/ from models.dev.
+"""Refresh the bundled catalogue seeds in assets/catalogue/.
+
+- `api.json` + `meta.json` + `logos/` come from models.dev (spec 015).
+- `openrouter_media.json` comes from OpenRouter's three public media model lists (spec 028).
 
 Standard library only; run as `python3 -I scripts/catalogue_update.py` (or `just
-catalogue-update`). The release workflow runs it with `--keep-on-failure`, so a models.dev
-outage keeps the committed snapshot and warns instead of blocking a release.
+catalogue-update`). The release workflow runs it with `--keep-on-failure`, so an upstream
+outage keeps the committed snapshots and warns instead of blocking a release.
 
-See specs/015-provider-catalog/contracts/catalogue-snapshot.md.
+See specs/015-provider-catalog/contracts/catalogue-snapshot.md and
+specs/028-openrouter-media-provider/contracts/openrouter-media.md §5.
 """
 
 import argparse
@@ -22,6 +26,16 @@ LOGO_URL = "https://models.dev/logos/{}.svg"
 FALLBACK_LOGO_ID = "__none__"
 USER_AGENT = "vizier-catalogue-update/1"
 TIMEOUT = 60
+
+# OpenRouter's per-capability media lists (spec 028, research R6). Public as of 2026-10-24.
+MEDIA_URLS = {
+    "speech": "https://openrouter.ai/api/v1/models?output_modalities=speech",
+    "transcription": "https://openrouter.ai/api/v1/models?output_modalities=transcription",
+    "image": "https://openrouter.ai/api/v1/images/models",
+}
+MEDIA_SCHEMA = 1
+# A defensive cap, matching `src/catalogue/media.rs`.
+MEDIA_MAX = 2000
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "assets", "catalogue")
@@ -101,6 +115,125 @@ def validate(data, current):
         raise UpdateError(
             f"catalogue shrank from {len(current)} to {len(data)} providers"
         )
+
+
+def utc_now():
+    """An RFC 3339 UTC timestamp without microseconds."""
+    return (
+        datetime.datetime.now(datetime.timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def strings(value):
+    """A JSON array's non-empty strings, trimmed, without duplicates, order preserved."""
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value:
+        if isinstance(item, str):
+            item = item.strip()
+            if item and item not in out:
+                out.append(item)
+    return out
+
+
+def enum_values(param):
+    """A `supported_parameters` entry's `values`, only when it is an enum."""
+    if not isinstance(param, dict) or param.get("type") != "enum":
+        return []
+    return strings(param.get("values"))
+
+
+def media_entry(capability, row):
+    """One OpenRouter media model in the seed shape, or None when it has no usable id."""
+    if not isinstance(row, dict):
+        return None
+    mid = row.get("id")
+    if not isinstance(mid, str) or not mid.strip():
+        return None
+    mid = mid.strip()
+    name = row.get("name")
+    name = name.strip() if isinstance(name, str) and name.strip() else mid
+    entry = {"id": mid, "name": name}
+    if capability == "speech":
+        entry["voices"] = strings(row.get("supported_voices"))
+    if capability == "image":
+        params = row.get("supported_parameters")
+        params = params if isinstance(params, dict) else {}
+        entry["aspect_ratios"] = enum_values(params.get("aspect_ratio"))
+        entry["resolutions"] = enum_values(params.get("resolution"))
+    return entry
+
+
+def normalize_media(capability, raw):
+    data = raw.get("data") if isinstance(raw, dict) else None
+    if not isinstance(data, list):
+        raise UpdateError(f"the {capability} list has no data array")
+    out, seen = [], set()
+    for row in data:
+        entry = media_entry(capability, row)
+        if entry is None or entry["id"] in seen:
+            continue
+        seen.add(entry["id"])
+        out.append(entry)
+        if len(out) >= MEDIA_MAX:
+            break
+    if not out:
+        raise UpdateError(f"the {capability} list has no usable models")
+    return out
+
+
+def fetch_media():
+    """The three OpenRouter media lists, normalized to the seed shape."""
+    lists = {}
+    for capability, url in MEDIA_URLS.items():
+        status, _, body = fetch(url)
+        if status != 200:
+            raise UpdateError(f"{url} returned {status}")
+        try:
+            raw = json.loads(body)
+        except ValueError as e:
+            raise UpdateError(f"the {capability} list is not valid JSON: {e}") from e
+        lists[capability] = normalize_media(capability, raw)
+    return {
+        "schema": MEDIA_SCHEMA,
+        "fetched_at": utc_now(),
+        "speech": lists["speech"],
+        "transcription": lists["transcription"],
+        "image": lists["image"],
+    }
+
+
+def write_media(media):
+    """Write the media seed atomically (a temp file, then replace).
+
+    One model per line, so git deltas and review diffs stay small (the same reason
+    `render` exists for api.json).
+    """
+    lines = ["{", f'  "schema": {media["schema"]},', f'  "fetched_at": {json.dumps(media["fetched_at"])},']
+    capabilities = ["speech", "transcription", "image"]
+    for i, capability in enumerate(capabilities):
+        comma = "," if i < len(capabilities) - 1 else ""
+        lines.append(f'  "{capability}": [')
+        entries = media[capability]
+        for j, entry in enumerate(entries):
+            end = "," if j < len(entries) - 1 else ""
+            lines.append("    " + json.dumps(entry, ensure_ascii=False) + end)
+        lines.append(f"  ]{comma}")
+    lines.append("}")
+    text = "\n".join(lines) + "\n"
+    if json.loads(text) != media:
+        raise UpdateError("rendered media seed does not round-trip")
+
+    path = os.path.join(OUT_DIR, "openrouter_media.json")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+    return path
 
 
 def render(data):
@@ -196,10 +329,15 @@ def update():
     data = trim(raw)
     validate(data, load_current())
 
+    # Both seeds are fetched before either is written: a failure leaves both committed files in
+    # place rather than shipping a half-refreshed pair.
+    media = fetch_media()
+
     ids = logo_ids(data)
     logos, no_logo, failed = fetch_logos(ids)
 
     os.makedirs(LOGO_DIR, exist_ok=True)
+    write_media(media)
     with open(os.path.join(OUT_DIR, "api.json"), "w", encoding="utf-8") as f:
         f.write(render(data))
 
@@ -214,13 +352,11 @@ def update():
 
     headers = {k.lower(): v for k, v in headers.items()}
     model_count = sum(len(p.get("models", {})) for p in data.values())
+    media_counts = " / ".join(f"{k} {len(v)}" for k, v in media.items() if isinstance(v, list))
     meta = {
         "schema": 1,
         "source_url": SOURCE_URL,
-        "fetched_at": datetime.datetime.now(datetime.timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z"),
+        "fetched_at": utc_now(),
         "etag": headers.get("etag"),
         "providers": len(data),
         "models": model_count,
@@ -238,6 +374,7 @@ def update():
     print(
         f"catalogue: {len(data)} providers, {model_count} models; "
         f"{len(logos)} logos, {len(no_logo)} without a logo, {len(failed)} failed; "
+        f"media: {media_counts}; "
         f"{size / 1024:.0f} KiB in assets/catalogue"
     )
 

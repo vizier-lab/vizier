@@ -312,10 +312,24 @@ impl TtsProvider {
 
     pub fn default_voice(&self) -> &str {
         match self {
-            Self::Openai | Self::Openrouter => "alloy",
+            Self::Openai => "alloy",
+            // `alloy` is an OpenAI voice; Kokoro publishes `af_alloy` (research R2).
+            Self::Openrouter => "af_alloy",
             Self::Elevenlabs => "pqHfZKP75CvOlQylNhV4",
             Self::Xai | Self::Hyperbolic => "default",
             Self::Kokoro => "af",
+        }
+    }
+
+    /// The model used when the setting leaves it empty (spec 028, research R2).
+    pub fn default_model(&self) -> &str {
+        match self {
+            Self::Openai => "tts-1",
+            Self::Openrouter => "hexgrad/kokoro-82m",
+            Self::Elevenlabs => "eleven_multilingual_v2",
+            Self::Xai => "grok-2-tts",
+            Self::Hyperbolic => "Melo-TTS",
+            Self::Kokoro => "kokoro-en-v0_19",
         }
     }
 }
@@ -337,6 +351,7 @@ pub struct TtsToolSettings {
 pub enum SttProvider {
     #[default]
     Openai,
+    Openrouter,
     Elevenlabs,
     Groq,
     Mistral,
@@ -350,6 +365,7 @@ impl SttProvider {
     pub fn credentials(&self) -> Option<ProviderId> {
         Some(match self {
             Self::Openai => ProviderId::OPENAI,
+            Self::Openrouter => ProviderId::OPENROUTER,
             Self::Elevenlabs => ProviderId::ELEVENLABS,
             Self::Groq => ProviderId::GROQ,
             Self::Mistral => ProviderId::MISTRAL,
@@ -362,6 +378,7 @@ impl SttProvider {
     pub fn default_model(&self) -> &str {
         match self {
             Self::Openai => "whisper-1",
+            Self::Openrouter => "openai/whisper-large-v3",
             Self::Elevenlabs => "scribe_v1",
             Self::Groq => "whisper-large-v3",
             Self::Mistral => "voxtral-mini-2507",
@@ -394,6 +411,7 @@ pub struct ReadImageToolSettings {
 pub enum ImageGenProvider {
     #[default]
     Openai,
+    Openrouter,
     Xai,
     Huggingface,
     Hyperbolic,
@@ -404,6 +422,7 @@ impl ImageGenProvider {
     pub fn credentials(&self) -> Option<ProviderId> {
         Some(match self {
             Self::Openai => ProviderId::OPENAI,
+            Self::Openrouter => ProviderId::OPENROUTER,
             Self::Xai => ProviderId::XAI,
             Self::Huggingface => ProviderId::HUGGINGFACE,
             Self::Hyperbolic => ProviderId::HYPERBOLIC,
@@ -413,6 +432,7 @@ impl ImageGenProvider {
     pub fn default_model(&self) -> &str {
         match self {
             Self::Openai => "dall-e-3",
+            Self::Openrouter => "bytedance-seed/seedream-4.5",
             Self::Xai => "grok-2-image-1212",
             Self::Huggingface => "stabilityai/stable-diffusion-xl-base-1.0",
             Self::Hyperbolic => "SDXL1.0-base",
@@ -463,5 +483,64 @@ mod removed_python_config_tests {
             r#"{"timeout": "30s", "python": {"enabled": false, "code_mode": false}}"#,
         );
         assert!(tools.is_ok(), "{tools:?}");
+    }
+}
+
+#[cfg(test)]
+mod media_provider_tests {
+    use super::*;
+
+    /// Spec 028 (data-model §7): the OpenRouter media variants and the defaults every empty
+    /// override falls back to. The catalogue (`catalogue/media.rs`) delegates to these values.
+    #[test]
+    fn openrouter_is_selectable_for_every_media_capability() {
+        assert_eq!(SttProvider::Openrouter.credentials(), Some(ProviderId::OPENROUTER));
+        assert_eq!(ImageGenProvider::Openrouter.credentials(), Some(ProviderId::OPENROUTER));
+        assert_eq!(TtsProvider::Openrouter.credentials(), Some(ProviderId::OPENROUTER));
+
+        assert_eq!(SttProvider::Openrouter.default_model(), "openai/whisper-large-v3");
+        assert_eq!(ImageGenProvider::Openrouter.default_model(), "bytedance-seed/seedream-4.5");
+        assert_eq!(TtsProvider::Openrouter.default_model(), "hexgrad/kokoro-82m");
+    }
+
+    #[test]
+    fn the_tts_default_model_keeps_every_provider() {
+        let models: Vec<_> = [
+            TtsProvider::Openai,
+            TtsProvider::Openrouter,
+            TtsProvider::Elevenlabs,
+            TtsProvider::Xai,
+            TtsProvider::Hyperbolic,
+            TtsProvider::Kokoro,
+        ]
+        .into_iter()
+        .map(|p| p.default_model().to_string())
+        .collect();
+        assert_eq!(
+            models,
+            vec![
+                "tts-1",
+                "hexgrad/kokoro-82m",
+                "eleven_multilingual_v2",
+                "grok-2-tts",
+                "Melo-TTS",
+                "kokoro-en-v0_19",
+            ]
+        );
+    }
+
+    /// A saved agent keeps loading: the new variants are additive, and the old values mean
+    /// what they did.
+    #[test]
+    fn media_settings_round_trip_with_openrouter() {
+        let stt: SttToolSettings =
+            serde_json::from_str(r#"{"provider": "openrouter", "model": null, "language": "en"}"#).unwrap();
+        assert_eq!(stt.provider, SttProvider::Openrouter);
+        let image: ImageGenToolSettings =
+            serde_json::from_str(r#"{"provider": "openrouter", "model": "x", "size": "2K"}"#).unwrap();
+        assert_eq!(image.provider, ImageGenProvider::Openrouter);
+        let json = serde_json::to_string(&image).unwrap();
+        assert!(json.contains(r#""provider":"openrouter""#), "{json}");
+        assert_eq!(serde_json::from_str::<SttProvider>(r#""openai""#).unwrap(), SttProvider::Openai);
     }
 }

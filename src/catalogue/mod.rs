@@ -9,6 +9,7 @@ use serde::Serialize;
 pub mod builtin;
 pub mod cache;
 pub mod data;
+pub mod media;
 pub mod refresh;
 pub mod seed;
 
@@ -50,7 +51,12 @@ pub const POPULAR: &[&str] = &[
 /// The shared catalogue. Readers clone the inner `Arc`, so a refresh's `swap` never makes them
 /// wait, and an agent keeps the data it was built with until its next build.
 #[derive(Clone)]
-pub struct Catalogue(Arc<RwLock<Arc<CatalogueData>>>, Arc<refresh::RefreshState>);
+pub struct Catalogue(
+    Arc<RwLock<Arc<CatalogueData>>>,
+    Arc<refresh::RefreshState>,
+    /// OpenRouter's media model lists (spec 028), separate from the chat/embedding data above.
+    Arc<media::MediaCatalogue>,
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -75,11 +81,33 @@ pub struct ProviderListing {
 
 impl Catalogue {
     pub fn new(data: CatalogueData) -> Self {
-        Self(Arc::new(RwLock::new(Arc::new(data))), Arc::default())
+        Self(
+            Arc::new(RwLock::new(Arc::new(data))),
+            Arc::default(),
+            // The media lists are seeded at build time, so a fresh or offline install lists
+            // models without a request (spec 028 FR-020).
+            Arc::new(media::MediaCatalogue::new(seed::load_media_seed())),
+        )
     }
 
     pub fn refresh_state(&self) -> &refresh::RefreshState {
         &self.1
+    }
+
+    /// OpenRouter's media model lists (spec 028).
+    pub fn media(&self) -> &media::MediaCatalogue {
+        &self.2
+    }
+
+    /// Startup: use each cached media list when it is newer than the seed, and restore the
+    /// stored last failure. Never touches the network.
+    pub async fn load_media_cache(&self, storage: &crate::storage::VizierStorage) {
+        self.2.load_cache(storage).await;
+    }
+
+    /// One capability's current list; always available (the seed until a refresh).
+    pub fn media_list(&self, capability: media::MediaCapability) -> media::MediaList {
+        self.2.list(capability)
     }
 
     pub fn snapshot(&self) -> Arc<CatalogueData> {

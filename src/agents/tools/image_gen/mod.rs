@@ -17,10 +17,10 @@ pub struct ImageGenerateArgs {
         description = "A detailed text description of the image to generate. Be specific about subject, style, lighting, composition, etc."
     )]
     pub prompt: String,
-    #[schemars(description = "Output filename (optional, defaults to img_{uuid}.png)")]
+    #[schemars(description = "Output filename (optional, defaults to img_{uuid} with an extension matching the returned image format)")]
     pub filename: Option<String>,
     #[schemars(
-        description = "Image size in WxH format, e.g. \"1024x1024\", \"1024x1792\", \"1792x1024\". Optional."
+        description = "Image size in WxH format, e.g. \"1024x1024\", \"1024x1792\", \"1792x1024\". Optional; the provider's own default is used when omitted."
     )]
     pub size: Option<String>,
 }
@@ -52,10 +52,12 @@ impl VizierTool for ImageGenerate {
     }
 
     fn description(&self) -> String {
-        let size = self.default_size.as_deref().unwrap_or("1024x1024");
+        let size = match self.default_size.as_deref() {
+            Some(size) => format!("Default size: \"{size}\"."),
+            None => "With no size given, the provider's default size is used.".to_string(),
+        };
         format!(
-            "Generate an image from a text prompt. The image file is saved to the session files. Default size: \"{}\". After generation, call send_attachment with the returned filename to deliver the image to the user.",
-            size
+            "Generate an image from a text prompt. The image file is saved to the session files; its default extension follows the format the provider returns. {size} After generation, call send_attachment with the returned filename to deliver the image to the user."
         )
     }
 
@@ -70,7 +72,7 @@ impl VizierTool for ImageGenerate {
 
         let filename = args
             .filename
-            .unwrap_or_else(|| format!("img_{}.png", uuid::Uuid::new_v4()));
+            .unwrap_or_else(|| format!("img_{}.{}", uuid::Uuid::new_v4(), extension_for(&mime_type)));
 
         let file_record = self
             .file_manager
@@ -93,5 +95,36 @@ impl VizierTool for ImageGenerate {
             filename,
             size: file_record.size,
         })
+    }
+}
+
+/// The default filename extension for the media type a provider returned (FR-006): an image
+/// saved as PNG when the provider drew a WebP would open as a broken PNG.
+fn extension_for(mime: &str) -> &'static str {
+    // Drop a charset or other parameters before matching.
+    let base = mime.split(';').next().unwrap_or(mime).trim();
+    match base.to_ascii_lowercase().as_str() {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/webp" => "webp",
+        "image/svg+xml" => "svg",
+        _ => "png",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extension_for;
+
+    #[test]
+    fn the_default_extension_follows_the_returned_media_type() {
+        assert_eq!(extension_for("image/png"), "png");
+        assert_eq!(extension_for("image/jpeg"), "jpg");
+        assert_eq!(extension_for("image/jpg"), "jpg");
+        assert_eq!(extension_for("image/webp"), "webp");
+        assert_eq!(extension_for("image/svg+xml"), "svg");
+        assert_eq!(extension_for("image/svg+xml; charset=utf-8"), "svg");
+        assert_eq!(extension_for("IMAGE/WEBP"), "webp");
+        assert_eq!(extension_for("application/octet-stream"), "png");
+        assert_eq!(extension_for(""), "png");
     }
 }

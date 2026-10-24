@@ -5,7 +5,7 @@ use crate::llm::media::{
     self,
     huggingface::HuggingFaceImages,
     hyperbolic::HyperbolicImages,
-    openai_shaped::{ImageSizing, OpenAiImages},
+    openai_shaped::{ImageApi, ImageSizing, OpenAiImages},
 };
 use crate::schema::agent::{ImageGenProvider, ImageGenToolSettings};
 use crate::Result;
@@ -31,11 +31,15 @@ impl VizierImageGen {
         let model: Arc<dyn VizierImageGenModel> = match provider {
             ImageGenProvider::Openai => Arc::new(OpenAiImages {
                 endpoint,
-                sizing: ImageSizing::Size,
+                api: ImageApi::Generations(ImageSizing::Size),
+            }),
+            ImageGenProvider::Openrouter => Arc::new(OpenAiImages {
+                endpoint,
+                api: ImageApi::OpenRouter,
             }),
             ImageGenProvider::Xai => Arc::new(OpenAiImages {
                 endpoint,
-                sizing: ImageSizing::AspectRatio("1:1"),
+                api: ImageApi::Generations(ImageSizing::AspectRatio("1:1")),
             }),
             ImageGenProvider::Huggingface => Arc::new(HuggingFaceImages(endpoint)),
             ImageGenProvider::Hyperbolic => Arc::new(HyperbolicImages(endpoint)),

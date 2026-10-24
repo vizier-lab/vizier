@@ -23,7 +23,7 @@ use super::huggingface::{HuggingFaceImages, HuggingFaceStt};
 use super::hyperbolic::{HyperbolicImages, HyperbolicTts};
 use super::ollama::OllamaEmbeddings;
 use super::openai_shaped::{
-    Endpoint, ImageSizing, OpenAiEmbeddings, OpenAiImages, OpenAiStt, OpenAiTts, XaiTts,
+    Endpoint, ImageApi, ImageSizing, OpenAiEmbeddings, OpenAiImages, OpenAiStt, OpenAiTts, XaiTts,
     openai_dimensions,
 };
 use crate::embedding::VizierEmbeddingModel;
@@ -151,12 +151,12 @@ async fn run_ours(name: &str, model: &str, base: String) -> Value {
         "tts_xai" => tts(Box::new(XaiTts(ep(bearer))), "alloy").await,
         "tts_hyperbolic" => tts(Box::new(HyperbolicTts(ep(bearer))), "EN-US").await,
         "image_openai_dalle" | "image_openai_gpt" => {
-            image(Box::new(OpenAiImages { endpoint: ep(bearer), sizing: ImageSizing::Size })).await
+            image(Box::new(OpenAiImages { endpoint: ep(bearer), api: ImageApi::Generations(ImageSizing::Size) })).await
         }
         "image_xai" => {
             image(Box::new(OpenAiImages {
                 endpoint: ep(bearer),
-                sizing: ImageSizing::AspectRatio("1:1"),
+                api: ImageApi::Generations(ImageSizing::AspectRatio("1:1")),
             }))
             .await
         }

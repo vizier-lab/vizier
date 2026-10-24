@@ -13,6 +13,7 @@ use crate::{
         catalogue::{CachedLogo, CatalogueCacheStorage, CatalogueSnapshotRow}, dream::DreamStorage, dream_journal::DreamJournalStorage,
         global_config::GlobalConfigStorage, history::HistoryStorage, integration::IntegrationStorage,
         memory::MemoryStorage,
+        media_catalogue::{MediaCatalogueSnapshotRow, MediaCatalogueStorage},
         provider::{CustomProviderStorage, ProviderStorage}, reaction::ReactionStorage, scratch::ScratchStorage, turn::TurnStorage, session::SessionStorage, session_file::SessionFileStorage,
         secret::SecretStorage,
         state::StateStorage, task::TaskStorage, task_run::TaskRunStorage,
@@ -33,6 +34,7 @@ pub mod dream_journal;
 pub mod global_config;
 pub mod history;
 pub mod integration;
+pub mod media_catalogue;
 pub mod memory;
 pub mod memory_bundle;
 pub mod provider;
@@ -66,6 +68,7 @@ where
         + ProviderStorage
         + CustomProviderStorage
         + CatalogueCacheStorage
+        + MediaCatalogueStorage
         + GlobalConfigStorage
         + DreamJournalStorage
         + DreamStorage
@@ -335,6 +338,29 @@ impl CatalogueCacheStorage for VizierStorage {
 
     async fn put_logo(&self, id: &str, svg: Option<&[u8]>) -> Result<()> {
         self.0.put_logo(id, svg).await
+    }
+}
+
+#[async_trait::async_trait]
+impl MediaCatalogueStorage for VizierStorage {
+    async fn get_media_snapshot(
+        &self,
+        capability: &str,
+    ) -> Result<Option<MediaCatalogueSnapshotRow>> {
+        self.0.get_media_snapshot(capability).await
+    }
+
+    async fn put_media_snapshot(&self, row: &MediaCatalogueSnapshotRow) -> Result<()> {
+        self.0.put_media_snapshot(row).await
+    }
+
+    async fn record_media_failure(
+        &self,
+        capability: &str,
+        error: &str,
+        at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<()> {
+        self.0.record_media_failure(capability, error, at).await
     }
 }
 
