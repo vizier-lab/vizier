@@ -128,6 +128,25 @@ Conversations that already contain pages drawn with the old tool still show them
 
 ---
 
+### User Story 7 - Links and conversation files inside an interface (Priority: P2)
+
+The agent shows a report: a heading, a link to the source article, a chart image it generated earlier, a gallery of the photos the person attached, an audio clip it recorded, and a PDF it can open in the preview. All of it is part of the one interface.
+
+**Why this priority**: Real answers point at things (sources) and show things (images, audio, documents); without both, interfaces fall back to bare text.
+
+**Independent Test**: Attach an image, an audio clip, a video and a PDF to a conversation; have an agent show them with the media components and a link; confirm they display and play with the standard controls, an unknown file name is refused with the list of available files, and unsafe link targets are refused.
+
+**Acceptance Scenarios**:
+
+1. **Given** files in the conversation, **When** an interface names them, **Then** images, audio, video, file cards and galleries display with the WebUI's standard players and previews, and audio/video do not start by themselves.
+2. **Given** an interface names a file that is not in the conversation, **When** it is submitted, **Then** it is refused with a message naming the file and listing what is available, and the turn continues.
+3. **Given** a link whose label differs from its address, **When** it is drawn, **Then** the real host is shown beside the label and the link opens in a new tab without giving the destination access to the WebUI.
+4. **Given** a link target that is not `https`, `http` or `mailto`, **When** the interface is submitted, **Then** it is refused with the allowed schemes listed.
+5. **Given** a file is removed after the interface was drawn, **When** the conversation is reopened, **Then** only that spot shows a "file not available" placeholder.
+6. **Given** the 2D drawing surface, **When** a shape names a conversation image, **Then** the image is drawn on it.
+
+---
+
 ### Edge Cases
 
 - The description is too large, nested too deeply, or has too many components: refused with a size/shape message; nothing is drawn.
