@@ -75,7 +75,9 @@ test('every page gets the series colours and the derived tokens', () => {
 
 test('the kit never outweighs a rule of the page', () => {
   const css = baseStyle({ dark: false, palette: {} })
-  const selectors = [...css.matchAll(/(?:^|})([^{}]+)\{/g)].map((m) => m[1].trim())
+  // The scrollbar and the default body padding are the kit's deliberate exceptions.
+  const kit = css.slice(0, css.indexOf('::-webkit-scrollbar{'))
+  const selectors = [...kit.matchAll(/(?:^|})([^{}]+)\{/g)].map((m) => m[1].trim())
   const unwrapped = selectors.filter(
     (s) => s !== ':root' && s !== '*,*::before,*::after' && s !== 'html,body' && !s.startsWith(':where(')
   )

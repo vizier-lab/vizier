@@ -159,7 +159,7 @@ export default function Chat() {
     const modelName = health?.model?.model
     const failed = health?.state === 'failed'
     const topicIndex = topics.findIndex((t) => t.topic_id === topicId)
-    const title = topics[topicIndex]?.title || topicId || 'New topic'
+    const title = state.title || topics[topicIndex]?.title || topicId || 'New topic'
 
     // The recalled memory, background jobs and session files: a side panel, or a sheet on a phone.
     const details = (

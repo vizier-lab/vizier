@@ -463,6 +463,7 @@ export type Frame =
     | { kind: 'reactions'; messageUid: string; reactions: ReactionEntry[] }
     | { kind: 'reaction_error'; messageUid: string; message: string }
     | { kind: 'session_file'; file: SessionFileRecord }
+    | { kind: 'title'; title: string }
     | { kind: 'client'; frame: ClientFrame }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -481,6 +482,7 @@ export function classifyFrame(raw: unknown): Frame | null {
     if (!isObj(raw)) return null
     if ('background_job' in raw) return { kind: 'job', snapshot: raw.background_job as BackgroundJobSnapshot }
     if ('history_entry' in raw) return { kind: 'history_entry', entry: raw.history_entry as ChatMessage }
+    if ('session_title' in raw && isObj(raw.session_title)) return { kind: 'title', title: String(raw.session_title.title) }
     if ('session_file' in raw) return { kind: 'session_file', file: (raw as unknown as SessionFileFrame).session_file.file }
     if ('reactions' in raw && isObj(raw.reactions)) {
         const r = raw.reactions as { message_uid: string; reactions: ReactionEntry[] }

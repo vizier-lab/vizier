@@ -42,7 +42,11 @@ export function InteractivePage({ call, ctx }: { call: ClientCallView; ctx: Clie
         const palette = Object.fromEntries(
             Object.entries(PALETTE_SOURCES).map(([key, source]) => [key, style.getPropertyValue(source)])
         ) as Palette
-        return { dark: isDark(), palette }
+        const scrollbar = {
+            thumb: style.getPropertyValue('--vz-unlit'),
+            hover: style.getPropertyValue('--vz-border-hover'),
+        }
+        return { dark: isDark(), palette, scrollbar }
     }, [])
     const document_ = useMemo(() => srcdoc(html, initialState.current, look), [html, look])
 

@@ -1,6 +1,6 @@
 import { Button, EmptyState, KeyValueList, LoadMore, PanelHeader, RunRow, Skeleton, Status, Switch } from '@vizier/design'
 import { Enter, stagger } from '../lib/motion'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/client'
 import { deleteTask, getTask, runHistory, taskRuns, updateTask, type Task, type TaskRun } from '../api/endpoints/tasks'
@@ -52,6 +52,7 @@ export default function TaskPage() {
     useEffect(() => void load(), [load])
 
     // The run being read: the one asked for, else the latest.
+    const runRef = useRef<HTMLElement>(null)
     const asked = params.get('run')
     const open = runs.find((r) => r.run_id === asked) ?? runs[0] ?? null
     useEffect(() => {
@@ -162,7 +163,10 @@ export default function TaskPage() {
                                             state={runStatus(r) as never}
                                             duration={runDuration(r)}
                                             selected={open?.id === r.id}
-                                            onSelect={() => setParams({ run: r.run_id }, { replace: true })}
+                                            onSelect={() => {
+                                                setParams({ run: r.run_id }, { replace: true })
+                                                runRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                                            }}
                                         />
                                     </Enter>
                                 ))}
@@ -177,7 +181,7 @@ export default function TaskPage() {
                     {task ? <Markdown size="document">{task.instruction}</Markdown> : <Skeleton lines={3} />}
                 </section>
 
-                <section className="flex max-w-[72ch] flex-col gap-8 border-t border-border pt-24">
+                <section ref={runRef} className="flex max-w-[72ch] scroll-mt-24 flex-col gap-8 border-t border-border pt-24">
                     {open ? (
                         <>
                             <div className="flex flex-wrap items-center gap-12">

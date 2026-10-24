@@ -144,6 +144,8 @@ const KIT = [
 export interface PageLook {
   dark: boolean
   palette: Partial<Palette>
+  /** The WebUI's scrollbar thumb colours, so a page's scrollbar matches the app's. */
+  scrollbar?: { thumb: string; hover: string }
 }
 
 /** A colour that can sit inside a <style> element, or `null`. */
@@ -169,7 +171,24 @@ export function baseStyle(look: PageLook): string {
   return (
     `:root{color-scheme:${look.dark ? 'dark' : 'light'};${vars};${series};${derived};` +
     'color:var(--text);font-family:var(--font);font-size:14px;line-height:1.5}' +
-    KIT
+    KIT +
+    scrollbarStyle(look) +
+    // A page's own stylesheet often zeroes the body's padding; this is the default breathing
+    // room, so it is !important. It sits on the body so the scrollbar stays at the frame's edge.
+    'body{padding:12px!important}'
+  )
+}
+
+function scrollbarStyle(look: PageLook): string {
+  const dark = look.dark
+  const thumb = safeColour(look.scrollbar?.thumb) ?? (dark ? '#3f3f46' : '#c8c6c0')
+  const hover = safeColour(look.scrollbar?.hover) ?? (dark ? '#52525b' : '#a8a6a0')
+  return (
+    '::-webkit-scrollbar{width:10px;height:10px;background:transparent}' +
+    '::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}' +
+    `::-webkit-scrollbar-thumb{background:${thumb};background-clip:padding-box;border:2px solid transparent;border-radius:999px}` +
+    `::-webkit-scrollbar-thumb:hover{background-color:${hover}}` +
+    `@supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:${thumb} transparent}}`
   )
 }
 
@@ -194,7 +213,7 @@ export function standaloneDocument(
   const escapedTitle = title.replace(/&/g, '&amp;').replace(/</g, '&lt;')
   // Drawn in the WebUI the page is transparent over the app's background; on its own it gets
   // that background, so it looks the same.
-  const style = `${baseStyle(look)}html{background:var(--bg);min-height:100%}body{padding:16px}${extra.style ?? ''}`
+  const style = `${baseStyle(look)}html{background:var(--bg);min-height:100%}${extra.style ?? ''}`
   return `<!doctype html><meta charset="utf-8"><title>${escapedTitle}</title><meta http-equiv="Content-Security-Policy" content="${CSP}"><style>${style}</style><script>${stub}${extra.script ?? ''}</script>${html}`
 }
 

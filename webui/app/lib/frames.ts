@@ -46,6 +46,8 @@ export interface TopicState {
     resumed: boolean
     /** The person stopped the turn that was running. */
     stopped: boolean
+    /** The generated title, once the server sends it; the topic list's copy is older. */
+    title: string | null
     session: ChatMessage['vizier_session']
 }
 
@@ -73,6 +75,7 @@ export function emptyTopic(session: ChatMessage['vizier_session'] = { agent_id: 
         error: null,
         resumed: false,
         stopped: false,
+        title: null,
         session,
     }
 }
@@ -192,6 +195,8 @@ export function reduce(state: TopicState, action: Action): TopicState {
                     }
                 case 'reaction_error':
                     return state
+                case 'title':
+                    return { ...state, title: frame.title }
                 case 'session_file': {
                     const rest = state.files.filter((f) => f.id !== frame.file.id)
                     return { ...state, files: [frame.file, ...rest] }
