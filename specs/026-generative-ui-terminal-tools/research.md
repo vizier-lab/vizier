@@ -117,7 +117,8 @@ Mapped to `@vizier/design` where a component exists; gaps are added in `design/`
 |---|---|
 | Layout | `Stack`, `Row`, `Grid`, `Card`, `Tabs`, `Fold`, `Divider` |
 | Text | `Heading`, `Text` (markdown subset via the existing sanitised pipeline), `Badge`, `Callout`, `Code` |
-| Data | `Stat`, `Table`, `KeyValue`, `Progress`, `Chart` (`bar`, `line`, `area`, `pie`), `Image` (`data:` URLs only) |
+| Data | `Stat`, `Table`, `KeyValue`, `Progress`, `Chart` (`bar`, `line`, `area`, `pie`) |
+| Links & media | `Link`, `Image`, `Audio`, `Video`, `FileCard`, `Gallery` (session files, R12) |
 | Input | `TextInput`, `NumberInput`, `Slider`, `Select`, `Checkbox`, `Switch`, `RadioGroup` |
 | Action | `Button` |
 | Surface | `Canvas2D`, `Scene3D`, `Box`, `Sphere`, `Cylinder`, `Plane`, `Group3D`, `AmbientLight`, `DirectionalLight`, `PointLight`, `OrbitControls`, `Heightfield`, `Mesh` |
@@ -127,7 +128,7 @@ Events: `press` (Button, Canvas2D, 3D objects, Table rows as `select`), `change`
 
 `$computed` functions (pure, registered once): `add sub mul div mod min max abs round floor eq not and or len at concat join slice includes range`. Enough for parity-coloured boards and indexes without custom code.
 
-No `Link`, no raw HTML, no style props beyond closed enums (`gap`, `align`, `tone`, `size`): nothing the agent writes can restyle or script the WebUI itself.
+Links are limited to `https`/`http`/`mailto` (R12); no raw HTML, no style props beyond closed enums (`gap`, `align`, `tone`, `size`): nothing the agent writes can restyle or script the WebUI itself.
 
 Design gaps to build in `design/` (audit confirmed `Stack/Row/Grid`, `Slider`, `LineChart`/`PieChart` are not exported): layout primitives, `Slider`, `Chart` (line/area/pie; bar exists as `BarList`/`StackedBarChart`).
 
@@ -171,9 +172,30 @@ Requirements: synchronous-looking results are not needed (actions are async), no
 
 ---
 
+## R12. Links and media (built on session files)
+
+**Links** (`Link`, and links inside `Text`): `https`, `http`, `mailto` only (parsed with `URL`, so `javascript:`, `data:`, `file:`, `blob:` and scheme tricks fail), `target="_blank"` with `rel="noopener noreferrer nofollow"`, `referrerpolicy="no-referrer"`. When the label differs from the address the host is shown beside it (`Docs (example.com)`), so a label cannot hide the destination. The renderer is the only place an `<a>` is made for the catalogue; markdown in `Text` goes through the same sanitiser as chat replies with the same link rule. A `Link` with `file` downloads a session file instead.
+
+**Media from session files, not from addresses.** Everything the agent can show already lives in the conversation's session files: what the person attached, what tools produced (image generation, TTS, `send_attachment`, files loaded from a path), and what other tools saved. The record gives name, mime type and a `file_id`; the HTTP channel already serves `GET /files/{file_id}` with `Range` support, and the WebUI already has `AudioPlayer`, `VideoPlayer`, `ImageGallery` and `FilePreviewDialog` (`screens/chat/ReplyMedia.tsx`). So:
+
+- A component refers to a file by **name** (`"file": "forecast.png"`). The spec stays small, portable and free of ids and URLs.
+- The WebUI resolves names to records from the topic's file list (`GET …/topic/{topic}/files`, already used by the session files panel), builds the `/files/{file_id}` URL, and re-resolves when that list changes (a file generated later appears without redrawing).
+- **At submit time** `ui_render` fetches the same list and refuses unknown names, answering with the available names and mime types. This teaches the workflow (make or find the file, then show it) and lets a freshly generated image be shown in the same script that generated it.
+- External addresses are refused by schema: `file` is a name pattern, `src` accepts only `data:image/`. This keeps FR-008 (no network from an interface) true for media, and avoids hotlinking, tracking pixels and mixed-content problems.
+- Audio and video use `preload="metadata"` and never autoplay (FR-037); the standard players give seek, speed and expand; `FileCard` opens `FilePreviewDialog` (PDF, CSV, text, images) and downloads.
+- `Canvas2D` gets an `image` shape from a session file (drawn through an `<img>`, same origin, so the canvas is not tainted). Textures on 3D objects are **not** in v1; the same `file` reference can be added to `Box/Plane/Heightfield` later without a contract change.
+- No server change: no new endpoint, no new storage. Access control is the existing one (the person must already be able to open the topic and its files); an interface only names files in its own conversation.
+
+**Lifetime**: session files last as long as the session and are deleted with it; scratchpad files are text and temporary and are **not** eligible. A replaced or removed file shows the inline placeholder (FR-035).
+
+**Discovery**: the `ui_components` index has a `media` group, and the `ui_render` cheat sheet gains one line: "Show files of this conversation with Image/Audio/Video/FileCard/Gallery by file name (see list_session_files); make the file first." Errors list the available files.
+
+---
+
 ## R11. Testing
 
 - **Rust unit**: `ends_turn` on the trait default, notice appended once for native and client entries and not for others, declaration check ignores the notice, report detection (`ok && record.ends_turn && record.ok`), resume detection, `answer` flush when ended.
+- **Links/media tests**: scheme allow-list (`javascript:`, `data:`, `file:`, `//host`, whitespace/case tricks), host disclosure, unknown-file error lists available files, name → URL resolution and re-resolution, placeholder on removal, no autoplay.
 - **WebUI vitest**: catalogue schema ↔ registry coverage (every catalogue name has a component), every recipe validates, error messages list valid options, saved-state key filtering, logic runner timeout and size limits (jsdom iframe replaced by a fake runner interface for unit; real runner in Playwright), `sendMessage` trust and rate gating.
 - **Playwright** (existing `e2e`): render a chess recipe and play two moves; render the terrain recipe and drag a slider; axe check on a rendered interface.
 - **dummyplug end to end** (constitution gate): `scripts/client-tools-e2e.mjs` gains an `ends_turn` case: declare a tool with `ends_turn: true`, have a dummyplug agent run an `execute_python` script that calls it, assert the turn ends with no further model round, the reply carries the step's text, and that a failing call or a failing script keeps the turn open. Quickstart scripts the same as dummyplug steps.

@@ -139,6 +139,8 @@ Conversations that already contain pages drawn with the old tool still show them
 - A turn is aborted or interrupted before the tool's call has returned: no final answer is recorded and the turn is treated as stopped, as today.
 - A resumed turn (after an instance restart) that had already made a successful turn-ending call: it is not asked to continue; the turn ends with the recorded answer.
 - Interface state (typed text, selections) grows beyond the saved-state limit: the latest state is refused with the same message as other saved states, and the interface keeps working locally.
+- A file referenced by an interface is deleted, replaced or renamed later: the interface shows the placeholder (replaced files show the new content under the same name).
+- A link's label claims one site and the address is another: the real host is shown beside the label.
 - Theme switches (light/dark) while an interface is displayed: it re-themes immediately with no page reload.
 - Accessibility: components are keyboard-operable and labelled; the interface can be read by a screen reader as normal app content, not a sealed frame.
 
@@ -166,6 +168,14 @@ Conversations that already contain pages drawn with the old tool still show them
 - **FR-030**: Values an interface derives (a height map, a board after a move) MUST be allowed to live in state that is not saved with the conversation and is recomputed when the interface is drawn, so large derived data never counts against the saved-state limit.
 - **FR-031**: A function that fails, times out or returns too much MUST produce a visible inline error on the interface, leave the previous state intact, and never block the rest of the WebUI.
 - **FR-032**: Timed actions MUST have a minimum interval and MUST stop when the interface is not on screen.
+
+**Links and media**
+
+- **FR-033**: The catalogue MUST include a link component. A link opens in a new tab with the opener and referrer withheld, allows only `https`, `http` and `mailto` targets, and shows the destination's host whenever its label differs from the address, so a label cannot disguise where it goes. Links inside text components follow the same rules.
+- **FR-034**: The catalogue MUST include image, audio, video and file components (and a gallery of them) that show **files of the current conversation** (its session files: what the person attached, what tools produced, what the agent saved), referred to by file name. They MUST NOT load files from anywhere else, and MUST NOT accept external addresses; inline `data:` images stay allowed for small graphics.
+- **FR-035**: A reference to a file that does not exist when the interface is submitted MUST be refused with a message that names the missing file and lists the conversation's available files; a file that disappears later MUST show a small inline "file not available" placeholder instead of breaking the interface.
+- **FR-036**: Media MUST play and display with the WebUI's standard players and previews (seek, speed, expand, open in preview, download), and the 2D drawing surface MUST be able to draw a conversation image.
+- **FR-037**: Audio and video MUST NOT start playing by themselves.
 
 **Interactivity**
 
@@ -224,6 +234,7 @@ Conversations that already contain pages drawn with the old tool still show them
 - The structured description follows the json-render model: a root component and a flat set of named components with type, content and children, plus state bindings, conditional visibility and actions, validated against a catalogue. The project is used as the reference for shape and behaviour; whether vizier depends on the library itself or implements the same format is a planning decision.
 - "Turn-ending" is the working name for the flag in this spec because "terminal" already refers to the shell tool; the exact flag name in code and in the public protocol is settled in planning.
 - A successful turn-ending call ends the turn by default; there is no per-call override. If the agent needs to show an interface and then keep working, it does the work first.
+- External images, remote video and any address outside the conversation's files are out of scope; the agent saves what it wants to show as a session file first (attachment tools already do this).
 - The first catalogue is a deliberately small, general-purpose set (FR-002); domain-specific components are added later.
 - The functions of FR-029 are written in the one language every browser runs; a separate rules engine or library for any particular game is not shipped.
 - Existing saved pages (old tool) keep their current renderer and sandbox; no data migration converts them to the new format.

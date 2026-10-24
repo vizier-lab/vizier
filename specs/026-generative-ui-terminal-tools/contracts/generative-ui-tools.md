@@ -31,7 +31,7 @@ An agent that already knows the shape can call `ui_render` directly; the errors 
   "type": "object",
   "properties": {
     "names":  { "type": "array", "items": { "type": "string" }, "description": "Component names for full detail" },
-    "group":  { "type": "string", "enum": ["layout","text","data","input","action","surface","control"] },
+    "group":  { "type": "string", "enum": ["layout","text","data","media","input","action","surface","control"] },
     "recipe": { "type": "string", "enum": ["dashboard","form","tabs_and_filter","board_game","scene_3d","canvas_2d"] }
   }
 }
@@ -62,6 +62,7 @@ Props can be values or expressions: {"$state":"/a/b"} read, {"$bindState":"/a/b"
 Put visible, repeat, on, watch beside props on the element, never inside props.
 Events: "on": {"press": {"action":"setState","params":{"statePath":"/tab","value":"b"}}}. Actions: setState, pushState, removeState, validateForm, sendMessage {text,data} (sends a message as the person), run {fn,args,into} (calls a function from "logic").
 "logic" holds small pure JS functions {"name": {"params":["a"],"body":"return …"}} for rules and maths; they run locally and cannot use the network or the page. Keys in state starting with "_" are derived and not saved.
+Show files of this conversation with Image/Audio/Video/FileCard/Gallery by file name (see list_session_files); make the file first. Link takes https/http/mailto only.
 Limits: 256 KB, 1500 elements, depth 16. A mistake returns every problem with the valid options; fix and call again.
 Returns {"ui_id","status":"rendered"}. The person sees it after your turn; do all other work first.
 ```
@@ -111,10 +112,11 @@ The `type` enum is generated from the catalogue, so adding a component updates i
 **Failure** (turn continues): the tool answers with an error; the script gets a catchable failure whose message is:
 
 ```text
-ui_render refused the interface (3 problems):
+ui_render refused the interface (4 problems):
 1. elements.chart-1.type: "PieChart" is not a component. Valid: Chart, … Did you mean "Chart" (props.kind "pie")?
 2. elements.btn.props.variant: "big" is not allowed. Valid: primary, secondary, ghost.
 3. elements.root.children[2]: "stats-2" has no definition in elements.
+4. elements.photo.props.file: "cat.png" is not a file of this conversation. Available: forecast.png (image/png), report.pdf (application/pdf). Generate or load the file first (see list_session_files).
 Fix these and call ui_render again. ui_components(names=["Chart","Button"]) shows exact props.
 ```
 

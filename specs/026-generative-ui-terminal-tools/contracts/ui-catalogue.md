@@ -2,7 +2,7 @@
 
 **Feature**: `026-generative-ui-terminal-tools` · implemented in `webui/app/lib/generativeUi/catalog.ts` (zod) and `registry.tsx` (design components). This file is the human-readable summary; the agent reads the generated version through `ui_components`.
 
-Conventions: props are optional unless marked `*`. Any prop value may be an expression (`$state`, `$bindState`, `$template`, `$cond`, `$computed`, `$item`, `$index`). Closed enums only: there is no free-form style, class or HTML.
+Conventions: props are optional unless marked `*`. Any prop value may be an expression (`$state`, `$bindState`, `$template`, `$cond`, `$computed`, `$item`, `$index`). Closed enums only: there is no free-form style, class or HTML. Nothing loads from an external address: media are session files by name (or small `data:image/` graphics) and links are navigations the person chooses.
 
 ## 1. Components
 
@@ -21,7 +21,7 @@ Conventions: props are optional unless marked `*`. Any prop value may be an expr
 | Component | Props | Events |
 |---|---|---|
 | `Heading` | `text*`, `level: 1–4` | — |
-| `Text` | `text*` (markdown subset: bold, italic, code, lists, links shown as text), `tone: normal\|muted\|ok\|warn\|error`, `size: sm\|md\|lg` | — |
+| `Text` | `text*` (markdown subset: bold, italic, code, lists, links with the `Link` rules), `tone: normal\|muted\|ok\|warn\|error`, `size: sm\|md\|lg` | — |
 | `Badge` | `text*`, `tone` | — |
 | `Callout` | `text*`, `title`, `tone` | — |
 | `Code` | `text*`, `lang` | — |
@@ -34,7 +34,18 @@ Conventions: props are optional unless marked `*`. Any prop value may be an expr
 | `KeyValue` | `items*: [{label,value}]` | — |
 | `Progress` | `value*: 0–1`, `label`, `tone` | — |
 | `Chart` | `kind*: bar\|line\|area\|pie`, `data*: [{label,value,series?}]`, `x`, `y`, `legend: bool`, `height: number` | `press` ({label,value}) |
-| `Image` | `src*` (`data:image/…` only), `alt*`, `width` | `press` |
+| `Image` | `file` (a session file name) **or** `src` (`data:image/…`), `alt*`, `width`, `fit: contain\|cover` | `press` |
+
+### Links and media
+| Component | Props | Events |
+|---|---|---|
+| `Link` | `text*`, `href*` (`https:`, `http:`, `mailto:` only) **or** `file` (downloads a session file) | — |
+| `Audio` | `file*`, `title`, `transcript` | — |
+| `Video` | `file*`, `title`, `poster` (a session image), `height` | — |
+| `FileCard` | `file*`, `title`, `preview: bool` (opens the standard preview dialog) | `press` |
+| `Gallery` | `files*: [name]` (≤ 200), `cols`, `captions: [string]` | `press` ({file,index}) |
+
+A `file` is the file's name in this conversation's session files (what `list_session_files` returns). Names are resolved by the WebUI at draw time; nothing is copied into the interface. Links open in a new tab (`noopener noreferrer nofollow`), show the host beside the label when it differs from the address, and refuse any other scheme. Audio and video never autoplay.
 
 ### Input (all take `label*`, `value: bind`, `disabled`, `checks: [{type,message}]`)
 | Component | Extra props | Events |
@@ -57,7 +68,7 @@ Conventions: props are optional unless marked `*`. Any prop value may be an expr
 |---|---|---|
 | `Canvas2D` | `width*`, `height*` (logical units, scaled to fit), `background`, `shapes*: [Shape]` (static or `$state`) | `press` ({x,y,id?}), `move` (throttled) |
 
-`Shape` = `{id?, kind: rect\|circle\|line\|path\|text, …geometry, fill?, stroke?, strokeWidth?, text?, size?}` with colours from a closed token list (`ink`, `muted`, `accent`, `ok`, `warn`, `error`, `surface`, `series-1…6`) or `#rrggbb`.
+`Shape` = `{id?, kind: rect\|circle\|line\|path\|text\|image (`file`, x, y, w, h), …geometry, fill?, stroke?, strokeWidth?, text?, size?}` with colours from a closed token list (`ink`, `muted`, `accent`, `ok`, `warn`, `error`, `surface`, `series-1…6`) or `#rrggbb`.
 
 ### Surface (3D) — `Scene3D` is a container; its children are 3D components only
 | Component | Props | Events |
@@ -103,6 +114,8 @@ Renders nothing. Ticks pause off screen and in a hidden tab, and stop after 10 m
 | Logic call time / result size | 250 ms / 256 KB |
 | `Heightfield.resolution` | 192 |
 | `Canvas2D.shapes` | 5000 |
+| Files per `Gallery` / distinct files per interface | 200 / 100 |
+| Link `href` length | 2048 |
 | Saved page state | 64 KB (excluding `_` keys) |
 | `sendMessage` | 1/s per interface; text ≤ 4000 chars; data ≤ 64 KB |
 

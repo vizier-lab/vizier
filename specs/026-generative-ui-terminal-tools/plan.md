@@ -8,12 +8,13 @@
 
 Replace the hand-written-HTML `render_interactive_ui` with a **generative UI** client tool, `ui_render`, whose input is a json-render spec built only from a **catalogue of ready-made WebUI components**, and add a general **`ends_turn`** flag that makes a successful call to a tool the turn's final answer. `ui_render` is the first such tool.
 
-Four decisions carry the plan (details in [research.md](./research.md)):
+Five decisions carry the plan (details in [research.md](./research.md)):
 
 1. **The turn ends from the script's report** (R1). All tools are called from `execute_python`, so the agent loop never sees the flagged call. The `RouterBridge` marks each invocation record with `ends_turn`; the loop ends the turn when an `execute_python` round has `ok` and a successful flagged call. Stateless, so a resumed turn ends the same way. The notice is added once, where a catalogue entry's definition is built.
 2. **The agent learns the catalogue from the tools, never from a skill or the system prompt** (R5). A `ui` category line, then `list_tool_functions`, then `describe_tool_function("ui_render")` (a ≈1.8 KB cheat sheet), then an on-demand `ui_components` tool (index → per-component detail → complete recipes), then errors that list every problem with valid options. The text is generated from the same definitions that validate and draw, so it cannot drift.
-3. **Flexibility comes in three tiers, not a bigger catalogue** (R6): declarative components with `repeat`/`$cond`/`$computed` (enough for a chess board's look), surfaces (`Canvas2D`, `Scene3D` with a `Heightfield` and `Mesh`), and **sandboxed pure logic functions** the interface calls locally (chess rules, terrain noise). Logic runs in an opaque-origin, no-network iframe with a hard time limit (R9); `sendMessage` only follows a trusted person gesture.
-4. **json-render core and react are the foundation** (R3); 3D uses `three` and `@react-three/fiber` directly with a small component subset in a lazy chunk (R8). Validation happens in the WebUI tool handler, where the zod catalogue lives (R4).
+3. **Links and media build on what exists** (R12): a scheme-restricted `Link`, and `Image`/`Audio`/`Video`/`FileCard`/`Gallery` that refer to the conversation's **session files by name**, resolved to the existing `/files/{id}` route and shown with the existing players and preview. No new endpoint or storage; no external addresses.
+4. **Flexibility comes in three tiers, not a bigger catalogue** (R6): declarative components with `repeat`/`$cond`/`$computed` (enough for a chess board's look), surfaces (`Canvas2D`, `Scene3D` with a `Heightfield` and `Mesh`), and **sandboxed pure logic functions** the interface calls locally (chess rules, terrain noise). Logic runs in an opaque-origin, no-network iframe with a hard time limit (R9); `sendMessage` only follows a trusted person gesture.
+5. **json-render core and react are the foundation** (R3); 3D uses `three` and `@react-three/fiber` directly with a small component subset in a lazy chunk (R8). Validation happens in the WebUI tool handler, where the zod catalogue lives (R4).
 
 ## Technical Context
 
@@ -33,7 +34,7 @@ Four decisions carry the plan (details in [research.md](./research.md)):
 
 **Constraints**: Constitution III (no CDN, no network at runtime; 3D chunk is part of the embedded build); `build.rs` already builds the WebUI; no change to the dummyplug protocol; tool description cap 2048 B and schema cap 16 KB stay (the design fits under both); the system prompt stays byte-identical across turns.
 
-**Scale/Scope**: ≈35 catalogue components, 6 recipes, ≤1500 elements per interface; Rust change is about 250 lines in six files; WebUI change is a new `lib/generativeUi/` module plus one screen component and design-library additions.
+**Scale/Scope**: ≈40 catalogue components, 6 recipes, ≤1500 elements per interface; Rust change is about 250 lines in six files; WebUI change is a new `lib/generativeUi/` module plus one screen component and design-library additions.
 
 ## Constitution Check
 
@@ -106,6 +107,7 @@ webui/                                   # (submodule; committed second)
     │   └── generativeUi/
     │       ├── catalog.ts               # zod catalogue (descriptions, examples, groups) — the single source
     │       ├── registry.tsx             # catalogue → @vizier/design components
+    │       ├── media.tsx                # Link, Image/Audio/Video/FileCard/Gallery; file name → /files/{id}
     │       ├── surfaces/                # Canvas2D.tsx; Scene3D.tsx + shapes (lazy chunk)
     │       ├── functions.ts             # $computed functions
     │       ├── actions.ts               # sendMessage (trust + rate), run, state saving filter (_ keys)
@@ -134,9 +136,14 @@ webui/                                   # (submodule; committed second)
 
 ### Phase B — Generative UI core (WebUI + design)
 1. `design/`: layout primitives, `Slider`, `Chart`; stories.
-2. `lib/generativeUi/`: catalogue (Layout, Text, Data, Input, Action), registry, `$computed` functions, state store with `_` filtering and the 019 save/sync path, `validate.ts` with model-facing errors, `GenerativeUi.tsx`.
+2. `lib/generativeUi/`: catalogue (Layout, Text, Data, Input, Action; links and media follow in B2), registry, `$computed` functions, state store with `_` filtering and the 019 save/sync path, `validate.ts` with model-facing errors, `GenerativeUi.tsx`.
 3. `reference.ts` + `ui_components` and the `ui_render` description/schema (byte-cap test); recipes `dashboard`, `form`, `tabs_and_filter`; the empty-text reply bubble fix.
 4. Register `ui` category, `ui_components`, `ui_render` (`ends_turn`, not deferrable); make `render_interactive_ui` render-only; remove the skill template; retired-name hint; update CLAUDE.md and docs.
+
+### Phase B2 — Links and media
+1. `Link` (scheme allow-list, host disclosure, markdown links in `Text`).
+2. `media.tsx`: file-name resolution against the topic file list, `Image`/`Audio`/`Video`/`FileCard`/`Gallery` on the existing design players and `FilePreviewDialog`; inline placeholder; submit-time unknown-file error.
+3. `Canvas2D` `image` shape; `media` group in `ui_components`; tests (R11).
 
 ### Phase C — Flexibility
 1. Logic runner (iframe, CSP, queue, timeout, recreate), `run` action, `watch` guard and chain-depth cap, `Effect` (`load`, `tick`, visibility and idle stops), trust-gated `sendMessage`.

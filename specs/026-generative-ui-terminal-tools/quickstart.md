@@ -47,6 +47,16 @@ Open the WebUI, pick the `plug` agent, a fresh topic.
 9. Switch the app theme with an interface on screen → it re-themes without reload.
 10. Open a conversation that has a page saved by the old tool (copy an old topic db, or use one from the 019 quickstart) → it still draws and keeps its state.
 
+### 2b. Links and media
+
+1. In the topic, attach `photo.png`, `clip.mp3`, `movie.mp4`, `report.pdf` (or have the agent generate them).
+2. `ui_render` with a `Gallery`, an `Audio`, a `Video`, a `FileCard` and an `Image` naming those files → they display; audio and video do **not** autoplay; `FileCard` opens the preview dialog and downloads; seek and speed work.
+3. `ui_render` with `"file": "nope.png"` → error naming `nope.png` and listing the four available files; the turn continues.
+4. `ui_render` with `Image` `src: "https://example.com/x.png"` → refused (only `data:image/` or `file`).
+5. Generate an image with the image tool and show it in the same script → it appears after the turn ends.
+6. Delete the file from the session files panel, reload → "file not available" appears in that spot only.
+7. `Link` with `https://example.com` and text "Docs" → opens in a new tab with no opener; text "paypal.com" with href `https://evil.test` → `(evil.test)` shown beside it; `javascript:alert(1)`, `data:text/html,…`, `//host` → refused with the allowed schemes listed.
+
 ## 3. Flexibility: chess and low-poly terrain
 
 ### 3a. Recipes (dummyplug, deterministic)

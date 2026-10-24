@@ -57,7 +57,9 @@ Expression   {$state} {$bindState} {$bindItem} {$item} {$index} {$cond,$then,$el
              {$template} {$computed, args}                 (json-render; see ui-catalogue contract)
 ```
 
-**Validation rules** (enforced in the tool handler, see research R4): component and action names exist in the catalogue; props satisfy the component's zod schema; every `children`/`slots`/`root` id exists; `visible`/`repeat`/`watch`/`on` are at element level, not in `props` (auto-fixed when misplaced); `run.fn` names an entry in `logic`; `$computed` names a registered function; size, depth, element-count and logic-size limits; `Image.src` starts with `data:image/`; `Heightfield.resolution ≤ 192`.
+**File references**: a media component's `file` is a session file name. The handler fetches the topic's file list at submit time (`GET …/topic/{topic}/files`) and refuses unknown names; the renderer resolves name → `SessionFileRecord.file_id` → `/files/{file_id}` at draw time and on list changes. Nothing about a file is stored in the spec except its name.
+
+**Validation rules** (enforced in the tool handler, see research R4): component and action names exist in the catalogue; props satisfy the component's zod schema; every `children`/`slots`/`root` id exists; `visible`/`repeat`/`watch`/`on` are at element level, not in `props` (auto-fixed when misplaced); `run.fn` names an entry in `logic`; `$computed` names a registered function; size, depth, element-count and logic-size limits; `Image.src` starts with `data:image/`; every `file` names an existing session file; `Link.href` parses as `https`/`http`/`mailto`; `Heightfield.resolution ≤ 192`.
 
 ## 3. Page state
 
