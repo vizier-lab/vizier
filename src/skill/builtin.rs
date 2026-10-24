@@ -14,10 +14,11 @@ use crate::{
 };
 
 /// `(slug, SKILL.md)` of every built-in skill.
-pub const BUILTIN_SKILLS: &[(&str, &str)] = &[(
-    "interactive-ui",
-    include_str!("../../templates/skills/interactive-ui/SKILL.md"),
-)];
+///
+/// Empty since spec 026: `interactive-ui` was replaced by the `ui_components` tool. A copy an
+/// earlier version wrote stays in the workspace, the operator's to keep or delete. Add a
+/// `("slug", include_str!("../../templates/skills/slug/SKILL.md"))` entry to ship another.
+pub const BUILTIN_SKILLS: &[(&str, &str)] = &[];
 
 fn state_key(slug: &str) -> String {
     format!("skill.builtin.{slug}")

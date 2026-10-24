@@ -74,6 +74,10 @@ mod tests {
 
     /// The client's categories as `turn_categories` gives them for one declaration.
     fn with_client(base: &[CategorySummary]) -> Vec<CategorySummary> {
+        with_client_flagged(base, false)
+    }
+
+    fn with_client_flagged(base: &[CategorySummary], ends_turn: bool) -> Vec<CategorySummary> {
         use crate::agents::client::{
             ClientBinding, ClientCategoryDeclaration, ClientConnection, ClientToolDeclaration, ClientTools,
         };
@@ -85,11 +89,12 @@ mod tests {
             output_schema: None,
             timeout_secs: None,
             deferrable: false,
+            ends_turn,
         };
         let (connection, _rx) = ClientConnection::for_tests();
         let binding = ClientBinding {
             connection,
-            tools: vec![tool("render_interactive_ui", "ui"), tool("pick_color", "palette"), tool("x", "memory")],
+            tools: vec![tool("ui_render", "ui"), tool("pick_color", "palette"), tool("x", "memory")],
             categories: vec![ClientCategoryDeclaration {
                 name: "ui".into(),
                 description: Some("Show interactive pages in the conversation".into()),
@@ -124,5 +129,16 @@ mod tests {
         // Without a client the prompt is what it was.
         assert_eq!(sandbox_md(&base, "30s"), sandbox_md(&base.to_vec(), "30s"));
         assert!(!sandbox_md(&base, "30s").contains("provided by the person's client"));
+    }
+
+    /// The standing instructions list categories only: a tool that ends the turn is told
+    /// apart in its own description, never here (spec 026 FR-009).
+    #[test]
+    fn a_turn_ending_tool_does_not_change_the_standing_instructions() {
+        let base = [category("memory", "Search, read, write and organise long-term memory")];
+        assert_eq!(
+            sandbox_md(&with_client_flagged(&base, true), "30s"),
+            sandbox_md(&with_client_flagged(&base, false), "30s")
+        );
     }
 }

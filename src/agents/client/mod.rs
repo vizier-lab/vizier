@@ -15,7 +15,7 @@ use tracing::Instrument;
 
 use crate::{
     agents::tools::{
-        CatalogueEntry, CategorySummary, ToolTarget, assign_names, client_category_name,
+        CatalogueEntry, CategorySummary, ToolTarget, assign_names, client_category_name, with_ends_turn_notice,
         execute_tool_span, record_tool_result,
     },
     llm::types::ToolDefinition,
@@ -145,13 +145,17 @@ impl ClientTools {
                 },
                 definition: ToolDefinition {
                     name: entry.name.clone(),
-                    description: format!(
-                        "{}{}",
-                        if entry.declaration.deferrable { DEFERRABLE_PREFIX } else { DESCRIPTION_PREFIX },
-                        entry.declaration.description
+                    description: with_ends_turn_notice(
+                        format!(
+                            "{}{}",
+                            if entry.declaration.deferrable { DEFERRABLE_PREFIX } else { DESCRIPTION_PREFIX },
+                            entry.declaration.description
+                        ),
+                        entry.declaration.ends_turn,
                     ),
                     parameters: entry.declaration.input_schema.clone(),
                 },
+                ends_turn: entry.declaration.ends_turn,
             })
             .collect();
 
@@ -213,6 +217,7 @@ impl ClientTools {
                     "tool": entry.declaration.name,
                     "category_name": entry.category_name,
                     "name": entry.name,
+                    "ends_turn": entry.declaration.ends_turn,
                 })
             })
             .collect();
@@ -239,6 +244,9 @@ impl ClientTools {
         arguments: serde_json::Value,
     ) -> (Option<String>, anyhow::Result<VizierResponse>) {
         let span = execute_tool_span(name, &arguments.to_string(), None);
+        if self.entries.iter().any(|entry| entry.name == name && entry.declaration.ends_turn) {
+            span.record("vizier.tool.ends_turn", true);
+        }
         let (call_id, result) = self.round_trip(name, arguments).instrument(span.clone()).await;
         record_tool_result(&span, &result);
         (call_id, result)
@@ -562,6 +570,7 @@ impl ClientTools {
                 output_schema: None,
                 timeout_secs: None,
                 deferrable: false,
+            ends_turn: false,
             }],
             categories: vec![],
         };
@@ -598,6 +607,7 @@ mod tests {
             output_schema: None,
             timeout_secs: None,
             deferrable: false,
+            ends_turn: false,
         }
     }
 
@@ -611,6 +621,7 @@ mod tests {
                 description: String::new(),
                 parameters: json!({}),
             },
+            ends_turn: false,
         }
     }
 
@@ -887,5 +898,32 @@ mod tests {
         s.connection.close();
         let err = s.tools.call("client_pick", json!({})).await.1.unwrap_err().to_string();
         assert!(err.starts_with("client_disconnected"), "{err}");
+    }
+
+    #[test]
+    fn a_flagged_client_tool_carries_the_notice_once_after_the_prefix_and_echoes_the_flag() {
+        let s = setup(
+            vec![
+                ClientToolDeclaration { ends_turn: true, ..declaration("render", Some("ui")) },
+                declaration("plain", Some("ui")),
+            ],
+            vec![],
+        );
+        let catalogue = s.tools.catalogue();
+        assert_eq!(
+            catalogue[0].definition.description,
+            format!(
+                "{DESCRIPTION_PREFIX}render does a thing {}",
+                crate::agents::tools::ENDS_TURN_NOTICE
+            )
+        );
+        assert!(catalogue[0].ends_turn);
+        assert!(!catalogue[1].definition.description.contains(crate::agents::tools::ENDS_TURN_NOTICE));
+        assert!(!catalogue[1].ends_turn);
+
+        let frame = s.tools.resolved_frame();
+        let tools = frame["client_tools_resolved"]["tools"].as_array().unwrap();
+        assert_eq!(tools[0]["ends_turn"], true);
+        assert_eq!(tools[1]["ends_turn"], false);
     }
 }

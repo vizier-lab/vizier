@@ -182,10 +182,12 @@ impl SandboxBridge for RouterBridge {
         };
         let tool = entry.name.clone();
         let is_client = matches!(entry.target, ToolTarget::Client { .. });
+        let flagged = entry.ends_turn;
 
         let started = Instant::now();
         let (call_id, result) = self.dispatch(tool.clone(), arguments.to_string()).await;
         let duration_ms = started.elapsed().as_millis() as u64;
+        let ends_turn = flagged && result.as_ref().is_ok_and(|value| !is_deferred(value));
 
         // A client call's arguments are already stored in full on its `ClientToolCall` entry
         // (a page can be 256 KB), so the report keeps a reference to it instead.
@@ -215,11 +217,18 @@ impl SandboxBridge for RouterBridge {
                 ok: result.is_ok(),
                 error: result.as_ref().err().cloned(),
                 duration_ms,
+                ends_turn,
             });
         }
 
         result.map_err(BridgeError::Tool)
     }
+}
+
+/// A client call that was handed on for later rather than answered: not a result, so it
+/// never ends the turn.
+fn is_deferred(value: &serde_json::Value) -> bool {
+    value.get("status").and_then(serde_json::Value::as_str) == Some("deferred")
 }
 
 fn take<T>(list: &Mutex<Vec<T>>) -> Vec<T> {

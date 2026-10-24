@@ -2,7 +2,7 @@
 
 A WebSocket client can give the agent tools of its own: drawing something on the person's screen, asking them to pick a file, reading the browser's location. The client declares each tool on the request it sends; the agent can call it from its scripts during that turn; the call comes back over the same socket, and the client answers it. vizier only checks the declarations' shape, names them, and carries calls and answers.
 
-This is protocol version 1. It extends the [WebSocket chat protocol](./rest-api.md#websocket-chat) and changes nothing for clients that ignore it. The WebUI uses it for its own interactive pages (`render_interactive_ui`), registered through the same mechanism a WebUI extension uses (`registerClientTool` in `webui/app/lib/clientTools.ts`).
+This is protocol version 1. It extends the [WebSocket chat protocol](./rest-api.md#websocket-chat) and changes nothing for clients that ignore it. The WebUI uses it for its own generated interfaces (`ui_render`, see [Generative UI](./generative-ui.md)), registered through the same mechanism a WebUI extension uses (`registerClientTool` in `webui/app/lib/clientTools.ts`).
 
 ```
 ws://<host>/api/v1/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/chat?token=<jwt>
@@ -49,6 +49,7 @@ Any request (`chat`, `audio_chat`, `client_event`) may carry:
 | `client_tools[].output_schema` | no | a JSON Schema object, at most 16 KB |
 | `client_tools[].timeout_secs` | no | 1–600, default 60 |
 | `client_tools[].deferrable` | no | `true` to let the agent call the tool while no client is connected; see §4a. Default `false` |
+| `client_tools[].ends_turn` | no | `true` to make a successful call the turn's final answer; see §3a. Default `false`. Must be a boolean |
 | `client_categories[].name` | yes | a category used by at least one tool (others are ignored) |
 | `client_categories[].description` | no | at most 512 bytes |
 
@@ -75,7 +76,7 @@ When the agent starts the turn, before the model runs, the declaring connection 
   "client_tools_resolved": {
     "protocol": 1,
     "tools": [
-      { "category": "palette", "tool": "pick_color", "category_name": "palette", "name": "palette_pick_color" }
+      { "category": "palette", "tool": "pick_color", "category_name": "palette", "name": "palette_pick_color", "ends_turn": false }
     ]
   }
 }
@@ -84,6 +85,7 @@ When the agent starts the turn, before the model runs, the declaring connection 
 - `name` is what the agent calls the tool: `<category_name>_<tool>`.
 - `category_name` equals `category` unless that name is reserved (a built-in category such as `memory`, an addon id, or one of the agent's MCP server names), in which case it is `<category>_client`.
 - A name that collides with another tool gets `_2`, `_3`, …. A client tool never replaces another tool.
+- `ends_turn` echoes the declaration, so a client can show it.
 
 If the request was queued behind another turn, this frame arrives when its own turn starts. If the connection closed before then, the turn runs without client tools and nothing is sent.
 
@@ -107,6 +109,18 @@ If the request was queued behind another turn, this frame arrives when its own t
 - `call_id` is stable. It is the id of the call's entry in the conversation history (§7), and the id used for saved state (§6) and client events (§5).
 - The arguments are not validated against your `input_schema`. Validate them, and answer with an error if they are wrong.
 - `deferred: true` marks a deferred call being delivered now (§4a). Answer it like any other.
+
+## 3a. Tools that end the turn
+
+A tool declared with `"ends_turn": true` makes its result the agent's final answer: when the call succeeds, the agent is not asked for another round, and the turn ends. Use it for a tool whose output *is* the reply, such as one that draws an interface in the conversation.
+
+- **The agent is told.** Wherever the agent reads the tool's description, it ends with exactly one copy of: *Calling this ends your turn: its result is your final answer, so finish all other work first and expect no further round. If the call fails you get the error and the turn continues.* The 2 KB description limit applies to your own text only; the notice is added after the check.
+- **When the turn ends.** After the script that made the call finishes without error and the call succeeded. If one script calls several turn-ending tools, the turn ends after the script. The round's results are saved as usual and the reply is the text the agent wrote in that step (it may be empty).
+- **When it continues.** The agent gets the result and another round when the call failed, timed out, was refused or cancelled, returned `{"status": "deferred"}`, or when the script failed afterwards.
+- **Restarts.** A turn resumed after a restart whose last round was turn-ending ends the same way.
+- **Stats.** The reply's stats carry `ended_by_tool`, the name of the function that ended the turn.
+
+Other tools (native and addon tools may set the flag in code; MCP tools cannot) follow the same rule. Dreams, scheduled runs, background pieces and inter-agent turns have no client tools.
 
 ## 4. Client → server: the answer
 
@@ -264,3 +278,7 @@ Every refusal goes to the sending connection only.
 ## 9. Versioning
 
 This is version 1. `client_tools_resolved.protocol` carries it. Within version 1, the server may add optional fields and new frame kinds; clients ignore what they do not recognise. Any other change is a new version, announced in the changelog.
+
+### Changelog
+
+- Optional `ends_turn` on tool declarations and in `client_tools_resolved` (version 1).

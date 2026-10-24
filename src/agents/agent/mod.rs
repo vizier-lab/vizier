@@ -482,9 +482,16 @@ impl VizierAgent {
         turn: TurnRef,
     ) -> Result<VizierResponse> {
         let span = self.invoke_agent_span(&req, &session, false);
-        self.chat_turn(req, session, session_history, memory, skills, invoked, hooks, checkpoint_handover, turn)
-            .instrument(span)
-            .await
+        let result = self
+            .chat_turn(req, session, session_history, memory, skills, invoked, hooks, checkpoint_handover, turn)
+            .instrument(span.clone())
+            .await;
+        if let Ok(VizierResponse { content: VizierResponseContent::Message { stats: Some(stats), .. }, .. }) = &result
+            && let Some(name) = &stats.ended_by_tool
+        {
+            span.record("vizier.turn.ended_by_tool", name.as_str());
+        }
+        result
     }
 
     /// The `invoke_agent` span for one turn: a child of whatever sent the request (a tool
@@ -508,6 +515,7 @@ impl VizierAgent {
             vizier.background_depth = req.background_depth,
             vizier.queue.wait_ms = req.trace.queue_wait_ms(),
             vizier.dream = dream,
+            vizier.turn.ended_by_tool = tracing::field::Empty,
         );
         record_channel(&span, &session.1);
         req.trace.adopt(&span);
@@ -842,7 +850,11 @@ impl VizierAgent {
         // Save tool calls/results from the delta, skipping the last message
         // (final assistant response) which is saved explicitly below with full stats
         let new_messages = &final_history[original_history_len..];
-        if new_messages.len() > 1 {
+        if stats.ended_by_tool.is_some() {
+            // A turn-ending tool's result is the last message and there is no closing
+            // assistant message to hold back: record every step.
+            recorder.flush(&self.storage, &self.transport, new_messages).await;
+        } else if new_messages.len() > 1 {
             // `AssistantMessage` entries are kept: the narration an agent writes alongside
             // its tool calls is part of what it did on the way to the answer, and it is
             // recorded ahead of those tool calls so replay can merge the two back into the
@@ -945,11 +957,15 @@ impl VizierAgent {
 
         // Steps already taken (a resumed turn): the request and its progress go into the
         // record, and the last message of the progress is the one sent next.
+        // A resumed turn whose last round already ended it is finished, not asked again.
+        let mut resumed_end = ending_tool_in(&progress).map(|name| (name, text_of_last_reply(&progress)));
         if !progress.is_empty() {
             let mut progress = progress;
             history.push(message.clone());
             full_history.push(message.clone());
-            message = progress.pop().expect("checked non-empty");
+            if resumed_end.is_none() {
+                message = progress.pop().expect("checked non-empty");
+            }
             history.extend(progress.iter().cloned());
             full_history.extend(progress);
         }
@@ -968,8 +984,14 @@ impl VizierAgent {
         let mut current_context_size: Option<u64> = None;
 
         let mut depth_exhausted = false;
+        let mut ended_by_tool: Option<String> = None;
 
         loop {
+            if let Some((name, text)) = resumed_end.take() {
+                output = text;
+                ended_by_tool = Some(name);
+                break;
+            }
             turn_depth += 1;
             // Past the last tool-using step, one more completion answers with what the turn
             // found, instead of the turn failing and losing it (#48).
@@ -1081,6 +1103,9 @@ impl VizierAgent {
 
             let mut tool_responses: Vec<Message> = vec![];
             let mut pending_images: Vec<Part> = vec![];
+            // Set when a script this round finished and a turn-ending function succeeded in
+            // it (spec 026): the round's results are the turn's last step.
+            let mut round_ended_by: Option<String> = None;
             for (call_id, call_name, call_arguments) in tool_calls.iter().filter_map(|item| {
                 if let AssistantPart::ToolCall { id, name, arguments, .. } = item {
                     Some((id, name, arguments))
@@ -1175,6 +1200,12 @@ impl VizierAgent {
                     }
                 }
 
+                if let VizierResponseContent::ToolResponse { response } = &tool_res.content
+                    && let Some(name) = crate::sandbox::ExecutionReport::ending_call(response)
+                {
+                    round_ended_by = Some(name);
+                }
+
                 let response_content = tool_res
                     .to_tool_result(call_id.clone(), &self.global_workspace)
                     .map_err(|e| {
@@ -1221,6 +1252,16 @@ impl VizierAgent {
                     None,
                     vec![],
                 ));
+            }
+
+            if let Some(name) = round_ended_by {
+                // No closing completion and no checkpoint: the results join the record and
+                // the step's own text is the reply.
+                history.extend(tool_responses.iter().cloned());
+                full_history.extend(tool_responses);
+                output = text_of(&choices);
+                ended_by_tool = Some(name);
+                break;
             }
 
             if pending_images.is_empty() {
@@ -1279,6 +1320,7 @@ impl VizierAgent {
                 current_context_size,
                 context_window: self.model.context_window(),
                 depth_exhausted,
+                ended_by_tool,
                 provider: Some(self.model.info().provider.clone()),
                 model: Some(self.model.info().model.clone()),
             },
@@ -1783,6 +1825,7 @@ impl VizierAgent {
                     current_context_size,
                     context_window: model.context_window(),
                     depth_exhausted,
+                    ended_by_tool: None,
                     provider: Some(model.info().provider.clone()),
                     model: Some(model.info().model.clone()),
                 },
@@ -1842,6 +1885,49 @@ const DEPTH_EXHAUSTED_FALLBACK: &str =
 
 /// `message` (normally the latest tool results) with a note that the turn's tool budget is
 /// spent, so the wrap-up completion answers instead of reaching for another tool (#48).
+/// The text parts of a reply, joined as a turn's answer is.
+fn text_of(parts: &[AssistantPart]) -> String {
+    parts
+        .iter()
+        .filter_map(|part| match part {
+            AssistantPart::Text(text) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The text of the last assistant message among `messages`, empty if there is none.
+fn text_of_last_reply(messages: &[Message]) -> String {
+    messages
+        .iter()
+        .rev()
+        .find_map(|message| match message {
+            Message::Assistant(parts) => Some(text_of(parts)),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// The turn-ending function whose result closes `messages`, if their trailing tool results are
+/// a report of a script in which one succeeded. This is how a resumed turn knows its last
+/// round already ended it (spec 026).
+fn ending_tool_in(messages: &[Message]) -> Option<String> {
+    messages
+        .iter()
+        .rev()
+        .map_while(|message| match message {
+            Message::ToolResult { content, .. } => Some(content),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(Part::text)
+        .find_map(|text| {
+            let report = serde_json::from_str::<serde_json::Value>(text).ok()?;
+            crate::sandbox::ExecutionReport::ending_call(&report)
+        })
+}
+
 fn with_wrap_up_note(message: Message, thinking_depth: usize) -> Message {
     let note = format!(
         "[You have used all {thinking_depth} tool steps for this turn, and no more tool calls \
@@ -2121,4 +2207,49 @@ fn record_channel(span: &tracing::Span, channel: &crate::schema::VizierChannelId
         }
     };
     span.record("vizier.channel.type", kind);
+}
+
+#[cfg(test)]
+mod ends_turn_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn report(ok: bool, calls: serde_json::Value) -> String {
+        json!({ "ok": ok, "result": null, "stdout": "", "tool_calls": calls, "duration_ms": 1 })
+            .to_string()
+    }
+
+    fn call(name: &str, ok: bool, ends_turn: bool) -> serde_json::Value {
+        json!({ "seq": 1, "name": name, "ok": ok, "duration_ms": 1, "ends_turn": ends_turn })
+    }
+
+    #[test]
+    fn a_trailing_report_with_a_successful_flagged_call_ends_the_turn() {
+        let messages = vec![
+            Message::Assistant(vec![AssistantPart::Text("here you go".into())]),
+            Message::tool_result("a", report(true, json!([call("ui_render", true, true)]))),
+        ];
+        assert_eq!(ending_tool_in(&messages).as_deref(), Some("ui_render"));
+        assert_eq!(text_of_last_reply(&messages), "here you go");
+    }
+
+    #[test]
+    fn failures_and_plain_results_leave_the_turn_running() {
+        let failed_call = [Message::tool_result("a", report(true, json!([call("ui_render", false, true)])))];
+        let failed_script = [Message::tool_result("a", report(false, json!([call("ui_render", true, true)])))];
+        let unflagged = [Message::tool_result("a", report(true, json!([call("memory_read", true, false)])))];
+        let plain = [Message::tool_result("a", "not a report")];
+        for messages in [&failed_call[..], &failed_script[..], &unflagged[..], &plain[..], &[]] {
+            assert_eq!(ending_tool_in(messages), None);
+        }
+    }
+
+    #[test]
+    fn only_the_trailing_results_count() {
+        let messages = vec![
+            Message::tool_result("a", report(true, json!([call("ui_render", true, true)]))),
+            Message::Assistant(vec![AssistantPart::Text("and more".into())]),
+        ];
+        assert_eq!(ending_tool_in(&messages), None);
+    }
 }

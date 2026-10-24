@@ -165,10 +165,16 @@ impl ToolCategory {
 /// Names that were retired rather than aliased, with the guidance to show when a
 /// caller still uses one. Keep this table until the pre-1.0 removal tracker (#82)
 /// says these compatibility hints can go.
-pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[(
-    "paralel_subtasks",
-    "paralel_subtasks was replaced by parallel_subagents (waits for the results) and background_subagents (results arrive later as a background report)",
-)];
+pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[
+    (
+        "paralel_subtasks",
+        "paralel_subtasks was replaced by parallel_subagents (waits for the results) and background_subagents (results arrive later as a background report)",
+    ),
+    (
+        "ui_render_interactive_ui",
+        "render_interactive_ui was replaced by ui_render. Start with ui_components().",
+    ),
+];
 
 /// The guidance for a retired tool name, if the name is known.
 pub fn retired_hint(name: &str) -> Option<&'static str> {
@@ -266,6 +272,7 @@ pub(crate) fn execute_tool_span(function_name: &str, args: &str, call_id: Option
         gen_ai.tool.call.arguments = tracing::field::Empty,
         gen_ai.tool.call.result = tracing::field::Empty,
         error.type = tracing::field::Empty,
+        vizier.tool.ends_turn = tracing::field::Empty,
     );
     if crate::llm::telemetry::capture_content() {
         span.record("gen_ai.tool.call.arguments", args);
@@ -370,6 +377,32 @@ pub struct CatalogueEntry {
     pub category: String,
     pub target: ToolTarget,
     pub definition: ToolDefinition,
+    /// A successful call is the turn's final answer; the definition already carries the notice.
+    pub ends_turn: bool,
+}
+
+/// Appended once to the description of every tool that ends the turn, wherever its
+/// definition is built, so the agent learns it from the tool and not from standing prompts.
+pub const ENDS_TURN_NOTICE: &str = "Calling this ends your turn: its result is your final answer, so finish all other work first and expect no further round. If the call fails you get the error and the turn continues.";
+
+/// `description` with [`ENDS_TURN_NOTICE`] when `ends_turn`; unchanged otherwise, and never
+/// twice.
+pub fn with_ends_turn_notice(description: String, ends_turn: bool) -> String {
+    if !ends_turn || description.contains(ENDS_TURN_NOTICE) {
+        return description;
+    }
+    if description.is_empty() {
+        ENDS_TURN_NOTICE.to_string()
+    } else {
+        format!("{description} {ENDS_TURN_NOTICE}")
+    }
+}
+
+/// A native tool's definition, with the turn-ending notice when it is flagged.
+fn flagged_definition(tool: &(impl VizierToolDyn + ?Sized)) -> ToolDefinition {
+    let mut definition = tool.tool_def();
+    definition.description = with_ends_turn_notice(definition.description, tool.ends_turn());
+    definition
 }
 
 /// A category line of the system prompt.
@@ -398,6 +431,9 @@ pub trait VizierToolDyn {
 
     fn category(&self) -> Option<ToolCategory>;
 
+    /// Whether a successful call is the turn's final answer.
+    fn ends_turn(&self) -> bool;
+
     fn tool_def(&self) -> ToolDefinition;
 
     fn description(&self) -> String;
@@ -417,6 +453,10 @@ impl<Tool: VizierTool + Sync + Send> VizierToolDyn for Tool {
 
     fn category(&self) -> Option<ToolCategory> {
         Self::category()
+    }
+
+    fn ends_turn(&self) -> bool {
+        <Self as VizierTool>::ends_turn()
     }
 
     fn tool_def(&self) -> ToolDefinition {
@@ -457,6 +497,12 @@ pub trait VizierTool {
     /// The category a script lists this tool under; `None` only for the tools the model
     /// calls directly and the dream-only journal tools, which no script can reach.
     fn category() -> Option<ToolCategory>;
+
+    /// Whether a successful call is the turn's final answer, with no further model round.
+    /// Only code mode acts on it: the call must be made from `execute_python`.
+    fn ends_turn() -> bool {
+        false
+    }
 
     fn input_schema() -> serde_json::Value {
         serde_json::to_value(schema_for!(<Self as VizierTool>::Input)).unwrap()
@@ -640,7 +686,8 @@ impl ToolRouter {
                     name: python_identifier(&tool.tool_name()),
                     category: tool.category()?.name().into(),
                     target: ToolTarget::Native(tool.tool_name()),
-                    definition: tool.tool_def(),
+                    definition: flagged_definition(&***tool),
+                    ends_turn: tool.ends_turn(),
                 })
             })
             .collect();
@@ -648,7 +695,8 @@ impl ToolRouter {
             name: python_identifier(&tool.tool_name()),
             category: addon.clone(),
             target: ToolTarget::Native(tool.tool_name()),
-            definition: tool.tool_def(),
+            definition: flagged_definition(&***tool),
+            ends_turn: tool.ends_turn(),
         }));
 
         // Concurrently, so one slow server costs one listing timeout, not one per server. A
@@ -685,6 +733,7 @@ impl ToolRouter {
                     tool: definition.name.clone(),
                 },
                 definition,
+                ends_turn: false,
             }
         }));
 
@@ -710,6 +759,9 @@ impl ToolRouter {
         ctx: &ToolContext,
     ) -> Result<VizierResponse> {
         let span = execute_tool_span(&function_name, &params, None);
+        if self.get_native(&function_name).is_some_and(|tool| tool.ends_turn()) {
+            span.record("vizier.tool.ends_turn", true);
+        }
         let result = self.dispatch(function_name, params, ctx).instrument(span.clone()).await;
         record_tool_result(&span, &result);
         result
@@ -1433,6 +1485,10 @@ mod tests {
         assert!(hint.contains("parallel_subagents"));
         assert!(hint.contains("background_subagents"));
         assert!(retired_hint("parallel_subagents").is_none());
+        assert_eq!(
+            retired_hint("ui_render_interactive_ui"),
+            Some("render_interactive_ui was replaced by ui_render. Start with ui_components().")
+        );
         assert!(retired_hint("background_subagents").is_none());
     }
 
@@ -1626,5 +1682,50 @@ mod tests {
         let categories = turn_categories(&base, &ctx);
         assert_eq!(&categories[..base.len()], &base[..]);
         assert_eq!(categories.last().unwrap().name, "palette");
+    }
+}
+
+#[cfg(test)]
+mod ends_turn_tests {
+    use super::*;
+
+    #[test]
+    fn the_notice_is_appended_once_and_only_when_flagged() {
+        let flagged = with_ends_turn_notice("Draws a page.".into(), true);
+        assert_eq!(flagged, format!("Draws a page. {ENDS_TURN_NOTICE}"));
+        assert_eq!(flagged.matches(ENDS_TURN_NOTICE).count(), 1);
+        assert_eq!(with_ends_turn_notice(flagged.clone(), true), flagged);
+        assert_eq!(with_ends_turn_notice("Draws a page.".into(), false), "Draws a page.");
+        assert_eq!(with_ends_turn_notice(String::new(), true), ENDS_TURN_NOTICE);
+    }
+
+    struct Finisher;
+
+    #[async_trait::async_trait]
+    impl VizierTool for Finisher {
+        type Input = ();
+        type Output = ();
+        fn name() -> String {
+            "finisher".into()
+        }
+        fn category() -> Option<ToolCategory> {
+            Some(ToolCategory::Web)
+        }
+        fn ends_turn() -> bool {
+            true
+        }
+        fn description(&self) -> String {
+            "Finishes.".into()
+        }
+        async fn call(&self, _: (), _: &ToolContext) -> Result<(), VizierError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_flagged_tool_reports_it_through_the_dyn_trait_and_its_definition() {
+        let tool: &dyn VizierToolDyn = &Finisher;
+        assert!(tool.ends_turn());
+        assert!(flagged_definition(tool).description.ends_with(ENDS_TURN_NOTICE));
     }
 }

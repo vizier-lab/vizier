@@ -53,6 +53,13 @@ pub struct ToolInvocationRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     pub duration_ms: u64,
+    /// The dispatched function ends the turn when it succeeds (spec 026).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub ends_turn: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl ExecutionReport {
@@ -93,6 +100,31 @@ impl ExecutionReport {
         }
 
         Some(value)
+    }
+
+    /// Whether this run is a turn-ending one: the script finished and a function that
+    /// ends the turn succeeded in it.
+    pub fn ended_turn(&self) -> bool {
+        self.ok && self.tool_calls.iter().any(|call| call.ok && call.ends_turn)
+    }
+
+    /// The name of the function that ended the turn in a serialised report, if one did.
+    /// Reads the JSON rather than deserialising it, since the model's copy of a report has
+    /// lost each call's `arguments`. `None` for anything that is not a turn-ending report.
+    pub fn ending_call(value: &Value) -> Option<String> {
+        if !Self::looks_like(value) || value.get("ok") != Some(&Value::Bool(true)) {
+            return None;
+        }
+        value
+            .get("tool_calls")?
+            .as_array()?
+            .iter()
+            .rev()
+            .find(|call| {
+                call.get("ok") == Some(&Value::Bool(true))
+                    && call.get("ends_turn") == Some(&Value::Bool(true))
+            })
+            .and_then(|call| call.get("name")?.as_str().map(str::to_string))
     }
 
     pub fn failed(
@@ -153,6 +185,7 @@ mod tests {
                 ok: true,
                 error: None,
                 duration_ms: 12,
+                ends_turn: false,
             }],
             duration_ms: 34,
         }
@@ -232,5 +265,68 @@ mod tests {
         assert!(back.error.is_none());
         assert!(back.tool_calls[0].error.is_none());
         assert_eq!(back.tool_calls[0].arguments["limit"], 5);
+    }
+
+    fn call(ok: bool, ends_turn: bool) -> ToolInvocationRecord {
+        ToolInvocationRecord {
+            seq: 1,
+            name: "ui_render".into(),
+            arguments: json!({}),
+            ok,
+            error: None,
+            duration_ms: 1,
+            ends_turn,
+        }
+    }
+
+    #[test]
+    fn a_turn_ends_only_when_the_script_and_a_flagged_call_both_succeeded() {
+        let mut ended = report();
+        ended.tool_calls = vec![call(false, false), call(true, true)];
+        assert!(ended.ended_turn());
+
+        let mut failed_call = report();
+        failed_call.tool_calls = vec![call(false, true)];
+        assert!(!failed_call.ended_turn());
+
+        let mut unflagged = report();
+        unflagged.tool_calls = vec![call(true, false)];
+        assert!(!unflagged.ended_turn());
+
+        let mut failed_script = report();
+        failed_script.ok = false;
+        failed_script.tool_calls = vec![call(true, true)];
+        assert!(!failed_script.ended_turn());
+
+        let mut no_calls = report();
+        no_calls.tool_calls = vec![];
+        assert!(!no_calls.ended_turn());
+    }
+
+    #[test]
+    fn the_ending_call_is_read_from_a_serialised_report_without_arguments() {
+        let mut ended = report();
+        ended.tool_calls = vec![call(true, false), call(true, true)];
+        let full = serde_json::to_value(&ended).unwrap();
+        let view = ExecutionReport::model_view(&full).unwrap();
+
+        assert_eq!(ExecutionReport::ending_call(&full).as_deref(), Some("ui_render"));
+        assert_eq!(ExecutionReport::ending_call(&view).as_deref(), Some("ui_render"));
+        assert_eq!(ExecutionReport::ending_call(&json!({ "slug": "x" })), None);
+
+        ended.tool_calls = vec![call(false, true)];
+        assert_eq!(ExecutionReport::ending_call(&serde_json::to_value(&ended).unwrap()), None);
+    }
+
+    #[test]
+    fn the_flag_is_only_serialised_when_set_and_defaults_when_absent() {
+        let plain = serde_json::to_value(call(true, false)).unwrap();
+        assert!(!plain.as_object().unwrap().contains_key("ends_turn"));
+
+        let flagged = serde_json::to_value(call(true, true)).unwrap();
+        assert_eq!(flagged["ends_turn"], true);
+
+        let back: ToolInvocationRecord = serde_json::from_value(plain).unwrap();
+        assert!(!back.ends_turn);
     }
 }

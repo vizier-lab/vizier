@@ -692,6 +692,20 @@ mod tests {
         }
     }
 
+    /// The turn-ending notice rides in the definition's description, so the sample request shows
+    /// it with no protocol change (spec 026).
+    #[tokio::test]
+    async fn a_turn_ending_notice_shows_in_the_sample_request() {
+        let description = crate::agents::tools::with_ends_turn_notice("Draws a page.".into(), true);
+        let tools = vec![ToolDefinition {
+            name: "ui_render".into(),
+            description,
+            parameters: json!({}),
+        }];
+        let text = reply_text(user_message("ui_render"), tools).await;
+        assert_eq!(text.matches(crate::agents::tools::ENDS_TURN_NOTICE).count(), 1, "{text}");
+    }
+
     #[tokio::test]
     async fn tools_with_no_tools() {
         assert_eq!(

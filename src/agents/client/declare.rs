@@ -40,6 +40,10 @@ pub struct ClientToolDeclaration {
     /// next opens the conversation, instead of failing (research R18).
     #[serde(default)]
     pub deferrable: bool,
+    /// A successful call is the turn's final answer (spec 026). Only a boolean deserialises, so
+    /// a wrong type fails the whole request like any other malformed field.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ends_turn: bool,
 }
 
 impl ClientToolDeclaration {
@@ -251,6 +255,7 @@ mod tests {
             output_schema: None,
             timeout_secs: None,
             deferrable: false,
+            ends_turn: false,
         }
     }
 

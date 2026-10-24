@@ -27,6 +27,9 @@ pub struct VizierResponseStats {
     /// The turn reached `thinking_depth`, and the reply is what it had by then (#48).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub depth_exhausted: bool,
+    /// The turn ended because this turn-ending tool succeeded, not because the model answered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_by_tool: Option<String>,
     /// The provider and model that answered, for the usage view's cost estimate (FR-021).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>)]
