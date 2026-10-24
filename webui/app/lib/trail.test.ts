@@ -312,6 +312,52 @@ test('a launching call in history is tagged with the job id from its result', ()
   assert.equal(tools[1].kind === 'tool' && tools[1].jobId, undefined)
 })
 
+test('background_subagents is a job launch', () => {
+  const turns = groupHistory([
+    entry({ Request: { timestamp: 't', user: 'u', content: { chat: 'go' } } }),
+    entry({ ToolCall: { call_id: 'c1', name: 'background_subagents', arguments: { tasks: [] } } }),
+    entry({
+      ToolResult: {
+        call_id: 'c1',
+        content: '"Started background batch b-7f3a9c with 2 tasks. Results will arrive later."',
+      },
+    }),
+  ])
+
+  const tools = turns[0].trail.filter((event) => event.kind === 'tool')
+  assert.equal(tools.length, 1)
+  assert.equal(tools[0].kind === 'tool' && tools[0].jobId, 'b-7f3a9c')
+})
+
+test('the retired paralel_subtasks name is still a job launch in saved history', () => {
+  const turns = groupHistory([
+    entry({ Request: { timestamp: 't', user: 'u', content: { chat: 'go' } } }),
+    entry({ ToolCall: { call_id: 'c1', name: 'paralel_subtasks', arguments: { tasks: [] } } }),
+    entry({
+      ToolResult: {
+        call_id: 'c1',
+        content: '"Started background batch b-7f3a9c with 2 tasks. Results will arrive later."',
+      },
+    }),
+  ])
+
+  const tools = turns[0].trail.filter((event) => event.kind === 'tool')
+  assert.equal(tools.length, 1)
+  assert.equal(tools[0].kind === 'tool' && tools[0].jobId, 'b-7f3a9c')
+})
+
+test('parallel_subagents is an ordinary tool call', () => {
+  const turns = groupHistory([
+    entry({ Request: { timestamp: 't', user: 'u', content: { chat: 'go' } } }),
+    entry({ ToolCall: { call_id: 'c1', name: 'parallel_subagents', arguments: { tasks: [] } } }),
+    entry({ ToolResult: { call_id: 'c1', content: '{"results":[]}' } }),
+  ])
+
+  const tools = turns[0].trail.filter((event) => event.kind === 'tool')
+  assert.equal(tools.length, 1)
+  assert.equal(tools[0].kind === 'tool' && tools[0].jobId, undefined)
+})
+
 test('a live launch result tags the most recent launching call', () => {
   let trail: TrailEvent[] = []
   trail = appendLiveEvent(

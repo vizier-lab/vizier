@@ -3808,7 +3808,7 @@ export interface components {
             audio_prompt: Record<string, never>[];
         } | {
             /**
-             * @description The outcome of background work this conversation started (`paralel_subtasks`,
+             * @description The outcome of background work this conversation started (`background_subagents`,
              *     `delegate_agent`), delivered as a turn of its own. Not a message from a person.
              */
             background_report: components["schemas"]["BackgroundReport"];

@@ -261,8 +261,9 @@ export interface ChatMessage {
 export type TrailEvent =
   | { kind: 'narration'; id: string; text: string }
   | { kind: 'thought'; id: string; text: string }
-  // `jobId` is set on the `paralel_subtasks`/`delegate_agent` call that launched a background
-  // job, read from its tool result, so the job tray can jump back to it.
+  // `jobId` is set on the `background_subagents`/`delegate_agent` call that launched a
+  // background job, read from its tool result, so the job tray can jump back to it. The
+  // retired `paralel_subtasks` name is kept for saved history.
   | { kind: 'tool'; id: string; name: string; args: Record<string, unknown>; jobId?: string; stopped?: boolean }
   | {
       kind: 'python'

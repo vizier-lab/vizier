@@ -12,7 +12,7 @@ function elapsed(job: BackgroundJobSnapshot, now: number): string {
 }
 
 const title = (job: BackgroundJobSnapshot) =>
-    job.kind === 'delegation' ? `delegate_agent → ${job.delegated_to ?? ''}` : 'paralel_subtasks'
+    job.kind === 'delegation' ? `delegate_agent → ${job.delegated_to ?? ''}` : 'background_subagents'
 
 type Props = {
     jobs: BackgroundJobSnapshot[]

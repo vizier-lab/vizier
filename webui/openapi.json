@@ -15386,14 +15386,14 @@
           },
           {
             "type": "object",
-            "description": "The outcome of background work this conversation started (`paralel_subtasks`,\n`delegate_agent`), delivered as a turn of its own. Not a message from a person.",
+            "description": "The outcome of background work this conversation started (`background_subagents`,\n`delegate_agent`), delivered as a turn of its own. Not a message from a person.",
             "required": [
               "background_report"
             ],
             "properties": {
               "background_report": {
                 "$ref": "#/components/schemas/BackgroundReport",
-                "description": "The outcome of background work this conversation started (`paralel_subtasks`,\n`delegate_agent`), delivered as a turn of its own. Not a message from a person."
+                "description": "The outcome of background work this conversation started (`background_subagents`,\n`delegate_agent`), delivered as a turn of its own. Not a message from a person."
               }
             }
           },

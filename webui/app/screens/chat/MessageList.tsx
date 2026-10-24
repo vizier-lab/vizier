@@ -162,7 +162,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                     <BackgroundReportCard
                         key={e.uid}
                         agentId={agent.id}
-                        meta={`${r.kind === 'delegation' ? `delegate_agent → ${r.delegated_to ?? ''}` : 'paralel_subtasks'} · ${r.entries.length} piece${r.entries.length === 1 ? '' : 's'}`}
+                        meta={`${r.kind === 'delegation' ? `delegate_agent → ${r.delegated_to ?? ''}` : 'background_subagents'} · ${r.entries.length} piece${r.entries.length === 1 ? '' : 's'}`}
                         linkLabel="What each piece found"
                         details={r.entries.map((en) => (
                             <div key={en.ordinal} className="flex flex-col gap-4">

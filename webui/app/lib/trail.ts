@@ -40,7 +40,8 @@ const asArgs = (value: unknown): Record<string, unknown> =>
     : {}
 
 // The tools that launch a background job, and the job id their result quotes.
-const JOB_LAUNCHING_TOOLS = new Set(['paralel_subtasks', 'delegate_agent'])
+// Keep `paralel_subtasks` so saved history still renders as a job launch.
+const JOB_LAUNCHING_TOOLS = new Set(['paralel_subtasks', 'background_subagents', 'delegate_agent'])
 const JOB_ID = /\bb-[0-9a-f]{6}\b/
 
 /** The background job id a launching tool's result quotes, if any. */
