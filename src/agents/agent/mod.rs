@@ -698,6 +698,19 @@ impl VizierAgent {
             }
         }
         let attachment_names: Vec<String> = req.attachments.iter().map(|a| a.filename.clone()).collect();
+        // What history shows under the person's message: only attachments that are a reference
+        // (an uploaded file's URL or path), never inline bytes, which would bloat every read.
+        let shown_attachments: Vec<VizierAttachment> = req
+            .attachments
+            .iter()
+            .filter(|a| {
+                matches!(
+                    a.content,
+                    VizierAttachmentContent::Local(_) | VizierAttachmentContent::Url(_)
+                )
+            })
+            .cloned()
+            .collect();
         // Clear attachments so they don't get injected directly into the conversation
         req.attachments.clear();
 
@@ -706,7 +719,9 @@ impl VizierAgent {
         let request_uid = match resumed_request_uid {
             Some(uid) => Some(uid),
             None => {
-                self.save_history_or_log(&session, SessionHistoryContent::Request(req.clone()))
+                let mut saved = req.clone();
+                saved.attachments = shown_attachments;
+                self.save_history_or_log(&session, SessionHistoryContent::Request(saved))
                     .await
             }
         };
