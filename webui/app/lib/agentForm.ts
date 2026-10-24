@@ -28,13 +28,26 @@ export type AgentForm = {
     httpClient: boolean
     tts: boolean
     ttsProvider: string
+    /** Empty means the provider's default. */
+    ttsModel: string
+    ttsVoice: string
+    /** A multiplier such as 1.2; empty means the provider's own. */
+    ttsSpeed: string
     stt: boolean
     sttProvider: string
+    sttModel: string
+    /** Language hint such as `en`; empty lets the model detect it. */
+    sttLanguage: string
     readImage: boolean
+    /** True when the vision model is its own pick; false sends images to the main model. */
+    visionOwn: boolean
     visionProvider: string
     visionModel: string
     imageGen: boolean
     imageGenProvider: string
+    imageGenModel: string
+    /** Such as `1024x1024`; empty means the provider's default. */
+    imageGenSize: string
     shell: boolean
     shellKind: 'local' | 'docker'
     shellPath: string
@@ -48,6 +61,30 @@ export type AgentForm = {
 export const TTS_PROVIDERS = ['openai', 'openrouter', 'elevenlabs', 'xai', 'hyperbolic', 'kokoro']
 export const STT_PROVIDERS = ['openai', 'elevenlabs', 'groq', 'mistral', 'huggingface', 'gemini', 'whisper']
 export const IMAGE_GEN_PROVIDERS = ['openai', 'xai', 'huggingface', 'hyperbolic']
+/** What each provider uses when the model is left empty (mirrors the server's defaults). */
+export const STT_DEFAULT_MODELS: Record<string, string> = {
+    openai: 'whisper-1',
+    elevenlabs: 'scribe_v1',
+    groq: 'whisper-large-v3',
+    mistral: 'voxtral-mini-2507',
+    huggingface: 'openai/whisper-large-v3',
+    gemini: 'gemini-1.5-flash',
+    whisper: 'large-v3',
+}
+export const IMAGE_GEN_DEFAULT_MODELS: Record<string, string> = {
+    openai: 'dall-e-3',
+    xai: 'grok-2-image-1212',
+    huggingface: 'stabilityai/stable-diffusion-xl-base-1.0',
+    hyperbolic: 'SDXL1.0-base',
+}
+export const TTS_DEFAULT_VOICES: Record<string, string> = {
+    openai: 'alloy',
+    openrouter: 'alloy',
+    elevenlabs: 'pqHfZKP75CvOlQylNhV4',
+    xai: 'default',
+    hyperbolic: 'default',
+    kokoro: 'af',
+}
 export const EMBEDDING_PROVIDERS = ['local', 'openrouter', 'ollama', 'openai', 'gemini', 'voyageai', 'mistral', 'together', 'cohere', 'copilot']
 
 export const emptyForm = (): AgentForm => ({
@@ -75,13 +112,21 @@ export const emptyForm = (): AgentForm => ({
     httpClient: false,
     tts: false,
     ttsProvider: 'openai',
+    ttsModel: '',
+    ttsVoice: '',
+    ttsSpeed: '',
     stt: false,
     sttProvider: 'openai',
+    sttModel: '',
+    sttLanguage: '',
     readImage: false,
+    visionOwn: false,
     visionProvider: '',
     visionModel: '',
     imageGen: false,
     imageGenProvider: 'openai',
+    imageGenModel: '',
+    imageGenSize: '',
     shell: false,
     shellKind: 'local',
     shellPath: '',
@@ -147,7 +192,8 @@ export function problems(f: AgentForm, step: 'config' | 'prompt' | 'tools' | 'al
         if (f.shell && f.shellKind === 'local' && !f.shellPath.trim()) out.shellPath = 'Where the shell starts.'
         if (f.shell && f.shellKind === 'docker' && f.dockerSource === 'pull' && !f.dockerImage.trim()) out.dockerImage = 'An image to pull.'
         if (f.shell && f.shellKind === 'docker' && f.dockerSource === 'dockerfile' && !f.dockerfilePath.trim()) out.dockerfilePath = 'Path to the Dockerfile.'
-        if (f.readImage && (!f.visionProvider || !f.visionModel)) out.vision = 'Choose a vision model.'
+        if (f.tts && f.ttsSpeed.trim() !== '' && (num(f.ttsSpeed) ?? -1) <= 0) out.ttsSpeed = 'A positive number, or empty.'
+        if (f.readImage && f.visionOwn && (!f.visionProvider || !f.visionModel)) out.vision = 'Choose a vision model.'
     }
     if (step === 'all' && f.embeddingProvider !== 'local' && !f.embeddingModel.trim()) out.embeddingModel = 'Name the embedding model.'
     return out
@@ -206,13 +252,29 @@ export function toInput(f: AgentForm, base?: AgentDetail): AgentInput {
             http_client: f.httpClient,
             timeout: f.toolsTimeout.trim() || '30m',
             tts: f.tts,
-            tts_settings: f.tts ? keep(base?.tts_settings, f.ttsProvider) : (base?.tts_settings ?? null),
+            tts_settings: f.tts
+                ? {
+                      ...keep(base?.tts_settings, f.ttsProvider),
+                      model: f.ttsModel.trim() || null,
+                      voice: f.ttsVoice.trim() || null,
+                      speed: num(f.ttsSpeed),
+                  }
+                : (base?.tts_settings ?? null),
             stt: f.stt,
-            stt_settings: f.stt ? keep(base?.stt_settings, f.sttProvider) : (base?.stt_settings ?? null),
+            stt_settings: f.stt
+                ? { ...keep(base?.stt_settings, f.sttProvider), model: f.sttModel.trim() || null, language: f.sttLanguage.trim() || null }
+                : (base?.stt_settings ?? null),
             read_image: f.readImage,
-            read_image_settings: f.readImage ? { provider: f.visionProvider, model: f.visionModel } : (base?.read_image_settings ?? null),
+            // No vision model of its own: images go to the main model as attachments.
+            read_image_settings: f.readImage
+                ? f.visionOwn
+                    ? { provider: f.visionProvider, model: f.visionModel }
+                    : { provider: null, model: null }
+                : (base?.read_image_settings ?? null),
             image_gen: f.imageGen,
-            image_gen_settings: f.imageGen ? keep(base?.image_gen_settings, f.imageGenProvider) : (base?.image_gen_settings ?? null),
+            image_gen_settings: f.imageGen
+                ? { ...keep(base?.image_gen_settings, f.imageGenProvider), model: f.imageGenModel.trim() || null, size: f.imageGenSize.trim() || null }
+                : (base?.image_gen_settings ?? null),
         },
     }
 }
@@ -247,13 +309,21 @@ export function fromDetail(d: AgentDetail): AgentForm {
         httpClient: d.http_client,
         tts: d.tts,
         ttsProvider: str(d.tts_settings?.provider, 'openai'),
+        ttsModel: str(d.tts_settings?.model),
+        ttsVoice: str(d.tts_settings?.voice),
+        ttsSpeed: typeof d.tts_settings?.speed === 'number' ? String(d.tts_settings.speed) : '',
         stt: d.stt,
         sttProvider: str(d.stt_settings?.provider, 'openai'),
+        sttModel: str(d.stt_settings?.model),
+        sttLanguage: str(d.stt_settings?.language),
         readImage: d.read_image,
+        visionOwn: !!(d.read_image_settings?.provider && d.read_image_settings?.model),
         visionProvider: d.read_image_settings?.provider ?? '',
         visionModel: d.read_image_settings?.model ?? '',
         imageGen: d.image_gen,
         imageGenProvider: str(d.image_gen_settings?.provider, 'openai'),
+        imageGenModel: str(d.image_gen_settings?.model),
+        imageGenSize: str(d.image_gen_settings?.size),
         shell: !!shell,
         shellKind: shell?.environment ?? 'local',
         shellPath: shell?.environment === 'local' ? shell.path : '',

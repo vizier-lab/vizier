@@ -50,9 +50,10 @@ describe('problems', () => {
         expect(problems(f, 'config', true)).toEqual({})
     })
 
-    it('needs a path for a local shell and a vision model for read image', () => {
+    it('needs a path for a local shell and a vision model only when read image has its own', () => {
         const f = { ...emptyForm(), shell: true, readImage: true }
-        expect(Object.keys(problems(f, 'tools')).sort()).toEqual(['shellPath', 'vision'])
+        expect(Object.keys(problems(f, 'tools'))).toEqual(['shellPath'])
+        expect(Object.keys(problems({ ...f, visionOwn: true }, 'tools')).sort()).toEqual(['shellPath', 'vision'])
     })
 })
 
@@ -67,8 +68,21 @@ describe('toInput', () => {
 
     it('resets a voice and model when the provider changes', () => {
         const d = detail()
-        const f = { ...fromDetail(d), ttsProvider: 'openai' }
+        // The form clears them when the provider is switched.
+        const f = { ...fromDetail(d), ttsProvider: 'openai', ttsModel: '', ttsVoice: '' }
         expect(toInput(f, d).tools?.tts_settings).toMatchObject({ provider: 'openai', model: null, voice: null })
+    })
+
+    it('sends the main model for images when read image has no model of its own', () => {
+        const f = { ...emptyForm(), readImage: true, visionProvider: 'x', visionModel: 'y' }
+        expect(toInput(f).tools?.read_image_settings).toEqual({ provider: null, model: null })
+        expect(toInput({ ...f, visionOwn: true }).tools?.read_image_settings).toEqual({ provider: 'x', model: 'y' })
+    })
+
+    it('carries the full speech and image settings', () => {
+        const f = { ...emptyForm(), stt: true, sttModel: 'm', sttLanguage: 'en', imageGen: true, imageGenSize: '512x512' }
+        expect(toInput(f).tools?.stt_settings).toMatchObject({ provider: 'openai', model: 'm', language: 'en' })
+        expect(toInput(f).tools?.image_gen_settings).toMatchObject({ model: null, size: '512x512' })
     })
 
     it('builds a docker shell from the form', () => {

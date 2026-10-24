@@ -1,6 +1,13 @@
-import { Card, FilterTabs, InlineSelect, Select, TextField, Textarea, ToggleChip, ToggleSection } from '@vizier/design'
-import { useState } from 'react'
-import { IMAGE_GEN_PROVIDERS, STT_PROVIDERS, TTS_PROVIDERS, type AgentForm } from '../../lib/agentForm'
+import { Card, Checkbox, FilterTabs, Select, TextField, Textarea, ToggleChip, ToggleSection } from '@vizier/design'
+import {
+    IMAGE_GEN_DEFAULT_MODELS,
+    IMAGE_GEN_PROVIDERS,
+    STT_DEFAULT_MODELS,
+    STT_PROVIDERS,
+    TTS_DEFAULT_VOICES,
+    TTS_PROVIDERS,
+    type AgentForm,
+} from '../../lib/agentForm'
 import { useCan, PERMISSIONS } from '../../lib/access'
 import { ModelSelect } from './ModelSelect'
 
@@ -15,7 +22,6 @@ const options = (values: string[]) => values.map((v) => ({ value: v, label: v })
 /** The Tools step of the wizard and Config's Tools tab: what the agent may use beyond memory. */
 export function ToolsFields({ form, errors, set }: Props) {
     const canShell = useCan(PERMISSIONS.shellConfig)
-    const [visionOpen, setVisionOpen] = useState(false)
 
     return (
         <div className="flex flex-col gap-16">
@@ -27,11 +33,57 @@ export function ToolsFields({ form, errors, set }: Props) {
             </Card>
 
             <ToggleSection title="Text-to-Speech" description="Reply with a voice message." checked={form.tts} onCheckedChange={(tts) => set({ tts })}>
-                <Select label="Provider" options={options(TTS_PROVIDERS)} value={form.ttsProvider} onChange={(ttsProvider) => set({ ttsProvider })} />
+                <div className="grid grid-cols-1 gap-16 sm:grid-cols-2">
+                    <Select
+                        label="Provider"
+                        options={options(TTS_PROVIDERS)}
+                        value={form.ttsProvider}
+                        onChange={(ttsProvider) => set({ ttsProvider, ttsModel: '', ttsVoice: '' })}
+                    />
+                    <TextField label="Model" mono value={form.ttsModel} placeholder="Provider default" onChange={(e) => set({ ttsModel: e.target.value })} />
+                    <TextField
+                        label="Voice"
+                        mono
+                        value={form.ttsVoice}
+                        placeholder={TTS_DEFAULT_VOICES[form.ttsProvider] ?? 'Provider default'}
+                        onChange={(e) => set({ ttsVoice: e.target.value })}
+                    />
+                    <TextField
+                        label="Speed"
+                        inputMode="decimal"
+                        value={form.ttsSpeed}
+                        placeholder="1.0"
+                        invalid={!!errors.ttsSpeed}
+                        helper={errors.ttsSpeed}
+                        onChange={(e) => set({ ttsSpeed: e.target.value })}
+                    />
+                </div>
             </ToggleSection>
 
             <ToggleSection title="Speech-to-Text" description="Understand voice messages." checked={form.stt} onCheckedChange={(stt) => set({ stt })}>
-                <Select label="Provider" options={options(STT_PROVIDERS)} value={form.sttProvider} onChange={(sttProvider) => set({ sttProvider })} />
+                <div className="grid grid-cols-1 gap-16 sm:grid-cols-2">
+                    <Select
+                        label="Provider"
+                        options={options(STT_PROVIDERS)}
+                        value={form.sttProvider}
+                        onChange={(sttProvider) => set({ sttProvider, sttModel: '' })}
+                    />
+                    <TextField
+                        label="Model"
+                        mono
+                        value={form.sttModel}
+                        placeholder={STT_DEFAULT_MODELS[form.sttProvider] ?? 'Provider default'}
+                        onChange={(e) => set({ sttModel: e.target.value })}
+                    />
+                    <TextField
+                        label="Language"
+                        mono
+                        value={form.sttLanguage}
+                        placeholder="Detect automatically"
+                        helper="A language code such as en."
+                        onChange={(e) => set({ sttLanguage: e.target.value })}
+                    />
+                </div>
             </ToggleSection>
 
             <ToggleSection
@@ -40,14 +92,10 @@ export function ToolsFields({ form, errors, set }: Props) {
                 checked={form.readImage}
                 onCheckedChange={(readImage) => set({ readImage })}
             >
-                <div className="flex flex-col gap-8">
-                    <InlineSelect
-                        label="Vision model"
-                        value={form.visionModel ? `${form.visionProvider} · ${form.visionModel}` : 'Choose…'}
-                        open={visionOpen}
-                        onClick={() => setVisionOpen((o) => !o)}
-                    />
-                    {visionOpen && (
+                <div className="flex flex-col gap-12">
+                    <p className="type-small text-faint">Pictures go straight to the main model.</p>
+                    <Checkbox label="Use a different model" checked={form.visionOwn} onChange={(e) => set({ visionOwn: e.target.checked })} />
+                    {form.visionOwn && (
                         <ModelSelect
                             needsImages
                             provider={form.visionProvider}
@@ -62,12 +110,22 @@ export function ToolsFields({ form, errors, set }: Props) {
             </ToggleSection>
 
             <ToggleSection title="Image Generation" description="Draw pictures on request." checked={form.imageGen} onCheckedChange={(imageGen) => set({ imageGen })}>
-                <Select
-                    label="Provider"
-                    options={options(IMAGE_GEN_PROVIDERS)}
-                    value={form.imageGenProvider}
-                    onChange={(imageGenProvider) => set({ imageGenProvider })}
-                />
+                <div className="grid grid-cols-1 gap-16 sm:grid-cols-2">
+                    <Select
+                        label="Provider"
+                        options={options(IMAGE_GEN_PROVIDERS)}
+                        value={form.imageGenProvider}
+                        onChange={(imageGenProvider) => set({ imageGenProvider, imageGenModel: '' })}
+                    />
+                    <TextField
+                        label="Model"
+                        mono
+                        value={form.imageGenModel}
+                        placeholder={IMAGE_GEN_DEFAULT_MODELS[form.imageGenProvider] ?? 'Provider default'}
+                        onChange={(e) => set({ imageGenModel: e.target.value })}
+                    />
+                    <TextField label="Size" mono value={form.imageGenSize} placeholder="Provider default" helper="Such as 1024x1024." onChange={(e) => set({ imageGenSize: e.target.value })} />
+                </div>
             </ToggleSection>
 
             <ToggleSection

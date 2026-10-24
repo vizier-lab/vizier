@@ -84,6 +84,15 @@ describe('history and reopening', () => {
         expect(turns[0].trail).toHaveLength(1)
     })
 
+    it('reads the context ring from the newest stored reply when a topic is opened', () => {
+        const reply = (uid: string, used: number) =>
+            entry(uid, { Response: { timestamp: 't', content: { message: { content: 'x', stats: { current_context_size: used, context_window: 1000 } as never } } } })
+        const s = run(start(), { type: 'history', entries: [reply('a', 100), reply('b', 400)] })
+        expect(s.context).toEqual({ used: 400, window: 1000 })
+        // A live reading is never replaced by what was stored.
+        expect(run(s, { type: 'history', entries: [reply('a', 100)] }).context).toEqual({ used: 400, window: 1000 })
+    })
+
     it('treats steps of a turn nobody here started as work in progress', () => {
         const s = run(start(), frame({ kind: 'history_entry', entry: call('c1', 'k1') }))
         expect(s.phase).toBe('working')

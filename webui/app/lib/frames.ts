@@ -118,6 +118,18 @@ function statsOf(content: VizierResponseContent) {
     return undefined
 }
 
+/** The ring's reading from the newest stored reply that has one, so a reopened topic shows it before the next reply. */
+function contextOfHistory(entries: ChatMessage[]): TopicState['context'] {
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const content = entries[i].content
+        const reply = typeof content === 'object' && content !== null && 'Response' in content ? content.Response : undefined
+        if (!reply) continue
+        const stats = statsOf(reply.content)
+        if (stats?.current_context_size && stats.context_window) return { used: stats.current_context_size, window: stats.context_window }
+    }
+    return null
+}
+
 function onResponse(state: TopicState, response: WebSocketResponse, now: string): TopicState {
     const { content } = response
 
@@ -242,7 +254,8 @@ export function reduce(state: TopicState, action: Action): TopicState {
                 const newer = first < 0 ? [] : held.slice(first).filter((e) => !inStored.has(e.uid) && !stored.some((s) => s.uid === e.uid))
                 merged = [...before, ...stored, ...newer]
             }
-            return { ...state, entries: keptLive.length ? [...merged, ...keptLive] : merged }
+            const context = state.context ?? (action.position === 'older' ? null : contextOfHistory(stored))
+            return { ...state, context, entries: keptLive.length ? [...merged, ...keptLive] : merged }
         }
 
         case 'busy':
