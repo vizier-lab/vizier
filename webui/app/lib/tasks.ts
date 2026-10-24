@@ -5,6 +5,11 @@ export const isCron = (s: TaskSchedule): s is { CronTask: string } => 'CronTask'
 /** "0 9 * * 1", or the one-time moment. */
 export const scheduleText = (s: TaskSchedule) => (isCron(s) ? s.CronTask : new Date(s.OneTimeTask).toLocaleString())
 
+/** "@dani (DiscordId: 182…)" → "@dani": the name a person is known by, without the platform id. */
+export function personName(person: string): string {
+    return person.replace(/\s*\((?:Discord|Telegram)Id:[^)]*\)\s*$/i, '').trim() || person
+}
+
 export function requesterText(r: Task['requester']): string {
     return 'user' in r ? r.user : `${r.agent} (itself)`
 }

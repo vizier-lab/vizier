@@ -27,6 +27,7 @@ import {
 import { Enter, stagger } from '../../lib/motion'
 import { usePrices } from '../../lib/prices'
 import { groupHistory, outcomeDurationMs } from '../../lib/trail'
+import { personName } from '../../lib/tasks'
 import { Markdown } from '../shared/Markdown'
 import { ReplyMedia } from './ReplyMedia'
 import { Reactions } from './Reactions'
@@ -51,13 +52,15 @@ type Props = {
     clientCalls?: (turn: Turn, running: boolean) => ReactNode
     /** How many passages the turn recalled, for its trail summary. */
     recalledFor?: (turn: Turn) => number
+    /** A Discord or Telegram conversation: people's messages carry their own names, not "You". */
+    byPlatformName?: boolean
 }
 
 function stopTime(entry: ChatMessage | undefined) {
     return entry?.timestamp ? time(entry.timestamp) : ''
 }
 
-export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, recalledFor }: Props) {
+export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0, loadingOlder, onLoadOlder, onReact, error, clientCalls, recalledFor, byPlatformName }: Props) {
     const { entries } = state
     const turns = useMemo(() => groupHistory(entries), [entries])
     const prices = usePrices()
@@ -181,7 +184,7 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
             arrive(
                 <UserMessage
                     key={e.uid}
-                    meta={`You · ${time(c.Request.timestamp)}`}
+                    meta={`${byPlatformName && c.Request.user ? personName(c.Request.user) : 'You'} · ${time(c.Request.timestamp)}`}
                     skill={skill}
                     attachments={c.Request.attachments?.length ? <ReplyMedia attachments={c.Request.attachments} /> : undefined}
                 >

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router'
 import { updateTask, type Task } from '../api/endpoints/tasks'
 import { describeCron } from '../lib/cron'
 import { relativeTime } from '../lib/format'
-import { requesterText, runStatus, scheduleText, toInput } from '../lib/tasks'
+import { personName, requesterText, runStatus, scheduleText, toInput } from '../lib/tasks'
 import { useMobile } from '../lib/useMobile'
 import { usePagedList } from '../lib/usePagedList'
 import { PagedTable } from '../screens/shared/PagedTable'
@@ -82,7 +82,7 @@ export default function Tasks() {
                                 <span className="truncate type-mono-xs text-muted">{scheduleText(t.schedule)}</span>
                             )}
                         </span>,
-                        <span key="r" className="truncate type-small text-muted">{requesterText(t.requester)}</span>,
+                        <span key="r" className="block min-w-0 truncate type-small text-muted" title={requesterText(t.requester)}>{'user' in t.requester ? personName(t.requester.user) : requesterText(t.requester)}</span>,
                         <Status key="l" state={runStatus(t.last_run)} font="sans" detail={t.last_run ? relativeTime(t.last_run.ran_at) : undefined} />,
                         <span key="a" onClick={(e) => e.stopPropagation()}>
                             <Switch checked={t.is_active} aria-label={`${t.title} active`} onCheckedChange={(on) => void toggle(t, on)} />

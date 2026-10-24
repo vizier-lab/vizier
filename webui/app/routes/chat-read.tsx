@@ -2,6 +2,7 @@ import { Notice } from '@vizier/design'
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router'
 import { topicHistory } from '../api/endpoints/chat'
+import { listConversations, type ConversationItem } from '../api/endpoints/conversations'
 import { emptyTopic, reduce, type TopicState } from '../lib/frames'
 import { ConversationHeader } from '../screens/chat/ConversationHeader'
 import { MessageList } from '../screens/chat/MessageList'
@@ -26,7 +27,38 @@ export default function ChatRead() {
     const channel = params.get('channel') ?? ''
     const agent = useAgents((s) => s.agents.find((a) => a.agent_id === agentId))
     const agentName = agent?.name ?? agentId
-    const { platform, title } = labelOf(channel)
+    const { platform, title: fallbackTitle } = labelOf(channel)
+    const [found, setFound] = useState<ConversationItem>()
+
+    // The picker's list is where the server and channel names are resolved, so ask it.
+    useEffect(() => {
+        let live = true
+        setFound(undefined)
+        void (async () => {
+            try {
+                let cursor: string | undefined
+                for (let page = 0; page < 20 && live; page++) {
+                    const res = await listConversations(agentId, { channel: platform.toLowerCase() as 'discord' | 'telegram', cursor, limit: 100 })
+                    const hit = res?.items.find((i) => i.channel === channel)
+                    if (hit) return live && setFound(hit)
+                    if (!res?.next) return
+                    cursor = res.next
+                }
+            } catch {
+                // keep the id-only label
+            }
+        })()
+        return () => {
+            live = false
+        }
+    }, [agentId, channel, platform])
+
+    const id = channel.split('__')[1] ?? channel
+    const named = found && found.title !== fallbackTitle
+    const title = found?.title ?? fallbackTitle
+    const meta = [platform.toLowerCase(), named && found.place !== platform ? found.place : undefined, `${platform === 'Discord' ? 'channel' : 'chat'} ${id}`, 'read-only']
+        .filter(Boolean)
+        .join(' · ')
 
     const [state, setState] = useState<TopicState>(() => emptyTopic())
     const [exhausted, setExhausted] = useState(false)
@@ -66,7 +98,7 @@ export default function ChatRead() {
 
     return (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <ConversationHeader agentId={agentId} title={title} meta={`${platform.toLowerCase()} · read-only`} current={{ channel }} />
+            <ConversationHeader agentId={agentId} title={title} meta={meta} current={{ channel }} />
             <div className="px-24 pt-12">
                 <Notice tone="info">
                     This conversation happens on {platform}. You can read it here; to reply, talk to {agentName} there.
@@ -84,6 +116,7 @@ export default function ChatRead() {
                     loadingOlder={loadingOlder}
                     onLoadOlder={() => void loadOlder()}
                     onReact={() => {}}
+                    byPlatformName
                 />
             )}
         </div>

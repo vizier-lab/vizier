@@ -21,6 +21,15 @@ export const PERMISSION_GROUPS: { title: string; items: { permission: string; la
         ],
     },
     {
+        title: 'Chats',
+        items: [
+            { permission: 'all_agents:show_discord_chats', label: 'See every agent’s Discord chats' },
+            { permission: 'owned_agents:show_discord_chats', label: 'See Discord chats of agents they own' },
+            { permission: 'all_agents:show_telegram_chats', label: 'See every agent’s Telegram chats' },
+            { permission: 'owned_agents:show_telegram_chats', label: 'See Telegram chats of agents they own' },
+        ],
+    },
+    {
         title: 'Account',
         items: [
             { permission: 'settings:password', label: 'Change their own password' },
