@@ -67,6 +67,7 @@ Confirm:
 - `data.source == "bundled"` (before any refresh);
 - `data.refresh.enabled == false` in this run;
 - exactly one model has `default: true` and it is `hexgrad/kokoro-82m`;
+- `data.default_voice == "af_alloy"`;
 - `voices` is a non-empty array on the default speech entry;
 - the response contains no credential.
 
@@ -111,13 +112,14 @@ A user without `settings:providers` gets `403` from the refresh and can still re
 This step needs the network to be unavailable for `openrouter.ai` (disconnect, firewall, or a temporary hosts entry). Do not remove the local loopback.
 
 1. With a cached list from §3, make `openrouter.ai` unreachable.
-2. Click **Refresh** in the picker.
-3. Confirm:
+2. Reload the WebUI and reopen the agent editor: the last successful list must still appear from SQLite (the picker's status shows `cached`), with no network.
+3. Click **Refresh** in the picker.
+4. Confirm:
    - the list is still shown;
    - a non-blocking notice shows the failure reason;
    - saving the agent still works;
    - the last-known list remains usable. (Do not expect a successful media call in this run: the placeholder key is invalid, so a call would fail with 401 rather than with the list failure.)
-4. Restore the network. The next refresh succeeds and clears the notice.
+5. Restore the network. The next refresh succeeds and clears the notice.
 
 ## 5. Missing credential is actionable
 
@@ -148,6 +150,7 @@ Use the same dummyplug agent and leave every override empty for the first pass.
    ```
 
 3. Expect a transcript that matches the clip. Repeat with `"language":"en"` and an explicit model such as `openai/whisper-large-v3`.
+4. Send a short voice message through a configured Discord/Telegram channel (or the WebUI's audio path) with a live chat model. Confirm the transcript reaches the agent and the reply reflects what was said; this is the channel path, not just the tool.
 
 ### Text-to-speech
 
