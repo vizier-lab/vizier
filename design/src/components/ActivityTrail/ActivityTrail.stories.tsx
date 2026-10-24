@@ -38,10 +38,22 @@ export const Live: Story = {
   args: { state: "live", title: "Working 3.2s", counts: "1 thought" },
   render: (args) => (
     <ActivityTrail {...args}>
-      <TrailItem>
-        <Thought>The benchmark notes live in the infra bundle. Search there first rather than the whole memory, then read the three newest.</Thought>
-      </TrailItem>
+      <Thought>The benchmark notes live in the infra bundle. Search there first rather than the whole memory, then read the three newest.</Thought>
       <TrailCall name="execute_python" intent="search infra for benchmark notes" state="running" />
+    </ActivityTrail>
+  ),
+};
+
+/** Thoughts between calls: the spine runs on through them. */
+export const ThoughtsBetweenCalls: Story = {
+  args: { state: "done", title: "Worked 18.4s", counts: "3 python runs", defaultExpanded: true },
+  render: (args) => (
+    <ActivityTrail {...args}>
+      <TrailCall name="execute_python" intent="search infra for benchmark notes" duration="0.7s" />
+      <Thought>Three notes, but the newest one contradicts the other two on recall at 10k vectors. Reading it in full before I summarise anything.</Thought>
+      <TrailCall name="execute_python" intent="read the newest benchmark note" duration="0.4s" />
+      <Thought>It measured with a different index. Filing both, marked as such.</Thought>
+      <TrailCall name="execute_python" intent="file the summary" duration="0.6s" />
     </ActivityTrail>
   ),
 };
