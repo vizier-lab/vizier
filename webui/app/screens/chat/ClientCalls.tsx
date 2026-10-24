@@ -15,7 +15,12 @@ export function renderClientCalls(
     running: boolean,
     contextFor: (call: ClientCallView) => ClientCallContext
 ): ReactNode {
-    const calls = visibleClientCalls(turn.clientCalls, running)
+    // A tool this client provides but draws nothing for (a lookup like ui_components) leaves no
+    // trace in the reply; only a call this client has no registration for gets a chip.
+    const calls = visibleClientCalls(turn.clientCalls, running).filter((call) => {
+        const registration = findClientTool(call.category, call.tool)
+        return !registration || registration.render
+    })
     if (calls.length === 0) return null
     return (
         <div className="flex flex-col gap-8">
