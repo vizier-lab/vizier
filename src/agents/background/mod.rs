@@ -1,5 +1,5 @@
 //! Background jobs (`specs/012-background-subagent-results/`): work an agent hands off with
-//! `paralel_subtasks` or `delegate_agent`, which reports back to the conversation that
+//! `background_subagents` or `delegate_agent`, which reports back to the conversation that
 //! launched it as one `BackgroundReport` turn.
 //!
 //! Delivery is the same for every conversation. Nothing here branches on `VizierChannelId`:
@@ -32,6 +32,7 @@ use crate::{
 };
 
 pub mod report;
+pub mod wait;
 
 /// A turn woken by a background result counts as one level deeper than the turn that
 /// launched the job. A turn at this depth may not launch another one.
@@ -56,6 +57,17 @@ pub fn validate_timeout(timeout_secs: Option<u64>) -> crate::Result<u64> {
             "timeout_secs must be between 1 and {MAX_TIMEOUT_SECS}"
         ))),
     }
+}
+
+/// Refuse work launched from a turn that is already too deep in background work.
+/// Both the blocking and background subagent tools use this rule.
+pub fn check_depth(ctx: &ToolContext) -> crate::Result<()> {
+    if ctx.background_depth >= MAX_BACKGROUND_DEPTH {
+        return Err(VizierError(format!(
+            "nesting limit ({MAX_BACKGROUND_DEPTH}) reached: this turn was itself started by subagent or background work"
+        )));
+    }
+    Ok(())
 }
 
 pub struct PieceSpec {
@@ -189,11 +201,7 @@ impl BackgroundJobs {
         pieces: Vec<PieceSpec>,
         timeout_secs: u64,
     ) -> crate::Result<BackgroundJob> {
-        if ctx.background_depth >= MAX_BACKGROUND_DEPTH {
-            return Err(VizierError(format!(
-                "background nesting limit ({MAX_BACKGROUND_DEPTH}) reached: this turn was itself started by a background result"
-            )));
-        }
+        check_depth(ctx)?;
 
         let origin = ctx.session.clone();
         let now = Utc::now();
@@ -256,26 +264,19 @@ impl BackgroundJobs {
 
         let mut receivers = Vec::with_capacity(job.pieces.len());
         for piece in job.pieces.iter_mut() {
-            let (tx, rx) = flume::unbounded();
             let sent = self
-                .transport
-                .send_request(
-                    piece.session.clone(),
-                    VizierRequest {
-                        timestamp: Utc::now(),
-                        user: origin.0.clone(),
-                        content: VizierRequestContent::Prompt(piece.prompt.clone()),
-                        metadata: serde_json::json!({}),
-                        background_depth: job.depth + 1,
-                        ..Default::default()
-                    },
-                    Some(tx),
+                .dispatch_piece(
+                    &piece.session,
+                    &piece.prompt,
+                    &origin.0,
+                    job.depth + 1,
+                    false,
                 )
                 .instrument(job_span.clone())
                 .await;
 
             match sent {
-                Ok(()) => receivers.push(PieceSource::Dispatched(Some(rx))),
+                Ok(rx) => receivers.push(PieceSource::Dispatched(Some(rx))),
                 Err(err) => {
                     // A piece that could not be handed off is failed right away (FR-014);
                     // the rest of the job carries on.
@@ -327,6 +328,59 @@ impl BackgroundJobs {
         );
 
         Ok(job)
+    }
+
+    /// Hand one piece to the agent and return the channel its frames arrive on.
+    /// The piece is transient only for a blocking run; background pieces remain durable.
+    pub(crate) async fn dispatch_piece(
+        &self,
+        session: &VizierSession,
+        prompt: &str,
+        origin: &AgentId,
+        depth: u8,
+        transient: bool,
+    ) -> crate::Result<flume::Receiver<VizierResponse>> {
+        let (tx, rx) = flume::unbounded();
+        self.transport
+            .send_request(
+                session.clone(),
+                VizierRequest {
+                    timestamp: Utc::now(),
+                    user: origin.clone(),
+                    content: VizierRequestContent::Prompt(prompt.to_string()),
+                    metadata: serde_json::json!({}),
+                    background_depth: depth,
+                    transient,
+                    ..Default::default()
+                },
+                Some(tx),
+            )
+            .await
+            .map_err(|err| VizierError(err.to_string()))?;
+        Ok(rx)
+    }
+
+    /// Wait for one dispatched piece, stopping it if it runs past its limit.
+    pub(crate) async fn await_piece(
+        &self,
+        rx: &flume::Receiver<VizierResponse>,
+        limit: Duration,
+        session: &VizierSession,
+        origin: &AgentId,
+    ) -> (PieceState, String) {
+        match tokio::time::timeout(limit, first_terminal(rx)).await {
+            Ok(PieceOutcome::Answered(text)) => (PieceState::Answered, text),
+            Ok(PieceOutcome::Failed(reason)) => (PieceState::Failed, reason),
+            Err(_) => {
+                // Stop a runaway piece spending tokens; its late answer, if any, is
+                // discarded with the receiver.
+                self.abort_piece(session, origin).await;
+                (
+                    PieceState::TimedOut,
+                    format!("No answer within {}s", limit.as_secs()),
+                )
+            }
+        }
     }
 
     /// Picks up the jobs a restart left open that a pending turn still backs
@@ -389,16 +443,28 @@ impl BackgroundJobs {
         let pieces = job.pieces.iter().zip(sources).map(|(piece, source)| {
             let job_id = job.id.clone();
             async move {
-                let outcome: BoxFuture<'_, PieceOutcome> = match source {
+                let (state, text) = match source {
                     PieceSource::Dispatched(Some(rx)) => {
-                        async move { first_terminal(&rx).await }.boxed()
+                        self.await_piece(&rx, limit, &piece.session, &job.origin.0).await
                     }
                     // Recovered after a restart: no channel of its own, so its session's
                     // events and history say how it ended.
-                    PieceSource::Session => self
-                        .transport
-                        .await_session_outcome(&piece.session, job.created_at)
-                        .boxed(),
+                    PieceSource::Session => {
+                        let outcome = self
+                            .transport
+                            .await_session_outcome(&piece.session, job.created_at);
+                        match tokio::time::timeout(limit, outcome).await {
+                            Ok(PieceOutcome::Answered(text)) => (PieceState::Answered, text),
+                            Ok(PieceOutcome::Failed(reason)) => (PieceState::Failed, reason),
+                            Err(_) => {
+                                self.abort_piece(&piece.session, &job.origin.0).await;
+                                (
+                                    PieceState::TimedOut,
+                                    format!("No answer within {}s", job.timeout_secs),
+                                )
+                            }
+                        }
+                    }
                     // Already closed: failed at dispatch, or finished before a restart.
                     PieceSource::Dispatched(None) => {
                         let text = if piece.state == PieceState::Answered {
@@ -407,21 +473,6 @@ impl BackgroundJobs {
                             piece.reason.clone().unwrap_or_else(|| NO_ANSWER.to_string())
                         };
                         return (piece.state, text);
-                    }
-                };
-
-                let (state, text) = match tokio::time::timeout(limit, outcome).await
-                {
-                    Ok(PieceOutcome::Answered(text)) => (PieceState::Answered, text),
-                    Ok(PieceOutcome::Failed(reason)) => (PieceState::Failed, reason),
-                    Err(_) => {
-                        // Stop a runaway piece spending tokens; its late answer, if any, is
-                        // discarded with the receiver (FR-013).
-                        self.abort_piece(&piece.session, &job.origin.0).await;
-                        (
-                            PieceState::TimedOut,
-                            format!("No answer within {}s", job.timeout_secs),
-                        )
                     }
                 };
 
@@ -570,7 +621,7 @@ impl BackgroundJobs {
     }
 
     /// The existing `abort` command, sent to a piece's session.
-    async fn abort_piece(&self, session: &VizierSession, origin_agent: &AgentId) {
+    pub(crate) async fn abort_piece(&self, session: &VizierSession, origin_agent: &AgentId) {
         if let Err(e) = self
             .transport
             .send_request(
@@ -834,6 +885,7 @@ mod tests {
             pending_attachments: Arc::new(tokio::sync::Mutex::new(vec![])),
             hooks: None,
             background_depth: MAX_BACKGROUND_DEPTH,
+            deadline: None,
         };
 
         let err = jobs
@@ -848,6 +900,6 @@ mod tests {
             )
             .await
             .unwrap_err();
-        assert!(err.0.contains("background nesting limit (3) reached"), "{}", err.0);
+        assert!(err.0.contains("nesting limit (3) reached"), "{}", err.0);
     }
 }

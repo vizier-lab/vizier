@@ -53,7 +53,7 @@ pub enum VizierRequestContent {
     Command(String),
     AudioChat(VizierAttachment, Option<String>),
     AudioPrompt(VizierAttachment, Option<String>),
-    /// The outcome of background work this conversation started (`paralel_subtasks`,
+    /// The outcome of background work this conversation started (`background_subagents`,
     /// `delegate_agent`), delivered as a turn of its own. Not a message from a person.
     BackgroundReport(BackgroundReport),
     /// A message a client sent on the person's behalf, such as a click inside a page the
@@ -218,6 +218,13 @@ pub struct VizierRequest {
     /// turn that launched the job and must still count as one level deeper.
     #[serde(default)]
     pub background_depth: u8,
+    /// A request that belongs to a blocking piece and must not survive a restart.
+    /// Blocking pieces are never journaled or resumed; only their conversation history
+    /// remains for inspection.
+    #[serde(skip)]
+    #[schemars(skip)]
+    #[schema(ignore)]
+    pub transient: bool,
     /// The trace this request continues (`crate::telemetry`); in-process only.
     #[serde(skip)]
     #[schemars(skip)]
@@ -245,6 +252,9 @@ impl VizierRequest {
     /// Whether the request is journaled so a restart can pick it up again. An abort is an
     /// instruction about the present, and a dream cycle is rescheduled on its own.
     pub fn is_durable(&self, session: &crate::schema::VizierSession) -> bool {
+        if self.transient {
+            return false;
+        }
         if matches!(&self.content, VizierRequestContent::Command(cmd) if cmd == "abort" || cmd == "dream") {
             return false;
         }
@@ -354,6 +364,20 @@ mod tests {
             None,
         );
         assert!(!req(VizierRequestContent::Chat("x".into())).is_durable(&dream));
+    }
+
+    #[test]
+    fn a_transient_request_is_not_durable() {
+        use crate::schema::{VizierChannelId, VizierSession};
+        let session = VizierSession("a".into(), VizierChannelId::Subagent, None);
+        let mut req = VizierRequest {
+            content: VizierRequestContent::Prompt("piece".into()),
+            transient: true,
+            ..Default::default()
+        };
+        assert!(!req.is_durable(&session));
+        req.transient = false;
+        assert!(req.is_durable(&session));
     }
 
     use super::*;

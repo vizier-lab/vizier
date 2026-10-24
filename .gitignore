@@ -5,9 +5,32 @@
 *.agent.md
 .env*
 
+# Rust build and editor artifacts
+*.rs.bk
+*.rlib
+*.prof*
+.idea/
+*.log
+
+# Node / TypeScript build artifacts
+node_modules/
+dist/
+build/
+coverage/
+
 # webui build artifacts
 webui/node_modules/
 webui/build/
 webui/.vite/
 webui/.react-router/
+design/node_modules/
+design/build/
+design/coverage/
+
+# Editor and OS artifacts
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
 

@@ -119,7 +119,7 @@ done
 echo "$p"
 ```
 
-**Expect**: the reports cascade back up. The innermost launch, from a turn at depth 3, fails with `background nesting limit (3) reached`, and that error text is the answer shown in its parent's report entry. No turns continue after the last report.
+**Expect**: the reports cascade back up. The innermost launch, from a turn at depth 3, fails with `nesting limit (3) reached`, and that error text is the answer shown in its parent's report entry. No turns continue after the last report.
 
 ## 7. WebUI tray (US5)
 

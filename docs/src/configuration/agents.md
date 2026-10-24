@@ -146,7 +146,7 @@ Each call has one **activity**:
 | Activity | What it covers |
 |---|---|
 | Chat | Turns answering a person on Discord, Telegram, the WebUI or the HTTP API, including the turn a finished background job wakes |
-| Background | Subtasks (`paralel_subtasks`), delegations (`delegate_agent`) and consults (`consult_agent`), counted for the agent that ran them |
+| Background | Subagents (`parallel_subagents` and `background_subagents`), delegations (`delegate_agent`) and consults (`consult_agent`), counted for the agent that ran them |
 | Scheduled | Scheduled task runs |
 | Dreams | Dream extraction and consolidation |
 | Compaction | Checkpoint summaries, automatic and `/checkpoint` |

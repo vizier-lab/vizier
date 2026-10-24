@@ -426,7 +426,7 @@ current = '§8 turns without a client'
   // A background job launched from a turn that declared tools reports in a turn of its own,
   // which has none.
   from = N.frames.length
-  N.send(request(python("paralel_subtasks(tasks=[{'prompt': 'hello'}])"), declared([pickColor()])))
+  N.send(request(python("background_subagents(tasks=[{'prompt': 'hello'}])"), declared([pickColor()])))
   await N.next((f) => kind(f, 'client_tools_resolved'), 10000, from)
   await N.next(isReply, 15000, from)
   const resolvedBefore = N.frames.filter((f) => kind(f, 'client_tools_resolved')).length

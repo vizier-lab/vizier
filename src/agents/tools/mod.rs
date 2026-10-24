@@ -30,7 +30,7 @@ scheduler::{
             CreateSkill, DeleteSkill, ExecuteSkillResource, GetSkillDetails, ListSkills,
             ReadSkillResource, UpdateSkill, UseSkill,
         },
-        subtasks::SubtasksTool,
+        subagents::{BackgroundSubagentsTool, ParallelSubagentsTool},
         think::ThinkTool,
         tts::TtsGenerate,
         stt::SttTranscribe,
@@ -63,7 +63,7 @@ pub mod self_integrations;
 mod session_files;
 mod shell;
 mod skill;
-mod subtasks;
+mod subagents;
 pub mod telegram;
 mod think;
 pub mod tts;
@@ -141,7 +141,7 @@ impl ToolCategory {
             Self::Identity => "Read and update your CORE identity document",
             Self::Scheduling => "Schedule one-time and recurring tasks and check their results",
             Self::Agents => {
-                "Consult or delegate to other agents, run parallel subtasks, manage background jobs"
+                "Consult or delegate to other agents, run parallel subagents, manage background jobs"
             }
             Self::Skills => "Create, find and use reusable skills",
             Self::Files => "Read files attached to this conversation and send attachments",
@@ -162,6 +162,22 @@ impl ToolCategory {
     }
 }
 
+/// Names that were retired rather than aliased, with the guidance to show when a
+/// caller still uses one. Keep this table until the pre-1.0 removal tracker (#82)
+/// says these compatibility hints can go.
+pub const RETIRED_TOOL_NAMES: &[(&str, &str)] = &[(
+    "paralel_subtasks",
+    "paralel_subtasks was replaced by parallel_subagents (waits for the results) and background_subagents (results arrive later as a background report)",
+)];
+
+/// The guidance for a retired tool name, if the name is known.
+pub fn retired_hint(name: &str) -> Option<&'static str> {
+    RETIRED_TOOL_NAMES
+        .iter()
+        .find(|(retired, _)| *retired == name)
+        .map(|(_, hint)| *hint)
+}
+
 #[derive(Clone)]
 pub struct ToolContext {
     pub session: VizierSession,
@@ -179,6 +195,9 @@ pub struct ToolContext {
     /// Memory passages a tool returned during the round (`memory_search`), drained by the
     /// agent loop into a `Recall { Search }` history entry (`specs/024-webui-rewrite`, FR-018e).
     pub recalled: Arc<Mutex<Vec<crate::schema::RecalledPassage>>>,
+    /// The moment at which the agent loop's `tools.timeout` will cut the current direct
+    /// tool call off. Script calls inherit the deadline of their `execute_python` call.
+    pub deadline: Option<tokio::time::Instant>,
     /// The tools the person's client offers for this turn (`specs/019-client-tools`): set
     /// only for a chat turn whose request came over a WebSocket that declared some and is
     /// still open, `None` everywhere else.
@@ -932,7 +951,8 @@ impl BaseTools {
                 deps.transport.clone(),
             ))
             .tool(DelegateAgent::new(other_agents.clone(), deps.clone()))
-            .tool(SubtasksTool::new(deps.clone()))
+            .tool(BackgroundSubagentsTool::new(deps.clone()))
+            .tool(ParallelSubagentsTool::new(deps.clone()))
             .tool(ListBackgroundJobs::new(deps.clone()))
             .tool(CancelBackgroundJob::new(deps.clone()))
             .tool(CreateSkill::new(agent_id.clone(), deps.clone(), indexer.clone()))
@@ -1236,7 +1256,8 @@ mod tests {
             entry::<GetTaskRunDetail>(),
             entry::<ConsultAgent>(),
             entry::<DelegateAgent>(),
-            entry::<SubtasksTool>(),
+            entry::<BackgroundSubagentsTool>(),
+            entry::<ParallelSubagentsTool>(),
             entry::<ListBackgroundJobs>(),
             entry::<CancelBackgroundJob>(),
             entry::<CreateSkill>(),
@@ -1312,7 +1333,8 @@ mod tests {
             ("get_task_run_detail", Scheduling),
             ("consult_agent", Agents),
             ("delegate_agent", Agents),
-            ("paralel_subtasks", Agents),
+            ("background_subagents", Agents),
+            ("parallel_subagents", Agents),
             ("list_background_jobs", Agents),
             ("cancel_background_job", Agents),
             ("create_skill", Skills),
@@ -1402,6 +1424,22 @@ mod tests {
         for (name, addon) in ADDON {
             assert!(name.starts_with(&format!("{addon}_")), "{name} is not namespaced");
             assert!(tools.iter().any(|(n, c)| n == name && c.is_none()));
+        }
+    }
+
+    #[test]
+    fn retired_names_point_to_both_new_subagent_tools() {
+        let hint = retired_hint("paralel_subtasks").expect("retired name has a hint");
+        assert!(hint.contains("parallel_subagents"));
+        assert!(hint.contains("background_subagents"));
+        assert!(retired_hint("parallel_subagents").is_none());
+        assert!(retired_hint("background_subagents").is_none());
+    }
+
+    #[test]
+    fn subagent_tools_never_reach_the_dream_cycle() {
+        for name in ["parallel_subagents", "background_subagents"] {
+            assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&name), "{name} is a dream tool");
         }
     }
 
@@ -1538,6 +1576,7 @@ mod tests {
             pending_attachments: Default::default(),
             hooks: None,
             background_depth: 0,
+            deadline: None,
             loaded_images: Default::default(),
             recalled: Default::default(),
             client,

@@ -42,6 +42,10 @@ pub enum BridgeError {
 /// Implemented by the agent layer; the engine never sees `VizierTools`.
 #[async_trait::async_trait]
 pub trait SandboxBridge: Send + Sync {
+    /// Cancel any in-flight bridged call. The sandbox calls this when its future is
+    /// dropped before the script finishes (for example when a turn is aborted).
+    fn cancel(&self) {}
+
     /// Catalogue for `list_tools()`; also used to resolve names.
     async fn catalogue(&self) -> Vec<ToolFunctionDoc>;
 

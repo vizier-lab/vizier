@@ -50,9 +50,11 @@ The behaviour, description and acknowledgement are exactly those of `paralel_sub
 
 Not in any toolset or category listing. From a script, calling it raises a `RuntimeError`:
 
-> paralel_subtasks was replaced by parallel_subagents (waits for the results) and background_subagents (results arrive later as a background report)
+> paralel_subtasks: paralel_subtasks was replaced by parallel_subagents (waits for the results) and background_subagents (results arrive later as a background report)
 
-`describe_tool_function {"name": "paralel_subtasks"}` returns `available: false` with the same message.
+The leading `paralel_subtasks:` is the sandbox's standard prefix for a catchable tool error. The hint text itself is the sentence after that prefix.
+
+`describe_tool_function {"name": "paralel_subtasks"}` returns `available: false` with the hint text (without the sandbox's tool-name prefix).
 
 ## Boot guidance ("Large tasks" section)
 

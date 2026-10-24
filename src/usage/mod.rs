@@ -792,7 +792,7 @@ async fn conversation_label(
             Some("Unattended reflection".into()),
         ),
         // A piece's session title is its fresh topic id: say what it is instead.
-        SlugKind::Background if channel == "SUBAGENT" => ("Subtask".into(), Some("Background job".into())),
+        SlugKind::Background if channel == "SUBAGENT" => ("Subtask".into(), Some("Subagent".into())),
         SlugKind::Background => ("Agent conversation".into(), Some("Delegation or consult".into())),
         SlugKind::System => ("System".into(), None),
     }

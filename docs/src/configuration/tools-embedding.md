@@ -13,7 +13,8 @@ Every agent gets these regardless of configuration:
 | `schedule_one_time_task`, `schedule_cron_task`, `list_task`, `get_task_detail`, `delete_task` | Scheduler — tasks run as the agent in a dedicated `Task` session |
 | `consult_agent` | Ask another agent and wait for its reply |
 | `delegate_agent` | Hand a task to another agent |
-| `paralel_subtasks` | Run several sub-prompts in parallel (sub-agents of the same agent) |
+| `parallel_subagents` | Run several sub-prompts in parallel and wait for their results in the current turn |
+| `background_subagents` | Run several sub-prompts in parallel in the background; results arrive later as a background report |
 | `create_skill`, `update_skill`, `delete_skill`, `list_skills`, `get_skill_details`, `use_skill`, `read_skill_resource`, `execute_skill_resource` | Skills — see [Skills](./skills.md) |
 | `list_session_files`, `read_document_file`, `read_image_file`, `send_attachment` | Session files — uploaded/attached files; documents (txt/md/json/yaml/csv/html/pdf/docx/xlsx…) are extracted to text |
 | `write_tmp`, `append_tmp`, `read_tmp` | Scratchpad — temporary notes private to the conversation, see [below](#scratchpad) |

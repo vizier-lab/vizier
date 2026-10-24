@@ -26,21 +26,18 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 vizier run
 
 ## What a trace looks like
 
-One trace covers a conversation turn **and the work it starts in the background**. Here a person's message makes the agent run a script that launches two subtasks:
+One trace covers a conversation turn **and the work it starts**. Here a person's message makes the agent run a script that waits for two subagents:
 
 ```
 invoke_agent otel                         ← the turn
   chat gpt-5                              ← one request to the provider
   execute_tool execute_python             ← a tool call the model made
     python_exec
-      execute_tool paralel_subtasks       ← a tool called from inside the script
-        background_job batch              ← open until the job reports back
-          invoke_agent otel               ← subtask 1's turn
-            chat gpt-5
-          invoke_agent otel               ← subtask 2's turn
-            chat gpt-5
-          invoke_agent otel               ← the woken report turn, in the original conversation
-            chat gpt-5
+      execute_tool parallel_subagents    ← a tool called from inside the script
+        invoke_agent otel               ← subagent 1's turn
+          chat gpt-5
+        invoke_agent otel               ← subagent 2's turn
+          chat gpt-5
   chat gpt-5                              ← the turn's final answer
 ```
 
@@ -102,7 +99,7 @@ Tools the model calls directly (`execute_python`, `list_tool_functions`, …) an
 
 ### `background_job {kind}`: a background job
 
-It opens when `paralel_subtasks` or `delegate_agent` launches the job and closes when the job is reported or cancelled, so its duration is the job's.
+It opens when `background_subagents` or `delegate_agent` launches the job and closes when the job is reported or cancelled, so its duration is the job's. The blocking `parallel_subagents` tool has no background-job span: its pieces are children of the tool call itself.
 
 | Attribute | Value |
 |-----------|-------|

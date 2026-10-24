@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     agents::tools::{
         CatalogueEntry, CategorySummary, ToolCategory, ToolContext, ToolRouter, ToolTarget,
-        VizierTool, mcp_category_name, turn_catalogue, turn_categories,
+        VizierTool, mcp_category_name, retired_hint, turn_catalogue, turn_categories,
     },
     error::VizierError,
     sandbox::{ToolFunctionDoc, docs},
@@ -177,7 +177,11 @@ impl VizierTool for DescribeToolFunction {
                 .map_err(|err| VizierError(err.to_string()))?,
             None => {
                 let known: Vec<String> = catalogue.into_iter().map(|entry| entry.name).collect();
-                docs::not_found(&args.name, &known)
+                let mut output = docs::not_found(&args.name, &known);
+                if let Some(hint) = retired_hint(&args.name) {
+                    output["message"] = serde_json::Value::String(hint.to_string());
+                }
+                output
             }
         })
     }

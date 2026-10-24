@@ -6,12 +6,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tokio::sync::OnceCell;
+use tokio::sync::{OnceCell, watch};
 
 use crate::{
     agents::{
         hook::VizierSessionHook,
-        tools::{CatalogueEntry, ToolContext, ToolRouter, ToolTarget, turn_catalogue},
+        tools::{
+            CatalogueEntry, ToolContext, ToolRouter, ToolTarget, retired_hint, turn_catalogue,
+        },
     },
     agents::tools::python::docs_tools::entry_doc,
     sandbox::{BridgeError, SandboxBridge, ToolFunctionDoc, ToolInvocationRecord, docs},
@@ -27,10 +29,13 @@ pub struct RouterBridge {
     catalogue: OnceCell<Vec<CatalogueEntry>>,
     invocations: Mutex<Vec<ToolInvocationRecord>>,
     attachments: Mutex<Vec<VizierAttachment>>,
+    /// Signals an in-flight nested call to stop when the sandbox is dropped.
+    cancelled: watch::Sender<bool>,
 }
 
 impl RouterBridge {
     pub fn new(router: ToolRouter, ctx: ToolContext, tool_timeout: Duration) -> Self {
+        let (cancelled, _) = watch::channel(false);
         Self {
             router,
             ctx,
@@ -38,6 +43,7 @@ impl RouterBridge {
             catalogue: OnceCell::new(),
             invocations: Mutex::new(vec![]),
             attachments: Mutex::new(vec![]),
+            cancelled,
         }
     }
 
@@ -97,8 +103,21 @@ impl RouterBridge {
                 None => self.router.call(tool.clone(), arguments, &self.ctx).await,
             }
         };
-        let mut response = tokio::time::timeout(self.tool_timeout, call)
-            .await
+        let mut cancelled = self.cancelled.subscribe();
+        let cancellable = tool == "parallel_subagents";
+        if cancellable && *cancelled.borrow() {
+            return Err("tool call cancelled".to_string());
+        }
+        let timed = tokio::time::timeout(self.tool_timeout, call);
+        let result = if cancellable {
+            tokio::select! {
+                result = timed => result,
+                _ = cancelled.changed() => return Err("tool call cancelled".to_string()),
+            }
+        } else {
+            timed.await
+        };
+        let mut response = result
             .map_err(|_| format!("timed out after {:?}", self.tool_timeout))?
             .map_err(|err| err.to_string())?;
 
@@ -123,6 +142,10 @@ impl RouterBridge {
 
 #[async_trait::async_trait]
 impl SandboxBridge for RouterBridge {
+    fn cancel(&self) {
+        self.cancelled.send_replace(true);
+    }
+
     async fn catalogue(&self) -> Vec<ToolFunctionDoc> {
         self.entries()
             .await
@@ -148,7 +171,15 @@ impl SandboxBridge for RouterBridge {
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value, BridgeError> {
         // The catalogue name is the one `ToolRouter::call` dispatches on.
-        let entry = self.entry(function).await.ok_or(BridgeError::UnknownFunction)?;
+        let entry = match self.entry(function).await {
+            Some(entry) => entry,
+            None => {
+                return Err(match retired_hint(function) {
+                    Some(hint) => BridgeError::Tool(hint.into()),
+                    None => BridgeError::UnknownFunction,
+                });
+            }
+        };
         let tool = entry.name.clone();
         let is_client = matches!(entry.target, ToolTarget::Client { .. });
 

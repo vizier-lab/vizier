@@ -546,6 +546,7 @@ async fn refresh_session_detail(
         pending_attachments: Arc::new(Mutex::new(vec![])),
         hooks: None,
         background_depth: 0,
+        deadline: None,
     };
     let Ok((title, _, _, _)) = agent
         .prompt(Message::User(vec![crate::llm::types::Part::Text(prompt)]), vec![], 0, None, false, &ctx)
@@ -946,6 +947,7 @@ async fn run_checkpoint(
         pending_attachments: Arc::new(Mutex::new(vec![])),
         hooks: None,
         background_depth: 0,
+        deadline: None,
     };
 
     // Generate handover

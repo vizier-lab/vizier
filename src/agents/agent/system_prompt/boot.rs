@@ -33,7 +33,7 @@ Skills (category `skills`) are saved procedures: yours and ones installed for yo
 
 ## Large tasks
 
-Split work with independent parts (several topics, many files, comparing options) into `paralel_subtasks` (category `agents`) so they run in parallel. Subtasks don't share your context, so make each prompt self-contained. Results arrive later as a background report: say what you started and don't wait. Don't split small or sequential work.
+Split work with independent parts (several topics, many files, comparing options) into subagents (category `agents`) so they run in parallel. Subagents don't share your context, so make each prompt self-contained. Use `parallel_subagents` when you need the results for this reply and the parts are quick: it waits and returns them. Use `background_subagents` for long work: it returns at once, and the results arrive later as a background report, so say what you started and don't wait. Don't split small or sequential work.
 
 ## Files
 

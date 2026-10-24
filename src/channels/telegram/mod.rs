@@ -474,6 +474,7 @@ impl TelegramChannelReader {
                         expect_audio_reply: None,
                         scheduled_task: None,
                         background_depth: 0,
+                        ..Default::default()
                     },
                     None,
                 )
@@ -501,6 +502,7 @@ impl TelegramChannelReader {
                         expect_audio_reply: None,
                         scheduled_task: None,
                         background_depth: 0,
+                        ..Default::default()
                     },
                     Some(response_tx),
                 )
@@ -568,6 +570,7 @@ impl TelegramChannelReader {
                         expect_audio_reply: None,
                         scheduled_task: None,
                         background_depth: 0,
+                        ..Default::default()
                     },
                     Some(response_tx),
                 )
@@ -654,6 +657,7 @@ impl TelegramChannelReader {
             expect_audio_reply: None,
             scheduled_task: None,
             background_depth: 0,
+            ..Default::default()
         };
 
         let renderer = TurnRenderer {

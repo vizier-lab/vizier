@@ -8,7 +8,6 @@ use tokio::sync::Mutex;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, timeout};
 use tracing::Instrument;
 
@@ -65,18 +64,6 @@ use crate::{
 
 pub mod model;
 pub mod system_prompt;
-
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct Subtask {
-    title: String,
-    prompt: String,
-}
-
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct SubtaskArgs {
-    #[schemars(description = "list of subtasks to be execute in paralel")]
-    tasks: Vec<Subtask>,
-}
 
 #[derive(Clone)]
 pub struct VizierAgent {
@@ -661,6 +648,7 @@ impl VizierAgent {
             pending_attachments: Arc::new(Mutex::new(vec![])),
             hooks: hooks.clone(),
             background_depth,
+            deadline: None,
             client,
         };
 
@@ -1114,7 +1102,8 @@ impl VizierAgent {
                 }
 
                 let tool_server = snapshot.clone();
-                let ctx_clone = ctx.clone();
+                let mut ctx_clone = ctx.clone();
+                ctx_clone.deadline = Some(tokio::time::Instant::now() + *self.config.tools.timeout);
                 let traced_args = args.clone();
                 let mut tool_res = match traced_tool_call(&function_name, call_id, &traced_args, *self.config.tools.timeout, async {
                     tool_server
@@ -1543,6 +1532,7 @@ impl VizierAgent {
                     pending_attachments: Arc::new(Mutex::new(vec![])),
                     hooks: hooks.clone(),
                     background_depth: 0,
+                    deadline: None,
                 },
             )
             .await?;

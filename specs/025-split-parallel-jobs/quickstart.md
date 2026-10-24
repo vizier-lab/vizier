@@ -14,7 +14,7 @@ These checks run against a live binary, using an agent on the offline `dummyplug
   def q(s):
       return '"' + s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n') + '"'
   def run(code):
-      return '{"tool":"execute_python","arguments":{"code":' + q(code) + '}}'
+      return '{"tool":"execute_python","arguments":{"intent":"run the shell command","code":' + q(code) + '}}'
   ```
 
 - `$T` is the base URL plus an auth header, `$TOPIC` is the topic id and `<ch>` the channel id.
@@ -152,7 +152,7 @@ except RuntimeError as e:
     print(e)
 ```
 
-**Expect** `paralel_subtasks was replaced by parallel_subagents (waits for the results) and background_subagents (results arrive later as a background report)`. Nothing runs and no job appears.
+**Expect** `paralel_subtasks: paralel_subtasks was replaced by parallel_subagents (waits for the results) and background_subagents (results arrive later as a background report)`. The leading tool name is the sandbox's standard prefix for a catchable tool error. Nothing runs and no job appears.
 
 ```json
 {"tool":"describe_tool_function","arguments":{"name":"paralel_subtasks"}}

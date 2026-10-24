@@ -495,6 +495,7 @@ If I am halucinating, feel free to `/lobotomy` me
                             expect_audio_reply: None,
                             scheduled_task: None,
                             background_depth: 0,
+                            ..Default::default()
                         },
                         None,
                     )
@@ -687,6 +688,7 @@ If I am halucinating, feel free to `/lobotomy` me
                     expect_audio_reply: None,
                     scheduled_task: None,
                     background_depth: 0,
+                    ..Default::default()
                 },
                 Some(response_tx),
             )

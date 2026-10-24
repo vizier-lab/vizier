@@ -1276,6 +1276,7 @@ async fn agent_chat(
         expect_audio_reply: None,
         scheduled_task: None,
         background_depth: 0,
+        ..Default::default()
     };
 
     let (response_tx, response_rx) = flume::unbounded();

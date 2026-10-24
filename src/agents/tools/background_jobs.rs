@@ -74,7 +74,7 @@ impl VizierTool for ListBackgroundJobs {
     }
 
     fn description(&self) -> String {
-        "List the background jobs you have running (from paralel_subtasks or delegate_agent), across all your conversations, with their progress. Use it to find a job id to cancel.".into()
+        "List the background jobs you have running (from background_subagents or delegate_agent), across all your conversations, with their progress. Use it to find a job id to cancel.".into()
     }
 
     async fn call(&self, _args: Self::Input, ctx: &ToolContext) -> Result<Self::Output, VizierError> {

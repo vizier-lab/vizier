@@ -58,6 +58,11 @@ fn readable_channel(username: &str, channel_id: &str) -> (VizierChannelId, bool)
     if let Some(id) = channel_id.strip_prefix("telegram__").and_then(|id| id.parse::<i64>().ok()) {
         return (VizierChannelId::TelegramChannel(id), true);
     }
+    // A blocking subagent's conversation is addressable by its topic, even though it has
+    // no background job row of its own.
+    if channel_id.eq_ignore_ascii_case("SUBAGENT") {
+        return (VizierChannelId::Subagent, false);
+    }
     (VizierChannelId::HTTP(username.to_string(), channel_id.to_string()), false)
 }
 

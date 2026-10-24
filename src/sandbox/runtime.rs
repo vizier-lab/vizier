@@ -30,11 +30,17 @@ const CPU_CLOCK_GRACE: Duration = Duration::from_millis(500);
 
 /// Sets the flag when the `execute` future is dropped (e.g. by the agent loop's
 /// tool timeout), so the orphaned interpreter thread stops at its next host call.
-struct CancelOnDrop(Arc<AtomicBool>);
+/// It also cancels an in-flight bridged tool call, so that call's own drop guards run
+/// immediately instead of waiting for its timeout.
+struct CancelOnDrop {
+    cancelled: Arc<AtomicBool>,
+    bridge: Arc<dyn SandboxBridge>,
+}
 
 impl Drop for CancelOnDrop {
     fn drop(&mut self) {
-        self.0.store(true, Ordering::SeqCst);
+        self.cancelled.store(true, Ordering::SeqCst);
+        self.bridge.cancel();
     }
 }
 
@@ -58,7 +64,10 @@ pub async fn execute(
     }
 
     let cancelled = Arc::new(AtomicBool::new(false));
-    let _guard = CancelOnDrop(cancelled.clone());
+    let _guard = CancelOnDrop {
+        cancelled: cancelled.clone(),
+        bridge: bridge.clone(),
+    };
     let handle = tokio::runtime::Handle::current();
     let span = tracing::Span::current();
     let code = code.to_string();
