@@ -6,18 +6,19 @@ import {
     ScriptCall,
     Thought,
     TrailCall,
-    Thinking,
 } from '@vizier/design'
-import { Fragment, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { thinkingWord } from '../../lib/thinkingWords'
 import type { ExecutionReport, TrailEvent } from '../../api/frames'
 import { duration } from '../../lib/format'
-import { Enter } from '../../lib/motion'
 import { trailSummary } from '../../lib/trail'
 import { useMobile } from '../../lib/useMobile'
 
 /** Past this many steps a trail shows its newest and folds the rest behind a toggle. */
 const VISIBLE = 8
+
+/** How long each thinking line stays before the next. */
+const WORD_MS = 10_000
 
 function counts(trail: TrailEvent[], recalled: number): string {
     const python = trail.filter((e) => e.kind === 'python').length
@@ -178,22 +179,22 @@ export function Trail({
     agentName,
 }: Props) {
     const [all, setAll] = useState(false)
-    const word = useMemo(thinkingWord, [])
+    const [word, setWord] = useState(() => thinkingWord())
+    // The line changes every few seconds while the turn works.
+    useEffect(() => {
+        if (!live) return
+        const timer = setInterval(
+            () => setWord((w) => thinkingWord(w)),
+            WORD_MS
+        )
+        return () => clearInterval(timer)
+    }, [live])
     const mobile = useMobile()
     if (trail.length === 0 && !live) return null
-    const wait = live && (
-        <Thinking>
-            {agentName ? `${agentName} is ` : ''}
-            {word}…
-        </Thinking>
-    )
-    // Nothing to show yet: the dots and a word, like the legacy page.
-    if (trail.length === 0) return wait
-
     const hidden = !all && trail.length > VISIBLE ? trail.length - VISIBLE : 0
     const shown = hidden ? trail.slice(hidden) : trail
     const title = live
-        ? 'Working…'
+        ? `${agentName ? `${agentName} is ` : ''}${word}`
         : failed
           ? `Failed${durationMs != null ? ` after ${duration(durationMs)}` : ''}`
           : aborted
@@ -201,8 +202,6 @@ export function Trail({
             : `Worked${durationMs != null ? ` ${duration(durationMs)}` : ''}`
 
     return (
-        <div className="flex flex-col gap-10">
-        {wait}
         <ActivityTrail
             state={live ? 'live' : failed || aborted ? 'failed' : 'done'}
             title={title}
@@ -239,19 +238,11 @@ export function Trail({
                 />
             )}
             {shown.map((e) => {
-                const step = <Event event={e} live={live} />
-                // While the turn runs, each step ticks in as it arrives. A
-                // finished trail is left still, so it doesn't replay on the
-                // turn's closing swap.
-                return live ? (
-                    <Enter key={e.id} y={4}>
-                        {step}
-                    </Enter>
-                ) : (
-                    <Fragment key={e.id}>{step}</Fragment>
-                )
+                // The steps stay direct children of the list: the spine's
+                // not-last rule needs them as siblings. ActivityTrail animates
+                // their arrival while live.
+                return <Event key={e.id} event={e} live={live} />
             })}
         </ActivityTrail>
-        </div>
     )
 }

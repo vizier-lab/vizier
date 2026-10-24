@@ -40,5 +40,8 @@ const WORDS = [
     'weighing the scrolls',
 ]
 
-/** One of the idle words a turn shows while it works; pick once per turn and keep it. */
-export const thinkingWord = () => WORDS[Math.floor(Math.random() * WORDS.length)]
+/** One of the idle words a turn shows while it works; never `not`, so a rotation always changes. */
+export const thinkingWord = (not?: string) => {
+    const pool = WORDS.filter((w) => w !== not)
+    return pool[Math.floor(Math.random() * pool.length)]
+}
