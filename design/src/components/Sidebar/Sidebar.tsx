@@ -104,8 +104,10 @@ export function Sidebar({
       className={cx(
         // The rail eases between its two widths; the labels are clipped by the
         // shrinking edge rather than popped out of existence.
-        "flex h-full flex-col gap-4 overflow-hidden border-r border-border bg-sidebar pb-16 transition-[width] duration-[var(--vz-duration-slow)] ease-standard",
-        collapsed ? "w-64 items-center px-10" : "w-240 px-14",
+        "flex h-full flex-col gap-4 bg-sidebar pb-16 transition-[width] duration-[var(--vz-duration-slow)] ease-standard",
+        // The rail has no edge line (with it the 44px tiles no longer fit the 64px width) and does
+        // not clip, so the tooltips of its icons can reach out over the page.
+        collapsed ? "w-64 items-center px-10" : "w-240 overflow-hidden border-r border-border px-14",
         className,
       )}
       {...rest}
