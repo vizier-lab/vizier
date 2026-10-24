@@ -1,6 +1,6 @@
 import type { HTMLAttributes } from "react";
 import { cx } from "../../lib/cx";
-import { sigilCells, sigilSignalCell } from "./sigil";
+import { sigilCells, sigilSignalCell } from "./sigilCells";
 
 export type SigilSize = "sm" | "md" | "lg" | "xl";
 
