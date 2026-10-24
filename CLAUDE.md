@@ -176,5 +176,5 @@ React Router v7 (SPA, `ssr: false`) + React 19 + TypeScript + Tailwind v4, compo
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
-`specs/026-generative-ui-terminal-tools/plan.md`
+`specs/028-openrouter-media-provider/plan.md`
 <!-- SPECKIT END -->
