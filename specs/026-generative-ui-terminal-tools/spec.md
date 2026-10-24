@@ -12,7 +12,7 @@
 
 Today an agent that wants to show something richer than text in the WebUI (a chart, a table, a form, a set of buttons) calls `render_interactive_ui` and hands it a complete HTML page it has written itself: markup, styles, scripts and all. That is slow (the agent emits hundreds of lines for a simple dashboard), costly in tokens, inconsistent in look from one reply to the next, and fragile (one script error leaves a blank frame). The agent also needs a long style guide (the `interactive-ui` skill) to get a decent result.
 
-This feature replaces that tool with **generative UI**: the agent describes the interface as a small structured document that only names **prebuilt components** from a fixed catalogue (card, stat, table, chart, form, button, tabs, and so on) and fills in their content. The WebUI draws it with its own components, so it always matches the app's look and theme, renders as the agent writes it, and needs no style guide. Interactivity is part of the description: components can read and write small pieces of page state (a selected tab, a typed value, a toggled filter), show or hide parts depending on that state, and trigger a limited set of actions, chiefly sending a message (with optional structured data) back into the conversation as the person's turn. The structured-document approach is the one used by the open-source *json-render* project, which is the reference for the document shape and the catalogue-as-guardrail idea.
+This feature replaces that tool with **generative UI**: the agent describes the interface as a small structured document that only names **prebuilt components** from a fixed catalogue (card, stat, table, chart, form, button, tabs, and so on) and fills in their content. The WebUI draws it with its own components, so it always matches the app's look and theme and needs no style guide. The agent learns the catalogue from the tool itself, on demand, with no skill to load. Interactivity is part of the description: components can read and write small pieces of page state (a selected tab, a typed value, a toggled filter), show or hide parts depending on that state, and trigger a limited set of actions, chiefly sending a message (with optional structured data) back into the conversation as the person's turn. The structured-document approach is the one used by the open-source *json-render* project, which is the reference for the document shape and the catalogue-as-guardrail idea.
 
 Second, this feature introduces a **turn-ending flag** for tools (the request called it "terminal"; this spec uses *turn-ending* in prose because "terminal" already means the shell terminal in this product, and the final flag name is settled in planning). A tool carrying the flag, whether built into vizier, supplied by an integration, or declared by a client, ends the agent's turn once it has been called and its result is the agent's final answer: the agent does not get another round to comment on it. Because the agent has to know this before calling, the tool's description is automatically extended with a standard notice. Generative UI is the first turn-ending tool: showing the interface *is* the answer, and a trailing "Here is your dashboard!" message adds latency and noise.
 
@@ -93,7 +93,26 @@ Whoever defines a tool (vizier developers for built-in tools, integration author
 
 ---
 
-### User Story 5 - Existing interactive pages keep working, the old tool is retired (Priority: P3)
+### User Story 5 - Rich apps and simulations, not only dashboards (Priority: P2)
+
+A person asks for "an interactive chess board I can play against you" or "a low-poly 3D terrain generator with sliders for seed and roughness". The agent builds each one from the same catalogue: a grid of cells with pieces and highlights for chess, a 3D scene with a heightfield mesh and orbit controls for the terrain. The parts a fixed catalogue cannot express (which chess moves are legal, how heights are computed from a seed) are small pure functions the agent writes once and the interface runs locally, so moving a piece or dragging a slider responds instantly with no agent turn and no network.
+
+**Why this priority**: The catalogue alone covers dashboards and forms; the stated goal is that the system is flexible enough for apps like these too. Without it people would fall back to hand-written pages and the speed gain is lost for exactly the most impressive uses.
+
+**Independent Test**: With a live model (or a recorded interface description for the offline provider), generate a playable chess board and a terrain generator; confirm that selecting a piece highlights its legal moves, a move updates the board and passes the turn, a slider change regenerates the terrain, the 3D view can be orbited, and none of these interactions starts an agent turn.
+
+**Acceptance Scenarios**:
+
+1. **Given** an interface with a board of cells built from a list in its state, **When** the person presses a cell, **Then** the interface can compute and show the consequence (highlighted moves, a moved piece) locally, using functions the agent supplied with the interface.
+2. **Given** an interface with a 3D scene (shapes, lights, a height-field surface drawn flat-shaded, a camera the person can orbit), **When** a slider bound to the scene's inputs changes, **Then** the scene updates immediately.
+3. **Given** the agent's functions loop forever, run too long, return too much data, or throw, **When** they are called, **Then** the call is stopped, the person sees a small inline error on that interface, and the rest of the WebUI is unaffected.
+4. **Given** the agent's functions try to reach the network, the page, the person's login or storage, **When** they run, **Then** they cannot: they receive only the values passed in and return only data.
+5. **Given** the interface needs motion (a simulation step, a clock), **When** it is drawn, **Then** it can run a timed action at a bounded rate that stops when the interface is no longer on screen.
+6. **Given** the person's next typed message asks the agent to change the game or terrain, **When** the agent answers, **Then** it can replace the interface with a new one, and the old one stays in history.
+
+---
+
+### User Story 6 - Existing interactive pages keep working, the old tool is retired (Priority: P3)
 
 Conversations that already contain pages drawn with the old tool still show them. New turns no longer offer the old tool; agents use generative UI instead. The old authoring guide is replaced by a short one for the new tool.
 
@@ -131,12 +150,22 @@ Conversations that already contain pages drawn with the old tool still show them
 
 - **FR-001**: The WebUI MUST offer the agent a generative UI tool whose input is a structured description of an interface made only of components from a fixed catalogue, plus an optional initial page state and a title.
 - **FR-002**: The catalogue MUST cover, at minimum, layout (stack, row, grid, card, tabs), text (heading, paragraph, label, badge), data display (stat, table, list, progress, chart for bar/line/pie), inputs (text input, select, checkbox/toggle, slider), and a button; and MUST be extensible without changing the tool's contract for agents beyond a catalogue update.
-- **FR-003**: The agent MUST be able to discover the catalogue (component names, purposes, accepted content and examples) through the tool's own description and the normal tool-describing path, without a separate skill having to be loaded.
+- **FR-003**: The agent MUST be able to discover the catalogue (component names, purposes, accepted content and examples) through the tool categories it already sees and the normal tool-listing and tool-describing path, without a skill having to be loaded and without the catalogue being added to the standing instructions. The reference MUST be available on demand, whole or narrowed to chosen components, and MUST include complete worked examples.
+- **FR-003a**: The catalogue reference the agent reads MUST be generated from the same definitions that validate and draw the interface, so it cannot drift from what is accepted.
 - **FR-004**: vizier MUST validate a description against the catalogue before accepting the call and MUST refuse it, with a message naming each problem and the valid alternatives, if it uses a component or action not in the catalogue, gives content of the wrong shape, references missing elements, or exceeds the size, depth or component-count limits.
 - **FR-005**: A refused call MUST NOT end the turn and MUST give the agent the chance to correct it (see FR-014).
 - **FR-006**: The WebUI MUST draw the description using its own components, in the active theme, inside the agent's reply for the turn, and MUST keep drawing the rest of an interface if one component cannot be drawn.
 - **FR-007**: The accepted description and the interface's latest state MUST be saved with the conversation so reload, a second tab, and another device show the same interface in the same place.
-- **FR-008**: The interface MUST NOT run agent-written code, load external resources or reach the person's credentials, cookies, or other parts of the WebUI; the only things an interface can do are the catalogue's components and the allowed actions.
+- **FR-008**: An interface MUST NOT load external resources or reach the person's credentials, cookies, storage, network or other parts of the WebUI. The only things an interface can do are draw the catalogue's components, change its own page state, call its own functions (FR-029) and take the allowed actions. The only agent-written code that ever runs is those functions, and only inside the isolation FR-029 describes.
+
+**Flexibility (apps, games, simulations, 3D)**
+
+- **FR-027**: The catalogue MUST let an interface build a list-driven layout (one template repeated per item of a list in its state, with access to the item and its position), so boards, galleries and tables of arbitrary size need no hand-repeated components.
+- **FR-028**: The catalogue MUST include a 2D drawing surface and a 3D scene (basic shapes, lights, a camera the person can orbit, a flat-shaded height-field surface and a free-form mesh), both able to report presses on what was pressed.
+- **FR-029**: An interface MAY carry small named functions that take and return plain data only. They run locally on the person's device, off the main thread of the page, with no access to the network, the page, storage or the person's login, under a hard time limit and a size limit on what they return. An action can call one with values from the interface's state and write its result back to state; state changes and a timer can trigger such actions.
+- **FR-030**: Values an interface derives (a height map, a board after a move) MUST be allowed to live in state that is not saved with the conversation and is recomputed when the interface is drawn, so large derived data never counts against the saved-state limit.
+- **FR-031**: A function that fails, times out or returns too much MUST produce a visible inline error on the interface, leave the previous state intact, and never block the rest of the WebUI.
+- **FR-032**: Timed actions MUST have a minimum interval and MUST stop when the interface is not on screen.
 
 **Interactivity**
 
@@ -185,6 +214,8 @@ Conversations that already contain pages drawn with the old tool still show them
 - **SC-005**: Switching tabs, toggling and typing in a drawn interface respond with no perceptible delay (under 100 ms) and no agent turn.
 - **SC-006**: After a successful call to a turn-ending tool, no further model request is made for that turn in 100% of cases, and the closing message round that exists today is eliminated for generative UI answers.
 - **SC-007**: A tool author can mark a tool turn-ending with a single flag and nothing else, and 100% of such tools show the standard notice to the agent; tools without the flag are byte-for-byte unchanged in what the agent sees.
+- **SC-009**: From a single request each, an agent can produce a playable chess board and a low-poly terrain generator that respond to presses and slider changes in under 100 ms without starting an agent turn, and at least 8 of 10 attempts on a fixed prompt run without a function error on first draw.
+- **SC-010**: An agent with no skill installed uses the generative UI tool correctly (valid on first or second attempt) in at least 95% of 20 sample requests, reading only the tool categories, the tool listings and the component reference.
 - **SC-008**: Every conversation that contained a page from the old tool before the change still shows that page, with its saved state, after it.
 
 ## Assumptions
@@ -194,6 +225,7 @@ Conversations that already contain pages drawn with the old tool still show them
 - "Turn-ending" is the working name for the flag in this spec because "terminal" already refers to the shell tool; the exact flag name in code and in the public protocol is settled in planning.
 - A successful turn-ending call ends the turn by default; there is no per-call override. If the agent needs to show an interface and then keep working, it does the work first.
 - The first catalogue is a deliberately small, general-purpose set (FR-002); domain-specific components are added later.
+- The functions of FR-029 are written in the one language every browser runs; a separate rules engine or library for any particular game is not shipped.
 - Existing saved pages (old tool) keep their current renderer and sandbox; no data migration converts them to the new format.
 - Existing limits and mechanisms for client tools (declaration checks, call timeouts, deferral, saved state, rate limits, interface events) are reused; this feature changes what the tool carries, not how client tools work in general.
 - Mobile layouts, Discord and Telegram rendering of generative UI are out of scope; those channels receive the agent's text only.
