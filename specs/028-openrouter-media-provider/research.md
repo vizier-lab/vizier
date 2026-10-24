@@ -161,7 +161,7 @@ All three are public on 2026-10-24 (no Authorization header needed). If a respon
 
 ## R9 — Storage: one concern, one table
 
-**Decision**: Add `MediaCatalogueStorage` with four methods and a `media_catalogue_snapshot` table keyed by capability. Rows store gzip JSON, schema version, `fetched_at`, `checked_at`, `last_error`, `failed_at`. `SqliteStorage` is the only implementation; `VizierStorage` forwards.
+**Decision**: Add `MediaCatalogueStorage` with three methods and a `media_catalogue_snapshot` table keyed by capability. Rows store gzip JSON, schema version, `fetched_at`, `checked_at`, `last_error`, `failed_at`. `SqliteStorage` is the only implementation; `VizierStorage` forwards.
 
 **Rationale**: This mirrors `CatalogueCacheStorage` (`catalogue_snapshot`) and `storage::catalogue` value types without overloading the single-row chat catalogue with three more rows and a different source. It keeps the storage boundary (a backend owns bytes) and the existing migration-free startup. The `schema` column lets a future payload change invalidate old rows; gzip keeps the DB small.
 
@@ -187,6 +187,7 @@ Response:
   "source": "bundled",
   "fetched_at": "2026-10-24T00:00:00Z",
   "checked_at": null,
+  "default_voice": "af_alloy",
   "refresh": { "enabled": true, "ttl": "24h", "in_progress": false, "last_error": null, "failed_at": null },
   "models": [
     { "id": "hexgrad/kokoro-82m", "name": "hexgrad: Kokoro 82M", "default": true, "listed": true,
@@ -210,7 +211,7 @@ The documented default is marked `default: true`; if it is absent from the fetch
 **Decision**:
 - One hook `useMediaModels(capability, enabled)` fetches once per capability when the OpenRouter provider is selected; it returns `{ data, loading, error, refresh }`.
 - `MediaModelSelect`: design `Picker` with the default in its own first section, then the capability list; search filters name and id; a typed row offers `Use “<query>”`; selecting sets the stored model id; the trigger shows `Name · id`, or `Default · <name>` when empty. A status line shows `bundled`/`cached`, age and a refresh button for `settings:providers`; failures are a small non-blocking notice and the typed row still works.
-- `MediaVoiceSelect` for TTS: same picker over the selected speech model's `voices`; a typed row; if the model publishes none, the previous free-text field behavior (placeholder = default voice).
+- `MediaVoiceSelect` for TTS: same picker over the selected speech model's `voices`; a typed row; uses the response's `default_voice` once loaded (the local map before that); if the model publishes none, the previous free-text field behavior (placeholder = default voice).
 - `ToolsFields` uses these only when the provider is `openrouter`; every other provider keeps the existing `TextField`.
 - `agentForm.ts`: add `openrouter` to `STT_PROVIDERS`/`IMAGE_GEN_PROVIDERS`; add `TTS_DEFAULT_MODELS`; set `TTS_DEFAULT_VOICES.openrouter = af_alloy`; placeholders show the documented default for all providers.
 

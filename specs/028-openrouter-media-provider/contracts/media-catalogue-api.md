@@ -51,6 +51,7 @@ A stale list plus `refresh.in_progress: true` is a valid response; the UI may sh
     "source": "bundled",
     "fetched_at": "2026-10-24T00:00:00Z",
     "checked_at": null,
+    "default_voice": "af_alloy",
     "refresh": {
       "enabled": true,
       "ttl": "86400s",
@@ -83,6 +84,7 @@ The outer envelope is the existing `APIResponse<T>` (`status`, `message`, `data`
 | `source` | `bundled` \| `cached` | `bundled` = the embedded seed; `cached` = a successfully refreshed/stored list. |
 | `fetched_at` | RFC 3339 string | When the current bytes were fetched. |
 | `checked_at` | RFC 3339 string \| null | Last successful check; null for the seed until a refresh. |
+| `default_voice` | string \| null | The documented default voice for `speech` (`af_alloy`); `null` for transcription/image. |
 | `refresh.enabled` | bool | `catalogue.refresh`. |
 | `refresh.ttl` | string | `catalogue.ttl.to_string()` (e.g. `86400s`), same as the chat catalogue. |
 | `refresh.in_progress` | bool | One check per capability. |

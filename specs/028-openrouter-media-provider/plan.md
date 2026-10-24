@@ -13,7 +13,7 @@ Five decisions carry the plan (details in [research.md](./research.md)):
 1. **Reuse the OpenAI-shaped media clients wherever OpenRouter is OpenAI-compatible** (R3, R5). STT is the existing multipart `OpenAiStt` against `/audio/transcriptions`; TTS is the existing `OpenAiTts` against `/audio/speech` with `response_format: mp3`. Only the image endpoint differs materially: OpenRouter uses `POST /images` (not `/images/generations`), the universal `size` convenience field, and returns `b64_json` plus an optional `media_type`. That difference becomes a factory-set `ImageApi` variant, never a provider check inside the client.
 2. **One credential, verified defaults** (R1, R2). The saved OpenRouter provider credential (or `OPENROUTER_API_KEY`) serves chat, embeddings and all three media capabilities. The live lists were checked on 2026-10-24: the old TTS default `openai/gpt-4o-mini-tts-2025-12-15` is **retired**, so TTS moves to `hexgrad/kokoro-82m` with voice `af_alloy`; STT keeps `openai/whisper-large-v3` and images keep `bytedance-seed/seedream-4.5`, both present.
 3. **Media discovery is a second, per-capability catalogue inside the existing `Catalogue` handle** (R6–R9). It has an embedded seed, a SQLite snapshot per capability, a lazy TTL refresh with a 1 h failure backoff, and a manual refresh. It reuses `catalogue.refresh`/`catalogue.ttl`; there is no new config surface and no network at startup, agent build, turn, scheduler or dream time. Refreshes are public (no key needed) with a key fallback only if OpenRouter ever starts requiring one.
-4. **The storage change is one concern with one implementation** (R9): `MediaCatalogueStorage` (four methods) and a `media_catalogue_snapshot` table keyed by capability, gzip-JSON payload, schema version, fetch/check timestamps and last failure — mirroring `CatalogueCacheStorage` rather than generalising it.
+4. **The storage change is one concern with one implementation** (R9): `MediaCatalogueStorage` (three methods) and a `media_catalogue_snapshot` table keyed by capability, gzip-JSON payload, schema version, fetch/check timestamps and last failure — mirroring `CatalogueCacheStorage` rather than generalising it.
 5. **The WebUI picker is shaped like `ModelSelect`, only smaller** (R11): a searchable `Picker` with the default marked, a typed-id row for anything missing, an optional voice picker fed by the selected model's published voices, and a refresh action for people with `settings:providers`. Other media providers keep their free-text fields; OpenRouter is added to the three provider drop-downs and the existing Settings › Providers media filter already includes it.
 
 ## Technical Context
@@ -94,7 +94,7 @@ src/
 │   ├── mod.rs                              # trait in VizierStorageProvider + forwarding impl
 │   └── sqlite/
 │       ├── mod.rs                          # media_catalogue_snapshot DDL in init_schema
-│       └── media_catalogue.rs              # get/put/touch/failure
+│       └── media_catalogue.rs              # get/put/failure
 ├── dependencies.rs                         # load cached media lists next to the catalogue cache
 └── channels/http/
     ├── mod.rs                              # OpenAPI paths for the two media endpoints
@@ -136,19 +136,19 @@ docs/src/configuration/tools-embedding.md   # provider tables: OpenRouter defaul
 4. Seed loading: parse and validate `assets/catalogue/openrouter_media.json`; a broken seed logs and yields an empty list (typed fallback still works). Compare seed/cache `fetched_at` per capability.
 
 ### Phase 3 — Storage (Rust)
-1. `storage/media_catalogue.rs`: row + `MediaCatalogueStorage` (`get_media_snapshot`, `put_media_snapshot`, `touch_media_checked`, `record_media_failure`) keyed by capability string.
+1. `storage/media_catalogue.rs`: row + `MediaCatalogueStorage` (`get_media_snapshot`, `put_media_snapshot`, `record_media_failure`) keyed by capability string.
 2. SQLite DDL in `init_schema`; gzip payload using the existing `catalogue::cache::{gzip, gunzip}`; transaction per write.
-3. Add the trait to `VizierStorageProvider` and forward all four methods from `VizierStorage`; call `catalogue.load_media_cache(&storage)` in `dependencies.rs` after the storage exists and next to `cache::newest` (never network).
+3. Add the trait to `VizierStorageProvider` and forward all three methods from `VizierStorage`; call `catalogue.load_media_cache(&storage)` in `dependencies.rs` after the storage exists and next to `cache::newest` (never network).
 
 ### Phase 4 — HTTP API (Rust)
-1. `GET /api/v1/catalogue/media-models?capability=speech|transcription|image`: auth, `maybe_refresh`, return source/fetch/check/refresh status plus models; mark the documented default and inject it with `listed: false` if absent. Invalid/missing capability → 400.
+1. `GET /api/v1/catalogue/media-models?capability=speech|transcription|image`: auth, `maybe_refresh`, return source/fetch/check/refresh status plus models and the documented default voice (speech only); mark the documented default model and inject it with `listed: false` if absent. Invalid/missing capability → 400.
 2. `POST /api/v1/catalogue/media-models/{capability}/refresh`: auth + `settings:providers`; waits for or starts the check; 200 with the listing, 409 when `catalogue.refresh` is false, 502 with the failure reason; previous list stays in use.
 3. Register both paths in the `ApiDoc` list and their schemas in `components`; regenerate `webui/app/api/schema.d.ts` during implementation.
 
 ### Phase 5 — WebUI
 1. Extend `catalogue.ts` types/calls; add `useMediaModels(capability)` that fetches once per capability on the first open of the model or voice picker (or an explicit refresh) and exposes `{ data, loading, error, ensure, refresh }`. A form render alone makes no request; the trigger's default label comes from the local defaults map until the list is loaded.
 2. `MediaModelSelect`: design `Picker`; sections put the default first then the capability list; filter by name/id; a typed row (`Use “…”`) when the query/new id is absent; trigger shows the selected name/id or `Default · <name>`; a status line shows source/age and a non-blocking error; a Refresh button appears only with `settings:providers`. Never mutate the model when the list changes.
-3. `MediaVoiceSelect`: same pattern over the selected speech model's `voices`; typed fallback; empty voices fall back to a text field/placeholder with the default voice.
+3. `MediaVoiceSelect`: same pattern over the selected speech model's `voices`; typed fallback; uses the response's `default_voice` when loaded (local `TTS_DEFAULT_VOICES` before that); empty voices fall back to a text field/placeholder with the default voice.
 4. `ToolsFields`: render the pickers only when provider is `openrouter`; keep the existing `TextField` for every other provider. Add `openrouter` to `STT_PROVIDERS`/`IMAGE_GEN_PROVIDERS`, add `TTS_DEFAULT_MODELS`, set the OpenRouter defaults, and update `TTS_DEFAULT_VOICES.openrouter = af_alloy`.
 5. Tests: `agentForm` default maps cover every listed provider; picker helper tests (filter, default section, typed row, voices); typecheck.
 

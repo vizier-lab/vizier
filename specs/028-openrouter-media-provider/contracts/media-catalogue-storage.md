@@ -29,13 +29,6 @@ pub trait MediaCatalogueStorage {
     /// Insert or replace one capability, clearing the failure fields in the same transaction.
     async fn put_media_snapshot(&self, row: &MediaCatalogueSnapshotRow) -> anyhow::Result<()>;
 
-    /// A successful check that did not change the bytes: move checked_at, clear the failure.
-    async fn touch_media_checked(
-        &self,
-        capability: &str,
-        at: DateTime<Utc>,
-    ) -> anyhow::Result<()>;
-
     /// A failed check: record the reason/time, leave data and checked_at untouched.
     async fn record_media_failure(
         &self,
@@ -52,7 +45,7 @@ pub trait MediaCatalogueStorage {
 
 - Add `MediaCatalogueStorage` to the `VizierStorageProvider` supertrait list in `src/storage/mod.rs`.
 - Add `pub mod media_catalogue;` to `src/storage/mod.rs`.
-- Forward all four methods from `VizierStorage` to `self.0`, exactly like the other traits.
+- Forward all three methods from `VizierStorage` to `self.0`, exactly like the other traits.
 - Implement the trait for `SqliteStorage` in `src/storage/sqlite/media_catalogue.rs`.
 - The removed/legacy filesystem backend is not a `VizierStorageProvider`; no implementation is required there.
 
@@ -115,17 +108,6 @@ ON CONFLICT(capability) DO UPDATE SET
 - `data` is `cache::gzip(&serde_json::to_vec(&models)?)`; reuse the existing gzip helpers in `src/catalogue/cache.rs`.
 - A write failure is logged by the caller; the in-memory list still swaps (the refresh is useful even if persistence fails), matching the chat catalogue.
 
-### `touch_media_checked`
-
-```sql
-UPDATE media_catalogue_snapshot
-SET checked_at = ?2, last_error = NULL, failed_at = NULL
-WHERE capability = ?1;
-```
-
-- Reserved for a future 304/conditional path; v1 always writes a full `put_media_snapshot`. It is implemented now so the trait is complete and the failure/clear behavior is one place.
-- A missing row is a no-op (the caller only touches a list it loaded).
-
 ### `record_media_failure`
 
 ```sql
@@ -180,7 +162,7 @@ On a failed check:
 ## Tests
 
 - Round-trip a row with `gzip`/`gunzip` and assert all fields.
-- `put` clears a previous failure; `record_failure` leaves the fetched data/check time untouched; `touch` clears the failure.
+- `put` clears a previous failure; `record_failure` leaves the fetched data/check time untouched.
 - `get` on an empty database returns `None`; an unknown capability returns `None`.
 - A corrupt row is ignored by the loader (unit test with an injected row where the table is available, or a pure `decode` helper test).
-- The existing `cargo test` sparse-suite convention applies; most behavior is also exercised by quickstart §2–§5.
+- The existing `cargo test` sparse-suite convention applies; most behavior is also exercised by quickstart §1–§5.

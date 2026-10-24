@@ -46,7 +46,7 @@ The voice is part of the default pair: changing the speech model means re-checki
 | `aspect_ratios` | `Vec<String>` | Image only; from the model's `supported_parameters.aspect_ratio.values` when it is an enum; otherwise empty. |
 | `resolutions` | `Vec<String>` | Image only; from `supported_parameters.resolution.values` when it is an enum; otherwise empty. |
 
-`default` and `listed` are **not** stored: they are derived when a listing is built, because the default is a provider policy, not provider data.
+`default` and `listed` are **not** stored: they are derived when a listing is built, because the default is a provider policy, not provider data. The API also returns a top-level `default_voice: Option<String>` (`Some(TtsProvider::Openrouter.default_voice())` for `speech`, `None` otherwise); it is the documented voice, not per-model data, and lets the voice field show the server's value once the list loads.
 
 ### `MediaList` (in memory, one per capability)
 
@@ -83,7 +83,7 @@ Default injection rules:
 | `capability` | `String` | `speech` / `transcription` / `image`; primary key. |
 | `schema` | `i64` | Payload version, currently `1`. A mismatch ignores the row. |
 | `fetched_at` | `DateTime<Utc>` | Successful fetch time. |
-| `checked_at` | `DateTime<Utc>` | Last successful check (equal to `fetched_at` on a new row; later `touch_checked` keeps data, moves this). |
+| `checked_at` | `DateTime<Utc>` | Last successful check (equal to `fetched_at` on a new row; a later successful refresh moves it while replacing the data). |
 | `last_error` | `Option<String>` | Reason for the last failed check, for diagnostics and the restored notice. |
 | `failed_at` | `Option<DateTime<Utc>>` | When that failure happened; drives the 1 h backoff. |
 | `data` | `Vec<u8>` | gzip of `serde_json::to_vec(&Vec<MediaModel>)`. |
@@ -108,7 +108,6 @@ Semantics:
 
 - `get_media_snapshot(capability)` → row or `None`.
 - `put_media_snapshot(row)` → `INSERT ... ON CONFLICT(capability) DO UPDATE`, clears `last_error`/`failed_at` (a success supersedes a failure), one transaction.
-- `touch_media_checked(capability, at)` → update `checked_at`, clear failure; used only if a conditional check returns 304 (not used in v1, kept for parity/future).
 - `record_media_failure(capability, error, at)` → set `last_error`/`failed_at`, leave data and `checked_at` untouched.
 - All timestamps are stored as milliseconds, matching `catalogue_snapshot`.
 - Deleting an agent does not delete a media snapshot: it is provider-wide, not agent-scoped.
