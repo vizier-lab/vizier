@@ -926,4 +926,20 @@ mod tests {
         assert_eq!(tools[0]["ends_turn"], true);
         assert_eq!(tools[1]["ends_turn"], false);
     }
+
+    /// The 2 KB limit is on the author's own text: the notice vizier adds afterwards does not
+    /// make a description that just fit a refusal (spec 026 FR-009).
+    #[test]
+    fn a_description_at_the_limit_is_accepted_and_still_gets_the_notice() {
+        let tool = ClientToolDeclaration {
+            description: "x".repeat(2048),
+            ends_turn: true,
+            ..declaration("render", Some("ui"))
+        };
+        assert_eq!(declare::validate(&[tool.clone()], &[]), Ok(()));
+        let s = setup(vec![tool], vec![]);
+        let described = &s.tools.catalogue()[0].definition.description;
+        assert!(described.len() > 2048);
+        assert!(described.ends_with(crate::agents::tools::ENDS_TURN_NOTICE));
+    }
 }

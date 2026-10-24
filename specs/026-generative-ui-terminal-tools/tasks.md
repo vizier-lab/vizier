@@ -185,13 +185,13 @@
 
 ## Phase 10: Polish & Cross-Cutting
 
-- [ ] T076 [P] Write the user docs `docs/src/api-integration/generative-ui.md` (what an agent can build, the catalogue summary, logic functions, links and files, limits) and add it to `docs/src/SUMMARY.md`; update the `render_interactive_ui` mentions in `docs/src/api-integration/client-tools.md`
-- [ ] T077 [P] Update `CLAUDE.md`: the Client tools paragraph (generative UI replaces `render_interactive_ui`, `ui_components`/`ui_render`, `ends_turn`, the notice, `ended_by_tool`), the WebUI section (`lib/generativeUi/`, json-render, the logic runner), and the "Adding a new tool" note on `ends_turn`
+- [X] T076 [P] Write the user docs `docs/src/api-integration/generative-ui.md` (what an agent can build, the catalogue summary, logic functions, links and files, limits) and add it to `docs/src/SUMMARY.md`; update the `render_interactive_ui` mentions in `docs/src/api-integration/client-tools.md`
+- [X] T077 [P] Update `CLAUDE.md`: the Client tools paragraph (generative UI replaces `render_interactive_ui`, `ui_components`/`ui_render`, `ends_turn`, the notice, `ended_by_tool`), the WebUI section (`lib/generativeUi/`, json-render, the logic runner), and the "Adding a new tool" note on `ends_turn`
 - [ ] T078 Draft the checklist entry for issue #82 (legacy render-only registration and `declare` flag, `interactive-ui` retirement) and add it after confirming with the maintainer
-- [ ] T079 Regenerate the API types after the `ended_by_tool` change: `node webui/scripts/openapi.mjs` then `cd webui && npm run gen:api`; commit the diff
-- [ ] T080 Run `cargo clippy` and `cargo test`; fix warnings introduced by this feature
-- [ ] T081 Run `cd webui && npm run typecheck && npm test && npm run lint:tokens`; fix findings
-- [ ] T082 Commit in order: `design/` first, then `webui/`, then the vizier repo with the submodule pin bumps, using conventional commits and `[**breaking**]` for the removal of `render_interactive_ui`
+- [X] T079 Regenerate the API types after the `ended_by_tool` change: `node webui/scripts/openapi.mjs` then `cd webui && npm run gen:api`; commit the diff
+- [X] T080 Run `cargo clippy` and `cargo test`; fix warnings introduced by this feature
+- [X] T081 Run `cd webui && npm run typecheck && npm test && npm run lint:tokens`; fix findings
+- [X] T082 Commit in order: `design/` first, then `webui/`, then the vizier repo with the submodule pin bumps, using conventional commits and `[**breaking**]` for the removal of `render_interactive_ui`
 
 ---
 
