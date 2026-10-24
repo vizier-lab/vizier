@@ -94,6 +94,41 @@ describe('validateUi', () => {
     })
 })
 
+describe('what is never drawn or never in scope', () => {
+    const ui = (elements: Record<string, unknown>, root = 'a') => ({ title: 'T', spec: { root, elements } })
+
+    it('refuses an element nothing reaches, and says what that costs', () => {
+        const out = messages(ui({ a: { type: 'Stack', props: {}, children: ['b'] }, b: { type: 'Divider', props: {} }, boot: { type: 'Effect', props: {}, on: { load: { action: 'setState', params: { statePath: '/x', value: 1 } } } } }))
+        expect(out).toHaveLength(1)
+        expect(out[0]).toContain('elements.boot: is not reachable from root "a"')
+        expect(out[0]).toContain('an Effect or a watch only runs if its element is drawn')
+    })
+
+    it('accepts everything reachable, through slots too', () => {
+        expect(validateUi(ui({ a: { type: 'Stack', props: {}, children: ['b'] }, b: { type: 'Divider', props: {} } })).ok).toBe(true)
+    })
+
+    it('refuses $index and $item outside a repeat, with where to fix it', () => {
+        const out = messages(ui({
+            a: { type: 'Stack', props: {}, children: ['b'] },
+            b: { type: 'Button', props: { label: 'x' }, on: { press: { action: 'run', params: { fn: 'f', args: [{ $index: true }] } } } },
+        }))
+        expect(out.join('\n')).toContain('elements.b.on: uses $index, which only works inside a repeat')
+    })
+
+    it('accepts them under a repeat, including the repeat element\'s own item filter', () => {
+        expect(validateUi(ui({
+            a: { type: 'Stack', props: {}, repeat: { statePath: '/items' }, visible: { $item: 'ok' }, children: ['b'] },
+            b: { type: 'Text', props: { text: { $item: 'name' } }, on: {} },
+        })).ok).toBe(true)
+    })
+
+    it('refuses $item in the props of the repeat element itself', () => {
+        const out = messages(ui({ a: { type: 'Stack', props: { gap: { $item: 'g' } }, repeat: { statePath: '/items' }, children: ['b'] }, b: { type: 'Divider', props: {} } }))
+        expect(out.join('\n')).toContain('elements.a.props: uses $item')
+    })
+})
+
 describe('surfaces', () => {
     const scene = (extra: Record<string, unknown>) => ({
         title: 'T',

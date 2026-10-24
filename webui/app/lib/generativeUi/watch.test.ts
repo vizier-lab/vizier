@@ -59,7 +59,7 @@ describe('startWatching', () => {
             runs++
             set('/seed', 100 + runs)
         })
-        startWatching([{ path: '/seed', bindings: [{ action: 'x' }] }], store, subscribe, execute)
+        startWatching([{ path: '/seed', bindings: [{ action: 'run', params: { into: '/seed' } }] }], store, subscribe, execute)
         set('/seed', 2)
         await flush()
         await flush()
@@ -67,6 +67,28 @@ describe('startWatching', () => {
         set('/seed', 3)
         await flush()
         expect(runs).toBe(2)
+    })
+
+    it('picks up a change made by the person while a chain is running', async () => {
+        const { store, subscribe, set } = harness()
+        const seeds: unknown[] = []
+        let release: () => void = () => {}
+        const execute = vi.fn(async (b) => {
+            seeds.push(b.params?.n)
+            if (seeds.length === 1) await new Promise<void>((r) => (release = r))
+            set('/out', b.params?.n)
+        })
+        startWatching([{ path: '/seed', bindings: [{ action: 'run', params: { n: { $state: '/seed' }, into: '/out' } }] }], store, subscribe, execute)
+        set('/seed', 2)
+        await flush()
+        // The person keeps dragging while the first run is still going.
+        set('/seed', 3)
+        set('/seed', 4)
+        release()
+        await flush()
+        await flush()
+        expect(seeds).toEqual([2, 4])
+        expect(store.get('/out')).toBe(4)
     })
 
     it('stops a chain at the first failure and caps its length', async () => {

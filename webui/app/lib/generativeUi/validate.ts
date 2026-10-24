@@ -31,6 +31,14 @@ function quoted(values: readonly unknown[]): string {
     return values.map((v) => (typeof v === 'string' ? v : JSON.stringify(v))).join(', ')
 }
 
+/** The first `$item`, `$index` or `$bindItem` in a value, which only mean something inside a repeat. */
+function itemExpression(value: unknown, depth = 0): string | null {
+    if (depth > 24 || value === null || typeof value !== 'object') return null
+    if (Array.isArray(value)) return value.map((v) => itemExpression(v, depth + 1)).find(Boolean) ?? null
+    for (const key of ['$item', '$index', '$bindItem']) if (key in (value as object)) return key
+    return Object.values(value as object).map((v) => itemExpression(v, depth + 1)).find(Boolean) ?? null
+}
+
 /** Every `$computed` and path in a value, checked structurally. */
 function checkExpressions(value: unknown, path: string, issues: Issue[], depth = 0): void {
     if (depth > 24 || value === null || typeof value !== 'object') return
@@ -284,6 +292,30 @@ export function validateUi(args: unknown, ctx: ValidateContext = {}): Validated 
         return false
     }
 
+    // An element nothing reaches is never drawn, so a slider, a watch or an Effect on it does nothing.
+    if (typeof spec.root === 'string' && elements[spec.root]) {
+        const reached = new Set<string>()
+        const visit = (key: string) => {
+            if (reached.has(key) || !isObject(elements[key])) return
+            reached.add(key)
+            const el = elements[key] as Record<string, unknown>
+            for (const kid of [...((el.children as string[] | undefined) ?? []), ...Object.values((el.slots as Record<string, string[]> | undefined) ?? {}).flat()]) if (typeof kid === 'string') visit(kid)
+        }
+        visit(spec.root)
+        for (const key of keys) {
+            if (!reached.has(key) && isObject(elements[key])) {
+                issues.push({ path: `elements.${key}`, message: `is not reachable from root "${spec.root}", so it is never drawn and does nothing. Add "${key}" to a parent's children (an Effect or a watch only runs if its element is drawn).` })
+            }
+        }
+    }
+    // $item, $index and $bindItem need a repeat above them.
+    const inRepeat = (key: string): boolean => {
+        for (let at = parentOf.get(key), hops = 0; at !== undefined && hops < LIMITS.depth + 2; at = parentOf.get(at), hops++) {
+            if (isObject((elements[at] as { repeat?: unknown } | undefined)?.repeat)) return true
+        }
+        return false
+    }
+
     for (const key of keys) {
         const element = elements[key]
         const path = `elements.${key}`
@@ -303,6 +335,14 @@ export function validateUi(args: unknown, ctx: ValidateContext = {}): Validated 
         }
         checkProps(key, def, element.props, issues, ctx)
 
+        if (!inRepeat(key)) {
+            // A repeat element's own `visible` filters its items, so it may name $item.
+            const own = isObject(element.repeat) ? { props: element.props, on: element.on, watch: element.watch } : { props: element.props, on: element.on, watch: element.watch, visible: element.visible }
+            for (const [where, value] of Object.entries(own)) {
+                const used = itemExpression(value)
+                if (used) issues.push({ path: `${path}.${where}`, message: `uses ${used}, which only works inside a repeat. Put "${key}" under an element that has "repeat", or use a literal value or a {"$state": …} path instead.` })
+            }
+        }
         if (def.parent && !insideScene(key)) issues.push({ path: `${path}.type`, message: `${def.name} is a 3D part: put it inside a Scene3D (or a Group3D inside one)` })
         if (def.children === 'three_d') {
             for (const child of (element.children as string[] | undefined) ?? []) {

@@ -21,10 +21,19 @@ export function collectWatches(spec: { elements: Record<string, { watch?: Record
     return out
 }
 
+/** The state paths a binding writes, from its literal `into` and `statePath` params. */
+function writtenBy(binding: WatchBinding): string[] {
+    return ['into', 'statePath'].flatMap((key) => (typeof binding.params?.[key] === 'string' ? [binding.params[key] as string] : []))
+}
+
+const MAX_ROUNDS = 50
+
 /**
  * Watch `watches` on `subscribe` (which fires on local changes only). A changed path runs its
- * bindings in order, untrusted, at most `MAX_CHAIN` of them; changes made while a chain runs,
- * by that chain, do not start another. Returns the stop function.
+ * bindings in order, untrusted, at most `MAX_CHAIN` of them. A chain's own writes (its `into` and
+ * `statePath`) do not start another chain, but a change made by the person while a chain runs
+ * does: it is picked up when the chain ends, so a dragged slider always ends on its last value.
+ * Returns the stop function.
  */
 export function startWatching(
     watches: Watches,
@@ -37,36 +46,40 @@ export function startWatching(
     let running = false
     let stopped = false
 
-    const refresh = () => {
-        for (const w of watches) seen.set(w.path, store.get(w.path))
+    const drain = async () => {
+        running = true
+        try {
+            for (let round = 0; round < MAX_ROUNDS && !stopped; round++) {
+                const changed = watches.filter((w) => store.get(w.path) !== seen.get(w.path))
+                if (changed.length === 0) return
+                for (const w of watches) seen.set(w.path, store.get(w.path))
+                const written = new Set<string>()
+                try {
+                    for (const w of changed) {
+                        for (const binding of w.bindings.slice(0, MAX_CHAIN)) {
+                            if (stopped) return
+                            noteGesture(false)
+                            const params = Object.fromEntries(
+                                Object.entries(binding.params ?? {}).map(([key, value]) => [key, resolveActionParam(value, { stateModel: store.getSnapshot() })])
+                            )
+                            writtenBy(binding).forEach((path) => written.add(path))
+                            await execute({ ...binding, params })
+                        }
+                    }
+                } catch {
+                    // A failed action stops its chain; it has reported itself.
+                }
+                // What the chain wrote is its own doing, not a change to react to.
+                for (const path of written) if (seen.has(path)) seen.set(path, store.get(path))
+            }
+        } finally {
+            running = false
+        }
     }
 
     const unsubscribe = subscribe(() => {
         if (running || stopped) return
-        const changed = watches.filter((w) => store.get(w.path) !== seen.get(w.path))
-        if (changed.length === 0) return
-        refresh()
-        running = true
-        void (async () => {
-            try {
-                for (const w of changed) {
-                    for (const binding of w.bindings.slice(0, MAX_CHAIN)) {
-                        if (stopped) return
-                        noteGesture(false)
-                        const params = Object.fromEntries(
-                            Object.entries(binding.params ?? {}).map(([key, value]) => [key, resolveActionParam(value, { stateModel: store.getSnapshot() })])
-                        )
-                        await execute({ ...binding, params })
-                    }
-                }
-            } catch {
-                // A failed action stops the chain; it has reported itself.
-            } finally {
-                // What the chain wrote is its own doing, not a change to react to.
-                refresh()
-                running = false
-            }
-        })()
+        void drain()
     })
 
     return () => {
