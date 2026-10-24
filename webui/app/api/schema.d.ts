@@ -453,6 +453,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agent_id}/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/secrets/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/secrets/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set"];
+        post?: never;
+        delete: operations["remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agent_id}/tasks": {
         parameters: {
             query?: never;
@@ -1564,6 +1612,43 @@ export interface components {
                 no_change: boolean;
                 /** Format: int64 */
                 restored_from: number;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_SecretDeleted: {
+            data?: {
+                deleted: boolean;
+                name: string;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_SecretEventList: {
+            data?: {
+                /** @description Newest first. */
+                items: components["schemas"]["SecretEventItem"][];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_SecretList: {
+            data?: {
+                /** @description Sorted by name. */
+                items: components["schemas"]["SecretItem"][];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_SecretWriteResponse: {
+            data?: {
+                secret: components["schemas"]["SecretItem"];
+                /** @description `created` or `replaced`. */
+                status: string;
             };
             message?: string | null;
             /** Format: int32 */
@@ -3392,6 +3477,47 @@ export interface components {
             /** @enum {string} */
             type: "OneTime";
         };
+        /** @enum {string} */
+        SecretAction: "created" | "replaced" | "deleted";
+        SecretDeleted: {
+            deleted: boolean;
+            name: string;
+        };
+        SecretEventItem: {
+            action: components["schemas"]["SecretAction"];
+            actor: components["schemas"]["Requester"];
+            actor_name: string;
+            /** Format: date-time */
+            at: string;
+            id: string;
+            name: string;
+        };
+        SecretEventList: {
+            /** @description Newest first. */
+            items: components["schemas"]["SecretEventItem"][];
+        };
+        /** @description One secret as a person sees it: its name, the server's mask, and who changed it when. */
+        SecretItem: {
+            /** Format: date-time */
+            created_at: string;
+            /** @description `utils::mask_secret` of the stored value. There is no field for the value itself. */
+            masked: string;
+            name: string;
+            /** Format: date-time */
+            updated_at: string;
+            updated_by: components["schemas"]["Requester"];
+            /** @description The username or the agent's name; the id when it cannot be resolved. */
+            updated_by_name: string;
+        };
+        SecretList: {
+            /** @description Sorted by name. */
+            items: components["schemas"]["SecretItem"][];
+        };
+        SecretWriteResponse: {
+            secret: components["schemas"]["SecretItem"];
+            /** @description `created` or `replaced`. */
+            status: string;
+        };
         /** @description What the sign-in page needs before anyone has signed in. */
         ServerStatus: {
             online: boolean;
@@ -3485,6 +3611,10 @@ export interface components {
             addon?: boolean | null;
             channel?: boolean | null;
             mcp?: boolean | null;
+        };
+        SetSecretRequest: {
+            /** @description The value to store. Never returned by any route. */
+            value: string;
         };
         /**
          * @description Where an agent's setup currently is.
@@ -5510,6 +5640,181 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["APIResponse_String"];
                 };
+            };
+        };
+    };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Names, masks and last change, sorted by name. No values */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_SecretList"];
+                };
+            };
+            /** @description The caller is not a secret manager for this agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    events: {
+        parameters: {
+            query?: {
+                /** @description How many changes, newest first. Default 20, max 100 */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The change log. No value, mask or hash */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_SecretEventList"];
+                };
+            };
+            /** @description The caller is not a secret manager for this agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Secret name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetSecretRequest"];
+            };
+        };
+        responses: {
+            /** @description Replaced; created_at is preserved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_SecretWriteResponse"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_SecretWriteResponse"];
+                };
+            };
+            /** @description The caller is not a secret manager for this agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The name or value fails validation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Secret name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted, and a `deleted` change recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_SecretDeleted"];
+                };
+            };
+            /** @description The caller is not a secret manager for this agent */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Agent not found, or no secret with that name */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

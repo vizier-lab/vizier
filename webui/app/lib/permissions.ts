@@ -14,6 +14,13 @@ export const PERMISSION_GROUPS: { title: string; items: { permission: string; la
         ],
     },
     {
+        title: 'Secrets',
+        items: [
+            { permission: 'all_agents:secret', label: 'Manage every agent’s secrets' },
+            { permission: 'owned_agents:secret', label: 'Manage secrets of agents they own' },
+        ],
+    },
+    {
         title: 'Integrations',
         items: [
             { permission: 'all_agents:integrations:manage', label: 'Manage every agent’s integrations' },

@@ -18,6 +18,16 @@ export function canManageIntegrations(agent: { owner_id?: string }): boolean {
     )
 }
 
+/** Whether the current person may manage the secrets of `agent`. Mirrors the server rule. */
+export function canManageSecrets(agent: { owner_id?: string }): boolean {
+    const { user, can } = useSession.getState()
+    if (!user) return false
+    return (
+        can('all_agents:secret') ||
+        (can('owned_agents:secret') && agent.owner_id === user.user_id)
+    )
+}
+
 export function canViewUsage(): boolean {
     return useSession.getState().user != null
 }

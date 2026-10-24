@@ -15,6 +15,7 @@ import { Outlet, useLocation, useMatches, useNavigate, useParams } from 'react-r
 import { motion } from 'motion/react'
 import { motionDurations, motionEases } from '@vizier/design'
 import { agentState } from '../api/endpoints/agents'
+import { canManageSecrets } from '../lib/access'
 import { relativeTime } from '../lib/format'
 import { read, write } from '../lib/remember'
 import { useMobile } from '../lib/useMobile'
@@ -39,6 +40,7 @@ const PAGE_PATH: Record<SidebarPage, string> = {
     addons: '/integrations/addons',
     mcp: '/integrations/mcp',
     usage: '/usage',
+    secrets: '/secrets',
     config: '/config',
     settings: '/settings/profile',
 }
@@ -213,6 +215,9 @@ export default function AppShell() {
             }
             active={pageOf(pathname)}
             collapsed={inDrawer ? false : collapsed}
+            hiddenPages={
+                agent && canManageSecrets(agent) ? undefined : ['secrets']
+            }
             className={inDrawer ? 'w-full! border-r-0!' : undefined}
             hrefFor={(page) =>
                 page === 'home'

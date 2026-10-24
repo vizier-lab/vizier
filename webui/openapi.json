@@ -2636,6 +2636,203 @@
         }
       }
     },
+    "/agents/{agent_id}/secrets": {
+      "get": {
+        "tags": [
+          "api::v1::agents::secrets"
+        ],
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Names, masks and last change, sorted by name. No values",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_SecretList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is not a secret manager for this agent"
+          },
+          "404": {
+            "description": "Agent not found"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/secrets/events": {
+      "get": {
+        "tags": [
+          "api::v1::agents::secrets"
+        ],
+        "operationId": "events",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "How many changes, newest first. Default 20, max 100",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The change log. No value, mask or hash",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_SecretEventList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is not a secret manager for this agent"
+          },
+          "404": {
+            "description": "Agent not found"
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/secrets/{name}": {
+      "put": {
+        "tags": [
+          "api::v1::agents::secrets"
+        ],
+        "operationId": "set",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Secret name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSecretRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Replaced; created_at is preserved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_SecretWriteResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_SecretWriteResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is not a secret manager for this agent"
+          },
+          "404": {
+            "description": "Agent not found"
+          },
+          "422": {
+            "description": "The name or value fails validation"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "api::v1::agents::secrets"
+        ],
+        "operationId": "remove",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Secret name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted, and a `deleted` change recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_SecretDeleted"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is not a secret manager for this agent"
+          },
+          "404": {
+            "description": "Agent not found, or no secret with that name"
+          }
+        }
+      }
+    },
     "/agents/{agent_id}/tasks": {
       "get": {
         "tags": [
@@ -7108,6 +7305,143 @@
               "restored_from": {
                 "type": "integer",
                 "format": "int64"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_SecretDeleted": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "name",
+              "deleted"
+            ],
+            "properties": {
+              "deleted": {
+                "type": "boolean"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_SecretEventList": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "items"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SecretEventItem"
+                },
+                "description": "Newest first."
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_SecretList": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "items"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SecretItem"
+                },
+                "description": "Sorted by name."
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_SecretWriteResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "status",
+              "secret"
+            ],
+            "properties": {
+              "secret": {
+                "$ref": "#/components/schemas/SecretItem"
+              },
+              "status": {
+                "type": "string",
+                "description": "`created` or `replaced`."
               }
             }
           },
@@ -13971,6 +14305,143 @@
           }
         ]
       },
+      "SecretAction": {
+        "type": "string",
+        "enum": [
+          "created",
+          "replaced",
+          "deleted"
+        ]
+      },
+      "SecretDeleted": {
+        "type": "object",
+        "required": [
+          "name",
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "SecretEventItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "action",
+          "actor",
+          "actor_name",
+          "at"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/SecretAction"
+          },
+          "actor": {
+            "$ref": "#/components/schemas/Requester"
+          },
+          "actor_name": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "SecretEventList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SecretEventItem"
+            },
+            "description": "Newest first."
+          }
+        }
+      },
+      "SecretItem": {
+        "type": "object",
+        "description": "One secret as a person sees it: its name, the server's mask, and who changed it when.",
+        "required": [
+          "name",
+          "masked",
+          "created_at",
+          "updated_at",
+          "updated_by",
+          "updated_by_name"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "masked": {
+            "type": "string",
+            "description": "`utils::mask_secret` of the stored value. There is no field for the value itself."
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_by": {
+            "$ref": "#/components/schemas/Requester"
+          },
+          "updated_by_name": {
+            "type": "string",
+            "description": "The username or the agent's name; the id when it cannot be resolved."
+          }
+        }
+      },
+      "SecretList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SecretItem"
+            },
+            "description": "Sorted by name."
+          }
+        }
+      },
+      "SecretWriteResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "secret"
+        ],
+        "properties": {
+          "secret": {
+            "$ref": "#/components/schemas/SecretItem"
+          },
+          "status": {
+            "type": "string",
+            "description": "`created` or `replaced`."
+          }
+        }
+      },
       "ServerStatus": {
         "type": "object",
         "description": "What the sign-in page needs before anyone has signed in.",
@@ -14285,6 +14756,18 @@
               "boolean",
               "null"
             ]
+          }
+        }
+      },
+      "SetSecretRequest": {
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "properties": {
+          "value": {
+            "type": "string",
+            "description": "The value to store. Never returned by any route."
           }
         }
       },
