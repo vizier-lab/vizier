@@ -49,6 +49,12 @@ test.describe('Notifications (quickstart §10)', () => {
         await expect(dialog).toBeVisible()
         await expect(dialog.getByText(`${USERNAME} added e2e-mcp.`)).toBeVisible()
 
+        // A click on the ground outside the panel dismisses it, as Escape does.
+        await page.mouse.click(10, 300)
+        await expect(dialog).toBeHidden()
+        await entry.click()
+        await expect(dialog).toBeVisible()
+
         // The row is a destination: it opens the integrations page and marks itself read.
         await dialog.getByRole('button', { name: /added e2e-mcp/ }).click()
         await expect(page).toHaveURL(new RegExp(`/${agent}/integrations/mcp`))

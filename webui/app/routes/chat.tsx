@@ -29,7 +29,9 @@ import { toast } from '../stores/toasts'
 import { useTurns } from '../stores/turns'
 
 const EMPTY = emptyTopic()
-const PANEL_KEY = 'vizier.chat.panel'
+// A new key so the details panel starts collapsed for everyone, including people
+// who left it open under the old default.
+const PANEL_KEY = 'vizier.chat.panel.v2'
 
 export default function Chat() {
     const { agentId = '', topicId } = useParams()
@@ -61,7 +63,7 @@ export default function Chat() {
     const [topics, setTopics] = useState<Topic[]>([])
     const mobile = useMobile()
     const userId = useSession((s) => s.user?.user_id)
-    const [panel, setPanel] = useState(() => read(PANEL_KEY, true))
+    const [panel, setPanel] = useState(() => read(PANEL_KEY, false))
     const togglePanel = (open: boolean) => {
         write(PANEL_KEY, open)
         setPanel(open)

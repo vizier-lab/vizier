@@ -12,9 +12,9 @@ type Props = {
 }
 
 /**
- * One notification, as a card: the agent's sigil, its name, when it happened and the stored
- * summary. Unread is carried by the summary's tone and a hidden word, not a dot. The
- * mark-read control is a sibling of the card's link (never nested in it) but inside the card.
+ * One notification as a card: a large sigil, the agent and summary, and a read toggle whose
+ * eye is also the unread indicator (closed = unread, open = read) to the left of the time.
+ * Unread cards sit a step above the panel's surface; read cards are flat.
  */
 export function NotificationRow({ item, onNavigate }: Props) {
     const navigate = useNavigate()
@@ -38,37 +38,38 @@ export function NotificationRow({ item, onNavigate }: Props) {
                 : 'text-soft'
 
     return (
-        <div className="group/row flex w-full min-w-0 items-start gap-10 rounded-lg border border-border bg-surface px-12 py-10 transition-colors hover:border-border-hover">
+        <div
+            className={`group/row flex w-full min-w-0 items-start gap-10 rounded-lg border border-border px-12 py-10 transition-colors hover:border-border-hover ${
+                item.read ? 'bg-surface' : 'bg-raised'
+            }`}
+        >
             <Sigil agentId={item.agent_id} size="md" label={name} />
             <button
                 type="button"
                 onClick={open}
                 className="flex min-w-0 flex-1 flex-col gap-3 text-left"
             >
-                <span className="flex min-w-0 items-center gap-8">
-                    <span className="min-w-0 flex-1 truncate type-ui-medium text-fg">
-                        {name}
-                    </span>
-                    <time
-                        dateTime={item.at}
-                        className="shrink-0 type-mono-xs whitespace-nowrap text-faint"
-                    >
-                        {feedTime(item.at)}
-                    </time>
-                </span>
+                <span className="min-w-0 truncate type-ui-medium text-fg">{name}</span>
                 <span className={`type-ui-para ${tone}`}>
                     {item.text}
                     {!item.read && <span className="sr-only"> Unread</span>}
                 </span>
             </button>
-            <IconButton
-                variant="ghost"
-                size="sm"
-                icon={item.read ? 'restore' : 'check'}
-                aria-label={item.read ? 'Mark as unread' : 'Mark as read'}
-                className="opacity-100 md:opacity-0 md:group-hover/row:opacity-100 md:focus-visible:opacity-100"
-                onClick={() => void markRead(item.id, !item.read)}
-            />
+            <div className="flex shrink-0 items-center gap-4 self-start">
+                <IconButton
+                    variant="ghost"
+                    size="sm"
+                    icon={item.read ? 'eye' : 'eye-closed'}
+                    aria-label={item.read ? 'Mark as unread' : 'Mark as read'}
+                    onClick={() => void markRead(item.id, !item.read)}
+                />
+                <time
+                    dateTime={item.at}
+                    className="type-mono-xs whitespace-nowrap text-faint"
+                >
+                    {feedTime(item.at)}
+                </time>
+            </div>
         </div>
     )
 }

@@ -62,3 +62,16 @@ export function entryLabel(unread: number, busy: boolean): string {
     if (busy) parts.push('setting up')
     return parts.join(', ')
 }
+
+/**
+ * Is this row the conversation the person is looking at right now? A WebUI reply for the
+ * open conversation needs no toast and no badge bump: it is already on screen.
+ */
+export function isViewing(
+    item: NotificationItem,
+    path: string | null | undefined
+): boolean {
+    if (!path || item.category !== 'chat_reply') return false
+    const strip = (value: string) => value.replace(/\/+$/, '')
+    return strip(item.href) === strip(path)
+}

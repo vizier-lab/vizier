@@ -7,7 +7,7 @@ import {
     type NotificationFilter,
     type NotificationItem,
 } from '../api/endpoints/notifications'
-import { applyAllRead, applyRead, mergePage } from '../lib/notifications'
+import { applyAllRead, applyRead, isViewing, mergePage } from '../lib/notifications'
 
 /** Within the spec's 30s freshness budget. */
 const POLL_MS = 15_000
@@ -34,6 +34,9 @@ type NotificationStore = {
     /** Rows that arrived since the toaster last drained them. */
     arrived: NotificationItem[]
     takeArrived: () => NotificationItem[]
+    /** The in-app path on screen, so a reply to that conversation is read on arrival. */
+    viewing: string | null
+    setViewing: (path: string) => void
     openPanel: () => void
     closePanel: () => void
     setFilter: (filter: NotificationFilter) => void
@@ -78,6 +81,9 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
     lastSeenId: 0,
     primed: false,
     arrived: [],
+    viewing: null,
+
+    setViewing: (path) => set({ viewing: path }),
 
     takeArrived: () => {
         const items = get().arrived
@@ -197,31 +203,57 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
             } catch {
                 return
             }
-            set({ counts: page.counts })
-            if (!get().primed) {
-                set({
-                    lastSeenId: page.items.reduce((max, i) => Math.max(max, i.id), 0),
-                    primed: true,
-                })
+            const state = get()
+            let counts = page.counts
+            let lastSeenId = state.lastSeenId
+            let arrived = state.arrived
+            let readNow: number[] = []
+
+            if (!state.primed) {
+                lastSeenId = page.items.reduce((max, i) => Math.max(max, i.id), 0)
             } else {
-                const seen = get().lastSeenId
-                const fresh = page.items.filter((i) => i.id > seen)
+                const fresh = page.items.filter((i) => i.id > state.lastSeenId)
                 if (fresh.length) {
-                    set((state) => ({
-                        lastSeenId: fresh.reduce((max, i) => Math.max(max, i.id), seen),
-                        // With the panel open the new row is already at its top.
-                        arrived: state.open ? state.arrived : [...state.arrived, ...fresh],
-                    }))
+                    const viewed = fresh.filter((i) => isViewing(i, state.viewing))
+                    const toastable = fresh.filter((i) => !isViewing(i, state.viewing))
+                    lastSeenId = fresh.reduce((max, i) => Math.max(max, i.id), state.lastSeenId)
+                    if (viewed.length) {
+                        // The reply is already on screen: read it with no badge bump and no toast.
+                        counts = {
+                            ...counts,
+                            unread: Math.max(0, counts.unread - viewed.length),
+                            read: counts.read + viewed.length,
+                        }
+                        readNow = viewed.map((i) => i.id)
+                        for (const item of viewed) {
+                            void setNotificationRead(item.id, true).catch(() => {})
+                        }
+                    }
+                    // With the panel open the new row is already at its top.
+                    if (!state.open) arrived = [...state.arrived, ...toastable]
                 }
             }
+            set({ counts, lastSeenId, primed: true, arrived })
+            if (readNow.length) {
+                const ids = new Set(readNow)
+                set((s) => ({
+                    items: s.items.map((i) => (ids.has(i.id) ? { ...i, read: true } : i)),
+                }))
+            }
             // Keep an open panel current; `all` can reuse the page just fetched.
-            if (get().open && get().loaded) {
-                if (get().filter === 'all') {
-                    set((state) => ({
-                        items: mergePage(state.items, page.items, 'all'),
-                        next: state.next ?? page.next ?? null,
-                        error: null,
-                    }))
+            if (state.open && state.loaded) {
+                if (state.filter === 'all') {
+                    const ids = new Set(readNow)
+                    set((s) => {
+                        const merged = mergePage(s.items, page.items, 'all')
+                        return {
+                            items: ids.size
+                                ? merged.map((i) => (ids.has(i.id) ? { ...i, read: true } : i))
+                                : merged,
+                            next: s.next ?? page.next ?? null,
+                            error: null,
+                        }
+                    })
                 } else {
                     await get().refresh()
                 }
@@ -246,5 +278,6 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
             lastSeenId: 0,
             primed: false,
             arrived: [],
+            viewing: null,
         }),
 }))

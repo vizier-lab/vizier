@@ -74,6 +74,7 @@ export default function AppShell() {
     const navOpen = useNav((s) => s.open)
     const setNavOpen = useNav((s) => s.setOpen)
     const resetNotifications = useNotifications((s) => s.reset)
+    const setViewing = useNotifications((s) => s.setViewing)
 
     useEffect(() => start(), [start])
     // A fresh session starts from zero, then the badge is kept current by the
@@ -82,6 +83,8 @@ export default function AppShell() {
         resetNotifications()
         return useNotifications.getState().start()
     }, [resetNotifications])
+    // A reply to the conversation on screen is read on arrival, not toasted.
+    useEffect(() => setViewing(pathname), [pathname, setViewing])
     // Choosing a page closes the drawer.
     useEffect(() => setNavOpen(false), [pathname, setNavOpen])
     // A chat brings its own top bar, which has the topic and the agent's status.

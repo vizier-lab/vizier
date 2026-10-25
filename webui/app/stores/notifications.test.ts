@@ -137,6 +137,64 @@ describe('the notifications store', () => {
         }
     })
 
+    it('reads a reply to the conversation on screen with no toast and no badge bump', async () => {
+        vi.useFakeTimers()
+        try {
+            list.mockResolvedValueOnce(page([item(1)]))
+            const stop = useNotifications.getState().start()
+            await vi.advanceTimersByTimeAsync(0)
+            useNotifications.setState({ viewing: '/scribe/chat/t1' })
+
+            const reply = {
+                ...item(2),
+                category: 'chat_reply' as const,
+                href: '/scribe/chat/t1',
+            }
+            list.mockResolvedValueOnce({
+                items: [reply, item(1)],
+                counts: { all: 2, unread: 2, read: 0 },
+                next: null,
+            } as NotificationPage)
+            readOne.mockResolvedValue({ all: 2, unread: 1, read: 1 })
+
+            await vi.advanceTimersByTimeAsync(15_000)
+            expect(useNotifications.getState().arrived).toEqual([])
+            expect(readOne).toHaveBeenCalledWith(2, true)
+            expect(useNotifications.getState().counts).toEqual({
+                all: 2,
+                unread: 1,
+                read: 1,
+            })
+            expect(useNotifications.getState().lastSeenId).toBe(2)
+            stop()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('toasts a reply for a different conversation', async () => {
+        vi.useFakeTimers()
+        try {
+            list.mockResolvedValueOnce(page([item(1)]))
+            useNotifications.getState().start()
+            await vi.advanceTimersByTimeAsync(0)
+            useNotifications.setState({ viewing: '/scribe/chat/other' })
+            list.mockResolvedValueOnce({
+                items: [
+                    { ...item(2), category: 'chat_reply' as const, href: '/scribe/chat/t1' },
+                    item(1),
+                ],
+                counts: { all: 2, unread: 2, read: 0 },
+                next: null,
+            } as NotificationPage)
+            await vi.advanceTimersByTimeAsync(15_000)
+            expect(useNotifications.getState().arrived.map((i) => i.id)).toEqual([2])
+            expect(readOne).not.toHaveBeenCalled()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
     it('does not toast a row that arrives while the panel is open', async () => {
         vi.useFakeTimers()
         try {

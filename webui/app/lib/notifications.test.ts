@@ -4,6 +4,7 @@ import {
     applyRead,
     belongs,
     entryLabel,
+    isViewing,
     mergePage,
 } from './notifications'
 import type { NotificationItem } from '../api/endpoints/notifications'
@@ -51,6 +52,17 @@ describe('notifications helpers', () => {
         expect(entryLabel(3, false)).toBe('Notifications, 3 unread')
         expect(entryLabel(0, true)).toBe('Notifications, setting up')
         expect(entryLabel(0, false)).toBe('Notifications')
+    })
+
+    it('knows the conversation being looked at', () => {
+        const reply = { ...item(9), category: 'chat_reply' as const, href: '/scribe/chat/t1' }
+        expect(isViewing(reply, '/scribe/chat/t1')).toBe(true)
+        expect(isViewing(reply, '/scribe/chat/t1/')).toBe(true)
+        expect(isViewing(reply, '/scribe/chat/t2')).toBe(false)
+        expect(isViewing(reply, '/scribe/core')).toBe(false)
+        expect(isViewing(reply, null)).toBe(false)
+        // Other categories are never the conversation on screen.
+        expect(isViewing(item(1), '/scribe/chat/t1')).toBe(false)
     })
 
     it('filters by read state', () => {
