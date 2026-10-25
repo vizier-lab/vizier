@@ -8,6 +8,8 @@ export type ChartSeries = { key: string; label: string; colour: SeriesColour };
 
 export type StackedBarChartProps = {
   title: ReactNode;
+  /** A control on the title row, before the legend: a measure switch, a filter. */
+  action?: ReactNode;
   /** Bottom of the stack first. */
   series: ChartSeries[];
   /** One bar per day: a label (shown on some days) and a value per series key. */
@@ -34,7 +36,7 @@ function niceCeil(v: number) {
 }
 
 /** Daily cost by activity (X70): stacked bars, a legend, and an optional dated marker. */
-export function StackedBarChart({ title, series, days, format = (v) => `$${v.toFixed(2)}`, annotation, className, ...rest }: StackedBarChartProps) {
+export function StackedBarChart({ title, action, series, days, format = (v) => `$${v.toFixed(2)}`, annotation, className, ...rest }: StackedBarChartProps) {
   const totals = days.map((d) => series.reduce((s, x) => s + (d.values[x.key] ?? 0), 0));
   // Counts (tokens, calls) never get a fractional tick: the axis starts at 2 and drops its middle
   // tick when that would be a half.
@@ -47,7 +49,10 @@ export function StackedBarChart({ title, series, days, format = (v) => `$${v.toF
     <section className={cx("flex flex-col gap-16 rounded-xl border border-border bg-surface px-20 py-16", className)} {...rest}>
       <header className="flex flex-wrap items-center justify-between gap-12">
         <h3 className="type-ui-strong text-fg">{title}</h3>
-        <Legend items={series.map((s) => ({ label: s.label, colour: s.colour }))} />
+        <div className="flex flex-wrap items-center gap-12">
+          {action}
+          <Legend items={series.map((s) => ({ label: s.label, colour: s.colour }))} />
+        </div>
       </header>
       <div className="grid grid-cols-[48px_minmax(0,1fr)] gap-x-8">
         <div className="flex h-160 flex-col justify-between">
@@ -66,9 +71,11 @@ export function StackedBarChart({ title, series, days, format = (v) => `$${v.toF
                 className="relative flex h-full min-w-0 flex-1 flex-col-reverse"
                 aria-label={`${d.label ?? `Day ${i + 1}`}: ${format(totals[i])}, ${series.map((s) => `${s.label} ${format(d.values[s.key] ?? 0)}`).join(", ")}`}
               >
-                {/* The day's stack grows from the baseline, a beat behind its neighbours. */}
+                {/* The day's stack grows from the baseline, a beat behind its neighbours.
+                    h-full is what makes the segments' percentage heights resolve: without it
+                    this column's height is auto, so every segment collapses to zero. */}
                 <motion.div
-                  className="flex origin-bottom flex-col-reverse"
+                  className="flex h-full origin-bottom flex-col-reverse"
                   initial={{ scaleY: 0, opacity: 0 }}
                   animate={{ scaleY: 1, opacity: 1 }}
                   transition={{

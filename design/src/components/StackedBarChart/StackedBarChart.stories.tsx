@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, fn, within } from "storybook/test";
+import { FilterTabs } from "../FilterTabs/FilterTabs";
 import { StackedBarChart, type ChartSeries } from "./StackedBarChart";
 
 const SERIES: ChartSeries[] = [
@@ -39,4 +41,20 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /** Usage. */
-export const Default: Story = {};
+export const Default: Story = {
+  play: async ({ canvasElement }) => {
+    // Regression: the stack must take the bar's height, or every segment's percentage
+    // collapses to zero and the chart draws empty. offsetHeight ignores the grow-in transform.
+    const list = within(canvasElement).getByRole("list", { name: "Daily cost" });
+    const segment = list.querySelector("li > div > span") as HTMLElement | null;
+    expect(segment).not.toBeNull();
+    expect(segment!.offsetHeight).toBeGreaterThan(0);
+  },
+};
+
+/** With a measure switch on the title row. */
+export const WithAction: Story = {
+  args: {
+    action: <FilterTabs aria-label="Measure" value="cost" onChange={fn()} options={[{ value: "cost", label: "Cost" }, { value: "tokens", label: "Tokens" }]} />,
+  },
+};
