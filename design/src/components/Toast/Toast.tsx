@@ -85,7 +85,25 @@ export function Toast({ tone = "success", title, message, onSelect, onClose, cla
   );
 }
 
-/** Where toasts stack: bottom right, announced politely. */
-export function ToastRegion({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
-  return <div aria-live="polite" className={cx("fixed right-24 bottom-24 z-50 flex flex-col gap-10", className)} {...rest} />;
+export type ToastRegionProps = {
+  /**
+   * Bottom right by default. `top-right` sits just under the 76px page header, so a toast
+   * never covers the bell or the page's actions.
+   */
+  position?: "bottom-right" | "top-right";
+} & HTMLAttributes<HTMLDivElement>;
+
+/** Where toasts stack, announced politely. */
+export function ToastRegion({ position = "bottom-right", className, ...rest }: ToastRegionProps) {
+  return (
+    <div
+      aria-live="polite"
+      className={cx(
+        "fixed right-24 z-50 flex flex-col gap-10",
+        position === "top-right" ? "top-88" : "bottom-24",
+        className,
+      )}
+      {...rest}
+    />
+  );
 }

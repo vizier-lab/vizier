@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Toast } from "./Toast";
+import { Toast, ToastRegion } from "./Toast";
 
 const meta = {
   title: "Components/Feedback/Toast",
@@ -34,4 +34,15 @@ export const WithAction: Story = {
     message: "Task “Morning digest” ended without an answer.",
     onSelect: () => {},
   },
+};
+
+/** Where the app stacks them: top-right, just under the page header. */
+export const TopRightRegion: Story = {
+  parameters: { layout: "fullscreen" },
+  render: () => (
+    <ToastRegion position="top-right">
+      <Toast tone="info" title="Scribe" message="Replied in your conversation." onSelect={() => {}} onClose={() => {}} />
+      <Toast tone="error" title="Scribe" message="Task “Morning digest” ended without an answer." onClose={() => {}} />
+    </ToastRegion>
+  ),
 };
