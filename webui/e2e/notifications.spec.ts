@@ -97,7 +97,7 @@ test.describe('Notifications (quickstart §10)', () => {
         await expect(again.getByText('You’re all caught up.')).toBeVisible()
     })
 
-    test('the phone drawer opens a full-screen sheet without sideways scroll', async ({
+    test('the phone top bar opens a full-screen sheet without sideways scroll', async ({
         page,
     }, info) => {
         test.skip(!info.project.name.startsWith('mobile'), 'phone-sized projects only')
@@ -107,8 +107,7 @@ test.describe('Notifications (quickstart §10)', () => {
         await addIntegration(page, agent)
 
         await page.goto(`/${agent}/chat`)
-        await page.getByRole('button', { name: 'Open menu' }).click()
-        await page.getByRole('dialog').getByRole('button', { name: /Notifications/ }).click()
+        await page.getByRole('button', { name: /Notifications/ }).click()
 
         const dialog = page.getByRole('dialog', { name: 'Notifications' })
         await expect(dialog).toBeVisible()

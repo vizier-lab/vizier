@@ -55,11 +55,6 @@ export function applyAllRead(
     return items.map((item) => ({ ...item, read: true }))
 }
 
-/** The badge's text: the true count lives in the filter tab, the entry is capped. */
-export function badgeCount(n: number): string {
-    return n > 99 ? '99+' : String(n)
-}
-
 /** The entry's accessible name, so the badge is not the only carrier. */
 export function entryLabel(unread: number, busy: boolean): string {
     const parts = ['Notifications']

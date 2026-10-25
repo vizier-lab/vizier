@@ -10,6 +10,7 @@ import type { ConversationItem } from '../../api/endpoints/conversations'
 import { conversationHref } from '../../lib/conversations'
 import { useMobile } from '../../lib/useMobile'
 import { useNav } from '../../stores/nav'
+import { NotificationsBell } from '../shared/NotificationsBell'
 import { ConversationPicker } from './ConversationPicker'
 
 type Props = {
@@ -67,7 +68,12 @@ export function ConversationHeader({
                         detail: status?.detail,
                         onTopic: () => setOpen((o) => !o),
                     }}
-                    trailing={mobileTrailing}
+                    trailing={
+                        <div className="flex items-center gap-4">
+                            {mobileTrailing}
+                            <NotificationsBell />
+                        </div>
+                    }
                 />
                 {open && (
                     <>
@@ -109,6 +115,7 @@ export function ConversationHeader({
             />
             <div className="flex-1" />
             {trailing}
+            <NotificationsBell />
         </header>
     )
 }

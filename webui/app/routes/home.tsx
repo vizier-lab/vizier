@@ -12,6 +12,7 @@ import { useMobile } from '../lib/useMobile'
 import { MobileHome } from '../screens/home/MobileHome'
 import { ActivityPanel } from '../screens/home/ActivityPanel'
 import { useAgents } from '../stores/agents'
+import { NotificationsBell } from '../screens/shared/NotificationsBell'
 import { useSession } from '../stores/session'
 
 type AgentRow = Agent & { last_active?: string }
@@ -184,11 +185,14 @@ export default function Home() {
                         title={hello}
                         meta={overview ? greetingMeta(overview) : undefined}
                         actions={
-                            canCreate ? (
-                                <Button variant="primary" icon="plus" onClick={() => navigate('/agents/new')}>
-                                    New agent
-                                </Button>
-                            ) : undefined
+                            <div className="flex items-center gap-10">
+                                {canCreate && (
+                                    <Button variant="primary" icon="plus" onClick={() => navigate('/agents/new')}>
+                                        New agent
+                                    </Button>
+                                )}
+                                <NotificationsBell />
+                            </div>
                         }
                     />
                 </div>

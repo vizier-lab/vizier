@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
     applyAllRead,
     applyRead,
-    badgeCount,
     belongs,
     entryLabel,
     mergePage,
@@ -48,9 +47,7 @@ describe('notifications helpers', () => {
         expect(applyAllRead([item(2), item(1)], 'unread')).toEqual([])
     })
 
-    it('caps the badge but states the true count in words', () => {
-        expect(badgeCount(3)).toBe('3')
-        expect(badgeCount(120)).toBe('99+')
+    it('states the count and busy state in words', () => {
         expect(entryLabel(3, false)).toBe('Notifications, 3 unread')
         expect(entryLabel(0, true)).toBe('Notifications, setting up')
         expect(entryLabel(0, false)).toBe('Notifications')

@@ -1,6 +1,7 @@
 import { Icon, PageHeader, type PageHeaderProps } from '@vizier/design'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
+import { NotificationsBell } from './NotificationsBell'
 
 type Props = Omit<PageHeaderProps, 'children'> & {
     children?: ReactNode
@@ -21,7 +22,7 @@ type Props = Omit<PageHeaderProps, 'children'> & {
  * header's title and the content line up on one left edge as you move between pages. Under `lg`
  * the band grows and the actions wrap under the title instead of crowding it.
  */
-export function PageFrame({ children, width = 'full', fill, back, description, ...header }: Props) {
+export function PageFrame({ children, width = 'full', fill, back, description, actions, ...header }: Props) {
     return (
         <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-h-76 shrink-0 items-center border-b border-border px-16 py-12 sm:px-24 lg:h-76 lg:py-0">
@@ -35,7 +36,16 @@ export function PageFrame({ children, width = 'full', fill, back, description, .
                         <Icon name="chevron-left" size={17} />
                     </Link>
                 )}
-                <PageHeader {...header} className="min-w-0 flex-1 lg:flex-nowrap! lg:items-center!" />
+                <PageHeader
+                    {...header}
+                    actions={
+                        <div className="flex flex-wrap items-center gap-10">
+                            {actions}
+                            <NotificationsBell />
+                        </div>
+                    }
+                    className="min-w-0 flex-1 lg:flex-nowrap! lg:items-center!"
+                />
             </div>
             {fill ? (
                 <div className="flex min-h-0 flex-1 flex-col">{children}</div>

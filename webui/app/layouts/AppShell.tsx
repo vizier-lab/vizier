@@ -23,6 +23,7 @@ import { useNav } from '../stores/nav'
 import { useAgents } from '../stores/agents'
 import { useNotifications } from '../stores/notifications'
 import { NotificationsPanel } from '../screens/notifications/NotificationsPanel'
+import { NotificationsBell } from '../screens/shared/NotificationsBell'
 import { useSession } from '../stores/session'
 import { ToastRegion } from './ToastRegion'
 
@@ -71,17 +72,7 @@ export default function AppShell() {
     const mobile = useMobile()
     const navOpen = useNav((s) => s.open)
     const setNavOpen = useNav((s) => s.setOpen)
-    const unread = useNotifications((s) => s.counts.unread)
-    const openNotifications = useNotifications((s) => s.openPanel)
     const resetNotifications = useNotifications((s) => s.reset)
-    const setups = useAgents((s) => s.setups)
-    const busy = useMemo(
-        () =>
-            Object.values(setups).some(
-                (s) => s.phase === 'starting' || s.phase === 'downloading'
-            ),
-        [setups]
-    )
 
     useEffect(() => start(), [start])
     // A fresh session starts from zero, then the badge is kept current by the
@@ -235,14 +226,6 @@ export default function AppShell() {
             }
             active={pageOf(pathname)}
             collapsed={inDrawer ? false : collapsed}
-            notifications={{
-                unread,
-                busy,
-                onOpen: () => {
-                    if (mobile) setNavOpen(false)
-                    openNotifications()
-                },
-            }}
             hiddenPages={
                 agent && canManageSecrets(agent) ? undefined : ['secrets']
             }
@@ -274,15 +257,16 @@ export default function AppShell() {
                     <MobileTopBar
                         onMenu={() => setNavOpen(true)}
                         trailing={
-                            pathname === '/' && can('all_agents:create') ? (
-                                <IconButton
-                                    icon="plus"
-                                    aria-label="New agent"
-                                    onClick={() => navigate('/agents/new')}
-                                />
-                            ) : (
-                                <span className="size-36" aria-hidden />
-                            )
+                            <div className="flex items-center gap-4">
+                                {pathname === '/' && can('all_agents:create') && (
+                                    <IconButton
+                                        icon="plus"
+                                        aria-label="New agent"
+                                        onClick={() => navigate('/agents/new')}
+                                    />
+                                )}
+                                <NotificationsBell />
+                            </div>
                         }
                     />
                 )}
