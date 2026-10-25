@@ -292,6 +292,7 @@ export default function AppShell() {
                 <SlideOver
                     open={navOpen}
                     title="Menu"
+                    side="left"
                     onClose={() => setNavOpen(false)}
                 >
                     <div className="-m-20 h-[calc(100%+40px)]">
