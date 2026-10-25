@@ -14,7 +14,7 @@ type Props = {
 /**
  * One notification as a card: a large sigil, the agent and summary, and a read toggle whose
  * eye is also the unread indicator (closed = unread, open = read) to the left of the time.
- * Unread cards sit a step above the panel's surface; read cards are flat.
+ * An unread card is outlined in the live emerald; a read one keeps the neutral border.
  */
 export function NotificationRow({ item, onNavigate }: Props) {
     const navigate = useNavigate()
@@ -39,8 +39,10 @@ export function NotificationRow({ item, onNavigate }: Props) {
 
     return (
         <div
-            className={`group/row flex w-full min-w-0 items-start gap-10 rounded-lg border border-border px-12 py-10 transition-colors hover:border-border-hover ${
-                item.read ? 'bg-surface' : 'bg-raised'
+            className={`group/row flex w-full min-w-0 items-start gap-10 rounded-lg border bg-surface px-12 py-10 transition-colors ${
+                item.read
+                    ? 'border-border hover:border-border-hover'
+                    : 'border-live hover:border-live'
             }`}
         >
             <Sigil agentId={item.agent_id} size="md" label={name} />
