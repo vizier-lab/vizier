@@ -6,7 +6,7 @@
 
 ## Summary
 
-Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that contributes four tools — `office_docx_read`, `office_docx_write`, `office_xlsx_read`, `office_xlsx_write` — enabled by default on every agent. DOCX and XLSX parsing/writing live in pure per-format modules (`src/agents/tools/office/{docx,xlsx}.rs`, no `ToolContext`), the tools are thin wrappers over session files, and `read_document_file` delegates its DOCX/XLSX arms to the same modules so it keeps working (and gains tables and legacy `.xls`) when the addon is removed. "On by default" is one internal `integrations::service::seed_default` used by `finish_create` (new agents) and a state-flag-guarded one-time backfill (existing agents); removal is an ordinary integration delete and nothing re-seeds. Technical approach and rejected alternatives are in [research.md](research.md).
+Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that contributes four tools — `office_docx_read`, `office_docx_write`, `office_xlsx_read`, `office_xlsx_write` — enabled by default on every agent. DOCX and XLSX parsing/writing live in pure per-format modules (`src/agents/tools/office/{docx,xlsx}.rs`, no `ToolContext`), the tools are thin wrappers over session files, and `read_document_file` stops handling Word and Excel (one reader per format): given such a file it returns a message pointing to the office tools, while text and PDF are unchanged. "On by default" is one internal `integrations::service::seed_default` used by `finish_create` (new agents) and a state-flag-guarded one-time backfill (existing agents); removal is an ordinary integration delete and nothing re-seeds. Technical approach and rejected alternatives are in [research.md](research.md).
 
 ## Technical Context
 
@@ -22,9 +22,9 @@ Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that co
 
 **Project Type**: single Rust binary (backend only); WebUI follow-up lives in the `design`/`webui` submodules as separate PRs.
 
-**Performance Goals**: reading/writing a typical (<5 MB) office file within a normal tool-call time; parsing runs off the async executor (`spawn_blocking`) so a large file never stalls other agents.
+**Performance Goals**: reading/writing a typical (<5 MB) office file within a normal tool-call time.
 
-**Constraints**: read output ≈ 200 KB of text and capped sheets/rows with `truncated: true` (FR-009); write inputs bounded (see research R7); parse/zip-bomb guard on uncompressed size (research R8); all failures are tool result data, never turn-ending errors (FR-010).
+**Constraints**: read output ≈ 200 KB of text and capped sheets/rows with `truncated: true` (FR-009, from the issue); no other size limits in this proof of concept (owner's decision, research R7); all failures are tool result data, never turn-ending errors (FR-010).
 
 **Scale/Scope**: 4 tools, 1 integration kind, 1 seed helper, 1 one-time backfill, ~6 touched existing files, 0 new tables.
 
@@ -70,9 +70,9 @@ src/
 │       ├── mod.rs                   # EXPECTED / ADDON catalogue tables gain office_* ; `mod office;`
 │       ├── office/
 │       │   ├── mod.rs               # shared: limits, MIME consts, write_session_file helper (FR-027), output structs, the four VizierTool impls
-│       │   ├── docx.rs              # pure: to_markdown / to_plain_text / from_markdown
-│       │   └── xlsx.rs              # pure: read_workbook / to_csv / write_workbook
-│       └── session_files/mod.rs     # read_document_file delegates DOCX/XLSX(+XLS) to office::{docx,xlsx}; description points at office_*
+│       │   ├── docx.rs              # pure: to_markdown / from_markdown
+│       │   └── xlsx.rs              # pure: read_workbook / write_workbook
+│       └── session_files/mod.rs     # read_document_file: DOCX/XLSX/XLS arms removed, replaced by a message pointing at office_*; text and PDF unchanged
 │       └── read_image/mod.rs        # description points at office_* (FR-014)
 ├── integrations/
 │   ├── kind.rs                      # AgentToolContext gains file_manager
@@ -86,13 +86,14 @@ assets/integrations/office.svg       # catalogue icon
 Cargo.toml                           # + rust_xlsxwriter, pulldown-cmark (direct)
 tests/ or src/**/tests               # fixtures: tests/fixtures/office/{table.docx,mixed.xlsx,legacy.xls}
 scripts/office-e2e.mjs               # optional scripted dummyplug run (mirrors scripts/client-tools-e2e.mjs)
-docs/src/…                           # a short docs page for the office addon + SUMMARY.md entry
+docs/src/…                           # a short docs page for the office addon + SUMMARY.md entry; configuration/tools-embedding.md no longer says docx/xlsx are extracted to text
+src/schema/request.rs                # the attached-files hint also points Word/Excel files at the office tools
 ```
 
-**Structure Decision**: single-project Rust layout, following the existing addon pattern (`kinds/brave_search.rs` + `tools/brave_search`). Format logic is deliberately isolated in `tools/office/{docx,xlsx}.rs` as pure functions so it is unit-testable without storage and reusable by `read_document_file` (the only cross-module reuse). `mod.rs` holds the thin tool wrappers to avoid a fourth file per tool.
+**Structure Decision**: single-project Rust layout, following the existing addon pattern (`kinds/brave_search.rs` + `tools/brave_search`). Format logic is deliberately isolated in `tools/office/{docx,xlsx}.rs` as pure functions so it is unit-testable without storage. `mod.rs` holds the thin tool wrappers to avoid a fourth file per tool.
 
 ## Out of scope for this plan (tracked, not built)
 
 - PDF tools (phase 2): the tool names `office_pdf_*` and the runtime-detected-engine approach are reserved in research R10; nothing is implemented.
-- WebUI: `office` in `TAKEN_CATEGORIES`, optional `ADDON_TOOLS` entry, zero-field card, installed/ready state → separate PRs in `design` → `webui` → vizier order.
+- WebUI (the owner wants the on/off switch, FR-029): the Addons page already has an on/off switch on installed addon cards (`webui/app/routes/integrations-addons.tsx`, calling `PUT /integrations/{id}` with `enabled`), and the server already supports enable/disable, so no backend work is needed for it. Remaining: check the card for an addon with no fields and its on/ready state, `office` in `TAKEN_CATEGORIES`, optional `ADDON_TOOLS` entry → separate PRs in `design` → `webui` → vizier order.
 - Issue #82 checklist entry for the one-time backfill (FR-025), added when the code lands.

@@ -96,7 +96,7 @@ Expected: write returns `status ok`, `filename: "budget.xlsx"`. The read returns
 
 Expected: only that range of the `Budget` sheet.
 
-## 5. Generic reader without the addon (US5, FR-012/013)
+## 5. Generic reader no longer reads Word and Excel (US5, FR-012/013)
 
 Delete the addon from `dp-a` (this is also US4's removal step):
 
@@ -111,9 +111,25 @@ Then, in the conversation:
 {"tool":"execute_python","arguments":{"code":"print(read_document_file(filename='report.docx'))"}}
 ```
 
-Expected: the document text including the table's cells (`Pens` and `12`), no `[table content]`. The `office` category no longer lists (`list_tool_functions` with category `office` reports it unknown). Also upload a legacy `.xls` fixture (`tests/fixtures/office/legacy.xls`) to the conversation and `read_document_file` it: sheets come back as `## Name` + CSV.
+Expected: no document text. The result is the message saying Word and Excel files are read with `office_docx_read` / `office_xlsx_read` and that the Office addon must be installed. The `office` category no longer lists (`list_tool_functions` with category `office` reports it unknown). Repeat with a legacy `.xls` fixture (`tests/fixtures/office/legacy.xls`): same message. Then `read_document_file` a plain text file and a PDF in the same conversation: both read exactly as before this feature.
 
-## 6. Removal sticks (US4, FR-017)
+## 6a. Turning the addon off and on (US4, FR-029)
+
+First reinstall the addon on `dp-a` (it was removed in step 5): `POST $API/agents/dp-a/integrations` with `{"kind":"office","name":"Office","settings":{}}`, and keep its id as `OID`. Then use the addon's switch on `dp-a`'s Addons page, or the same call it makes:
+
+```sh
+curl -s "${auth[@]}" -X PUT "$API/integrations/$OID" -d '{"enabled":false}' | jq .data.enabled   # false
+```
+
+Then in the conversation: `list_tool_functions` with category `office` reports it unknown, and `read_document_file` on `report.docx` returns the message saying the Office addon must be installed or turned on. Restart vizier and update the agent: `GET $API/agents/dp-a/integrations` still shows one `office` entry with `enabled: false`, and the log shows no backfill. Turn it back on:
+
+```sh
+curl -s "${auth[@]}" -X PUT "$API/integrations/$OID" -d '{"enabled":true}' | jq .data.enabled   # true
+```
+
+Expected: the four `office_*` functions are listed again, with no agent restart and no running turn aborted.
+
+## 6b. Removal sticks (US4, FR-017)
 
 With the addon removed from `dp-a` in step 5:
 
@@ -122,7 +138,7 @@ With the addon removed from `dp-a` in step 5:
 3. Restart once more; still none. The log shows the backfill did **not** run (flag present).
 4. Reinstall by hand (`POST $API/agents/dp-a/integrations` with `{"kind":"office","name":"Office","settings":{}}`) → 201; a second identical POST → `409 addon_installed`.
 
-## 7. Existing-name rule (FR-027)
+## 7. Existing-name behaviour (FR-027)
 
 Upload `mine.docx` to the conversation as a person (WebUI attach). Then:
 
@@ -130,7 +146,7 @@ Upload `mine.docx` to the conversation as a person (WebUI attach). Then:
 {"tool":"execute_python","arguments":{"code":"print(office_docx_write(filename='mine.docx', markdown='# overwrite?'))"}}
 ```
 
-Expected: `status: error` telling the agent to choose another name; the uploaded `mine.docx` is unchanged (download and compare). Write `report.docx` again with different markdown: succeeds and replaces the agent's own file (revision case).
+Expected: `status: ok`, and `mine.docx` now holds the agent's content (the upload is replaced, as `image_generate` would do). Write `report.docx` again with different markdown: also `status: ok` and the file holds the new content. Then check the tool descriptions (`describe_tool_function` for `office_docx_write` and `office_xlsx_write`): both say a same-named file is replaced and tell the agent to pick a new name for a version of an existing file.
 
 ## 8. Failures are data, limits are signalled (FR-009/010)
 

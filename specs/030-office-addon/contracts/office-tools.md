@@ -6,7 +6,7 @@ The agent-facing contract of the `office` addon. Like every tool, these are reac
 
 All failures are **data**: the function returns an object with `status: "error"` and a `message` the agent can act on, never an exception that ends the turn (FR-010). A successful call returns `status: "ok"` fields as listed.
 
-Common error messages (non-exhaustive): file not found (lists nearby filenames), wrong format for the tool (names the tool to use instead), corrupt or password-protected file, file too large, unknown sheet (lists valid sheets), invalid range, limit exceeded, name already used by an uploaded file (FR-027).
+Common error messages (non-exhaustive): file not found (lists nearby filenames), wrong format for the tool (names the tool to use instead), not a valid Office file (corrupt, password-protected or wrong type), unknown sheet (lists valid sheets), invalid range, an Excel format rule broken (FR-010).
 
 ## `office_docx_read`
 
@@ -34,7 +34,7 @@ Create a **new** Word document from Markdown. Never edits an existing document: 
 | Input | Type | Required | Notes |
 |---|---|---|---|
 | `filename` | string | yes | `.docx` appended if missing; basename only |
-| `markdown` | string | yes | ≤ 1 MiB; headings, emphasis, lists (nested), GFM tables, links, code spans, rules |
+| `markdown` | string | yes | headings, emphasis, lists (nested), GFM tables, links, code spans, rules |
 | `title` | string | no | becomes a Title paragraph and the document title |
 
 Output:
@@ -44,7 +44,7 @@ Output:
 ```
 
 - Stored with media type `application/vnd.openxmlformats-officedocument.wordprocessingml.document`.
-- If `filename` exists and was uploaded by a person → `status: "error"`, upload untouched. If it exists and the agent created it → replaced.
+- If a file named `filename` already exists in the conversation, it is **replaced** (same as `image_generate`, `tts_generate` and `load_path_as_session_file`). The description says so and tells the agent to choose a new name when producing a version of an existing file.
 - The description reminds the agent to call `send_attachment` with the returned filename to deliver it.
 
 ## `office_xlsx_read`
@@ -88,9 +88,9 @@ Create a **new** workbook from named sheets. Never edits an existing workbook (s
 | Input | Type | Required | Notes |
 |---|---|---|---|
 | `filename` | string | yes | `.xlsx` appended if missing |
-| `sheets` | array | yes | `[{ "name": string, "rows": Cell[][] }]`, ≤ 20 sheets |
+| `sheets` | array | yes | `[{ "name": string, "rows": Cell[][] }]` |
 
-Constraints: ≤ 10 000 rows, ≤ 100 columns per sheet; cell text ≤ 32 767 chars; sheet names 1–31 chars without `[]:*?/\`, unique case-insensitively.
+Constraints: Excel's own rules apply (sheet names 1–31 chars without `[]:*?/\`, unique case-insensitively; cell text ≤ 32 767 chars); a violation comes back as an ordinary error. No other size limits.
 
 Output:
 
@@ -107,10 +107,9 @@ Output:
 
 Unchanged signature `{ filename }`. Changes (FR-012/013/014):
 
-- DOCX: tables rendered as tab-separated text instead of `[table content]`.
-- XLSX and legacy `.xls` (`application/vnd.ms-excel`): sheets as `## Name` + CSV, as before, now also for `.xls`.
-- Works with or without the addon installed.
-- Description additionally says: for structured reading (Markdown, typed cells, ranges) and for creating Word/Excel files, use the `office_*` tools. `read_image_file`'s description gets the same pointer for Office files.
+- **Word and Excel are no longer handled.** For `.docx`, `.xlsx` and `.xls` it returns an error-style message: "Word and Excel files are read with `office_docx_read` / `office_xlsx_read` (Office addon; install it from the Addons page if this agent does not have it)". No plain-text conversion is produced.
+- **Everything else is unchanged:** plain text formats and PDF read exactly as before.
+- The description says: Word and Excel files are read with the `office_*` tools, which also create them. `read_image_file`'s description and the attached-files hint in the request prompt get the same pointer.
 
 ## Addon catalogue entry (`GET /integrations/kinds`)
 

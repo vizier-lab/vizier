@@ -30,10 +30,10 @@ Written by the write tools. Relevant fields:
 |---|---|
 | `filename` | normalised name ending `.docx` / `.xlsx` |
 | `mime_type` | the explicit OOXML type (never guessed from the extension) |
-| `sender` | the agent id (`ctx.session.0`) — this is what marks a file as **agent-created**; a person's upload carries their username |
+| `sender` | the agent id (set by `save_session_file`); not used for any decision |
 | `size`, `file_id` | from `FileManager::upload` |
 
-Rule (FR-027): a write may replace an existing record only when `record.sender == agent id`; otherwise it is refused and the upload is untouched.
+Rule (FR-027): a write for an existing session and filename replaces the record, as the other file tools do. No ownership check, no schema change.
 
 ### State key (table `state`)
 
@@ -76,15 +76,12 @@ A tagged scalar. Variants and their JSON forms:
 
 ### Limits (constants in `office/mod.rs`; starting values, see research R7)
 
-| Constant | Value |
-|---|---|
-| `READ_MAX_CHARS` | 200 000 |
-| `READ_MAX_SHEETS` / `READ_MAX_ROWS` / `READ_MAX_COLS` | 20 / 1 000 / 100 |
-| `WRITE_MAX_MARKDOWN_BYTES` | 1 048 576 |
-| `WRITE_MAX_SHEETS` / `WRITE_MAX_ROWS` / `WRITE_MAX_COLS` | 20 / 10 000 / 100 |
-| `CELL_MAX_CHARS` | 32 767 |
-| `INPUT_MAX_FILE_BYTES` | 25 MiB |
-| `INPUT_MAX_UNCOMPRESSED_BYTES` | 200 MiB |
+| Constant | Value | Origin |
+|---|---|---|
+| `READ_MAX_CHARS` | 200 000 | issue (~200 KB) |
+| `READ_MAX_SHEETS` / `READ_MAX_ROWS` / `READ_MAX_COLS` | 20 / 1 000 / 100 | issue says "cap sheets/rows"; numbers are ours |
+
+No other limits (owner's decision for the proof of concept). Excel's own format limits come back as ordinary writer errors.
 
 ## Relationships
 

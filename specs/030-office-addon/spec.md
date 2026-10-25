@@ -12,8 +12,13 @@
 
 ### Session 2026-10-25
 
-- Q: What happens when a write targets a filename that already exists in the conversation's files? → A: The agent may replace a file it created itself, but never a file a person uploaded; in that case the tool returns an error and the agent chooses another name.
+- Q: What happens when a write targets a filename that already exists in the conversation's files? → A: Follow the issue: the write tools use the same flow as `image_generate`, so a file of the same name is replaced, as with every other file-producing tool. The tool descriptions say so and tell the agent to choose a new name for a version derived from an existing file.
 - Q: How is workbook text that starts with `=`, `+`, `-` or `@` written? → A: Always as plain text, never as a formula.
+- Q: Which size limits apply, given the issue only limits what a read returns? → A: Only the issue's read-output limit (about 200 KB of text, capped sheets and rows, `truncated: true`). Decided by the repository owner for this proof of concept: no other limits (none on input file size, uncompressed size or write size), because validation is easy to add later and awkward to remove. Long text for a document is composed first with the scratchpad tools.
+- Q: Should the generic document reader stop handling Word and Excel in this feature, since the repository owner dislikes a built-in tool that is always present? → A: Yes, decided by the repository owner: Word and Excel reading leaves the generic document reader in this change, so there is one reader per format and no redundancy. The generic reader keeps handling plain text and PDF, and for a Word or Excel file it points the agent to the office tools (US5). Every existing agent receives the addon through the one-time step (FR-016), so no agent loses the ability to read these files on upgrade; an agent whose addon is removed can no longer read them until it is installed again.
+- Q: Is the addon on by default, or only available to install? → A: On by default for every agent, as the issue says (US3). The on/off switch and removal (US4, FR-029) let a person turn it off.
+- Q: Does a password-protected file need its own error message? → A: Not now. The issue does not mention it, so it gets the ordinary "not a valid Office file" error and a dedicated message can be added later.
+- Q: Does PDF belong to this feature? → A: No. Confirmed by the requester: PDF reading, rendering and creation are phase 2, a later feature.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -48,7 +53,7 @@ A person asks the agent for a report, a letter, a budget or a data export. The a
 1. **Given** the agent has drafted content as Markdown, **When** it writes a document, **Then** a `.docx` file is saved to the conversation's files and the agent receives its filename and size.
 2. **Given** the agent has rows of data, **When** it writes a workbook with named sheets, **Then** a `.xlsx` file is saved with those sheets, typed cells, a bold header row and readable column widths.
 3. **Given** a file was just written, **When** the agent sends it as an attachment, **Then** the person receives it.
-4. **Given** a file the person uploaded, **When** the agent is asked to "edit" it, **Then** the tool descriptions make clear that writing always creates a new file and never changes the original, so the agent says so instead of silently losing the original's styles, headers, images or tracked changes.
+4. **Given** a file the person uploaded, **When** the agent is asked to "edit" it, **Then** the tool descriptions make clear that writing produces a newly generated file rather than editing the original in place, and that it should use a different filename to keep the original, so the agent says so instead of silently losing the original's styles, headers, images or tracked changes.
 5. **Given** a written file, **When** it is read back, **Then** headings, emphasis, lists, tables and links (documents) or sheets, types and values (workbooks) survive the round trip.
 
 ---
@@ -65,52 +70,53 @@ A person creating an agent, or one who already has agents, finds that the Office
 
 1. **Given** a new agent, **When** it finishes creation, **Then** its first running instance already has the Office tools, without a restart.
 2. **Given** existing agents from before this feature, **When** vizier starts for the first time after the upgrade, **Then** each gets the addon once.
-3. **Given** the person who owns an agent does not hold permission to manage integrations, **When** the addon is seeded for that agent, **Then** it is still added, and the action is recorded as a system action.
+3. **Given** the person who owns an agent does not hold permission to manage integrations, **When** the addon is seeded for that agent, **Then** it is still added, and the action is recorded in the integration history under the agent's owner, or under a system actor when the agent has no owner (FR-019).
 4. **Given** the addon is seeded, **When** the integration history of the agent is viewed, **Then** the addition appears with an actor, like any other integration change.
 
 ---
 
-### User Story 4 - Removing the addon sticks (Priority: P2)
+### User Story 4 - Turning the addon off, or removing it, sticks (Priority: P2)
 
-An operator does not want an agent to touch Office files and removes the addon from that agent's Addons page. It stays removed across restarts, upgrades and agent updates.
+A person does not want an agent to touch Office files. From that agent's Addons page they can turn the addon off with its on/off switch (and back on later), or remove it altogether. Either way it stays that way across restarts, upgrades and agent updates.
 
-**Why this priority**: "On by default" is only acceptable if opting out is permanent; otherwise it is a nuisance people cannot get rid of.
+**Why this priority**: "On by default" is only acceptable if opting out is easy and permanent; otherwise it is a nuisance people cannot get rid of.
 
-**Independent Test**: Remove the addon from an agent, restart vizier, update the agent's configuration, restart again. The addon never returns.
+**Independent Test**: Turn the addon off for an agent, restart vizier, update the agent's configuration, restart again. It is still off and the agent has no Office tools. Turn it on: the tools are back. Remove it and repeat: it never returns.
 
 **Acceptance Scenarios**:
 
-1. **Given** an agent with the addon removed, **When** vizier restarts, **Then** the addon is not re-added.
-2. **Given** an agent with the addon removed, **When** the agent's configuration is updated, **Then** the addon is not re-added.
-3. **Given** an agent with the addon removed, **When** someone installs it again from the Addons page, **Then** it works like any other addon install, with only one installation per agent.
+1. **Given** an agent with the addon turned off, **When** the person looks at its Addons page, **Then** the addon is shown as off, with a switch to turn it on, and the agent has none of the Office tools.
+2. **Given** an agent with the addon turned off, **When** vizier restarts or the agent's configuration is updated, **Then** it is still off and nothing turns it on or adds a second one.
+3. **Given** an agent with the addon turned off, **When** the person turns it on, **Then** the Office tools are available again, without restarting the agent or aborting a running turn.
+4. **Given** an agent with the addon removed, **When** vizier restarts or the agent's configuration is updated, **Then** the addon is not re-added.
+5. **Given** an agent with the addon removed, **When** someone installs it again from the Addons page, **Then** it works like any other addon install, with only one installation per agent.
 
 ---
 
-### User Story 5 - The general document reader keeps working and gets better (Priority: P2)
+### User Story 5 - Word and Excel reading lives in one place (Priority: P2)
 
-Existing agents and skills call the generic `read_document_file` tool for Word and Excel files. That must keep working whether or not the addon is installed. It also benefits from the improved reading (tables, legacy `.xls`), and its description tells the agent that richer tools exist.
+Until now the generic `read_document_file` tool also converted Word and Excel files to plain text, losing structure. Reading those files now belongs to the office tools only. The generic reader keeps handling plain text and PDF, and when it is given a Word or Excel file it answers with a clear message pointing to the office tools instead of a degraded conversion.
 
-**Why this priority**: Prevents regressions for current users and avoids two diverging implementations.
+**Why this priority**: Two readers for the same format would be redundant, and the plain-text one is the source of the lost context this feature fixes.
 
-**Independent Test**: Remove the addon from an agent, then ask it to read a Word file with a table through the generic reader. The table content is present.
+**Independent Test**: Ask an agent with the addon to read a Word file through the generic reader: it is told to use the office tools. Ask it to read a text file and a PDF through the generic reader: both work as before.
 
 **Acceptance Scenarios**:
 
-1. **Given** an agent without the addon, **When** it reads a Word document with a table through the generic reader, **Then** the table content appears instead of `[table content]`.
-2. **Given** an agent without the addon, **When** it reads a legacy `.xls` file through the generic reader, **Then** it returns the sheets as text.
-3. **Given** the generic reader's description, **When** the agent reads it, **Then** it points to the Office tools for structured reading and for creating files.
+1. **Given** a Word or Excel file (including a legacy `.xls`), **When** the agent reads it through the generic reader, **Then** it gets a clear message that these files are read with the office tools, and no plain-text conversion is produced.
+2. **Given** an agent without the Office tools (addon removed or turned off), **When** it is given a Word or Excel file, **Then** the message also says the Office addon must be installed or turned on first.
+3. **Given** a plain text file or a PDF, **When** the agent reads it through the generic reader, **Then** the result is the same as before this feature.
+4. **Given** the generic reader's description and the hint shown with attached files, **When** the agent reads them, **Then** they point to the office tools for Word and Excel files.
 
 ---
 
 ### Edge Cases
 
 - A filename that does not exist among the conversation's files, or that belongs to a different format than the tool expects (a `.docx` passed to the workbook reader): a clear, non-fatal error the agent can act on.
-- A corrupt, truncated or password-protected file: a clear error naming the problem, never a crash of the turn.
+- A corrupt, truncated, password-protected or otherwise unreadable file: a clear error saying it is not a valid Office file, never a crash of the turn.
 - A requested range or sheet that does not exist: an error that lists the sheets that do exist.
 - A workbook with empty cells, merged cells, formulas and error values: formulas are read as their last computed value; empty cells stay empty; errors are reported as such.
-- Writing a filename that already exists among the conversation's files: if the existing file was created by the agent, it is replaced (so a draft can be revised); if a person uploaded it, the write is refused with an error telling the agent to choose another name, and the upload is left untouched.
-- Writing with a filename that lacks or has the wrong extension, or is unsafe: normalised or refused with a clear message.
-- Very large write requests (huge Markdown, enormous row counts): refused or capped with a clear message rather than exhausting memory.
+- Writing a filename that already exists among the conversation's files (an upload, or something the agent wrote earlier): the existing file is replaced, as with the product's other file-producing tools. The tool descriptions state this and tell the agent to pick a new name when producing a version derived from an existing file.- Writing with a filename that lacks or has the wrong extension, or is unsafe: normalised or refused with a clear message.
 - Dates and numbers that spreadsheets store ambiguously (date serials, 1900 versus 1904 date systems, numbers stored as text): reported by their displayed meaning, not as raw serials.
 - An agent that has the addon but a person with no access to files in this conversation channel: governed by the existing session-file rules, no new rule.
 
@@ -125,20 +131,18 @@ Existing agents and skills call the generic `read_document_file` tool for Word a
 - **FR-003**: The system MUST provide a tool that creates a new Word document from Markdown and an optional title, saves it as a conversation file, and returns its filename and size.
 - **FR-004**: The system MUST provide a tool that reads a workbook and returns, per sheet, its name and rows with typed cells (text, number, boolean, date, empty, error). It MUST accept an optional sheet and an optional cell range.
 - **FR-005**: The system MUST provide a tool that creates a new workbook from named sheets of rows, saves it as a conversation file, and returns its filename and size. Cell types MUST be preserved; the header row MUST be bold; column widths MUST be set so content is readable.
-- **FR-006**: Write tools MUST only create new files. No tool in this addon edits an existing Word or Excel file in place. The tool descriptions MUST state this and the reason (styles, headers, images and tracked changes would be lost).
+- **FR-006**: Write tools MUST generate a brand-new file from the content they are given. No tool in this addon edits an existing Word or Excel file in place or reads one back in to modify it. The tool descriptions MUST state this and the reason (styles, headers, images and tracked changes would be lost).
 - **FR-007**: Written files MUST be stored in the conversation's files with their correct Office media type set explicitly, so every reader of those files recognises the format. Delivery to the person remains the agent's explicit use of the existing attachment-sending tool; the write tools MUST NOT attach files automatically.
 - **FR-008**: Files produced by the write tools MUST open without repair prompts in current Microsoft Office and LibreOffice.
 - **FR-009**: Read tools MUST bound their output (about 200 KB of text; capped numbers of sheets and rows) and, when they cut output, MUST say so with a `truncated: true` marker rather than failing.
-- **FR-010**: Every error (missing file, wrong format, corrupt file, bad sheet or range, oversized request) MUST be returned as a result the agent can read and act on, never as a failure that ends the turn.
-- **FR-011**: Legacy `.xls` workbooks MUST be readable by the workbook reader and by the generic document reader.
-- **FR-028**: The workbook write tool MUST store every text value as plain text. Text that begins with `=`, `+`, `-` or `@` MUST NOT become a formula, so opening a generated file never executes content taken from untrusted sources.
-- **FR-027**: A write tool MUST replace an existing conversation file of the same name only if that file was created by the agent. If the existing file was uploaded by a person, the write MUST be refused with an error that tells the agent to choose another name, and the upload MUST remain unchanged.
+- **FR-010**: Every error (missing file, wrong format, corrupt file, bad sheet or range) MUST be returned as a result the agent can read and act on, never as a failure that ends the turn.
+- **FR-011**: Legacy `.xls` workbooks MUST be readable by the workbook reader.
 
 **Generic document reader**
 
-- **FR-012**: The generic `read_document_file` tool MUST keep supporting Word and Excel files whether or not the addon is installed.
-- **FR-013**: The generic reader MUST use the same reading logic as the addon (one implementation per format), so Word tables, and legacy `.xls` files are handled there too. Its plain-text output for these formats MUST remain a plain-text rendering, not Markdown or typed cells.
-- **FR-014**: The descriptions of the generic document reader and the image reader MUST point agents to the `office_*` tools for richer reading and for creating files.
+- **FR-012**: The generic `read_document_file` tool MUST stop converting Word (`.docx`) and Excel (`.xlsx`, `.xls`) files to text. Given one, it MUST return a clear message naming the office tools that read it, and saying the Office addon must be installed or turned on when the agent does not have its tools.
+- **FR-013**: The generic reader MUST keep handling every other format it handles today (plain text formats and PDF) without any change in behaviour.
+- **FR-014**: The descriptions of the generic document reader and the image reader, and the hint shown with attached files, MUST point agents to the `office_*` tools for Word and Excel files and for creating them.
 
 **On by default**
 
@@ -161,6 +165,15 @@ Existing agents and skills call the generic `read_document_file` tool for Word a
 
 - **FR-026**: The design MUST leave room for PDF tools (read as Markdown, render pages as images, create from HTML, create from a Word document) without changing the tools or settings defined here. No PDF capability is delivered by this feature.
 
+**File handling**
+
+- **FR-027**: A write tool MUST behave like the product's other file-producing tools when a conversation file of the same name exists: it replaces that file. Its description MUST say so, and MUST tell the agent to choose a new name when the new file is a version derived from an existing one (so the original is kept).
+- **FR-028**: The workbook write tool MUST store every text value as plain text. Text that begins with `=`, `+`, `-` or `@` MUST NOT become a formula, so opening a generated file never executes content taken from untrusted sources.
+
+**Turning the addon off and on**
+
+- **FR-029**: A person who can manage an agent's integrations MUST be able to turn the Office addon off and on again from the agent's Addons page without removing it, using the same on/off switch as every other installed addon. While it is off the agent has none of the Office tools; turning it on restores them. Neither change restarts the agent or aborts a running turn (FR-021), and an addon that is off is not re-added or duplicated by a restart, an agent update or the one-time step.
+
 ### Key Entities *(include if feature involves data)*
 
 - **Office addon**: A built-in integration of kind `office`, owned by exactly one agent, with no settings. It contributes the four tools. Present or absent per agent.
@@ -178,22 +191,24 @@ Existing agents and skills call the generic `read_document_file` tool for Word a
 - **SC-003**: A person can ask an agent for a report or a spreadsheet and have the file in hand in a single request, with no setup step and no credentials.
 - **SC-004**: Files produced by the addon open without a repair prompt in both Microsoft Office and LibreOffice in the verification set.
 - **SC-005**: 100% of agents (new and pre-existing) have the addon after their first start on the new version, except those where it was removed; zero agents that removed it get it back across at least two restarts and one configuration update.
-- **SC-006**: Reading a file larger than the documented limits never fails the turn; it returns a partial result marked `truncated: true` in 100% of the oversized test cases.
-- **SC-007**: Agents without the addon read Word (including tables) and legacy `.xls` files through the generic reader with no regression in the existing document-reading cases.
+- **SC-006**: Reading a file whose content exceeds the documented output limits never fails the turn; it returns a partial result marked `truncated: true` in 100% of the oversized-output test cases.
+- **SC-007**: A Word or Excel file given to the generic reader is never converted to plain text, and the agent is pointed to the office tools in 100% of test cases, while plain text and PDF files read exactly as before.
 - **SC-008**: No existing agent's configuration, running turns or other integrations change when the addon is seeded.
 
 ## Assumptions
 
-- Phase 1 delivers Word and Excel only. PDF reading, rendering and creation are explicitly phase 2 and out of scope here; a later feature adds them.
+- Phase 1 delivers Word and Excel only. PDF reading, rendering and creation are explicitly phase 2 and out of scope here, as confirmed by the requester; a later feature adds them. Word and Excel handling is also the part of the repository owner's wider goal (read and write documents without external tools) that fits the product's no-external-dependency rule; PDF needs heavier engines and waits.
+- This is a breaking change for agents and skills that relied on the generic reader for Word or Excel files: they now need the Office addon. The one-time step gives every existing agent the addon, so none loses the ability on upgrade, and the commit is flagged as breaking.
+- A password-protected file gets the ordinary "not a valid Office file" error; a dedicated message is left for later because the issue does not mention it.
 - Everything runs locally with no network service, account or credential. No new operating-system package is required.
-- **Open question: re-seeding on update.** Removal is permanent, including across agent updates (the issue's recommendation). Reversing this later is a new decision.
-- **Open question: Word reader depth.** The first version uses the document library already in the product plus table support; a lower-level reader for numbering and hyperlinks is revisited only if real files show gaps.
-- **Open question: display name.** The addon is shown as "Office" in the catalogue; the id is `office` in either case. A rename to "Documents" is a presentation-only change.
-- **Open question: auto-attach.** Written files are not attached automatically; the agent sends them with the existing attachment tool, consistent with image generation.
-- Output limits (about 200 KB of text; capped sheets and rows) are starting values and can be tuned; the contract is that cutting is always signalled.
+- **Decision (the issue's open question, confirmed by the requester) — re-seeding on update.** Removal is permanent, including across agent updates (the issue's recommendation). Reversing this later is a new decision.
+- **Decision (the issue's open question, confirmed by the requester) — Word reader depth.** The first version uses the document library already in the product plus table support; a lower-level reader for numbering and hyperlinks is revisited only if real files show gaps.
+- **Decision (the issue's open question, which gave no recommendation; chosen by the requester) — display name.** The addon is shown as "Office" in the catalogue; the id is `office` in either case. A rename to "Documents" is a presentation-only change.
+- **Decision (the issue's open question, confirmed by the requester) — auto-attach.** Written files are not attached automatically; the agent sends them with the existing attachment tool, consistent with image generation.
+- Read-output limits (about 200 KB of text; capped sheets and rows) come from the issue. No other size limit is imposed in this proof of concept (owner's decision): validation is easier to add later than to remove. Cutting a read is always signalled.
 - Formulas are read as their last saved value; formulas are never written in phase 1 (see FR-028).
 - Charts, pivot tables, conditional formatting, images and embedded objects are not read or written in phase 1; they may be skipped silently on read.
 - Existing rules for who may read and send conversation files are unchanged.
 - Out of scope: editing existing Office files in place with formatting preserved; legacy binary `.doc` and `.ppt`; charts, pivots and conditional formatting; online Office services (Google Workspace, Microsoft Graph); a general-purpose filesystem tool.
-- **Follow-up work, separate pull requests in the design and web interface repositories:** reserve `office` as a taken category name so an MCP server with that name is labelled correctly in the interface; make sure the addon card renders well for an addon with no fields and shows a sensible installed/ready state instead of a "reading" state. The core feature does not depend on them to function.
+- **Web interface work, separate pull requests in the design and web interface repositories** (the owner wants the on/off switch, FR-029). The Addons page already shows an on/off switch on every installed addon card and the server already supports it, so the Office addon gets one as soon as it is installed. What remains is to make sure it works for an addon with no fields and shows a sensible on/ready state instead of a "reading" state; to reserve `office` as a taken category name so an MCP server with that name is labelled correctly; and, optionally, to list the addon's tools in the interface's addon tool list. The server side does not depend on them to function.
 - The backfill of existing agents is migration code and is tracked for removal before 1.0.0 on the project's tracker.
