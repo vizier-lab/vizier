@@ -1,7 +1,14 @@
 import { create } from 'zustand'
 
 export type ToastTone = 'success' | 'error' | 'warning' | 'info'
-export type ToastItem = { id: number; tone: ToastTone; title: string; message?: string }
+export type ToastItem = {
+    id: number
+    tone: ToastTone
+    title: string
+    message?: string
+    /** Clicking the toast's content does this. */
+    onSelect?: () => void
+}
 
 type ToastStore = {
     items: ToastItem[]

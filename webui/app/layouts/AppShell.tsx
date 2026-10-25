@@ -24,6 +24,7 @@ import { useAgents } from '../stores/agents'
 import { useNotifications } from '../stores/notifications'
 import { NotificationsPanel } from '../screens/notifications/NotificationsPanel'
 import { NotificationsBell } from '../screens/shared/NotificationsBell'
+import { NotificationToasts } from '../screens/shared/NotificationToasts'
 import { useSession } from '../stores/session'
 import { ToastRegion } from './ToastRegion'
 
@@ -300,6 +301,7 @@ export default function AppShell() {
                     </div>
                 </SlideOver>
                 <NotificationsPanel />
+                <NotificationToasts />
                 <ToastRegion />
             </div>
         )
@@ -328,6 +330,7 @@ export default function AppShell() {
                 </motion.div>
             </main>
             <NotificationsPanel />
+            <NotificationToasts />
             <ToastRegion />
         </div>
     )

@@ -1,4 +1,4 @@
-import { IconButton, ListItem, Sigil } from '@vizier/design'
+import { IconButton, Sigil } from '@vizier/design'
 import { useNavigate } from 'react-router'
 import type { NotificationItem } from '../../api/endpoints/notifications'
 import { feedTime } from '../../lib/format'
@@ -12,9 +12,9 @@ type Props = {
 }
 
 /**
- * One notification: a fixed unread gutter, the agent's sigil and name, when it
- * happened, and the stored summary. The mark-read control is the `ListItem`
- * `action`, a sibling of the row's button, so it never navigates.
+ * One notification, as a card: the agent's sigil, its name, when it happened and the stored
+ * summary. Unread is carried by the summary's tone and a hidden word, not a dot. The
+ * mark-read control is a sibling of the card's link (never nested in it) but inside the card.
  */
 export function NotificationRow({ item, onNavigate }: Props) {
     const navigate = useNavigate()
@@ -33,43 +33,42 @@ export function NotificationRow({ item, onNavigate }: Props) {
             ? 'text-failed-text'
             : item.tone === 'success'
               ? 'text-fg'
-              : 'text-muted'
+              : item.read
+                ? 'text-muted'
+                : 'text-soft'
 
     return (
-        <div className="group/row flex min-w-0 items-stretch border-b border-border last:border-b-0">
-            {/* A fixed gutter: the dot appears without shifting the row. */}
-            <span aria-hidden className="flex w-10 shrink-0 items-start justify-center pt-16">
-                {!item.read && <span className="size-6 rounded-pill bg-ink" />}
-            </span>
-            <div className="min-w-0 flex-1">
-                <ListItem
-                    shape="flush"
-                    align="start"
-                    className="w-full"
-                    leading={<Sigil agentId={item.agent_id} size="sm" label={name} />}
-                    title={name}
-                    meta={
-                        <time dateTime={item.at}>{feedTime(item.at)}</time>
-                    }
-                    subtitle={
-                        <span className={`type-ui-para ${tone}`}>
-                            {item.text}
-                            {!item.read && <span className="sr-only"> Unread</span>}
-                        </span>
-                    }
-                    onSelect={open}
-                    action={
-                        <IconButton
-                            variant="ghost"
-                            size="sm"
-                            icon={item.read ? 'restore' : 'check'}
-                            aria-label={item.read ? 'Mark as unread' : 'Mark as read'}
-                            className="opacity-100 md:opacity-0 md:group-hover/row:opacity-100 md:focus-visible:opacity-100"
-                            onClick={() => void markRead(item.id, !item.read)}
-                        />
-                    }
-                />
-            </div>
+        <div className="group/row flex w-full min-w-0 items-start gap-10 rounded-lg border border-border bg-surface px-12 py-10 transition-colors hover:border-border-hover">
+            <Sigil agentId={item.agent_id} size="md" label={name} />
+            <button
+                type="button"
+                onClick={open}
+                className="flex min-w-0 flex-1 flex-col gap-3 text-left"
+            >
+                <span className="flex min-w-0 items-center gap-8">
+                    <span className="min-w-0 flex-1 truncate type-ui-medium text-fg">
+                        {name}
+                    </span>
+                    <time
+                        dateTime={item.at}
+                        className="shrink-0 type-mono-xs whitespace-nowrap text-faint"
+                    >
+                        {feedTime(item.at)}
+                    </time>
+                </span>
+                <span className={`type-ui-para ${tone}`}>
+                    {item.text}
+                    {!item.read && <span className="sr-only"> Unread</span>}
+                </span>
+            </button>
+            <IconButton
+                variant="ghost"
+                size="sm"
+                icon={item.read ? 'restore' : 'check'}
+                aria-label={item.read ? 'Mark as unread' : 'Mark as read'}
+                className="opacity-100 md:opacity-0 md:group-hover/row:opacity-100 md:focus-visible:opacity-100"
+                onClick={() => void markRead(item.id, !item.read)}
+            />
         </div>
     )
 }

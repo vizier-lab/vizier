@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import {
     listNotifications,
     markAllNotificationsRead,
-    notificationCounts,
     setNotificationRead,
     type NotificationCounts,
     type NotificationFilter,
@@ -28,6 +27,13 @@ type NotificationStore = {
     loadingMore: boolean
     loaded: boolean
     error: string | null
+    /** The highest id the poll has seen, so a later one is new. */
+    lastSeenId: number
+    /** Whether the first poll has established `lastSeenId` (its rows are not new). */
+    primed: boolean
+    /** Rows that arrived since the toaster last drained them. */
+    arrived: NotificationItem[]
+    takeArrived: () => NotificationItem[]
     openPanel: () => void
     closePanel: () => void
     setFilter: (filter: NotificationFilter) => void
@@ -38,7 +44,10 @@ type NotificationStore = {
     loadMore: () => Promise<void>
     markRead: (id: number, read: boolean) => Promise<void>
     markAll: () => Promise<void>
-    /** Polls counts every 15s while the tab is visible; returns a stop function. */
+    /**
+     * Polls the newest page every 15s while the tab is visible: its counts feed the badge,
+     * and ids above the high-water mark are new (for a toast). Returns a stop function.
+     */
     start: () => () => void
     /** Sign-out or a fresh mount: the previous person's counts must not flash. */
     reset: () => void
@@ -66,6 +75,15 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
     loadingMore: false,
     loaded: false,
     error: null,
+    lastSeenId: 0,
+    primed: false,
+    arrived: [],
+
+    takeArrived: () => {
+        const items = get().arrived
+        if (items.length) set({ arrived: [] })
+        return items
+    },
 
     openPanel: () => {
         set({ open: true })
@@ -171,12 +189,43 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
     start: () => {
         const tick = async () => {
             if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+            // One request answers both questions: the badge (its counts) and what is new
+            // (ids above the high-water mark). A failure keeps the last known badge.
+            let page
             try {
-                set({ counts: await notificationCounts() })
+                page = await listNotifications('all', undefined, PAGE)
             } catch {
-                // Keep the last known badge; never show a false zero.
+                return
             }
-            if (get().open) await get().refresh()
+            set({ counts: page.counts })
+            if (!get().primed) {
+                set({
+                    lastSeenId: page.items.reduce((max, i) => Math.max(max, i.id), 0),
+                    primed: true,
+                })
+            } else {
+                const seen = get().lastSeenId
+                const fresh = page.items.filter((i) => i.id > seen)
+                if (fresh.length) {
+                    set((state) => ({
+                        lastSeenId: fresh.reduce((max, i) => Math.max(max, i.id), seen),
+                        // With the panel open the new row is already at its top.
+                        arrived: state.open ? state.arrived : [...state.arrived, ...fresh],
+                    }))
+                }
+            }
+            // Keep an open panel current; `all` can reuse the page just fetched.
+            if (get().open && get().loaded) {
+                if (get().filter === 'all') {
+                    set((state) => ({
+                        items: mergePage(state.items, page.items, 'all'),
+                        next: state.next ?? page.next ?? null,
+                        error: null,
+                    }))
+                } else {
+                    await get().refresh()
+                }
+            }
         }
         void tick()
         const id = setInterval(() => void tick(), POLL_MS)
@@ -194,5 +243,8 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
             loadingMore: false,
             loaded: false,
             error: null,
+            lastSeenId: 0,
+            primed: false,
+            arrived: [],
         }),
 }))

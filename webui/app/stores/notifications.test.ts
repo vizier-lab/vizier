@@ -114,6 +114,45 @@ describe('the notifications store', () => {
         expect(useNotifications.getState().counts).toEqual({ all: 5, unread: 4, read: 1 })
     })
 
+    it('turns rows above the high-water mark into arrivals, never the first page', async () => {
+        vi.useFakeTimers()
+        try {
+            list.mockResolvedValueOnce(page([item(2), item(1)]))
+            const stop = useNotifications.getState().start()
+            await vi.advanceTimersByTimeAsync(0)
+            expect(useNotifications.getState().primed).toBe(true)
+            expect(useNotifications.getState().lastSeenId).toBe(2)
+            expect(useNotifications.getState().arrived).toEqual([])
+
+            list.mockResolvedValueOnce(page([item(3), item(2), item(1)]))
+            await vi.advanceTimersByTimeAsync(15_000)
+            const arrived = useNotifications.getState().takeArrived()
+            expect(arrived.map((i) => i.id)).toEqual([3])
+            expect(useNotifications.getState().lastSeenId).toBe(3)
+            // Drained: the toaster sees a burst once.
+            expect(useNotifications.getState().takeArrived()).toEqual([])
+            stop()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('does not toast a row that arrives while the panel is open', async () => {
+        vi.useFakeTimers()
+        try {
+            list.mockResolvedValueOnce(page([item(1)]))
+            useNotifications.getState().start()
+            await vi.advanceTimersByTimeAsync(0)
+            useNotifications.setState({ open: true, loaded: true, filter: 'all' })
+            list.mockResolvedValueOnce(page([item(2), item(1)]))
+            await vi.advanceTimersByTimeAsync(15_000)
+            expect(useNotifications.getState().arrived).toEqual([])
+            expect(useNotifications.getState().items.map((i) => i.id)).toEqual([2, 1])
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
     it('merges a poll at the top and keeps older pages', async () => {
         list.mockResolvedValueOnce(page([item(3), item(2)], 'older'))
         useNotifications.setState({ loaded: true })

@@ -121,7 +121,7 @@ export function NotificationsPanel() {
                     message={empty.message}
                 />
             ) : (
-                <div className="-mx-20 flex flex-col">
+                <div className="flex flex-col gap-8">
                     {items.map((item) => (
                         <NotificationRow
                             key={item.id}

@@ -13,6 +13,14 @@ export function ToastRegion() {
                         tone={t.tone}
                         title={t.title}
                         message={t.message}
+                        onSelect={
+                            t.onSelect
+                                ? () => {
+                                      t.onSelect?.()
+                                      dismiss(t.id)
+                                  }
+                                : undefined
+                        }
                         onClose={() => dismiss(t.id)}
                     />
                 ))}

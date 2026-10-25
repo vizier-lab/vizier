@@ -125,6 +125,21 @@ test.describe('Notifications (quickstart §10)', () => {
         await expect(dialog).toBeHidden()
     })
 
+    test('an arrival raises a timed toast that opens its destination', async ({ page }, info) => {
+        test.skip(info.project.name.startsWith('mobile'), 'the desktop sidebar entry')
+        const agent = uniqueAgent('e2e-notify-toast')
+        await login(page)
+        await createPlugAgent(page, agent)
+
+        // The panel stays closed: the 15s poll must notice the new row and toast it.
+        await page.goto(`/${agent}/core`)
+        await addIntegration(page, agent)
+        const toast = page.getByRole('status').filter({ hasText: /added e2e-mcp/ })
+        await expect(toast).toBeVisible({ timeout: 25_000 })
+        await toast.getByRole('button').click()
+        await expect(page).toHaveURL(new RegExp(`/${agent}/integrations/mcp`))
+    })
+
     test('the panel has no serious accessibility violations', async ({ page }, info) => {
         test.skip(info.project.name.startsWith('mobile'), 'the desktop sidebar entry')
         const agent = uniqueAgent('e2e-notify-a11y')
