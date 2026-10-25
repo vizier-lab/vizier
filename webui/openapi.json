@@ -4624,6 +4624,177 @@
         }
       }
     },
+    "/notifications": {
+      "get": {
+        "tags": [
+          "api::v1::notifications"
+        ],
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "filter",
+            "in": "path",
+            "description": "`all` (default), `unread` or `read`.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "before",
+            "in": "path",
+            "description": "The `next` of the previous page.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "1–50; default 20.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The caller's inbox, newest first, with counts for its filters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_NotificationPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An unknown filter, or a cursor that isn't one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications/count": {
+      "get": {
+        "tags": [
+          "api::v1::notifications"
+        ],
+        "operationId": "count",
+        "responses": {
+          "200": {
+            "description": "Unread and total counts across the caller's visible agents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_NotificationCounts"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications/read-all": {
+      "post": {
+        "tags": [
+          "api::v1::notifications"
+        ],
+        "operationId": "read_all",
+        "responses": {
+          "200": {
+            "description": "Marks every visible unread notification read, with the new counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_NotificationCounts"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications/{id}/read": {
+      "put": {
+        "tags": [
+          "api::v1::notifications"
+        ],
+        "operationId": "set_read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The notification's public id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "This person's new read state, with the inbox counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_NotificationCounts"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A missing or non-boolean `read`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such notification for this person to see",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/overview": {
       "get": {
         "tags": [
@@ -4700,63 +4871,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/APIResponse_Activity"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/overview/feed": {
-      "get": {
-        "tags": [
-          "api::v1::overview::feed"
-        ],
-        "operationId": "feed",
-        "parameters": [
-          {
-            "name": "before",
-            "in": "path",
-            "description": "The `next` of the previous page.",
-            "required": true,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          },
-          {
-            "name": "limit",
-            "in": "path",
-            "description": "1–50; default 20.",
-            "required": true,
-            "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "minimum": 0
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "What happened since the caller's previous visit (else the last 24 hours), newest first, with start failures pinned to the top of the first page",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_Feed"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "A cursor that isn't one",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIResponse_String"
                 }
               }
             }
@@ -6517,52 +6631,6 @@
           }
         }
       },
-      "APIResponse_Feed": {
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "data": {
-            "type": "object",
-            "required": [
-              "since",
-              "events"
-            ],
-            "properties": {
-              "events": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/FeedEvent"
-                }
-              },
-              "next": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "description": "Pass as `before` for the next page; absent on the last one."
-              },
-              "since": {
-                "type": "string",
-                "format": "date-time",
-                "description": "Where the feed starts: the previous visit, or 24 hours ago."
-              }
-            }
-          },
-          "message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
       "APIResponse_InUse": {
         "type": "object",
         "required": [
@@ -7196,6 +7264,96 @@
               },
               "status": {
                 "$ref": "#/components/schemas/ModelStatus"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_NotificationCounts": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Counts over the whole visible, retained set, independent of the selected page/filter.",
+            "required": [
+              "all",
+              "unread",
+              "read"
+            ],
+            "properties": {
+              "all": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "read": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "unread": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_NotificationPage": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One page of the inbox plus the counts for its filters.",
+            "required": [
+              "items",
+              "counts"
+            ],
+            "properties": {
+              "counts": {
+                "$ref": "#/components/schemas/NotificationCounts"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/NotificationItem"
+                }
+              },
+              "next": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Pass as `before` for the next page; absent on the last one."
               }
             }
           },
@@ -12301,73 +12459,6 @@
           }
         }
       },
-      "Feed": {
-        "type": "object",
-        "required": [
-          "since",
-          "events"
-        ],
-        "properties": {
-          "events": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/FeedEvent"
-            }
-          },
-          "next": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Pass as `before` for the next page; absent on the last one."
-          },
-          "since": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Where the feed starts: the previous visit, or 24 hours ago."
-          }
-        }
-      },
-      "FeedEvent": {
-        "type": "object",
-        "required": [
-          "id",
-          "at",
-          "agent_id",
-          "kind",
-          "tone",
-          "text",
-          "href"
-        ],
-        "properties": {
-          "agent_id": {
-            "type": "string"
-          },
-          "at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "href": {
-            "type": "string",
-            "description": "Where the WebUI takes the person to see more."
-          },
-          "id": {
-            "type": "string",
-            "description": "Stable across requests: `task_run:812`, `health:scribe`."
-          },
-          "kind": {
-            "type": "string",
-            "description": "`start_failed`, `task_run`, `dream_cycle`, `background_job`, `integration`, `channel_replies`."
-          },
-          "text": {
-            "type": "string"
-          },
-          "tone": {
-            "type": "string",
-            "description": "`failed` or `default`."
-          }
-        }
-      },
       "FieldType": {
         "type": "string",
         "enum": [
@@ -13725,6 +13816,146 @@
         "enum": [
           "no_web_page",
           "deleted"
+        ]
+      },
+      "NotificationCategory": {
+        "type": "string",
+        "description": "What kind of event a notification records. Exposed for semantics and tests; never offered as\na filter.",
+        "enum": [
+          "agent_start_failure",
+          "agent_setup_ready",
+          "task_run",
+          "dream_cycle",
+          "background_job",
+          "integration",
+          "channel_replies"
+        ]
+      },
+      "NotificationCounts": {
+        "type": "object",
+        "description": "Counts over the whole visible, retained set, independent of the selected page/filter.",
+        "required": [
+          "all",
+          "unread",
+          "read"
+        ],
+        "properties": {
+          "all": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "read": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "unread": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "NotificationFilter": {
+        "type": "string",
+        "description": "Which rows a page returns. `all` is the default.",
+        "enum": [
+          "all",
+          "unread",
+          "read"
+        ]
+      },
+      "NotificationItem": {
+        "type": "object",
+        "description": "One row as the API returns it.",
+        "required": [
+          "id",
+          "at",
+          "agent_id",
+          "category",
+          "tone",
+          "text",
+          "href",
+          "read"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "category": {
+            "$ref": "#/components/schemas/NotificationCategory"
+          },
+          "href": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Stable public id; cursors and read marks use it."
+          },
+          "read": {
+            "type": "boolean",
+            "description": "This person's read state."
+          },
+          "text": {
+            "type": "string",
+            "description": "The stored summary; the WebUI renders it as text."
+          },
+          "tone": {
+            "$ref": "#/components/schemas/NotificationTone"
+          }
+        }
+      },
+      "NotificationPage": {
+        "type": "object",
+        "description": "One page of the inbox plus the counts for its filters.",
+        "required": [
+          "items",
+          "counts"
+        ],
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/NotificationCounts"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationItem"
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `before` for the next page; absent on the last one."
+          }
+        }
+      },
+      "NotificationReadRequest": {
+        "type": "object",
+        "properties": {
+          "read": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`true` marks it read, `false` marks it unread."
+          }
+        }
+      },
+      "NotificationTone": {
+        "type": "string",
+        "description": "How a row reads: ordinary, a failure, or a successful outcome.",
+        "enum": [
+          "default",
+          "failed",
+          "success"
         ]
       },
       "Overview": {
@@ -15200,6 +15431,10 @@
           },
           "message": {
             "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "The agent's display name from the build's config; a create build is not in the agent\nstore yet, so the panel cannot always resolve it."
           },
           "phase": {
             "$ref": "#/components/schemas/SetupPhase"

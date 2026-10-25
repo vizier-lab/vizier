@@ -18,18 +18,6 @@ export type Activity = {
     today_by_kind?: { chat: number; scheduled: number; dream_stages: number; background: number } | null
 }
 
-export type FeedEvent = {
-    id: string
-    at: string
-    agent_id: string
-    kind: 'start_failed' | 'task_run' | 'dream_cycle' | 'background_job' | 'integration' | 'channel_replies'
-    tone: 'failed' | 'default'
-    text: string
-    href: string
-}
-
-export type Feed = { since: string; events: FeedEvent[]; next?: string | null }
-
 /** The person's UTC offset as the API reads it: `+07:00`, `-05:30`, `+00:00`. */
 export function tzParam(date: Date = new Date()): string {
     const minutes = -date.getTimezoneOffset()
@@ -42,5 +30,3 @@ const tz = () => encodeURIComponent(tzParam())
 
 export const getOverview = () => api.get<Overview>(`/overview?tz=${tz()}`)
 export const getActivity = (rank: Rank) => api.get<Activity>(`/overview/activity?rank=${rank}&tz=${tz()}`)
-export const getFeed = (before?: string, limit = 20) =>
-    api.get<Feed>(`/overview/feed?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ''}`)

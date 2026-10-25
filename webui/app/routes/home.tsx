@@ -11,7 +11,6 @@ import { greetingMeta } from '../lib/overview'
 import { useMobile } from '../lib/useMobile'
 import { MobileHome } from '../screens/home/MobileHome'
 import { ActivityPanel } from '../screens/home/ActivityPanel'
-import { AwayFeed } from '../screens/home/AwayFeed'
 import { useAgents } from '../stores/agents'
 import { useSession } from '../stores/session'
 
@@ -221,9 +220,6 @@ export default function Home() {
                     )}
                 </div>
                 </div>
-            </div>
-            <div className="hidden w-340 shrink-0 overflow-y-auto border-l border-border px-24 py-32 xl:block">
-                <AwayFeed />
             </div>
         </div>
     )

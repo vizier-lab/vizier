@@ -26,12 +26,28 @@ export type AgentHealth = {
     model?: { provider: string; model: string; context_window?: number | null; max_output?: number | null }
 }
 
+export type SetupDownload = {
+    kind?: string
+    label?: string
+    /** Bytes done; `total` 0 means the size is unknown. */
+    completed?: number
+    total?: number
+    status?: string
+    error?: string
+    /** Legacy/derived 0..1, when a source reports it. */
+    progress?: number
+    name?: string
+    [k: string]: unknown
+}
+
 export type SetupState = {
     agent_id: string
+    /** The agent's display name; a create build may not be in the agent store yet. */
+    name?: string
     phase: string
     message: string
     error?: string
-    downloads: { name?: string; progress?: number; [k: string]: unknown }[]
+    downloads: SetupDownload[]
 }
 
 export const listAgents = () => api.get<Agent[]>('/agents')

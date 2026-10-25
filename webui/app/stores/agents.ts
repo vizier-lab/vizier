@@ -30,9 +30,21 @@ type AgentStore = {
 
 /** 0..1 from a setup's downloads, or null when it reports none. */
 export function setupProgress(s: SetupState): number | null {
-    const ds = s.downloads.filter((d) => typeof d.progress === 'number')
+    const ds = s.downloads.filter(
+        (d) =>
+            (typeof d.progress === 'number' && d.progress >= 0) ||
+            (typeof d.completed === 'number' &&
+                typeof d.total === 'number' &&
+                d.total > 0)
+    )
     if (!ds.length) return null
-    return ds.reduce((a, d) => a + (d.progress as number), 0) / ds.length
+    return (
+        ds.reduce((a, d) => {
+            if (typeof d.progress === 'number')
+                return a + Math.min(1, Math.max(0, d.progress))
+            return a + (d.completed ?? 0) / (d.total ?? 1)
+        }, 0) / ds.length
+    )
 }
 
 /** Seconds left, extrapolated from the recent samples; null until there are two that moved. */
@@ -74,11 +86,20 @@ export const useAgents = create<AgentStore>()((set, get) => ({
         try {
             const list = await setupStates()
             const now = Date.now()
-            const samples = { ...get().samples }
+            // Forget samples for agents that are no longer setting up, so a
+            // later build starts measuring from scratch.
+            const live = new Set(list.map((s) => s.agent_id))
+            const samples: Record<string, SetupSample[]> = {}
+            for (const [id, taken] of Object.entries(get().samples)) {
+                if (live.has(id)) samples[id] = taken
+            }
             for (const s of list) {
                 const p = setupProgress(s)
                 if (p == null) continue
-                samples[s.agent_id] = [...(samples[s.agent_id] ?? []), { at: now, progress: p }].slice(-SAMPLES)
+                samples[s.agent_id] = [
+                    ...(samples[s.agent_id] ?? []),
+                    { at: now, progress: p },
+                ].slice(-SAMPLES)
             }
             set({ setups: Object.fromEntries(list.map((s) => [s.agent_id, s])), samples })
         } catch {
@@ -93,10 +114,11 @@ export const useAgents = create<AgentStore>()((set, get) => ({
         const health = setInterval(() => {
             if (document.visibilityState === 'visible') void get().refreshHealth()
         }, HEALTH_MS)
+        // Always poll setup state while the tab is visible: a build can start
+        // without any health saying "starting" yet, and the notification
+        // panel's activity indicator must not wait for it (spec 029 US4).
         const setup = setInterval(() => {
-            if (document.visibilityState !== 'visible') return
-            const starting = Object.values(get().health).some((h) => h.state === 'starting')
-            if (starting || Object.keys(get().setups).length) void get().refreshSetups()
+            if (document.visibilityState === 'visible') void get().refreshSetups()
         }, SETUP_MS)
         void refreshSetups()
         return () => {

@@ -29,3 +29,13 @@ describe('format', () => {
         expect(relativeTime(now - 2 * 86_400_000, now)).toBe('2d ago')
     })
 })
+
+describe('feedTime', () => {
+    const now = new Date(2026, 9, 23, 22, 0)
+    it('reads as a clock today, then in days', async () => {
+        const { feedTime } = await import('./format')
+        expect(feedTime(new Date(2026, 9, 23, 7, 5).toISOString(), now)).toBe('07:05')
+        expect(feedTime(new Date(2026, 9, 22, 23, 0).toISOString(), now)).toBe('yesterday')
+        expect(feedTime(new Date(2026, 9, 12, 9, 0).toISOString(), now)).toBe('Oct 12')
+    })
+})

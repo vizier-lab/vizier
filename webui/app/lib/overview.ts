@@ -57,13 +57,3 @@ export function summaryLine(a: Activity): string | undefined {
     const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0]
     return `${row.label} is ${row.live ? 'running now' : 'live'}. ${list} today.`
 }
-
-/** "21:04" today, "yesterday", then a short date. */
-export function feedTime(at: string, now: Date = new Date()): string {
-    const d = new Date(at)
-    const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
-    const days = Math.round((day(now) - day(d)) / 86_400_000)
-    if (days <= 0) return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-    if (days === 1) return 'yesterday'
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}

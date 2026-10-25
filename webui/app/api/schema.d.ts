@@ -869,6 +869,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["count"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["read_all"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/{id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_read"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/overview": {
         parameters: {
             query?: never;
@@ -893,22 +957,6 @@ export interface paths {
             cookie?: never;
         };
         get: operations["activity"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/overview/feed": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["feed"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1391,21 +1439,6 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
-        APIResponse_Feed: {
-            data?: {
-                events: components["schemas"]["FeedEvent"][];
-                /** @description Pass as `before` for the next page; absent on the last one. */
-                next?: string | null;
-                /**
-                 * Format: date-time
-                 * @description Where the feed starts: the previous visit, or 24 hours ago.
-                 */
-                since: string;
-            };
-            message?: string | null;
-            /** Format: int32 */
-            status: number;
-        };
         APIResponse_InUse: {
             /** @description The agents a delete would affect, for the WebUI's warning. */
             data?: {
@@ -1559,6 +1592,32 @@ export interface components {
                 /** Format: date */
                 release_date?: string | null;
                 status: components["schemas"]["ModelStatus"];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_NotificationCounts: {
+            /** @description Counts over the whole visible, retained set, independent of the selected page/filter. */
+            data?: {
+                /** Format: int64 */
+                all: number;
+                /** Format: int64 */
+                read: number;
+                /** Format: int64 */
+                unread: number;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_NotificationPage: {
+            /** @description One page of the inbox plus the counts for its filters. */
+            data?: {
+                counts: components["schemas"]["NotificationCounts"];
+                items: components["schemas"]["NotificationItem"][];
+                /** @description Pass as `before` for the next page; absent on the last one. */
+                next?: string | null;
             };
             message?: string | null;
             /** Format: int32 */
@@ -2903,30 +2962,6 @@ export interface components {
             /** Format: int64 */
             turns: number;
         };
-        Feed: {
-            events: components["schemas"]["FeedEvent"][];
-            /** @description Pass as `before` for the next page; absent on the last one. */
-            next?: string | null;
-            /**
-             * Format: date-time
-             * @description Where the feed starts: the previous visit, or 24 hours ago.
-             */
-            since: string;
-        };
-        FeedEvent: {
-            agent_id: string;
-            /** Format: date-time */
-            at: string;
-            /** @description Where the WebUI takes the person to see more. */
-            href: string;
-            /** @description Stable across requests: `task_run:812`, `health:scribe`. */
-            id: string;
-            /** @description `start_failed`, `task_run`, `dream_cycle`, `background_job`, `integration`, `channel_replies`. */
-            kind: string;
-            text: string;
-            /** @description `failed` or `default`. */
-            tone: string;
-        };
         /** @enum {string} */
         FieldType: "secret" | "string" | "bool" | "string_list" | "secret_map" | "select";
         GetTasksQuery: {
@@ -3296,6 +3331,60 @@ export interface components {
         };
         /** @enum {string} */
         NoLinkReason: "no_web_page" | "deleted";
+        /**
+         * @description What kind of event a notification records. Exposed for semantics and tests; never offered as
+         *     a filter.
+         * @enum {string}
+         */
+        NotificationCategory: "agent_start_failure" | "agent_setup_ready" | "task_run" | "dream_cycle" | "background_job" | "integration" | "channel_replies";
+        /** @description Counts over the whole visible, retained set, independent of the selected page/filter. */
+        NotificationCounts: {
+            /** Format: int64 */
+            all: number;
+            /** Format: int64 */
+            read: number;
+            /** Format: int64 */
+            unread: number;
+        };
+        /**
+         * @description Which rows a page returns. `all` is the default.
+         * @enum {string}
+         */
+        NotificationFilter: "all" | "unread" | "read";
+        /** @description One row as the API returns it. */
+        NotificationItem: {
+            agent_id: string;
+            /** Format: date-time */
+            at: string;
+            category: components["schemas"]["NotificationCategory"];
+            href: string;
+            /**
+             * Format: int64
+             * @description Stable public id; cursors and read marks use it.
+             */
+            id: number;
+            /** @description This person's read state. */
+            read: boolean;
+            /** @description The stored summary; the WebUI renders it as text. */
+            text: string;
+            tone: components["schemas"]["NotificationTone"];
+        };
+        /** @description One page of the inbox plus the counts for its filters. */
+        NotificationPage: {
+            counts: components["schemas"]["NotificationCounts"];
+            items: components["schemas"]["NotificationItem"][];
+            /** @description Pass as `before` for the next page; absent on the last one. */
+            next?: string | null;
+        };
+        NotificationReadRequest: {
+            /** @description `true` marks it read, `false` marks it unread. */
+            read?: boolean | null;
+        };
+        /**
+         * @description How a row reads: ordinary, a failure, or a successful outcome.
+         * @enum {string}
+         */
+        NotificationTone: "default" | "failed" | "success";
         Overview: {
             /**
              * Format: date-time
@@ -3723,6 +3812,11 @@ export interface components {
             downloads?: components["schemas"]["DownloadStatus"][];
             error?: string | null;
             message: string;
+            /**
+             * @description The agent's display name from the build's config; a create build is not in the agent
+             *     store yet, so the panel cannot always resolve it.
+             */
+            name?: string;
             phase: components["schemas"]["SetupPhase"];
         };
         /** @description The answer of `GET /api/v1/utils/setup-state`. */
@@ -7102,6 +7196,127 @@ export interface operations {
             };
         };
     };
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `all` (default), `unread` or `read`. */
+                filter: string | null;
+                /** @description The `next` of the previous page. */
+                before: string | null;
+                /** @description 1–50; default 20. */
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's inbox, newest first, with counts for its filters */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_NotificationPage"];
+                };
+            };
+            /** @description An unknown filter, or a cursor that isn't one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    count: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unread and total counts across the caller's visible agents */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_NotificationCounts"];
+                };
+            };
+        };
+    };
+    read_all: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Marks every visible unread notification read, with the new counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_NotificationCounts"];
+                };
+            };
+        };
+    };
+    set_read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The notification's public id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationReadRequest"];
+            };
+        };
+        responses: {
+            /** @description This person's new read state, with the inbox counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_NotificationCounts"];
+                };
+            };
+            /** @description A missing or non-boolean `read` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description No such notification for this person to see */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
     overview_counts: {
         parameters: {
             query?: never;
@@ -7145,40 +7360,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIResponse_Activity"];
-                };
-            };
-        };
-    };
-    feed: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The `next` of the previous page. */
-                before: string | null;
-                /** @description 1–50; default 20. */
-                limit: number | null;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description What happened since the caller's previous visit (else the last 24 hours), newest first, with start failures pinned to the top of the first page */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_Feed"];
-                };
-            };
-            /** @description A cursor that isn't one */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APIResponse_String"];
                 };
             };
         };

@@ -13,7 +13,7 @@ export default defineConfig({
         {
             name: `mobile-${colorScheme}`,
             // The functional specs drive the desktop layout; the phone projects check the phone one.
-            testMatch: /(mobile|redirects)\.spec\.ts/,
+            testMatch: /(mobile|redirects|notifications)\.spec\.ts/,
             use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 }, colorScheme },
         },
     ]),
