@@ -23,6 +23,8 @@ export default function Usage() {
     const { agentId = '' } = useParams()
     const [range, setRange] = useState<Range>('30')
     const [by, setBy] = useState<Dimension>('activity')
+    // Null means "whatever the data suggests": cost when the report is priced, tokens otherwise.
+    const [picked, setPicked] = useState<'cost' | 'tokens' | null>(null)
     const [report, setReport] = useState<UsageReport | null>(null)
     const [error, setError] = useState<string>()
     const [open, setOpen] = useState<{ row: CostlyConversation; usage: ConversationUsage | null } | null>(null)
@@ -46,8 +48,12 @@ export default function Usage() {
     }
 
     const rows = report ? (by === 'activity' ? report.by_activity : by === 'channel' ? report.by_place : report.by_model) : []
-    const measure = report?.summary.cost_usd != null ? 'cost' : 'tokens'
-    const { top, other } = topSeries(report?.by_activity ?? [], (r) => (measure === 'cost' ? (r.cost_usd ?? 0) : r.tokens))
+    const measure = picked ?? (report?.summary.cost_usd != null ? 'cost' : 'tokens')
+    const activities = report?.by_activity ?? []
+    // Five chart colours and "Other" takes the last: keep one fewer activity so the fold has
+    // a colour of its own instead of repeating the fifth series.
+    const keep = activities.length > SERIES_COLOURS.length ? SERIES_COLOURS.length - 1 : SERIES_COLOURS.length
+    const { top, other } = topSeries(activities, (r) => (measure === 'cost' ? (r.cost_usd ?? 0) : r.tokens), keep)
     const keys = top.map((t) => t.key as Activity)
     const series = [
         ...top.map((t, i) => ({ key: t.key, label: ACTIVITY_LABEL[t.key as Activity] ?? t.label, colour: SERIES_COLOURS[i] })),
@@ -132,6 +138,17 @@ export default function Usage() {
                 <section aria-label="Over time" className="flex flex-col gap-12">
                     <StackedBarChart
                         title={measure === 'cost' ? 'Estimated cost per day' : 'Tokens per day'}
+                        action={
+                            <FilterTabs
+                                aria-label="Measure"
+                                value={measure}
+                                onChange={setPicked}
+                                options={[
+                                    { value: 'cost', label: 'Cost' },
+                                    { value: 'tokens', label: 'Tokens' },
+                                ]}
+                            />
+                        }
                         series={series}
                         days={dailyStacks(report.daily, measure, keys)}
                         format={measure === 'cost' ? (v) => `$${v.toFixed(2)}` : abbreviate}
