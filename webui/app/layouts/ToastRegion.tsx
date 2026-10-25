@@ -4,7 +4,7 @@ import { useToasts } from '../stores/toasts'
 export function ToastRegion() {
     const { items, dismiss } = useToasts()
     return (
-        <Region>
+        <Region position="top-right">
             {/* Presence keeps a dismissed toast on screen long enough to leave. */}
             <Presence>
                 {items.map((t) => (
