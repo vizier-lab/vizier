@@ -69,6 +69,13 @@ export const slideOverMotion = {
   exit: { x: "100%", transition: { duration: motionDurations.base, ease: motionEases.standard } },
 } as const;
 
+/** A left-hand panel, for a control anchored on the left (the phone menu). */
+export const slideOverLeftMotion = {
+  initial: { x: "-100%" },
+  animate: { x: 0, transition: { duration: motionDurations.slow, ease: motionEases.arrive } },
+  exit: { x: "-100%", transition: { duration: motionDurations.base, ease: motionEases.standard } },
+} as const;
+
 /** A menu or picker: fades with a small rise; dismissed even faster. */
 export const popoverMotion = {
   initial: { opacity: 0, y: 6 },

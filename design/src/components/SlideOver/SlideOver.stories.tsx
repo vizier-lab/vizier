@@ -60,3 +60,17 @@ export const Open: Story = {
     if (!heading || heading.width < 100) throw new Error("the panel is not showing");
   },
 };
+
+/** The phone menu: the button is on the left, so the panel slides in from the left. */
+export const FromTheLeft: Story = {
+  args: { side: "left" },
+  render: (args) => <SlideOver {...args} open onClose={() => {}} />,
+  play: async ({ canvasElement }) => {
+    const dialog = canvasElement.querySelector("dialog");
+    if (!dialog) throw new Error("no dialog");
+    const heading = dialog.querySelector("h2")?.getBoundingClientRect();
+    if (!heading || heading.left > 80) {
+      throw new Error(`the left panel is not on the left: ${heading?.left}px`);
+    }
+  },
+};
