@@ -48,19 +48,3 @@ export const States: Story = {
     />
   ),
 };
-
-/** Unread notifications: the count pill, or a dot in the rail. */
-export const Unread: Story = { args: { icon: "bell", label: "Notifications", count: 3, href: undefined, onSelect: () => {} } };
-
-/** Setup activity is a separate, pulsing dot — never part of the unread count. */
-export const Busy: Story = { args: { icon: "bell", label: "Notifications", busy: true, href: undefined, onSelect: () => {} } };
-
-export const UnreadAndBusy: Story = {
-  args: { icon: "bell", label: "Notifications", count: 12, busy: true, href: undefined, onSelect: () => {} },
-};
-
-/** The rail: unread and busy become two dots on the bell. */
-export const CollapsedUnreadAndBusy: Story = {
-  args: { icon: "bell", label: "Notifications", count: 12, busy: true, collapsed: true, href: undefined, onSelect: () => {} },
-  decorators: [(Story) => <div className="w-88">{Story()}</div>],
-};

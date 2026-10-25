@@ -14,6 +14,10 @@ export type IconButtonProps = {
   size?: "sm" | "md";
   /** A toggle that is on. Sets aria-pressed. */
   selected?: boolean;
+  /** A count badge in the corner, e.g. unread notifications. Hidden at zero, capped at 99+. */
+  count?: number;
+  /** A separate live dot, e.g. an agent setting up. Not part of the count. */
+  busy?: boolean;
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">;
 
 const VARIANTS = {
@@ -35,11 +39,14 @@ export function IconButton({
   variant = "secondary",
   size = "md",
   selected,
+  count,
+  busy,
   type = "button",
   className,
   ...rest
 }: IconButtonProps) {
   const v = VARIANTS[variant];
+  const unread = count != null && count > 0 ? count : 0;
   return (
     <motion.button
       type={type}
@@ -47,7 +54,7 @@ export function IconButton({
       whileTap={{ scale: 0.94 }}
       transition={motionSprings.crisp}
       className={cx(
-        "inline-flex shrink-0 items-center justify-center transition-colors disabled:opacity-40",
+        "relative inline-flex shrink-0 items-center justify-center transition-colors disabled:opacity-40",
         SIZES[size].box,
         v.base,
         selected && v.selected,
@@ -56,6 +63,21 @@ export function IconButton({
       {...(rest as HTMLMotionProps<"button">)}
     >
       <Icon name={icon} size={SIZES[size].icon} />
+      {/* Visual only: the caller's aria-label carries the count and busy state in words. */}
+      {unread > 0 && (
+        <span
+          aria-hidden
+          className="absolute -top-3 -right-3 flex h-17 min-w-17 items-center justify-center rounded-pill bg-live px-4 type-mono-xs text-ground"
+        >
+          {unread > 99 ? "99+" : unread}
+        </span>
+      )}
+      {busy && (
+        <span
+          aria-hidden
+          className="absolute -right-1 -bottom-1 size-7 rounded-pill bg-live animate-dot-wave motion-reduce:animate-none"
+        />
+      )}
     </motion.button>
   );
 }

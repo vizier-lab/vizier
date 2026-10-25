@@ -50,8 +50,6 @@ export type SidebarProps = {
   collapsed?: boolean;
   /** Chat shows the live ring while the agent replies. */
   chatLive?: boolean;
-  /** The notification inbox entry, immediately above Settings. */
-  notifications?: { unread: number; busy: boolean; onOpen: () => void };
   /** Pages the person may not see here, dropped from every group before rendering. */
   hiddenPages?: SidebarPage[];
   hrefFor: (page: SidebarPage) => string;
@@ -66,7 +64,6 @@ export function Sidebar({
   active,
   collapsed,
   chatLive,
-  notifications,
   hiddenPages,
   hrefFor,
   onToggleTheme,
@@ -129,20 +126,6 @@ export function Sidebar({
         ),
       )}
       <span className="flex-1" />
-      {notifications &&
-        wrap(
-          collapsed
-            ? `Notifications${notifications.unread > 0 ? ` · ${notifications.unread} unread` : ""}${notifications.busy ? " · setting up" : ""}`
-            : "Notifications",
-          <NavItem
-            icon="bell"
-            label="Notifications"
-            count={notifications.unread}
-            busy={notifications.busy}
-            onSelect={notifications.onOpen}
-            collapsed={collapsed}
-          />,
-        )}
       {!hidden.has("settings") &&
         wrap("Settings", <NavItem icon="settings" label="Settings" href={hrefFor("settings")} active={active === "settings"} collapsed={collapsed} />)}
       {wrap("Theme", <NavItem icon="theme" label="Theme" onSelect={onToggleTheme} collapsed={collapsed} />)}

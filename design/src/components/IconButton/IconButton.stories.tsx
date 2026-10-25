@@ -51,3 +51,24 @@ export const Group: Story = {
     </IconButtonGroup>
   ),
 };
+
+/** A count badge for unread work, e.g. the notification bell in a page header. */
+export const WithCount: Story = {
+  args: { icon: "bell", "aria-label": "Notifications, 3 unread", variant: "ghost", count: 3 },
+};
+
+/** The count is capped for display; the accessible name carries the true state. */
+export const ManyUnread: Story = {
+  args: { icon: "bell", "aria-label": "Notifications, 120 unread", variant: "ghost", count: 120 },
+};
+
+/** A separate busy dot for setup activity — never part of the count. */
+export const CountAndBusy: Story = {
+  args: {
+    icon: "bell",
+    "aria-label": "Notifications, 3 unread, setting up",
+    variant: "ghost",
+    count: 3,
+    busy: true,
+  },
+};
