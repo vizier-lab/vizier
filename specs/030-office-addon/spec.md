@@ -8,6 +8,13 @@
 
 **Input**: User description: "Add a built-in `office` addon that gives agents first-class, local Office file support, enabled by default for every agent (GitHub issue vizier-lab/vizier#100). Phase 1: DOCX read+write and XLSX read+write. PDF is phase 2 and parked."
 
+## Clarifications
+
+### Session 2026-10-25
+
+- Q: What happens when a write targets a filename that already exists in the conversation's files? → A: The agent may replace a file it created itself, but never a file a person uploaded; in that case the tool returns an error and the agent chooses another name.
+- Q: How is workbook text that starts with `=`, `+`, `-` or `@` written? → A: Always as plain text, never as a formula.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Agent reads a Word or Excel file with full fidelity (Priority: P1)
@@ -101,7 +108,7 @@ Existing agents and skills call the generic `read_document_file` tool for Word a
 - A corrupt, truncated or password-protected file: a clear error naming the problem, never a crash of the turn.
 - A requested range or sheet that does not exist: an error that lists the sheets that do exist.
 - A workbook with empty cells, merged cells, formulas and error values: formulas are read as their last computed value; empty cells stay empty; errors are reported as such.
-- Writing a filename that already exists among the conversation's files: behaviour is defined and consistent with how other file-producing tools handle it (see Assumptions).
+- Writing a filename that already exists among the conversation's files: if the existing file was created by the agent, it is replaced (so a draft can be revised); if a person uploaded it, the write is refused with an error telling the agent to choose another name, and the upload is left untouched.
 - Writing with a filename that lacks or has the wrong extension, or is unsafe: normalised or refused with a clear message.
 - Very large write requests (huge Markdown, enormous row counts): refused or capped with a clear message rather than exhausting memory.
 - Dates and numbers that spreadsheets store ambiguously (date serials, 1900 versus 1904 date systems, numbers stored as text): reported by their displayed meaning, not as raw serials.
@@ -124,6 +131,8 @@ Existing agents and skills call the generic `read_document_file` tool for Word a
 - **FR-009**: Read tools MUST bound their output (about 200 KB of text; capped numbers of sheets and rows) and, when they cut output, MUST say so with a `truncated: true` marker rather than failing.
 - **FR-010**: Every error (missing file, wrong format, corrupt file, bad sheet or range, oversized request) MUST be returned as a result the agent can read and act on, never as a failure that ends the turn.
 - **FR-011**: Legacy `.xls` workbooks MUST be readable by the workbook reader and by the generic document reader.
+- **FR-028**: The workbook write tool MUST store every text value as plain text. Text that begins with `=`, `+`, `-` or `@` MUST NOT become a formula, so opening a generated file never executes content taken from untrusted sources.
+- **FR-027**: A write tool MUST replace an existing conversation file of the same name only if that file was created by the agent. If the existing file was uploaded by a person, the write MUST be refused with an error that tells the agent to choose another name, and the upload MUST remain unchanged.
 
 **Generic document reader**
 
@@ -181,9 +190,8 @@ Existing agents and skills call the generic `read_document_file` tool for Word a
 - **Open question: Word reader depth.** The first version uses the document library already in the product plus table support; a lower-level reader for numbering and hyperlinks is revisited only if real files show gaps.
 - **Open question: display name.** The addon is shown as "Office" in the catalogue; the id is `office` in either case. A rename to "Documents" is a presentation-only change.
 - **Open question: auto-attach.** Written files are not attached automatically; the agent sends them with the existing attachment tool, consistent with image generation.
-- Writing a filename that already exists in the conversation's files follows the same behaviour as the product's other file-producing tools (a new file with the name made unique rather than overwriting); the exact rule is settled in planning from that existing behaviour.
 - Output limits (about 200 KB of text; capped sheets and rows) are starting values and can be tuned; the contract is that cutting is always signalled.
-- Formulas are read as their last saved value; formulas are not written in phase 1.
+- Formulas are read as their last saved value; formulas are never written in phase 1 (see FR-028).
 - Charts, pivot tables, conditional formatting, images and embedded objects are not read or written in phase 1; they may be skipped silently on read.
 - Existing rules for who may read and send conversation files are unchanged.
 - Out of scope: editing existing Office files in place with formatting preserved; legacy binary `.doc` and `.ppt`; charts, pivots and conditional formatting; online Office services (Google Workspace, Microsoft Graph); a general-purpose filesystem tool.
