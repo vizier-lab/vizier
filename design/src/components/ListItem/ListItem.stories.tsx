@@ -85,3 +85,19 @@ export const LongContent: Story = {
     trailing: undefined,
   },
 };
+
+/** An action beside the row: a sibling of the link, so it never nests inside it. */
+export const WithAction: Story = {
+  args: {
+    href: "#",
+    trailing: undefined,
+    action: <IconButton variant="ghost" size="sm" icon="check" aria-label="Mark as read" />,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "The action slot exists so a row-level toggle (mark read, dismiss) can sit beside a link row without invalid interactive nesting. Clicking it must not follow the row.",
+      },
+    },
+  },
+};

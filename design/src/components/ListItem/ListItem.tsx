@@ -16,6 +16,8 @@ export type ListItemProps = {
   meta?: ReactNode;
   /** Badges, buttons, a chevron or ✓, after the meta. */
   trailing?: ReactNode;
+  /** A control beside the row (e.g. a mark-read button), never nested inside its link/button. */
+  action?: ReactNode;
   selected?: boolean;
   disabled?: boolean;
   /** A link row. */
@@ -40,6 +42,7 @@ export function ListItem({
   subtitle,
   meta,
   trailing,
+  action,
   selected,
   disabled,
   href,
@@ -76,14 +79,15 @@ export function ListItem({
     </>
   );
   if (href !== undefined) {
-    return (
+    return withAction(
       <a href={disabled ? undefined : href} aria-disabled={disabled || undefined} aria-current={selected ? "true" : undefined} className={classes} {...rest}>
         {body}
-      </a>
+      </a>,
+      action,
     );
   }
   if (onSelect !== undefined) {
-    return (
+    return withAction(
       <button
         type="button"
         disabled={disabled}
@@ -94,12 +98,29 @@ export function ListItem({
         {...(rest as HTMLAttributes<HTMLButtonElement>)}
       >
         {body}
-      </button>
+      </button>,
+      action,
     );
   }
-  return (
+  return withAction(
     <div className={classes} {...rest}>
       {body}
+    </div>,
+    action,
+  );
+}
+
+/**
+ * The action slot sits beside the row, as a sibling of its link/button: an interactive
+ * control may never be nested inside another, and a click on it must not navigate.
+ * Without an action the row is returned unchanged, so existing layouts are untouched.
+ */
+function withAction(row: ReactNode, action: ReactNode | undefined) {
+  if (action == null) return row;
+  return (
+    <div className="flex w-full min-w-0 items-center gap-4">
+      {row}
+      <span className="flex shrink-0 items-center">{action}</span>
     </div>
   );
 }

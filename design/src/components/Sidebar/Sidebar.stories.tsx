@@ -68,3 +68,26 @@ export const WithoutSecrets: Story = {
     },
   },
 };
+
+/** The notification inbox entry sits above Settings, with its unread count. */
+export const WithNotifications: Story = {
+  args: {
+    notifications: { unread: 3, busy: false, onOpen: () => {} },
+  },
+};
+
+/** Setup activity shows on the same entry as a separate dot. */
+export const NotificationsBusy: Story = {
+  args: {
+    notifications: { unread: 3, busy: true, onOpen: () => {} },
+  },
+};
+
+export const NotificationsCollapsed: Story = {
+  args: {
+    collapsed: true,
+    notifications: { unread: 12, busy: true, onOpen: () => {} },
+    agent: <AgentSwitcher agentId="archivist" name="Archivist" state="running" detail="replying" collapsed />,
+    user: <UserMenu name="ganesha" role="superadmin" collapsed onSignOut={() => {}} />,
+  },
+};
