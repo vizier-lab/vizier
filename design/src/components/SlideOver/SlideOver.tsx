@@ -64,7 +64,16 @@ export function SlideOver({ open, side = "right", onClose, ...panel }: SlideOver
       className="fixed inset-0 h-dvh w-full m-0 max-h-none max-w-none bg-transparent p-0 backdrop:bg-transparent"
     >
       <Presence onExitComplete={onExitComplete}>
-        {open && <motion.div key="scrim" aria-hidden {...scrimMotion} className="absolute inset-0 bg-ground/60" />}
+        {open && (
+          <motion.div
+            key="scrim"
+            aria-hidden
+            {...scrimMotion}
+            className="absolute inset-0 bg-ground/60"
+            // A click on the ground outside the panel dismisses it, as Escape does.
+            onClick={onClose}
+          />
+        )}
         {open && (
           <motion.div
             key="panel"
