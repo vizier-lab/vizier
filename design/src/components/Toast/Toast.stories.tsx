@@ -25,3 +25,13 @@ export const Tones: Story = {
     </div>
   ),
 };
+
+/** A toast you can open: a notification's summary, click to go to it. */
+export const WithAction: Story = {
+  args: {
+    tone: "info",
+    title: "Scribe",
+    message: "Task “Morning digest” ended without an answer.",
+    onSelect: () => {},
+  },
+};

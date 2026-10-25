@@ -12,6 +12,8 @@ export type ToastProps = {
   tone?: ToastTone;
   title: ReactNode;
   message?: ReactNode;
+  /** Makes the toast's content a control: click it to open what it is about. */
+  onSelect?: () => void;
   onClose?: () => void;
 } & Omit<HTMLAttributes<HTMLDivElement>, "title">;
 
@@ -29,8 +31,17 @@ const TONES: Record<ToastTone, { edge: string; title: string; icon: IconName; to
  * it glide up when one is dismissed. Wrap the toasts in `Presence` so the
  * exit can play.
  */
-export function Toast({ tone = "success", title, message, onClose, className, ...rest }: ToastProps) {
+export function Toast({ tone = "success", title, message, onSelect, onClose, className, ...rest }: ToastProps) {
   const t = TONES[tone];
+  const body = (
+    <>
+      <Icon name={t.icon} tone={t.tone} />
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <p className={cx("type-ui-medium", t.title)}>{title}</p>
+        {message && <p className="type-small text-muted">{message}</p>}
+      </div>
+    </>
+  );
   return (
     <motion.div
       role={tone === "error" ? "alert" : "status"}
@@ -49,11 +60,17 @@ export function Toast({ tone = "success", title, message, onClose, className, ..
       className={cx("flex w-380 items-start gap-12 rounded-lg border bg-raised px-14 py-12 shadow-popover", t.edge, className)}
       {...(rest as HTMLMotionProps<"div">)}
     >
-      <Icon name={t.icon} tone={t.tone} />
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <p className={cx("type-ui-medium", t.title)}>{title}</p>
-        {message && <p className="type-small text-muted">{message}</p>}
-      </div>
+      {onSelect ? (
+        <button
+          type="button"
+          onClick={onSelect}
+          className="flex min-w-0 flex-1 items-start gap-12 rounded-sm text-left transition-opacity hover:opacity-85"
+        >
+          {body}
+        </button>
+      ) : (
+        body
+      )}
       {onClose && (
         <button
           type="button"
