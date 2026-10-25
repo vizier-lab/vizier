@@ -1,19 +1,15 @@
-import { ActivityItem, Button, Dialog, EmptyState, Notice, PanelHeader, SecretField, Skeleton, TextField } from '@vizier/design'
-import { useCallback, useEffect, useState } from 'react'
+import { Button, Dialog, EmptyState, Notice, SecretField, TextField } from '@vizier/design'
+import { useState } from 'react'
 import { useParams } from 'react-router'
 import { ApiError } from '../api/client'
-import {
-    createSecret,
-    deleteSecret,
-    listSecretEvents,
-    listSecrets,
-    replaceSecret,
-    type SecretEvent,
-    type SecretItem,
-} from '../api/endpoints/secrets'
-import { absoluteTime, relativeTime } from '../lib/format'
+import { createSecret, deleteSecret, replaceSecret, type SecretItem } from '../api/endpoints/secrets'
+import { relativeTime } from '../lib/format'
+import { usePagedList } from '../lib/usePagedList'
 import { ConfirmDialog } from '../screens/shared/ConfirmDialog'
+import { PagedTable } from '../screens/shared/PagedTable'
 import { PageFrame } from '../screens/shared/PageFrame'
+import { Panes } from '../screens/shared/Panes'
+import { ActivityCard } from '../screens/secrets/ActivityCard'
 import { toast } from '../stores/toasts'
 
 const NAME_RULE = "1–128 characters: letters, digits, '.', '_' or '-'."
@@ -21,6 +17,11 @@ const VALUE_RULE = '8–65,536 bytes. You won’t be able to view it again.'
 const NAME_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
 const MIN_VALUE_BYTES = 8
 const MAX_VALUE_BYTES = 65_536
+
+const SORTS = [
+    { value: 'name', label: 'Name' },
+    { value: 'updated', label: 'Recently updated' },
+]
 
 const messageOf = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback)
 
@@ -39,10 +40,7 @@ function changeText(secret: SecretItem): string {
  */
 export default function Secrets() {
     const { agentId = '' } = useParams()
-    const [items, setItems] = useState<SecretItem[] | null>(null)
-    const [error, setError] = useState<unknown>(null)
-    const [events, setEvents] = useState<SecretEvent[] | null>(null)
-    const [eventsError, setEventsError] = useState<string>()
+    const list = usePagedList<SecretItem>(`/agents/${agentId}/secrets`, { sort: 'name' })
     const [version, setVersion] = useState(0)
     const [creating, setCreating] = useState(false)
     const [replacing, setReplacing] = useState<SecretItem | null>(null)
@@ -50,40 +48,12 @@ export default function Secrets() {
     const [deleteBusy, setDeleteBusy] = useState(false)
     const [deleteError, setDeleteError] = useState<string>()
 
-    const reload = useCallback(() => setVersion((v) => v + 1), [])
+    const reload = () => {
+        list.reload()
+        setVersion((v) => v + 1)
+    }
 
-    // A different agent is a different store: drop the old rows before fetching.
-    useEffect(() => {
-        setItems(null)
-        setEvents(null)
-        setError(null)
-        setEventsError(undefined)
-    }, [agentId])
-
-    useEffect(() => {
-        let live = true
-        setError(null)
-        listSecrets(agentId)
-            .then((list) => live && setItems(list.items))
-            .catch((e) => live && setError(e))
-        return () => {
-            live = false
-        }
-    }, [agentId, version])
-
-    useEffect(() => {
-        let live = true
-        setEventsError(undefined)
-        listSecretEvents(agentId, 20)
-            .then((list) => live && setEvents(list.items))
-            .catch((e) => live && setEventsError(messageOf(e, 'The change log could not be loaded.')))
-        return () => {
-            live = false
-        }
-    }, [agentId, version])
-
-    const forbidden = error instanceof ApiError && error.status === 403
-    const failed = error !== null && !forbidden
+    const forbidden = list.error instanceof ApiError && list.error.status === 403
 
     const cancelDelete = () => {
         if (deleteBusy) return
@@ -110,8 +80,9 @@ export default function Secrets() {
 
     return (
         <PageFrame
+            fill={!forbidden}
             title="Secrets"
-            description="Credentials this agent can use without seeing them. Values are masked after saving."
+            meta="Credentials this agent can use without seeing them · values are masked after saving"
             actions={
                 !forbidden && (
                     <Button variant="primary" icon="plus" disabled={creating} onClick={() => setCreating(true)}>
@@ -127,83 +98,43 @@ export default function Secrets() {
                     title="You can’t manage this agent’s secrets"
                     message="Secrets require the “Manage every agent’s secrets” or “Manage secrets of agents they own” permission."
                 />
-            ) : failed ? (
-                <EmptyState kind="error" title="Couldn’t load secrets" message={messageOf(error, 'The server could not list them.')} />
-            ) : !items ? (
-                <div className="flex flex-col gap-8" aria-busy>
-                    <Skeleton className="h-56" />
-                    <Skeleton className="h-56" />
-                    <Skeleton className="h-56" />
-                </div>
-            ) : items.length === 0 ? (
-                <EmptyState
-                    kind="empty"
-                    icon="key"
-                    title="No secrets yet"
-                    message="Store a credential this agent needs. It can read it from a script; neither you nor the model can see it again."
-                    action={
-                        <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
-                            Add secret
-                        </Button>
-                    }
-                />
             ) : (
-                <ul aria-label="Secrets" className="flex flex-col rounded-lg border border-border">
-                    {items.map((secret) => (
-                        <li
-                            key={secret.name}
-                            className="flex flex-col gap-10 border-b border-border px-16 py-14 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
-                        >
-                            <div className="flex min-w-0 flex-col gap-4">
-                                <span className="type-code text-fg">{secret.name}</span>
-                                <span className="type-small text-faint">
-                                    <time dateTime={secret.updated_at} title={absoluteTime(secret.updated_at)}>
-                                        {changeText(secret)}
-                                    </time>
-                                </span>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-16">
-                                <SecretField masked={secret.masked} onReplace={() => setReplacing(secret)} />
-                                <Button variant="ghost" icon="trash" onClick={() => setDeleting(secret)}>
-                                    Delete
+                <Panes paneLabel="Recent changes" pane={<ActivityCard agentId={agentId} version={version} />}>
+                    <PagedTable<SecretItem>
+                        label="Secrets"
+                        searchLabel="Search secrets"
+                        list={list}
+                        rowKey={(secret) => secret.name}
+                        sorts={SORTS}
+                        columns={[
+                            { label: 'Secret' },
+                            { label: 'Value', width: 240 },
+                            { label: '', width: 120, align: 'end', srLabel: 'Actions' },
+                        ]}
+                        endAligned={[2]}
+                        row={(secret) => [
+                            <span key="n" className="flex min-w-0 flex-col">
+                                <span className="truncate type-code text-fg">{secret.name}</span>
+                                <span className="truncate type-small text-faint">{changeText(secret)}</span>
+                            </span>,
+                            <SecretField key="v" masked={secret.masked} onReplace={() => setReplacing(secret)} />,
+                            <Button key="d" variant="ghost" icon="trash" aria-label={`Delete ${secret.name}`} onClick={() => setDeleting(secret)}>
+                                Delete
+                            </Button>,
+                        ]}
+                        empty={{
+                            icon: 'key',
+                            title: 'No secrets yet',
+                            message: 'Store a credential this agent needs. It can read it from a script; neither you nor the model can see it again.',
+                            action: (
+                                <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
+                                    Add secret
                                 </Button>
-                            </div>
-                        </li>
-                    ))}
-                </ul>
+                            ),
+                        }}
+                    />
+                </Panes>
             )}
-
-            <section aria-label="Recent changes" className="flex flex-col gap-8">
-                <PanelHeader title="Recent changes" level={2} />
-                {eventsError ? (
-                    <p className="type-small text-failed-text" role="alert">
-                        {eventsError}
-                    </p>
-                ) : !events ? (
-                    <Skeleton variant="lines" lines={2} />
-                ) : events.length === 0 ? (
-                    <p className="type-small text-faint">Nothing has changed yet. Every save and deletion is recorded here, with who made it.</p>
-                ) : (
-                    <div className="flex flex-col">
-                        {events.map((event) => (
-                            <ActivityItem
-                                key={event.id}
-                                actor={event.actor_name}
-                                time={
-                                    <time dateTime={event.at} title={absoluteTime(event.at)}>
-                                        {relativeTime(event.at)}
-                                    </time>
-                                }
-                                text={
-                                    <>
-                                        {event.action} <span className="type-code">{event.name}</span>
-                                    </>
-                                }
-                            />
-                        ))}
-                    </div>
-                )}
-            </section>
 
             <Dialog open={creating} title="Add secret" confirmLabel="" onConfirm={() => {}} onCancel={() => setCreating(false)}>
                 {creating && (

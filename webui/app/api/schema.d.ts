@@ -1688,8 +1688,14 @@ export interface components {
         };
         APIResponse_SecretList: {
             data?: {
-                /** @description Sorted by name. */
+                /** @description With `limit`: matches per filter key (`all`). Always carries `all`. */
+                counts?: {
+                    [key: string]: number;
+                } | null;
+                /** @description By default sorted by name. */
                 items: components["schemas"]["SecretItem"][];
+                /** @description With `limit`: matches after `q`, before `offset`/`limit`. */
+                total?: number | null;
             };
             message?: string | null;
             /** Format: int32 */
@@ -3594,8 +3600,14 @@ export interface components {
             updated_by_name: string;
         };
         SecretList: {
-            /** @description Sorted by name. */
+            /** @description With `limit`: matches per filter key (`all`). Always carries `all`. */
+            counts?: {
+                [key: string]: number;
+            } | null;
+            /** @description By default sorted by name. */
             items: components["schemas"]["SecretItem"][];
+            /** @description With `limit`: matches after `q`, before `offset`/`limit`. */
+            total?: number | null;
         };
         SecretWriteResponse: {
             secret: components["schemas"]["SecretItem"];
@@ -5734,12 +5746,22 @@ export interface operations {
             path: {
                 /** @description Agent ID */
                 agent_id: string;
+                /** @description Free-text search, matched by the entity's own rule. */
+                q: string | null;
+                /** @description One filter key (e.g. `active`); `all` or absent means no filter. */
+                filter: string | null;
+                /** @description The entity's sort key; an unknown one uses the default. */
+                sort: string | null;
+                order: components["schemas"]["SortOrder"] | null;
+                offset: number | null;
+                /** @description Present switches the response to a `Page`; clamped to 1..=100. */
+                limit: number | null;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Names, masks and last change, sorted by name. No values */
+            /** @description Names, masks and last change, sorted by name. With `limit`, one page with `total` and `counts`. No values */
             200: {
                 headers: {
                     [name: string]: unknown;

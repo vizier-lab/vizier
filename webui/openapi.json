@@ -2651,11 +2651,87 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "q",
+            "in": "path",
+            "description": "Free-text search, matched by the entity's own rule.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "filter",
+            "in": "path",
+            "description": "One filter key (e.g. `active`); `all` or absent means no filter.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "path",
+            "description": "The entity's sort key; an unknown one uses the default.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "order",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SortOrder"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "name": "offset",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "Present switches the response to a `Page`; clamped to 1..=100.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Names, masks and last change, sorted by name. No values",
+            "description": "Names, masks and last change, sorted by name. With `limit`, one page with `total` and `counts`. No values",
             "content": {
               "application/json": {
                 "schema": {
@@ -7572,12 +7648,34 @@
               "items"
             ],
             "properties": {
+              "counts": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "With `limit`: matches per filter key (`all`). Always carries `all`.",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
               "items": {
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/SecretItem"
                 },
-                "description": "Sorted by name."
+                "description": "By default sorted by name."
+              },
+              "total": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "With `limit`: matches after `q`, before `offset`/`limit`.",
+                "minimum": 0
               }
             }
           },
@@ -14690,12 +14788,34 @@
           "items"
         ],
         "properties": {
+          "counts": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "With `limit`: matches per filter key (`all`). Always carries `all`.",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SecretItem"
             },
-            "description": "Sorted by name."
+            "description": "By default sorted by name."
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "With `limit`: matches after `q`, before `offset`/`limit`.",
+            "minimum": 0
           }
         }
       },

@@ -10,7 +10,8 @@ export type SecretItem = {
     updated_by_name: string
 }
 
-export type SecretList = { items: SecretItem[] }
+/** With `limit`, the server also sends `total` and `counts` (the secrets table's paging). */
+export type SecretList = { items: SecretItem[]; total?: number; counts?: Record<string, number> }
 
 /** `created` when the name was new, `replaced` when it existed. */
 export type SecretWrite = { status: 'created' | 'replaced'; secret: SecretItem }
