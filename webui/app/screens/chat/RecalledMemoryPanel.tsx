@@ -2,21 +2,9 @@ import { EmptyState, PanelHeader, RecalledMemoryRow, TextLink } from '@vizier/de
 import { useMemo, useState } from 'react'
 import { useLocation } from 'react-router'
 import { docFromChat } from '../../lib/memoryTree'
-import type { ChatMessage, RecalledPassage } from '../../api/frames'
+import type { Recalled } from '../../lib/recall'
 
 const SHOWN = 5
-
-export type Recalled = RecalledPassage & { origin: 'auto' | 'search'; uid: string }
-
-/** Every passage recalled in `entries` (auto and search), newest first, one row per passage. */
-export function recalledFrom(entries: ChatMessage[]): Recalled[] {
-    const out: Recalled[] = []
-    for (const e of entries) {
-        const r = e.content.Recall
-        if (r) for (const p of r.passages) out.push({ ...p, origin: r.origin, uid: e.uid })
-    }
-    return out.reverse()
-}
 
 type Props = {
     agentId: string

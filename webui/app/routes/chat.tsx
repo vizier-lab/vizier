@@ -17,10 +17,8 @@ import { renderClientCalls } from '../screens/chat/ClientCalls'
 import { Composer } from '../screens/chat/Composer'
 import { ErrorNotice } from '../screens/chat/ErrorNotice'
 import { MessageList } from '../screens/chat/MessageList'
-import {
-    RecalledMemoryPanel,
-    recalledFrom,
-} from '../screens/chat/RecalledMemoryPanel'
+import { recalledFrom } from '../lib/recall'
+import { RecalledMemoryPanel } from '../screens/chat/RecalledMemoryPanel'
 import { SessionFilesPanel } from '../screens/chat/SessionFilesPanel'
 import { lastTopic, read, rememberTopic, write } from '../lib/remember'
 import { useMobile } from '../lib/useMobile'
