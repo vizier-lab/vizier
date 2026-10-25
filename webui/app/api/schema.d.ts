@@ -3336,7 +3336,7 @@ export interface components {
          *     a filter.
          * @enum {string}
          */
-        NotificationCategory: "agent_start_failure" | "agent_setup_ready" | "task_run" | "dream_cycle" | "background_job" | "integration" | "channel_replies";
+        NotificationCategory: "agent_start_failure" | "agent_setup_ready" | "task_run" | "dream_cycle" | "background_job" | "integration" | "channel_replies" | "chat_reply";
         /** @description Counts over the whole visible, retained set, independent of the selected page/filter. */
         NotificationCounts: {
             /** Format: int64 */

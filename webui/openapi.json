@@ -13828,7 +13828,8 @@
           "dream_cycle",
           "background_job",
           "integration",
-          "channel_replies"
+          "channel_replies",
+          "chat_reply"
         ]
       },
       "NotificationCounts": {
