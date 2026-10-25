@@ -1,6 +1,12 @@
 // Small, pure readers over history entries and requests for the chat screens.
 
-import type { ChatMessage, VizierRequestContent, VizierResponseContent, VizierResponseStats } from '../api/frames'
+import type {
+    ChatMessage,
+    VizierAttachment,
+    VizierRequestContent,
+    VizierResponseContent,
+    VizierResponseStats,
+} from '../api/frames'
 import { abbreviate, cost as formatCost, count } from './format'
 import { estimateCost, type Price } from './prices'
 
@@ -24,6 +30,24 @@ export function replyText(content: VizierResponseContent): string | null {
     if ('message' in content) return content.message.content
     if ('audio_reply' in content) return content.audio_reply[1]
     return null
+}
+
+/** A reply the agent spoke: the audio is its own content, not one of the `attachments`. */
+export function isAudioReply(
+    content: VizierResponseContent | undefined
+): content is Extract<VizierResponseContent, { audio_reply: unknown }> {
+    return typeof content === 'object' && content !== null && 'audio_reply' in content
+}
+
+/**
+ * Everything a reply carries to draw. A spoken reply's audio lives in its content, so the
+ * attachment list alone is empty and the player would never appear.
+ */
+export function replyAttachments(
+    content: VizierResponseContent | undefined,
+    attachments: VizierAttachment[] | undefined
+): VizierAttachment[] {
+    return isAudioReply(content) ? [content.audio_reply[0], ...(attachments ?? [])] : (attachments ?? [])
 }
 
 export function replyStats(content: VizierResponseContent): VizierResponseStats | undefined {

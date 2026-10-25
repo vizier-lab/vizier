@@ -16,7 +16,9 @@ import { Presence } from '@vizier/design'
 import type { ChatMessage, Turn } from '../../api/frames'
 import type { TopicState } from '../../lib/frames'
 import {
+    isAudioReply,
     isBackgroundReport,
+    replyAttachments,
     replyError,
     replyStats,
     replyText,
@@ -94,12 +96,14 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
         const outcome = turn.outcome
         const content = outcome?.content.Response?.content
         const text = content ? replyText(content) : null
+        const attachments = replyAttachments(content, outcome?.content.Response?.attachments)
+        const spoken = isAudioReply(content)
         const stats = content ? replyStats(content) : undefined
         if (stats?.provider && stats.model) prices.load(stats.provider, stats.model)
         const price = stats?.provider && stats.model ? prices.prices[`${stats.provider}/${stats.model}`] : undefined
         return (
             <div key={`reply-${turn.key}`} className="flex flex-col gap-8">
-                {(text != null || (outcome?.content.Response?.attachments?.length ?? 0) > 0) && (
+                {(text != null || attachments.length > 0) && (
                     <AgentReply
                         stats={stats ? statsLine(stats, price) : undefined}
                         onCopy={text != null ? () => void navigator.clipboard?.writeText(text) : undefined}
@@ -114,8 +118,9 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                         }
                     >
                         <div className="flex flex-col gap-16">
-                            {text != null && text !== '' && <Markdown>{text}</Markdown>}
-                            <ReplyMedia attachments={outcome?.content.Response?.attachments ?? []} transcript={text} />
+                            {/* A spoken reply's transcript sits behind "Show transcript" in its player. */}
+                            {text != null && text !== '' && !spoken && <Markdown>{text}</Markdown>}
+                            <ReplyMedia attachments={attachments} transcript={text} />
                         </div>
                     </AgentReply>
                 )}

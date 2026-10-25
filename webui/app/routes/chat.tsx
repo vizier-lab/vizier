@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { useNavigate, useParams } from 'react-router'
-import { agentState } from '../api/endpoints/agents'
+import { agentState, getAgent } from '../api/endpoints/agents'
 import { cancelJob, listTopics, restartAgent } from '../api/endpoints/chat'
 import type { Topic, Turn } from '../api/frames'
 import type { ClientCallView } from '../api/frames'
@@ -42,6 +42,23 @@ export default function Chat() {
     const samples = useAgents((s) => s.samples[agentId])
     const agent = agents.find((a) => a.agent_id === agentId)
     const agentName = agent?.name ?? agentId
+
+    // "Ask for a spoken reply" only does anything when the agent can speak at all.
+    const [tts, setTts] = useState<boolean | undefined>(undefined)
+    useEffect(() => {
+        let alive = true
+        setTts(undefined)
+        getAgent(agentId)
+            .then((detail) => {
+                if (alive) setTts(detail.tts)
+            })
+            .catch(() => {
+                /* leave it enabled: the config read is not worth an error on the composer */
+            })
+        return () => {
+            alive = false
+        }
+    }, [agentId])
 
     const [topics, setTopics] = useState<Topic[]>([])
     const mobile = useMobile()
@@ -293,6 +310,7 @@ export default function Chat() {
                     <Composer
                         agentId={agentId}
                         agentName={agentName}
+                        ttsEnabled={tts}
                         busy={state.phase !== 'idle'}
                         disabledReason={
                             failed

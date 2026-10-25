@@ -37,6 +37,8 @@ type Pending = {
 type Props = {
     agentId: string
     agentName: string
+    /** `false` once the agent is known to have no Text-to-Speech; `undefined` while that's unknown. */
+    ttsEnabled?: boolean
     busy: boolean
     /** Why it can't send (the agent is down), in place of the placeholder. */
     disabledReason?: string
@@ -57,6 +59,7 @@ let pendingId = 1
 export function Composer({
     agentId,
     agentName,
+    ttsEnabled,
     busy,
     disabledReason,
     context,
@@ -76,6 +79,11 @@ export function Composer({
         blob?: Blob
     } | null>(null)
     const [spoken, setSpoken] = useState(false)
+    // A spoken reply needs the agent's Text-to-Speech; without it, the switch is off and says so.
+    const canSpeak = ttsEnabled !== false
+    useEffect(() => {
+        if (!canSpeak) setSpoken(false)
+    }, [canSpeak])
     const input = useRef<HTMLInputElement>(null)
     const recorder = useRef<MediaRecorder | null>(null)
     const timer = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -283,14 +291,22 @@ export function Composer({
                     />
                 }
                 below={
-                    <label className="flex items-center gap-8 type-small text-muted">
-                        <Switch
-                            checked={spoken}
-                            onCheckedChange={setSpoken}
-                            aria-label="Ask for a spoken reply"
-                        />
-                        Ask for a spoken reply
-                    </label>
+                    <div className="flex flex-col gap-2">
+                        <label className="flex items-center gap-8 type-small text-muted">
+                            <Switch
+                                checked={spoken}
+                                onCheckedChange={setSpoken}
+                                disabled={!canSpeak}
+                                aria-label="Ask for a spoken reply"
+                            />
+                            Ask for a spoken reply
+                        </label>
+                        {!canSpeak && (
+                            <p className="type-small-para text-faint">
+                                Turn on Text-to-Speech in Config first.
+                            </p>
+                        )}
+                    </div>
                 }
                 attachments={
                     pending.length > 0 ? (
