@@ -1,5 +1,6 @@
 import { Icon, PageHeader, type PageHeaderProps } from '@vizier/design'
 import type { ReactNode } from 'react'
+import { useMobile } from '../../lib/useMobile'
 import { Link } from 'react-router'
 import { NotificationsBell } from './NotificationsBell'
 
@@ -23,6 +24,8 @@ type Props = Omit<PageHeaderProps, 'children'> & {
  * the band grows and the actions wrap under the title instead of crowding it.
  */
 export function PageFrame({ children, width = 'full', fill, back, description, actions, ...header }: Props) {
+    // The phone top bar carries the bell there; one control per screen.
+    const mobile = useMobile()
     return (
         <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex min-h-76 shrink-0 items-center border-b border-border px-16 py-12 sm:px-24 lg:h-76 lg:py-0">
@@ -41,7 +44,7 @@ export function PageFrame({ children, width = 'full', fill, back, description, a
                     actions={
                         <div className="flex flex-wrap items-center gap-10">
                             {actions}
-                            <NotificationsBell />
+                            {!mobile && <NotificationsBell />}
                         </div>
                     }
                     className="min-w-0 flex-1 lg:flex-nowrap! lg:items-center!"

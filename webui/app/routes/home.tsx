@@ -191,7 +191,7 @@ export default function Home() {
                                         New agent
                                     </Button>
                                 )}
-                                <NotificationsBell />
+                                {!mobile && <NotificationsBell />}
                             </div>
                         }
                     />
