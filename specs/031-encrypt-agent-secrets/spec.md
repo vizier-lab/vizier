@@ -10,7 +10,7 @@
 
 ## Context
 
-Vizier persists credentials and secret values that it later reads back: agent secret-store values, saved provider credentials, channel bot tokens, addon API keys, MCP server environment and header values, and credential-like values in shell configuration. All of them are currently written to the embedded data store in clear text. The agent secrets documentation says so explicitly, and the same is true of provider credentials and integration settings. A copy of the data directory — a backup, a synced folder, a support bundle, a stolen disk image, or a database file read by another local account — therefore exposes every credential in full.
+Vizier persists credentials and secret values that it later reads back: agent secret-store values, saved provider credentials, channel bot tokens, addon API keys, MCP server environment values, and credential-like values in shell configuration. All of them are currently written to the embedded data store in clear text. The agent secrets documentation says so explicitly, and the same is true of provider credentials and integration settings. A copy of the data directory — a backup, a synced folder, a support bundle, a stolen disk image, or a database file read by another local account — therefore exposes every credential in full.
 
 This feature makes those stored values unreadable without a key that is not stored alongside the values themselves. It is a protection-at-rest feature, not a change to who may use a secret while Vizier is running: agents keep using their own secrets, people keep managing them through the WebUI and API with the same permissions and masking, and provider, channel and integration behaviour does not change.
 
@@ -19,6 +19,28 @@ The key is managed for the operator by default so a fresh install still works wi
 This feature supersedes the explicit "no application-level encryption" decision recorded in `specs/027-agent-secrets/` and closes the corresponding line in `docs/src/configuration/secrets.md`.
 
 The plaintext-to-protected conversion is one-time migration code in the sense of the project's pre-1.0 removal tracker (#82): it exists only to carry pre-encryption data forward. This feature therefore adds an inventory entry for the conversion and its plaintext-compatibility branches, and the plan must name the symbols and what depends on them. The encryption itself, key handling and the versioned value reader are permanent and are not removal candidates. After the last pre-1.0 release, the conversion and its plaintext branches are removed, so an installation must pass through that release before upgrading to 1.0.0.
+
+## Data Covered
+
+The feature protects values that Vizier itself persists and later reads back. In this release:
+
+| Source | Protected values |
+|--------|------------------|
+| Agent secret store | Every stored secret value created by the agent tools, the WebUI or the HTTP API. Names, masks, timestamps and actors stay readable. |
+| Saved provider credentials | API keys and access tokens for catalogue and built-in providers, including ChatGPT's session token and account identifier. |
+| Custom providers | The API key and every custom request header, including an `Authorization` header supplied by the operator. |
+| Discord and Telegram integrations | The bot token that connects the channel. |
+| Brave Search addon | The API key. |
+| MCP servers | Every value in the server's environment map. |
+| Agent shell configuration | Every value in the local or Docker shell environment map. |
+| Global shell configuration | Every value in the stored global shell environment map, where present. |
+| Older saved agent records | Credential fields written by releases before integrations moved out of the agent definition: `discord_token`, `telegram_token`, and token, API-key and environment values under the old `tools.discord`, `tools.telegram`, `tools.brave_search` and `tools.mcp_servers` keys. |
+
+Non-secret metadata — names, timestamps, actors, masks, identifiers, integration kinds, names and enabled state — stays readable, so listing, filtering and permission checks do not need the key.
+
+Where a whole settings record is protected for simplicity, non-secret fields in the same record (a provider's base URL or model list, a shell's path or image, an MCP command or URL, an addon's safe-search flag) may also be unreadable without the key. That is an implementation choice, not a new secret. Records that hold no credential are not protected merely because the feature exists.
+
+Not covered: conversation history and transcripts, agent memory and CORE documents, uploaded session files, task text, dream journals, notification summaries, usage records, user password hashes and API-key hashes (already one-way), and configuration or environment values managed by the operator (`.vizier.yaml`, including the JWT signing secret, and environment variables). These boundaries are restated in the Assumptions.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -138,7 +160,7 @@ Protecting values at rest does not weaken any existing guarantee. Values are sti
 
 **Protection**
 
-- **FR-001**: Every credential or secret value Vizier persists and later reads back MUST be stored in a form that cannot be recovered without the key. This includes agent secret-store values, saved provider credentials (API keys, access tokens and custom-provider authentication headers), channel bot tokens, addon API keys, MCP server environment and header values, and credential-shaped values in shell and tool configuration — including values left behind in records saved by older releases.
+- **FR-001**: Every credential or secret value Vizier persists and later reads back MUST be stored in a form that cannot be recovered without the key, across the surfaces enumerated under Data Covered. This includes agent secret-store values, saved provider credentials (API keys, access tokens and custom-provider authentication headers), channel bot tokens, addon API keys, MCP server environment values, and credential-shaped values in shell and tool configuration — including values left behind in records saved by older releases.
 - **FR-002**: Non-sensitive metadata MUST remain readable without the key: secret names, timestamps, actors, masks, provider identifiers, integration kinds, names and enabled state, and agent identifiers. Listing, filtering and permission checks MUST work without decrypting values.
 - **FR-003**: Stored representations MUST be tamper-evident. A value that was truncated, altered or replaced outside Vizier MUST produce a clear integrity error when read, and MUST NOT be returned, partially returned or used as if valid.
 - **FR-004**: Storing the same plaintext twice MUST produce different stored representations, so that comparing data files reveals nothing about which stored values are equal.
