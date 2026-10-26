@@ -23,13 +23,26 @@ Inside a vizier checkout the library lives at `design/` as a git submodule.
 | Script | What it does |
 |--------|--------------|
 | `npm run storybook` | The catalogue on `http://localhost:6006` |
-| `npm run build-storybook` | A static copy in `storybook-static/` (not hosted) |
+| `npm run build-storybook` | A static copy in `storybook-static/`; the hosted copy at [www.vizier.rs/design](https://www.vizier.rs/design) is built from it by the landing deploy |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Renders every story headless in Chromium, in both themes, with axe; fails on a critical accessibility violation, a render error, or an entry missing its inventory id. Lesser findings (contrast on `text/faint`, for one) show in each story's Accessibility panel |
 | `npm run lint:tokens` | Fails on raw colours or sizes outside `src/tokens/`, and on padding, margin or gap off the space scale |
 | `node scripts/inventory-checklist.mjs` | Regenerates the checklist below from the stories; `--check <inventory.md>` also fails on a missing or unknown id |
 
 `npm test` needs Chromium once: `npx playwright install chromium` (on Linux, `sudo npx playwright install-deps chromium` for its system libraries).
+
+## Hosting
+
+The catalogue is published at [www.vizier.rs/design](https://www.vizier.rs/design).
+A push to `master` that touches `src/`, `.storybook/` or the package files runs
+`.github/workflows/deploy-storybook.yml`, which dispatches `vizier-lab/landing`
+with the pushed commit; landing builds `storybook-static/` from it and copies the
+result into the website's `dist/design/` before deploying Pages. A build failure
+fails the website deploy, so a broken catalogue is never published.
+
+The dispatch needs a `LANDING_DISPATCH_TOKEN` repository secret (a fine-grained
+PAT with Contents read/write on `vizier-lab/landing`); without it the job warns
+and skips. Running that workflow by hand republishes the current `master`.
 
 ## Using the library
 
