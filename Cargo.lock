@@ -7503,6 +7503,7 @@ dependencies = [
  "rand 0.10.3",
  "regex",
  "reqwest 0.13.5",
+ "ring",
  "rmcp",
  "rusqlite",
  "rust-embed",
@@ -7542,6 +7543,7 @@ dependencies = [
  "utoipa-swagger-ui",
  "uuid",
  "vizier-derive",
+ "zeroize",
  "zip 9.0.3",
 ]
 

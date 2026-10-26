@@ -95,6 +95,14 @@ impl SecretStorage for SqliteStorage {
         };
         let created_at = created_at.unwrap_or_else(|| now.clone());
         let actor_json = serde_json::to_string(actor)?;
+        let stored = crate::encryption::fields::protect_agent_secret(
+            &self.cipher,
+            agent_id,
+            name,
+            value,
+            crate::encryption::ProtectMode::Write,
+        )?
+        .0;
 
         tx.execute(
             "INSERT INTO agent_secret (agent_id, name, value, created_at, updated_at, updated_by)
@@ -103,7 +111,7 @@ impl SecretStorage for SqliteStorage {
                  value = excluded.value,
                  updated_at = excluded.updated_at,
                  updated_by = excluded.updated_by",
-            rusqlite::params![agent_id, name, value, created_at, now, actor_json],
+            rusqlite::params![agent_id, name, stored, created_at, now, actor_json],
         )?;
         event_row(
             &tx,
@@ -131,13 +139,23 @@ impl SecretStorage for SqliteStorage {
 
     async fn get_agent_secret(&self, agent_id: &str, name: &str) -> Result<Option<String>> {
         let conn = self.conn.lock();
-        Ok(conn
+        let stored: Option<String> = conn
             .query_row(
                 "SELECT value FROM agent_secret WHERE agent_id = ?1 AND name = ?2",
                 rusqlite::params![agent_id, name],
                 |row| row.get(0),
             )
-            .optional()?)
+            .optional()?;
+        stored
+            .map(|stored| {
+                crate::encryption::fields::decrypt_agent_secret(
+                    &self.cipher,
+                    agent_id,
+                    name,
+                    &stored,
+                )
+            })
+            .transpose()
     }
 
     async fn list_agent_secrets(&self, agent_id: &str) -> Result<Vec<SecretRecord>> {
@@ -154,6 +172,12 @@ impl SecretStorage for SqliteStorage {
 
         rows.into_iter()
             .map(|(name, value, created_at, updated_at, updated_by)| {
+                let value = crate::encryption::fields::decrypt_agent_secret(
+                    &self.cipher,
+                    agent_id,
+                    &name,
+                    &value,
+                )?;
                 Ok(SecretRecord {
                     name,
                     masked: mask_secret(&value),
@@ -458,5 +482,40 @@ mod tests {
             storage.get_agent_secret("dp-b", "TOKEN").await.unwrap().as_deref(),
             Some("agent-b-token-2")
         );
+    }
+
+    /// With the production cipher the stored column is an envelope, a value round-trips, and a
+    /// tampered row is an error rather than a mask or a partial value.
+    #[tokio::test]
+    async fn values_are_envelopes_at_rest_and_tampering_errors() {
+        use crate::encryption::storage_tests::{file_backed, raw_value};
+
+        let h = file_backed();
+        let storage = &h.storage;
+        storage
+            .set_agent_secret("dp-a", "TOKEN", "agent-token-abc123", &agent())
+            .await
+            .unwrap();
+
+        let raw = raw_value(
+            storage,
+            "SELECT value FROM agent_secret WHERE agent_id = 'dp-a' AND name = 'TOKEN'",
+            &[],
+        );
+        assert!(raw.starts_with("enc:v1:"), "{raw}");
+        assert!(!raw.contains("agent-token-abc123"));
+        assert_eq!(
+            storage.get_agent_secret("dp-a", "TOKEN").await.unwrap().as_deref(),
+            Some("agent-token-abc123")
+        );
+
+        storage
+            .conn
+            .lock()
+            .execute("UPDATE agent_secret SET value = value || 'x'", [])
+            .unwrap();
+        let err = storage.get_agent_secret("dp-a", "TOKEN").await.unwrap_err();
+        assert!(format!("{err}").contains("integrity check"), "{err}");
+        assert!(storage.list_agent_secrets("dp-a").await.is_err());
     }
 }

@@ -23,6 +23,7 @@
 - [2.11 Memory](./configuration/memory.md)
 - [2.12 Observability](./configuration/observability.md)
 - [2.13 Agent Secrets](./configuration/secrets.md)
+- [2.14 Encryption at Rest](./configuration/encryption.md)
 
 # 3. API Integration
 

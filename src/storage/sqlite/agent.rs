@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, Context};
 use chrono::{DateTime, Utc};
 use rusqlite::OptionalExtension;
 
@@ -38,19 +38,29 @@ impl AgentStorage for SqliteStorage {
     async fn list_agents(&self) -> Result<Vec<(String, AgentConfig)>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare("SELECT agent_id, data FROM agent_config")?;
-        let agents = stmt
+        let rows = stmt
             .query_map([], |row| {
                 let agent_id: String = row.get(0)?;
                 let data: String = row.get(1)?;
                 Ok((agent_id, data))
             })?
-            .filter_map(|r| r.ok())
-            .filter_map(|(agent_id, data)| {
-                serde_json::from_str::<AgentConfig>(&data)
-                    .ok()
-                    .map(|config| (agent_id, config))
-            })
-            .collect();
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(stmt);
+        drop(conn);
+
+        let mut agents = Vec::with_capacity(rows.len());
+        for (agent_id, data) in rows {
+            let Ok(config) = serde_json::from_str::<AgentConfig>(&data) else {
+                continue;
+            };
+            let config = crate::encryption::fields::decrypt_agent_config(
+                &self.cipher,
+                &agent_id,
+                &config,
+            )
+            .with_context(|| format!("agent '{agent_id}'"))?;
+            agents.push((agent_id, config));
+        }
         Ok(agents)
     }
 
@@ -62,15 +72,29 @@ impl AgentStorage for SqliteStorage {
             Ok(data)
         })?;
 
-        match rows.next() {
-            Some(Ok(data)) => Ok(Some(serde_json::from_str(&data)?)),
-            Some(Err(e)) => Err(e.into()),
-            None => Ok(None),
-        }
+        let data = match rows.next() {
+            Some(Ok(data)) => data,
+            Some(Err(e)) => return Err(e.into()),
+            None => return Ok(None),
+        };
+        drop(rows);
+        drop(stmt);
+        drop(conn);
+
+        let config: AgentConfig = serde_json::from_str(&data)?;
+        let config = crate::encryption::fields::decrypt_agent_config(&self.cipher, agent_id, &config)
+            .with_context(|| format!("agent '{agent_id}'"))?;
+        Ok(Some(config))
     }
 
     async fn create_agent(&self, agent_id: &str, config: &AgentConfig) -> Result<()> {
-        let data = serde_json::to_string(config)?;
+        let (protected, _) = crate::encryption::fields::protect_agent_config(
+            &self.cipher,
+            agent_id,
+            config,
+            crate::encryption::ProtectMode::Write,
+        )?;
+        let data = serde_json::to_string(&protected)?;
         let conn = self.conn.lock();
         conn.execute(
             "INSERT INTO agent_config (agent_id, data) VALUES (?1, ?2)",
@@ -80,7 +104,13 @@ impl AgentStorage for SqliteStorage {
     }
 
     async fn update_agent(&self, agent_id: &str, config: &AgentConfig) -> Result<()> {
-        let data = serde_json::to_string(config)?;
+        let (protected, _) = crate::encryption::fields::protect_agent_config(
+            &self.cipher,
+            agent_id,
+            config,
+            crate::encryption::ProtectMode::Write,
+        )?;
+        let data = serde_json::to_string(&protected)?;
         let conn = self.conn.lock();
         let updated = conn.execute(
             "UPDATE agent_config SET data = ?1 WHERE agent_id = ?2",
@@ -288,5 +318,62 @@ impl SqliteStorage {
                 |row| row.get::<_, String>(0),
             )
             .optional()?)
+    }
+}
+
+#[cfg(test)]
+mod encryption_tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::encryption::storage_tests::{agent_config, file_backed, raw_value};
+
+    /// Shell env values are protected at rest; model, prompt, shell path and `core` stay
+    /// readable, and a tampered row fails instead of disappearing from the list.
+    #[tokio::test]
+    async fn shell_env_is_protected_but_the_rest_of_the_config_is_readable() {
+        let h = file_backed();
+        let s = &h.storage;
+        s.create_agent("dp-env", &agent_config(json!({"SHELL_TOKEN": "shell-secret-abc123"})))
+            .await
+            .unwrap();
+
+        let raw = raw_value(s, "SELECT data FROM agent_config WHERE agent_id = 'dp-env'", &[]);
+        assert!(raw.contains("enc:v1:"), "{raw}");
+        assert!(!raw.contains("shell-secret-abc123"));
+        assert!(raw.contains("\"model\":\"dummyplug\""));
+        assert!(raw.contains("\"system_prompt\":\"be helpful\""));
+        assert!(raw.contains("/bin/sh"));
+        assert!(raw.contains("\"core\":\"core survives\""));
+
+        let config = s.get_agent("dp-env").await.unwrap().unwrap();
+        assert_eq!(config.core.as_deref(), Some("core survives"));
+
+        s.conn
+            .lock()
+            .execute("UPDATE agent_config SET data = replace(data, 'enc:v1:', 'enc:v1:x')", [])
+            .unwrap();
+        assert!(s.get_agent("dp-env").await.is_err());
+        assert!(s.list_agents().await.is_err());
+    }
+
+    /// Re-serializing the current `AgentConfig` drops the pre-016 moved keys, so their dead
+    /// credentials cannot survive a save.
+    #[tokio::test]
+    async fn saving_an_agent_drops_legacy_credential_keys() {
+        let h = file_backed();
+        let s = &h.storage;
+        let mut config = agent_config(json!({"SHELL_TOKEN": "shell-secret-abc123"}));
+        config.core = Some("core".into());
+        s.create_agent("dp-env", &config).await.unwrap();
+
+        let raw = {
+            let conn = s.conn.lock();
+            conn.query_row("SELECT data FROM agent_config WHERE agent_id = 'dp-env'", [], |r| r.get::<_, String>(0))
+                .unwrap()
+        };
+        assert!(!raw.contains("discord_token"));
+        assert!(!raw.contains("telegram_token"));
+        assert!(!raw.contains("mcp_servers"));
     }
 }

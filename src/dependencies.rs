@@ -108,6 +108,21 @@ impl VizierDependencies {
             LocalDocumentStore::new(build_path(&config.workspace, &["agents"])),
         );
 
+        // The workspace key must exist and match before anything can write a secret. Loading it
+        // here also means a missing/wrong/malformed key fails before the filesystem import adds
+        // any plaintext (specs/031-encrypt-agent-secrets contracts/migration.md §1).
+        let cipher = {
+            let c = conn.lock();
+            crate::encryption::load_or_generate(
+                &config.workspace,
+                &c,
+                &crate::encryption::KeyRequest::from_env(),
+            )?
+        };
+        let integration_kinds = Arc::new(crate::integrations::IntegrationKinds::builtin());
+        let secret_paths: Arc<dyn crate::encryption::IntegrationSecretPaths> =
+            integration_kinds.clone();
+
         // Deployments that were previously on the `filesystem` backend keep their memories on
         // disk as flat files and every other entity as loose files too; both are folded into
         // the sole sqlite backend by the two migrations below before anything else runs
@@ -121,13 +136,31 @@ impl VizierDependencies {
         }
 
         Self::migrate_memory_to_bundles(&config, document_store.clone(), conn.clone()).await?;
-        Self::migrate_filesystem_backend_to_sqlite(&config, conn.clone()).await?;
+        Self::migrate_filesystem_backend_to_sqlite(
+            &config,
+            conn.clone(),
+            cipher.clone(),
+            secret_paths.clone(),
+        )
+        .await?;
 
         let catalogue = crate::catalogue::Catalogue::new(crate::catalogue::seed::load_seed());
         crate::provider_migration::migrate_provider_ids_v1(&mut conn.lock(), &catalogue.snapshot())?;
         Self::warn_about_yaml_providers(&config, &catalogue);
 
-        let storage = VizierStorage::new(SqliteStorage::new(conn.clone(), document_store));
+        // One-time plaintext conversion, before the main storage exists. No agent, channel
+        // reader or scheduler can read a value mid-conversion (FR-017).
+        {
+            let c = conn.lock();
+            crate::encryption::migrate::migrate_secrets_to_encrypted(&c, &cipher, &*secret_paths)?;
+        }
+
+        let storage = VizierStorage::new(SqliteStorage::with_secrets(
+            conn.clone(),
+            document_store,
+            cipher,
+            secret_paths,
+        ));
 
         Self::migrate_users(&storage).await?;
         Self::migrate_agent_cores(&storage).await?;
@@ -204,7 +237,7 @@ impl VizierDependencies {
             background_jobs,
             http: crate::llm::http::client(),
             catalogue,
-            integration_kinds: Arc::new(crate::integrations::IntegrationKinds::builtin()),
+            integration_kinds,
             integration_health: Default::default(),
             channel_board: Default::default(),
             setup: Default::default(),
@@ -543,6 +576,8 @@ impl VizierDependencies {
     async fn migrate_filesystem_backend_to_sqlite(
         config: &VizierConfig,
         conn: Arc<Mutex<rusqlite::Connection>>,
+        cipher: crate::encryption::SecretCipher,
+        secret_paths: Arc<dyn crate::encryption::IntegrationSecretPaths>,
     ) -> Result<()> {
         if !matches!(config.storage, StorageConfig::Filesystem) {
             return Ok(());
@@ -558,7 +593,7 @@ impl VizierDependencies {
         let document_store: Arc<dyn crate::storage::document::DocumentStore> = Arc::new(
             LocalDocumentStore::new(build_path(&config.workspace, &["agents"])),
         );
-        let sql = SqliteStorage::new(conn.clone(), document_store);
+        let sql = SqliteStorage::with_secrets(conn.clone(), document_store, cipher, secret_paths);
 
         tracing::info!("migrating filesystem-backend entities into sqlite");
 
@@ -1220,5 +1255,79 @@ mod usage_migration_tests {
                 .unwrap()
                 .is_some()
         );
+    }
+}
+
+#[cfg(test)]
+mod encryption_startup_tests {
+    use super::*;
+    use crate::storage::secret::SecretStorage;
+
+    /// T022: `VizierDependencies::new` converts plaintext before constructing the main storage,
+    /// so no consumer can run mid-conversion; `migrate_agent_cores` still sees `core`; and a
+    /// second start is a no-op.
+    #[tokio::test]
+    async fn startup_migrates_before_consumers_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().to_string_lossy().to_string();
+
+        // A pre-encryption workspace: schema plus one plaintext secret.
+        {
+            let conn = SqliteStorage::open_connection(&workspace).unwrap();
+            conn.execute_batch(
+                "INSERT INTO agent_secret (agent_id, name, value, created_at, updated_at, updated_by)
+                 VALUES ('dp-a', 'TOKEN', 'startup-secret-abc123', 'now', 'now', '\"admin\"');",
+            )
+            .unwrap();
+        }
+
+        let config = VizierConfig {
+            workspace: workspace.clone(),
+            ..Default::default()
+        };
+
+        let deps = VizierDependencies::new(config.clone()).await.unwrap();
+        assert_eq!(
+            deps.storage.get_agent_secret("dp-a", "TOKEN").await.unwrap().as_deref(),
+            Some("startup-secret-abc123")
+        );
+        let raw: String = {
+            let conn = deps.sqlite_conn.lock();
+            conn.query_row(
+                "SELECT value FROM agent_secret WHERE agent_id = 'dp-a' AND name = 'TOKEN'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert!(raw.starts_with("enc:v1:"), "{raw}");
+        let marker: Option<String> = {
+            let conn = deps.sqlite_conn.lock();
+            conn.query_row(
+                "SELECT value FROM state WHERE key = 'migration.secrets_encrypted_v1'",
+                [],
+                |row| row.get(0),
+            )
+            .ok()
+        };
+        assert_eq!(marker.as_deref(), Some("true"));
+        drop(deps);
+
+        // Second start: same value, no re-encryption.
+        let deps = VizierDependencies::new(config).await.unwrap();
+        assert_eq!(
+            deps.storage.get_agent_secret("dp-a", "TOKEN").await.unwrap().as_deref(),
+            Some("startup-secret-abc123")
+        );
+        let raw_again: String = {
+            let conn = deps.sqlite_conn.lock();
+            conn.query_row(
+                "SELECT value FROM agent_secret WHERE agent_id = 'dp-a' AND name = 'TOKEN'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(raw, raw_again);
     }
 }

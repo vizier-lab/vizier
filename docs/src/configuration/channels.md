@@ -1,6 +1,6 @@
 # 2.4 Channels
 
-Vizier exposes agents over three channels. The HTTP channel is process-wide and configured in `.vizier.yaml`; Discord and Telegram are **per agent** — each agent owns its own bot token.
+Vizier exposes agents over three channels. The HTTP channel is process-wide and configured in `.vizier.yaml`; Discord and Telegram are **per agent** — each agent owns its own bot token. Bot tokens are encrypted at rest; back up the workspace key separately — see [Encryption at Rest](./encryption.md).
 
 ## HTTP (REST + WebSocket + WebUI)
 

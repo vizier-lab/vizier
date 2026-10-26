@@ -23,7 +23,7 @@ vizier:
 - **Environment variables**: the catalogue's variable for the provider (e.g. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`) is picked up automatically. Settings → Providers lists these as *From env NAME*.
 - **API**: `GET /api/v1/providers` (connected providers, with where their key comes from and which agents use them), `PUT|DELETE /api/v1/providers/{id}`, `POST /api/v1/providers/{id}/test`. The `PUT` body accepts only the fields the provider uses (`api_key`, and for some `endpoint`, `base_url`, `access_token`, `account_id`); responses never return a secret.
 
-Credentials are resolved in this order: the saved entry, then the catalogue's environment variable, then the environment variable Vizier read before the catalogue existed (see the table below). Saving or removing a provider's credentials restarts the agents that use it, so the change takes effect immediately.
+Credentials are resolved in this order: the saved entry, then the catalogue's environment variable, then the environment variable Vizier read before the catalogue existed (see the table below). Saving or removing a provider's credentials restarts the agents that use it, so the change takes effect immediately. Saved API keys and access tokens are encrypted at rest; the workspace key is separate from the database and must be backed up — see [Encryption at Rest](./encryption.md).
 
 A cloud provider's address always comes from the catalogue; to point at another address (a proxy, a self-hosted server) add a **custom provider**.
 

@@ -8,8 +8,11 @@ Use a scratch workspace so the test values never touch a real install:
 
 ```sh
 rm -rf /tmp/vizier-encryption /tmp/vizier-encryption-restore
-cargo run -- run --workspace /tmp/vizier-encryption --port 9999 2>&1 | tee /tmp/vizier-encryption.log
+VIZIER_JWT_SECRET=quickstart-secret \
+  cargo run -- run --workspace /tmp/vizier-encryption --port 9999 2>&1 | tee /tmp/vizier-encryption.log
 ```
+
+`VIZIER_JWT_SECRET` is required in config-less mode. Creating the first agent also loads the default local embedding model; on a machine that has never run Vizier it is downloaded once into `<workspace>/.runtime/embeddings/` (or copy that directory from another workspace to stay offline).
 
 On first run, create the admin and a dummyplug agent:
 
@@ -166,7 +169,8 @@ Copy the workspace **with** the key:
 
 ```sh
 cp -a /tmp/vizier-encryption /tmp/vizier-encryption-restore
-cargo run -- run --workspace /tmp/vizier-encryption-restore --port 9998
+VIZIER_JWT_SECRET=quickstart-secret \
+  cargo run -- run --workspace /tmp/vizier-encryption-restore --port 9998
 ```
 
 `get_secret` in the restored copy returns the value. Stop it.
@@ -176,7 +180,8 @@ Copy without the key:
 ```sh
 cp -a /tmp/vizier-encryption /tmp/vizier-encryption-nokey
 rm /tmp/vizier-encryption-nokey/.runtime/encryption.key
-cargo run -- run --workspace /tmp/vizier-encryption-nokey --port 9998
+VIZIER_JWT_SECRET=quickstart-secret \
+  cargo run -- run --workspace /tmp/vizier-encryption-nokey --port 9998
 ```
 
 Expect a non-zero exit with a message like:
@@ -190,6 +195,7 @@ No new key file was created. Restore the key into the copy and start again; the 
 Wrong key:
 
 ```sh
+VIZIER_JWT_SECRET=quickstart-secret \
 VIZIER_ENCRYPTION_KEY="$(head -c 32 /dev/urandom | base64 | tr -d '\n')" \
   cargo run -- run --workspace /tmp/vizier-encryption --port 9998
 ```
@@ -228,7 +234,6 @@ Start the copy. It must:
 Start it a second time; the log must show no conversion and the value must be unchanged. If `grep` finds the plaintext, the `VACUUM`/checkpoint step failed; that is a feature failure.
 
 ## 6. Tamper detection and final gates (US1, US5)
-
 Stop the copy, alter one character of the protected value, and start it:
 
 ```sh
@@ -255,5 +260,25 @@ grep -a -c 'web-secret-abc123' /tmp/vizier-encryption/.runtime/vizier.db
 - The final grep is `0` after a clean shutdown.
 - The key file is `600` on Unix and was never inside `vizier.db`.
 - `docs/src/configuration/encryption.md` states what is protected, what is not, how to back up the key, and that losing it makes protected data unrecoverable.
+
+## 7. Diagnostic scan (US5)
+
+After the final clean shutdown, scan the log, the database and the WAL for the values set through the API or configuration surfaces and for the key material:
+
+```sh
+for v in web-secret-abc123 provider-secret-abc123 custom-secret-abc123 \
+         custom-header-secret-abc123 brave-secret-abc123 mcp-secret-abc123 \
+         shell-secret-abc123; do
+  printf '%s log=' "$v"
+  grep -a -c "$v" /tmp/vizier-encryption.log || true
+  printf ' db='; grep -a -c "$v" /tmp/vizier-encryption/.runtime/vizier.db || true
+  printf ' wal='; grep -a -c "$v" /tmp/vizier-encryption/.runtime/vizier.db-wal 2>/dev/null || echo 0
+done
+KEY=$(sed -n '2p' /tmp/vizier-encryption/.runtime/encryption.key)
+printf 'key in db='; grep -a -c "$KEY" /tmp/vizier-encryption/.runtime/vizier.db || true
+printf ' key in log='; grep -a -c "$KEY" /tmp/vizier-encryption.log || true
+```
+
+Expect `0` for every line. Do **not** include `agent-token-abc123` in the log scan: it was supplied by the agent inside the `set_secret` script, so it appears in that turn's request/debug log and session history — the documented set-input exception (`specs/027-agent-secrets`). The value is still absent from the stored column and from every management response.
 
 **LIVE/optional**: connect a real Discord or Telegram bot and confirm it still reads its token after an upgrade; this needs a network and a valid token and is not part of the offline gate.
