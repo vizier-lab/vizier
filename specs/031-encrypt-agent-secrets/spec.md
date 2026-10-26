@@ -18,6 +18,8 @@ The key is managed for the operator by default so a fresh install still works wi
 
 This feature supersedes the explicit "no application-level encryption" decision recorded in `specs/027-agent-secrets/` and closes the corresponding line in `docs/src/configuration/secrets.md`.
 
+The plaintext-to-protected conversion is one-time migration code in the sense of the project's pre-1.0 removal tracker (#82): it exists only to carry pre-encryption data forward. This feature therefore adds an inventory entry for the conversion and its plaintext-compatibility branches, and the plan must name the symbols and what depends on them. The encryption itself, key handling and the versioned value reader are permanent and are not removal candidates. After the last pre-1.0 release, the conversion and its plaintext branches are removed, so an installation must pass through that release before upgrading to 1.0.0.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A copy of the data is no longer a copy of the credentials (Priority: P1)
@@ -127,6 +129,7 @@ Protecting values at rest does not weaken any existing guarantee. Values are sti
 - **Multiple workspaces**: each workspace has its own key and protected data; a key from one must not be silently used for another.
 - **Backup taken while Vizier is running**: the backup contains protected values; the key must be backed up separately, and the documentation says so.
 - **Downgrade**: an older release cannot read protected values and must fail rather than overwrite them; the upgrade notes state this.
+- **Upgrade path to 1.0.0**: once the conversion is removed after 1.0.0, an installation coming from a pre-encryption release must upgrade through the last pre-1.0 release first; skipping it leaves plaintext that the later release will not convert.
 - **No secrets at all**: an installation that never stored a secret still starts normally and does not require key handling until it needs to protect something.
 
 ## Requirements *(mandatory)*
@@ -160,6 +163,8 @@ Protecting values at rest does not weaken any existing guarantee. Values are sti
 - **FR-017**: Migration MUST complete before agents, channels, the scheduler or background work start, so no consumer reads a value mid-conversion and no concurrent write races the conversion.
 - **FR-018**: A migration or key failure MUST abort startup with a clear error rather than leave the installation silently unreadable. A subsequent start with the correct key MUST be able to complete recovery.
 - **FR-019**: Migration MUST log progress and counts without logging any value or key material.
+- **FR-028**: The plaintext conversion and every compatibility path it introduces — plaintext detection, the legacy-credential scrub, the migration marker and any helper that exists only for it — MUST be recorded in the project's pre-1.0 migration tracker (#82) as one removable unit, naming the code and what depends on it. The protected-value format version reader is permanent and MUST NOT be listed as removable.
+- **FR-029**: Upgrade and release notes MUST identify this release as carrying a one-time conversion that an installation must run before upgrading to 1.0.0, and MUST state that the conversion and its plaintext branches are removed afterwards.
 
 **Compatibility and operations**
 
@@ -178,7 +183,7 @@ Protecting values at rest does not weaken any existing guarantee. Values are sti
 - **Encryption key**: the installation's single secret for reading and writing protected values. It lives outside the data records, is generated automatically when absent, may be supplied by the operator, and is required for every protected read.
 - **Key source configuration**: where the key comes from — operator-supplied environment value, operator-supplied key file, or the generated key file — with a defined precedence and validation rules.
 - **Key identifier**: a non-secret marker stored with protected data and derived from the key, used to detect a wrong key before any write and to report the failure clearly.
-- **Migration record**: the durable marker that the one-time plaintext-to-protected conversion completed, so restarts do not repeat it and an interrupted run can resume.
+- **Migration record**: the durable marker that the one-time plaintext-to-protected conversion completed, so restarts do not repeat it and an interrupted run can resume. It is removed together with the conversion after the last pre-1.0 release.
 
 ## Success Criteria *(mandatory)*
 
@@ -209,3 +214,4 @@ Protecting values at rest does not weaken any existing guarantee. Values are sti
 - **Backup procedure changes**: backups must include the key separately from the data; the documented procedure will make this explicit and the upgrade notes will warn that an older release cannot read protected data.
 - **Migration happens once per installation**: the existing plaintext database is converted in place on first start; there is no separate migration command, and a failed migration is retried on the next start.
 - **No new external dependency or service**: the key is stored and used locally, keeping the single-binary, offline, config-less guarantees intact.
+- **Tracked for removal before 1.0.0**: the plaintext conversion is one-time migration code. Its marker, plaintext detection, legacy-credential scrub and tests are added to #82's inventory, with the permanent value-format reader and key handling explicitly excluded. After the last pre-1.0 release, the conversion and its plaintext branches are removed; installations must pass through that release first (FR-028, FR-029).

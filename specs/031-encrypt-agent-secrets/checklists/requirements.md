@@ -49,9 +49,12 @@
 | Edge cases | Pass | Fresh install, missing/wrong/malformed key, interrupted migration, read-only storage, concurrent writes, Unicode/multiline values, legacy fields, manual key change, multiple workspaces, live backups, downgrade and no-secret installs are covered. |
 | Scope bounded | Pass | In-scope surfaces are enumerated in FR-001/FR-002; transcripts, memory documents, configuration and environment values, password/API-key hashes, key rotation and OS-level protection are explicitly out of scope in Assumptions. |
 | Dependencies and assumptions | Pass | Key location and precedence, threat model, single key per workspace, backup obligations, migration model and no-new-dependency constraint are recorded. |
-| FR acceptance coverage | Pass | FR-001–FR-006 ↔ US1; FR-014–FR-019 ↔ US2; FR-007–FR-013 ↔ US3; FR-023/FR-024 ↔ US4; FR-002/FR-020–FR-022/FR-026 ↔ US5; FR-025/FR-027 are covered by SC-005 and the downgrade edge case. |
+| FR acceptance coverage | Pass | FR-001–FR-006 ↔ US1; FR-014–FR-019 ↔ US2; FR-007–FR-013 ↔ US3; FR-023/FR-024 ↔ US4; FR-002/FR-020–FR-022/FR-026 ↔ US5; FR-025/FR-027/FR-028/FR-029 are covered by SC-005, the downgrade and 1.0.0 upgrade-path edge cases, and the assumptions. |
+| Pre-1.0 removal tracking (#82) | Pass | The spec explicitly classes the one-time conversion, plaintext detection and legacy-credential scrub as removable #82 inventory, excludes the permanent versioned reader and key handling, and requires the plan to name symbols and dependencies (FR-028, FR-029, Assumptions). |
 | Implementation leak check | Pass | No algorithm, crate, table or endpoint is prescribed. The key identifier and migration record are described as behaviours, leaving their representation to the plan. |
 
 ### Consistency note
 
 This specification deliberately reverses the "no application-level encryption" assumption in `specs/027-agent-secrets/` (its spec, plan, research and docs). The plan and tasks for this feature must update that documentation statement and record the security decision that replaces it.
+
+The feature adds migration code, so the plan must also produce the #82 inventory entry it promises (FR-028): the startup conversion, its marker, plaintext-format detection, the legacy-credential scrub and their tests, with the permanent value-format reader and key handling explicitly excluded. Like every other #82 entry, it is removed after the last pre-1.0 release, and the 1.0.0 upgrade path requires installing that release first (FR-029). This does not make the encryption feature itself a #82 item; only its one-time migration and plaintext-compatibility branches are.
