@@ -188,7 +188,13 @@ export const useTurns = create<TurnStore>()((set, get) => {
             if ((get().topics[key]?.phase ?? 'idle') !== 'idle') return
             const frame = { ...request({ audio_chat: [attachment, null] } as never), expect_audio_reply: true }
             if (useConnection.getState().send(agentId, topicId, frame)) {
-                dispatch(agentId, topicId, { type: 'send', id: String(nextId++), text: '[Voice message]', now: new Date().toISOString() })
+                dispatch(agentId, topicId, {
+                    type: 'send',
+                    id: String(nextId++),
+                    text: '',
+                    attachments: [attachment as never],
+                    now: new Date().toISOString(),
+                })
             }
         },
 

@@ -17,11 +17,13 @@ import type { ChatMessage, Turn } from '../../api/frames'
 import type { TopicState } from '../../lib/frames'
 import {
     isAudioReply,
+    isAudioRequest,
     isBackgroundReport,
     replyAttachments,
     replyError,
     replyStats,
     replyText,
+    requestAttachments,
     requestText,
     statsLine,
     time,
@@ -186,14 +188,18 @@ export function MessageList({ state, agent, greeting, hasOlder, bottomInset = 0,
                 continue
             }
             const skill = (c.Request.metadata as { invoked_skill?: string } | undefined)?.invoked_skill
+            const attachments = requestAttachments(content, c.Request.attachments)
+            const spoken = isAudioRequest(content)
+            const text = requestText(content)
             arrive(
                 <UserMessage
                     key={e.uid}
                     meta={`${byPlatformName && c.Request.user ? personName(c.Request.user) : 'You'} · ${time(c.Request.timestamp)}`}
                     skill={skill}
-                    attachments={c.Request.attachments?.length ? <ReplyMedia attachments={c.Request.attachments} /> : undefined}
+                    attachments={attachments.length ? <ReplyMedia attachments={attachments} transcript={spoken ? text : undefined} /> : undefined}
                 >
-                    <Markdown size="document">{requestText(content)}</Markdown>
+                    {/* A voice message's transcript sits behind "Show transcript" in its player. */}
+                    {!spoken && text !== '' && <Markdown size="document">{text}</Markdown>}
                 </UserMessage>,
                 e.uid
             )

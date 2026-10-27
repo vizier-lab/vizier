@@ -12,6 +12,7 @@ import { abbreviate } from '../../lib/format'
 import { useMobile } from '../../lib/useMobile'
 import { toast } from '../../stores/toasts'
 import { fileSize, MAX_UPLOAD_BYTES, uploadFile } from '../../lib/upload'
+import { WavRecorder } from '../../lib/wavRecorder'
 import type { VizierAttachment } from '../../api/frames'
 
 const BUILTIN: SkillMenuItem[] = [
@@ -87,8 +88,33 @@ export function Composer({
         if (!ttsEnabled) setSpoken(false)
     }, [ttsEnabled])
     const input = useRef<HTMLInputElement>(null)
-    const recorder = useRef<MediaRecorder | null>(null)
+    const recorder = useRef<WavRecorder | null>(null)
     const timer = useRef<ReturnType<typeof setInterval> | null>(null)
+    const [playing, setPlaying] = useState(false)
+    const [progress, setProgress] = useState(0)
+    const player = useRef<HTMLAudioElement | null>(null)
+
+    // The recording, ready to listen back to before it is sent.
+    const recordedBlob = voice?.blob
+    useEffect(() => {
+        setPlaying(false)
+        setProgress(0)
+        if (!recordedBlob) return
+        const url = URL.createObjectURL(recordedBlob)
+        const el = new Audio(url)
+        player.current = el
+        el.ontimeupdate = () =>
+            setProgress(el.duration > 0 ? el.currentTime / el.duration : 0)
+        el.onended = () => {
+            setPlaying(false)
+            setProgress(0)
+        }
+        return () => {
+            el.pause()
+            player.current = null
+            URL.revokeObjectURL(url)
+        }
+    }, [recordedBlob])
 
     useEffect(() => {
         let alive = true
@@ -168,24 +194,18 @@ export function Composer({
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
             })
-            const chunks: Blob[] = []
-            const rec = new MediaRecorder(stream)
-            recorder.current = rec
-            rec.ondataavailable = (e) => chunks.push(e.data)
-            rec.onstop = () => {
+            let rec: WavRecorder
+            try {
+                rec = await WavRecorder.start(stream)
+            } catch (e) {
                 stream.getTracks().forEach((t) => t.stop())
-                stopTimer()
-                setVoice((v) =>
-                    v
-                        ? {
-                              ...v,
-                              mode: 'recorded',
-                              blob: new Blob(chunks, { type: rec.mimeType }),
-                          }
-                        : v
-                )
+                throw e
             }
-            rec.start()
+            recorder.current = rec
+            rec.onstop = (blob) => {
+                stopTimer()
+                setVoice((v) => (v ? { ...v, mode: 'recorded', blob } : v))
+            }
             setVoice({ mode: 'recording', elapsed: 0 })
             timer.current = setInterval(
                 () =>
@@ -200,21 +220,31 @@ export function Composer({
         }
     }
 
-    useEffect(() => () => stopTimer(), [])
+    useEffect(
+        () => () => {
+            stopTimer()
+            recorder.current?.cancel()
+        },
+        []
+    )
+
+    /** Drops the recording, whether it is still being made or already listened back to. */
+    const discardVoice = () => {
+        recorder.current?.cancel()
+        stopTimer()
+        setVoice(null)
+    }
 
     const sendVoice = async () => {
-        if (!voice?.blob) return
-        const ext = voice.blob.type.includes('ogg')
-            ? 'ogg'
-            : voice.blob.type.includes('mp4')
-              ? 'm4a'
-              : 'webm'
+        // Sending mid-recording stops it first and sends what was recorded.
+        const blob =
+            voice?.mode === 'recording' ? recorder.current?.stop() : voice?.blob
+        if (!blob) return
+        player.current?.pause()
         try {
             onSendAudio(
                 await uploadFile(
-                    new File([voice.blob], `voice-message.${ext}`, {
-                        type: voice.blob.type,
-                    })
+                    new File([blob], 'voice-message.wav', { type: blob.type })
                 )
             )
             setVoice(null)
@@ -248,7 +278,7 @@ export function Composer({
                 value={value}
                 onValueChange={setValue}
                 onSend={() =>
-                    void (voice?.mode === 'recorded' ? sendVoice() : send())
+                    void (voice ? sendVoice() : send())
                 }
                 busy={busy}
                 onStop={onStop}
@@ -274,10 +304,13 @@ export function Composer({
                         <VoiceRecorder
                             mode={voice.mode}
                             elapsed={voice.elapsed}
-                            onStop={() => recorder.current?.stop()}
-                            onDiscard={() => {
-                                stopTimer()
-                                setVoice(null)
+                            onDiscard={discardVoice}
+                            playing={playing}
+                            progress={progress}
+                            onPlayingChange={(p) => {
+                                setPlaying(p)
+                                if (p) void player.current?.play()
+                                else player.current?.pause()
                             }}
                         />
                     )
