@@ -58,12 +58,12 @@ Expected: the reply lists the sandbox tools only (code mode); then send the JSON
 {"tool":"list_tool_functions","arguments":{"category":"office"}}
 ```
 
-Expected: `office_docx_read`, `office_docx_write`, `office_xlsx_read`, `office_xlsx_write`.
+Expected: `office_docx_read_as_md`, `office_docx_write_from_md`, `office_xlsx_read_as_cells`, `office_xlsx_write_from_sheets`.
 
 ## 2. Write a document, deliver it (US2, FR-003/007)
 
 ```json
-{"tool":"execute_python","arguments":{"code":"r = office_docx_write(filename='report', title='Q4 Report', markdown='# Summary\n\nSome **bold** and *italic* text.\n\n- one\n  - nested\n- two\n\n| Item | Qty |\n|---|---|\n| Pens | 12 |\n\nSee [docs](https://example.com).')\nprint(r)"}}
+{"tool":"execute_python","arguments":{"code":"r = office_docx_write_from_md(filename='report', title='Q4 Report', markdown='# Summary\n\nSome **bold** and *italic* text.\n\n- one\n  - nested\n- two\n\n| Item | Qty |\n|---|---|\n| Pens | 12 |\n\nSee [docs](https://example.com).')\nprint(r)"}}
 ```
 
 Expected: result contains `status: ok`, `filename: "report.docx"`, a non-zero `size`. The conversation's files list (`GET $API/agents/dp-a/channel/<channel>/topic/<topic>/files`, or the WebUI files panel) shows `report.docx` with media type `application/vnd.openxmlformats-officedocument.wordprocessingml.document`. Then:
@@ -77,7 +77,7 @@ Expected: the attachment is delivered (the reply carries it). Download it from t
 ## 3. Read it back with full fidelity (US1, SC-001/002)
 
 ```json
-{"tool":"execute_python","arguments":{"code":"r = office_docx_read(filename='report.docx')\nprint(r['markdown'])\nprint(r['truncated'])"}}
+{"tool":"execute_python","arguments":{"code":"r = office_docx_read_as_md(filename='report.docx')\nprint(r['markdown'])\nprint(r['truncated'])"}}
 ```
 
 Expected: Markdown containing `# Summary`, `**bold**`, `*italic*`, the nested list, the pipe table with `| Pens | 12 |`, and `[docs](https://example.com)`; `truncated` is `False`; the text `[table content]` appears nowhere.
@@ -85,19 +85,19 @@ Expected: Markdown containing `# Summary`, `**bold**`, `*italic*`, the nested li
 ## 4. Workbook write and typed read (US2/US1, FR-004/005)
 
 ```json
-{"tool":"execute_python","arguments":{"code":"r = office_xlsx_write(filename='budget', sheets=[{'name':'Budget','rows':[['Item','Qty','Due'],['Pens',12,{'date':'2026-11-01'}],['Done',True,None]]},{'name':'Notes','rows':[['=1+1','+x','@y']]}])\nprint(r)\nprint(office_xlsx_read(filename='budget.xlsx'))"}}
+{"tool":"execute_python","arguments":{"code":"r = office_xlsx_write_from_sheets(filename='budget', sheets=[{'name':'Budget','rows':[['Item','Qty','Due'],['Pens',12,{'date':'2026-11-01'}],['Done',True,None]]},{'name':'Notes','rows':[['=1+1','+x','@y']]}])\nprint(r)\nprint(office_xlsx_read_as_cells(filename='budget.xlsx'))"}}
 ```
 
 Expected: write returns `status ok`, `filename: "budget.xlsx"`. The read returns both sheets; `12` is a number, `True` is a boolean, the due cell is `{"date": "2026-11-01"}`, the empty cell is `null`; the three strings on `Notes` come back as the literal text `=1+1`, `+x`, `@y` (FR-028 — never formulas). Range and sheet filters:
 
 ```json
-{"tool":"execute_python","arguments":{"code":"print(office_xlsx_read(filename='budget.xlsx', sheet='Budget', range='A1:B2'))"}}
+{"tool":"execute_python","arguments":{"code":"print(office_xlsx_read_as_cells(filename='budget.xlsx', sheet='Budget', range='A1:B2'))"}}
 ```
 
 Expected: only that range of the `Budget` sheet, with `start: "A1"`. Single cell and sheet information:
 
 ```json
-{"tool":"execute_python","arguments":{"code":"print(office_xlsx_read(filename='budget.xlsx', sheet='Budget', range='B2'))\nprint(office_xlsx_read(filename='budget.xlsx', info=True))"}}
+{"tool":"execute_python","arguments":{"code":"print(office_xlsx_read_as_cells(filename='budget.xlsx', sheet='Budget', range='B2'))\nprint(office_xlsx_read_as_cells(filename='budget.xlsx', info=True))"}}
 ```
 
 Expected: the first result is one row with one cell, `12`, and `start: "B2"`. The second lists `Budget` and `Notes` with `used_range` and `dimensions` (`A1:C3`, 3 rows by 3 columns for `Budget`) and no `rows`.
@@ -117,7 +117,7 @@ Then, in the conversation:
 {"tool":"execute_python","arguments":{"code":"print(read_document_file(filename='report.docx'))"}}
 ```
 
-Expected: no document text. The result is the message saying Word and Excel files are read with `office_docx_read` / `office_xlsx_read` and that the Office addon must be installed. The `office` category no longer lists (`list_tool_functions` with category `office` reports it unknown). Repeat with a legacy `.xls` fixture (`tests/fixtures/office/legacy.xls`): same message. Then `read_document_file` a plain text file and a PDF in the same conversation: both read exactly as before this feature.
+Expected: no document text. The result is the message saying Word and Excel files are read with `office_docx_read_as_md` / `office_xlsx_read_as_cells` and that the Office addon must be installed. The `office` category no longer lists (`list_tool_functions` with category `office` reports it unknown). Repeat with a legacy `.xls` fixture (`tests/fixtures/office/legacy.xls`): same message. Then `read_document_file` a plain text file and a PDF in the same conversation: both read exactly as before this feature.
 
 ## 6a. Turning the addon off and on (US4, FR-029)
 
@@ -149,18 +149,18 @@ With the addon removed from `dp-a` in step 5:
 Upload `mine.docx` to the conversation as a person (WebUI attach). Then:
 
 ```json
-{"tool":"execute_python","arguments":{"code":"print(office_docx_write(filename='mine.docx', markdown='# overwrite?'))"}}
+{"tool":"execute_python","arguments":{"code":"print(office_docx_write_from_md(filename='mine.docx', markdown='# overwrite?'))"}}
 ```
 
-Expected: `status: ok`, and `mine.docx` now holds the agent's content (the upload is replaced, as `image_generate` would do). Write `report.docx` again with different markdown: also `status: ok` and the file holds the new content. Then check the tool descriptions (`describe_tool_function` for `office_docx_write` and `office_xlsx_write`): both say a same-named file is replaced and tell the agent to pick a new name for a version of an existing file.
+Expected: `status: ok`, and `mine.docx` now holds the agent's content (the upload is replaced, as `image_generate` would do). Write `report.docx` again with different markdown: also `status: ok` and the file holds the new content. Then check the tool descriptions (`describe_tool_function` for `office_docx_write_from_md` and `office_xlsx_write_from_sheets`): both say a same-named file is replaced and tell the agent to pick a new name for a version of an existing file.
 
 ## 8. Failures are data, limits are signalled (FR-009/010)
 
 ```json
-{"tool":"execute_python","arguments":{"code":"print(office_docx_read(filename='nope.docx'))\nprint(office_xlsx_read(filename='budget.xlsx', sheet='Missing'))\nprint(office_xlsx_read(filename='report.docx'))"}}
+{"tool":"execute_python","arguments":{"code":"print(office_docx_read_as_md(filename='nope.docx'))\nprint(office_xlsx_read_as_cells(filename='budget.xlsx', sheet='Missing'))\nprint(office_xlsx_read_as_cells(filename='report.docx'))"}}
 ```
 
-Expected: three `status: error` results (missing file; unknown sheet listing `Budget`, `Notes`; wrong format naming `office_docx_read`), and the turn continues. To see truncation, write a sheet of 2 000 rows and read it: `truncated: true`, `dimensions.rows == 2000`, 1 000 rows returned.
+Expected: three `status: error` results (missing file; unknown sheet listing `Budget`, `Notes`; wrong format naming `office_docx_read_as_md`), and the turn continues. To see truncation, write a sheet of 2 000 rows and read it: `truncated: true`, `dimensions.rows == 2000`, 1 000 rows returned.
 
 ## 9. Automated checks to run alongside
 

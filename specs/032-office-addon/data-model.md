@@ -56,6 +56,7 @@ A tagged scalar. Variants and their JSON forms:
 | Bool | `true` / `false` | |
 | Date | `{"date": "2026-10-25"}` or `{"date": "2026-10-25T14:30:00"}` | ISO-8601; read returns the same object form |
 | Empty | `null` | blank cell |
+| Formula | `{"value": <Cell or null>, "formula": "=SUM(A1:A3)"}` | read only, and only when `formulas: true`; never written, never executed (FR-028) |
 | Error | `{"error": "#DIV/0!"}` | read only |
 
 ### `Sheet`
@@ -88,6 +89,6 @@ No other limits (owner's decision for the proof of concept). Excel's own format 
 ```text
 Agent 1 ──── 0..1 Integration(kind="office", family=Addon)
 Integration 1 ──── 1..n IntegrationEvent  (created, edited, enabled, disabled, deleted)
-Agent/session 1 ──── 0..n SessionFile      (produced by office_*_write, sender = agent id)
+Agent/session 1 ──── 0..n SessionFile      (produced by office_*_write_*, sender = agent id)
 state["office.default_seeded"]  — global, set once after the backfill
 ```

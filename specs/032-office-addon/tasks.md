@@ -56,22 +56,22 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 
 ## Phase 3: User Story 1 - Agent reads a Word or Excel file with full fidelity (Priority: P1) 🎯 MVP
 
-**Goal**: `office_docx_read` returns Markdown with headings, emphasis, nested lists, pipe tables and links; `office_xlsx_read` returns typed cells per sheet for `.xlsx` and legacy `.xls`, with sheet and range filters (a block or a single cell), the data area and first-cell address per sheet, an information-only mode (`info`), and a `truncated: true` marker.
+**Goal**: `office_docx_read_as_md` returns Markdown with headings, emphasis, nested lists, pipe tables and links; `office_xlsx_read_as_cells` returns typed cells per sheet for `.xlsx` and legacy `.xls`, with sheet and range filters (a block or a single cell), the data area and first-cell address per sheet, an information-only mode (`info`), and a `truncated: true` marker.
 
 **Independent Test**: Install the addon by hand on a dummyplug agent, upload the fixtures, call both read tools (quickstart steps 3 and 4). Every table cell and typed value appears, and `[table content]` does not.
 
 ### Tests for User Story 1
 
 - [ ] T010 [P] [US1] Tests for `docx::to_markdown` in `src/agents/tools/office/docx.rs`: the `table.docx` fixture gives the heading, bold and italic marks, nested bullet and numbered lists, `[text](url)` with the real URL (resolved from `docx.hyperlinks` by relationship id, research R3), every table row as a pipe table, no `[table content]`; `max_chars` cuts the text and sets `truncated`
-- [ ] T011 [P] [US1] Tests for `xlsx::read_workbook` in `src/agents/tools/office/xlsx.rs`: `mixed.xlsx` keeps number, boolean, date (as `{"date": ISO}`), empty and text cell types across two sheets; the `sheet` and `range` (A1 notation, including a single cell such as `C7`) filters; `used_range`, `dimensions` and `start` for a sheet whose data starts at `C5` (and for a `range`, `start` is the range's top-left); `info` returns only name, `used_range` and `dimensions`; an unknown sheet errors with the list of valid sheets; the 20-sheet, 1 000-row and 100-column caps set `truncated` and report the real `dimensions`; `legacy.xls` reads like an `.xlsx`; a corrupt file errors
+- [ ] T011 [P] [US1] Tests for `xlsx::read_workbook` in `src/agents/tools/office/xlsx.rs`: `mixed.xlsx` keeps number, boolean, date (as `{"date": ISO}`), empty and text cell types across two sheets; the `sheet` and `range` (A1 notation, including a single cell such as `C7`) filters; `used_range`, `dimensions` and `start` for a sheet whose data starts at `C5` (and for a `range`, `start` is the range's top-left); `info` returns only name, `used_range` and `dimensions`; a formula cell returns its saved value, `formulas` returns `{value, formula}`, and a formula cell with no saved value is named in `note` (needs a fixture with such a cell); an unknown sheet errors with the list of valid sheets; the 20-sheet, 1 000-row and 100-column caps set `truncated` and report the real `dimensions`; `legacy.xls` reads like an `.xlsx`; a corrupt file errors
 
 ### Implementation for User Story 1
 
 - [ ] T012 [P] [US1] Implement `docx::to_markdown(bytes, max_chars)` in `src/agents/tools/office/docx.rs` with `docx-rs`: paragraph style to heading level, bold and italic runs, list items from `numberingProperty` plus `docx.numberings` (bullet versus decimal, level for nesting), external hyperlinks looked up in `docx.hyperlinks`, tables as pipe tables; images, shapes, text boxes and footnotes skipped (R3)
-- [ ] T013 [P] [US1] Implement `xlsx::read_workbook(bytes, mime, sheet, range, info)` in `src/agents/tools/office/xlsx.rs` with `calamine` (`Xlsx` and `Xls` chosen by media type): typed `Cell` values, dates as ISO-8601, formulas as their saved value, A1 range parsing (block or single cell), `used_range` and `start` as A1 addresses (calamine's used range does not begin at `A1`, so the offset must be carried), the `info` mode, output caps and `truncated`
-- [ ] T014 [US1] Implement the `OfficeDocxRead` and `OfficeXlsxRead` tools (`VizierTool`, names `office_docx_read` and `office_xlsx_read`) in `src/agents/tools/office/mod.rs`: resolve the session file, load its bytes through the `FileManager`, call the pure modules, and return errors the way other tools do (`VizierError`, which a script sees as a catchable error and which never ends the turn); a wrong file type names the tool to use instead; descriptions state the limits and what is skipped
+- [ ] T013 [P] [US1] Implement `xlsx::read_workbook(bytes, mime, sheet, range, info)` in `src/agents/tools/office/xlsx.rs` with `calamine` (`Xlsx` and `Xls` chosen by media type): typed `Cell` values, dates as ISO-8601, formulas as their saved value (never evaluated) or, with `formulas`, as `{value, formula}`, a `note` for formula cells without a saved value, A1 range parsing (block or single cell), `used_range` and `start` as A1 addresses (calamine's used range does not begin at `A1`, so the offset must be carried), the `info` mode, output caps and `truncated`
+- [ ] T014 [US1] Implement the `OfficeDocxRead` and `OfficeXlsxRead` tools (`VizierTool`, names `office_docx_read_as_md` and `office_xlsx_read_as_cells`) in `src/agents/tools/office/mod.rs`: resolve the session file, load its bytes through the `FileManager`, call the pure modules, and return errors the way other tools do (`VizierError`, which a script sees as a catchable error and which never ends the turn); a wrong file type names the tool to use instead; descriptions state the limits and what is skipped
 - [ ] T015 [US1] Implement `OfficeKind` in `src/integrations/kinds/office.rs` (id `office`, family Addon, listing name "Office" with a short description and icon `office`, no fields, `validate` accepts `{}` and null, `contribute` returns the read tools with `addon: Some("office")`); add `pub mod office;` to `src/integrations/kinds/mod.rs` and register it in `IntegrationKinds::builtin()` in `src/integrations/mod.rs`
-- [ ] T016 [US1] Add `office_docx_read` and `office_xlsx_read` to the pinned `EXPECTED` and `ADDON` tables in `src/agents/tools/mod.rs` (about lines 1490 to 1570) and confirm `every_addon_tool_is_namespaced_by_its_addon` passes
+- [ ] T016 [US1] Add `office_docx_read_as_md` and `office_xlsx_read_as_cells` to the pinned `EXPECTED` and `ADDON` tables in `src/agents/tools/mod.rs` (about lines 1490 to 1570) and confirm `every_addon_tool_is_namespaced_by_its_addon` passes
 - [ ] T017 [P] [US1] Unit tests for `OfficeKind` in `src/integrations/kinds/office.rs`: no fields, `missing()` is empty, `validate` accepts `{}` and null, `contribute` returns only `office_*` tools
 
 **Checkpoint**: US1 works on its own: with the addon installed by hand, an agent reads Word and Excel files with their structure.
@@ -80,7 +80,7 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 
 ## Phase 4: User Story 2 - Agent creates a Word or Excel file for the person (Priority: P1)
 
-**Goal**: `office_docx_write` builds a `.docx` from Markdown; `office_xlsx_write` builds a `.xlsx` from sheets of rows. Both store the file as a conversation file with the OOXML media type and return `{filename, size}`; the agent delivers it with `send_attachment`.
+**Goal**: `office_docx_write_from_md` builds a `.docx` from Markdown; `office_xlsx_write_from_sheets` builds a `.xlsx` from sheets of rows. Both store the file as a conversation file with the OOXML media type and return `{filename, size}`; the agent delivers it with `send_attachment`.
 
 **Independent Test**: Quickstart steps 2 and 4: write a document and a workbook, send the document as an attachment, open both in Word or LibreOffice, and read them back.
 
@@ -154,7 +154,7 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 
 ### Tests for User Story 5
 
-- [ ] T038 [P] [US5] Tests for `extract_text` in `src/agents/tools/session_files/mod.rs`: the three Word and Excel media types return the message naming `office_docx_read` and `office_xlsx_read` and the Office addon (install or turn on); a plain text file and a PDF read exactly as before
+- [ ] T038 [P] [US5] Tests for `extract_text` in `src/agents/tools/session_files/mod.rs`: the three Word and Excel media types return the message naming `office_docx_read_as_md` and `office_xlsx_read_as_cells` and the Office addon (install or turn on); a plain text file and a PDF read exactly as before
 
 ### Implementation for User Story 5
 
@@ -175,6 +175,7 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 - [ ] T044 Open the generated `.docx` and `.xlsx` in Microsoft Office and in LibreOffice and confirm there is no repair prompt (SC-004); needs a person with those applications
 - [ ] T045 Run `cargo clippy` and `cargo test` (including `every_addon_tool_is_namespaced_by_its_addon` and `every_tool_is_in_its_category`) and fix every finding
 - [ ] T046 Build one static target from `Cross.toml` (for example `cross build --target x86_64-unknown-linux-musl`) to confirm the new dependency keeps cross-compilation working (constitution Principle IV)
+- [ ] T049 **Only if the reviewer approves a new outside dependency (spec, open question on formula evaluation; research R10):** trial the chosen engine on the checked-in workbook fixtures (loads them; evaluated versus saved values; unsupported functions; time and size limits), then add a `recalculate` setting to `office_xlsx_read_as_cells` showing the evaluated value next to the saved one when they differ, with tests. If the reviewer declines, delete this task and keep formulas unexecuted.
 - [ ] T047 Prepare the text of a checklist entry for tracker issue #82 covering the startup backfill (`seed_office_defaults` and its flag) and what depends on it (FR-025); the maintainer posts it, since it is public
 - [ ] T048 Commit with a conventional message `feat(office)!:` and a `[**breaking**]` note that `read_document_file` no longer reads Word and Excel and that every agent now has the Office addon by default (research R16); the changelog is generated from it
 
