@@ -4,12 +4,12 @@ import { cx } from "../../lib/cx";
 import { Waveform, sampleLevels } from "../AudioPlayer/Waveform";
 
 export type VoiceRecorderProps = {
-  /** Recording: a live timer and Stop. Recorded: play it back, or Discard. */
+  /** Recording: a live timer and Cancel (stopping is the composer's mic). Recorded: play it back, or Discard. */
   mode: "recording" | "recorded";
   /** Seconds recorded. */
   elapsed: number;
   levels?: number[];
-  onStop?: () => void;
+  /** Recording: Cancel, which drops what was recorded. Recorded: Discard. */
   onDiscard?: () => void;
   playing?: boolean;
   onPlayingChange?: (playing: boolean) => void;
@@ -20,7 +20,7 @@ export type VoiceRecorderProps = {
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 /** The composer's voice row (X35): record, then listen back before sending. */
-export function VoiceRecorder({ mode, elapsed, levels = sampleLevels(24, 3), onStop, onDiscard, playing, onPlayingChange, progress = 0, className, ...rest }: VoiceRecorderProps) {
+export function VoiceRecorder({ mode, elapsed, levels = sampleLevels(24, 3), onDiscard, playing, onPlayingChange, progress = 0, className, ...rest }: VoiceRecorderProps) {
   if (mode === "recording") {
     return (
       <div role="status" className={cx("flex items-center gap-10", className)} {...rest}>
@@ -29,9 +29,11 @@ export function VoiceRecorder({ mode, elapsed, levels = sampleLevels(24, 3), onS
           {clock(elapsed)}
         </span>
         <Waveform levels={levels} live className="min-w-0 flex-1 overflow-hidden" />
-        <button type="button" onClick={onStop} className="rounded-xs type-ui-medium text-fg hover:underline">
-          Stop
-        </button>
+        {onDiscard && (
+          <button type="button" onClick={onDiscard} className="rounded-xs type-ui-medium text-failed hover:underline">
+            Cancel
+          </button>
+        )}
       </div>
     );
   }

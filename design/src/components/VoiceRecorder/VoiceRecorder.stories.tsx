@@ -6,7 +6,7 @@ const meta = {
   component: VoiceRecorder,
   tags: ["approved"],
   parameters: { vizier: { id: "X35", replaces: null } },
-  args: { mode: "recording", elapsed: 12, onStop: () => {}, onDiscard: () => {} },
+  args: { mode: "recording", elapsed: 12, onDiscard: () => {} },
   decorators: [(Story) => <div className="w-396 rounded-xl border border-border-strong bg-surface px-14 py-14">{Story()}</div>],
 } satisfies Meta<typeof VoiceRecorder>;
 
