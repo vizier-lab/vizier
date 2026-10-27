@@ -8,6 +8,7 @@ import {
 import { classifyFrame, type ChatMessage, type VizierRequestContent } from '../api/frames'
 import { emptyTopic, nextQueued, reduce, type Action, type TopicState } from '../lib/frames'
 import { handleClientCall } from '../lib/clientTools'
+import { playNotify } from '../lib/sound'
 import { topicKey, useConnection } from './connection'
 import { useSession } from './session'
 import { useAgents } from './agents'
@@ -133,6 +134,11 @@ export const useTurns = create<TurnStore>()((set, get) => {
                 onFrame: (raw) => {
                     const frame = classifyFrame(raw)
                     if (!frame) return
+                    // An agent's reply arrived (a streamed step or an error is not one).
+                    if (frame.kind === 'response') {
+                        const content = frame.response.content
+                        if (typeof content === 'object' && ('message' in content || 'audio_reply' in content)) playNotify()
+                    }
                     // A call for a tool this client declared: run it here and answer on this socket.
                     if (frame.kind === 'client' && 'client_tool_call' in frame.frame && frame.frame.client_tool_call.answer) {
                         const call = frame.frame.client_tool_call

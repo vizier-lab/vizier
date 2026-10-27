@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { playNotify } from '../lib/sound'
 
 export type ToastTone = 'success' | 'error' | 'warning' | 'info'
 export type ToastItem = {
@@ -23,6 +24,7 @@ export const useToasts = create<ToastStore>()((set, get) => ({
     push: (t, ms = 5000) => {
         const id = next++
         set((s) => ({ items: [...s.items.slice(-3), { ...t, id }] }))
+        playNotify()
         if (ms > 0) setTimeout(() => get().dismiss(id), ms)
     },
     dismiss: (id) => set((s) => ({ items: s.items.filter((i) => i.id !== id) })),
