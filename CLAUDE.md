@@ -198,5 +198,5 @@ The website is the submodule `vizier-lab/landing`, an Astro 7 + Starlight site s
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
-`specs/030-office-addon/plan.md`
+`specs/032-office-addon/plan.md`
 <!-- SPECKIT END -->

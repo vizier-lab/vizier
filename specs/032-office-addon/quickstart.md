@@ -1,6 +1,6 @@
 # Quickstart: Office Addon
 
-**Feature**: `030-office-addon`
+**Feature**: `032-office-addon`
 
 This checks the feature against a running binary on the offline `dummyplug` provider (spec `008-dummyplug-provider`). The dummyplug protocol is `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`: send `tools`, then a tool name for a sample request, then the JSON request to run it. Agent tools are called from `execute_python` (code mode). Everything here is offline; no step needs a live provider.
 

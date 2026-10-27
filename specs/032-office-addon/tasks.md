@@ -5,7 +5,7 @@ description: "Task list for the Office addon (DOCX and XLSX)"
 
 # Tasks: Office Addon (DOCX and XLSX)
 
-**Input**: Design documents from `/specs/030-office-addon/`
+**Input**: Design documents from `/specs/032-office-addon/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/office-tools.md, quickstart.md
 
@@ -170,8 +170,8 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 **Purpose**: Documentation, end-to-end verification, build gates and the commit.
 
 - [ ] T041 [P] Add a docs page for the addon in `docs/src/configuration/office-addon.md` (tools, create-only writes, same-named files are replaced, on by default and how to turn it off) and link it from `docs/src/SUMMARY.md`
-- [ ] T042 [P] Reconcile `specs/030-office-addon/contracts/office-tools.md` with the implemented error and output shape: the contract describes errors as `status: "error"` objects and outputs with a `status` field, while tools following `image_generate` return `{filename, size}` and raise a catchable error on failure
-- [ ] T043 Run the whole dummyplug script in `specs/030-office-addon/quickstart.md` (steps 0 to 8 including 6a and 6b) against the real binary and fix what it finds; optionally automate it as `scripts/office-e2e.mjs` in the style of `scripts/client-tools-e2e.mjs`
+- [ ] T042 [P] Reconcile `specs/032-office-addon/contracts/office-tools.md` with the implemented error and output shape: the contract describes errors as `status: "error"` objects and outputs with a `status` field, while tools following `image_generate` return `{filename, size}` and raise a catchable error on failure
+- [ ] T043 Run the whole dummyplug script in `specs/032-office-addon/quickstart.md` (steps 0 to 8 including 6a and 6b) against the real binary and fix what it finds; optionally automate it as `scripts/office-e2e.mjs` in the style of `scripts/client-tools-e2e.mjs`
 - [ ] T044 Open the generated `.docx` and `.xlsx` in Microsoft Office and in LibreOffice and confirm there is no repair prompt (SC-004); needs a person with those applications
 - [ ] T045 Run `cargo clippy` and `cargo test` (including `every_addon_tool_is_namespaced_by_its_addon` and `every_tool_is_in_its_category`) and fix every finding
 - [ ] T046 Build one static target from `Cross.toml` (for example `cross build --target x86_64-unknown-linux-musl`) to confirm the new dependency keeps cross-compilation working (constitution Principle IV)
