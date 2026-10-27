@@ -43,17 +43,19 @@ export default function Chat() {
     const agent = agents.find((a) => a.agent_id === agentId)
     const agentName = agent?.name ?? agentId
 
-    // "Ask for a spoken reply" only does anything when the agent can speak at all.
-    const [tts, setTts] = useState<boolean | undefined>(undefined)
+    // The mic needs the agent's Speech-to-Text and "Ask for a spoken reply" its Text-to-Speech;
+    // each is offered only once the agent is known to have it.
+    const [voice, setVoice] = useState<{ stt: boolean; tts: boolean }>()
     useEffect(() => {
         let alive = true
-        setTts(undefined)
+        setVoice(undefined)
         getAgent(agentId)
             .then((detail) => {
-                if (alive) setTts(detail.tts)
+                if (alive) setVoice({ stt: detail.stt, tts: detail.tts })
             })
             .catch(() => {
-                /* leave it enabled: the config read is not worth an error on the composer */
+                /* offer both: the config read is not worth an error on the composer */
+                if (alive) setVoice({ stt: true, tts: true })
             })
         return () => {
             alive = false
@@ -310,7 +312,8 @@ export default function Chat() {
                     <Composer
                         agentId={agentId}
                         agentName={agentName}
-                        ttsEnabled={tts}
+                        sttEnabled={voice?.stt ?? false}
+                        ttsEnabled={voice?.tts ?? false}
                         busy={state.phase !== 'idle'}
                         disabledReason={
                             failed
