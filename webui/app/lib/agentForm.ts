@@ -70,7 +70,7 @@ export const STT_DEFAULT_MODELS: Record<string, string> = {
     mistral: 'voxtral-mini-2507',
     huggingface: 'openai/whisper-large-v3',
     gemini: 'gemini-1.5-flash',
-    whisper: 'large-v3',
+    whisper: 'ggml-large-v3',
 }
 export const IMAGE_GEN_DEFAULT_MODELS: Record<string, string> = {
     openai: 'dall-e-3',
@@ -85,7 +85,7 @@ export const TTS_DEFAULT_MODELS: Record<string, string> = {
     elevenlabs: 'eleven_multilingual_v2',
     xai: 'grok-2-tts',
     hyperbolic: 'Melo-TTS',
-    kokoro: 'kokoro-en-v0_19',
+    kokoro: 'Kokoro-82M',
 }
 export const TTS_DEFAULT_VOICES: Record<string, string> = {
     openai: 'alloy',
