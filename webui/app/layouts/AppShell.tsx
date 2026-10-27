@@ -32,6 +32,9 @@ const COLLAPSED_KEY = 'vizier.sidebar.collapsed'
 const RECENT_KEY = 'vizier.agents.recent'
 const RECENT_MAX = 5
 
+/** The pages that belong to the selected agent, so lead nowhere without one. */
+const AGENT_PAGES: SidebarPage[] = ['chat', 'core', 'memory', 'tasks', 'skills', 'dreams', 'channels', 'addons', 'mcp', 'usage', 'secrets', 'config']
+
 const PAGE_PATH: Record<SidebarPage, string> = {
     home: '',
     chat: '/chat',
@@ -65,7 +68,7 @@ export default function AppShell() {
     const { pathname } = useLocation()
     const params = useParams()
     const matches = useMatches()
-    const { user, toggleTheme, signOut, can } = useSession()
+    const { user, toggleTheme, signOut, can, canEditAgent } = useSession()
     const { agents, health, start } = useAgents()
     const [collapsed, setCollapsed] = useState(() => read(COLLAPSED_KEY, false))
     const [recent, setRecent] = useState<string[]>(() => read(RECENT_KEY, []))
@@ -233,13 +236,22 @@ export default function AppShell() {
             hiddenPages={
                 agent && canManageSecrets(agent) ? undefined : ['secrets']
             }
+            // Without an agent its pages have nowhere to go; Config is for
+            // the people who may change the agent.
+            disabledPages={
+                !agent
+                    ? AGENT_PAGES
+                    : canEditAgent(agent)
+                      ? undefined
+                      : ['config']
+            }
             className={inDrawer ? 'w-full! border-r-0!' : undefined}
             hrefFor={(page) =>
                 page === 'home'
                     ? '/'
                     : page === 'settings'
                       ? '/settings/profile'
-                      : `/${agentId ?? ''}${PAGE_PATH[page]}`
+                      : `/${agentId}${PAGE_PATH[page]}`
             }
             onToggleTheme={toggleTheme}
             onToggleCollapsed={() => {
