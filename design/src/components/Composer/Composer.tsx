@@ -19,6 +19,8 @@ export type ComposerProps = {
   attachments?: ReactNode;
   onAttach?: () => void;
   onMic?: () => void;
+  /** Offer the mic button. Off for an agent that can't transcribe speech. */
+  mic?: boolean;
   /** The mic is recording (it turns live). */
   recording?: boolean;
   /** Voice mode: a VoiceRecorder row in place of the text. */
@@ -51,6 +53,7 @@ export function Composer({
   attachments,
   onAttach,
   onMic,
+  mic = true,
   recording,
   voice,
   below,
@@ -138,16 +141,18 @@ export function Composer({
             <button type="button" aria-label="Attach files" onClick={onAttach} disabled={disabled} className={toolButton}>
               <Icon name="attach" />
             </button>
-            <button
-              type="button"
-              aria-label={recording ? "Stop recording" : "Record a voice message"}
-              aria-pressed={recording ?? false}
-              onClick={onMic}
-              disabled={disabled}
-              className={cx(toolButton, recording && "text-live hover:text-live")}
-            >
-              <Icon name="mic" />
-            </button>
+            {mic && (
+              <button
+                type="button"
+                aria-label={recording ? "Stop recording" : "Record a voice message"}
+                aria-pressed={recording ?? false}
+                onClick={onMic}
+                disabled={disabled}
+                className={cx(toolButton, recording && "text-live hover:text-live")}
+              >
+                <Icon name="mic" />
+              </button>
+            )}
             {skills.length > 0 && (
               <button type="button" aria-label="Skills" onClick={() => onValueChange("/")} disabled={disabled} className={toolButton}>
                 <Icon name="slash" />

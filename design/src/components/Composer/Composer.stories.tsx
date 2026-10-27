@@ -88,6 +88,9 @@ export const VoiceRecorded: Story = {
 };
 
 /** The agent can't take messages right now. */
+/** An agent without Speech-to-Text: no mic, the rest of the tools stay put. */
+export const WithoutMic: Story = { args: { mic: false } };
+
 export const AgentUnavailable: Story = { args: { disabledReason: "Archivist can't answer until it restarts" } };
 
 /** Mobile: the token count as text. */
