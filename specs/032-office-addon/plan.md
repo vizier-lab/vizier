@@ -6,13 +6,13 @@
 
 ## Summary
 
-Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that contributes four tools — `office_docx_read_as_md`, `office_docx_write_from_md`, `office_xlsx_read_as_cells`, `office_xlsx_write_from_sheets` — enabled by default on every agent. DOCX and XLSX parsing/writing live in pure per-format modules (`src/agents/tools/office/{docx,xlsx}.rs`, no `ToolContext`), the tools are thin wrappers over session files, and `read_document_file` stops handling Word and Excel (one reader per format): given such a file it returns a message pointing to the office tools, while text and PDF are unchanged. "On by default" is one internal `integrations::service::seed_default` used by `finish_create` (new agents) and a state-flag-guarded one-time backfill (existing agents); removal is an ordinary integration delete and nothing re-seeds. Technical approach and rejected alternatives are in [research.md](research.md).
+Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that contributes four tools — `office_docx_read_as_md`, `office_docx_write_from_md`, `office_xlsx_read_as_cells`, `office_xlsx_write_from_sheets` — enabled by default on every agent. DOCX and XLSX parsing/writing live in pure per-format modules (`src/agents/tools/office/{docx,xlsx}.rs`, no `ToolContext`), the tools are thin wrappers over session files, and `read_document_file` stops handling Word and Excel (one reader per format): given such a file it returns a message pointing to the office tools, while text and PDF are unchanged. Tool names state the file type and the shape they produce or take (FR-001). `office_xlsx_read_as_cells` is built so an agent never has to probe: a `range` can be a block or one cell, every sheet reports `used_range`, `dimensions` and the `start` address of the returned cells (calamine's range begins at the first non-empty cell, not `A1`), `info: true` returns only those sheet facts without reading cells, and `formulas: true` adds formula text next to the saved value. Formulas are never executed in this change; evaluating them needs an outside crate and is an open question for the reviewer ([research.md](research.md) R10, task T049). "On by default" is one internal `integrations::service::seed_default` used by `finish_create` (new agents) and a state-flag-guarded one-time backfill (existing agents); removal is an ordinary integration delete and nothing re-seeds. Technical approach and rejected alternatives are in [research.md](research.md).
 
 ## Technical Context
 
 **Language/Version**: Rust (edition of the existing crate); no toolchain change
 
-**Primary Dependencies**: existing `docx-rs 0.4` (read + write), `calamine 0.36` (read; add `Xls`), `pulldown-cmark 0.13` (already in the tree through `text-splitter`'s markdown feature; promoted to a direct dependency to parse `docx_write` input). **One new crate**: `rust_xlsxwriter` (pure Rust XLSX writer; calamine cannot write and hand-writing OOXML is not "a few lines" — see Constitution Check I). No new system library.
+**Primary Dependencies**: existing `docx-rs 0.4` (read + write), `calamine 0.36` (read; add `Xls`), `pulldown-cmark 0.13` (already in the tree through `text-splitter`'s markdown feature; promoted to a direct dependency to parse `docx_write` input). **One new crate**: `rust_xlsxwriter` (pure Rust XLSX writer; calamine cannot write and hand-writing OOXML is not "a few lines" — see Constitution Check I). No new system library. **Not added**: a formula engine (`formualizer`, `IronCalc`, `logisheets-rs`; research R10). It would be a second new crate and waits for the reviewer's answer; `calamine` already covers the saved values and the formula text this change needs (formula text for legacy `.xls` is unverified, R5).
 
 **Storage**: existing SQLite only. Reuses `integration` / `integration_event` tables, `session_file` table, `FileManager` blob store, and the `state` key/value table (`office.default_seeded`). No schema change.
 
@@ -34,7 +34,7 @@ Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that co
 
 | Principle | Assessment |
 |---|---|
-| **I. Lean by Default** | Pass with one justified dependency. `rust_xlsxwriter` is the only new crate; reason: no writer exists in the tree and a hand-rolled OOXML spreadsheet writer (shared strings, styles, content types, relationships) is not "a few lines". `pulldown-cmark` is already in `Cargo.lock`. No new trait/config flag; no second implementation introduced. |
+| **I. Lean by Default** | Pass with one justified dependency. `rust_xlsxwriter` is the only new crate; reason: no writer exists in the tree and a hand-rolled OOXML spreadsheet writer (shared strings, styles, content types, relationships) is not "a few lines". `pulldown-cmark` is already in `Cargo.lock`. No new trait/config flag; no second implementation introduced. A formula engine is deliberately not added until the reviewer agrees to a second new dependency (R10). |
 | **II. Trait-based extensibility (NON-NEGOTIABLE)** | Pass. Delivered as one `IntegrationKind` impl registered in `IntegrationKinds::builtin()` and four `VizierTool` impls; no `match` over kind ids added. Seeding goes through the shared integration service rather than a bespoke storage write. The two `read_document_file` arms are *collapsed into* the shared per-format modules (removing duplication, not adding it). |
 | **III. Self-contained, zero-dependency runtime** | Pass. Pure Rust, no sidecar, no network, no operator step. |
 | **IV. Portability** | Pass. No platform code; musl targets unaffected (pure-Rust crates). Verified by `cross build` of an existing static target in the polish phase. |
@@ -71,7 +71,7 @@ src/
 │       ├── office/
 │       │   ├── mod.rs               # shared: limits, MIME consts, write_session_file helper (FR-027), output structs, the four VizierTool impls
 │       │   ├── docx.rs              # pure: to_markdown / from_markdown
-│       │   └── xlsx.rs              # pure: read_workbook / write_workbook
+│       │   └── xlsx.rs              # pure: read_workbook(bytes, mime, sheet, range, info, formulas) / write_workbook
 │       └── session_files/mod.rs     # read_document_file: DOCX/XLSX/XLS arms removed, replaced by a message pointing at office_*; text and PDF unchanged
 │       └── read_image/mod.rs        # description points at office_* (FR-014)
 ├── integrations/
@@ -95,4 +95,5 @@ src/schema/request.rs                # the attached-files hint also points Word/
 ## Out of scope for this plan (tracked, not built)
 
 - WebUI (the owner wants the on/off switch, FR-029): the Addons page already has an on/off switch on installed addon cards (`webui/app/routes/integrations-addons.tsx`, calling `PUT /integrations/{id}` with `enabled`), and the server already supports enable/disable, so no backend work is needed for it. Remaining: check the card for an addon with no fields and its on/ready state, `office` in `TAKEN_CATEGORIES`, optional `ADDON_TOOLS` entry → separate PRs in `design` → `webui` → vizier order.
+- Formula evaluation (a `recalculate` setting): open question for the reviewer because it needs an outside crate; research R10 lists the candidates and the trial to run first, task T049 is conditional on the answer.
 - Issue #82 checklist entry for the one-time backfill (FR-025), added when the code lands.

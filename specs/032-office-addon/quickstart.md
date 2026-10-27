@@ -100,7 +100,13 @@ Expected: only that range of the `Budget` sheet, with `start: "A1"`. Single cell
 {"tool":"execute_python","arguments":{"code":"print(office_xlsx_read_as_cells(filename='budget.xlsx', sheet='Budget', range='B2'))\nprint(office_xlsx_read_as_cells(filename='budget.xlsx', info=True))"}}
 ```
 
-Expected: the first result is one row with one cell, `12`, and `start: "B2"`. The second lists `Budget` and `Notes` with `used_range` and `dimensions` (`A1:C3`, 3 rows by 3 columns for `Budget`) and no `rows`.
+Expected: the first result is one row with one cell, `12`, and `start: "B2"`. Formula cells need a fixture, because the write tool never writes formulas (FR-028): attach `formulas.xlsx` (one formula with a saved result, one with none) and read it twice:
+
+```json
+{"tool":"execute_python","arguments":{"code":"print(office_xlsx_read_as_cells(filename='formulas.xlsx'))\nprint(office_xlsx_read_as_cells(filename='formulas.xlsx', formulas=True))"}}
+```
+
+Expected: the first shows the saved result for the first formula and `null` for the second, and a `note` naming the second cell. The second shows `{"value": <saved result>, "formula": "=…"}` for the first and `{"value": null, "formula": "=…"}` for the second. Nothing is evaluated: the saved result is whatever the file held, even if it no longer matches the formula. Back to the `budget.xlsx` read: the information-only result lists `Budget` and `Notes` with `used_range` and `dimensions` (`A1:C3`, 3 rows by 3 columns for `Budget`) and no `rows`.
 
 ## 5. Generic reader no longer reads Word and Excel (US5, FR-012/013)
 

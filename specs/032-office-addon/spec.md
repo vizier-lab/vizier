@@ -36,9 +36,9 @@ A person attaches a Word document or a spreadsheet to a conversation and asks th
 3. **Given** a workbook, **When** the agent asks for one sheet and a cell range, **Then** only that range is returned.
 3a. **Given** a workbook, **When** the agent asks for a single cell (for example `C7`), **Then** it receives that one cell with its type.
 3b. **Given** a large workbook, **When** the agent asks only for sheet information, **Then** it receives each sheet's name, the address of its data area and its size, without any cell contents, so it can then choose a range to read.
+3c. **Given** a sheet whose data starts at `C5`, **When** the agent reads it, **Then** the result says that the first returned cell is `C5`, so the agent can tell which cell each value came from.
 3d. **Given** a workbook with a formula cell, **When** the agent reads it, **Then** it receives the saved result by default, and the formula text together with that result when it asks for formulas; the formula is never executed.
 3e. **Given** a formula cell that has no saved result (for example a file produced by a script), **When** the agent reads it, **Then** the result says so, so the agent does not take the cell for an empty one.
-3c. **Given** a sheet whose data starts at `C5`, **When** the agent reads it, **Then** the result says that the first returned cell is `C5`, so the agent can tell which cell each value came from.
 4. **Given** a very large document or workbook, **When** the agent reads it, **Then** the result is cut at a documented limit and carries a `truncated: true` marker instead of failing.
 5. **Given** a legacy `.xls` workbook, **When** the agent reads it, **Then** it reads like a modern workbook.
 
@@ -194,6 +194,8 @@ Until now the generic `read_document_file` tool also converted Word and Excel fi
 - **SC-006**: Reading a file whose content exceeds the documented output limits never fails the turn; it returns a partial result marked `truncated: true` in 100% of the oversized-output test cases.
 - **SC-007**: A Word or Excel file given to the generic reader is never converted to plain text, and the agent is pointed to the office tools in 100% of test cases, while plain text and PDF files read exactly as before.
 - **SC-008**: No existing agent's configuration, running turns or other integrations change when the addon is seeded.
+- **SC-009**: For a sample of workbooks, including one whose data does not start at the top left cell, an agent can learn every sheet's name, data area and size without reading any cell contents, and can then read any single cell or block by its address and tell from the result which cell each value came from, in 100% of the test cases.
+- **SC-010**: For a sample of workbooks containing formulas, no formula is ever executed, every formula cell returns its saved result (or is reported as having none), and the formula text is returned only when asked for, in 100% of the test cases.
 
 ## Assumptions
 
