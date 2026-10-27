@@ -80,7 +80,7 @@ describe('toInput', () => {
     })
 
     it('carries the full speech and image settings', () => {
-        const f = { ...emptyForm(), stt: true, sttModel: 'm', sttLanguage: 'en', imageGen: true, imageGenSize: '512x512' }
+        const f = { ...emptyForm(), stt: true, sttProvider: 'openai', sttModel: 'm', sttLanguage: 'en', imageGen: true, imageGenSize: '512x512' }
         expect(toInput(f).tools?.stt_settings).toMatchObject({ provider: 'openai', model: 'm', language: 'en' })
         expect(toInput(f).tools?.image_gen_settings).toMatchObject({ model: null, size: '512x512' })
     })

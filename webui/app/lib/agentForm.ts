@@ -70,7 +70,7 @@ export const STT_DEFAULT_MODELS: Record<string, string> = {
     mistral: 'voxtral-mini-2507',
     huggingface: 'openai/whisper-large-v3',
     gemini: 'gemini-1.5-flash',
-    whisper: 'ggml-large-v3',
+    whisper: 'ggml-small',
 }
 export const IMAGE_GEN_DEFAULT_MODELS: Record<string, string> = {
     openai: 'dall-e-3',
@@ -95,6 +95,29 @@ export const TTS_DEFAULT_VOICES: Record<string, string> = {
     hyperbolic: 'default',
     kokoro: 'af',
 }
+/** GGML Whisper models whisper.cpp publishes, smallest first (sizes approximate). */
+export const WHISPER_MODELS = [
+    { value: 'ggml-tiny', label: 'ggml-tiny · 75 MB' },
+    { value: 'ggml-tiny.en', label: 'ggml-tiny.en · 75 MB, English only' },
+    { value: 'ggml-base', label: 'ggml-base · 142 MB' },
+    { value: 'ggml-base.en', label: 'ggml-base.en · 142 MB, English only' },
+    { value: 'ggml-small', label: 'ggml-small · 466 MB' },
+    { value: 'ggml-small.en', label: 'ggml-small.en · 466 MB, English only' },
+    { value: 'ggml-medium', label: 'ggml-medium · 1.5 GB' },
+    { value: 'ggml-medium.en', label: 'ggml-medium.en · 1.5 GB, English only' },
+    { value: 'ggml-large-v3-turbo', label: 'ggml-large-v3-turbo · 1.6 GB' },
+    { value: 'ggml-large-v3', label: 'ggml-large-v3 · 3.1 GB' },
+]
+export const KOKORO_MODELS = [{ value: 'Kokoro-82M', label: 'Kokoro-82M · 327 MB' }]
+/** The voice packs Kokoro-82M ships; mirrors `VOICES` in src/tts/kokoro.rs. */
+export const KOKORO_VOICES = [
+    'af_alloy', 'af_aoede', 'af_bella', 'af_heart', 'af_jessica', 'af_kore', 'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky',
+    'am_adam', 'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael', 'am_onyx', 'am_puck', 'am_santa',
+    'bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily', 'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis',
+    'ef_dora', 'em_alex', 'em_santa', 'ff_siwis', 'hf_alpha', 'hf_beta', 'hm_omega', 'hm_psi', 'if_sara', 'im_nicola',
+    'jf_alpha', 'jf_gongitsune', 'jf_nezumi', 'jf_tebukuro', 'jm_kumo', 'pf_dora', 'pm_alex', 'pm_santa',
+    'zf_xiaobei', 'zf_xiaoni', 'zf_xiaoxiao', 'zf_xiaoyi', 'zm_yunjian', 'zm_yunxi', 'zm_yunxia', 'zm_yunyang',
+].map((v) => ({ value: v, label: v }))
 export const EMBEDDING_PROVIDERS = ['local', 'openrouter', 'ollama', 'openai', 'gemini', 'voyageai', 'mistral', 'together', 'cohere', 'copilot']
 
 export const emptyForm = (): AgentForm => ({
