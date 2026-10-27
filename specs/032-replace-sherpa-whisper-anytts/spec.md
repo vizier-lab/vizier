@@ -74,6 +74,7 @@ A developer building vizier from source (or a release consumer) gets a binary th
 - **FR-006**: System MUST preserve the `whisper` STT provider and `kokoro` TTS provider entries in the agent schema, updating default model names to the new artifacts.
 - **FR-007**: System MUST keep all cloud STT/TTS providers (OpenAI, OpenRouter, Groq, ElevenLabs, Mistral, Gemini, HuggingFace, xAI, Hyperbolic) unchanged.
 - **FR-008**: System MUST update documentation that references sherpa-onnx model paths and the local provider descriptions.
+- **FR-009**: System MUST make the local providers the defaults: `SttProvider` defaults to `Whisper` and `TtsProvider` defaults to `Kokoro`, so enabling `stt`/`tts` without an explicit provider needs no cloud credentials. Tool-enablement booleans (`stt`/`tts`) remain `false` by default.
 
 ### Key Entities
 
@@ -94,4 +95,5 @@ A developer building vizier from source (or a release consumer) gets a binary th
 - `whisper-rs` and `any-tts` versions chosen are compatible with the Rust edition and toolchain already used by vizier (edition 2024).
 - Model quality for the new artifacts is comparable enough that existing tests/prompts do not need gold-standard updates.
 - The `whisper` and `kokoro` provider names are retained for backward compatibility with saved agent configs, even though the underlying runtime changes.
+- The default provider for STT/TTS becomes the local option (`whisper`/`kokoro`); cloud providers remain selectable. Tool-enablement flags stay off by default, so model downloads only happen when a user opts in.
 - Cloud providers are the recommended path for users who need the highest quality or specific voices; local providers remain best-effort/offline options.

@@ -288,12 +288,12 @@ impl IndexerKind {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TtsProvider {
-    #[default]
     Openai,
     Openrouter,
     Elevenlabs,
     Xai,
     Hyperbolic,
+    #[default]
     Kokoro,
 }
 
@@ -349,7 +349,6 @@ pub struct TtsToolSettings {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SttProvider {
-    #[default]
     Openai,
     Openrouter,
     Elevenlabs,
@@ -357,6 +356,7 @@ pub enum SttProvider {
     Mistral,
     Huggingface,
     Gemini,
+    #[default]
     Whisper,
 }
 
