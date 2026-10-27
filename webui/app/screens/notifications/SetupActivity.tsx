@@ -1,12 +1,10 @@
-import { AgentStartingCard, TextLink } from '@vizier/design'
+import { AgentStartingCard } from '@vizier/design'
 import type { SetupState } from '../../api/endpoints/agents'
 import { bytes } from '../../lib/format'
 import { eta, setupProgress, useAgents } from '../../stores/agents'
 
 type Props = {
     setup: SetupState
-    /** Close the panel while the chat link navigates. */
-    onOpen: () => void
 }
 
 function etaText(seconds: number | null): string | undefined {
@@ -27,7 +25,7 @@ function percentOf(d: SetupState['downloads'][number]): number | null {
  * One agent's live setup: what it is doing, how far along, and a line per
  * artifact. Live only — it has no read state and is never counted as unread.
  */
-export function SetupActivity({ setup, onOpen }: Props) {
+export function SetupActivity({ setup }: Props) {
     const agent = useAgents((s) => s.agents.find((a) => a.agent_id === setup.agent_id))
     const samples = useAgents((s) => s.samples[setup.agent_id])
     const name = setup.name || agent?.name || setup.agent_id
@@ -68,9 +66,6 @@ export function SetupActivity({ setup, onOpen }: Props) {
                     ) : undefined
                 }
             />
-            <TextLink href={`/${setup.agent_id}/chat`} onClick={onOpen}>
-                Open chat →
-            </TextLink>
         </div>
     )
 }

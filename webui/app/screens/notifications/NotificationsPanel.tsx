@@ -68,11 +68,7 @@ export function NotificationsPanel() {
             {active.length > 0 && (
                 <section aria-label="Setting up" className="flex flex-col gap-12">
                     {active.map((setup) => (
-                        <SetupActivity
-                            key={setup.agent_id}
-                            setup={setup}
-                            onOpen={closePanel}
-                        />
+                        <SetupActivity key={setup.agent_id} setup={setup} />
                     ))}
                 </section>
             )}
