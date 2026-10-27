@@ -20,7 +20,7 @@ export default [
             route(':agentId/core/edit', 'routes/agent-core-edit.tsx'),
             route(':agentId/memory', 'routes/memory.tsx', { id: 'memory-all' }),
             route(':agentId/memory/:bundle', 'routes/memory.tsx', { id: 'memory-bundle' }),
-            route(':agentId/memory/:bundle/*', 'routes/memory-doc.tsx'),
+            route(':agentId/memory/:bundle/*', 'routes/memory.tsx', { id: 'memory-doc' }),
             route(':agentId/tasks', 'routes/tasks.tsx'),
             route(':agentId/tasks/:slug', 'routes/task.tsx'),
             route(':agentId/tasks/:slug/edit', 'routes/task-edit.tsx'),

@@ -17,8 +17,9 @@ import {
 } from '../api/endpoints/memory'
 import { count, relativeTime } from '../lib/format'
 import { bundleStars, neighbourhood, toView } from '../lib/memoryGraph'
-import { bundleHref, bundleNode, docHref, type LoadedDocs } from '../lib/memoryTree'
+import { bundleHref, bundleNode, docHref, docId, type LoadedDocs } from '../lib/memoryTree'
 import { useMobile } from '../lib/useMobile'
+import { MemoryDocument, MemoryStrip } from '../screens/memory/MemoryDocument'
 import { ConfirmDialog } from '../screens/shared/ConfirmDialog'
 import { PageFrame } from '../screens/shared/PageFrame'
 import { Panes } from '../screens/shared/Panes'
@@ -32,20 +33,21 @@ const slugify = (s: string) =>
 
 /**
  * Memory: an explorer of bundles and their documents on the left, the graph on the right. With a
- * bundle open (`/memory/:bundle`) the graph is that bundle's documents; a document opens on its
- * own page.
+ * bundle open (`/memory/:bundle`) the graph is that bundle's documents; with a document open
+ * (`/memory/:bundle/:path`) the document takes the graph's place.
  */
 export default function Memory() {
-    const { agentId = '', bundle: rawBundle } = useParams()
+    const { agentId = '', bundle: rawBundle, '*': rawPath } = useParams()
     const [params] = useSearchParams()
     const bundle = rawBundle ? decodeURIComponent(rawBundle) : undefined
-    // Links from before documents had their own page.
+    const doc = bundle && rawPath ? rawPath.split('/').map(decodeURIComponent).join('/').replace(/\.md$/, '') : undefined
+    // Links from before documents had their own address.
     const legacyDoc = params.get('doc')
     if (bundle && legacyDoc) return <Navigate replace to={docHref(agentId, bundle, legacyDoc)} />
-    return <Explorer key={agentId} agentId={agentId} bundle={bundle} />
+    return <Explorer key={agentId} agentId={agentId} bundle={bundle} doc={doc} />
 }
 
-function Explorer({ agentId, bundle }: { agentId: string; bundle?: string }) {
+function Explorer({ agentId, bundle, doc }: { agentId: string; bundle?: string; doc?: string }) {
     const navigate = useNavigate()
     const mobile = useMobile()
     const [bundles, setBundles] = useState<Bundle[] | null>(null)
@@ -198,7 +200,7 @@ function Explorer({ agentId, bundle }: { agentId: string; bundle?: string }) {
                     nodes={nodes}
                     expanded={expanded}
                     onToggle={toggle}
-                    selectedId={bundle}
+                    selectedId={bundle && doc ? docId(bundle, doc) : bundle}
                     onSelect={select}
                     empty={<p className="px-8 type-small text-faint">No bundles yet.</p>}
                 />
@@ -240,18 +242,25 @@ function Explorer({ agentId, bundle }: { agentId: string; bundle?: string }) {
                         }
                     />
                 </div>
+            ) : bundle && doc && mobile ? (
+                // A phone has room for one: the document, with its way back to the explorer.
+                <MemoryDocument agentId={agentId} bundle={bundle} path={doc} />
             ) : (
                 <Panes side="left" paneWidth={320} paneLabel="Explorer" pane={explorer} bare phoneOrder="pane-first">
-                    {!mobile && (
-                        <GraphArea
-                            agentId={agentId}
-                            bundles={bundles ?? []}
-                            open={open}
-                            onFocus={(name) => navigate(name ? bundleHref(agentId, name) : `/${agentId}/memory`, { replace: true })}
-                            onOpenDoc={(b, path) => navigate(docHref(agentId, b, path))}
-                            onExport={(name) => void doExport(name)}
-                            onDelete={setDeleting}
-                        />
+                    {bundle && doc ? (
+                        <MemoryDocument agentId={agentId} bundle={bundle} path={doc} />
+                    ) : (
+                        !mobile && (
+                            <GraphArea
+                                agentId={agentId}
+                                bundles={bundles ?? []}
+                                open={open}
+                                onFocus={(name) => navigate(name ? bundleHref(agentId, name) : `/${agentId}/memory`, { replace: true })}
+                                onOpenDoc={(b, path) => navigate(docHref(agentId, b, path))}
+                                onExport={(name) => void doExport(name)}
+                                onDelete={setDeleting}
+                            />
+                        )
                     )}
                 </Panes>
             )}
@@ -334,29 +343,25 @@ function GraphArea({ agentId, bundles, open, onFocus, onOpenDoc, onExport, onDel
 
     const docsView = useMemo(() => (open && one?.bundle === open.name ? neighbourhood(toView(one.graph), '', 'all', 80) : null), [open, one])
 
-    const strip = 'flex min-h-56 shrink-0 flex-wrap items-center gap-12 border-b border-border px-24 py-10'
-
     if (open) {
         return (
             <div className="flex min-h-0 flex-1 flex-col">
-                <div className={strip}>
-                    <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate type-mono-sm text-fg">{open.name}</span>
-                        <span className="truncate type-mono-xs text-faint">
-                            {count(open.concept_count)} document{open.concept_count === 1 ? '' : 's'} · {count(open.link_count)} link{open.link_count === 1 ? '' : 's'}
-                            {open.updated_at ? ` · last written ${relativeTime(open.updated_at)}` : ''}
-                        </span>
-                    </span>
-                    <Button size="sm" variant="ghost" icon="chevron-left" onClick={() => onFocus(null)}>
-                        All bundles
-                    </Button>
-                    <Button size="sm" variant="secondary" icon="download" onClick={() => onExport(open.name)}>
-                        Export
-                    </Button>
-                    <Button size="sm" variant="destructive" icon="trash" onClick={() => onDelete(open.name)}>
-                        Delete
-                    </Button>
-                </div>
+                <MemoryStrip
+                    back={{ label: 'all bundles', onBack: () => onFocus(null) }}
+                    mono
+                    title={open.name}
+                    meta={`${count(open.concept_count)} document${open.concept_count === 1 ? '' : 's'} · ${count(open.link_count)} link${open.link_count === 1 ? '' : 's'}${open.updated_at ? ` · last written ${relativeTime(open.updated_at)}` : ''}`}
+                    actions={
+                        <>
+                            <Button size="sm" variant="secondary" icon="download" onClick={() => onExport(open.name)}>
+                                Export
+                            </Button>
+                            <Button size="sm" variant="destructive" icon="trash" onClick={() => onDelete(open.name)}>
+                                Delete
+                            </Button>
+                        </>
+                    }
+                />
                 {!docsView ? (
                     <Skeleton className="m-24 flex-1" />
                 ) : docsView.nodes.length === 0 ? (
@@ -383,19 +388,21 @@ function GraphArea({ agentId, bundles, open, onFocus, onOpenDoc, onExport, onDel
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <div className={strip}>
-                <span className="flex-1 type-body-strong text-fg">All bundles</span>
-                <FilterTabs
-                    aria-label="Order"
-                    value={order}
-                    onChange={setOrder}
-                    options={[
-                        { value: 'largest', label: 'Largest' },
-                        { value: 'recent', label: 'Recently changed' },
-                        { value: 'linked', label: 'Most linked' },
-                    ]}
-                />
-            </div>
+            <MemoryStrip
+                title="All bundles"
+                actions={
+                    <FilterTabs
+                        aria-label="Order"
+                        value={order}
+                        onChange={setOrder}
+                        options={[
+                            { value: 'largest', label: 'Largest' },
+                            { value: 'recent', label: 'Recently changed' },
+                            { value: 'linked', label: 'Most linked' },
+                        ]}
+                    />
+                }
+            />
             {!stars ? (
                 <Skeleton className="m-24 flex-1" />
             ) : (
