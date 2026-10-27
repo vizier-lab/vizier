@@ -41,7 +41,7 @@ description: "Task list for /btw Ephemeral Side-Chat"
 
 - [ ] T004 Add `SideChat { question, exchange: Vec<SideChatTurn> }` and `SideChatTurn { question, answer }` (deriving what `ClientEvent` derives) and `VizierRequestContent::Btw(SideChat)` in `src/schema/request.rs`. Extend `kind()` with `"btw"` and `Display` with the question, and add `pub fn is_side_chat(&self) -> bool`. Then fix every now-non-exhaustive `match` on `VizierRequestContent` that `cargo check` reports.
 - [ ] T005 Unit tests in `src/schema/request.rs` `mod tests`: `Btw` serialises as `{"btw": {...}}`, `kind()` is `"btw"`, `is_side_chat()` is true only for `Btw`, and `is_durable` is false for a `Btw` request with `transient: true`
-- [ ] T006 [P] Add `pub side_chat_limits: Arc<crate::channels::http::rate_limit::RateLimiter>` (built with `ASKS_PER_WINDOW`/`ASK_WINDOW` from T001) to `VizierDependencies` in `src/dependencies.rs`, constructed wherever the struct is built
+- [ ] T006 [P] Add `pub side_chat_limits: Arc<crate::channels::http::rate_limit::RateLimiter>` (built with `ASKS_PER_WINDOW`/`ASK_WINDOW` from T001) to `VizierDependencies` in `src/dependencies.rs`, constructed wherever the struct is built. Update the module doc comment in `src/channels/http/rate_limit.rs`: it says the limiter lives on `HTTPState`, and it is now also shared with the Discord and Telegram readers through `VizierDependencies`.
 
 ### Agent side (contracts/agent-side-chat.md)
 
@@ -58,14 +58,20 @@ description: "Task list for /btw Ephemeral Side-Chat"
   - Never call `chat`, `prompt_with`, `save_history_or_log`, `store_session_file`, hooks or `publish_session_event`.
 - [ ] T009 Add `async fn run_btw(agent, storage, session, request, response_tx)` in `src/agents/process.rs`. It loads `list_session_history_until_checkpoint(session, Some(request.timestamp))`, calls `agent.side_chat(..)`, and sends the `Message`. On `Err`, it sends `Error { kind: ErrorKind::classify(..), message }`. It never writes to storage.
 - [ ] T010 Wire the dispatch in `src/agents/process.rs` (depends on T009). This is where the no-trace guarantee is enforced, research R1/R2:
-  - In `agent_process`, skip the `refresh_session_detail` spawn when `request.content.is_side_chat()`.
-  - In `start_session_job`, skip both `update_thinking_state` calls for side chats.
+  - Add one pure helper, `fn records_session_activity(content: &VizierRequestContent) -> bool` (false only for side chats), and use it at both gates below, so the rule lives in one testable place.
+  - In `agent_process`, skip the `refresh_session_detail` spawn when `records_session_activity` is false.
+  - In `start_session_job`, skip both `update_thinking_state` calls when it is false.
   - Add `VizierRequestContent::Btw(_) => { run_btw(..).await; Ok(()) }` beside the `checkpoint`/`lobotomy` arms.
   - Add a defensive `Btw(_)` arm in `handle_request` that returns `Err(VizierError("side chats are answered by run_btw"))` without saving anything.
-- [ ] T011 Trace-invariant test in `src/agents/process.rs` `#[cfg(test)]`. Against a temp `SqliteStorage`, seed a session's history, run the side-chat path (`run_btw` with a stub/dummyplug-shaped model, or the storage-facing part if the model can't be stubbed), then assert all of the following:
-  - `list_session_history`, `get_session_detail_by_topic` and `pending_turns` are unchanged.
-  - The response has no `history_uid`.
-  - A side chat for a topic with no detail row leaves none.
+- [ ] T011 Trace-invariant tests in `src/agents/process.rs` `#[cfg(test)]`, covering both places a trace could come from:
+  - **The loop gates.** `records_session_activity` (T010) is false for `Btw` and true for every other `VizierRequestContent` variant. Build one value of each, so a new variant added later fails the test until someone decides.
+  - **The side chat itself.** Add a test-only `CompletionModel` implementation that returns fixed text, and a second one that returns only a tool call. Wrap each in a `VizierModel`, against a temp `SqliteStorage` with a seeded session history. Run `run_btw` with each model, then assert:
+    - The text model's reply is that text; the tool-call model's reply is exactly `SIDE_CHAT_NO_TOOLS`.
+    - `list_session_history`, `get_session_detail_by_topic` and `pending_turns` are unchanged.
+    - The response has no `history_uid`.
+    - A side chat for a topic with no detail row leaves none.
+    - One `usage_event` row is written per call.
+  - The parts of the loop these tests can't reach (the spawn and queue in `agent_process`) are covered end to end by quickstart §1 and §5.
 
 ### Shared ask helper (all channels)
 
@@ -91,8 +97,10 @@ description: "Task list for /btw Ephemeral Side-Chat"
     - `touch(id)`
     - `add_posted(id, P)`
     - `sweep(now) -> Vec<LiveExchange<P>>` (removes and returns ended exchanges)
+    - `owner_of(posted: &P) -> Option<(ExchangeId, PersonKey)>`, for recognising replies to a live exchange's messages
+    - `spawn_sweeper(self: Arc<Self>, every: Duration, on_end: F) -> JoinHandle<()>`, where `F: Fn(LiveExchange<P>) -> impl Future<Output = ()>`. It owns the interval, the `sweep` call and the loop over ended exchanges, so Discord and Telegram supply only their delete call (research R11, Principle II).
   - It's in memory only, behind a `std::sync::Mutex`, and never written to storage.
-- [ ] T015 Unit tests for `SideChats` in `src/channels/side_chat.rs`: idle expiry, max-age expiry with idle activity, another person's id refused, and an unknown or ended id gives `None`
+- [ ] T015 Unit tests for `SideChats` in `src/channels/side_chat.rs`: idle expiry, max-age expiry with idle activity, another person's id refused, an unknown or ended id gives `None`, `owner_of` finds a posted message, and `spawn_sweeper` calls `on_end` once per ended exchange (tokio paused time)
 
 **Checkpoint**: A `Btw` request sent on the transport is answered with no trace. Every channel can now call `side_chat::ask`.
 
@@ -132,6 +140,7 @@ description: "Task list for /btw Ephemeral Side-Chat"
   - Add a compact composer that's disabled when the exchange is full.
   - If opened with an initial question, ask it at once.
   - Keep state in `useReducer` only (no store, no storage). It's discarded on close and unmount.
+  - Give each ask an `AbortController` and abort it on close, unmount, and when the conversation changes. A result that arrives after that is ignored, so a late answer can never appear in a reopened panel. The server still finishes that answer and records its usage; nothing else is kept.
 - [ ] T022 [US1] Add `{ name: 'btw', description: 'Ask a side question that is never saved' }` to `BUILTIN` in `webui/app/screens/chat/Composer.tsx`. In `send()`, intercept `/^\/btw(?:\s+([\s\S]*))?$/` before the command regex and before anything is uploaded or sent, and call a new `onSideChat(question?: string)` prop.
 - [ ] T023 [US1] Mount `SideChatPanel` in `webui/app/routes/chat.tsx`. Pass `onSideChat` to `<Composer>` to open it with the agent, the conversation's channel id and topic id, and the optional question. Close it when the conversation or agent changes.
 - [ ] T024 [US1] Run `cd webui && npm run typecheck && npx vitest run side`, then commit in `webui/` and bump the `webui` gitlink here once the webui PR lands
@@ -147,7 +156,7 @@ description: "Task list for /btw Ephemeral Side-Chat"
 **Independent Test**: [quickstart.md](quickstart.md) §10 (LIVE): only the invoker sees the question and answers, and so do follow-ups. Two people at once each see only their own. After expiry the messages are gone, and a late **Follow up** says the side chat ended. The channel's history has no trace.
 
 - [ ] T025 [US2] Add `CommandEntry::new("btw", "ask me a side question only you can see; never saved")` with a required `message` option to `builtin_commands()` in `src/channels/discord/mod.rs`. Add `/btw` to the `/help` text.
-- [ ] T026 [US2] Add a `side_chats: Arc<SideChats<DiscordPosted>>` field to the Discord reader in `src/channels/discord/mod.rs`, where `DiscordPosted { token, message_id: Option<Id<MessageMarker>> }`. Use `Lifetime { idle: 5 min, max: Some(14 min) }`. Spawn a sweep task every 15 s, alongside the reader's other tasks, that deletes each ended exchange's messages through `http.interaction(app_id).delete_response(token)` / `delete_followup(token, id)`. The deletes are best-effort and logged at `debug`.
+- [ ] T026 [US2] Add a `side_chats: Arc<SideChats<DiscordPosted>>` field to the Discord reader in `src/channels/discord/mod.rs`, where `DiscordPosted { token, message_id: Option<Id<MessageMarker>> }`. Use `Lifetime { idle: 5 min, max: Some(14 min) }`. Start it with `side_chats.spawn_sweeper(15 s, on_end)` (T014), where `on_end` deletes the ended exchange's messages through `http.interaction(app_id).delete_response(token)` / `delete_followup(token, id)`. Abort the handle when the reader stops. The deletes are best-effort and logged at `debug`.
 - [ ] T027 [US2] Implement `async fn side_chat(&self, interaction, channel, question, exchange: Option<ExchangeId>)` in `src/channels/discord/mod.rs`:
   1. Respond `DeferredChannelMessageWithSource` with `MessageFlags::EPHEMERAL`.
   2. Resolve the host session from `load_state(&channel).active_topic`.
@@ -172,18 +181,29 @@ description: "Task list for /btw Ephemeral Side-Chat"
 **Independent Test**: [quickstart.md](quickstart.md) §11 (LIVE). In a private chat, the notice and answer appear, a reply follows up, and everything is gone 2 min 15 s after the last activity. In a group without admin rights, the bot's replies are deleted and the person's message stays, as the notice says. A restart before the deadline still deletes. History has no trace, and ordinary group messages are still `SilentRead`.
 
 - [ ] T029 [US3] Add `CommandEntry::new("btw", "ask me a side question; never saved, deleted after 2 minutes")` to `telegram_rules().builtins` in `src/channels/telegram/mod.rs`
-- [ ] T030 [US3] Implement the deletion ledger in `src/channels/telegram/mod.rs` (or a `side_chat_ledger` submodule beside it):
-  - The value `{ items: [{ chat_id, message_ids, delete_after }] }` is stored under `side_chat_pending__{agent_id}__{chat_id}` via `StateStorage`.
-  - Functions: `merge(chat, message_ids, delete_after)`, `clear(chat, message_ids)` (which removes the key when the list is empty), and `due(now)`.
+- [ ] T030 [US3] Implement the deletion ledger (research R13, data-model):
+  - Add `async fn delete_state(&self, key: String) -> Result<()>` to `StateStorage` in `src/storage/state.rs`. Implement it once in `SqliteStorage` (`DELETE FROM state WHERE key = ?1`) and forward it from `VizierStorage`.
+  - In `src/channels/telegram/mod.rs` (or a `side_chat_ledger` submodule beside it), store the value `{ items: [{ chat_id, message_ids, delete_after }] }` under one key per agent, `side_chat_pending__{agent_id}`.
+  - Functions:
+    - `merge(chat, message_ids, delete_after)`
+    - `clear(chat, message_ids)`, which calls `delete_state` when the list becomes empty
+    - `due(now)`
+    - `holds(chat, message_id)`, for recognising replies to an ended exchange
+    - `prune(now)`, which drops items older than 48 hours
+  - In the agent-deletion path (where `delete_agent` removes the agent's other rows), call `delete_state("side_chat_pending__{agent_id}")`.
   - The value holds no text, user or exchange id.
-  - Add unit tests for merge (moving `delete_after` forward), clear, and empty-key removal.
+  - Add unit tests for merge (moving `delete_after` forward), clear with key deletion, `holds`, and the 48-hour prune.
 - [ ] T031 [US3] Add `side_chats: Arc<SideChats<TelegramPosted>>` to the Telegram reader in `src/channels/telegram/mod.rs`, where `TelegramPosted { chat_id, message_id }` and the lifetime is `Lifetime { idle: 2 min, max: None }`.
-  - Spawn a sweep task every 15 s that `delete_message`s every posted message of an ended exchange, then `clear`s the ledger. Deletes are best-effort, and a refusal is logged at `debug`.
-  - At reader start, process the ledger's due items and re-arm the rest.
-- [ ] T032 [US3] At the top of `handle_message` in `src/channels/telegram/mod.rs`, before the `new`/`session`/`abort`/`checkpoint` commands and before skill/`Chat`/`SilentRead` parsing:
-  1. If `msg.reply_to_message()` is one of a live exchange's posted messages (from the same person), treat it as a follow-up.
+  - Start it with `side_chats.spawn_sweeper(15 s, on_end)` (T014), where `on_end` calls `delete_message` on every posted message of the ended exchange and then `clear`s the ledger. Abort the handle when the reader stops. Deletes are best-effort, and a refusal is logged at `debug`.
+  - At reader start, `prune` the ledger, delete its due items, and re-arm the rest with a one-shot timer each.
+- [ ] T032 [US3] At the top of `handle_message` in `src/channels/telegram/mod.rs`, before the `new`/`session`/`abort`/`checkpoint` commands and before skill/`Chat`/`SilentRead` parsing (research R13 item 3):
+  1. If `msg.reply_to_message()` is one of the bot's own messages, classify it. First match wins, and **none of these branches ever reaches `Chat`/`SilentRead`**:
+     - **Owned by a live exchange (`owner_of`), from that exchange's person** → a follow-up; continue at step 3.
+     - **Owned by a live exchange, from someone else** → no answer; add the message to that exchange's `posted` and the ledger; `return Ok(())`.
+     - **On the ledger (`holds`) with no live exchange** (the gap before the sweep, or after a restart) → reply "This side chat has ended — start a new one with /btw.", then `merge` both the reply and the person's message into the ledger with the old deadline (or now + 2 min if it has passed); `return Ok(())`.
+     - **None of these** → fall through to step 2 and normal parsing.
   2. Otherwise, if `is_command(&text, "btw", &bot_username)`, start a new exchange (an empty question gets the usage reply).
-  3. In both cases, call `side_chat::ask` with `PersonKey::telegram(from.id)` and the host session `(agent, channel, topic_id)`.
+  3. In both the follow-up and new-exchange cases, call `side_chat::ask` with `PersonKey::telegram(from.id)` and the host session `(agent, channel, topic_id)`.
   4. Reply to the person's message with the notice on the first answer. In groups, add "…your messages too, if I'm allowed to delete them here".
   5. Split long answers with the existing Telegram helper.
   6. Record the person's message, every reply and any error reply in `posted` and in the ledger (`merge`).

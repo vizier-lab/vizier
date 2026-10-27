@@ -165,6 +165,9 @@ With a Telegram channel integration on `dp-btw`:
 4. In a group where the bot is **not** an admin: `/btw hello` — the notice includes "if I'm allowed to delete them here"; after the timeout the bot's replies are gone and the person's `/btw` message remains.
 5. Start an exchange, kill vizier before the timeout, restart it after the deadline: once the reader reconnects, the messages are deleted. While waiting, `select value from state where key like 'side_chat_pending__%'` shows only chat id, message ids and a time.
 6. The chat's conversation history has no trace, and a group member's ordinary messages around the `/btw` are still recorded as `SilentRead` as before.
+7. **Late reply (C1).** In a private chat, start an exchange and wait 2 minutes, then within the next ~10 s (before the sweep deletes it) reply `are you there?` to the answer. Expect "This side chat has ended — start a new one with /btw."; shortly after, the reply and that notice are deleted too. The conversation history has no `are you there?` entry.
+8. **Reply after a restart (C1).** Start an exchange, stop vizier, start it again before the 2-minute deadline, and reply to the still-visible answer. Expect the same "has ended" notice, no new history entry, and everything deleted by the original deadline (or 2 minutes after the reply, if that deadline passed).
+9. **Someone else's reply (G1).** In a group, a second member replies to the first member's side-chat answer. Expect no answer from the agent, no history entry for that reply, and (if the bot is an admin) the reply deleted with the exchange.
 
 ## 12. Automated checks
 

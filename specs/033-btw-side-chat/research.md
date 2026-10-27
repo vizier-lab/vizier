@@ -39,7 +39,7 @@ The issue traced history saving and journaling. Reading `agent_process` found th
 
 **Rationale**: the issue decided this and verified that `session_queues`/`session_is_busy` and scratch-on-idle are in-memory and durability-blind. It also means the side chat always sees the conversation's latest finished reply, and `/abort` stops it with everything else.
 
-**Cost, recorded so it is a decision and not a surprise**: a `/btw` asked while the agent is in the middle of a long tool-using turn waits for that turn, possibly past `prompt_timeout` (408). SC-001's "under 10 seconds" holds only when the conversation is idle. Running side chats outside the queue (their own `JoinSet` in `agent_process`, aborted when the instance stops) would remove the wait and is a contained change if this becomes a complaint; it is not done in v1 because the issue settled it and a reviewer agreed.
+**Cost, recorded so it is a decision and not a surprise**: a `/btw` asked while the agent is in the middle of a long tool-using turn waits for that turn, possibly past `prompt_timeout` (408). SC-001's "under 10 seconds" holds only when the conversation is idle, and the spec now says so. Running side chats outside the queue (their own `JoinSet` in `agent_process`, aborted when the instance stops) would remove the wait and is a contained change if this becomes a complaint; it is not done in v1 because the issue settled it and a reviewer agreed.
 
 ## R5. Calling the model with no tools (settles "skip tool definitions")
 
@@ -81,11 +81,11 @@ Constants in `src/channels/side_chat.rs`, not config (Principle I; the issue rec
 
 ## R9. Rate limiting (settles where the limiter lives) — **(deviates)**
 
-**Decision**: one `RateLimiter` (the existing sliding-window type, reused in place from `channels/http/rate_limit.rs`), **5 asks per 60 s**, held on `VizierDependencies` (as `side_chat_limits`), checked inside `side_chat::ask` before anything is sent.
+**Decision**: one `RateLimiter` (the existing sliding-window type, reused in place from `channels/http/rate_limit.rs`), **5 asks per 60 s**, held on `VizierDependencies` (as `side_chat_limits`), checked inside `side_chat::ask` before anything is sent. The module's doc comment, which says the limiter lives on `HTTPState`, is updated to say it is also shared with the Discord and Telegram readers.
 
 **Why not `HTTPState`** (the issue's suggestion): the Discord and Telegram readers are given `VizierDependencies`, not `HTTPState`, so a limiter there could not cap them. `HTTPState` already carries `deps`, so the HTTP handler reaches the same instance.
 
-**Key**: the person as each platform identifies them — `http:{username}`, `discord:{user id}`, `telegram:{user id}`. **(Narrows a spec assumption.)** The spec assumes one limit per person across platforms. Vizier has no verified link between a WebUI account and a Discord/Telegram user: `UserProfile.discord_id`/`telegram_id` are self-declared and there is no lookup by them. Keying on a self-declared link would let anyone drain another person's budget by claiming their id. The limit therefore holds per identity: across all of a WebUI user's tabs and API keys, and per Discord or Telegram account. A cross-platform key can be added once identity links are verified.
+**Key**: the person as each platform identifies them — `http:{username}`, `discord:{user id}`, `telegram:{user id}`. **(Narrows the original spec assumption, which the spec now states this way.)** The first draft of the spec assumed one limit per person across platforms. Vizier has no verified link between a WebUI account and a Discord/Telegram user: `UserProfile.discord_id`/`telegram_id` are self-declared and there is no lookup by them. Keying on a self-declared link would let anyone drain another person's budget by claiming their id. The limit therefore holds per identity: across all of a WebUI user's tabs and API keys, and per Discord or Telegram account. A cross-platform key can be added once identity links are verified.
 
 **Over the limit**: `429` with `retry_after_secs` on HTTP (shown inline in the WebUI panel); an ephemeral reply on Discord; a self-deleting reply on Telegram.
 
@@ -103,6 +103,7 @@ The issue's `Btw(String)` carries one question; follow-ups need the earlier turn
 
 - **WebUI**: the side panel's component state (a plain array, discarded on close/unmount, as the issue specifies). It is sent with every ask.
 - **Discord, Telegram**: there is no client to hold it, so the reader holds it **in process memory** in one shared `SideChats` store (`src/channels/side_chat.rs`), keyed by an exchange id, swept on a timer (R12/R13). Nothing in it is written to storage; a restart loses it.
+- **The sweep is shared too (D1)**: `SideChats::spawn_sweeper(every, on_end)` owns the 15 s interval, the `sweep(now)` call and the per-exchange loop. Each platform supplies only `on_end`, its delete call (Discord: the interaction-token deletes; Telegram: `deleteMessage` plus the ledger clear), so the loop exists once (Principle II). The returned handle is aborted when the reader stops.
 
 The WebUI's transcript is client-supplied, so a person could put words in the agent's mouth in their own aside. That is accepted: the side chat has no tools and saves nothing, so a forged earlier turn can only change the answer the forger sees.
 
@@ -127,12 +128,27 @@ Answers over Discord's 2,000-character limit are split, the rest sent as ephemer
 
 1. `/btw <question>` (also `/btw@bot`) is recognised with `is_command` before `/skill` and chat/`SilentRead` parsing, so it never reaches the agent as `Chat` or `SilentRead` (both of which are saved). It is added to the bot's built-in command menu.
 2. The answer is sent as a **reply to the person's message**, prefixed with a one-line notice: this is a side chat, it isn't saved, and it is deleted after **2 minutes** without activity.
-3. A follow-up is a Telegram **reply to one of the exchange's answers**. Replies are checked against the live exchanges before any other parsing; they are delivered to bots in privacy mode.
+3. A follow-up is a Telegram **reply to one of the exchange's answers**. Replies are checked against the live exchanges before any other parsing; they are delivered to bots in privacy mode. A reply is classified like this, first match wins, and **no branch ever forwards it as `Chat` or `SilentRead`**:
+   - It replies to a message of a **live** exchange, and comes from that exchange's person → a follow-up.
+   - It replies to a message of a live exchange, but comes from **someone else** (a group) → not answered, not forwarded; its id joins the exchange's deletion list. It belongs to a thread that is about to disappear, and keeping it as an ordinary message would leave a dangling, possibly quoting, trace.
+   - It replies to a message on the **deletion ledger** but no live exchange owns it. This happens in the window between an exchange ending and the 15 s sweep, and after a restart, when the in-memory store is empty but the messages are still visible. → reply "This side chat has ended — start a new one with /btw.", and put both the reply and the person's message on the ledger with the ended exchange's deadline (or now + 2 min if it has passed).
+   - Otherwise it isn't a side-chat reply, and normal parsing continues.
+
+   The ledger check reads one state key, and only for messages that reply to one of the bot's own messages, so ordinary traffic costs nothing. Without the ledger branch, a person in a private chat who replies a few seconds late, or after a restart, would have their follow-up handled as an ordinary message and **saved to the conversation's history**, which breaks FR-006.
 4. Lifetime: **2 minutes** idle (the issue's proposed default, as a constant). A sweep every 15 s deletes the person's messages and the bot's replies with `deleteMessage`, so removal lands within 2 min 15 s of the last activity — the stated window in the notice (SC-004).
 
 **Deletion is best-effort where Telegram forbids it**: a bot may always delete its own messages and incoming messages in a private chat; in a group it may delete other people's messages only as an admin with *delete messages*. Without that right, the person's own `/btw` message stays. Rather than query the bot's rights, the notice in a group says so plainly ("…your messages too, if I'm allowed to delete them here"); a failed delete is logged at `debug` and dropped from the ledger.
 
-**Restart — (deviates from "no DB row, ever")**: a timer in memory dies with the process, which would leave an exchange in the chat indefinitely and break SC-004. The reader therefore keeps a **deletion ledger** in the existing key-value state storage (`StateStorage`, key `side_chat_pending__{agent}__{chat}`): only the chat id, message ids and a delete-after time — **no text, no user, no question or answer**. It is written when a message is posted, cleared as soon as the deletion is done, and processed when the reader starts. This is the minimum needed to keep the promise made in the notice; the turn itself is still never stored. The alternative (no ledger, leftovers after a crash) was rejected because it makes SC-004 false after any unclean restart.
+**Restart — (deviates from "no DB row, ever")**: a timer in memory dies with the process, which would leave an exchange in the chat indefinitely and break SC-004. The reader therefore keeps a **deletion ledger** in the existing key-value state storage (`StateStorage`). It is **one key per agent**, `side_chat_pending__{agent_id}`, holding items of chat id, message ids and a delete-after time — **no text, no user, no question or answer**. It is written when a message is posted, cleared as soon as the deletion has been attempted, and processed when the reader starts. This is the minimum needed to keep the promise made in the notice; the turn itself is still never stored. The spec's FR-006 names it as the one kept note besides cost. The alternative (no ledger, leftovers after a crash) was rejected because it makes SC-004 false after any unclean restart.
+
+**Ledger hygiene (I3)**: `StateStorage` has only `save_state`/`get_state`, so it gains one method, `delete_state(key)` (a single `DELETE`, implemented once in `SqliteStorage` and forwarded by `VizierStorage`). With it:
+
+- The key is deleted when its item list becomes empty.
+- Deleting an agent deletes its key, in the same path that deletes the agent's other rows.
+- At reader start, items older than **48 hours** are dropped without trying, because Telegram refuses to delete messages that old.
+- If an agent's Telegram connection is removed and never replaced, its key stays (content-free) until the agent is deleted. A later connection with a different bot token will try the deletions, get refused, and drop the items.
+
+One key per agent, rather than one per chat, is what makes deletion by agent possible without a prefix listing.
 
 ## R14. WebUI presentation
 
