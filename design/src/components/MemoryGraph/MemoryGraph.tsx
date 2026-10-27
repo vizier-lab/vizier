@@ -56,6 +56,10 @@ type Drag =
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 5;
+/** A label's size in graph units, so it grows and shrinks with the zoom. */
+const LABEL_SIZE = 11.5;
+/** Below this many pixels on screen a label is unreadable, so it is left out. */
+const MIN_LABEL_PX = 7;
 
 /**
  * A memory neighbourhood (X73), live: a force layout you can drag stars around
@@ -214,6 +218,7 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
   const focus = hover ?? selectedId;
   const near = (e: GraphEdge) => e.from === focus || e.to === focus;
   const neighbours = new Set(edges.filter(near).flatMap((e) => [e.from, e.to]));
+  const labelsReadable = LABEL_SIZE * view.k >= MIN_LABEL_PX;
 
   return (
     <div ref={box} className={cx("relative flex flex-col overflow-hidden rounded-xl bg-ground", className)} {...rest}>
@@ -291,14 +296,17 @@ export function MemoryGraph({ nodes, edges, selectedId, onSelect, onOpen, captio
                 <circle cx={n.x} cy={n.y} r={r + 6} strokeWidth={2 / view.k} className="fill-transparent stroke-transparent" />
                 {selected && <circle cx={n.x} cy={n.y} r={r + 5} strokeWidth={1.5 / view.k} className="fill-none stroke-ink" />}
                 <circle cx={n.x} cy={n.y} r={r} className={n.faded && !lit ? "fill-muted" : "fill-ink"} />
-                <text
-                  x={n.x + r + 8}
-                  y={n.y + 4}
-                  style={{ fontSize: `calc(11.5px / ${view.k})` }}
-                  className={cx("font-mono", selected || n.id === hover ? "fill-fg" : n.faded && !lit ? "fill-faint" : "fill-soft")}
-                >
-                  {n.label}
-                </text>
+                {(labelsReadable || selected || n.id === hover) && (
+                  // Zoomed out too far to read, only the hovered or selected star keeps its label, held at the smallest readable size.
+                  <text
+                    x={n.x + r + 8}
+                    y={n.y + 4}
+                    style={{ fontSize: labelsReadable ? `${LABEL_SIZE}px` : `calc(${MIN_LABEL_PX}px / ${view.k})` }}
+                    className={cx("font-mono", selected || n.id === hover ? "fill-fg" : n.faded && !lit ? "fill-faint" : "fill-soft")}
+                  >
+                    {n.label}
+                  </text>
+                )}
               </g>
             );
           })}
