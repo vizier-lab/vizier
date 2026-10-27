@@ -222,3 +222,31 @@ export const ServerPaged: Story = {
     );
   },
 };
+
+const emptyArgs = { label: "Conversations", search: { placeholder: "Search conversations", value: "", onChange: () => {} }, sections: [], getKey: () => "", renderItem: () => null, onSelect: () => {} };
+
+/** The first page is on its way: placeholder rows, not an empty list. */
+export const FirstLoad: Story = {
+  args: emptyArgs,
+  render: (args) => (
+    <Picker {...args} width={380} loading footer={<PickerAction icon="plus">New conversation</PickerAction>} />
+  ),
+};
+
+/** Nothing to show: `empty` says why, and the footer still offers the way forward. */
+export const Empty: Story = {
+  args: emptyArgs,
+  render: (args) => (
+    <Picker
+      {...args}
+      width={380}
+      empty={
+        <>
+          <span className="type-body-strong text-fg">No conversations yet</span>
+          <span>Start one below.</span>
+        </>
+      }
+      footer={<PickerAction icon="plus">New conversation</PickerAction>}
+    />
+  ),
+};

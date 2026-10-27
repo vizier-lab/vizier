@@ -14,6 +14,7 @@ import { motion } from "motion/react";
 import { cx } from "../../lib/cx";
 import { Presence, popoverMotion } from "../../lib/Motion";
 import { Floating, inFloating } from "../Floating/Floating";
+import { Skeleton } from "../Skeleton/Skeleton";
 
 export type PickerSection<T> = { label?: ReactNode; items: T[] };
 
@@ -32,8 +33,10 @@ export type PickerProps<T> = {
   };
   /** Called once when the list is scrolled to its end, to fetch the next page. */
   onEndReached?: () => void;
-  /** A page is being fetched: shows a loading row at the end. */
+  /** A page is being fetched: placeholder rows while the list is empty, a loading row at its end after. */
   loading?: boolean;
+  /** Shown in place of the list when it has no items and nothing is loading: "No conversations yet". */
+  empty?: ReactNode;
   /** Filter tabs under the search (the conversation picker). */
   filters?: ReactNode;
   sections: PickerSection<T>[];
@@ -77,6 +80,7 @@ export function Picker<T>({
   footer,
   onEndReached,
   loading,
+  empty,
   open: openProp,
   onOpenChange,
   itemHeight = 45,
@@ -250,10 +254,19 @@ export function Picker<T>({
             );
           })}
         </div>
-        {loading && (
+        {loading && items.length === 0 ? (
+          <Skeleton variant="lines" lines={3} className="px-14 py-14" />
+        ) : loading ? (
           <div role="status" className="flex justify-center py-10 type-small text-faint">
             Loading…
           </div>
+        ) : (
+          items.length === 0 &&
+          empty && (
+            <div role="status" className="flex flex-col items-center gap-4 px-14 py-20 text-center type-small text-muted">
+              {empty}
+            </div>
+          )
         )}
       </div>
       {remainder && <p className="px-14 pt-6 pb-10 type-small text-faint">{remainder}</p>}
