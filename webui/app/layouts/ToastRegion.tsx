@@ -4,7 +4,8 @@ import { useToasts } from '../stores/toasts'
 export function ToastRegion() {
     const { items, dismiss } = useToasts()
     return (
-        <Region position="top-right">
+        // The corner itself (24px in, as from the right edge); the design default sits under the header.
+        <Region position="top-right" className="top-24!">
             {/* Presence keeps a dismissed toast on screen long enough to leave. */}
             <Presence>
                 {items.map((t) => (
