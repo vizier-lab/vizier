@@ -180,6 +180,15 @@ export default function Chat() {
     const topicIndex = topics.findIndex((t) => t.topic_id === topicId)
     const title = state.title || topics[topicIndex]?.title || topicId || 'New topic'
 
+    // The same fresh topic the picker's "New conversation" opens, one click from the header.
+    const newConversation = (
+        <IconButton
+            icon="plus"
+            aria-label="New conversation"
+            onClick={() => navigate(`/${agentId}/chat/${nanoid(10)}`)}
+        />
+    )
+
     // The recalled memory, background jobs and session files: a side panel, or a sheet on a phone.
     const details = (
         <>
@@ -225,6 +234,7 @@ export default function Chat() {
                                 count={runningJobs}
                                 onClick={() => setSheet(true)}
                             />
+                            {newConversation}
                             <IconButton
                                 icon="layers"
                                 aria-label="Conversation details"
@@ -242,6 +252,7 @@ export default function Chat() {
                                 onClick={() => togglePanel(true)}
                                 open={panel}
                             />
+                            {newConversation}
                             <IconButton
                                 icon="layers"
                                 aria-label={panel ? 'Hide conversation details' : 'Show conversation details'}
