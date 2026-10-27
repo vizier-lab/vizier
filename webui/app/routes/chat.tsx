@@ -207,8 +207,8 @@ export default function Chat() {
     )
 
     return (
-        <div data-chat-area className="flex min-h-0 flex-1">
-            <div className="flex min-w-0 flex-1 flex-col">
+        <div data-chat-area className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <ConversationHeader
                     agentId={agentId}
                     title={title}
@@ -282,7 +282,8 @@ export default function Chat() {
                     configHref={`/${agentId}/config`}
                 />
 
-                <div className="relative flex min-h-0 flex-1 flex-col">
+                <div className="flex min-h-0 flex-1">
+                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
                 <MessageList
                     bottomInset={composerHeight}
                     state={state}
@@ -356,25 +357,25 @@ export default function Chat() {
                     </div>
                 </div>
                 </div>
+                <Presence>
+                    {!mobile && panel && (
+                        <motion.aside
+                            key="details"
+                            aria-label="Conversation details"
+                            className="flex w-320 shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto border-l border-border p-16 [&>*]:min-w-0"
+                            // The conversation makes room for the panel instead of
+                            // jumping when it appears.
+                            initial={{ width: reducedMotion ? 320 : 0, opacity: reducedMotion ? 1 : 0 }}
+                            animate={{ width: 320, opacity: 1 }}
+                            exit={reducedMotion ? { opacity: 0 } : { width: 0, opacity: 0 }}
+                            transition={{ duration: motionDurations.slow, ease: motionEases.standard }}
+                        >
+                            {details}
+                        </motion.aside>
+                    )}
+                </Presence>
+                </div>
             </div>
-
-            <Presence>
-                {!mobile && panel && (
-                    <motion.aside
-                        key="details"
-                        aria-label="Conversation details"
-                        className="flex w-320 shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto border-l border-border p-16 [&>*]:min-w-0"
-                        // The conversation makes room for the panel instead of
-                        // jumping when it appears.
-                        initial={{ width: reducedMotion ? 320 : 0, opacity: reducedMotion ? 1 : 0 }}
-                        animate={{ width: 320, opacity: 1 }}
-                        exit={reducedMotion ? { opacity: 0 } : { width: 0, opacity: 0 }}
-                        transition={{ duration: motionDurations.slow, ease: motionEases.standard }}
-                    >
-                        {details}
-                    </motion.aside>
-                )}
-            </Presence>
             {mobile && (
                 <SlideOver
                     open={sheet}
