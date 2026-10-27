@@ -114,6 +114,9 @@ docx-rs = "0.4"
 calamine = "0.36"
 hound = "3.5"
 symphonia = { version = "0.6.1", features = ["mp3", "ogg", "vorbis", "wav", "flac", "isomp4", "mkv", "pcm"] }
+# Opus is what browsers (WebM), Discord and Telegram (Ogg) record; symphonia has no decoder
+# of its own. Pure Rust, so the binary stays self-contained.
+symphonia-adapter-opus-rs = "0.1.1"
 whisper-rs = { version = "0.16.0", features = ["tracing_backend"] }
 any-tts = { version = "0.2.0", default-features = false, features = ["kokoro"] }
 similar = { version = "3", default-features = false, features = ["text"] }
@@ -131,6 +134,12 @@ serde_json = "1.0.149"
 
 [dev-dependencies]
 tokio = { version = "1.49.0", features = ["test-util"] }
+
+# Dependencies are compiled optimised even in dev builds. Local speech (candle for Kokoro,
+# whisper.cpp) is unusably slow at opt-level 0; vizier's own crate stays unoptimised so
+# rebuilds remain quick. Build-script and proc-macro code is unaffected.
+[profile.dev.package."*"]
+opt-level = 3
 
 [features]
 default = []

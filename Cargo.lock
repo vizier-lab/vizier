@@ -2195,7 +2195,7 @@ dependencies = [
  "anyhow",
  "hf-hub",
  "image",
- "ndarray",
+ "ndarray 0.16.1",
  "ort",
  "ort-sys",
  "rayon",
@@ -4265,6 +4265,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ndarray"
+version = "0.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "520080814a7a6b4a6e9070823bb24b4531daac8c4627e08ba5de8c5ef2f2752d"
+dependencies = [
+ "matrixmultiply",
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "portable-atomic",
+ "portable-atomic-util",
+ "rawpointer",
+ "serde",
+]
+
+[[package]]
 name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4309,6 +4325,34 @@ checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "non-empty-iter"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac123b8e4bd1fef3e8e972ba7a07f046ac6b608633ad761c61876b7197313f63"
+dependencies = [
+ "non-zero-size",
+]
+
+[[package]]
+name = "non-empty-slice"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9935c822e11be79ef40f986558b00da0ff176b7c87ddf6d9fb8b9138a6112c20"
+dependencies = [
+ "non-empty-iter",
+ "non-zero-size",
+ "ownership",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "non-zero-size"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "401b3a4027292c1c318fd2305783f791d5579d18e7143ef72d653bf0c29e6b36"
 
 [[package]]
 name = "noop_proc_macro"
@@ -4358,6 +4402,7 @@ checksum = "73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495"
 dependencies = [
  "bytemuck",
  "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -4630,7 +4675,7 @@ version = "2.0.0-rc.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52afb44b6b0cffa9bf45e4d37e5a4935b0334a51570658e279e9e3e6cf324aa5"
 dependencies = [
- "ndarray",
+ "ndarray 0.16.1",
  "ort-sys",
  "tracing",
 ]
@@ -4647,6 +4692,12 @@ dependencies = [
  "tar",
  "ureq",
 ]
+
+[[package]]
+name = "ownership"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfb1aeb68b9f2683ee3f83960c10668b37a8a640224ba1169697ee8fd1e906c1"
 
 [[package]]
 name = "parking_lot"
@@ -5651,6 +5702,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "realfft"
+version = "3.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "538895ccf2006b473aafbe8d72770e21038961ab67aae34f3c577485fc703a7d"
+dependencies = [
+ "rustfft",
+]
+
+[[package]]
 name = "reborrow"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6064,6 +6124,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a4edc941f215495170a1bda0beeeb31db2fdcd67beecfe7f29d94b2663e1965"
 dependencies = [
  "get-size2",
+]
+
+[[package]]
+name = "ruopus"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fcfcd963c83fc1ada2180ccdac7f1568d87fb0f2ad7236b266fdc9fb9122fbfd"
+dependencies = [
+ "spectrograms",
 ]
 
 [[package]]
@@ -6795,6 +6864,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "spectrograms"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ff1e83612f5a16e413dbfaf0381753b5eee714932fc95db19fe0974d5e6462b"
+dependencies = [
+ "ndarray 0.17.2",
+ "non-empty-slice",
+ "num-complex",
+ "num-traits",
+ "once_cell",
+ "pkg-config",
+ "realfft",
+ "regex",
+ "rustfft",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "speedate"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7005,6 +7092,17 @@ dependencies = [
  "symphonia-format-ogg",
  "symphonia-format-riff",
  "symphonia-metadata",
+]
+
+[[package]]
+name = "symphonia-adapter-opus-rs"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cbc645fce6e30f1f70d68a2ceed360e5c1921ec0ed1783a6a9bc2a90b6110b9e"
+dependencies = [
+ "log",
+ "ruopus",
+ "symphonia-core",
 ]
 
 [[package]]
@@ -8466,6 +8564,7 @@ dependencies = [
  "sqlite-vec",
  "strum 0.28.0",
  "symphonia",
+ "symphonia-adapter-opus-rs",
  "tar",
  "teloxide",
  "tempfile",

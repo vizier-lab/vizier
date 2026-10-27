@@ -68,13 +68,18 @@ pub async fn record_step(
 ) -> Option<String> {
     match crate::storage::history::save_with_busy_retry(storage, session, content.clone()).await {
         Ok(uid) => {
+            // A request keeps the time it was made, not the time it was saved.
+            let timestamp = match &content {
+                SessionHistoryContent::Request(request) => request.timestamp,
+                _ => chrono::Utc::now(),
+            };
             transport.publish_session_event(SessionEvent {
                 session: session.clone(),
                 frame: SessionFrame::HistoryEntry(SessionHistory {
                     uid: uid.clone(),
                     vizier_session: session.clone(),
                     content,
-                    timestamp: chrono::Utc::now(),
+                    timestamp,
                     reactions: vec![],
                     seq: None,
                 }),

@@ -30,7 +30,7 @@ pub struct WhisperSttModel {
     short_name: String,
     model_dir: PathBuf,
     model_file: PathBuf,
-    ctx: Arc<parking_lot::Mutex<Option<WhisperContext>>>,
+    ctx: Arc<parking_lot::Mutex<Option<Arc<WhisperContext>>>>,
     /// Reports the one-time model download to the WebUI setup board.
     setup: SetupBoard,
     agent_id: String,
@@ -103,31 +103,47 @@ impl WhisperSttModel {
         Ok(())
     }
 
-    async fn ensure_context(&self) -> Result<parking_lot::MutexGuard<'_, Option<WhisperContext>>> {
-        {
-            let lock = self.ctx.lock();
-            if lock.is_some() {
-                return Ok(lock);
-            }
+    /// The loaded model, loading it on first use. Loading reads the whole GGML file, so it
+    /// runs on a blocking thread and only the first caller pays for it.
+    async fn context(&self) -> Result<Arc<WhisperContext>> {
+        if let Some(ctx) = self.ctx.lock().as_ref() {
+            return Ok(ctx.clone());
         }
 
         self.ensure_model().await?;
 
-        // whisper.cpp logs to stderr by default; route it through tracing instead.
-        static LOGGING: std::sync::Once = std::sync::Once::new();
-        LOGGING.call_once(whisper_rs::install_logging_hooks);
+        let slot = self.ctx.clone();
+        let model_file = self.model_file.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut slot = slot.lock();
+            if let Some(ctx) = slot.as_ref() {
+                return Ok(ctx.clone());
+            }
 
-        let ctx = WhisperContext::new_with_params(
-            &self.model_file,
-            WhisperContextParameters::default(),
-        )
-        .map_err(|e| VizierError(format!("load whisper model: {e}")))?;
+            // whisper.cpp logs to stderr by default; route it through tracing instead.
+            static LOGGING: std::sync::Once = std::sync::Once::new();
+            LOGGING.call_once(whisper_rs::install_logging_hooks);
 
-        let mut lock = self.ctx.lock();
-        *lock = Some(ctx);
-        Ok(lock)
+            let ctx = Arc::new(
+                WhisperContext::new_with_params(&model_file, WhisperContextParameters::default())
+                    .map_err(|e| VizierError(format!("load whisper model: {e}")))?,
+            );
+            *slot = Some(ctx.clone());
+            Ok(ctx)
+        })
+        .await
+        .map_err(|e| VizierError(format!("whisper model load task: {e}")))?
     }
 }
+
+/// symphonia's codecs plus Opus, which it does not ship.
+static CODECS: std::sync::LazyLock<symphonia::core::codecs::registry::CodecRegistry> =
+    std::sync::LazyLock::new(|| {
+        let mut registry = symphonia::core::codecs::registry::CodecRegistry::new();
+        symphonia::default::register_enabled_codecs(&mut registry);
+        registry.register_audio_decoder::<symphonia_adapter_opus_rs::OpusAdapter>();
+        registry
+    });
 
 /// Decode any format symphonia understands into mono f32 samples at 16 kHz.
 fn decode_to_whisper_pcm(audio: &[u8], filename: &str) -> Result<Vec<f32>> {
@@ -174,7 +190,7 @@ fn decode_to_whisper_pcm(audio: &[u8], filename: &str) -> Result<Vec<f32>> {
         .ok_or_else(|| VizierError("unknown audio sample rate".into()))?;
     let channels = params.channels.as_ref().map(|c| c.count()).unwrap_or(1);
 
-    let mut decoder = symphonia::default::get_codecs()
+    let mut decoder = CODECS
         .make_audio_decoder(&params, &AudioDecoderOptions::default())
         .map_err(|e| VizierError(format!("audio decoder: {e}")))?;
 
@@ -251,52 +267,62 @@ impl VizierSttModel for WhisperSttModel {
         filename: &str,
         language: Option<&str>,
     ) -> Result<String> {
-        let pcm = decode_to_whisper_pcm(audio, filename)?;
-        let guard = self.ensure_context().await?;
-        let ctx = guard
-            .as_ref()
-            .ok_or_else(|| VizierError("Whisper STT not initialized".into()))?;
+        // Decoding, inference and model loading are CPU-bound and can take seconds; keep them
+        // off the async workers so other turns keep running.
+        let (audio, filename) = (audio.to_vec(), filename.to_string());
+        let pcm = tokio::task::spawn_blocking(move || decode_to_whisper_pcm(&audio, &filename))
+            .await
+            .map_err(|e| VizierError(format!("audio decode task: {e}")))??;
 
-        let mut state = ctx
-            .create_state()
-            .map_err(|e| VizierError(format!("create whisper state: {e}")))?;
+        let ctx = self.context().await?;
+        let language = language.map(str::to_string);
 
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        // Empty, `auto` and `detect` all mean "let Whisper decide".
-        let language = language
-            .map(|l| l.trim().to_ascii_lowercase())
-            .filter(|l| !l.is_empty() && l != "auto" && l != "detect");
-        let language = language
-            .as_deref()
-            .and_then(|l| l.split(['-', '_']).next())
-            .filter(|l| !l.is_empty());
-        params.set_language(language);
-        params.set_translate(false);
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
-        params.set_n_threads(
-            std::thread::available_parallelism()
-                .map(|n| n.get() as i32)
-                .unwrap_or(2)
-                .min(4),
-        );
-
-        state
-            .full(params, &pcm)
-            .map_err(|e| VizierError(format!("whisper transcription failed: {e}")))?;
-
-        let mut text = String::new();
-        for segment in state.as_iter() {
-            let part = segment
-                .to_str_lossy()
-                .map_err(|e| VizierError(format!("whisper segment: {e}")))?;
-            text.push_str(&part);
-        }
-
-        Ok(text.trim().to_string())
+        tokio::task::spawn_blocking(move || run_whisper(&ctx, &pcm, language.as_deref()))
+            .await
+            .map_err(|e| VizierError(format!("whisper task: {e}")))?
     }
+}
+
+fn run_whisper(ctx: &WhisperContext, pcm: &[f32], language: Option<&str>) -> Result<String> {
+    let mut state = ctx
+        .create_state()
+        .map_err(|e| VizierError(format!("create whisper state: {e}")))?;
+
+    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+    // Empty, `auto` and `detect` all mean "let Whisper decide".
+    let language = language
+        .map(|l| l.trim().to_ascii_lowercase())
+        .filter(|l| !l.is_empty() && l != "auto" && l != "detect");
+    let language = language
+        .as_deref()
+        .and_then(|l| l.split(['-', '_']).next())
+        .filter(|l| !l.is_empty());
+    params.set_language(language);
+    params.set_translate(false);
+    params.set_print_special(false);
+    params.set_print_progress(false);
+    params.set_print_realtime(false);
+    params.set_print_timestamps(false);
+    params.set_n_threads(
+        std::thread::available_parallelism()
+            .map(|n| n.get() as i32)
+            .unwrap_or(2)
+            .min(4),
+    );
+
+    state
+        .full(params, pcm)
+        .map_err(|e| VizierError(format!("whisper transcription failed: {e}")))?;
+
+    let mut text = String::new();
+    for segment in state.as_iter() {
+        let part = segment
+            .to_str_lossy()
+            .map_err(|e| VizierError(format!("whisper segment: {e}")))?;
+        text.push_str(&part);
+    }
+
+    Ok(text.trim().to_string())
 }
 
 #[cfg(test)]
@@ -309,6 +335,58 @@ mod tests {
         assert_eq!(ggml_artifact("ggml-large-v3"), "ggml-large-v3");
         assert_eq!(ggml_artifact("ggml-small.en.bin"), "ggml-small.en");
         assert_eq!(ggml_artifact("tiny"), "ggml-tiny");
+    }
+
+    fn wav(rate: u32, channels: u16, seconds: u32) -> Vec<u8> {
+        let spec = hound::WavSpec {
+            channels,
+            sample_rate: rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut out = std::io::Cursor::new(Vec::new());
+        let mut writer = hound::WavWriter::new(&mut out, spec).unwrap();
+        for i in 0..rate * seconds {
+            let s = ((i as f32 * 0.05).sin() * 8_000.0) as i16;
+            for _ in 0..channels {
+                writer.write_sample(s).unwrap();
+            }
+        }
+        writer.finalize().unwrap();
+        out.into_inner()
+    }
+
+    /// The WebUI records 16 kHz mono WAV; other clients may send any rate or channel count.
+    #[test]
+    fn wav_uploads_decode_to_16khz_mono() {
+        let browser = decode_to_whisper_pcm(&wav(16_000, 1, 1), "voice-message.wav").unwrap();
+        assert_eq!(browser.len(), 16_000);
+
+        let stereo = decode_to_whisper_pcm(&wav(44_100, 2, 1), "voice-message.wav").unwrap();
+        assert_eq!(stereo.len(), 16_000);
+        assert!(stereo.iter().any(|s| s.abs() > 0.1));
+    }
+
+    /// What Chrome records: Opus in WebM. One second of a 440 Hz tone, 48 kHz mono.
+    #[test]
+    fn webm_opus_uploads_decode_to_16khz_mono() {
+        let audio = include_bytes!("fixtures/tone.webm");
+        let pcm = decode_to_whisper_pcm(audio, "voice-message.webm").unwrap();
+        assert!(
+            (15_000..=17_500).contains(&pcm.len()),
+            "{} samples",
+            pcm.len()
+        );
+        let rms = (pcm.iter().map(|s| s * s).sum::<f32>() / pcm.len() as f32).sqrt();
+        assert!(rms > 0.05, "decoded silence (rms {rms})");
+    }
+
+    #[test]
+    fn an_undecodable_upload_is_an_error_not_a_panic() {
+        assert!(
+            decode_to_whisper_pcm(b"\x1a\x45\xdf\xa3 not really webm", "voice-message.webm")
+                .is_err()
+        );
     }
 
     #[test]

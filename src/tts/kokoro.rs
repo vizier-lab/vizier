@@ -255,27 +255,6 @@ impl KokoroTtsModel {
         result.map(|_| ())
     }
 
-    async fn ensure_tts(&self) -> Result<parking_lot::MutexGuard<'_, Option<Box<dyn TtsModel>>>> {
-        {
-            let lock = self.tts.lock();
-            if lock.is_some() {
-                return Ok(lock);
-            }
-        }
-
-        self.ensure_model().await?;
-
-        let tts = load_model(
-            TtsConfig::new(ModelType::Kokoro)
-                .with_model_path(self.model_dir.to_string_lossy().into_owned()),
-        )
-        .map_err(|e| VizierError(format!("load Kokoro TTS engine: {e}")))?;
-
-        let mut lock = self.tts.lock();
-        *lock = Some(tts);
-
-        Ok(lock)
-    }
 }
 
 #[async_trait::async_trait]
@@ -286,21 +265,38 @@ impl VizierTtsModel for KokoroTtsModel {
         // packs are fetched on first use.
         self.ensure_model().await?;
         self.ensure_voice(&voice).await?;
-        let lock = self.ensure_tts().await?;
-        let tts = lock
-            .as_ref()
-            .ok_or_else(|| VizierError("Kokoro TTS not initialized".into()))?;
 
         let request = SynthesisRequest::new(text)
             .with_voice(&voice)
             // any-tts accepts 0.1..=5.0; the trait's speed is a plain multiplier.
             .with_speed(speed.clamp(0.1, 5.0) as f64);
 
-        let audio = tts
-            .synthesize(&request)
-            .map_err(|e| VizierError(format!("Kokoro TTS generation failed: {e}")))?;
+        // Loading the weights and synthesising are CPU-bound and take seconds; keep them off
+        // the async workers so other turns keep running. The lock makes concurrent requests
+        // share one loaded engine and take turns on it.
+        let slot = self.tts.clone();
+        let model_dir = self.model_dir.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut slot = slot.lock();
+            if slot.is_none() {
+                let tts = load_model(
+                    TtsConfig::new(ModelType::Kokoro)
+                        .with_model_path(model_dir.to_string_lossy().into_owned()),
+                )
+                .map_err(|e| VizierError(format!("load Kokoro TTS engine: {e}")))?;
+                *slot = Some(tts);
+            }
 
-        Ok(audio.get_wav())
+            let tts = slot
+                .as_ref()
+                .ok_or_else(|| VizierError("Kokoro TTS not initialized".into()))?;
+            let audio = tts
+                .synthesize(&request)
+                .map_err(|e| VizierError(format!("Kokoro TTS generation failed: {e}")))?;
+            Ok(audio.get_wav())
+        })
+        .await
+        .map_err(|e| VizierError(format!("Kokoro TTS task: {e}")))?
     }
 }
 

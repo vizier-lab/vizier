@@ -56,7 +56,7 @@ The `tools` object in the agent API:
     "tts": false,
     "tts_settings": { "provider": "openai", "model": "tts-1", "voice": "alloy", "speed": 1.0 },
     "stt": false,
-    "stt_settings": { "provider": "whisper", "model": "large-v3", "language": "en" },
+    "stt_settings": { "provider": "whisper", "model": "ggml-large-v3", "language": "en" },
     "read_image": false,
     "read_image_settings": { "provider": "openai", "model": "gpt-4o-mini" },
     "image_gen": false,
@@ -108,7 +108,7 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 | `mistral` | `voxtral-mini-2507` | `mistral` key |
 | `huggingface` | `openai/whisper-large-v3` | `huggingface` key |
 | `gemini` | `gemini-1.5-flash` | `google` key |
-| `whisper` (default) | `ggml-large-v3` | none — runs locally via whisper-rs; GGML model downloaded into `<workspace>/.runtime/stt/whisper/` |
+| `whisper` (default) | `ggml-small` | none — runs locally via whisper-rs; GGML model downloaded into `<workspace>/.runtime/stt/whisper/` |
 
 `language` is optional (auto-detect when unset). OpenRouter caps multipart uploads at 25 MB; an oversized clip comes back as the provider's error.
 
