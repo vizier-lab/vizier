@@ -211,9 +211,15 @@ describe('the notifications store', () => {
         }
     })
 
+    it('opens on Unread, and a sign-out returns it there', () => {
+        useNotifications.getState().setFilter('read')
+        useNotifications.getState().reset()
+        expect(useNotifications.getState().filter).toBe('unread')
+    })
+
     it('merges a poll at the top and keeps older pages', async () => {
         list.mockResolvedValueOnce(page([item(3), item(2)], 'older'))
-        useNotifications.setState({ loaded: true })
+        useNotifications.setState({ loaded: true, filter: 'all' })
         await useNotifications.getState().load()
         list.mockResolvedValueOnce(page([item(4, true), item(3)], null))
         await useNotifications.getState().refresh()

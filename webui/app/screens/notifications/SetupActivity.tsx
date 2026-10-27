@@ -41,7 +41,9 @@ export function SetupActivity({ setup, onOpen }: Props) {
 
     return (
         <div className="flex w-full flex-col gap-6">
+            {/* The card caps its own width for toasts; in the panel it spans the column. */}
             <AgentStartingCard
+                className="max-w-none!"
                 name={name}
                 step={setup.message || 'Building tools'}
                 percent={pct == null ? undefined : Math.round(pct * 100)}

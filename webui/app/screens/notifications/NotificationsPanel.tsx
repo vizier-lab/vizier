@@ -84,9 +84,9 @@ export function NotificationsPanel() {
                     value={filter}
                     onChange={setFilter}
                     options={[
-                        { value: 'all', label: 'All', count: counts.all },
                         { value: 'unread', label: 'Unread', count: counts.unread },
                         { value: 'read', label: 'Read', count: counts.read },
+                        { value: 'all', label: 'All', count: counts.all },
                     ]}
                 />
                 <TextLink

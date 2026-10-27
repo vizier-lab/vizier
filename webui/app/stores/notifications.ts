@@ -70,7 +70,7 @@ function optimisticCounts(
 
 export const useNotifications = create<NotificationStore>()((set, get) => ({
     open: false,
-    filter: 'all',
+    filter: 'unread',
     items: [],
     counts: EMPTY,
     next: null,
@@ -267,7 +267,7 @@ export const useNotifications = create<NotificationStore>()((set, get) => ({
     reset: () =>
         set({
             open: false,
-            filter: 'all',
+            filter: 'unread',
             items: [],
             counts: EMPTY,
             next: null,
