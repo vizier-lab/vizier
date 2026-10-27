@@ -42,6 +42,14 @@ export const States: Story = {
                 </div>
               ),
             },
+            {
+              label: "Disabled",
+              node: (
+                <div className={collapsed ? "" : "w-212"}>
+                  <NavItem icon="home" label="Home" collapsed={collapsed} disabled />
+                </div>
+              ),
+            },
           ],
         ),
       }))}

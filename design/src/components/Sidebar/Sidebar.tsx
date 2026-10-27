@@ -52,6 +52,8 @@ export type SidebarProps = {
   chatLive?: boolean;
   /** Pages the person may not see here, dropped from every group before rendering. */
   hiddenPages?: SidebarPage[];
+  /** Pages shown but not reachable, e.g. the agent's pages while no agent is chosen. */
+  disabledPages?: SidebarPage[];
   hrefFor: (page: SidebarPage) => string;
   onToggleTheme: () => void;
   onToggleCollapsed: () => void;
@@ -65,6 +67,7 @@ export function Sidebar({
   collapsed,
   chatLive,
   hiddenPages,
+  disabledPages,
   hrefFor,
   onToggleTheme,
   onToggleCollapsed,
@@ -85,6 +88,7 @@ export function Sidebar({
   const groups = GROUPS.map((g) => ({ ...g, pages: g.pages.filter((p) => !hidden.has(p.page)) })).filter(
     (g) => g.pages.length > 0,
   );
+  const disabled = new Set(disabledPages ?? []);
   const item = (p: { page: SidebarPage; label: string; icon: IconName }) =>
     wrap(
       p.label,
@@ -92,7 +96,8 @@ export function Sidebar({
         key={p.page}
         icon={p.icon}
         label={p.label}
-        href={hrefFor(p.page)}
+        href={disabled.has(p.page) ? undefined : hrefFor(p.page)}
+        disabled={disabled.has(p.page)}
         active={active === p.page}
         collapsed={collapsed}
         live={p.page === "chat" && chatLive}

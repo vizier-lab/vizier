@@ -12,21 +12,27 @@ export type NavItemProps = {
   collapsed?: boolean;
   /** An emerald ring at the end, e.g. Chat while a reply is streaming. */
   live?: boolean;
+  /** Shown but not reachable, e.g. an agent page while no agent is chosen. */
+  disabled?: boolean;
   href?: string;
   onSelect?: () => void;
 } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "onSelect">;
 
 /** One sidebar destination (D2). Renders a link with `href`, else a button. */
-export function NavItem({ icon, label, active, collapsed, live, href, onSelect, className, ...rest }: NavItemProps) {
+export function NavItem({ icon, label, active, collapsed, live, disabled, href, onSelect, className, ...rest }: NavItemProps) {
   const classes = cx(
     "group flex h-31 items-center gap-10 rounded-md text-left transition-colors",
     collapsed ? "w-44 justify-center" : "w-full px-10",
-    active ? "bg-raised text-fg type-body-medium" : "text-muted type-body hover:bg-surface hover:text-soft",
+    disabled
+      ? "cursor-not-allowed text-faint type-body"
+      : active
+        ? "bg-raised text-fg type-body-medium"
+        : "text-muted type-body hover:bg-surface hover:text-soft",
     className,
   );
   const content = (
     <>
-      <Icon name={icon} className={active ? "text-fg" : "group-hover:text-fg"} />
+      <Icon name={icon} className={disabled ? undefined : active ? "text-fg" : "group-hover:text-fg"} />
       <span className={collapsed ? "sr-only" : "min-w-0 flex-1 truncate"}>{label}</span>
       {live && (
         <span
@@ -37,6 +43,21 @@ export function NavItem({ icon, label, active, collapsed, live, href, onSelect, 
       )}
     </>
   );
+  // No link and no handler: nothing to follow, but still in the tab order so its name (and the
+  // rail's tooltip) can be reached.
+  if (disabled) {
+    return (
+      <span
+        role="link"
+        aria-disabled="true"
+        tabIndex={0}
+        className={cx(classes, collapsed && "relative")}
+        {...(rest as React.HTMLAttributes<HTMLSpanElement>)}
+      >
+        {content}
+      </span>
+    );
+  }
   if (href !== undefined) {
     return (
       <a href={href} aria-current={active ? "page" : undefined} className={cx(classes, collapsed && "relative")} {...rest}>

@@ -23,6 +23,7 @@ const meta = {
   argTypes: {
     active: { control: "select", options: PAGES },
     hiddenPages: { control: "multi-select", options: PAGES },
+    disabledPages: { control: "multi-select", options: PAGES },
   },
   decorators: [(Story) => <div className="h-1024">{Story()}</div>],
 } satisfies Meta<typeof Sidebar>;
@@ -66,5 +67,18 @@ export const WithoutSecrets: Story = {
         story: "Secrets is hidden unless the person may manage the selected agent's secrets.",
       },
     },
+  },
+};
+
+const AGENT_PAGES: SidebarPage[] = ["chat", "core", "memory", "tasks", "skills", "dreams", "channels", "addons", "mcp", "usage", "config"];
+
+/** No agent chosen yet: the agent's pages stay in place, greyed, and lead nowhere. */
+export const NoAgent: Story = {
+  args: {
+    active: "home",
+    chatLive: false,
+    hiddenPages: ["secrets"],
+    disabledPages: AGENT_PAGES,
+    agent: <AgentSwitcher agentId="none" name="Choose an agent" state="stopped" />,
   },
 };
