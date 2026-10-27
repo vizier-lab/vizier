@@ -211,15 +211,6 @@ jobs:
             perl \
             make
 
-      # sherpa-onnx-sys downloads its prebuilt libs into target/sherpa-onnx-prebuilt
-      # and skips the download whenever the lib/ dir exists. rust-cache restores
-      # that dir without the libs, so the link fails; start it from scratch.
-      - name: Force sherpa-onnx prebuilt re-download
-        shell: bash
-        run: |
-          rm -rf target/sherpa-onnx-prebuilt
-          cargo clean --release --target ${{ matrix.target }} -p sherpa-onnx-sys
-
       - name: Build binary
         run: cargo build --release --target ${{ matrix.target }}
 

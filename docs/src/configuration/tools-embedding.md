@@ -88,7 +88,7 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 
 | Provider | Default model | Default voice | Credential |
 |----------|---------------|---------------|------------|
-| `kokoro` (default) | `kokoro-en-v0_19` | `af` | none (local) |
+| `kokoro` (default) | `Kokoro-82M` | `af` | none (local — runs in-process via any-tts/Candle; weights downloaded into `<workspace>/.runtime/tts/kokoro/`) |
 | `openrouter` | `hexgrad/kokoro-82m` | `af_alloy` | `openrouter` key |
 | `elevenlabs` | `eleven_multilingual_v2` | `pqHfZKP75CvOlQylNhV4` | `elevenlabs` key |
 | `xai` | `grok-2-tts` | `default` | `xai` key |
@@ -108,7 +108,7 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 | `mistral` | `voxtral-mini-2507` | `mistral` key |
 | `huggingface` | `openai/whisper-large-v3` | `huggingface` key |
 | `gemini` | `gemini-1.5-flash` | `google` key |
-| `whisper` (default) | `large-v3` | none — runs locally via whisper-rs; model downloaded into `<workspace>/.runtime/stt/whisper/` |
+| `whisper` (default) | `ggml-large-v3` | none — runs locally via whisper-rs; GGML model downloaded into `<workspace>/.runtime/stt/whisper/` |
 
 `language` is optional (auto-detect when unset). OpenRouter caps multipart uploads at 25 MB; an oversized clip comes back as the provider's error.
 

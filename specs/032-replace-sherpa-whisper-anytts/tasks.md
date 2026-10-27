@@ -22,9 +22,9 @@
 
 **Purpose**: Swap dependencies and remove sherpa build references.
 
-- [ ] T001 Update `Cargo.toml`: remove `sherpa-onnx`/`sherpa-onnx-sys`; add `whisper-rs` (+ `whisper-rs-sys`) and `any-tts`; keep `hound`, `symphonia`, `fastembed`.
-- [ ] T002 [P] Update `.github/workflows/release.yml`: remove the sherpa-onnx prebuilt re-download / clean steps.
-- [ ] T003 [P] Update `docs/src/configuration/tools-embedding.md`: replace "runs locally via sherpa-onnx" with the new runtimes and update default model names.
+- [X] T001 Update `Cargo.toml`: remove `sherpa-onnx`/`sherpa-onnx-sys`; add `whisper-rs` (+ `whisper-rs-sys`) and `any-tts`; keep `hound`, `symphonia`, `fastembed`.
+- [X] T002 [P] Update `.github/workflows/release.yml`: remove the sherpa-onnx prebuilt re-download / clean steps.
+- [X] T003 [P] Update `docs/src/configuration/tools-embedding.md`: replace "runs locally via sherpa-onnx" with the new runtimes and update default model names.
 
 **Checkpoint**: Dependency set changed; build will be restored in US1/US2.
 
@@ -48,10 +48,10 @@
 
 ### Implementation for User Story 1
 
-- [ ] T004 [US1] Rewrite `src/stt/whisper.rs` to use `whisper-rs`: download the GGML Whisper model into `<workspace>/.runtime/stt/whisper/`, report progress via `SetupBoard`, load the recognizer, transcribe WAV/PCM audio to text. Keep the `VizierSttModel` impl signature.
-- [ ] T005 [P] [US1] Update the STT default model string in `src/schema/agent.rs` (`SttProvider::Whisper.default_model()`) to the new GGML artifact name.
-- [ ] T006 [P] [US1] Update `webui/app/lib/agentForm.ts`: `STT_DEFAULT_MODELS.whisper` and the `emptyForm`/`fromDetail` defaults to the new artifact name and `whisper` provider.
-- [ ] T007 [US1] Run `cargo build` to confirm the STT rewrite compiles; fix any errors.
+- [X] T004 [US1] Rewrite `src/stt/whisper.rs` to use `whisper-rs`: download the GGML Whisper model into `<workspace>/.runtime/stt/whisper/`, report progress via `SetupBoard`, load the recognizer, transcribe WAV/PCM audio to text. Keep the `VizierSttModel` impl signature.
+- [X] T005 [P] [US1] Update the STT default model string in `src/schema/agent.rs` (`SttProvider::Whisper.default_model()`) to the new GGML artifact name.
+- [X] T006 [P] [US1] Update `webui/app/lib/agentForm.ts`: `STT_DEFAULT_MODELS.whisper` and the `emptyForm`/`fromDetail` defaults to the new artifact name and `whisper` provider.
+- [X] T007 [US1] Run `cargo build` to confirm the STT rewrite compiles; fix any errors.
 
 **Checkpoint**: Local STT works offline end to end.
 
@@ -65,10 +65,10 @@
 
 ### Implementation for User Story 2
 
-- [ ] T008 [US2] Rewrite `src/tts/kokoro.rs` to use `any-tts` (Candle/Kokoro): download weights into `<workspace>/.runtime/tts/kokoro/`, report progress via `SetupBoard`, generate WAV for a voice ID. Keep the `VizierTtsModel` impl signature; fall back to voice 0 with a warning for unknown IDs.
-- [ ] T009 [P] [US2] Update the TTS default model string in `src/schema/agent.rs` (`TtsProvider::Kokoro.default_model()`) to the new artifact name.
-- [ ] T010 [P] [US2] Update `webui/app/lib/agentForm.ts`: `TTS_DEFAULT_MODELS.kokoro` and the `emptyForm`/`fromDetail` defaults to the new artifact name and `kokoro` provider.
-- [ ] T011 [US2] Run `cargo build` to confirm the TTS rewrite compiles; fix any errors.
+- [X] T008 [US2] Rewrite `src/tts/kokoro.rs` to use `any-tts` (Candle/Kokoro): download weights into `<workspace>/.runtime/tts/kokoro/`, report progress via `SetupBoard`, generate WAV for a voice ID. Keep the `VizierTtsModel` impl signature; fall back to voice 0 with a warning for unknown IDs.
+- [X] T009 [P] [US2] Update the TTS default model string in `src/schema/agent.rs` (`TtsProvider::Kokoro.default_model()`) to the new artifact name.
+- [X] T010 [P] [US2] Update `webui/app/lib/agentForm.ts`: `TTS_DEFAULT_MODELS.kokoro` and the `emptyForm`/`fromDetail` defaults to the new artifact name and `kokoro` provider.
+- [X] T011 [US2] Run `cargo build` to confirm the TTS rewrite compiles; fix any errors.
 
 **Checkpoint**: Local TTS works offline end to end.
 
@@ -82,11 +82,11 @@
 
 ### Implementation for User Story 3
 
-- [ ] T012 [US3] Verify `Cargo.lock` contains no `sherpa-onnx`/`sherpa-onnx-sys` entries; run `cargo build --release`.
-- [ ] T013 [P] [US3] Run `cargo clippy` and `cargo test`; fix warnings/errors.
-- [ ] T014 [P] [US3] Run `cd webui && npm run typecheck`.
-- [ ] T015 [US3] Cross-build check: run `cross build` for an aarch64 target; add compiler pre-build steps to `Cross.toml` if whisper-rs-sys needs them.
-- [ ] T016 [US3] Grep for remaining `sherpa_onnx`/`sherpa-onnx` references in `src/` and remove any stale ones.
+- [X] T012 [US3] Verify `Cargo.lock` contains no `sherpa-onnx`/`sherpa-onnx-sys` entries; run `cargo build --release`.
+- [X] T013 [P] [US3] Run `cargo clippy` and `cargo test`; fix warnings/errors.
+- [X] T014 [P] [US3] Run `cd webui && npm run typecheck`.
+- [ ] T015 [US3] Cross-build check: run `cross build` for an aarch64 target; add compiler pre-build steps to `Cross.toml` if whisper-rs-sys needs them. **Pre-build steps for cmake + the cross C++ toolchain were added to `Cross.toml`, but `cross` is not installed and Docker is unavailable in this environment, so the build itself was not run.**
+- [X] T016 [US3] Grep for remaining `sherpa_onnx`/`sherpa-onnx` references in `src/` and remove any stale ones.
 
 **Checkpoint**: Clean, self-contained release build.
 
@@ -96,10 +96,10 @@
 
 **Purpose**: Validation against quickstart and constitution e2e gate.
 
-- [ ] T017 Run the dummyplug STT steps from `quickstart.md` against a running binary.
-- [ ] T018 Run the dummyplug TTS steps from `quickstart.md` against a running binary.
-- [ ] T019 Verify first-run download progress appears in the WebUI setup board for both capabilities.
-- [ ] T020 Verify TTS succeeds with no `espeak-ng` installed on the host.
+- [X] T017 Run the dummyplug STT steps from `quickstart.md` against a running binary. (Audio generated locally by TTS, transcribed back to the exact spoken sentence; a restart re-transcribed it from the cached model in 484 ms with no download.)
+- [X] T018 Run the dummyplug TTS steps from `quickstart.md` against a running binary. (A 183,644-byte RIFF/WAVE, 24 kHz mono 16-bit, 3.83 s file; a post-restart run took 3.7 s from the cached model.)
+- [X] T019 Verify first-run download progress appears in the WebUI setup board for both capabilities.
+- [X] T020 Verify TTS succeeds with no `espeak-ng` installed on the host.
 
 ---
 
