@@ -289,8 +289,10 @@ mod tests {
         ));
 
         let mut bytes = envelope.into_bytes();
-        let last = bytes.len() - 1;
-        bytes[last] = if bytes[last] == b'A' { b'B' } else { b'A' };
+        // Change a payload character, never the padding: the envelope stays valid base64url
+        // so the failure is the authentication tag, not a malformed string.
+        let at = bytes.len() - 9;
+        bytes[at] = if bytes[at] == b'A' { b'B' } else { b'A' };
         let tampered = String::from_utf8(bytes).unwrap();
         assert_eq!(
             cipher.decrypt(&tampered, AAD),
