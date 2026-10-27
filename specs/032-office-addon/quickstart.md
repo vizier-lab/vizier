@@ -2,7 +2,15 @@
 
 **Feature**: `032-office-addon`
 
-This checks the feature against a running binary on the offline `dummyplug` provider (spec `008-dummyplug-provider`). The dummyplug protocol is `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`: send `tools`, then a tool name for a sample request, then the JSON request to run it. Agent tools are called from `execute_python` (code mode). Everything here is offline; no step needs a live provider.
+This checks the feature against a running binary and the standalone `dummyplug` server (spec `030-standalone-dummyplug-server`, merged in vizier-lab/vizier#103). dummyplug is no longer built into Vizier: it is a separate Node.js OpenAI-compatible server in the `dummyplug/` submodule, and an agent with provider `dummyplug` reaches it over HTTP at `DUMMYPLUG_URL` (default `http://127.0.0.1:9998/v1`). The chat protocol is unchanged: send `tools`, then a tool name for a sample request, then the JSON request to run it (see `specs/030-standalone-dummyplug-server/contracts/` and the legacy `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`). Agent tools are called from `execute_python` (code mode). No step needs a live model provider or a model key. This branch must contain #103 (rebase on `master`) before these steps can run.
+
+Start dummyplug first, in its own terminal (needs Node.js 22; `just install` pulls the submodule and its packages):
+
+```sh
+just install
+just dummyplug
+curl -s http://127.0.0.1:9998/healthz
+```
 
 Use a scratch workspace:
 

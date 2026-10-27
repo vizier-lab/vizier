@@ -16,7 +16,7 @@ Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that co
 
 **Storage**: existing SQLite only. Reuses `integration` / `integration_event` tables, `session_file` table, `FileManager` blob store, and the `state` key/value table (`office.default_seeded`). No schema change.
 
-**Testing**: `cargo test` (per-format unit tests with checked-in fixtures and round-trips; kind and catalogue-table tests; seed/backfill tests against in-memory SQLite); `cargo clippy`; end-to-end: dummyplug agent steps scripted in [quickstart.md](quickstart.md) (constitution e2e gate — default tool list of every agent changes).
+**Testing**: `cargo test` (per-format unit tests with checked-in fixtures and round-trips; kind and catalogue-table tests; seed/backfill tests against in-memory SQLite); `cargo clippy`; end-to-end: agent steps scripted in [quickstart.md](quickstart.md) against the standalone dummyplug server (`just dummyplug`, spec 030-standalone-dummyplug-server; constitution e2e gate — default tool list of every agent changes). The branch needs the merged dummyplug change (vizier-lab/vizier#103) from `master` first.
 
 **Target Platform**: Linux/macOS/Windows single binary, incl. static `musl` cross targets in `Cross.toml` (all new code is pure Rust).
 
@@ -85,7 +85,7 @@ src/
 assets/integrations/office.svg       # catalogue icon
 Cargo.toml                           # + rust_xlsxwriter, pulldown-cmark (direct)
 tests/ or src/**/tests               # fixtures: tests/fixtures/office/{table.docx,mixed.xlsx,legacy.xls}
-scripts/office-e2e.mjs               # optional scripted dummyplug run (mirrors scripts/client-tools-e2e.mjs)
+scripts/office-e2e.mjs               # optional scripted run against standalone dummyplug (mirrors scripts/dummyplug-vizier-e2e.mjs, which starts and stops the server)
 docs/src/…                           # a short docs page for the office addon + SUMMARY.md entry; configuration/tools-embedding.md no longer says docx/xlsx are extracted to text
 src/schema/request.rs                # the attached-files hint also points Word/Excel files at the office tools
 ```

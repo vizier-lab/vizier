@@ -119,7 +119,7 @@ A reviewer asked whether formulas are executed or only the cached value is retur
 - **Kind/catalogue**: `every_addon_tool_is_namespaced_by_its_addon` covers the prefix; extend the `EXPECTED`/`ADDON` tables; test `OfficeKind` (no fields, `missing() == []`, validate accepts `{}`).
 - **Service/state**: `seed_default` against in-memory SQLite — creates the row + event, is idempotent (second call → `Ok(None)`), works without any permission, actor falls back to `"system"`; backfill test — seeds each existing agent once, sets the flag, a removed addon stays removed across a second run.
 - **Write-path rule**: `write_session_file` writes over a same-named file like the other file tools do (no existing-file check); the tool descriptions say so.
-- **E2E (constitution gate)**: dummyplug steps in [quickstart.md](quickstart.md); `scripts/office-e2e.mjs` may automate them like `scripts/client-tools-e2e.mjs`.
+- **E2E (constitution gate)**: dummyplug steps in [quickstart.md](quickstart.md); `scripts/office-e2e.mjs` may automate them like `scripts/dummyplug-vizier-e2e.mjs` (the harness from the standalone dummyplug change, vizier-lab/vizier#103, that starts and stops the server). dummyplug is now a separate Node.js server (`just dummyplug`), not an in-process model.
 - **Optional CI check**: open generated files with LibreOffice headless to prove OOXML validity (SC-004); not a required gate because LibreOffice is not in the default CI image.
 
 ## R16. Changelog and tracker
