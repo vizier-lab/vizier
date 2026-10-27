@@ -84,7 +84,7 @@ A string, never stored: `http:{username}`, `discord:{user id}`, `telegram:{user 
 
 ## Telegram deletion ledger
 
-The only persisted value (research R13), in `StateStorage` under `side_chat_pending__{agent_id}__{chat_id}`:
+The only persisted value (research R13), in `StateStorage` under one key per agent, `side_chat_pending__{agent_id}`:
 
 ```json
 { "items": [ { "chat_id": -1001234, "message_ids": [512, 513], "delete_after": "2026-10-28T10:02:15Z" } ] }
@@ -93,8 +93,9 @@ The only persisted value (research R13), in `StateStorage` under `side_chat_pend
 - No text, no user id, no exchange id, no question or answer.
 - Written (merged) when the reader posts a side-chat message or sees a person's side-chat message; `delete_after` is moved forward on activity.
 - An item is removed as soon as its deletions have been attempted (success or Telegram refusal).
-- At reader start, every item whose `delete_after` has passed is processed; the rest are re-armed.
-- The key is removed when its list is empty.
+- At reader start, items older than 48 hours are dropped (Telegram refuses to delete them), every other item whose `delete_after` has passed is processed, and the rest are re-armed.
+- A reply to a message on the ledger with no live exchange is answered "This side chat has ended…" and never forwarded (research R13).
+- The key is removed (`StateStorage::delete_state`, new) when its list is empty, and when the agent is deleted.
 
 ## Unchanged entities (explicitly)
 

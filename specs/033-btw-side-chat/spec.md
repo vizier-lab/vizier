@@ -54,7 +54,7 @@ A person chatting with an agent on Telegram wants the same aside. Telegram has n
 **Acceptance Scenarios**:
 
 1. **Given** a person chatting with an agent on Telegram, **When** they invoke the side-chat command, **Then** they receive a reply along with a clear notice that the exchange will be automatically removed.
-2. **Given** an active Telegram side-chat exchange, **When** the person is inactive for the stated period, **Then** the command and all of its replies are deleted from the chat.
+2. **Given** an active Telegram side-chat exchange, **When** the person is inactive for the stated period, **Then** all of the agent's replies in the exchange are deleted from the chat, and so are the person's command and follow-ups wherever Telegram lets the agent delete them (always in a private chat; in a group only when the agent's bot is an admin allowed to delete messages).
 3. **Given** a Telegram side-chat invoked in a group, **When** the exchange is posted, **Then** it is visible to the group until removed (not private to the invoker), consistent with the notice given.
 
 ---
@@ -67,6 +67,8 @@ A person chatting with an agent on Telegram wants the same aside. Telegram has n
 - What happens if the person closes the side-chat (or it's interrupted) mid-answer? The partial answer is discarded along with the rest of the exchange; nothing is salvaged or saved.
 - What happens on Discord if the exchange runs long enough that the platform's own ephemeral-reply window expires? The person is shown that the exchange has expired rather than a silent failure.
 - What happens if the side-chat is invoked in a brand-new conversation with no prior messages? It still works, simply with no prior conversation to draw context from.
+- What happens on Telegram if the person replies to a side-chat message after the exchange has ended but before it has been removed (including after a server restart)? The reply is not treated as an ordinary message and is never kept; the person is told the side chat has ended and can start a new one, and the reply is removed with the rest.
+- What happens on Telegram if someone else in a group replies to a person's side-chat message? It is neither answered nor kept, since it belongs to an exchange that is about to disappear; it is removed with the exchange where the agent is allowed to.
 
 ## Requirements *(mandatory)*
 
@@ -77,7 +79,7 @@ A person chatting with an agent on Telegram wants the same aside. Telegram has n
 - **FR-003**: The side-chat MUST have awareness of the host conversation's recent messages, so the person can ask about something just said.
 - **FR-004**: The side-chat MUST NOT have access to the agent's tools (searching memory, running commands, reading or writing files, contacting other services, etc.) — it answers from conversation and identity alone.
 - **FR-005**: The system MUST allow the person to exchange a small number of follow-up messages within one side-chat session before it ends.
-- **FR-006**: The system MUST NOT retain any record of a side-chat exchange once it ends — not in the conversation's visible history, not in anything the agent can later recall, reflect on, or search.
+- **FR-006**: The system MUST NOT retain any record of a side-chat exchange once it ends — not in the conversation's visible history, not in anything the agent can later recall, reflect on, or search. The only things kept are the exchange's cost (FR-011) and, on Telegram, a note of which chat messages are still waiting to be removed (identifiers and a time only — no text, no sender), which is discarded once removal has been attempted.
 - **FR-007**: On the WebUI, the side-chat MUST be presented in a way that is clearly separate from the main conversation (e.g. a distinct panel), so the person cannot mistake it for a message that will be remembered.
 - **FR-008**: On Discord, a side-chat exchange MUST be visible only to the person who started it, not to other participants in the same channel.
 - **FR-009**: On Telegram, a side-chat exchange MUST be automatically removed from the chat after a period of inactivity, and the person MUST be told this will happen when they start the exchange.
@@ -94,7 +96,7 @@ A person chatting with an agent on Telegram wants the same aside. Telegram has n
 
 ### Measurable Outcomes
 
-- **SC-001**: A person can get an answer to a quick off-the-record question without leaving their current conversation, in under 10 seconds of perceived wait for a typical question.
+- **SC-001**: A person can get an answer to a quick off-the-record question without leaving their current conversation, in under 10 seconds of perceived wait for a typical question, when the agent is not already working on a reply in that conversation. A side chat asked while the agent is mid-reply waits for that reply to finish first, within the agent's usual response time limit.
 - **SC-002**: 100% of completed side-chat exchanges leave no retrievable trace in the agent's conversation history, search, or any later reflection on past conversations.
 - **SC-003**: On Discord, 100% of side-chat replies are visible only to the person who started them, verified across multiple concurrent users in the same channel.
 - **SC-004**: On Telegram, side-chat exchanges are removed from the chat within a predictable, stated time window after the person stops interacting with them, with zero exchanges left behind indefinitely.
@@ -107,4 +109,5 @@ A person chatting with an agent on Telegram wants the same aside. Telegram has n
 - A "small number" of follow-ups (FR-005) means the exchange is meant for a short back-and-forth, not an extended working session; the exact practical limit is a design detail to be settled during planning, not a user-facing constraint to specify here.
 - The model, provider, and general behavior tone the agent uses in a side-chat exchange match whatever is currently configured for that agent elsewhere — no new configuration surface is introduced for choosing a different model specifically for side-chat.
 - "Automatically removed" on Telegram (FR-009) means removed from the chat transcript visible to users; it does not claim removal from Telegram's own servers or logs, which are outside this system's control.
-- Rate limiting (FR-010) applies per person across all channels they use, not per channel independently, so the same person can't bypass a limit by switching platforms.
+- On Telegram, an agent's bot can always remove its own messages, and the person's messages in a private chat, but can remove other people's messages in a group only when it is a group admin allowed to delete messages. Without that right, the person's own side-chat messages stay in the group; the notice given at the start says so.
+- Rate limiting (FR-010) applies per person as each platform identifies them: across all of a WebUI account's tabs and API keys, and per Discord or Telegram account. A single limit across platforms needs a verified link between a WebUI account and a Discord/Telegram account, which doesn't exist today (the platform ids in a profile are self-declared), so it is out of scope until such links are verified.
