@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "Add a built-in `office` addon that gives agents first-class, local Office file support, enabled by default for every agent (GitHub issue vizier-lab/vizier#100). Phase 1: DOCX read+write and XLSX read+write. PDF is phase 2 and parked."
+**Input**: User description: "Add a built-in `office` addon that gives agents first-class, local Office file support, enabled by default for every agent (GitHub issue vizier-lab/vizier#100). DOCX read+write and XLSX read+write."
 
 ## Clarifications
 
@@ -18,7 +18,6 @@
 - Q: Should the generic document reader stop handling Word and Excel in this feature, since the repository owner dislikes a built-in tool that is always present? → A: Yes, decided by the repository owner: Word and Excel reading leaves the generic document reader in this change, so there is one reader per format and no redundancy. The generic reader keeps handling plain text and PDF, and for a Word or Excel file it points the agent to the office tools (US5). Every existing agent receives the addon through the one-time step (FR-016), so no agent loses the ability to read these files on upgrade; an agent whose addon is removed can no longer read them until it is installed again.
 - Q: Is the addon on by default, or only available to install? → A: On by default for every agent, as the issue says (US3). The on/off switch and removal (US4, FR-029) let a person turn it off.
 - Q: Does a password-protected file need its own error message? → A: Not now. The issue does not mention it, so it gets the ordinary "not a valid Office file" error and a dedicated message can be added later.
-- Q: Does PDF belong to this feature? → A: No. Confirmed by the requester: PDF reading, rendering and creation are phase 2, a later feature.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -35,6 +34,9 @@ A person attaches a Word document or a spreadsheet to a conversation and asks th
 1. **Given** a Word document with a table, **When** the agent reads it, **Then** the table's rows and cells are present in the result and the text `[table content]` does not appear.
 2. **Given** a workbook with two sheets, **When** the agent reads it without naming a sheet, **Then** it receives both sheets and each cell keeps its type (a number is a number, a date is a date, a true/false value is a boolean).
 3. **Given** a workbook, **When** the agent asks for one sheet and a cell range, **Then** only that range is returned.
+3a. **Given** a workbook, **When** the agent asks for a single cell (for example `C7`), **Then** it receives that one cell with its type.
+3b. **Given** a large workbook, **When** the agent asks only for sheet information, **Then** it receives each sheet's name, the address of its data area and its size, without any cell contents, so it can then choose a range to read.
+3c. **Given** a sheet whose data starts at `C5`, **When** the agent reads it, **Then** the result says that the first returned cell is `C5`, so the agent can tell which cell each value came from.
 4. **Given** a very large document or workbook, **When** the agent reads it, **Then** the result is cut at a documented limit and carries a `truncated: true` marker instead of failing.
 5. **Given** a legacy `.xls` workbook, **When** the agent reads it, **Then** it reads like a modern workbook.
 
@@ -129,7 +131,7 @@ Until now the generic `read_document_file` tool also converted Word and Excel fi
 - **FR-001**: The system MUST provide a built-in addon with the id `office`. All its tools MUST be named with the prefix `office_` and listed under the category `office`.
 - **FR-002**: The system MUST provide a tool that reads a Word document from the conversation's files and returns Markdown preserving headings, bold, italic, ordered and unordered (nested) lists, tables as pipe tables, and hyperlinks. It MUST accept an optional maximum number of characters.
 - **FR-003**: The system MUST provide a tool that creates a new Word document from Markdown and an optional title, saves it as a conversation file, and returns its filename and size.
-- **FR-004**: The system MUST provide a tool that reads a workbook and returns, per sheet, its name and rows with typed cells (text, number, boolean, date, empty, error). It MUST accept an optional sheet and an optional cell range.
+- **FR-004**: The system MUST provide a tool that reads a workbook and returns, per sheet, its name and rows with typed cells (text, number, boolean, date, empty, error). It MUST accept an optional sheet and an optional cell range (a block or a single cell). Per sheet it MUST also return the address of its data area, its size and the address of the first returned cell, and it MUST offer an information-only mode that returns just each sheet's name, data area and size without reading cells, so an agent can learn the size of a large sheet before reading it.
 - **FR-005**: The system MUST provide a tool that creates a new workbook from named sheets of rows, saves it as a conversation file, and returns its filename and size. Cell types MUST be preserved; the header row MUST be bold; column widths MUST be set so content is readable.
 - **FR-006**: Write tools MUST generate a brand-new file from the content they are given. No tool in this addon edits an existing Word or Excel file in place or reads one back in to modify it. The tool descriptions MUST state this and the reason (styles, headers, images and tracked changes would be lost).
 - **FR-007**: Written files MUST be stored in the conversation's files with their correct Office media type set explicitly, so every reader of those files recognises the format. Delivery to the person remains the agent's explicit use of the existing attachment-sending tool; the write tools MUST NOT attach files automatically.
@@ -160,10 +162,6 @@ Until now the generic `read_document_file` tool also converted Word and Excel fi
 - **FR-023**: Because every agent's default tool list changes, the change MUST be verified end to end on an agent using the offline test provider (write a document, receive the filename, send it as an attachment) and MUST be noted in the changelog.
 - **FR-024**: The pinned tables that list every tool and its category MUST include the new tools, so adding or renaming a tool without updating them fails the build.
 - **FR-025**: Code that exists only to support upgrades from earlier versions (the one-time backfill) MUST be recorded on the project's tracker for pre-1.0 migration cleanup.
-
-**Parked (phase 2, designed for, not built)**
-
-- **FR-026**: The design MUST leave room for PDF tools (read as Markdown, render pages as images, create from HTML, create from a Word document) without changing the tools or settings defined here. No PDF capability is delivered by this feature.
 
 **File handling**
 
@@ -197,7 +195,7 @@ Until now the generic `read_document_file` tool also converted Word and Excel fi
 
 ## Assumptions
 
-- Phase 1 delivers Word and Excel only. PDF reading, rendering and creation are explicitly phase 2 and out of scope here, as confirmed by the requester; a later feature adds them. Word and Excel handling is also the part of the repository owner's wider goal (read and write documents without external tools) that fits the product's no-external-dependency rule; PDF needs heavier engines and waits.
+- This feature delivers Word and Excel only. Word and Excel handling is the part of the repository owner's wider goal (read and write documents without external tools) that fits the product's no-external-dependency rule.
 - This is a breaking change for agents and skills that relied on the generic reader for Word or Excel files: they now need the Office addon. The one-time step gives every existing agent the addon, so none loses the ability on upgrade, and the commit is flagged as breaking.
 - A password-protected file gets the ordinary "not a valid Office file" error; a dedicated message is left for later because the issue does not mention it.
 - Everything runs locally with no network service, account or credential. No new operating-system package is required.
@@ -206,9 +204,10 @@ Until now the generic `read_document_file` tool also converted Word and Excel fi
 - **Decision (the issue's open question, which gave no recommendation; chosen by the requester) — display name.** The addon is shown as "Office" in the catalogue; the id is `office` in either case. A rename to "Documents" is a presentation-only change.
 - **Decision (the issue's open question, confirmed by the requester) — auto-attach.** Written files are not attached automatically; the agent sends them with the existing attachment tool, consistent with image generation.
 - Read-output limits (about 200 KB of text; capped sheets and rows) come from the issue. No other size limit is imposed in this proof of concept (owner's decision): validation is easier to add later than to remove. Cutting a read is always signalled.
-- Formulas are read as their last saved value; formulas are never written in phase 1 (see FR-028).
-- Charts, pivot tables, conditional formatting, images and embedded objects are not read or written in phase 1; they may be skipped silently on read.
+- Formulas are read as their last saved value; formulas are never written (see FR-028).
+- Charts, pivot tables, conditional formatting, images and embedded objects are not read or written; they may be skipped silently on read.
 - Existing rules for who may read and send conversation files are unchanged.
+- Phase 2, a later feature, is PDF support. It is not part of this feature.
 - Out of scope: editing existing Office files in place with formatting preserved; legacy binary `.doc` and `.ppt`; charts, pivots and conditional formatting; online Office services (Google Workspace, Microsoft Graph); a general-purpose filesystem tool.
 - **Web interface work, separate pull requests in the design and web interface repositories** (the owner wants the on/off switch, FR-029). The Addons page already shows an on/off switch on every installed addon card and the server already supports it, so the Office addon gets one as soon as it is installed. What remains is to make sure it works for an addon with no fields and shows a sensible on/ready state instead of a "reading" state; to reserve `office` as a taken category name so an MCP server with that name is labelled correctly; and, optionally, to list the addon's tools in the interface's addon tool list. The server side does not depend on them to function.
 - The backfill of existing agents is migration code and is tracked for removal before 1.0.0 on the project's tracker.

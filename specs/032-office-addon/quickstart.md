@@ -94,7 +94,13 @@ Expected: write returns `status ok`, `filename: "budget.xlsx"`. The read returns
 {"tool":"execute_python","arguments":{"code":"print(office_xlsx_read(filename='budget.xlsx', sheet='Budget', range='A1:B2'))"}}
 ```
 
-Expected: only that range of the `Budget` sheet.
+Expected: only that range of the `Budget` sheet, with `start: "A1"`. Single cell and sheet information:
+
+```json
+{"tool":"execute_python","arguments":{"code":"print(office_xlsx_read(filename='budget.xlsx', sheet='Budget', range='B2'))\nprint(office_xlsx_read(filename='budget.xlsx', info=True))"}}
+```
+
+Expected: the first result is one row with one cell, `12`, and `start: "B2"`. The second lists `Budget` and `Notes` with `used_range` and `dimensions` (`A1:C3`, 3 rows by 3 columns for `Budget`) and no `rows`.
 
 ## 5. Generic reader no longer reads Word and Excel (US5, FR-012/013)
 

@@ -35,7 +35,7 @@ All unknowns from the plan's Technical Context are resolved here. Facts about th
 
 ## R5. XLSX read
 
-- **Decision**: `calamine` for both `Xlsx` and `Xls` (open by sniffing the file's media type; `application/vnd.ms-excel` selects `Xls`). Return, per sheet, `{name, rows}` where each cell is a tagged value (`string`, `number`, `bool`, `date`, `error`, or empty/null). Dates come back as ISO-8601 strings (via calamine's `DateTime`/`as_datetime`), tagged `date`, so a date serial is never exposed raw. Formulas are read as their cached value (calamine returns values). `sheet` selects one sheet; `range` accepts A1 notation (`B2:F40`) and is applied before truncation.
+- **Decision**: `calamine` for both `Xlsx` and `Xls` (open by sniffing the file's media type; `application/vnd.ms-excel` selects `Xls`). Return, per sheet, `{name, used_range, dimensions, start, rows}` (calamine's range begins at the first non-empty cell, not `A1`, so `used_range` and `start` carry that offset as A1 addresses; `info` returns only name, `used_range` and `dimensions`) where each cell is a tagged value (`string`, `number`, `bool`, `date`, `error`, or empty/null). Dates come back as ISO-8601 strings (via calamine's `DateTime`/`as_datetime`), tagged `date`, so a date serial is never exposed raw. Formulas are read as their cached value (calamine returns values). `sheet` selects one sheet; `range` accepts A1 notation, a block (`B2:F40`) or a single cell (`C7`), and is applied before truncation.
 - **Rationale**: calamine is already a dependency and supports `.xls`; typed cells fix the "everything is a string" defect.
 - **Errors**: an unknown sheet or range returns the list of valid sheet names in the error text (spec edge case).
 - **Alternatives**: parse OOXML by hand (no), a different reader crate (no).
@@ -72,11 +72,6 @@ All unknowns from the plan's Technical Context are resolved here. Facts about th
 - **Deferred (separate issue)**: a policy for same-name files across *all* session-file writers, including two people uploading the same name in a shared Discord/Telegram channel (the later upload replaces the earlier one and the agent is not told). Candidate designs are listed under Alternatives. Not part of this feature.
 - **MIME constants**: DOCX `application/vnd.openxmlformats-officedocument.wordprocessingml.document`; XLSX `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`; legacy `application/vnd.ms-excel` (read only).
 - **Alternatives** (all deferred to a separate cross-tool issue, see "Deferred" below): refuse with a suggested free name; save under an automatically unique name; ask the person first and replace only on an explicit `overwrite` flag. Each is a better policy than silently replacing, but each changes behaviour that every session-file writer shares (uploads, `image_generate`, `tts_generate`, `load_path_as_session_file`), so it is designed once for all of them rather than only for `office_*`.
-
-## R10. PDF (phase 2) — designed for, not built
-
-- **Decision**: reserve the `office_pdf_*` names and keep `office/pdf.rs` out of this change. When built: PDF tools are runtime-detected and return a clear "no PDF engine installed" error until an operator enables one, so the default image stays slim and Principle III holds. Nothing in the phase 1 tool or settings contract changes when PDF lands (FR-026).
-- **Rationale**: the Dockerfile has Python and Node but no LibreOffice/Chromium/poppler; every credible engine is a heavy native dependency. Out of scope here by decision of the issue.
 
 ## R11. The addon kind
 

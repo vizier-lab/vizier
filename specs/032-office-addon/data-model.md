@@ -64,7 +64,7 @@ A tagged scalar. Variants and their JSON forms:
 
 ### `WorkbookRead`
 
-`{ "sheets": [ { "name", "rows", "dimensions": {"rows": n, "cols": n} } ], "truncated": bool, "note"?: string }`. `dimensions` reports the *full* sheet size so the agent knows what was cut.
+`{ "sheets": [ { "name", "used_range": string | null, "dimensions": {"rows": n, "cols": n}, "start"?: string, "rows"?: Cell[][] } ], "truncated": bool, "note"?: string }`. `dimensions` reports the *full* size of the used range so the agent knows what was cut; `used_range` is that area's A1 address and `start` the A1 address of the first cell of `rows`. A read with `info: true` carries neither `start` nor `rows`.
 
 ### `DocxRead`
 

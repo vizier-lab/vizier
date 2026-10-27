@@ -55,7 +55,8 @@ Read a workbook (`.xlsx`, or legacy `.xls`) as sheets of typed cells.
 |---|---|---|---|
 | `filename` | string | yes | `.xlsx` or `.xls` session file |
 | `sheet` | string | no | one sheet by name; default all |
-| `range` | string | no | A1 notation, e.g. `B2:F40`; applied before truncation |
+| `range` | string | no | A1 notation: a block (`B2:F40`) or a single cell (`C7`, which returns one row of one cell); applied before truncation |
+| `info` | boolean | no | `true` returns only each sheet's name, `used_range` and `dimensions`, with no cells; default `false` |
 
 Output:
 
@@ -65,7 +66,9 @@ Output:
   "sheets": [
     {
       "name": "Budget",
+      "used_range": "A1:C3",
       "dimensions": { "rows": 3, "cols": 3 },
+      "start": "A1",
       "rows": [
         ["Item", "Qty", "Due"],
         ["Pens", 12, { "date": "2026-11-01" }],
@@ -80,6 +83,8 @@ Output:
 - Cell forms: text `"…"`, number, boolean, date `{"date": ISO}`, blank `null`, error `{"error": "#DIV/0!"}`.
 - Formulas return their last saved value. Charts/pivots/images are skipped.
 - Caps: 20 sheets, 1 000 rows, 100 columns, ≈200 KB; when exceeded `truncated: true` and `dimensions` still shows the real size.
+- **Where the cells are.** `used_range` is the A1 address of the area that holds data (for example `C5:H400` when the sheet starts at `C5`; `null` for an empty sheet) and `dimensions` is its size. `start` is the A1 address of the first cell in `rows`, so the cell at row `i`, column `j` of `rows` is `start` moved `i` rows down and `j` columns right. With a `range`, `start` is the top-left of that range and `rows` has exactly the range's shape (cells without data are `null`).
+- **Ask before reading.** With `info: true` each sheet has only `name`, `used_range` and `dimensions` (no `start` or `rows`), `truncated` is `false`, and every sheet is listed, so the agent can learn a large sheet's size and then read a `range` of it.
 
 ## `office_xlsx_write`
 
