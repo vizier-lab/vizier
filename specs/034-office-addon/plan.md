@@ -26,7 +26,7 @@ Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that co
 
 **Constraints**: read output ≈ 200 KB of text and capped sheets/rows with `truncated: true` (FR-009, from the issue); no other size limits in this proof of concept (owner's decision, research R7); all failures are tool result data, never turn-ending errors (FR-010). Calculating formulas (`executed_formula: true`) has its own time and size limits, whose values are set in the engine trial (T016); until then they are unspecified on purpose.
 
-**Scale/Scope**: 5 tools, 1 integration kind, 1 seed helper, 1 one-time backfill, ~6 touched existing files, 0 new tables.
+**Scale/Scope**: 5 tools, 1 integration kind, 1 seed helper, 1 one-time backfill, ~14 touched existing files (see Source Code), 0 new tables.
 
 ## Constitution Check
 
@@ -85,7 +85,7 @@ src/
 ├── dependencies.rs                  # OFFICE_DEFAULT_SEEDED key + one-time seed_office_defaults() at the end of VizierDependencies::new
 assets/integrations/office.svg       # catalogue icon
 Cargo.toml                           # + rust_xlsxwriter, pulldown-cmark (direct), the formula engine chosen in T016
-tests/ or src/**/tests               # fixtures: tests/fixtures/office/{table.docx,mixed.xlsx,formulas.xlsx,legacy.xls}
+src/agents/tools/office/fixtures/    # checked-in fixtures read with include_bytes!: table.docx, mixed.xlsx, formulas.xlsx, legacy.xls (beside the code, like src/llm/dialect/fixtures; the repo has no tests/ directory)
 scripts/office-e2e.mjs               # optional scripted run against standalone dummyplug (mirrors scripts/dummyplug-vizier-e2e.mjs, which starts and stops the server)
 docs/src/…                           # a short docs page for the office addon + SUMMARY.md entry; configuration/tools-embedding.md no longer says docx/xlsx are extracted to text
 src/schema/request.rs                # the attached-files hint also points Word/Excel files at the office tools
@@ -93,8 +93,8 @@ src/schema/request.rs                # the attached-files hint also points Word/
 
 **Structure Decision**: single-project Rust layout, following the existing addon pattern (`kinds/brave_search.rs` + `tools/brave_search`). Format logic is deliberately isolated in `tools/office/{docx,xlsx}.rs` as pure functions so it is unit-testable without storage, and formula calculation in `formula.rs` so the engine crate can be swapped without touching the readers. `mod.rs` holds the thin tool wrappers to avoid a file per tool.
 
-## Out of scope for this plan (tracked, not built)
+## Not built in this pull request (tracked as separate work)
 
-- WebUI (the owner wants the on/off switch, FR-029): the Addons page already has an on/off switch on installed addon cards (`webui/app/routes/integrations-addons.tsx`, calling `PUT /integrations/{id}` with `enabled`), and the server already supports enable/disable, so no backend work is needed for it. Remaining: check the card for an addon with no fields and its on/ready state, `office` in `TAKEN_CATEGORIES`, optional `ADDON_TOOLS` entry → separate PRs in `design` → `webui` → vizier order.
+- WebUI, tasks T039 to T041 (the owner wants the on/off switch, FR-029): the Addons page already has an on/off switch on installed addon cards (`webui/app/routes/integrations-addons.tsx`, calling `PUT /integrations/{id}` with `enabled`), and the server already supports enable/disable, so no backend work is needed for it. Remaining: check the card for an addon with no fields and its on/ready state, `office` in `TAKEN_CATEGORIES`, optional `ADDON_TOOLS` entry → separate PRs in `design` → `webui` → vizier order.
 - The target accuracy of calculated results (SC-011): set after the engine trial (T016), not before.
 - Issue #82 checklist entry for the one-time backfill (FR-025), added when the code lands.

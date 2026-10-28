@@ -137,7 +137,7 @@ Then, in the conversation:
 {"tool":"execute_python","arguments":{"code":"print(read_document_file(filename='report.docx'))"}}
 ```
 
-Expected: no document text. The result is the message saying Word and Excel files are read with `office_docx_read_as_md` / `office_xlsx_read_as_cells` and that the Office addon must be installed. The `office` category no longer lists (`list_tool_functions` with category `office` reports it unknown). Repeat with a legacy `.xls` fixture (`tests/fixtures/office/legacy.xls`): same message. Then `read_document_file` a plain text file and a PDF in the same conversation: both read exactly as before this feature.
+Expected: no document text. The result is the message saying Word and Excel files are read with `office_docx_read_as_md` / `office_xlsx_read_as_cells` and that the Office addon must be installed. The `office` category no longer lists (`list_tool_functions` with category `office` reports it unknown). Repeat with a legacy `.xls` fixture (`src/agents/tools/office/fixtures/legacy.xls`): same message. Then `read_document_file` a plain text file and a PDF in the same conversation: both read exactly as before this feature.
 
 ## 6a. Turning the addon off and on (US4, FR-029)
 
