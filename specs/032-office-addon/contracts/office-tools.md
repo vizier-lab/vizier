@@ -82,10 +82,45 @@ Output:
 ```
 
 - Cell forms: text `"…"`, number, boolean, date `{"date": ISO}`, blank `null`, error `{"error": "#DIV/0!"}`.
-- **Formulas are never executed.** A formula cell returns the value last saved in the file (what the spreadsheet application computed). With `formulas: true` it is `{"value": …, "formula": "=…"}`; only formula cells take that form. A formula cell with no saved value (typical of files produced by a script) comes back as `null` (or `"value": null`) and the result carries a `note` naming those cells, so it is not mistaken for an empty cell. Charts/pivots/images are skipped.
+- **This tool never calculates formulas** (calculation is `office_xlsx_read_as_csv` with `executed_formula: true`). A formula cell returns the value last saved in the file (what the spreadsheet application computed). With `formulas: true` it is `{"value": …, "formula": "=…"}`; only formula cells take that form. A formula cell with no saved value (typical of files produced by a script) comes back as `null` (or `"value": null`) and the result carries a `note` naming those cells, so it is not mistaken for an empty cell. Charts/pivots/images are skipped.
 - Caps: 20 sheets, 1 000 rows, 100 columns, ≈200 KB; when exceeded `truncated: true` and `dimensions` still shows the real size.
 - **Where the cells are.** `used_range` is the A1 address of the area that holds data (for example `C5:H400` when the sheet starts at `C5`; `null` for an empty sheet) and `dimensions` is its size. `start` is the A1 address of the first cell in `rows`, so the cell at row `i`, column `j` of `rows` is `start` moved `i` rows down and `j` columns right. With a `range`, `start` is the top-left of that range and `rows` has exactly the range's shape (cells without data are `null`).
 - **Ask before reading.** With `info: true` each sheet has only `name`, `used_range` and `dimensions` (no `start` or `rows`), `truncated` is `false`, and every sheet is listed, so the agent can learn a large sheet's size and then read a `range` of it.
+
+## `office_xlsx_read_as_csv`
+
+Read a workbook (`.xlsx`, or legacy `.xls`) as CSV text so an agent can preview the whole workbook in one call (FR-030). Use `office_xlsx_read_as_cells` instead when cell types matter.
+
+| Input | Type | Required | Notes |
+|---|---|---|---|
+| `filename` | string | yes | `.xlsx` or `.xls` session file |
+| `sheet` | string | no | one sheet by name; default every sheet |
+| `range` | string | no | A1 notation: a block (`B2:F40`) or a single cell (`C7`); applied before truncation |
+| `executed_formula` | boolean | no | `false` (default): a formula cell is written as its formula text (`=SUM(A1:A3)`). `true`: a formula cell is written as its calculated result |
+
+Output:
+
+```json
+{
+  "status": "ok",
+  "sheets": [
+    {
+      "name": "Budget",
+      "used_range": "A1:C3",
+      "start": "A1",
+      "formula_cells": ["C3"],
+      "csv": "Item,Qty,Due\nPens,12,2026-11-01\nTotal,=SUM(B2:B2),\n"
+    }
+  ],
+  "truncated": false
+}
+```
+
+- **CSV form (RFC 4180).** Comma-separated, one line per row ending in `\n`, no header row added (the first line is the sheet's first returned row). A field is quoted with `"` when it holds a comma, a quote or a line break, and `"` inside it is doubled. Text as is; numbers as plain decimals; booleans `true` / `false`; dates ISO-8601 (`2026-11-01`, or with time); blank cells empty; errors as their text (`#DIV/0!`). Rows are padded to the width of the returned block.
+- **Which cells hold formulas.** `formula_cells` lists their A1 addresses (capped at 200, with a `note` when cut), because formula text and an ordinary text value that begins with `=` look the same in CSV.
+- **`executed_formula: true` calculates.** The result comes from calculating the formula with a formula engine, not from the value saved in the file. A formula that cannot be calculated (unsupported function, circular reference, a link to another file, time or size limit reached) is written as its last saved value (empty when there is none), and `note` names those cells. A legacy `.xls` file is not calculated: every formula cell takes its saved value and `note` says so. Links to other files are never followed. Volatile functions (`NOW`, `RAND`) are calculated at read time and so differ from the saved value.
+- Where the cells are: `used_range` and `start` mean what they mean for `office_xlsx_read_as_cells`. There is no `info` mode here: use the typed read tool for sheet sizes.
+- Caps: 20 sheets, 1 000 rows, 100 columns per sheet, ≈200 KB of CSV in total; when exceeded `truncated: true` and a `note` says what was cut.
 
 ## `office_xlsx_write_from_sheets`
 

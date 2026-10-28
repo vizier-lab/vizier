@@ -56,7 +56,7 @@ A tagged scalar. Variants and their JSON forms:
 | Bool | `true` / `false` | |
 | Date | `{"date": "2026-10-25"}` or `{"date": "2026-10-25T14:30:00"}` | ISO-8601; read returns the same object form |
 | Empty | `null` | blank cell |
-| Formula | `{"value": <Cell or null>, "formula": "=SUM(A1:A3)"}` | read only, and only when `formulas: true`; never written, never executed (FR-028) |
+| Formula | `{"value": <Cell or null>, "formula": "=SUM(A1:A3)"}` | read only, and only when `formulas: true` on `office_xlsx_read_as_cells`; never written (FR-028), and that tool never calculates it |
 | Error | `{"error": "#DIV/0!"}` | read only |
 
 ### `Sheet`
@@ -66,6 +66,10 @@ A tagged scalar. Variants and their JSON forms:
 ### `WorkbookRead`
 
 `{ "sheets": [ { "name", "used_range": string | null, "dimensions": {"rows": n, "cols": n}, "start"?: string, "rows"?: Cell[][] } ], "truncated": bool, "note"?: string }`. `dimensions` reports the *full* size of the used range so the agent knows what was cut; `used_range` is that area's A1 address and `start` the A1 address of the first cell of `rows`. A read with `info: true` carries neither `start` nor `rows`.
+
+### `WorkbookCsv`
+
+`{ "sheets": [ { "name", "used_range": string | null, "start": string, "formula_cells": string[], "csv": string } ], "truncated": bool, "note"?: string }`. `csv` is RFC 4180 text for the returned block (no header row added); `formula_cells` are the A1 addresses of cells that hold formulas (capped at 200). With `executed_formula: false` those cells are written as their formula text, with `true` as calculated results, falling back to the saved value for a cell that cannot be calculated (named in `note`).
 
 ### `DocxRead`
 

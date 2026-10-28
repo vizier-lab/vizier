@@ -66,7 +66,7 @@ Expected: the reply lists the sandbox tools only (code mode); then send the JSON
 {"tool":"list_tool_functions","arguments":{"category":"office"}}
 ```
 
-Expected: `office_docx_read_as_md`, `office_docx_write_from_md`, `office_xlsx_read_as_cells`, `office_xlsx_write_from_sheets`.
+Expected: `office_docx_read_as_md`, `office_docx_write_from_md`, `office_xlsx_read_as_cells`, `office_xlsx_read_as_csv`, `office_xlsx_write_from_sheets`.
 
 ## 2. Write a document, deliver it (US2, FR-003/007)
 
@@ -114,7 +114,13 @@ Expected: the first result is one row with one cell, `12`, and `start: "B2"`. Fo
 {"tool":"execute_python","arguments":{"code":"print(office_xlsx_read_as_cells(filename='formulas.xlsx'))\nprint(office_xlsx_read_as_cells(filename='formulas.xlsx', formulas=True))"}}
 ```
 
-Expected: the first shows the saved result for the first formula and `null` for the second, and a `note` naming the second cell. The second shows `{"value": <saved result>, "formula": "=…"}` for the first and `{"value": null, "formula": "=…"}` for the second. Nothing is evaluated: the saved result is whatever the file held, even if it no longer matches the formula. Back to the `budget.xlsx` read: the information-only result lists `Budget` and `Notes` with `used_range` and `dimensions` (`A1:C3`, 3 rows by 3 columns for `Budget`) and no `rows`.
+Expected: the first shows the saved result for the first formula and `null` for the second, and a `note` naming the second cell. The second shows `{"value": <saved result>, "formula": "=…"}` for the first and `{"value": null, "formula": "=…"}` for the second. This tool never calculates: the saved result is whatever the file held, even if it no longer matches the formula. The CSV tool previews the whole workbook, and is the one that can calculate (needs the engine from task T049):
+
+```json
+{"tool":"execute_python","arguments":{"code":"print(office_xlsx_read_as_csv(filename='formulas.xlsx'))\nprint(office_xlsx_read_as_csv(filename='formulas.xlsx', executed_formula=True))\nprint(office_xlsx_read_as_csv(filename='budget.xlsx'))"}}
+```
+
+Expected: the first lists every sheet as CSV text with `used_range`, `start` and `formula_cells`, the formula cells written as `=…` text. The second writes those cells as calculated results, and a `note` names any cell it could not calculate (those show their saved value). The third (`budget.xlsx`, no formulas) returns both sheets, `Item,Qty,Due` on the first line of `Budget`, the date as `2026-11-01`, and an empty `formula_cells`. Back to the `budget.xlsx` read: the information-only result lists `Budget` and `Notes` with `used_range` and `dimensions` (`A1:C3`, 3 rows by 3 columns for `Budget`) and no `rows`.
 
 ## 5. Generic reader no longer reads Word and Excel (US5, FR-012/013)
 
@@ -147,7 +153,7 @@ Then in the conversation: `list_tool_functions` with category `office` reports i
 curl -s "${auth[@]}" -X PUT "$API/integrations/$OID" -d '{"enabled":true}' | jq .data.enabled   # true
 ```
 
-Expected: the four `office_*` functions are listed again, with no agent restart and no running turn aborted.
+Expected: the five `office_*` functions are listed again, with no agent restart and no running turn aborted.
 
 ## 6b. Removal sticks (US4, FR-017)
 
