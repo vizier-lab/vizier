@@ -24,7 +24,7 @@ Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that co
 
 **Performance Goals**: reading/writing a typical (<5 MB) office file within a normal tool-call time.
 
-**Constraints**: read output ≈ 200 KB of text and capped sheets/rows with `truncated: true` (FR-009, from the issue); no other size limits in this proof of concept (owner's decision, research R7); all failures are tool result data, never turn-ending errors (FR-010).
+**Constraints**: read output ≈ 200 KB of text and capped sheets/rows with `truncated: true` (FR-009, from the issue); no other size limits in this proof of concept (owner's decision, research R7); all failures are tool result data, never turn-ending errors (FR-010). Calculating formulas (`executed_formula: true`) has its own time and size limits, whose values are set in the engine trial (T049); until then they are unspecified on purpose.
 
 **Scale/Scope**: 5 tools, 1 integration kind, 1 seed helper, 1 one-time backfill, ~6 touched existing files, 0 new tables.
 
@@ -34,11 +34,11 @@ Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that co
 
 | Principle | Assessment |
 |---|---|
-| **I. Lean by Default** | Pass with one justified dependency. `rust_xlsxwriter` is the only new crate; reason: no writer exists in the tree and a hand-rolled OOXML spreadsheet writer (shared strings, styles, content types, relationships) is not "a few lines". `pulldown-cmark` is already in `Cargo.lock`. No new trait/config flag; no second implementation introduced. The second new crate, a formula engine, exists only for `executed_formula` (reviewer's request); it is justified because evaluating formulas is not "a few lines" and is chosen by a trial against the repo's fixtures (R10, T049). If no candidate passes, `executed_formula: true` goes back to the reviewer rather than shipping with an unreliable engine. |
+| **I. Lean by Default** | Pass with two justified dependencies. (1) `rust_xlsxwriter`: no writer exists in the tree and a hand-rolled OOXML spreadsheet writer (shared strings, styles, content types, relationships) is not "a few lines". (2) A formula engine, which exists only for `executed_formula` (the reviewer's request): evaluating Excel formulas is not "a few lines" either, and the crate is chosen by a trial against the repo's fixtures (R10, T049). It is confined to one file (`office/formula.rs`) so it can be replaced. If no candidate passes the trial, `executed_formula: true` goes back to the reviewer rather than shipping with an unreliable engine, and the crate is not added. `pulldown-cmark` is already in `Cargo.lock`. No new trait or config flag; no second implementation introduced. |
 | **II. Trait-based extensibility (NON-NEGOTIABLE)** | Pass. Delivered as one `IntegrationKind` impl registered in `IntegrationKinds::builtin()` and five `VizierTool` impls; no `match` over kind ids added. Seeding goes through the shared integration service rather than a bespoke storage write. The two `read_document_file` arms are *collapsed into* the shared per-format modules (removing duplication, not adding it). |
-| **III. Self-contained, zero-dependency runtime** | Pass. Pure Rust, no sidecar, no network, no operator step. |
-| **IV. Portability** | Pass. No platform code; musl targets unaffected (pure-Rust crates). Verified by `cross build` of an existing static target in the polish phase. |
-| **V. Unified errors & observability** | Pass. Pure modules return `crate::Result<T>`; conversions via `throw_vizier_error`; no `unwrap/expect` outside tests; `tracing` only. Seeding logs a `warn!` and never blocks agent creation or startup. |
+| **III. Self-contained, zero-dependency runtime** | Pass. Pure Rust, no sidecar, no network, no operator step. A formula engine is a linked crate, not a service; formulas that link to other files are never followed, so no read touches the network or the filesystem beyond the session file. |
+| **IV. Portability** | Pass, with one condition. No platform code; musl targets unaffected as long as every new crate is pure Rust. The engine trial (T049) therefore includes a `cross build` of a static target, and a candidate that needs a system library or fails to build is rejected. The polish phase builds one static target again with the final dependencies. |
+| **V. Unified errors & observability** | Pass. Pure modules return `crate::Result<T>`; conversions via `throw_vizier_error`; no `unwrap/expect` outside tests; `tracing` only. Seeding logs a `warn!` and never blocks agent creation or startup. Calculating formulas is bounded in time and size and any failure of the engine (including a panic) is a result the agent can read (FR-030), never a failed turn. |
 | **Quality gates** | `cargo clippy`/`cargo test` required; **dummyplug e2e required** (agent-observable change) → quickstart is scripted as dummyplug steps; startup backfill touches process startup → run the real binary against a pre-existing database (quickstart US3/US4). Conventional commit `feat:` drives the changelog (`git-cliff`; there is no hand-edited changelog file). |
 
 **Result: PASS** (no Complexity Tracking entries needed). Re-checked after Phase 1 design: unchanged — the design adds no abstraction beyond the kind, the five tools and `seed_default`.
@@ -56,7 +56,7 @@ specs/032-office-addon/
 ├── contracts/
 │   └── office-tools.md  # Tool input/output contracts
 ├── checklists/requirements.md
-└── tasks.md             # Phase 2 (/speckit-tasks — not created here)
+└── tasks.md             # Phase 2: ordered task list (/speckit-tasks)
 ```
 
 ### Source Code (repository root)
@@ -71,7 +71,8 @@ src/
 │       ├── office/
 │       │   ├── mod.rs               # shared: limits, MIME consts, write_session_file helper (FR-027), output structs, the five VizierTool impls
 │       │   ├── docx.rs              # pure: to_markdown / from_markdown
-│       │   └── xlsx.rs              # pure: read_workbook(bytes, mime, sheet, range, info, formulas) / read_csv(bytes, mime, sheet, range, executed_formula) / write_workbook
+│       │   ├── xlsx.rs              # pure: read_workbook(bytes, mime, sheet, range, info, formulas) / read_csv(bytes, mime, sheet, range, executed_formula) / write_workbook
+│       │   └── formula.rs           # the only file that uses the formula engine crate (T049, T052): calculate a workbook within time and size limits, cell results or "cannot calculate"
 │       └── session_files/mod.rs     # read_document_file: DOCX/XLSX/XLS arms removed, replaced by a message pointing at office_*; text and PDF unchanged
 │       └── read_image/mod.rs        # description points at office_* (FR-014)
 ├── integrations/
@@ -83,14 +84,14 @@ src/
 │       └── office.rs                # IntegrationKind impl (no fields)
 ├── dependencies.rs                  # OFFICE_DEFAULT_SEEDED key + one-time seed_office_defaults() at the end of VizierDependencies::new
 assets/integrations/office.svg       # catalogue icon
-Cargo.toml                           # + rust_xlsxwriter, pulldown-cmark (direct)
-tests/ or src/**/tests               # fixtures: tests/fixtures/office/{table.docx,mixed.xlsx,legacy.xls}
+Cargo.toml                           # + rust_xlsxwriter, pulldown-cmark (direct), the formula engine chosen in T049
+tests/ or src/**/tests               # fixtures: tests/fixtures/office/{table.docx,mixed.xlsx,formulas.xlsx,legacy.xls}
 scripts/office-e2e.mjs               # optional scripted run against standalone dummyplug (mirrors scripts/dummyplug-vizier-e2e.mjs, which starts and stops the server)
 docs/src/…                           # a short docs page for the office addon + SUMMARY.md entry; configuration/tools-embedding.md no longer says docx/xlsx are extracted to text
 src/schema/request.rs                # the attached-files hint also points Word/Excel files at the office tools
 ```
 
-**Structure Decision**: single-project Rust layout, following the existing addon pattern (`kinds/brave_search.rs` + `tools/brave_search`). Format logic is deliberately isolated in `tools/office/{docx,xlsx}.rs` as pure functions so it is unit-testable without storage. `mod.rs` holds the thin tool wrappers to avoid a fourth file per tool.
+**Structure Decision**: single-project Rust layout, following the existing addon pattern (`kinds/brave_search.rs` + `tools/brave_search`). Format logic is deliberately isolated in `tools/office/{docx,xlsx}.rs` as pure functions so it is unit-testable without storage, and formula calculation in `formula.rs` so the engine crate can be swapped without touching the readers. `mod.rs` holds the thin tool wrappers to avoid a file per tool.
 
 ## Out of scope for this plan (tracked, not built)
 
