@@ -5,7 +5,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { ApiError } from '../api/client'
 import { deleteAgent, getAgent, getSharing, updateAgent, updateSharing, type AgentDetail } from '../api/endpoints/agents'
 import { listUsers, type UserSummary } from '../api/endpoints/auth'
-import { EMBEDDING_PROVIDERS, fromDetail, problems, toInput, type AgentForm } from '../lib/agentForm'
+import { EMBEDDING_DEFAULT_MODELS, EMBEDDING_PROVIDERS, fromDetail, problems, toInput, type AgentForm } from '../lib/agentForm'
 import { uploadFile } from '../lib/upload'
 import { ModelSelect } from '../screens/agents/ModelSelect'
 import { ToolsFields } from '../screens/agents/ToolsFields'
@@ -165,7 +165,7 @@ export default function AgentConfig() {
             <div className="flex flex-col gap-16">
                 <Select label="Indexer" options={[{ value: 'sqlite', label: 'SQLite (vector store)' }]} value="sqlite" onChange={() => {}} disabled />
                 <Select label="Embedding provider" options={EMBEDDING_PROVIDERS.map((p) => ({ value: p, label: p }))} value={form.embeddingProvider} onChange={(embeddingProvider) => set({ embeddingProvider })} />
-                <TextField label="Embedding model" mono value={form.embeddingModel} invalid={!!errors.embeddingModel} helper={errors.embeddingModel ?? (form.embeddingProvider === 'local' ? 'Empty uses the built-in model.' : 'Changing it re-indexes memory when the agent starts.')} onChange={(e) => set({ embeddingModel: e.target.value })} />
+                <TextField label="Embedding model" mono value={form.embeddingModel} invalid={!!errors.embeddingModel} placeholder={EMBEDDING_DEFAULT_MODELS[form.embeddingProvider]} helper={errors.embeddingModel ?? (form.embeddingProvider === 'local' ? 'Empty uses the built-in model.' : form.embeddingProvider === 'bedrock' ? 'Empty uses Titan Text Embeddings V2.' : 'Changing it re-indexes memory when the agent starts.')} onChange={(e) => set({ embeddingModel: e.target.value })} />
             </div>
         </Card>
     )

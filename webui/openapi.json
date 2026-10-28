@@ -7585,9 +7585,18 @@
               "fields",
               "has_api_key",
               "has_access_token",
+              "has_secret_access_key",
+              "has_session_token",
               "used_by"
             ],
             "properties": {
+              "access_key_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "AWS Bedrock: the access key id is an identifier, not a secret."
+              },
               "account_id": {
                 "type": [
                   "string",
@@ -7616,6 +7625,13 @@
                 "type": "boolean"
               },
               "has_api_key": {
+                "type": "boolean"
+              },
+              "has_secret_access_key": {
+                "type": "boolean",
+                "description": "Never the value itself."
+              },
+              "has_session_token": {
                 "type": "boolean"
               },
               "id": {
@@ -7653,6 +7669,13 @@
                   "null"
                 ],
                 "description": "Local and custom providers only; checked in the background."
+              },
+              "region": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "AWS region, safe to show."
               },
               "source": {
                 "type": [
@@ -9157,9 +9180,18 @@
                 "fields",
                 "has_api_key",
                 "has_access_token",
+                "has_secret_access_key",
+                "has_session_token",
                 "used_by"
               ],
               "properties": {
+                "access_key_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "AWS Bedrock: the access key id is an identifier, not a secret."
+                },
                 "account_id": {
                   "type": [
                     "string",
@@ -9188,6 +9220,13 @@
                   "type": "boolean"
                 },
                 "has_api_key": {
+                  "type": "boolean"
+                },
+                "has_secret_access_key": {
+                  "type": "boolean",
+                  "description": "Never the value itself."
+                },
+                "has_session_token": {
                   "type": "boolean"
                 },
                 "id": {
@@ -9225,6 +9264,13 @@
                     "null"
                   ],
                   "description": "Local and custom providers only; checked in the background."
+                },
+                "region": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "AWS region, safe to show."
                 },
                 "source": {
                   "type": [
@@ -9317,6 +9363,17 @@
                   "items": {
                     "$ref": "#/components/schemas/CredentialField"
                   }
+                },
+                "guide": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderGuide",
+                      "description": "The in-form setup guide, when this provider has one (Amazon Bedrock today)."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "id": {
                   "$ref": "#/components/schemas/ProviderId"
@@ -11685,7 +11742,11 @@
           "endpoint",
           "base_url",
           "access_token",
-          "account_id"
+          "account_id",
+          "access_key_id",
+          "secret_access_key",
+          "session_token",
+          "region"
         ]
       },
       "CustomModel": {
@@ -11934,6 +11995,7 @@
           "open_ai_chat",
           "open_ai_responses",
           "anthropic",
+          "bedrock",
           "gemini",
           "ollama"
         ]
@@ -12366,7 +12428,8 @@
           "mistral",
           "together",
           "cohere",
-          "copilot"
+          "copilot",
+          "bedrock"
         ]
       },
       "ErrorKind": {
@@ -12525,6 +12588,53 @@
           }
         }
       },
+      "GuideLink": {
+        "type": "object",
+        "required": [
+          "label",
+          "url"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "GuidePolicy": {
+        "type": "object",
+        "description": "A copyable policy or snippet.",
+        "required": [
+          "language",
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          }
+        }
+      },
+      "GuideStep": {
+        "type": "object",
+        "description": "One numbered step of a guide.",
+        "required": [
+          "title",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "HistoryQuery": {
         "type": "object",
         "properties": {
@@ -12559,7 +12669,8 @@
           "openrouter",
           "xai",
           "huggingface",
-          "hyperbolic"
+          "hyperbolic",
+          "bedrock"
         ]
       },
       "ImageGenToolSettings": {
@@ -14137,6 +14248,36 @@
           }
         ]
       },
+      "ProviderGuide": {
+        "type": "object",
+        "description": "What the connect form shows above the fields. Static metadata, never stored or editable.",
+        "required": [
+          "intro",
+          "steps",
+          "policy",
+          "links"
+        ],
+        "properties": {
+          "intro": {
+            "type": "string"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GuideLink"
+            }
+          },
+          "policy": {
+            "$ref": "#/components/schemas/GuidePolicy"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GuideStep"
+            }
+          }
+        }
+      },
       "ProviderId": {
         "type": "string",
         "description": "A provider id: a catalogue provider, a built-in or a custom provider"
@@ -14170,9 +14311,18 @@
           "fields",
           "has_api_key",
           "has_access_token",
+          "has_secret_access_key",
+          "has_session_token",
           "used_by"
         ],
         "properties": {
+          "access_key_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "AWS Bedrock: the access key id is an identifier, not a secret."
+          },
           "account_id": {
             "type": [
               "string",
@@ -14201,6 +14351,13 @@
             "type": "boolean"
           },
           "has_api_key": {
+            "type": "boolean"
+          },
+          "has_secret_access_key": {
+            "type": "boolean",
+            "description": "Never the value itself."
+          },
+          "has_session_token": {
             "type": "boolean"
           },
           "id": {
@@ -14238,6 +14395,13 @@
               "null"
             ],
             "description": "Local and custom providers only; checked in the background."
+          },
+          "region": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "AWS region, safe to show."
           },
           "source": {
             "type": [
@@ -14308,6 +14472,17 @@
             "items": {
               "$ref": "#/components/schemas/CredentialField"
             }
+          },
+          "guide": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ProviderGuide",
+                "description": "The in-form setup guide, when this provider has one (Amazon Bedrock today)."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "id": {
             "$ref": "#/components/schemas/ProviderId"
@@ -15545,7 +15720,7 @@
           },
           "provider": {
             "$ref": "#/components/schemas/SttProvider",
-            "default": "openai"
+            "default": "whisper"
           }
         }
       },
@@ -15829,7 +16004,7 @@
           },
           "provider": {
             "$ref": "#/components/schemas/TtsProvider",
-            "default": "openai"
+            "default": "kokoro"
           },
           "speed": {
             "type": [
@@ -16017,6 +16192,13 @@
         "type": "object",
         "description": "Credentials to save. An omitted field keeps the stored value; an empty string clears it.",
         "properties": {
+          "access_key_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "AWS Bedrock access key id."
+          },
           "access_token": {
             "type": [
               "string",
@@ -16046,6 +16228,27 @@
               "string",
               "null"
             ]
+          },
+          "region": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "AWS region."
+          },
+          "secret_access_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "AWS Bedrock secret access key (write-only after saving)."
+          },
+          "session_token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "AWS Bedrock temporary-credential session token (write-only after saving)."
           }
         },
         "additionalProperties": false

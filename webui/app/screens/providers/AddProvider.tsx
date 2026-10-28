@@ -8,7 +8,7 @@ import { ConnectForm } from './ConnectForm'
 type Filter = 'all' | 'chat' | 'media' | 'local'
 
 /** Providers whose credentials speech, image and embedding features use. */
-const MEDIA = new Set(['openai', 'google', 'togetherai', 'github-copilot', 'groq', 'mistral', 'cohere', 'openrouter', 'huggingface', 'xai', 'elevenlabs', 'voyageai', 'hyperbolic', 'ollama'])
+const MEDIA = new Set(['openai', 'google', 'togetherai', 'github-copilot', 'groq', 'mistral', 'cohere', 'openrouter', 'huggingface', 'xai', 'elevenlabs', 'voyageai', 'hyperbolic', 'ollama', 'amazon-bedrock'])
 
 const FILTERS: { value: Filter; label: string }[] = [
     { value: 'all', label: 'All' },

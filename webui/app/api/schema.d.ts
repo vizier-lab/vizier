@@ -1685,12 +1685,17 @@ export interface components {
         APIResponse_ProviderResponse: {
             /** @description A connected provider: saved credentials or a key in the environment, never the secrets. */
             data?: {
+                /** @description AWS Bedrock: the access key id is an identifier, not a secret. */
+                access_key_id?: string | null;
                 account_id?: string | null;
                 base_url?: string | null;
                 endpoint?: string | null;
                 fields: components["schemas"]["CredentialField"][];
                 has_access_token: boolean;
                 has_api_key: boolean;
+                /** @description Never the value itself. */
+                has_secret_access_key: boolean;
+                has_session_token: boolean;
                 id: components["schemas"]["ProviderId"];
                 kind: components["schemas"]["ProviderKind"];
                 logo?: string | null;
@@ -1701,6 +1706,8 @@ export interface components {
                 origin: components["schemas"]["ProviderOrigin"];
                 /** @description Local and custom providers only; checked in the background. */
                 reachable?: boolean | null;
+                /** @description AWS region, safe to show. */
+                region?: string | null;
                 /** @description `saved`, `env:NAME`, or `null` for a local provider on its default address. */
                 source?: string | null;
                 used_by: components["schemas"]["UsedBy"];
@@ -2085,12 +2092,17 @@ export interface components {
         };
         APIResponse_Vec_ProviderResponse: {
             data?: {
+                /** @description AWS Bedrock: the access key id is an identifier, not a secret. */
+                access_key_id?: string | null;
                 account_id?: string | null;
                 base_url?: string | null;
                 endpoint?: string | null;
                 fields: components["schemas"]["CredentialField"][];
                 has_access_token: boolean;
                 has_api_key: boolean;
+                /** @description Never the value itself. */
+                has_secret_access_key: boolean;
+                has_session_token: boolean;
                 id: components["schemas"]["ProviderId"];
                 kind: components["schemas"]["ProviderKind"];
                 logo?: string | null;
@@ -2101,6 +2113,8 @@ export interface components {
                 origin: components["schemas"]["ProviderOrigin"];
                 /** @description Local and custom providers only; checked in the background. */
                 reachable?: boolean | null;
+                /** @description AWS region, safe to show. */
+                region?: string | null;
                 /** @description `saved`, `env:NAME`, or `null` for a local provider on its default address. */
                 source?: string | null;
                 used_by: components["schemas"]["UsedBy"];
@@ -2121,6 +2135,7 @@ export interface components {
                 endpoint?: string | null;
                 env: string[];
                 fields: components["schemas"]["CredentialField"][];
+                guide?: components["schemas"]["ProviderGuide"] | null;
                 id: components["schemas"]["ProviderId"];
                 kind: components["schemas"]["ProviderKind"];
                 logo?: string | null;
@@ -2736,7 +2751,7 @@ export interface components {
          * @description A credential field a provider's connect form asks for.
          * @enum {string}
          */
-        CredentialField: "api_key" | "endpoint" | "base_url" | "access_token" | "account_id";
+        CredentialField: "api_key" | "endpoint" | "base_url" | "access_token" | "account_id" | "access_key_id" | "secret_access_key" | "session_token" | "region";
         /**
          * @description A model an operator listed for a custom provider; unset fields are filled from the
          *     catalogue (FR-024).
@@ -2807,7 +2822,7 @@ export interface components {
             delete_workspace?: boolean;
         };
         /** @enum {string} */
-        DialectKind: "open_ai_chat" | "open_ai_responses" | "anthropic" | "gemini" | "ollama";
+        DialectKind: "open_ai_chat" | "open_ai_responses" | "anthropic" | "bedrock" | "gemini" | "ollama";
         DiffHunk: {
             lines: components["schemas"]["DiffLine"][];
             new_lines: number;
@@ -2938,7 +2953,7 @@ export interface components {
             provider: components["schemas"]["EmbeddingProvider"];
         };
         /** @enum {string} */
-        EmbeddingProvider: "local" | "openrouter" | "ollama" | "openai" | "gemini" | "voyageai" | "mistral" | "together" | "cohere" | "copilot";
+        EmbeddingProvider: "local" | "openrouter" | "ollama" | "openai" | "gemini" | "voyageai" | "mistral" | "together" | "cohere" | "copilot" | "bedrock";
         /** @enum {string} */
         ErrorKind: "completion" | "tool_timeout" | "prompt_timeout" | "rate_limited" | "provider_unavailable" | "agent_unavailable";
         /** @enum {string} */
@@ -2979,6 +2994,20 @@ export interface components {
             channel: components["schemas"]["GrantState"];
             mcp: components["schemas"]["GrantState"];
         };
+        GuideLink: {
+            label: string;
+            url: string;
+        };
+        /** @description A copyable policy or snippet. */
+        GuidePolicy: {
+            code: string;
+            language: string;
+        };
+        /** @description One numbered step of a guide. */
+        GuideStep: {
+            body: string;
+            title: string;
+        };
         HistoryQuery: {
             /** Format: date-time */
             before?: string | null;
@@ -2992,7 +3021,7 @@ export interface components {
             limit?: number | null;
         };
         /** @enum {string} */
-        ImageGenProvider: "openai" | "openrouter" | "xai" | "huggingface" | "hyperbolic";
+        ImageGenProvider: "openai" | "openrouter" | "xai" | "huggingface" | "hyperbolic" | "bedrock";
         ImageGenToolSettings: {
             /** @default null */
             model: string | null;
@@ -3434,6 +3463,13 @@ export interface components {
             /** Format: int64 */
             telegram: number;
         };
+        /** @description What the connect form shows above the fields. Static metadata, never stored or editable. */
+        ProviderGuide: {
+            intro: string;
+            links: components["schemas"]["GuideLink"][];
+            policy: components["schemas"]["GuidePolicy"];
+            steps: components["schemas"]["GuideStep"][];
+        };
         /** @description A provider id: a catalogue provider, a built-in or a custom provider */
         ProviderId: string;
         /** @enum {string} */
@@ -3442,12 +3478,17 @@ export interface components {
         ProviderOrigin: "catalogue" | "builtin" | "custom";
         /** @description A connected provider: saved credentials or a key in the environment, never the secrets. */
         ProviderResponse: {
+            /** @description AWS Bedrock: the access key id is an identifier, not a secret. */
+            access_key_id?: string | null;
             account_id?: string | null;
             base_url?: string | null;
             endpoint?: string | null;
             fields: components["schemas"]["CredentialField"][];
             has_access_token: boolean;
             has_api_key: boolean;
+            /** @description Never the value itself. */
+            has_secret_access_key: boolean;
+            has_session_token: boolean;
             id: components["schemas"]["ProviderId"];
             kind: components["schemas"]["ProviderKind"];
             logo?: string | null;
@@ -3458,6 +3499,8 @@ export interface components {
             origin: components["schemas"]["ProviderOrigin"];
             /** @description Local and custom providers only; checked in the background. */
             reachable?: boolean | null;
+            /** @description AWS region, safe to show. */
+            region?: string | null;
             /** @description `saved`, `env:NAME`, or `null` for a local provider on its default address. */
             source?: string | null;
             used_by: components["schemas"]["UsedBy"];
@@ -3473,6 +3516,7 @@ export interface components {
             endpoint?: string | null;
             env: string[];
             fields: components["schemas"]["CredentialField"][];
+            guide?: components["schemas"]["ProviderGuide"] | null;
             id: components["schemas"]["ProviderId"];
             kind: components["schemas"]["ProviderKind"];
             logo?: string | null;
@@ -3840,7 +3884,7 @@ export interface components {
             language: string | null;
             /** @default null */
             model: string | null;
-            /** @default openai */
+            /** @default whisper */
             provider: components["schemas"]["SttProvider"];
         };
         TaskResponse: {
@@ -3937,7 +3981,7 @@ export interface components {
         TtsToolSettings: {
             /** @default null */
             model: string | null;
-            /** @default openai */
+            /** @default kokoro */
             provider: components["schemas"]["TtsProvider"];
             /**
              * Format: float
@@ -3993,11 +4037,19 @@ export interface components {
         };
         /** @description Credentials to save. An omitted field keeps the stored value; an empty string clears it. */
         UpsertProviderRequest: {
+            /** @description AWS Bedrock access key id. */
+            access_key_id?: string | null;
             access_token?: string | null;
             account_id?: string | null;
             api_key?: string | null;
             base_url?: string | null;
             endpoint?: string | null;
+            /** @description AWS region. */
+            region?: string | null;
+            /** @description AWS Bedrock secret access key (write-only after saving). */
+            secret_access_key?: string | null;
+            /** @description AWS Bedrock temporary-credential session token (write-only after saving). */
+            session_token?: string | null;
         };
         /**
          * @description What a model call was for. Decided once, when the call is recorded (research R4).

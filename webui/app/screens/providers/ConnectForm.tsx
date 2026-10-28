@@ -1,16 +1,85 @@
 import { Button, Notice, TextField } from '@vizier/design'
 import { useState } from 'react'
-import type { ProviderSummary } from '../../api/endpoints/catalogue'
+import type { ProviderGuide, ProviderSummary } from '../../api/endpoints/catalogue'
 import { saveProvider, testProvider, type CredentialField, type TestResult } from '../../api/endpoints/providers'
 import { FIELD_LABELS, PLAIN_FIELDS } from '../../lib/providers'
 
 type Props = {
-    provider: Pick<ProviderSummary, 'id' | 'name' | 'fields' | 'endpoint' | 'doc'>
+    provider: Pick<ProviderSummary, 'id' | 'name' | 'fields' | 'endpoint' | 'doc' | 'guide'>
     /** Editing a connected provider: secrets left empty are kept. */
     editing?: boolean
     onDone: () => void
     onCancel: () => void
     submitLabel?: string
+}
+
+/**
+ * The provider's own setup steps, rendered from the listing's `guide` rather than from a
+ * provider branch. Open for a new connection and collapsed while editing, but always toggleable:
+ * a failed save or test must not hide the fix (FR-011a).
+ */
+function Guide({ guide, editing }: { guide: ProviderGuide; editing?: boolean }) {
+    const [open, setOpen] = useState(!editing)
+    const [copied, setCopied] = useState(false)
+
+    return (
+        <section className="flex flex-col gap-10 rounded-lg border border-border bg-raised p-12" aria-label="How to connect">
+            <div className="flex items-center justify-between gap-12">
+                <div>
+                    <p className="type-ui-medium text-fg">How to connect</p>
+                    <p className="type-small text-muted">{guide.intro}</p>
+                </div>
+                <Button type="button" variant="ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
+                    {open ? 'Hide' : 'Show'}
+                </Button>
+            </div>
+            {open && (
+                <div className="flex flex-col gap-12">
+                    <ol className="flex list-decimal flex-col gap-8 pl-20">
+                        {guide.steps.map((step, i) => (
+                            <li key={step.title} className="type-small text-muted">
+                                <span className="type-small-strong text-fg">
+                                    {i + 1}. {step.title}
+                                </span>
+                                <p>{step.body}</p>
+                            </li>
+                        ))}
+                    </ol>
+                    <div className="flex flex-col gap-6">
+                        <div className="flex items-center justify-between gap-12">
+                            <p className="type-small-strong text-fg">Minimal IAM policy</p>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() => {
+                                    void navigator.clipboard?.writeText(guide.policy.code)
+                                    setCopied(true)
+                                }}
+                            >
+                                {copied ? 'Copied' : 'Copy'}
+                            </Button>
+                        </div>
+                        <pre className="overflow-x-auto rounded-md border border-border bg-ground p-10 type-small text-fg">
+                            <code>{guide.policy.code}</code>
+                        </pre>
+                    </div>
+                    <div className="flex flex-wrap gap-x-14 gap-y-6">
+                        {guide.links.map((link) => (
+                            <a
+                                key={link.url}
+                                className="type-small text-muted underline"
+                                href={link.url}
+                                target="_blank"
+                                rel="noreferrer"
+                            >
+                                {link.label}
+                            </a>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </section>
+    )
 }
 
 /**
@@ -52,6 +121,7 @@ export function ConnectForm({ provider, editing, onDone, onCancel, submitLabel }
                 }
             }}
         >
+            {provider.guide && <Guide guide={provider.guide} editing={editing} />}
             {fields.map((f, i) => (
                 <TextField
                     key={f}
