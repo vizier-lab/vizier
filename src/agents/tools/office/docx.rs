@@ -10,7 +10,8 @@ use docx_rs::{
     AbstractNumbering, AlignmentType, BreakType, DocumentChild, Docx, Hyperlink, HyperlinkData,
     HyperlinkType, IndentLevel, Level, LevelJc, LevelText, NumberFormat, Numbering, NumberingId,
     Paragraph, ParagraphChild, Run, RunChild, RunFonts, SpecialIndentType, Start, Style,
-    StyleType, Table, TableCell, TableCellContent, TableChild, TableRow, TableRowChild,
+    StyleType, Table, TableCell, TableCellContent, TableCellMargins, TableChild, TableRow,
+    TableRowChild,
 };
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
@@ -486,7 +487,9 @@ impl Writer {
             TagEnd::TableRow => self.end_row(),
             TagEnd::Table => {
                 if let Some(t) = self.table.take() {
-                    self.blocks.push(Block::Table(Table::new(t.rows)));
+                    // Twips: without a margin the text touches the cell borders.
+                    let table = Table::new(t.rows).margins(TableCellMargins::new().margin(40, 100, 40, 100));
+                    self.blocks.push(Block::Table(table));
                 }
             }
             _ => {}
@@ -630,7 +633,10 @@ impl Writer {
 
     fn finish(mut self) -> Result<Vec<u8>, VizierError> {
         self.flush();
-        let mut docx = Docx::new().add_style(
+        // docx-rs defaults to Times New Roman; styles without their own font inherit this one.
+        let mut docx = Docx::new()
+            .default_fonts(RunFonts::new().ascii("Calibri").hi_ansi("Calibri").east_asia("Calibri").cs("Calibri"))
+            .add_style(
             Style::new("Title", StyleType::Paragraph).name("Title").bold().size(56),
         );
         for level in 1..=6usize {
