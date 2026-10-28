@@ -1,6 +1,6 @@
 # Contract: Office Tools
 
-**Feature**: `032-office-addon`
+**Feature**: `034-office-addon`
 
 The agent-facing contract of the `office` addon. Like every tool, these are reached from `execute_python` scripts as plain functions (code mode); the inputs/outputs below are the functions' keyword arguments and returned JSON. Category: `office`. Tool names start with `office_` (enforced by `every_addon_tool_is_namespaced_by_its_addon`).
 
