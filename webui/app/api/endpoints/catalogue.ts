@@ -1,5 +1,12 @@
 import { api } from '../client'
 
+export type ProviderGuide = {
+    intro: string
+    steps: { title: string; body: string }[]
+    policy: { language: string; code: string }
+    links: { label: string; url: string }[]
+}
+
 export type ProviderSummary = {
     id: string
     name: string
@@ -12,9 +19,11 @@ export type ProviderSummary = {
     model_count: number
     connection: { status: 'connected' | 'missing' | 'unreachable'; source?: string | null }
     popular: boolean
-    fields: ('api_key' | 'endpoint' | 'base_url' | 'access_token' | 'account_id')[]
+    fields: ('api_key' | 'endpoint' | 'base_url' | 'access_token' | 'account_id' | 'access_key_id' | 'secret_access_key' | 'session_token' | 'region')[]
     endpoint?: string | null
     doc?: string | null
+    /** The in-form setup guide, when this provider has one. */
+    guide?: ProviderGuide | null
 }
 
 export type ModelSummary = {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentDetail } from '../api/endpoints/agents'
-import { IMAGE_GEN_DEFAULT_MODELS, IMAGE_GEN_PROVIDERS, STT_DEFAULT_MODELS, STT_PROVIDERS, TTS_DEFAULT_MODELS, TTS_DEFAULT_VOICES, TTS_PROVIDERS, emptyForm, formatEnv, fromDetail, parseEnv, problems, slugOf, toInput } from './agentForm'
+import { EMBEDDING_DEFAULT_MODELS, EMBEDDING_PROVIDERS, IMAGE_GEN_DEFAULT_MODELS, IMAGE_GEN_PROVIDERS, STT_DEFAULT_MODELS, STT_PROVIDERS, TTS_DEFAULT_MODELS, TTS_DEFAULT_VOICES, TTS_PROVIDERS, emptyForm, formatEnv, fromDetail, parseEnv, problems, slugOf, toInput } from './agentForm'
 
 const detail = (patch: Partial<AgentDetail> = {}): AgentDetail => ({
     agent_id: 'archivist',
@@ -103,12 +103,27 @@ describe('embedding', () => {
         expect(problems({ ...emptyForm(), embeddingProvider: 'openai' }, 'all').embeddingModel).toBeTruthy()
         expect(problems(emptyForm(), 'config').embeddingModel).toBeUndefined()
     })
+
+    it('accepts an empty Bedrock model, which selects Titan Text Embeddings V2', () => {
+        const f = { ...emptyForm(), embeddingProvider: 'bedrock' }
+        expect(problems(f, 'all').embeddingModel).toBeUndefined()
+        expect(toInput(f).embedding).toEqual({ provider: 'bedrock', model: '' })
+        expect(EMBEDDING_PROVIDERS).toContain('bedrock')
+        expect(EMBEDDING_DEFAULT_MODELS.bedrock).toBe('amazon.titan-embed-text-v2:0')
+        // A typed model is stored unchanged.
+        expect(toInput({ ...f, embeddingModel: 'cohere.embed-english-v3' }).embedding).toEqual({
+            provider: 'bedrock',
+            model: 'cohere.embed-english-v3',
+        })
+    })
 })
 
 describe('media providers', () => {
     it('gives every listed speech-to-text and image provider a default model', () => {
         for (const provider of STT_PROVIDERS) expect(STT_DEFAULT_MODELS[provider], `stt ${provider}`).toBeTruthy()
         for (const provider of IMAGE_GEN_PROVIDERS) expect(IMAGE_GEN_DEFAULT_MODELS[provider], `image ${provider}`).toBeTruthy()
+        expect(IMAGE_GEN_PROVIDERS).toContain('bedrock')
+        expect(IMAGE_GEN_DEFAULT_MODELS.bedrock).toBe('amazon.nova-canvas-v1:0')
     })
 
     it('gives every text-to-speech provider a default model and voice', () => {

@@ -60,7 +60,7 @@ export type AgentForm = {
 
 export const TTS_PROVIDERS = ['openai', 'openrouter', 'elevenlabs', 'xai', 'hyperbolic', 'kokoro']
 export const STT_PROVIDERS = ['openai', 'openrouter', 'elevenlabs', 'groq', 'mistral', 'huggingface', 'gemini', 'whisper']
-export const IMAGE_GEN_PROVIDERS = ['openai', 'openrouter', 'xai', 'huggingface', 'hyperbolic']
+export const IMAGE_GEN_PROVIDERS = ['openai', 'openrouter', 'xai', 'huggingface', 'hyperbolic', 'bedrock']
 /** What each provider uses when the model is left empty (mirrors the server's defaults). */
 export const STT_DEFAULT_MODELS: Record<string, string> = {
     openai: 'whisper-1',
@@ -78,6 +78,7 @@ export const IMAGE_GEN_DEFAULT_MODELS: Record<string, string> = {
     xai: 'grok-2-image-1212',
     huggingface: 'stabilityai/stable-diffusion-xl-base-1.0',
     hyperbolic: 'SDXL1.0-base',
+    bedrock: 'amazon.nova-canvas-v1:0',
 }
 export const TTS_DEFAULT_MODELS: Record<string, string> = {
     openai: 'tts-1',
@@ -118,7 +119,11 @@ export const KOKORO_VOICES = [
     'jf_alpha', 'jf_gongitsune', 'jf_nezumi', 'jf_tebukuro', 'jm_kumo', 'pf_dora', 'pm_alex', 'pm_santa',
     'zf_xiaobei', 'zf_xiaoni', 'zf_xiaoxiao', 'zf_xiaoyi', 'zm_yunjian', 'zm_yunxi', 'zm_yunxia', 'zm_yunyang',
 ].map((v) => ({ value: v, label: v }))
-export const EMBEDDING_PROVIDERS = ['local', 'openrouter', 'ollama', 'openai', 'gemini', 'voyageai', 'mistral', 'together', 'cohere', 'copilot']
+export const EMBEDDING_PROVIDERS = ['local', 'openrouter', 'ollama', 'openai', 'gemini', 'voyageai', 'mistral', 'together', 'cohere', 'copilot', 'bedrock']
+/** Providers with a documented default when the model is left empty (mirrors the server). */
+export const EMBEDDING_DEFAULT_MODELS: Record<string, string> = {
+    bedrock: 'amazon.titan-embed-text-v2:0',
+}
 
 export const emptyForm = (): AgentForm => ({
     agentId: '',
@@ -228,7 +233,7 @@ export function problems(f: AgentForm, step: 'config' | 'prompt' | 'tools' | 'al
         if (f.tts && f.ttsSpeed.trim() !== '' && (num(f.ttsSpeed) ?? -1) <= 0) out.ttsSpeed = 'A positive number, or empty.'
         if (f.readImage && f.visionOwn && (!f.visionProvider || !f.visionModel)) out.vision = 'Choose a vision model.'
     }
-    if (step === 'all' && f.embeddingProvider !== 'local' && !f.embeddingModel.trim()) out.embeddingModel = 'Name the embedding model.'
+    if (step === 'all' && f.embeddingProvider !== 'local' && f.embeddingProvider !== 'bedrock' && !f.embeddingModel.trim()) out.embeddingModel = 'Name the embedding model.'
     return out
 }
 
@@ -276,8 +281,12 @@ export function toInput(f: AgentForm, base?: AgentDetail): AgentInput {
         dream_model: f.dreamEnabled && f.dreamModel ? f.dreamModel : null,
         avatar_url: f.avatarUrl || null,
         silent_read_initiative_chance: (num(f.silentReadPercent) ?? 0) / 100,
-        // The server wants a model with a provider; none means its own default.
-        embedding: f.embeddingModel.trim() ? { provider: f.embeddingProvider, model: f.embeddingModel.trim() } : null,
+        // The server wants a model with a provider; none means its own default (and Bedrock's
+        // empty model is meaningful: it selects Titan Text Embeddings V2).
+        embedding:
+            f.embeddingModel.trim() || f.embeddingProvider === 'bedrock'
+                ? { provider: f.embeddingProvider, model: f.embeddingModel.trim() }
+                : null,
         indexer: base?.indexer ?? undefined,
         tools: {
             shell: shellOf(f),

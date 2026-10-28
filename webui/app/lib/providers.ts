@@ -7,10 +7,14 @@ export const FIELD_LABELS: Record<CredentialField, string> = {
     base_url: 'Base URL',
     access_token: 'Access token',
     account_id: 'Account ID',
+    access_key_id: 'Access key ID',
+    secret_access_key: 'Secret access key',
+    session_token: 'Session token (optional)',
+    region: 'Region',
 }
 
 /** Fields shown in the clear (addresses, ids); the rest are secrets. */
-export const PLAIN_FIELDS: CredentialField[] = ['endpoint', 'base_url', 'account_id']
+export const PLAIN_FIELDS: CredentialField[] = ['endpoint', 'base_url', 'account_id', 'access_key_id', 'region']
 
 /** "3 agents · 41 models", or "not used yet". */
 export function usageText(used: UsedBy, models: number): string {
@@ -24,8 +28,11 @@ export function credentialText(p: ConnectedProvider): string {
     const where = p.endpoint ?? p.base_url
     const parts: string[] = []
     if (p.has_access_token) parts.push(p.account_id ? `Signed in as ${p.account_id}` : 'Signed in')
+    else if (p.has_secret_access_key) parts.push(p.source?.startsWith('env:') ? `Keys from ${p.source.slice(4)}` : 'Saved keys')
+    else if (p.access_key_id) parts.push('no secret key')
     else if (p.has_api_key) parts.push(p.source?.startsWith('env:') ? `Key from ${p.source.slice(4)}` : 'Saved key')
     else if (p.fields.includes('api_key')) parts.push('no key')
+    if (p.region) parts.push(p.region)
     if (where) parts.unshift(where)
     return parts.join(' · ') || (p.source ?? 'ready')
 }
