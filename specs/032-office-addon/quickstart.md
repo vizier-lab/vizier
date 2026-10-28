@@ -114,7 +114,7 @@ Expected: the first result is one row with one cell, `12`, and `start: "B2"`. Fo
 {"tool":"execute_python","arguments":{"code":"print(office_xlsx_read_as_cells(filename='formulas.xlsx'))\nprint(office_xlsx_read_as_cells(filename='formulas.xlsx', formulas=True))"}}
 ```
 
-Expected: the first shows the saved result for the first formula and `null` for the second, and a `note` naming the second cell. The second shows `{"value": <saved result>, "formula": "=…"}` for the first and `{"value": null, "formula": "=…"}` for the second. This tool never calculates: the saved result is whatever the file held, even if it no longer matches the formula. The CSV tool previews the whole workbook, and is the one that can calculate (needs the engine from task T049):
+Expected: the first shows the saved result for the first formula and `null` for the second, and a `note` naming the second cell. The second shows `{"value": <saved result>, "formula": "=…"}` for the first and `{"value": null, "formula": "=…"}` for the second. This tool never calculates: the saved result is whatever the file held, even if it no longer matches the formula. The CSV tool previews the whole workbook, and is the one that can calculate (needs the engine from task T016):
 
 ```json
 {"tool":"execute_python","arguments":{"code":"print(office_xlsx_read_as_csv(filename='formulas.xlsx'))\nprint(office_xlsx_read_as_csv(filename='formulas.xlsx', executed_formula=True))\nprint(office_xlsx_read_as_csv(filename='budget.xlsx'))"}}
