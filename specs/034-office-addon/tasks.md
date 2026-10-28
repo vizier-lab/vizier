@@ -138,7 +138,7 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 ### Tests for User Story 4
 
 - [X] T035 [P] [US4] Test that a disabled `office` integration contributes no tools and an enabled one does, in `src/integrations/mod.rs` (or the closest existing composition test) (written, not yet compiled)
-- [ ] T036 [P] [US4] Test that flipping `enabled` through the service publishes `IntegrationChanged` and the agent's tools recompose without a restart (extend the existing update tests in `src/integrations/service.rs` with an `office` case)
+- [X] T036 [P] [US4] Test that flipping `enabled` through the service publishes `IntegrationChanged` and the agent's tools recompose without a restart (extend the existing update tests in `src/integrations/service.rs` with an `office` case) (written, not yet compiled; goes through `service::update` with a system caller)
 - [X] T037 [P] [US4] Test that an agent update (`finish_update` in `src/agents/mod.rs`) and a second run of the startup pass never add or duplicate the addon when it is disabled or removed (written, not yet compiled; the `finish_update` half holds because `seed_default` is called only from `finish_create` and the startup pass)
 
 ### Implementation for User Story 4

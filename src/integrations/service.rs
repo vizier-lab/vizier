@@ -530,6 +530,31 @@ mod tests {
         assert_eq!(change.agents, vec!["c".to_string()]);
     }
 
+    #[tokio::test]
+    async fn turning_the_addon_off_and_on_publishes_without_touching_the_agent() {
+        use super::{Actor, IntegrationPatch, update};
+        use crate::access::Caller;
+
+        let (deps, _dir) = deps().await;
+        deps.storage.create_agent("e", &agent_config("e")).await.unwrap();
+        let office = seed_default(&deps, "e", None, "office", "Office").await.unwrap().unwrap();
+        let actor = Actor::Person(Caller { user_id: "root", is_system: true, permissions: &[] });
+        let mut changes = deps.transport.subscribe_integration_changes();
+        let _seeded = changes.try_recv();
+
+        for enabled in [false, true] {
+            let patch = IntegrationPatch { enabled: Some(enabled), ..Default::default() };
+            let (saved, affected) = update(&deps, &actor, &office.id, patch, &|_| true).await.unwrap();
+            assert_eq!(saved.enabled, enabled);
+            assert_eq!(affected, vec!["e".to_string()]);
+            let change = changes.try_recv().expect("each toggle publishes IntegrationChanged");
+            assert_eq!(change.integration_id, office.id);
+            let stored = deps.storage.list_agent_integrations("e").await.unwrap();
+            assert_eq!(stored.len(), 1);
+            assert_eq!(stored[0].enabled, enabled);
+        }
+    }
+
     /// A person turned the addon off: seeding again (as a restart or an update would, were
     /// either to seed) neither turns it on nor adds a second one.
     #[tokio::test]
