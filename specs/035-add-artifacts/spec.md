@@ -14,10 +14,11 @@ Today everything a conversation produces lands in the same bucket: **session fil
 
 This feature introduces a second, permanent tier: **artifacts**. Session files become explicitly **transient** — per-conversation scratch that a person can clear. An agent or a person can **promote** a session file into an artifact: a named, agent-owned file that lives until a person deletes it. Artifacts can be **replaced** with newer content, attached to outgoing messages and memories, and browsed in a new **Artifacts gallery**.
 
-Two decisions keep the first release simple:
+Three decisions keep the first release simple:
 
-- **No automatic collection.** Session files are cleared only by an explicit action — the chat side panel's Clear session files, the `/clear-session-file` channel command, deleting the conversation, or deleting the agent. There is no retention period, background collector or size-based cleanup in this release. This is deliberately deferred so the permanence model can settle first.
+- **No automatic collection.** Session files are cleared only by an explicit action — the chat side panel's Clear session files, the `/clear-files` channel command, deleting the conversation, or deleting the agent. There is no retention period, background collector or size-based cleanup in this release. This is deliberately deferred so the permanence model can settle first.
 - **Promotion copies, it does not link.** The artifact gets its own copy of the bytes, and the source session file stays where it is. Nothing needs to mark which session files are artifacts, and clearing session files can never damage an artifact. The source is not hidden or flagged after promotion; it remains an ordinary session file until it is cleared.
+- **Session deletion is explicit and safe for artifacts.** Deleting a conversation removes that conversation's session files and their content. Artifacts promoted from it survive because they are copies, and a memory that references an artifact keeps resolving. A memory that references one of the deleted session files shows that file as unavailable. Deletion is refused while a turn is running or queued. Deleting an agent removes its session files and artifacts together.
 
 The feature deliberately does not turn every existing session file into an artifact. Permanence is an explicit step. Existing messages and memories that reference session files keep working while those files exist; clearing the files makes those references unavailable. Artifacts are not shared across agents, are not public links, and do not keep a restorable history of earlier versions in this release. The generated-UI media surface continues to use the conversation's session files.
 
@@ -72,7 +73,7 @@ A person opens the selected agent's **Artifacts** page. They see every permanent
 
 ### User Story 3 - Clear a conversation's session files explicitly (Priority: P2)
 
-A conversation is finished with. Its uploaded spreadsheets, generated drafts and images have served their purpose. The person opens the chat details panel and chooses **Clear session files**. A confirmation says it will remove this conversation's transient files, that artifacts are copies and are not affected, and that older messages or memories that still point at these files will no longer open them. They confirm and the panel reports how many files were removed. On Discord or Telegram they send `/clear-session-file` (shown as `/clear_session_file` on Telegram) and confirm in the same way. A turn in progress is never cleared underneath it.
+A conversation is finished with. Its uploaded spreadsheets, generated drafts and images have served their purpose. The person opens the chat details panel and chooses **Clear session files**. A confirmation says it will remove this conversation's transient files, that artifacts are copies and are not affected, and that older messages or memories that still point at these files will no longer open them. They confirm and the panel reports how many files were removed. On Discord or Telegram they send `/clear-files` (shown as `/clear_files` on Telegram) and confirm in the same way. A turn in progress is never cleared underneath it.
 
 **Why this priority**: Explicit clearing is the storage half of the feature. Without it, session files still accumulate forever, but automatic collection is intentionally deferred to a later change.
 
@@ -81,7 +82,7 @@ A conversation is finished with. Its uploaded spreadsheets, generated drafts and
 **Acceptance Scenarios**:
 
 1. **Given** an open conversation with session files, **When** the person chooses Clear session files in the side panel and confirms, **Then** every session file in that conversation is removed, the action reports how many were removed, and no other conversation is affected.
-2. **Given** a Discord or Telegram conversation with session files, **When** the person sends `/clear-session-file` and confirms, **Then** the same clear happens for that conversation, with the same count and safety rules.
+2. **Given** a Discord or Telegram conversation with session files, **When** the person sends `/clear-files` and confirms, **Then** the same clear happens for that conversation, with the same count and safety rules.
 3. **Given** any clear action, **When** the confirmation is shown, **Then** it says artifacts are unaffected and that older messages or memories referencing the cleared files will no longer open them.
 4. **Given** a promoted artifact, **When** its source conversation is cleared, **Then** the artifact and its content are unchanged and it remains usable in the gallery, messages and memories.
 5. **Given** a conversation with a turn running or queued, **When** clear is attempted, **Then** it is refused with a message explaining that the turn must finish first, and no file is removed.
@@ -91,6 +92,8 @@ A conversation is finished with. Its uploaded spreadsheets, generated drafts and
 9. **Given** a conversation with no turn running or queued, **When** it is deleted, **Then** its session files are removed and its artifacts remain.
 10. **Given** an agent is deleted, **When** the deletion completes, **Then** its session files, artifacts and artifact records are gone and no orphaned content remains.
 11. **Given** a file is being promoted while the conversation is cleared, **When** both complete, **Then** either the artifact was created from the complete copy and survives, or the promotion fails cleanly and no artifact exists.
+12. **Given** a conversation with a session file that an older memory references, **When** the conversation is deleted, **Then** the memory shows the file as unavailable, any artifact promoted from that conversation still resolves, and no other conversation or artifact changes.
+13. **Given** a conversation with a turn running or queued, **When** conversation deletion is attempted, **Then** it is refused until the turn ends and nothing is removed.
 
 ---
 
@@ -167,7 +170,7 @@ A person wants to know where an artifact came from and who changed it. The galle
 - **Scheduled task or background job**: they can list, read, create and replace their agent's artifacts under the same rules as an ordinary turn.
 - **No permission to manage the agent**: the gallery is read-only and delete is refused, even if the person promoted the artifact.
 - **Two people act at once**: one person's delete and another's replace resolve consistently — either the replace succeeds before the delete and is then deleted, or the delete succeeds and the replace reports not found.
-- **Platform command naming**: `/clear-session-file` is the canonical name; Discord accepts it as written, while Telegram's command rules turn it into `/clear_session_file`.
+- **Platform command naming**: `/clear-files` is the canonical name; Discord accepts it as written, while Telegram's command rules turn it into `/clear_files`.
 
 ## Requirements *(mandatory)*
 
@@ -216,9 +219,9 @@ A person wants to know where an artifact came from and who changed it. The galle
 
 **Session files and explicit clearing**
 
-- **FR-033**: Session files MUST be transient and MUST be removed only by an explicit action: the chat side panel's Clear session files, the `/clear-session-file` channel command, deleting the conversation, or deleting the agent. No retention timer, background collector or size-based cleanup may remove them in this release.
+- **FR-033**: Session files MUST be transient and MUST be removed only by an explicit action: the chat side panel's Clear session files, the `/clear-files` channel command, deleting the conversation, or deleting the agent. No retention timer, background collector or size-based cleanup may remove them in this release.
 - **FR-034**: The chat side panel MUST offer a Clear session files action for the current conversation; it MUST require confirmation, report how many files were removed, and affect only that conversation.
-- **FR-035**: Discord and Telegram conversations MUST offer the same clear as a `/clear-session-file` command, with the same confirmation, count and safety rules; on a platform whose command naming rules do not accept hyphens, the command MUST be registered in its valid form (Telegram's `/clear_session_file`).
+- **FR-035**: Discord and Telegram conversations MUST offer the same clear as a `/clear-files` command, with the same confirmation, count and safety rules; on a platform whose command naming rules do not accept hyphens, the command MUST be registered in its valid form (Telegram's `/clear_files`).
 - **FR-036**: A conversation with a turn running or queued MUST NOT have its session files removed by a clear; the attempt MUST be refused with an explanation that the turn must finish first.
 - **FR-037**: Clearing MUST remove the conversation's session file records and their content, MUST NOT remove or change any artifact or artifact content, and MUST NOT affect another conversation.
 - **FR-038**: The clear confirmation MUST state that artifacts are unaffected and that older messages or memories still referencing the cleared files will no longer open them.
@@ -237,7 +240,7 @@ A person wants to know where an artifact came from and who changed it. The galle
 - **FR-048**: Files a person uploads into a conversation MUST remain transient session files and MUST be readable by the agent without promotion; they become permanent only through an explicit promotion.
 - **FR-049**: An agent MUST NOT attach another agent's artifact, and a missing or deleted artifact MUST be refused as an attachment.
 - **FR-050**: Channel delivery MUST respect each platform's attachment size limit: when an artifact is too large, the reply text MUST still be delivered, the attachment failure MUST be reported explicitly, and the artifact MUST remain usable elsewhere.
-- **FR-051**: Existing messages and memories that reference session files MUST keep working while those files exist; after a clear removes them, they MUST render an unavailable placeholder without breaking the rest of the message or memory, and no retroactive promotion or bulk rewrite is required.
+- **FR-051**: Existing messages and memories that reference session files MUST keep working while those files exist; after a clear or conversation deletion removes them, they MUST render an unavailable placeholder without breaking the rest of the message or memory, and no retroactive promotion or bulk rewrite is required.
 
 **Provenance, permissions and documentation**
 
@@ -246,7 +249,7 @@ A person wants to know where an artifact came from and who changed it. The galle
 - **FR-054**: Every read, promotion, replacement, attachment, download and delete MUST be authorised independently; hiding a control in the interface MUST NOT be the protection.
 - **FR-055**: Permission changes MUST take effect on the next request, even if the person's gallery is already open.
 - **FR-056**: Artifacts MUST NOT be shared across agents and MUST NOT be reachable through a public link in this release.
-- **FR-057**: User documentation MUST explain that session files are transient and cleared explicitly (including the side-panel action and `/clear-session-file`), who may view and delete artifacts, and what messages and memories show after an artifact is replaced or deleted.
+- **FR-057**: User documentation MUST explain that session files are transient and cleared explicitly (including the side-panel action and `/clear-files`), who may view and delete artifacts, and what messages and memories show after an artifact is replaced or deleted.
 
 ### Key Entities
 
@@ -279,10 +282,10 @@ A person wants to know where an artifact came from and who changed it. The galle
 ## Assumptions
 
 - **Automatic collection is deferred**: this release adds no retention period, background garbage collector, size threshold or automatic expiry for session files. They are removed only by an explicit clear, conversation deletion or agent deletion. Storage growth is accepted until a later change adds collection; the gallery and clear action make the transient tier manageable in the meantime.
-- **Promotion copies**: the artifact owns an independent copy of the bytes, and the source session file is left untouched and unmarked. This is what removes the need to track which session files are artifacts or to protect them from clearing.
+- **Promotion copies**: the artifact owns an independent copy of the bytes, and the source session file is left untouched and unmarked. This is what removes the need to track which session files are artifacts or to protect them from clearing. Until the source is cleared, the same content is stored twice; that duplication is the deliberate cost of keeping clearing simple.
 - **Clear is destructive for legacy references**: after a clear, an older message or memory that still points at one of the cleared session files shows an unavailable placeholder. New messages and memories avoid this by referencing artifacts. The confirmation says so before anything is removed.
 - **Clear is conversation-scoped**: the side panel clears only the open conversation; the channel command clears only the conversation it is sent in. Anyone who can participate in that conversation may clear its files. No other conversation, memory, artifact or agent is affected.
-- **Channel command naming**: `/clear-session-file` is the canonical name. Discord accepts it as written; Telegram's rules do not accept hyphens, so the same command is registered there as `/clear_session_file`. Both do the same thing.
+- **Channel command naming**: `/clear-files` is the canonical name. Discord accepts it as written; Telegram's rules do not accept hyphens, so the same command is registered there as `/clear_files`. Both do the same thing.
 - **Agent-owned, not conversation-owned**: an artifact belongs to the agent workspace, not to the conversation that produced it. It outlives the conversation and is visible wherever the agent's own visibility allows.
 - **Permanence is explicit**: session files are not promoted automatically, and existing session files are not backfilled into artifacts. Existing references keep working while the files exist; they are not rewritten.
 - **Replacement is overwrite-in-place**: a replacement changes the artifact's current content and increments a version counter. Earlier versions are not retained, restorable or pinnable; references always follow the latest. This keeps the storage model and gallery lean for the first release.
