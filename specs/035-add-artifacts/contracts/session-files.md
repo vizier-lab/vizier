@@ -163,7 +163,17 @@ This leaves no artifact content, events, references or session-file records for 
 
 ---
 
-## 9. Tests
+## 9. Dream source files
+
+- A dream turn has `ToolContext.dream_sources`: one source for extraction, the cycle's actual source sessions for consolidation (from request metadata).
+- `list_session_files`/`read_document_file`/`read_image_file` resolve only those sources; an arbitrary session is refused.
+- `promote_artifact` may copy a file from a source; the artifact origin is the source conversation.
+- `load_artifact_as_session_file`, `send_attachment`, `update_artifact` and every clear/delete operation are not in the dream toolset. `memory_read` may copy an artifact into the dream's own transient session, not a source session.
+- The source session files are byte-identical after a dream read/promote; no source record/blob is created, changed or cleared.
+
+---
+
+## 10. Tests
 
 - Count/clear/zero files; count and bytes.
 - Active turn (queued and running) refuses; a finished turn allows.
@@ -172,4 +182,5 @@ This leaves no artifact content, events, references or session-file records for 
 - Agent deletion removes session-file records/blobs and the artifact directory, including a shared blob still referenced by another agent (kept).
 - Clear endpoint permission (view + platform chat), missing agent/file.
 - Channel confirmation: request, confirm, expiry, cancel, confirm-without-request, builtin name clash.
+- Dream source: list/read only the allow-list, promotion from a source, non-source refusal, source bytes unchanged, no write-like tool in the dream toolset.
 - No automatic deletion: no scheduler/startup code removes session files.

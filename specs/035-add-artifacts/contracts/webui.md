@@ -10,9 +10,10 @@ The WebUI is the `webui/` submodule on `design/`. The design change (sidebar pag
 
 - Add `artifacts` to the design `SidebarPage` union and the agent-pages group (alongside Memory/Tasks; icon `folder`). Update `Sidebar.stories.tsx`.
 - Add `/:agentId/artifacts` to `webui/app/routes.ts`, imported as `routes/artifacts.tsx`.
-- Add `artifacts` to `AppShell`'s `AGENT_PAGES` and `PAGE_PATH` (`/artifacts`).
+- Add `artifacts` to `AppShell`'s `AGENT_PAGES` and `PAGE_PATH` (`/artifacts`); hide it from the sidebar when `canViewArtifacts(agent)` is false.
 - The page is only reachable with an agent selected; it is not a Settings page and has no separate cross-agent view.
-- The gallery is agent-level: an artifact promoted from a Discord/Telegram conversation is visible there under the agent visibility rule (no platform-chat gate; spec FR-029).
+- The gallery is agent-level: the artifact view permission decides access, not agent visibility or the origin conversation (FR-028/FR-029). A person without the artifact view permission gets no gallery entry and a `403` from every gallery/content route.
+- The four permissions are listed in the role editor's **Artifacts** group; manage implies view in the WebUI helper and the server.
 
 ---
 
@@ -32,7 +33,7 @@ The WebUI is the `webui/` submodule on `design/`. The design change (sidebar pag
 Each row/card shows:
 - name (monospace/truncated, full accessible name), `FileTypeTag`/kind, size, version, last change time, and `Used by N` (from `references` or a summary count).
 - an explicit unavailable state if `available: false` (text/icon, not only colour).
-- actions: Open/Preview, Download, Delete (only if the person may edit the agent).
+- actions: Open/Preview, Download, Delete (only when `canManageArtifacts(agent)`); promotion is in the chat side panel, not the gallery.
 
 Desktop: a `Table` (or dense list) with the columns above. Phone: stacked cards with the same content and actions; no horizontal scroll.
 
@@ -44,7 +45,7 @@ Selecting an artifact opens a detail view (right pane on wide screens, full-scre
 - origin: conversation label/link when readable, source filename.
 - provenance: the change history (promoted/replaced/deleted by actor name at time); the activity view has the full agent-wide list.
 - references: every message and memory that uses it, with a label and a link when the destination is readable; an empty state "Not attached anywhere yet."
-- Delete: `ConfirmDialog` names the artifact, states the reference count and says references will show as deleted. On success, close the detail, remove the row and refresh the stats/list. A 403 is shown; the action is absent for non-editors.
+- Delete: `ConfirmDialog` names the artifact, states the reference count and says messages will show it unavailable and memories will lose the attachment. On success, close the detail, remove the row and refresh the stats/list. A 403 is shown; the action is absent for view-only/no-permission users.
 
 ### Activity
 
@@ -67,7 +68,7 @@ Activity rows show action icon/word, artifact name, actor name, time and source 
 
 ### Promote
 
-- A `Promote` action per file row (e.g. a `TextLink` before the type tag). Opens a small dialog with the file's name prefilled; empty/whitespace or invalid name shows the server error inline.
+- A **Promote** action per file row (e.g. a `TextLink` before the type tag), shown only when `canManageArtifacts(agent)`. Opens a small dialog with the file's name prefilled; empty/whitespace or invalid name shows the server error inline.
 - Calls `POST …/files/promote` with `{filename, name}`.
 - On success: toast `Promoted “<name>” to artifacts.` and a `View in gallery` link. The source stays in the session-file list (copy, no artifact marker).
 - A duplicate name error is shown with a hint that an artifact with that name exists; the person can choose another name.
@@ -75,7 +76,7 @@ Activity rows show action icon/word, artifact name, actor name, time and source 
 
 ### Clear session files
 
-- A `Clear session files` button near the panel header, only when the list is non-empty and the turn is idle (server refuses active turns anyway).
+- A `Clear session files` button near the panel header, only when the list is non-empty and the turn is idle (server refuses active turns anyway). Session-file clear is not gated by the artifact permissions; it follows the conversation's existing visibility.
 - `ConfirmDialog`:
   - title `Clear session files?`;
   - body `This removes N files from this conversation. Artifacts are unaffected. Older messages or memories that reference these files will no longer open them.`;
@@ -106,8 +107,7 @@ content:
 `ReplyMedia`:
 - `attachmentUrl` returns the artifact content URL for an `artifact` content:
   `…/api/v1/agents/{agent_id}/artifacts/{artifact_id}/content`, with the auth token query when the URL is used by `<img>`/`<audio>`/`<video>`/`<iframe>`.
-- `available === false` renders a `FilePeek`/notice named `"<name> — artifact deleted"` with no download; the rest of the message remains.
-- A content fetch 404 (or image load error) flips that attachment to the same unavailable state.
+- `available === false`, a content fetch 403/404, or `!canViewArtifacts(agent)` renders a named unavailable state (`"<name> — artifact unavailable"`) with no download; the rest of the message remains. A person without the artifact view permission does not get a content request.
 - Available images/audio/video use the existing media components; other kinds use the existing FilePeek/Download path.
 - Session-file (legacy `local`/`url`) attachments keep the current rendering.
 
@@ -146,11 +146,14 @@ The chat composer continues to upload people's files as session files; it does n
 - WebUI store/reducer: the side-panel clear action empties `files` and leaves other topic state; a new session-file frame after clear prepends normally.
 - `npm run typecheck` and `npm test`.
 - Playwright (`e2e/artifacts.spec.ts`, desktop and phone):
-  - sidebar entry and gallery list/stats/search/kind/date/paging;
+  - sidebar entry and gallery list/stats/search/kind/date/paging as a view user;
   - preview image/PDF/CSV/markdown/text and unsupported download;
   - detail provenance/references/activity;
-  - delete as owner vs a view-only user (dialog, 403, row removal);
+  - delete as a manager vs a view-only user (dialog, 403, row removal); promote hidden/refused for view-only;
+  - no-view user: no sidebar entry, gallery/content requests 403, message attachment unavailable;
+  - `owned_agents` owner vs non-owner, and `all_agents` across agents;
+  - role editor shows the four artifact permissions with labels;
   - side-panel promote (name dialog, toast, source remains) and clear (confirm, count, artifacts remain, active-turn refusal);
-  - a reply with an artifact attachment, replacement reflecting new bytes, deleted artifact tombstone;
+  - a reply with an artifact attachment, replacement reflecting new bytes, deleted artifact unavailable state;
   - mobile layout and focus/Escape.
 - If a browser is unavailable, record the manual checks in `quickstart.md` and run the unit/typecheck gates.

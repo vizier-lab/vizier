@@ -188,14 +188,14 @@ attachment_count: 1
 
 Then read the memory through the API and the agent. Expect the legacy attachment to appear with its old shape, `memory_read` to copy it into the session, and `detach_attachment_from_memory(path="<path>", name="legacy.txt")` to remove it. This is the read-only legacy path tracked in #82; no migration runs.
 
-## 6. Delete an artifact and see the tombstone (US2/US4)
+## 6. Delete an artifact: unavailable messages and memory link removal (US2/US4)
 
 ```sh
 curl -s "${auth[@]}" -X DELETE "$API/agents/dp-a/artifacts/$ART" | jq .data
 curl -s -o /dev/null -w '%{http_code}\n' "${auth[@]}" "$API/agents/dp-a/artifacts/$ART/content"
 ```
 
-Expect `{removed:true, references:N}`, then `404` for the content. Read the topic history: the saved attachment must have `available:false` (or the WebUI shows `artifact deleted`); the memory (if still attached) must report it deleted by name. The activity view has a `deleted` record.
+Expect `{removed:true, references:N, memory_links_removed:M}`, then `404` for the content. Read the topic history: the saved attachment must have `available:false` (or the WebUI shows it unavailable); the memory that referenced the artifact must no longer list it (the memory body is intact and a revision records the link removal). The activity view has a `deleted` record.
 
 ## 7. Conversation deletion (US3)
 
@@ -226,14 +226,57 @@ Manually (or with `cd webui && npm run e2e -- artifacts.spec.ts` when a browser 
 
 1. With at least two artifacts, open the agent's **Artifacts** page. Check the sidebar entry, the total count/bytes, newest-first order, name search, kind/date filters, paging and the Activity tab.
 2. Preview an image, a PDF, a CSV, markdown and a text artifact; check the CSV table/raw switch and the unsupported-type download message. Download one and compare bytes.
-3. Open the detail: origin conversation, source filename, current version, change history and "Used by" message/memory links. Delete one as the owner; confirm the dialog names it and the reference count; the row disappears and references show the tombstone. Repeat as a view-only user: no delete action and a direct delete returns `403`.
+3. Open the detail: origin conversation, source filename, current version, change history and "Used by" message/memory links. Delete one as a manager; confirm the dialog names it and the reference count; the row disappears, message references show it unavailable, and memory links are removed. Repeat as a view-only user: no delete/promote action and a direct delete/promote returns `403`.
 4. In a chat, use **Promote** on a session file: name dialog, success toast, source still listed. Use **Clear session files**: confirm dialog names the count and warns about old references; the list empties; artifacts remain. The action is disabled while the turn is running.
 5. At a phone viewport, the gallery uses stacked cards, the detail is full-screen, filters wrap, and the side panel opens as a sheet. Check keyboard focus/Escape and screen-reader names.
-6. A reply with an artifact attachment shows the current file; replace the artifact and reload the message; delete it and confirm the named tombstone. A legacy session-file attachment still renders as before.
+6. A reply with an artifact attachment shows the current file; replace the artifact and reload the message; delete it and confirm the named unavailable state. A legacy session-file attachment still renders as before.
 
 `npm run typecheck`, `npm test` and the Playwright spec cover the helper and store paths; record the manual checks if the browser cannot start.
 
-## 10. Channel clear command — unit + LIVE
+## 10. Dream source read/promote (unit + LIVE)
+
+Offline:
+
+```sh
+cargo test dream_source
+cargo test dream_toolset
+```
+
+Expect:
+
+- `DREAM_TOOL_NAMES` contains `list_session_files`, `read_document_file`, `read_image_file`, `promote_artifact`, `list_artifacts`, `attach_artifact_to_memory` and `detach_attachment_from_memory`; it does not contain `update_artifact`, `load_artifact_as_session_file`, `send_attachment`, or any clear/delete session-file tool.
+- An extraction dream resolves its `dream_sources` to the inner source session; a consolidation dream resolves the source sessions from the request metadata; a source outside the allow-list is refused.
+- A dream promotion from a source session copies the bytes, records the source conversation as the artifact origin, and leaves the source `session_file` row, upload bytes and record unchanged. No `session_file` row is created in the dream session by the promotion.
+
+LIVE (optional; needs a real provider, not dummyplug):
+
+1. Enable dreaming for an agent with a source conversation that has a session file.
+2. Trigger the dream; the prompt/instructions can ask the model to inspect the source files and promote a valuable one with `promote_artifact(source_session="<slug>", filename="...")`.
+3. Confirm the artifact appears in the gallery with the source conversation as origin, and the source session files remain byte-identical. Confirm no `session_file` row was created in the dream session and no source file was modified or cleared.
+4. A dream must be refused if it tries `update_artifact`, `load_artifact_as_session_file`, `send_attachment`, or a source outside its cycle.
+
+Dummyplug cannot drive the dream tool call (its dream prompt returns lorem), so the source-scope unit/integration tests are the offline gate.
+
+## 11. Artifact permissions (US2/US5)
+
+Use the role editor and four permission labels:
+
+- `all_agents:view_artifacts` — see every agent's artifacts.
+- `owned_agents:view_artifacts` — see artifacts of agents they own.
+- `all_agents:manage_artifacts` — manage every agent's artifacts.
+- `owned_agents:manage_artifacts` — manage artifacts of agents they own.
+
+Checks (grant `all_agents:view`/`owned_agents:view` as needed for the agent switcher, but the artifact permission is the gate):
+
+1. As `superadmin`, open Settings › Roles: the four labels appear under **Artifacts** and can be granted/revoked.
+2. `viewer` role: `all_agents:view_artifacts` + `all_agents:view`. Open `dp-a/artifacts`: list/preview/download work; no Promote in the side panel and no Delete in the detail; a direct `POST …/files/promote` or `DELETE …/artifacts/{id}` returns `403`.
+3. `manager` role: `all_agents:view_artifacts` + `all_agents:manage_artifacts` + `all_agents:view`. Promote from a chat side panel and delete from the gallery work.
+4. `owned` role: `owned_agents:view_artifacts` (+ `owned_agents:view`) and ownership of `dp-a` but not `dp-b`. `dp-a/artifacts` is `200`; `dp-b/artifacts` is `403`. Add `owned_agents:manage_artifacts` and confirm promote/delete for `dp-a` only.
+5. A person with `all_agents:view` but no artifact permission: no Artifacts sidebar entry; `GET /agents/dp-a/artifacts` and the content route `403`; an artifact attachment in a message they can read shows the named unavailable state, not a broken download.
+6. `superadmin` bypasses the four permissions for every agent.
+7. Revoke a permission while the gallery is open: the next read/promote/delete is refused; no stale UI state writes.
+
+## 12. Channel clear command — unit + LIVE
 
 Offline:
 
@@ -249,7 +292,7 @@ LIVE (a bot with a channel):
 2. In Telegram, use `/clear_files` and `/clear_files confirm`; the command menu shows `/clear_files`.
 3. Attach an artifact larger than the platform's limit and send it. The reply text must arrive and a short explicit attachment failure must name the file; the artifact remains in the gallery.
 
-## 11. Final checks
+## 13. Final checks
 
 ```sh
 cargo fmt --check

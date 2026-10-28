@@ -150,9 +150,9 @@ If the document write succeeds and the reference sync fails, the failure is logg
 
 ### Deletion
 
-- Session deletion: `DELETE FROM artifact_reference WHERE kind='message' AND agent_id=? AND session_slug=?`.
-- Memory deletion/bundle deletion: matching `kind='memory'` rows.
-- Artifact deletion: all rows for the artifact.
+- Session deletion: `DELETE FROM artifact_reference WHERE kind='message' AND agent_id=? AND session_slug=?`; the artifact row/content is untouched.
+- Memory deletion/bundle deletion: matching `kind='memory'` rows; the artifact row/content is untouched.
+- Artifact deletion: collect the memory references, delete the artifact row, all reference rows and insert the `deleted` event in one transaction; then detach the artifact from every referenced memory (`detach_artifact_from_memories` with the deleting person's `RevisionOrigin`) and remove the content directory. Message history rows keep their artifact id and become unavailable; a memory body stays with the link removed and a revision; a cleanup failure leaves a stale link that reads as deleted.
 - Agent deletion: all rows for the agent.
 - Artifact rows are not cascaded into events; deletion events survive.
 
@@ -193,6 +193,8 @@ The gallery list/detail checks availability for the returned page items only (`A
 - The source session file is not moved, marked or referenced by the artifact row; clearing it cannot affect the artifact's content.
 - A disk failure on the content write fails the operation; a disk failure on old-version cleanup is logged.
 - A failed event insert rolls back the row change and removes the new content file.
+- Artifact deletion removes the row/refs/event **before** detaching memory links, so a concurrent memory attach (which verifies the artifact row at write time) cannot recreate a validated link; a memory detach failure is logged and leaves a stale link that reads as deleted.
+- Session or memory deletion never deletes the artifact row/content; only the reference rows are removed.
 
 ---
 
@@ -203,6 +205,7 @@ The gallery list/detail checks availability for the returned page items only (`A
 - Keyset list with tied `updated_at`, kind/date/search filters, `next`, totals, agent totals.
 - Availability true/false/missing row.
 - Reference insert on history save, session delete cleanup, memory sync/reconcile, artifact delete cleanup, agent delete cleanup.
+- Artifact delete removes memory attachment links with revisions; session/memory deletion leaves the artifact row/content; a stale memory link reads as deleted.
 - Content path under `artifacts/` (never `uploads/`), agent directory removal, version temp cleanup.
 - Shared `file_id` reference counting via `json_extract`.
 - Sync content lookup returns the current version, not a stale one.

@@ -2,7 +2,7 @@
 
 **Feature**: `035-add-artifacts`
 
-Base: `/api/v1`. Every route here is behind `require_auth`; the agent must exist and be visible to the caller. Errors use the existing `APIResponse` envelope (`{ status, message, data }`).
+Base: `/api/v1`. Every route here is behind `require_auth`. Artifact **view** routes require `all_agents:view_artifacts`, or `owned_agents:view_artifacts` and ownership; **manage** routes require `all_agents:manage_artifacts`, or `owned_agents:manage_artifacts` and ownership. Manage implies view; the system role bypasses. These permissions are additive to the agent's other pages and do not grant them. Errors use the existing `APIResponse` envelope (`{ status, message, data }`).
 
 All timestamps are RFC 3339 in JSON. All IDs are strings.
 
@@ -55,7 +55,7 @@ Response `200`:
 - `next` is `null` on the last page; an invalid cursor is `400 malformed cursor`.
 - Order is `updated_at DESC, id DESC`.
 - `available` is `false` when the row exists but its content file is missing.
-- `403` if the caller cannot see the agent; `404` if the agent does not exist.
+- `403` if the caller lacks artifact view permission for the agent; `404` if the agent does not exist.
 
 ---
 
@@ -101,7 +101,7 @@ Response `200`:
 - `origin` is `{ "channel": "http__ana__topic-abc", "topic": "topic-abc", "source_filename": "report.pdf" }` (nullable parts).
 - `references` can be empty; each has a display label and a `href` when the destination is a readable conversation/memory.
 - `events` are newest first (the activity view is the paged version).
-- `404` for a missing artifact, `403` for an invisible agent.
+- `404` for a missing artifact, `403` for no artifact view permission.
 
 ---
 
@@ -116,7 +116,7 @@ GET /api/v1/agents/{agent_id}/artifacts/{artifact_id}/content
 - `Content-Disposition: inline; filename*=UTF-8''<percent-encoded display name>` (a quoted ASCII fallback is optional); the WebUI download uses the artifact's display name from metadata, so a quote/Unicode name does not corrupt the header.
 - Supports a single `Range: bytes=…` exactly like `GET /files/{file_id}` (shared range parser).
 - `404` when the artifact row is missing; `410` is not used. A row whose content file is missing is `404` with `message: "artifact content is unavailable"`.
-- View permission only; no new permission.
+- View permission only; no new permission. A person without `view_artifacts` gets `403` even if they can see the surrounding message/memory; the WebUI shows the attachment as unavailable.
 
 ---
 
@@ -158,16 +158,16 @@ Response:
 DELETE /api/v1/agents/{agent_id}/artifacts/{artifact_id}
 ```
 
-- Requires ownership of the agent or `all_agents:edit`; the system role bypasses.
-- Deletes the row, its references, its content directory and writes a `deleted` event. The event remains.
+- Requires artifact manage permission for the agent (system bypass). Deletes the row, its references, its content directory and writes a `deleted` event. The event remains.
+- Before deleting the row, collect the memory references; after the row/refs/event transaction, remove the artifact attachment from each memory (`detach_artifact_from_memories` with a memory revision). Message references remain in history and become unavailable.
 - Response `200`:
 
 ```json
-{ "removed": true, "references": 3 }
+{ "removed": true, "references": 3, "memory_links_removed": 2 }
 ```
 
-- `403` when the caller only has view access; `404` when the artifact is already gone.
-- A message/memory that still holds the artifact id shows the tombstone; the delete confirmation in the UI uses the reference count from the detail view.
+- `403` when the caller has only view access; `404` when the artifact is already gone.
+- A message that still holds the artifact id shows the unavailable/tombstone state; a memory normally has no attachment after the cleanup and records a revision. A failed memory cleanup is logged and leaves a stale link that reads as deleted.
 
 ---
 
@@ -184,14 +184,14 @@ Body:
 ```
 
 - `name` is optional; it defaults to `filename`.
-- The route uses the same conversation resolution as `GET …/files`: `user_can_view_agent` plus the existing `show_<platform>_chats` rule for Discord/Telegram.
+- The route requires artifact **manage** permission for the agent, plus the same conversation access as `GET …/files`: `user_can_view_agent` and the existing `show_<platform>_chats` rule for Discord/Telegram.
 - The source must be a session file in that conversation; the bytes are copied into `artifacts/` and the source stays where it is.
 - Response `201`: the artifact detail summary (same shape as a list item plus origin/source/creator).
 - Errors:
   - `404` agent/conversation/file not found;
   - `409` an artifact with that name already exists (the message points to replacement);
   - `422` invalid name or empty/unreadable source;
-  - `403` no visibility.
+  - `403` no manage permission or no conversation access.
 - Actor: `Requester::User(user.user_id)`.
 
 ---
@@ -202,7 +202,7 @@ Body:
 DELETE /api/v1/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/files
 ```
 
-- Same visibility/platform-chat permission as the list/promote routes.
+- Same conversation visibility as `GET …/files` (agent visibility plus the existing platform-chat rule); artifact permissions do not gate session-file clear.
 - Refused while the conversation has a running or queued turn (`409`, message explains it).
 - Deletes every `session_file` record in that conversation and each `uploads/<file_id>/` blob that no other session-file record references. Artifacts are untouched.
 - Response `200`:

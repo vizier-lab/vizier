@@ -80,7 +80,7 @@ pub trait AttachmentResolver: Send + Sync {
 
 Message rows are inserted in the same SQLite transaction as the history row by walking the saved `SessionHistoryContent` attachments. Memory rows are synced by the memory bundle write/attach/detach/delete paths and reconciled from frontmatter when an agent starts. Session deletion removes that session's message refs; memory deletion/detach removes its refs; artifact deletion removes all its refs; agent deletion removes all of them.
 
-**Rationale**: The gallery must show where an artifact is used (FR-026) and the delete dialog must state how many references use it (FR-027). Scanning `session_history.data` JSON and every memory document on each detail view is slower and would need a second implementation of memory parsing. A derived table is cheap to write, indexed for the two reads, and can be rebuilt from its sources. It does not affect reference integrity: the message/memory still holds the artifact id, so a deleted artifact still shows a tombstone. Event actor names resolve through one shared `utils` helper, the same display-name rule notifications use.
+**Rationale**: The gallery must show where an artifact is used (FR-026) and the delete dialog must state how many references use it (FR-027). Scanning `session_history.data` JSON and every memory document on each detail view is slower and would need a second implementation of memory parsing. A derived table is cheap to write, indexed for the two reads, and can be rebuilt from its sources. It does not affect reference integrity: a message still holds the artifact id and shows an unavailable attachment, while a memory link is removed on artifact deletion. Event actor names resolve through one shared `utils` helper, the same display-name rule notifications use.
 
 **Alternatives considered**:
 - **Scan history JSON at read time**: works for messages but is O(history) per detail view and hard to index.
@@ -192,16 +192,17 @@ The attach/detach storage path rewrites frontmatter, `attachment_count`, the mem
 
 ---
 
-## R11 — Reuse existing agent visibility and edit permissions
+## R11 — Artifact access uses four explicit permissions
 
-**Decision**: Gallery list/detail/content/activity/promote require `user_can_view_agent`; the promote endpoint additionally applies the existing platform-chat permission for the conversation it copies from (like `list_topic_files`). Artifact delete requires ownership or `all_agents:edit` (`user_can_edit_agent`, made `pub(crate)`); the system role keeps its bypass. No new permission. Agent tools act only on their own agent. Memory attach/detach uses the same `require_agent` (view) as memory reads/writes.
+**Decision**: Add `all_agents:view_artifacts`, `owned_agents:view_artifacts`, `all_agents:manage_artifacts` and `owned_agents:manage_artifacts` to `AVAILABLE_PERMISSIONS` and the role editor. `view` allows the gallery, preview, content download and activity; `manage` additionally allows promotion and deletion; `manage` implies `view`. The all/owned scope plus ownership selects the agent set; the system role bypasses. The gallery/content/activity endpoints use `ArtifactsAccess::can_view` and promote/delete use `can_manage`; promotion additionally requires access to the source conversation (agent visibility + the platform-chat rule). The agent tools act only on their own agent; a client-supplied artifact reference is validated against the conversation's agent. A message/memory attachment's bytes use the view permission, so a person without it sees the attachment as unavailable while the surrounding message/memory renders. These permissions do not grant the agent's other pages.
 
-**Rationale**: The spec explicitly says visibility follows the agent rule alone for the gallery (FR-029) and reuses the existing edit rule for deletion (FR-028). The promote path is reading a conversation's files, so it should use the same permission as listing those files. Adding `all_agents:artifacts` would be a new role surface with no requested distinction. A client-supplied artifact reference is never trusted by the request path: it must match the conversation's agent and the caller's access, or be refused.
+**Rationale**: The user explicitly asked for `view_artifacts`/`manage_artifacts` for both `all_agents` and `owned_agents`, matching the existing secrets/integrations permission pattern. Separating view from manage lets a role browse and download without being able to promote/delete. Agent visibility is not a substitute — the new permission is the gallery gate — and the permissions are additive, so they never widen access to the agent's other surfaces. One server helper is mirrored by one WebUI helper; direct requests remain authoritative.
 
 **Alternatives considered**:
-- **A new artifact permission**: more knobs, no requested separation, role-editor/UI work.
-- **Gate the gallery by platform-chat permission**: rejected by FR-029; the artifact is an agent-level object once promoted.
-- **Allow any viewer to delete**: contradicts the spec and the destructive nature of the action.
+- **Keep agent visibility + `all_agents:edit`**: rejected by the user; it conflates artifact access with agent configuration and cannot express view-only.
+- **One `artifacts` permission**: cannot separate browse/download from promote/delete.
+- **Let view imply manage**: defeats the distinction.
+- **Let agent visibility alone grant artifact access**: lets any sharee read permanent artifacts without an explicit grant.
 - **Trust an artifact id in a request body**: would let a request to agent A read agent B's artifact; reject/validate it in the HTTP/WebSocket path.
 
 ---
@@ -234,7 +235,7 @@ The attach/detach storage path rewrites frontmatter, `attachment_count`, the mem
 
 ## R14 — Verification through dummyplug and HTTP/DB checks
 
-**Decision**: The quickstart uses an offline dummyplug agent and `execute_python` to call `load_path_as_session_file`, `promote_artifact`, `update_artifact`, `send_attachment`, `memory_write`, `attach_artifact_to_memory` and `detach_attachment_from_memory`; HTTP/`curl` for the gallery, promote/clear and memory endpoints; SQLite/filesystem checks for rows and `artifacts/` vs `uploads/`; Playwright for the gallery/side panel/message tombstone when a browser is available. Discord/Telegram delivery and the two-step command are checked by unit tests plus a manual/live channel step where credentials exist.
+**Decision**: The quickstart uses an offline dummyplug agent and `execute_python` to call `load_path_as_session_file`, `promote_artifact`, `update_artifact`, `send_attachment`, `memory_write`, `attach_artifact_to_memory` and `detach_attachment_from_memory`; HTTP/`curl` for the gallery, promote/clear and memory endpoints; SQLite/filesystem checks for rows and `artifacts/` vs `uploads/`; the four-permission matrix and dream source tests; Playwright for the gallery/side panel/message unavailable state when a browser is available. Discord/Telegram delivery and the two-step command are checked by unit tests plus a manual/live channel step where credentials exist.
 
 **Rationale**: The constitution requires an end-to-end dummyplug path for agent-observable changes. The tool calls go through the real code-mode sandbox and router, so the test covers more than a direct storage call. The HTTP/DB checks make deletion and storage separation observable. Channel credentials are not available in CI, so the shared command/clear logic is unit-tested and the live step is marked.
 
@@ -263,17 +264,48 @@ These are recorded in #82 (comment: "Planned pre-1.0 removal (spec 035, artifact
 
 ---
 
+## R16 — Dreams read source sessions and may promote
+
+**Decision**: A dream turn gets a `ToolContext.dream_sources: Vec<VizierSession>` allow-list. Extraction uses the inner source session of `VizierChannelId::Dream(source, Extraction)`; consolidation receives the cycle's actual source sessions in the request metadata (the existing slug list stays for the prompt/journal). `list_session_files`, `read_document_file` and `read_image_file` accept an optional source identifier and resolve only to the current session in an ordinary turn or to one of `dream_sources` in a dream. `promote_artifact` and `update_artifact` use the same source resolver, recording the source conversation as the artifact origin. `DREAM_TOOL_NAMES` gains those read tools plus `promote_artifact`, `list_artifacts`, `attach_artifact_to_memory` and `detach_attachment_from_memory`; it does not gain `update_artifact`, `load_artifact_as_session_file`, `send_attachment`, or any clear/delete tool. The source sessions' files are read-only; a dream promotion copies bytes exactly like an ordinary promotion and never writes the source.
+
+**Rationale**: The user wants dreams to be able to keep something they found while reflecting, but not to mutate the conversations they are reviewing. The existing dream session is its own session, so without a source scope its file tools see nothing useful. A typed allow-list is safer than a free-form session id: a dream can only read/promote from the sessions the scheduler selected. Keeping `update_artifact`/`send_attachment`/`load_artifact_as_session_file` out avoids replacing permanent files or writing session files from an unattended cycle. `memory_read` may still copy an artifact into the dream's own transient session; that is not a source write.
+
+**Alternatives considered**:
+- **Keep artifacts out of dreams**: contradicts the user's requirement; the dream could reflect on a valuable file but never keep it.
+- **Let the dream use its own session only**: sees no source files, the current limitation.
+- **Let a dream pass any session slug**: a compromised/prompted dream could read another conversation.
+- **Let dreams update/delete artifacts or send attachments**: unattended replacement/deletion is too destructive and write-like for the source.
+
+---
+
+## R17 — Deletion is reference-only in both directions
+
+**Decision**: Deleting a conversation or a memory leaves the artifact row, its events and its content intact; only the reference row and the message/memory are removed. Deleting an artifact leaves message and memory bodies intact: message attachments remain with `available: false`, while memory attachments are removed by calling `detach_artifact_from_memories(artifact_id, origin)` for every memory reference, recording a memory revision; the artifact row/event/refs and content are then removed. A memory cleanup failure is logged and leaves a stale link that reads as deleted; a later detach/reconcile can remove it. The attach path verifies the artifact row at write time, and the delete removes the row before detaching memory links so a concurrent attach cannot recreate a validated link.
+
+**Rationale**: The user wants the artifact to persist when its referencing object is deleted, and the memory to persist when the artifact is deleted. Messages are immutable conversation history, so a named unavailable attachment is the correct record; a memory is editable knowledge, so keeping a knowingly dead link is worse than removing it and recording why. A memory revision preserves the change without touching the body. The row-first delete prevents a concurrent attach from validating a deleted artifact.
+
+**Alternatives considered**:
+- **Delete the artifact with its session/memory**: data loss and contradicts the user.
+- **Keep a memory tombstone**: the user explicitly asked to delete the memory link.
+- **Delete the message attachment row**: rewrites immutable history; the message should still show what was sent.
+- **Ignore a failed memory cleanup**: acceptable only as a logged stale link that reads as deleted.
+
+---
+
 ## Open questions resolved by the plan
 
 | Spec question | Decision |
 |---|---|
 | Artifact scope: agent or conversation | Agent-owned (R1/R11); the origin conversation is provenance only. |
 | Version history or overwrite | Overwrite semantics with a version counter and event log; no content history/restore (R1). |
-| Promotion trigger | Agent-initiated, no confirmation; people can promote from a conversation; only people delete (R6/R11). |
+| Promotion trigger | Agent-initiated, no confirmation; people with manage permission can promote; only people with manage permission delete; dreams may promote from source sessions (R6/R11/R16). |
 | Text or binary | Any file type; kind is metadata and preview is best-effort (R12). |
 | Retention default/configurable | None in this release; explicit clear only (R8/R15). |
 | References pin or follow latest | Follow the current artifact (R2/R5). |
-| Sharee download/delete | View/download follows agent visibility; delete requires ownership or `all_agents:edit` (R11). |
+| Gallery view/delete permissions | `all_agents`/`owned_agents` × `view_artifacts`/`manage_artifacts`; manage implies view; system bypass; agent visibility is not a substitute (R11). |
 | Clear command on all platforms | `/clear-files` (Discord) and `/clear_files` (Telegram), two-step confirmation; the WebUI uses the side-panel action (R8). |
 | Memory attachments | Artifact-only for new writes; dedicated attach/detach; legacy session-file attachments readable/detachable but not migrated (R5/R6). |
+| Dream access | Read-only source session files; promote/list/attach/detach allowed; update/delete/send/load/clear not (R16). |
+| Session/memory deletion | Artifact persists; only the reference goes. |
+| Artifact deletion | Message body persists with an unavailable attachment; memory body persists with the link removed and a revision; content/refs/event go (R17). |
 | Artifact storage | `<workspace>/artifacts/<agent_id>/<artifact_id>/content.v<n>`, never `uploads/` (R1). |

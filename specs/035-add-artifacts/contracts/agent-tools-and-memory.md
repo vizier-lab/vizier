@@ -11,24 +11,26 @@ All tools are reached from `execute_python` code mode through the existing `Tool
 ### `promote_artifact`
 
 ```json
-{ "filename": "report.pdf", "name": "Q3-report.pdf" }
+{ "filename": "report.pdf", "name": "Q3-report.pdf", "source_session": "http__ana__topic-abc" }
 ```
 
 - `filename`: a session file in the current conversation (required).
 - `name`: optional artifact name; defaults to `filename`.
-- Copies the bytes into `artifacts/<agent>/<id>/content.v1`; the source stays in `uploads/` and is not marked.
+- `source_session`: optional; in an ordinary turn it must be absent or the current session; in a dream it must match one of `ToolContext.dream_sources` (or be omitted when there is exactly one source).
+- Copies the bytes into `artifacts/<agent>/<id>/content.v1`; the source stays in `uploads/` and is not marked. In a dream, the artifact origin is the **source** conversation, not the dream session.
 - Returns the artifact (id, name, kind, size, version 1, origin).
-- Refuses: invalid name, duplicate `(agent, name)`, missing/unreadable/empty source, a source outside the current conversation, or the dream cycle (not offered).
+- Refuses: invalid name, duplicate `(agent, name)`, missing/unreadable/empty source, a source outside the current/source scope.
 - A failed attempt creates nothing.
 
 ### `update_artifact`
 
 ```json
-{ "name": "Q3-report.pdf", "filename": "report-v2.pdf" }
+{ "name": "Q3-report.pdf", "filename": "report-v2.pdf", "source_session": "http__ana__topic-abc" }
 ```
 
 - `name`: an existing artifact owned by the calling agent (required).
 - `filename`: a session file in the current conversation (required).
+- `source_session`: optional; same resolver as `promote_artifact` (ordinary: current; dream: a source), but the tool is **not** offered to dreams.
 - Writes `content.v<n+1>`, switches the row/event after the write, then removes the old version file.
 - Keeps the artifact name and identity; increments the version; returns the updated artifact.
 - Refuses a missing artifact, a missing/unreadable source, or another agent's artifact; a failed attempt leaves the old content/version intact.
@@ -41,6 +43,7 @@ All tools are reached from `execute_python` code mode through the existing `Tool
 
 - Optional `kind` filter.
 - Returns the calling agent's artifacts with name, kind, MIME, size, version and last change. No pagination in the tool (the gallery has it); the list is bounded by the agent's workspace.
+- Available to dreams.
 
 ### `load_artifact_as_session_file`
 
@@ -50,7 +53,7 @@ All tools are reached from `execute_python` code mode through the existing `Tool
 
 - Reads the artifact's current bytes, uploads them through the normal `FileManager::upload` path to a new `uploads/<file_id>/`, and saves a session file in the current conversation under a safe, server-derived name (`artifact-<artifact-id><ext>`, where `ext` comes from the artifact name/MIME). Returns the session filename, artifact name, MIME and size. Existing read tools (`read_document_file`, `read_image_file`) then work.
 - This creates a transient copy; it does not change the artifact or create an attachment.
-- Refuses a missing/deleted artifact.
+- Refuses a missing/deleted artifact. **Not offered to dreams** (it writes a session file).
 
 ### `send_attachment` (changed)
 
@@ -60,10 +63,9 @@ All tools are reached from `execute_python` code mode through the existing `Tool
 
 - Resolves one artifact owned by the calling agent and queues a `VizierAttachment` whose content is `VizierAttachmentContent::Artifact { agent_id, artifact_id, available: None }` and whose `filename` is the artifact name.
 - Refuses a session-file name with: "`<name>` is a session file, not an artifact. Promote it with `promote_artifact` first."
-- Refuses a missing/deleted artifact, another agent's artifact, and a dream turn (not offered).
-- The queued attachment is part of the reply; history stores the identity, so replacement/deletion are reflected later.
+- Refuses a missing/deleted artifact, another agent's artifact. **Not offered to dreams.**
 
-**Registration**: all four artifact tools and `send_attachment` are in the `Files` category on `default_toolset` (always on). None is in `DREAM_TOOL_NAMES`.
+**Registration**: `promote_artifact`, `update_artifact`, `list_artifacts`, `load_artifact_as_session_file` and `send_attachment` are in the `Files` category on `default_toolset` (always on). The dream toolset is the subset in §7.
 
 ---
 
@@ -82,7 +84,7 @@ All tools are reached from `execute_python` code mode through the existing `Tool
 - Idempotent: attaching the same artifact again is a no-op returning the current list.
 - Returns the memory's updated attachment list (display names).
 - Refuses a session-file name, arbitrary upload or external URL with guidance to promote; refuses a missing memory or another agent's artifact.
-- Not offered to the dream cycle.
+- Available to dreams (for the agent's own artifacts).
 
 ### `detach_attachment_from_memory`
 
@@ -93,7 +95,7 @@ All tools are reached from `execute_python` code mode through the existing `Tool
 - Removes one attachment by display name. It removes an artifact reference or a legacy session-file attachment.
 - Idempotent-ish: a name that is not attached changes nothing and returns a clear result.
 - Returns the updated list.
-- Not offered to the dream cycle.
+- Available to dreams.
 
 ### `memory_write` (changed)
 
@@ -160,7 +162,7 @@ Attach/detach:
 
 ## 5. HTTP memory attachment endpoints
 
-All under `/api/v1/agents/{agent_id}/memory`, behind `require_auth` and the existing `require_agent` (agent visibility):
+All under `/api/v1/agents/{agent_id}/memory`, behind `require_auth`, the existing `require_agent` (agent visibility) and the artifact **view** permission for that agent:
 
 ### Attach
 
@@ -174,7 +176,7 @@ Content-Type: application/json
 - Resolves the artifact by name for this agent; `404` if missing.
 - Sends `MemoryOpRequest::AttachArtifact` through the agent's memory-op channel (the same path as memory writes).
 - Response `200` with the memory detail (or `{ attachments: [...] }`); the UI/agent sees the updated list.
-- `404` memory or artifact; `403` visibility; `422` invalid name.
+- `404` memory or artifact; `403` memory/artifact visibility; `422` invalid name.
 
 ### Detach
 
@@ -184,6 +186,8 @@ DELETE /doc/{bundle}/{*path}/attachments?name=Q3-report.pdf
 
 - Sends `MemoryOpRequest::DetachAttachment`; removes one attachment by display name (artifact or legacy).
 - Response `200` with the memory detail; `404` memory or name not attached; `403` visibility.
+
+Artifact deletion (not a memory endpoint) removes the artifact attachment from every memory that references it, records a memory revision per affected memory and deletes the reference row; the memory body stays. A stale link from a failed cleanup reads as deleted.
 
 ### Create/update legacy guard
 
@@ -233,9 +237,17 @@ The view is built from the stored `MemoryAttachment`; `available` is read-time o
 
 ## 7. Dream cycle and scheduling
 
-- `promote_artifact`, `update_artifact`, `list_artifacts`, `load_artifact_as_session_file`, `send_attachment`, `attach_artifact_to_memory` and `detach_attachment_from_memory` are not in `DREAM_TOOL_NAMES`.
-- Ordinary, scheduled-task and background turns get the artifact tools and may promote/attach; the tools use the turn's `ToolContext.session` to scope promotion to the current conversation.
-- The dream cycle can still read memory text and see attachment counts; it cannot create or change artifact attachments.
+A dream turn gets `ToolContext.dream_sources: Vec<VizierSession>`:
+- **Extraction**: the inner source session of `VizierChannelId::Dream(source, Extraction)`.
+- **Consolidation**: the cycle's actual source sessions, sent by the scheduler in the request metadata (the existing slug list stays for the prompt/journal).
+
+The session-file read tools accept an optional source:
+- `list_session_files { session? }` lists the current session's files in an ordinary turn, or all/one source's files in a dream; each returned summary includes the source slug.
+- `read_document_file { filename, session? }` / `read_image_file { filename, session? }` resolve the filename in the current session or one `dream_sources` entry. A source outside the allow-list is refused. These tools are read-only.
+
+`DREAM_TOOL_NAMES` contains `list_session_files`, `read_document_file`, `read_image_file`, `promote_artifact`, `list_artifacts`, `attach_artifact_to_memory`, `detach_attachment_from_memory`. It does not contain `update_artifact`, `load_artifact_as_session_file`, `send_attachment`, or any clear/delete tool. A dream promotion uses a source session as origin and copies bytes; the source files remain byte-identical. `memory_read` may copy an artifact into the dream's own transient session; that is not a source-session write.
+
+Ordinary, scheduled-task and background turns get the full artifact toolset and may promote/attach; promotion is scoped to the current conversation unless a dream source is in scope.
 
 ---
 

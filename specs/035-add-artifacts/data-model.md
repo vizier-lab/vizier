@@ -258,15 +258,17 @@ Invariants:
   ▼
 version 1 ── replace (write content.v(n+1), update row+event, delete old file) ──▶ version n+1
   │
-  ├─ delete (insert deleted event, delete refs + row, remove directory)
+  ├─ delete (insert deleted event, collect memory refs, delete row/refs,
+  │          detach memory links with a revision, remove directory)
   ▼
-(no row; events retained until agent deletion)
+(no row; events retained until agent deletion; messages keep an unavailable attachment)
 ```
 
 - A failed promote leaves no row and removes the temp/version file it wrote.
 - A failed replace leaves the old row and old content file; the new version file is removed.
 - Concurrent mutations are serialized by one in-process artifact mutation lock; each successful replace increments the version once.
-- `available` is true when the row exists and its `content_file` exists; false when the row exists but the file is missing. A missing row = deleted (no list item; messages/memories show a tombstone).
+- `available` is true when the row exists and its `content_file` exists; false when the row exists but the file is missing. A missing row = deleted (no list item; messages show an unavailable attachment; memories normally lose the link).
+- A conversation or memory deletion never removes the artifact row/content; only the reference is removed.
 
 ### Message reference lifecycle
 
@@ -274,9 +276,9 @@ version 1 ── replace (write content.v(n+1), update row+event, delete old fil
 history save with Artifact attachments
   → insert history row + artifact_reference(kind=message, target=session:uid)
 session delete
-  → delete session_file rows + artifact_reference rows for the session
+  → delete session_file rows + artifact_reference rows for the session; artifact persists
 artifact delete
-  → delete artifact_reference rows for the artifact
+  → delete artifact_reference rows for the artifact; history row remains with available=false
 history read
   → fill available (row+file existence); never mutate stored data
 ```
@@ -287,14 +289,18 @@ history read
 memory_write (no attachments)
   → preserves the existing MemoryAttachment list
 attach_artifact_to_memory
-  → validate artifact (own agent) + memory exists
+  → validate artifact (own agent, row exists) + memory exists
   → push MemoryAttachment::Artifact (idempotent by artifact_id)
   → rewrite frontmatter, attachment_count, memory node, revision, reference row
 detach_attachment_from_memory
   → remove one attachment by display name (artifact or legacy filename)
   → rewrite frontmatter, node, revision, delete reference row
+artifact delete
+  → for every memory reference: remove the artifact attachment, rewrite the memory,
+    record a revision from the deleting person, delete the reference row
+  → the memory body persists; a cleanup failure leaves a stale link that reads as deleted
 memory delete / bundle delete
-  → delete reference rows
+  → delete reference rows; artifact persists
 agent start
   → reconcile memory reference rows from concept documents
 ```
@@ -345,18 +351,31 @@ The kind is stored at promotion/replacement and is the gallery filter key. Previ
 
 | Operation | Permission |
 |---|---|
-| Gallery list/detail/content/activity | `user_can_view_agent` (owner, `shared_to`, `all_agents:view`, system) |
-| Promote from a WebUI/API conversation | `user_can_view_agent` + the existing `show_<platform>_chats` rule for that conversation |
-| Delete artifact | Owner or `all_agents:edit` (system bypass) |
-| Agent tools (promote/update/list/load/send/attach/detach) | Own agent only; no role check beyond the conversation's access |
-| Memory attach/detach API | Same `require_agent` (view) as memory read/write |
-| Message/memory reference display | Follows the surrounding message/memory access; the gallery is agent-level |
+| Gallery list/detail/content/activity/preview/download | `all_agents:view_artifacts`, or `owned_agents:view_artifacts` + ownership; `all_agents:manage_artifacts`/`owned_agents:manage_artifacts` imply view; system bypass |
+| Promote from a WebUI/API conversation | `all_agents:manage_artifacts`, or `owned_agents:manage_artifacts` + ownership; **plus** access to the source conversation (`user_can_view_agent` + the existing `show_<platform>_chats` rule) |
+| Delete artifact | Manage permission for the agent; system bypass |
+| Agent tools (promote/update/list/load/send/attach/detach) | Own agent only; a dream can read/promote only its `dream_sources`; no role check |
+| Memory attach/detach API | Memory `require_agent` (view) + artifact view permission for the agent |
+| Message/memory artifact attachment bytes | Artifact view permission for the agent; without it the surrounding message/memory still renders but the attachment is unavailable |
+| Gallery/agent navigation | The artifact view permission hides/shows the page; the agent must still be reachable in the app's agent switcher |
 
-A sharee with chat-only access can browse/download artifacts but cannot delete them. There is no new permission.
+The four permissions are additive to the agent's existing visibility; they never grant the agent's other pages. `manage` implies `view`; `all` covers every agent, `owned` requires ownership. A view-only person can browse/preview/download but cannot promote or delete. There is no `all_agents:edit`/ownership fallback for artifact operations.
 
 ---
 
-## 8. Legacy compatibility
+## 8. Dream source scope
+
+`ToolContext.dream_sources: Vec<VizierSession>` is a transient, per-turn allow-list; it is not persisted.
+
+- **Extraction**: the source is the inner session of `VizierChannelId::Dream(source, Extraction)`; one entry.
+- **Consolidation**: the scheduler sends the cycle's actual source sessions in the request metadata (`source_session_data`) in addition to the existing slug list used by the prompt/journal; the dream turn parses them into the allow-list.
+- Session-file read tools (`list_session_files`, `read_document_file`, `read_image_file`) resolve only the current session in an ordinary turn or one `dream_sources` entry in a dream; the output carries the source slug.
+- `promote_artifact`/`update_artifact` resolve a source the same way; a dream promotion records the **source** conversation as the artifact origin.
+- The dream toolset includes the read tools plus `promote_artifact`, `list_artifacts`, `attach_artifact_to_memory`, `detach_attachment_from_memory`; it excludes `update_artifact`, `load_artifact_as_session_file`, `send_attachment` and every clear/delete session-file operation. The source sessions' files are never written.
+
+---
+
+## 9. Legacy compatibility
 
 | Legacy data | New read behaviour | Removal tracking |
 |---|---|---|
