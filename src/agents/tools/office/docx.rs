@@ -296,17 +296,27 @@ const LINK_COLOUR: &str = "0563C1";
 /// unordered lists, pipe tables, hyperlinks, block quotes, code blocks and rules. Images and raw
 /// HTML degrade to their text.
 pub fn from_markdown(markdown: &str, title: Option<&str>) -> Result<Vec<u8>, VizierError> {
+    let markdown = xml_safe(markdown);
+    let title = title.map(xml_safe);
     let mut writer = Writer::default();
-    if let Some(title) = title.map(str::trim).filter(|t| !t.is_empty()) {
+    if let Some(title) = title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
         writer.blocks.push(Block::Paragraph(Box::new(
             Paragraph::new().style("Title").add_run(Run::new().add_text(title)),
         )));
     }
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-    for event in Parser::new_ext(markdown, options) {
+    for event in Parser::new_ext(&markdown, options) {
         writer.event(event);
     }
     writer.finish()
+}
+
+/// Drops the characters XML 1.0 forbids (control characters other than tab, line feed and carriage
+/// return, and U+FFFE/U+FFFF): `docx-rs` writes them raw, and Word then reports the file as corrupt.
+fn xml_safe(text: &str) -> String {
+    text.chars()
+        .filter(|c| !matches!(c, '\u{0}'..='\u{8}' | '\u{b}' | '\u{c}' | '\u{e}'..='\u{1f}' | '\u{fffe}' | '\u{ffff}'))
+        .collect()
 }
 
 enum Block {
@@ -840,6 +850,14 @@ mod tests {
         assert!(md.contains("raw"), "{md}");
         assert!(md.contains("block"), "{md}");
         assert!(!md.contains("<b>") && !md.contains("<div>") && !md.contains("x.png"), "{md}");
+    }
+
+    #[test]
+    fn control_characters_never_reach_the_document_xml() {
+        let bytes = from_markdown("a\u{1}b\u{b}c\td\n\ne\u{1f}", Some("t\u{2}")).unwrap();
+        let md = to_markdown(&bytes, 1000).unwrap().markdown;
+        assert!(md.contains("abc\td"), "{md:?}");
+        assert!(!md.chars().any(|c| c.is_control() && c != '\n' && c != '\t'), "{md:?}");
     }
 
     #[test]
