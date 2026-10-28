@@ -71,6 +71,7 @@ mod think;
 pub mod tts;
 pub mod stt;
 mod image_gen;
+pub mod office;
 mod vector_memory;
 mod webui;
 mod workspace;
@@ -1358,6 +1359,7 @@ mod tests {
     use super::*;
     use crate::agents::tools::{
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
+        office::{OfficeDocxRead, OfficeXlsxRead, OfficeXlsxReadCsv},
         discord::{
             GetDiscordChannelInfo, GetDiscordGuildInfo, GetDiscordMemberInfo, GetDiscordMessage,
             ReactDiscordMessage, SendDiscordMessage,
@@ -1419,6 +1421,9 @@ mod tests {
             entry::<ReadTmp>(),
             entry::<BraveSearch<WebOnlySearch>>(),
             entry::<BraveSearch<NewsOnlySearch>>(),
+            entry::<OfficeDocxRead>(),
+            entry::<OfficeXlsxRead>(),
+            entry::<OfficeXlsxReadCsv>(),
             entry::<FetchWebpage>(),
             entry::<HttpClient>(),
             entry::<TtsGenerate>(),
@@ -1525,10 +1530,16 @@ mod tests {
         const ADDON: &[(&str, &str)] = &[
             ("brave_search_web", "brave_search"),
             ("brave_search_news", "brave_search"),
+            ("office_docx_read_as_md", "office"),
+            ("office_xlsx_read_as_cells", "office"),
+            ("office_xlsx_read_as_csv", "office"),
         ];
         const UNCATEGORISED: &[&str] = &[
             "brave_search_web",
             "brave_search_news",
+            "office_docx_read_as_md",
+            "office_xlsx_read_as_cells",
+            "office_xlsx_read_as_csv",
             "think",
             "execute_python",
             "list_tool_functions",

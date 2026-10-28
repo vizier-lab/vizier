@@ -2034,6 +2034,7 @@ fn tool_context(agent_id: &AgentId, deps: &VizierDependencies) -> AgentToolConte
         agent_id: agent_id.clone(),
         storage: deps.storage.clone(),
         health: deps.integration_health.clone(),
+        file_manager: deps.file_manager.clone(),
     }
 }
 

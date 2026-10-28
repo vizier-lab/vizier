@@ -112,6 +112,8 @@ tempfile = "3"
 pdf-extract = "0.12"
 docx-rs = "0.4"
 calamine = "0.36"
+rust_xlsxwriter = "0.101.0"
+pulldown-cmark = "0.13"
 hound = "3.5"
 symphonia = { version = "0.6.1", features = ["mp3", "ogg", "vorbis", "wav", "flac", "isomp4", "mkv", "pcm"] }
 # Opus is what browsers (WebM), Discord and Telegram (Ogg) record; symphonia has no decoder

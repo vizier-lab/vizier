@@ -35,6 +35,7 @@ impl IntegrationKinds {
                 Arc::new(kinds::discord::DiscordKind),
                 Arc::new(kinds::telegram::TelegramKind),
                 Arc::new(kinds::brave_search::BraveSearchKind),
+                Arc::new(kinds::office::OfficeKind),
                 Arc::new(kinds::mcp::McpKind),
             ],
         }
@@ -249,6 +250,9 @@ mod tests {
                 Arc::new(LocalDocumentStore::new(std::env::temp_dir())),
             ))),
             health: IntegrationHealth::default(),
+            file_manager: crate::file_manager::FileManager::new(
+                std::env::temp_dir().to_string_lossy().into_owned(),
+            ),
         }
     }
 

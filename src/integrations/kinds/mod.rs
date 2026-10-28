@@ -3,6 +3,7 @@
 pub mod brave_search;
 pub mod discord;
 pub mod mcp;
+pub mod office;
 pub mod telegram;
 
 use serde_json::Value;
