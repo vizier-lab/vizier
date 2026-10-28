@@ -519,6 +519,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn seeding_announces_the_change_so_running_agents_recompose() {
+        let (deps, _dir) = deps().await;
+        deps.storage.create_agent("c", &agent_config("c")).await.unwrap();
+        let mut changes = deps.transport.subscribe_integration_changes();
+
+        seed_default(&deps, "c", None, "office", "Office").await.unwrap();
+        let change = changes.try_recv().expect("the seed publishes IntegrationChanged");
+        assert_eq!(change.family, crate::schema::IntegrationFamily::Addon);
+        assert_eq!(change.agents, vec!["c".to_string()]);
+    }
+
+    /// A person turned the addon off: seeding again (as a restart or an update would, were
+    /// either to seed) neither turns it on nor adds a second one.
+    #[tokio::test]
+    async fn a_disabled_addon_is_not_re_enabled_or_duplicated_by_seeding() {
+        let (deps, _dir) = deps().await;
+        deps.storage.create_agent("d", &agent_config("d")).await.unwrap();
+        let mut office = seed_default(&deps, "d", None, "office", "Office").await.unwrap().unwrap();
+        office.enabled = false;
+        let draft = crate::schema::EventDraft::new(Requester::User("p".into()), EventAction::Disabled);
+        deps.storage.save_integration(&office, None, &[draft]).await.unwrap();
+
+        assert!(seed_default(&deps, "d", None, "office", "Office").await.unwrap().is_none());
+        let listed = deps.storage.list_agent_integrations("d").await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(!listed[0].enabled);
+    }
+
+    #[tokio::test]
     async fn an_agent_without_an_owner_is_seeded_as_system() {
         let (deps, _dir) = deps().await;
         deps.storage.create_agent("b", &agent_config("b")).await.unwrap();

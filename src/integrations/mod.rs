@@ -317,6 +317,21 @@ mod tests {
         assert!(tools.addons.is_empty());
     }
 
+    #[tokio::test]
+    async fn the_office_addon_contributes_its_tools_only_while_enabled() {
+        let kinds = IntegrationKinds::builtin();
+        let on = integration("office-1", "office", IntegrationFamily::Addon, "Office", json!({}));
+        let tools = IntegrationTools::build(&kinds, &[on.clone()], &ctx(), None);
+        let names: Vec<String> = tools.addons["office"].toolset.tools.keys().cloned().collect();
+        assert_eq!(names.len(), 5, "{names:?}");
+        assert!(names.iter().all(|n| n.starts_with("office_")), "{names:?}");
+
+        let mut off = on;
+        off.enabled = false;
+        let tools = IntegrationTools::build(&kinds, &[off], &ctx(), None);
+        assert!(!tools.addons.contains_key("office"));
+    }
+
     /// The encryption paths come from the same listing that redaction uses: a `Secret` field is
     /// its key, a `SecretMap` is `<key>.*`, and everything else is not secret.
     #[test]

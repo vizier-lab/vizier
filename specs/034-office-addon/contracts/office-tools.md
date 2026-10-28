@@ -4,7 +4,7 @@
 
 The agent-facing contract of the `office` addon. Like every tool, these are reached from `execute_python` scripts as plain functions (code mode); the inputs/outputs below are the functions' keyword arguments and returned JSON. Category: `office`. Tool names start with `office_` (enforced by `every_addon_tool_is_namespaced_by_its_addon`).
 
-All failures are **data**: the function returns an object with `status: "error"` and a `message` the agent can act on, never an exception that ends the turn (FR-010). A successful call returns `status: "ok"` fields as listed.
+A failure is a tool error (`VizierError`) whose message the agent can act on. From a script it is a catchable exception, and it never ends the turn (FR-010). A successful call returns the fields listed below. Read results have no `status` field; the write tools return `{"status": "ok", "filename", "size"}`, the shape `image_generate` uses plus `status`.
 
 Common error messages (non-exhaustive): file not found (lists nearby filenames), wrong format for the tool (names the tool to use instead), not a valid Office file (corrupt, password-protected or wrong type), unknown sheet (lists valid sheets), invalid range, an Excel format rule broken (FR-010).
 
@@ -20,7 +20,7 @@ Read a Word document from this conversation's files as Markdown.
 Output:
 
 ```json
-{ "status": "ok", "markdown": "# Title\n\n| a | b |\n|---|---|\n| 1 | 2 |\n", "truncated": false }
+{ "markdown": "# Title\n\n| a | b |\n|---|---|\n| 1 | 2 |\n", "truncated": false }
 ```
 
 - Renders headings (`#`…), **bold**, *italic*, nested lists, pipe tables, `[links](url)`.
@@ -63,7 +63,6 @@ Output:
 
 ```json
 {
-  "status": "ok",
   "sheets": [
     {
       "name": "Budget",
@@ -102,7 +101,6 @@ Output:
 
 ```json
 {
-  "status": "ok",
   "sheets": [
     {
       "name": "Budget",

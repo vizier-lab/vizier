@@ -137,13 +137,13 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 
 ### Tests for User Story 4
 
-- [ ] T035 [P] [US4] Test that a disabled `office` integration contributes no tools and an enabled one does, in `src/integrations/mod.rs` (or the closest existing composition test)
+- [X] T035 [P] [US4] Test that a disabled `office` integration contributes no tools and an enabled one does, in `src/integrations/mod.rs` (or the closest existing composition test) (written, not yet compiled)
 - [ ] T036 [P] [US4] Test that flipping `enabled` through the service publishes `IntegrationChanged` and the agent's tools recompose without a restart (extend the existing update tests in `src/integrations/service.rs` with an `office` case)
-- [ ] T037 [P] [US4] Test that an agent update (`finish_update` in `src/agents/mod.rs`) and a second run of the startup pass never add or duplicate the addon when it is disabled or removed
+- [X] T037 [P] [US4] Test that an agent update (`finish_update` in `src/agents/mod.rs`) and a second run of the startup pass never add or duplicate the addon when it is disabled or removed (written, not yet compiled; the `finish_update` half holds because `seed_default` is called only from `finish_create` and the startup pass)
 
 ### Implementation for User Story 4
 
-- [ ] T038 [US4] Verify, and fix if needed, that disabling and removing leave the agent running and that nothing in `src/agents/mod.rs` or `src/dependencies.rs` re-adds the addon; no new feature code is expected because the server already supports `enabled`
+- [X] T038 [US4] Verify, and fix if needed, that disabling and removing leave the agent running and that nothing in `src/agents/mod.rs` or `src/dependencies.rs` re-adds the addon; no new feature code is expected because the server already supports `enabled` (verified by reading: the only callers of `seed_default` are `finish_create` and `seed_office_defaults`; no code change needed)
 - [ ] T039 [US4] **[web]** In the `webui` submodule, check that the installed-addon card in `webui/app/routes/integrations-addons.tsx` shows the on/off switch and a sensible on or ready state for an addon with no fields (the "reading" state from `cardState` in `webui/app/lib/integrations.ts` is wrong for an offline addon); separate PR
 - [ ] T040 [P] [US4] **[web]** Add `office` to `TAKEN_CATEGORIES` in `webui/app/lib/integrations.ts` and, optionally, the addon's tools to `ADDON_TOOLS`; separate PR
 - [ ] T041 [US4] **[web]** After the `design` and `webui` pull requests merge, bump their pins in vizier in the order design → webui → vizier (see CLAUDE.md)
@@ -176,12 +176,12 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 **Purpose**: Documentation, end-to-end verification, build gates and the commit.
 
 - [X] T045 [P] Add a docs page for the addon in `docs/src/configuration/office-addon.md` (the five tools and when to use each, cell and range reads, the CSV preview and what `executed_formula` does and where it falls back, create-only writes, same-named files are replaced, on by default and how to turn it off) and link it from `docs/src/SUMMARY.md`
-- [ ] T046 [P] Reconcile `specs/034-office-addon/contracts/office-tools.md` with the implemented error and output shape: the contract describes errors as `status: "error"` objects and outputs with a `status` field, while tools following `image_generate` return `{filename, size}` and raise a catchable error on failure
+- [X] T046 [P] Reconcile `specs/034-office-addon/contracts/office-tools.md` with the implemented error and output shape: the contract describes errors as `status: "error"` objects and outputs with a `status` field, while tools following `image_generate` return `{filename, size}` and raise a catchable error on failure
 - [ ] T047 Run the whole dummyplug script in `specs/034-office-addon/quickstart.md` (steps 0 to 8 including 6a and 6b) against the real binary and the standalone dummyplug server (`just dummyplug`; this branch already contains vizier-lab/vizier#103) and fix what it finds; optionally automate it as `scripts/office-e2e.mjs` in the style of `scripts/dummyplug-vizier-e2e.mjs`
 - [ ] T048 Open the generated `.docx` and `.xlsx` in Microsoft Office and in LibreOffice and confirm there is no repair prompt (SC-004); needs a person with those applications
 - [ ] T049 Run `cargo clippy` and `cargo test` (including `every_addon_tool_is_namespaced_by_its_addon` and `every_tool_is_in_its_category`) and fix every finding
 - [ ] T050 Build one static target from `Cross.toml` (for example `cross build --target x86_64-unknown-linux-musl`) with the final dependencies, including the formula engine chosen in T016, to confirm cross-compilation still works (constitution Principle IV)
-- [ ] T051 Prepare the text of a checklist entry for tracker issue #82 covering the startup backfill (`seed_office_defaults` and its flag) and what depends on it (FR-025); the maintainer posts it, since it is public
+- [X] T051 Prepare the text of a checklist entry for tracker issue #82 covering the startup backfill (`seed_office_defaults` and its flag) and what depends on it (FR-025); the maintainer posts it, since it is public (text in `issue-82-entry.md`)
 - [ ] T052 Commit with a conventional message `feat(office)!:` and a `[**breaking**]` note that `read_document_file` no longer reads Word and Excel and that every agent now has the Office addon by default (research R16); the changelog is generated from it
 
 ---
