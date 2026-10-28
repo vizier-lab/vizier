@@ -61,9 +61,9 @@ vizier onboard [-p <PATH>]
 |------|-------------|
 | `-p, --path <PATH>` | Workspace directory (prompted if omitted; `~` is expanded). `.vizier.yaml` is written there. |
 
-Prompts for: HTTP port, JWT secret (random default), one primary provider (`ollama`, `deepseek`, `openrouter`, `anthropic`, `openai`, `google`, `xiaomi`, `llama-cpp`) — it prints the environment variable to set for its key; keys are never written to the file — storage type (choose **SQLite**), worker threads, WebSocket idle timeout. Shows a preview and asks to confirm before writing.
+Prompts for: HTTP port, JWT secret (random default), worker threads, WebSocket idle timeout. Shows a preview and asks to confirm before writing. Storage is always SQLite; providers are connected in the WebUI (Settings › Providers) or through their environment variables.
 
-It does **not** create users or agents — do that in the WebUI after `vizier run`. Embedding is configured per agent, not here.
+It does **not** create users, providers or agents — do that in the WebUI after `vizier run`. Embedding is configured per agent, not here.
 
 ## `vizier agent`
 

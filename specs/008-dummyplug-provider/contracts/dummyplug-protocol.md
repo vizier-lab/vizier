@@ -119,7 +119,9 @@ Usage is zero, as in §5.
 
 | Endpoint | Behavior for `dummyplug` |
 |----------|--------------------------|
-| `PUT /api/v1/providers/dummyplug` | `400`, `"dummyplug requires no configuration"` |
-| `GET /api/v1/providers/dummyplug` | `404` (no entry is ever stored) |
-| `GET /api/v1/providers` | Not listed |
-| Agent create/update with `provider: "dummyplug"` | Accepted. No provider entry is required. |
+| `PUT /api/v1/providers/dummyplug` | Accepts `base_url`, as for other configurable built-in providers |
+| `GET /api/v1/providers/dummyplug` | Returns the effective configured or default URL |
+| `GET /api/v1/providers` | Lists dummyplug, including its default URL |
+| Agent create/update with `provider: "dummyplug"` | Accepted; the optional server is reached through the normal OpenAI Chat HTTP provider path |
+
+The default server URL is `http://127.0.0.1:9998/v1`. `DUMMYPLUG_URL` overrides it. Vizier does not start the server or require it at startup; a request fails normally if the optional server is unavailable. See `specs/030-standalone-dummyplug-server/` for the standalone service and test harness contract.

@@ -2,6 +2,60 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.4] - 2026-10-28
+
+### 🚀 Features
+
+- *(cli)* Drop the provider and storage questions from onboard
+- Replace sherpa-onnx with whisper-rs and any-tts (#107)
+
+### ⚙️ Miscellaneous Tasks
+
+- Bump design and webui
+- Bump design and webui
+- Bump webui for notification sound and toast position
+- Bump webui for chat details panel under the header
+- Bump webui for toast position
+## [0.13.3] - 2026-10-27
+
+### 🚀 Features
+
+- Add the landing website submodule and release deploy
+- Run dummyplug through standalone HTTP server
+- *(storage)* Encrypt secrets at rest with a workspace key
+
+### 🐛 Bug Fixes
+
+- *(ci)* Push the release bump with a bypass-capable token
+
+### 📚 Documentation
+
+- Publish the design Storybook at www.vizier.rs/design
+- Specify standalone dummyplug test server
+- Keep dummyplug stateless and move test controls to harness
+- Specify Node.js for standalone dummyplug server
+- Align dummyplug tasks with Node.js plan
+- Add local dummyplug testing guide
+- Record the encrypted-storage migration in the #82 inventory
+- Enumerate the credential surfaces covered by encrypted storage
+- Restrict encryption to secret fields and keep non-secret settings readable
+
+### 🧪 Testing
+
+- Fix dummyplug retry scenario accounting
+
+### ⚙️ Miscellaneous Tasks
+
+- Add impeccable to development tools
+- Redeploy the website when the design pin changes
+- Sync Cargo.lock with 0.13.2
+- Bump landing for the refreshed site and wordmark
+- Pin landing to its master branch
+- Pin dummyplug branch with master merge
+- Pin dummyplug without workflow
+- Bump dummyplug testing guide
+- Pin full Node dummyplug server
+- Bump version to 0.13.3
 ## [0.13.2] - 2026-10-25
 
 ### 🚀 Features
@@ -38,6 +92,7 @@ All notable changes to this project will be documented in this file.
 - Sync design and webui to their master branches, bump lockfile to 0.13.1
 - Bump design and webui for the usage chart
 - Bump webui for recalled memory ordering
+- Bump version to 0.13.2
 ## [0.13.1] - 2026-10-24
 
 ### 🚀 Features

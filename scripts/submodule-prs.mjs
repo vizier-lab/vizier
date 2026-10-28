@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Links a vizier pull request to its pull requests in the submodule
- * repositories (`design/`, `webui/`) and merges them in dependency order.
+ * repositories (`design/`, `webui/`, `dummyplug/`) and merges them in dependency order.
  *
  * Two commands:
  *
@@ -11,7 +11,7 @@
  *       writes to the submodule repositories.
  *
  *   node scripts/submodule-prs.mjs cascade --pr <n> [--dry-run]
- *       Merges the submodule PRs (design before webui), bumps the vizier
+ *       Merges the submodule PRs (design before webui; dummyplug before vizier), bumps the vizier
  *       gitlinks to the commits that landed, pushes that to the PR branch, and
  *       then merges the vizier PR. This is the bottom-up order the gitlinks
  *       need: a vizier pin must reference a commit that is on the submodule's
@@ -24,7 +24,7 @@
  *
  * Everything cross-repository needs a token that can act on the submodule
  * repositories: `GH_TOKEN` must be a PAT or GitHub App token with contents and
- * pull-requests write on vizier-lab/design and vizier-lab/webui.
+ * pull-requests write on vizier-lab/design, vizier-lab/webui, and vizier-lab/dummyplug.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -34,8 +34,8 @@ export const MARKER_LINKS = '<!-- vizier-submodule-links -->';
 export const MARKER_CASCADE = '<!-- vizier-submodule-cascade -->';
 export const STATUS_CONTEXT = 'submodule-prs';
 
-/** Dependency order: webui imports `@vizier/design` from the sibling submodule. */
-export const PRIORITY = ['design', 'webui'];
+/** Dependency order: webui imports design; Vizier pins its standalone dummyplug server. */
+export const PRIORITY = ['design', 'webui', 'dummyplug'];
 
 /** Conclusions that mean a check did not pass. */
 const FAILED_CONCLUSIONS = new Set([

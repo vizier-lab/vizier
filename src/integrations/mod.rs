@@ -61,6 +61,26 @@ impl IntegrationKinds {
     }
 }
 
+impl crate::encryption::IntegrationSecretPaths for IntegrationKinds {
+    /// The secret paths declared by a kind's listing: a `Secret` field is the top-level key, a
+    /// `SecretMap` is `<key>.*` (every value; names stay readable). `None` for an unknown kind,
+    /// which makes storage protect the whole settings blob.
+    fn secret_paths(&self, kind: &str) -> Option<Vec<String>> {
+        let kind = self.get(kind)?;
+        Some(
+            kind.listing()
+                .fields
+                .into_iter()
+                .filter_map(|field| match field.field_type {
+                    kind::FieldType::Secret => Some(field.key.to_string()),
+                    kind::FieldType::SecretMap => Some(format!("{}.*", field.key)),
+                    _ => None,
+                })
+                .collect(),
+        )
+    }
+}
+
 /// Addon errors by integration id, written by addon tools (an auth failure) and cleared on
 /// their next success (research R9).
 #[derive(Clone, Default)]
@@ -293,9 +313,35 @@ mod tests {
         assert!(tools.addons.is_empty());
     }
 
-    #[tokio::test]
-    async fn identical_inputs_compose_identical_categories() {
+    /// The encryption paths come from the same listing that redaction uses: a `Secret` field is
+    /// its key, a `SecretMap` is `<key>.*`, and everything else is not secret.
+    #[test]
+    fn secret_paths_match_each_kind_listing() {
+        use crate::encryption::IntegrationSecretPaths;
+
         let kinds = IntegrationKinds::builtin();
+        assert_eq!(kinds.secret_paths("discord").unwrap(), ["token"]);
+        assert_eq!(kinds.secret_paths("telegram").unwrap(), ["token"]);
+        assert_eq!(kinds.secret_paths("brave_search").unwrap(), ["api_key"]);
+        assert_eq!(kinds.secret_paths("mcp").unwrap(), ["env.*"]);
+        assert_eq!(kinds.secret_paths("retired_kind"), None);
+
+        for kind in kinds.by_family(None) {
+            let paths = kinds.secret_paths(kind.id()).unwrap();
+            for field in kind.listing().fields {
+                match field.field_type {
+                    kind::FieldType::Secret => assert!(paths.contains(&field.key.to_string())),
+                    kind::FieldType::SecretMap => {
+                        assert!(paths.contains(&format!("{}.*", field.key)))
+                    }
+                    _ => assert!(!paths.iter().any(|p| p == field.key)),
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn identical_inputs_compose_identical_categories() {        let kinds = IntegrationKinds::builtin();
         let ctx = ctx();
         let base = BaseTools::empty_for_tests(kinds.addon_ids());
         let integrations = [fs(&["a"]), brave("key")];

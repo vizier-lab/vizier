@@ -50,7 +50,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # master requires a pull request, and the built-in Actions app cannot
+          # be a bypass actor on a repository ruleset ("Actor GitHub Actions
+          # integration must be part of the ruleset source or owner
+          # organization"). RELEASE_TOKEN is a PAT owned by a person already on
+          # the ruleset's bypass list; without it the push below is rejected
+          # with GH013 and the run fails anyway, so the fallback only keeps
+          # dry runs and forks working.
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Setup Git
         run: |
@@ -120,7 +127,10 @@ jobs:
       - name: Push changes
         if: ${{ !inputs.dry_run }}
         run: |
-          git push origin HEAD:${{ github.ref_name }}
+          if ! git push origin HEAD:${{ github.ref_name }}; then
+            echo "::error::Could not push the version bump to ${{ github.ref_name }}. That branch requires a pull request; the release job needs the RELEASE_TOKEN secret (a token owned by a ruleset bypass actor) so its push is allowed."
+            exit 1
+          fi
           git push origin "v${{ steps.version.outputs.version }}"
 
   # ====================
@@ -200,15 +210,6 @@ jobs:
             clang \
             perl \
             make
-
-      # sherpa-onnx-sys downloads its prebuilt libs into target/sherpa-onnx-prebuilt
-      # and skips the download whenever the lib/ dir exists. rust-cache restores
-      # that dir without the libs, so the link fails; start it from scratch.
-      - name: Force sherpa-onnx prebuilt re-download
-        shell: bash
-        run: |
-          rm -rf target/sherpa-onnx-prebuilt
-          cargo clean --release --target ${{ matrix.target }} -p sherpa-onnx-sys
 
       - name: Build binary
         run: cargo build --release --target ${{ matrix.target }}

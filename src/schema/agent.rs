@@ -288,12 +288,12 @@ impl IndexerKind {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TtsProvider {
-    #[default]
     Openai,
     Openrouter,
     Elevenlabs,
     Xai,
     Hyperbolic,
+    #[default]
     Kokoro,
 }
 
@@ -329,7 +329,7 @@ impl TtsProvider {
             Self::Elevenlabs => "eleven_multilingual_v2",
             Self::Xai => "grok-2-tts",
             Self::Hyperbolic => "Melo-TTS",
-            Self::Kokoro => "kokoro-en-v0_19",
+            Self::Kokoro => "Kokoro-82M",
         }
     }
 }
@@ -349,7 +349,6 @@ pub struct TtsToolSettings {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SttProvider {
-    #[default]
     Openai,
     Openrouter,
     Elevenlabs,
@@ -357,6 +356,7 @@ pub enum SttProvider {
     Mistral,
     Huggingface,
     Gemini,
+    #[default]
     Whisper,
 }
 
@@ -384,7 +384,7 @@ impl SttProvider {
             Self::Mistral => "voxtral-mini-2507",
             Self::Huggingface => "openai/whisper-large-v3",
             Self::Gemini => "gemini-1.5-flash",
-            Self::Whisper => "large-v3",
+            Self::Whisper => "ggml-small",
         }
     }
 }
@@ -524,9 +524,17 @@ mod media_provider_tests {
                 "eleven_multilingual_v2",
                 "grok-2-tts",
                 "Melo-TTS",
-                "kokoro-en-v0_19",
+                "Kokoro-82M",
             ]
         );
+    }
+
+    #[test]
+    fn local_media_providers_use_the_whisper_rs_and_any_tts_artifacts() {
+        assert_eq!(SttProvider::Whisper.default_model(), "ggml-small");
+        assert_eq!(TtsProvider::Kokoro.default_model(), "Kokoro-82M");
+        // A voice id saved for sherpa keeps its meaning at the provider layer.
+        assert_eq!(TtsProvider::Kokoro.default_voice(), "af");
     }
 
     /// A saved agent keeps loading: the new variants are additive, and the old values mean

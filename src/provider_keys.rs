@@ -74,17 +74,30 @@ fn legacy_env(id: &ProviderId) -> &'static [(Field, &'static str)] {
     }
 }
 
-/// A catalogue `env[]` entry that holds a secret (`*_API_KEY`, `HF_TOKEN`, `GITHUB_TOKEN`…).
-/// The others (`AZURE_RESOURCE_NAME`, regions, projects) are only for `${VAR}` expansion.
-fn is_secret_var(name: &str) -> bool {
-    name.contains("KEY") || name.contains("TOKEN")
+/// Match a catalogue environment variable to the provider field it configures.
+fn catalogue_env_field(name: &str) -> Option<Field> {
+    if name.contains("KEY") {
+        Some(Field::ApiKey)
+    } else if name.ends_with("_ACCESS_TOKEN") {
+        Some(Field::AccessToken)
+    } else if name.ends_with("_ENDPOINT") {
+        Some(Field::Endpoint)
+    } else if name.ends_with("_ACCOUNT_ID") {
+        Some(Field::AccountId)
+    } else if name.ends_with("_BASE_URL") || name.ends_with("_URL") || name.ends_with("_API_BASE") {
+        Some(Field::BaseUrl)
+    } else if name.contains("TOKEN") {
+        Some(Field::ApiKey)
+    } else {
+        None
+    }
 }
 
 fn env_value(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.trim().is_empty())
 }
 
-/// Credentials from the environment: the catalogue's `env[]` (secrets only) in order, then the
+/// Credentials from the environment: recognized catalogue `env[]` fields in order, then the
 /// legacy names. `None` when nothing is set. The origin names the first variable used.
 pub fn credentials_from_env(
     id: &ProviderId,
@@ -108,8 +121,10 @@ pub fn credentials_from_env(
             origin.get_or_insert_with(|| CredentialOrigin::Env(name.to_string()));
         }
     };
-    for name in catalogue_env.iter().filter(|n| is_secret_var(n)) {
-        set(Field::ApiKey, name, &mut creds);
+    for name in catalogue_env {
+        if let Some(field) = catalogue_env_field(name) {
+            set(field, name, &mut creds);
+        }
     }
     for (field, name) in legacy_env(id) {
         set(*field, name, &mut creds);
@@ -167,5 +182,16 @@ mod credential_tests {
     fn origin_labels() {
         assert_eq!(CredentialOrigin::Saved.label(), "saved");
         assert_eq!(CredentialOrigin::Env("X".into()).label(), "env:X");
+    }
+
+    #[test]
+    fn catalogue_base_url_variable_fills_base_url() {
+        // SAFETY: unique test variable, removed immediately after the assertion.
+        unsafe { std::env::set_var("VZT_TEST_URL", "http://127.0.0.1:9998/v1"); }
+        let id = ProviderId::new("vzt-test-url".to_string()).unwrap();
+        let (creds, origin) = credentials_from_env(&id, &["VZT_TEST_URL".to_string()]).unwrap();
+        assert_eq!(creds.base_url.as_deref(), Some("http://127.0.0.1:9998/v1"));
+        assert_eq!(origin, CredentialOrigin::Env("VZT_TEST_URL".into()));
+        unsafe { std::env::remove_var("VZT_TEST_URL"); }
     }
 }

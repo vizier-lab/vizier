@@ -29,6 +29,11 @@ in `landing/src/content/blog/`. The site is deployed to www.vizier.rs from the
 [`landing`](https://github.com/vizier-lab/landing) repository, and a vizier
 release dispatches a deploy with the release tag.
 
+The design system's Storybook catalogue is published with the same site, at
+[www.vizier.rs/design](https://www.vizier.rs/design). A push to `design` master
+dispatches a landing deploy that rebuilds the catalogue from that commit, so the
+catalogue tracks the current design rather than vizier's submodule pin.
+
 ## Working on the WebUI
 
 ```sh
@@ -82,3 +87,29 @@ Optional repository variables:
 | `CASCADE_CHECK_TIMEOUT_SECS` | `1200` | How long to wait for checks before giving up |
 
 The detection and planning logic is unit-tested: `just test-scripts` (or `node --test scripts/*.test.mjs`).
+
+## Releasing
+
+Releases are dispatched from the **Release, Build & Publish** workflow with a
+version (`0.13.3`, `0.14.0-rc.1`). It bumps the workspace version, refreshes the
+model catalogue, regenerates `CHANGELOG.md`, commits the bump to `master` and tags
+it, then builds the binaries, publishes to crates.io and the container registries,
+and dispatches the website deploy. `dry_run: true` runs everything except the push,
+the tag, the GitHub release and the publishes.
+
+`master` requires a pull request, so the bump commit is pushed with a token that may
+bypass the ruleset. The built-in Actions app cannot be a bypass actor on a
+repository ruleset ("Actor GitHub Actions integration must be part of the ruleset
+source or owner organization"), so the job reads `RELEASE_TOKEN`: a fine-grained
+token owned by a person on the ruleset's bypass list, with **Contents: read and
+write** on this repository. Create one under Settings › Developer settings ›
+Personal access tokens › Fine-grained tokens, then store it:
+
+```sh
+gh secret set RELEASE_TOKEN --repo vizier-lab/vizier
+```
+
+Without it the workflow falls back to `GITHUB_TOKEN` and the push to `master` is
+rejected with GH013. A failed run deletes its tag and GitHub release, so dispatching
+again with the same version is safe.
+

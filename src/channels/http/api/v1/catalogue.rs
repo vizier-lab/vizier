@@ -279,10 +279,15 @@ pub(crate) async fn connections(
     listings
         .iter()
         .map(|p| {
-            let connection = if p.origin == ProviderOrigin::Custom
-                || p.id == ProviderId::DUMMYPLUG
-                || p.kind == ProviderKind::Local
-            {
+            let connection = if p.id == ProviderId::DUMMYPLUG {
+                let source = if saved.contains(&p.id) {
+                    Some("saved".to_string())
+                } else {
+                    crate::provider_keys::credentials_from_env(&p.id, &p.env)
+                        .map(|(_, origin)| origin.label())
+                };
+                Connection { status: "connected".into(), source }
+            } else if p.origin == ProviderOrigin::Custom || p.kind == ProviderKind::Local {
                 Connection {
                     status: "connected".into(),
                     source: saved.contains(&p.id).then(|| "saved".into()),

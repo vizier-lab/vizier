@@ -33,10 +33,13 @@ submodule.design.path design
 submodule.design.url https://github.com/vizier-lab/design.git
 submodule.webui.path webui
 submodule.webui.url https://github.com/vizier-lab/webui.git
+submodule.dummyplug.path dummyplug
+submodule.dummyplug.url https://github.com/vizier-lab/dummyplug.git
 `);
     assert.deepEqual(submodules, [
       { name: 'design', path: 'design', repo: 'vizier-lab/design' },
       { name: 'webui', path: 'webui', repo: 'vizier-lab/webui' },
+      { name: 'dummyplug', path: 'dummyplug', repo: 'vizier-lab/dummyplug' },
     ]);
   });
 
@@ -48,10 +51,11 @@ submodule.webui.url https://github.com/vizier-lab/webui.git
 describe('orderSubmodules', () => {
   it('puts a dependency before the submodule that imports it', () => {
     const ordered = orderSubmodules([
+      { name: 'dummyplug', path: 'dummyplug' },
       { name: 'webui', path: 'webui' },
       { name: 'design', path: 'design' },
     ]);
-    assert.deepEqual(ordered.map((s) => s.name), ['design', 'webui']);
+    assert.deepEqual(ordered.map((s) => s.name), ['design', 'webui', 'dummyplug']);
   });
 });
 

@@ -17,7 +17,6 @@ use crate::{
 
 use usage::{TurnGuard, UsageScope};
 
-mod dummyplug;
 pub mod registry;
 pub mod usage;
 
@@ -153,31 +152,6 @@ impl VizierModel {
         model: String,
     ) -> Result<Self> {
         let retry = agent_config.completion_retry.clone();
-
-        // dummyplug is the built-in whose model is its own, with no network.
-        if provider == ProviderId::DUMMYPLUG {
-            return Ok(Self {
-                inner: Arc::new(RetryingModel::new(
-                    dummyplug::DummyplugModel::new(agent_config),
-                    retry,
-                )),
-                info: Arc::new(ModelInfo {
-                    provider,
-                    model,
-                    context_window: agent_config.context_window,
-                    max_output: agent_config.max_tokens,
-                    context_source: if agent_config.context_window.is_some() {
-                        ContextSource::Override
-                    } else {
-                        ContextSource::Unknown
-                    },
-                    caps: Capabilities::default(),
-                    cost: None,
-                }),
-                agent_id: agent_id.clone(),
-                storage: deps.storage.clone(),
-            });
-        }
 
         let overrides = ModelOverrides {
             context_window: agent_config.context_window,

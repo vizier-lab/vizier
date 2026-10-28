@@ -7,3 +7,6 @@
 [submodule "landing"]
 	path = landing
 	url = https://github.com/vizier-lab/landing.git
+[submodule "dummyplug"]
+	path = dummyplug
+	url = https://github.com/vizier-lab/dummyplug.git

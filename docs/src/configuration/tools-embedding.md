@@ -56,7 +56,7 @@ The `tools` object in the agent API:
     "tts": false,
     "tts_settings": { "provider": "openai", "model": "tts-1", "voice": "alloy", "speed": 1.0 },
     "stt": false,
-    "stt_settings": { "provider": "whisper", "model": "large-v3", "language": "en" },
+    "stt_settings": { "provider": "whisper", "model": "ggml-large-v3", "language": "en" },
     "read_image": false,
     "read_image_settings": { "provider": "openai", "model": "gpt-4o-mini" },
     "image_gen": false,
@@ -88,12 +88,12 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 
 | Provider | Default model | Default voice | Credential |
 |----------|---------------|---------------|------------|
-| `openai` (default) | `tts-1` | `alloy` | `openai` provider key |
+| `kokoro` (default) | `Kokoro-82M` | `af` | none (local — runs in-process via any-tts/Candle; weights downloaded into `<workspace>/.runtime/tts/kokoro/`) |
 | `openrouter` | `hexgrad/kokoro-82m` | `af_alloy` | `openrouter` key |
 | `elevenlabs` | `eleven_multilingual_v2` | `pqHfZKP75CvOlQylNhV4` | `elevenlabs` key |
 | `xai` | `grok-2-tts` | `default` | `xai` key |
 | `hyperbolic` | `Melo-TTS` | `default` | `hyperbolic` key |
-| `kokoro` | `kokoro-en-v0_19` | `af` | none (local) |
+| `openai` | `tts-1` | `alloy` | `openai` provider key |
 
 `model`, `voice`, `speed` are optional overrides. OpenRouter returns MP3, which Vizier converts to WAV; a non-default `speed` is passed through, so a speech model without speed control may reject it (the provider's explanation is surfaced and the agent stays available). OpenRouter's default pair is `hexgrad/kokoro-82m` with its published voice `af_alloy`; if you pick a different speech model, choose one of the voices **it** publishes.
 
@@ -101,14 +101,14 @@ In the WebUI the boolean and its `_settings` are one form section; in the API th
 
 | Provider | Default model | Credential |
 |----------|---------------|------------|
-| `openai` (default) | `whisper-1` | `openai` key |
+| `openai` | `whisper-1` | `openai` key |
 | `openrouter` | `openai/whisper-large-v3` | `openrouter` key (the same one chat and embeddings use) |
 | `elevenlabs` | `scribe_v1` | `elevenlabs` key |
 | `groq` | `whisper-large-v3` | `groq` key |
 | `mistral` | `voxtral-mini-2507` | `mistral` key |
 | `huggingface` | `openai/whisper-large-v3` | `huggingface` key |
 | `gemini` | `gemini-1.5-flash` | `google` key |
-| `whisper` | `large-v3` | none — runs locally via sherpa-onnx; model downloaded into `<workspace>/.runtime/stt/whisper/` |
+| `whisper` (default) | `ggml-small` | none — runs locally via whisper-rs; GGML model downloaded into `<workspace>/.runtime/stt/whisper/` |
 
 `language` is optional (auto-detect when unset). OpenRouter caps multipart uploads at 25 MB; an oversized clip comes back as the provider's error.
 

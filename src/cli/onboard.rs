@@ -1,14 +1,11 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Args;
-use inquire::{Confirm, Password, Select, Text};
+use inquire::{Confirm, Text};
 use termimad::print_text;
 
-use crate::config::{
-    ChannelsConfig, HTTPChannelConfig, VizierConfig, provider::ProviderId,
-    storage::StorageConfig,
-};
+use crate::config::{ChannelsConfig, HTTPChannelConfig, VizierConfig, storage::StorageConfig};
 
 #[derive(Debug, Args, Clone)]
 pub struct OnboardArgs {
@@ -52,33 +49,6 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         .with_default(&default_jwt)
         .prompt()?;
 
-    print_text("\n> **Note:** Provider keys are not written to the config file. Add them in Settings › Providers after the first start, or set the environment variable shown below.\n");
-
-    let provider_type = Select::new(
-        "Select primary provider:",
-        vec![
-            "ollama",
-            "deepseek",
-            "openrouter",
-            "anthropic",
-            "openai",
-            "google",
-            "xiaomi",
-            "llama-cpp",
-        ],
-    )
-    .prompt()?;
-
-    let provider_hint = provider_env_hint(provider_type);
-
-    let storage_type = Select::new("Storage type:", vec!["Filesystem", "SQLite"]).prompt()?;
-
-    let storage = if storage_type == "SQLite" {
-        StorageConfig::Sqlite
-    } else {
-        StorageConfig::Filesystem
-    };
-
     let worker_threads: usize = Text::new("Worker threads:")
         .with_default("4")
         .prompt()?
@@ -101,19 +71,15 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         | **Workspace** | `{}` |\n\
         | **Config file** | `{}` |\n\
         | **HTTP port** | `{}` |\n\
-        | **Provider** | `{}` ({}) |\n\
-        | **Storage** | `{}` |\n\
         | **Worker threads** | `{}` |\n\
         | **WS idle timeout** | `{}s` |\n\
         \n\
-        > **Note:** Embedding and indexer are configured **per agent** in the WebUI.\n\
+        > **Note:** Storage is SQLite. Providers are connected in the WebUI (Settings › Providers),\n\
+        > and embedding and indexer are configured **per agent**.\n\
         ---\n",
         workspace_path.display(),
         config_path.display(),
         port,
-        provider_type,
-        provider_hint,
-        storage_type,
         worker_threads,
         ws_idle_timeout_secs,
     ));
@@ -130,7 +96,7 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
     let config = VizierConfig {
         workspace: workspace.clone(),
         providers: None,
-        storage,
+        storage: StorageConfig::Sqlite,
         channels: ChannelsConfig {
             http: Some(HTTPChannelConfig {
                 port,
@@ -151,34 +117,12 @@ pub fn onboard(args: OnboardArgs) -> Result<()> {
         | | |\n\
         |---|---|\n\
         | **Start server** | `vizier run` |\n\
-        | **WebUI** | `http://localhost:{}` |\n\
-        | **Provider** | {} |\n\n\
-        Open the WebUI and follow the onboarding flow to create your first user account.\n\
-        You can configure embedding and indexer per-agent in agent settings.\n",
+        | **WebUI** | `http://localhost:{}` |\n\n\
+        Open the WebUI to create your admin account; the Home page then walks you through\n\
+        connecting a provider and creating your first agent.\n",
         config_path.display(),
         port,
-        provider_hint,
     ));
 
     Ok(())
-}
-
-/// How to give the chosen provider its credentials: the environment variable from the
-/// catalogue (or the built-in's), or Settings › Providers.
-fn provider_env_hint(provider: &str) -> String {
-    let Ok(id) = ProviderId::parse(provider) else {
-        return "add it in Settings › Providers".into();
-    };
-    let env = crate::catalogue::builtin::builtin(&id)
-        .and_then(|b| b.env.first().map(|e| e.to_string()))
-        .or_else(|| {
-            crate::catalogue::seed::load_seed()
-                .providers
-                .get(&id)
-                .and_then(|p| p.env.iter().find(|e| e.contains("KEY") || e.contains("TOKEN")).cloned())
-        });
-    match env {
-        Some(var) => format!("set `{var}`, or add it in Settings › Providers"),
-        None => "add it in Settings › Providers".into(),
-    }
 }

@@ -1,223 +1,116 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use any_tts::{load_model, ModelType, SynthesisRequest, TtsConfig, TtsModel};
 
 use crate::setup::{DownloadKind, SetupBoard};
 use crate::tts::VizierTtsModel;
 use crate::utils::build_path;
 use crate::{Result, VizierError};
 
-use sherpa_onnx::{
-    GenerationConfig, OfflineTts, OfflineTtsConfig, OfflineTtsKokoroModelConfig,
-    OfflineTtsModelConfig,
-};
+/// Where the Kokoro weights and voice packs are published.
+const DEFAULT_REPO: &str = "hexgrad/Kokoro-82M";
 
-/// How many bytes a download moves between two progress reports.
-const PROGRESS_STEP: u64 = 1024 * 1024;
+/// The voice any-tts uses when none is chosen; `af` was sherpa's name for it.
+const DEFAULT_VOICE: &str = "af_heart";
 
-const MODEL_BASE_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models";
+/// Voice packs shipped by the Kokoro-82M release.
+const VOICES: &[&str] = &[
+    "af_alloy",
+    "af_aoede",
+    "af_bella",
+    "af_heart",
+    "af_jessica",
+    "af_kore",
+    "af_nicole",
+    "af_nova",
+    "af_river",
+    "af_sarah",
+    "af_sky",
+    "am_adam",
+    "am_echo",
+    "am_eric",
+    "am_fenrir",
+    "am_liam",
+    "am_michael",
+    "am_onyx",
+    "am_puck",
+    "am_santa",
+    "bf_alice",
+    "bf_emma",
+    "bf_isabella",
+    "bf_lily",
+    "bm_daniel",
+    "bm_fable",
+    "bm_george",
+    "bm_lewis",
+    "ef_dora",
+    "em_alex",
+    "em_santa",
+    "ff_siwis",
+    "hf_alpha",
+    "hf_beta",
+    "hm_omega",
+    "hm_psi",
+    "if_sara",
+    "im_nicola",
+    "jf_alpha",
+    "jf_gongitsune",
+    "jf_nezumi",
+    "jf_tebukuro",
+    "jm_kumo",
+    "pf_dora",
+    "pm_alex",
+    "pm_santa",
+    "zf_xiaobei",
+    "zf_xiaoni",
+    "zf_xiaoxiao",
+    "zf_xiaoyi",
+    "zm_yunjian",
+    "zm_yunxi",
+    "zm_yunxia",
+    "zm_yunyang",
+];
 
-fn en_v0_19_voices() -> HashMap<String, i32> {
-    let mut m = HashMap::new();
-    m.insert("af".into(), 0);
-    m.insert("af_bella".into(), 1);
-    m.insert("af_nicole".into(), 2);
-    m.insert("af_sarah".into(), 3);
-    m.insert("af_sky".into(), 4);
-    m.insert("am_adam".into(), 5);
-    m.insert("am_michael".into(), 6);
-    m.insert("bf_emma".into(), 7);
-    m.insert("bf_isabella".into(), 8);
-    m.insert("bm_george".into(), 9);
-    m.insert("bm_lewis".into(), 10);
-    m
-}
-
-fn multi_lang_v1_0_voices() -> HashMap<String, i32> {
-    let mut m = HashMap::new();
-    m.insert("af_alloy".into(), 0);
-    m.insert("af_aoede".into(), 1);
-    m.insert("af_bella".into(), 2);
-    m.insert("af_heart".into(), 3);
-    m.insert("af_jessica".into(), 4);
-    m.insert("af_kore".into(), 5);
-    m.insert("af_nicole".into(), 6);
-    m.insert("af_nova".into(), 7);
-    m.insert("af_river".into(), 8);
-    m.insert("af_sarah".into(), 9);
-    m.insert("af_sky".into(), 10);
-    m.insert("am_adam".into(), 11);
-    m.insert("am_echo".into(), 12);
-    m.insert("am_eric".into(), 13);
-    m.insert("am_fenrir".into(), 14);
-    m.insert("am_liam".into(), 15);
-    m.insert("am_michael".into(), 16);
-    m.insert("am_onyx".into(), 17);
-    m.insert("am_puck".into(), 18);
-    m.insert("am_santa".into(), 19);
-    m.insert("bf_alice".into(), 20);
-    m.insert("bf_emma".into(), 21);
-    m.insert("bf_isabella".into(), 22);
-    m.insert("bf_lily".into(), 23);
-    m.insert("bm_daniel".into(), 24);
-    m.insert("bm_fable".into(), 25);
-    m.insert("bm_george".into(), 26);
-    m.insert("bm_lewis".into(), 27);
-    m.insert("ef_dora".into(), 28);
-    m.insert("em_alex".into(), 29);
-    m.insert("ff_siwis".into(), 30);
-    m.insert("hf_alpha".into(), 31);
-    m.insert("hf_beta".into(), 32);
-    m.insert("hm_omega".into(), 33);
-    m.insert("hm_psi".into(), 34);
-    m.insert("if_sara".into(), 35);
-    m.insert("im_nicola".into(), 36);
-    m.insert("jf_alpha".into(), 37);
-    m.insert("jf_gongitsune".into(), 38);
-    m.insert("jf_nezumi".into(), 39);
-    m.insert("jf_tebukuro".into(), 40);
-    m.insert("jm_kumo".into(), 41);
-    m.insert("pf_dora".into(), 42);
-    m.insert("pm_alex".into(), 43);
-    m.insert("pm_santa".into(), 44);
-    m.insert("zf_xiaobei".into(), 45);
-    m.insert("zf_xiaoni".into(), 46);
-    m.insert("zf_xiaoxiao".into(), 47);
-    m.insert("zf_xiaoyi".into(), 48);
-    m.insert("zm_yunjian".into(), 49);
-    m.insert("zm_yunxi".into(), 50);
-    m.insert("zm_yunxia".into(), 51);
-    m.insert("zm_yunyang".into(), 52);
-    m
-}
-
-fn multi_lang_v1_1_voices() -> HashMap<String, i32> {
-    let mut m = HashMap::new();
-    m.insert("af_maple".into(), 0);
-    m.insert("af_sol".into(), 1);
-    m.insert("bf_vale".into(), 2);
-    m.insert("zf_001".into(), 3);
-    m.insert("zf_002".into(), 4);
-    m.insert("zf_003".into(), 5);
-    m.insert("zf_004".into(), 6);
-    m.insert("zf_005".into(), 7);
-    m.insert("zf_006".into(), 8);
-    m.insert("zf_007".into(), 9);
-    m.insert("zf_008".into(), 10);
-    m.insert("zf_017".into(), 11);
-    m.insert("zf_018".into(), 12);
-    m.insert("zf_019".into(), 13);
-    m.insert("zf_021".into(), 14);
-    m.insert("zf_022".into(), 15);
-    m.insert("zf_023".into(), 16);
-    m.insert("zf_024".into(), 17);
-    m.insert("zf_026".into(), 18);
-    m.insert("zf_027".into(), 19);
-    m.insert("zf_028".into(), 20);
-    m.insert("zf_032".into(), 21);
-    m.insert("zf_036".into(), 22);
-    m.insert("zf_038".into(), 23);
-    m.insert("zf_039".into(), 24);
-    m.insert("zf_040".into(), 25);
-    m.insert("zf_042".into(), 26);
-    m.insert("zf_043".into(), 27);
-    m.insert("zf_044".into(), 28);
-    m.insert("zf_046".into(), 29);
-    m.insert("zf_047".into(), 30);
-    m.insert("zf_048".into(), 31);
-    m.insert("zf_049".into(), 32);
-    m.insert("zf_051".into(), 33);
-    m.insert("zf_059".into(), 34);
-    m.insert("zf_060".into(), 35);
-    m.insert("zf_067".into(), 36);
-    m.insert("zf_070".into(), 37);
-    m.insert("zf_071".into(), 38);
-    m.insert("zf_072".into(), 39);
-    m.insert("zf_073".into(), 40);
-    m.insert("zf_074".into(), 41);
-    m.insert("zf_075".into(), 42);
-    m.insert("zf_076".into(), 43);
-    m.insert("zf_077".into(), 44);
-    m.insert("zf_078".into(), 45);
-    m.insert("zf_079".into(), 46);
-    m.insert("zf_083".into(), 47);
-    m.insert("zf_084".into(), 48);
-    m.insert("zf_085".into(), 49);
-    m.insert("zf_086".into(), 50);
-    m.insert("zf_087".into(), 51);
-    m.insert("zf_088".into(), 52);
-    m.insert("zf_090".into(), 53);
-    m.insert("zf_092".into(), 54);
-    m.insert("zf_093".into(), 55);
-    m.insert("zf_094".into(), 56);
-    m.insert("zf_099".into(), 57);
-    m.insert("zm_009".into(), 58);
-    m.insert("zm_010".into(), 59);
-    m.insert("zm_011".into(), 60);
-    m.insert("zm_012".into(), 61);
-    m.insert("zm_013".into(), 62);
-    m.insert("zm_014".into(), 63);
-    m.insert("zm_015".into(), 64);
-    m.insert("zm_016".into(), 65);
-    m.insert("zm_020".into(), 66);
-    m.insert("zm_025".into(), 67);
-    m.insert("zm_029".into(), 68);
-    m.insert("zm_030".into(), 69);
-    m.insert("zm_031".into(), 70);
-    m.insert("zm_033".into(), 71);
-    m.insert("zm_034".into(), 72);
-    m.insert("zm_035".into(), 73);
-    m.insert("zm_037".into(), 74);
-    m.insert("zm_041".into(), 75);
-    m.insert("zm_045".into(), 76);
-    m.insert("zm_050".into(), 77);
-    m.insert("zm_052".into(), 78);
-    m.insert("zm_053".into(), 79);
-    m.insert("zm_054".into(), 80);
-    m.insert("zm_055".into(), 81);
-    m.insert("zm_056".into(), 82);
-    m.insert("zm_057".into(), 83);
-    m.insert("zm_058".into(), 84);
-    m.insert("zm_061".into(), 85);
-    m.insert("zm_062".into(), 86);
-    m.insert("zm_063".into(), 87);
-    m.insert("zm_064".into(), 88);
-    m.insert("zm_065".into(), 89);
-    m.insert("zm_066".into(), 90);
-    m.insert("zm_068".into(), 91);
-    m.insert("zm_069".into(), 92);
-    m.insert("zm_080".into(), 93);
-    m.insert("zm_081".into(), 94);
-    m.insert("zm_082".into(), 95);
-    m.insert("zm_089".into(), 96);
-    m.insert("zm_091".into(), 97);
-    m.insert("zm_095".into(), 98);
-    m.insert("zm_096".into(), 99);
-    m.insert("zm_097".into(), 100);
-    m.insert("zm_098".into(), 101);
-    m.insert("zm_100".into(), 102);
-    m
-}
-
-fn resolve_voice_id(model_name: &str, voice: &str) -> i32 {
-    let map = match model_name {
-        "kokoro-en-v0_19" => en_v0_19_voices(),
-        "kokoro-multi-lang-v1_0" => multi_lang_v1_0_voices(),
-        "kokoro-multi-lang-v1_1" => multi_lang_v1_1_voices(),
-        _ => en_v0_19_voices(),
+/// A saved agent may still name a sherpa artifact; all of them are the same Kokoro-82M
+/// checkpoint under any-tts, so map the old names onto it.
+fn resolve_repo(model_name: &str) -> (String, String) {
+    let name = model_name.trim();
+    let name = match name {
+        "" | "kokoro-en-v0_19" | "kokoro-multi-lang-v1_0" | "kokoro-multi-lang-v1_1" => {
+            "Kokoro-82M"
+        }
+        other => other,
     };
 
-    if let Some(&id) = map.get(voice) {
-        return id;
+    if name.contains('/') {
+        let dir = name.rsplit('/').next().unwrap_or(name).to_string();
+        (name.to_string(), dir)
+    } else {
+        (format!("hexgrad/{name}"), name.to_string())
+    }
+}
+
+/// The name any-tts will look for in its `voices/` directory. Unknown names (including the
+/// numeric ids sherpa accepted) fall back to the default voice with a warning.
+fn resolve_voice(voice: &str) -> String {
+    let voice = voice.trim();
+    if voice.is_empty() || voice == "af" {
+        return DEFAULT_VOICE.to_string();
+    }
+    if VOICES.contains(&voice) {
+        return voice.to_string();
     }
 
-    voice.parse::<i32>().unwrap_or(0)
+    tracing::warn!("Unknown Kokoro voice '{voice}', using {DEFAULT_VOICE}");
+    DEFAULT_VOICE.to_string()
 }
 
 pub struct KokoroTtsModel {
     model_name: String,
+    repo: String,
     model_dir: PathBuf,
-    tts: Arc<parking_lot::Mutex<Option<OfflineTts>>>,
+    tts: Arc<parking_lot::Mutex<Option<Box<dyn TtsModel>>>>,
     /// Reports the one-time model download to the WebUI setup board.
     setup: SetupBoard,
     agent_id: String,
@@ -225,9 +118,11 @@ pub struct KokoroTtsModel {
 
 impl KokoroTtsModel {
     pub fn new(model_name: String, workspace: &str, setup: SetupBoard, agent_id: String) -> Self {
-        let model_dir = build_path(workspace, &[".runtime", "tts", "kokoro", &model_name]);
+        let (repo, dir_name) = resolve_repo(&model_name);
+        let model_dir = build_path(workspace, &[".runtime", "tts", "kokoro", &dir_name]);
         Self {
             model_name,
+            repo,
             model_dir,
             tts: Arc::new(parking_lot::Mutex::new(None)),
             setup,
@@ -235,20 +130,32 @@ impl KokoroTtsModel {
         }
     }
 
+    fn file_url(&self, file: &str) -> String {
+        format!("https://huggingface.co/{}/resolve/main/{file}?download=true", self.repo)
+    }
+
+    fn ready_marker(&self) -> PathBuf {
+        self.model_dir.join(".ready")
+    }
+
     async fn ensure_model(&self) -> Result<()> {
-        let model_onnx = self.model_dir.join("model.onnx");
-        if model_onnx.exists() {
+        if self.ready_marker().exists() {
             return Ok(());
         }
 
-        std::fs::create_dir_all(&self.model_dir)
+        std::fs::create_dir_all(self.model_dir.join("voices"))
             .map_err(|e| VizierError(format!("create kokoro model dir: {e}")))?;
 
-        let archive_name = format!("{}.tar.bz2", self.model_name);
-        let url = format!("{MODEL_BASE_URL}/{archive_name}");
-        let archive_path = self.model_dir.parent().unwrap().join(&archive_name);
+        let client = reqwest::Client::builder()
+            .user_agent("vizier/0.10")
+            .build()
+            .map_err(|e| VizierError(format!("build download client: {e}")))?;
 
-        tracing::info!("Downloading Kokoro model: {url}");
+        tracing::info!(
+            "Downloading Kokoro model '{}' from {}",
+            self.model_name,
+            self.repo
+        );
 
         self.setup.download_started(
             &self.agent_id,
@@ -256,235 +163,168 @@ impl KokoroTtsModel {
             format!("Downloading speech model '{}'", self.model_name),
         );
 
-        let client = reqwest::Client::builder()
-            .user_agent("vizier/0.10")
-            .build()
-            .map_err(|e| VizierError(format!("build download client: {e}")))?;
+        let config = self.model_dir.join("config.json");
+        self.download(&client, "config.json", &config, false)
+            .await?;
 
-        let max_retries = 100u32;
-        let mut last_err: Option<VizierError> = None;
-        let mut bytes: Vec<u8> = Vec::new();
-        // Set only by an attempt whose stream ended cleanly with every byte, so a final
-        // attempt cut off half way is never taken for a finished download.
-        let mut complete = false;
-
-        for attempt in 1..=max_retries {
-            bytes.clear();
-
-            let response = match client.get(&url).send().await {
-                Ok(r) => r,
-                Err(e) => {
-                    let err = VizierError(format!("download kokoro model: {e}"));
-                    tracing::warn!("Download attempt {attempt}/{max_retries} failed: {e}");
-                    last_err = Some(err);
-                    if attempt < max_retries {
-                        tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64))
-                            .await;
-                    }
-                    continue;
-                }
-            };
-
-            let total_size = response.content_length().unwrap_or(0);
-            let mut completed = 0u64;
-            let mut reported = 0u64;
-
-            let mut stream = response.bytes_stream();
-            use futures::StreamExt;
-            let mut download_failed = false;
-            while let Some(chunk) = stream.next().await {
-                match chunk {
-                    Ok(c) => {
-                        bytes.extend_from_slice(&c);
-                        completed += c.len() as u64;
-                        // Every chunk would take the board's lock thousands of times.
-                        if completed - reported >= PROGRESS_STEP || completed == total_size {
-                            reported = completed;
-                            self.setup.download_progress(
-                                &self.agent_id,
-                                DownloadKind::Tts,
-                                completed,
-                                total_size,
-                                "downloading",
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Download attempt {attempt}/{max_retries} failed at chunk: {e}"
-                        );
-                        last_err = Some(VizierError(format!("download chunk: {e}")));
-                        download_failed = true;
-                        break;
-                    }
-                }
+        // Kokoro releases publish either safetensors or the original `.pth`.
+        let safetensors = self.model_dir.join("model.safetensors");
+        if !safetensors.exists() {
+            let found = self
+                .download(&client, "model.safetensors", &safetensors, true)
+                .await?;
+            if !found {
+                let pth = self.model_dir.join("kokoro-v1_0.pth");
+                self.download(&client, "kokoro-v1_0.pth", &pth, false)
+                    .await?;
             }
-
-            if download_failed {
-                if attempt < max_retries {
-                    tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
-                }
-                continue;
-            }
-
-            if total_size > 0 && completed != total_size {
-                tracing::warn!(
-                    "Download attempt {attempt}/{max_retries} ended early: {completed}/{total_size} bytes"
-                );
-                last_err = Some(VizierError(format!(
-                    "download ended early: {completed} of {total_size} bytes"
-                )));
-                if attempt < max_retries {
-                    tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
-                }
-                continue;
-            }
-
-            complete = true;
-            break;
         }
 
-        if !complete {
-            let err = last_err.unwrap_or_else(|| VizierError("download failed".into()));
-            self.setup
-                .download_failed(&self.agent_id, DownloadKind::Tts, err.to_string());
-            return Err(err);
+        // any-tts only exposes a voices directory that exists when the model loads.
+        let starter_voice = self.model_dir.join("voices").join(format!("{DEFAULT_VOICE}.pt"));
+        if !starter_voice.exists() {
+            let file = format!("voices/{DEFAULT_VOICE}.pt");
+            self.download(&client, &file, &starter_voice, true).await?;
         }
+
         self.setup
             .download_finished(&self.agent_id, DownloadKind::Tts);
 
-        std::fs::write(&archive_path, &bytes)
-            .map_err(|e| VizierError(format!("write archive: {e}")))?;
-
-        tracing::info!("Extracting Kokoro model to {}", self.model_dir.display());
-
-        let archive_file = std::fs::File::open(&archive_path)
-            .map_err(|e| VizierError(format!("open archive: {e}")))?;
-        let decoder = bzip2::read::BzDecoder::new(archive_file);
-        let mut archive = tar::Archive::new(decoder);
-        archive.set_overwrite(true);
-        archive
-            .unpack(self.model_dir.parent().unwrap())
-            .map_err(|e| VizierError(format!("extract archive: {e}")))?;
-
-        let _ = std::fs::remove_file(&archive_path);
+        std::fs::write(self.ready_marker(), b"ok")
+            .map_err(|e| VizierError(format!("write kokoro ready marker: {e}")))?;
 
         tracing::info!("Kokoro model ready at {}", self.model_dir.display());
         Ok(())
     }
 
-    async fn ensure_tts(&self) -> Result<parking_lot::MutexGuard<'_, Option<OfflineTts>>> {
-        {
-            let lock = self.tts.lock();
-            if lock.is_some() {
-                return Ok(lock);
-            }
+    async fn download(
+        &self,
+        client: &reqwest::Client,
+        file: &str,
+        dest: &std::path::Path,
+        optional: bool,
+    ) -> Result<bool> {
+        let url = self.file_url(file);
+        self.setup
+            .download_file(
+                client,
+                &url,
+                dest,
+                &self.agent_id,
+                DownloadKind::Tts,
+                file,
+                optional,
+            )
+            .await
+            .inspect_err(|e| {
+                self.setup
+                    .download_failed(&self.agent_id, DownloadKind::Tts, e.to_string());
+            })
+    }
+
+    /// Voice packs are downloaded on first use, so the initial model fetch stays small.
+    async fn ensure_voice(&self, voice: &str) -> Result<()> {
+        let path = self.model_dir.join("voices").join(format!("{voice}.pt"));
+        if path.exists() {
+            return Ok(());
         }
 
-        self.ensure_model().await?;
+        std::fs::create_dir_all(self.model_dir.join("voices"))
+            .map_err(|e| VizierError(format!("create kokoro voices dir: {e}")))?;
 
-        let model_onnx = self.model_dir.join("model.onnx");
-        let voices_bin = self.model_dir.join("voices.bin");
-        let tokens_txt = self.model_dir.join("tokens.txt");
-        let espeak_data = self.model_dir.join("espeak-ng-data");
+        self.setup.download_started(
+            &self.agent_id,
+            DownloadKind::Tts,
+            format!("Downloading speech model '{}'", self.model_name),
+        );
+        let client = reqwest::Client::builder()
+            .user_agent("vizier/0.10")
+            .build()
+            .map_err(|e| VizierError(format!("build download client: {e}")))?;
 
-        let lexicon = match self.model_name.as_str() {
-            "kokoro-multi-lang-v1_0" | "kokoro-multi-lang-v1_1" => Some(format!(
-                "{},{}",
-                self.model_dir.join("lexicon-us-en.txt").display(),
-                self.model_dir.join("lexicon-zh.txt").display()
-            )),
-            _ => None,
-        };
+        let result = self
+            .download(&client, &format!("voices/{voice}.pt"), &path, false)
+            .await;
 
-        let config = OfflineTtsConfig {
-            model: OfflineTtsModelConfig {
-                kokoro: OfflineTtsKokoroModelConfig {
-                    model: Some(model_onnx.to_string_lossy().into_owned()),
-                    voices: Some(voices_bin.to_string_lossy().into_owned()),
-                    tokens: Some(tokens_txt.to_string_lossy().into_owned()),
-                    data_dir: Some(espeak_data.to_string_lossy().into_owned()),
-                    lexicon,
-                    length_scale: 1.0,
-                    ..Default::default()
-                },
-                num_threads: 2,
-                debug: false,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let tts = OfflineTts::create(&config)
-            .ok_or_else(|| VizierError("failed to create Kokoro TTS engine".into()))?;
-
-        let mut lock = self.tts.lock();
-        *lock = Some(tts);
-
-        Ok(lock)
+        match &result {
+            Ok(_) => self.setup.download_finished(&self.agent_id, DownloadKind::Tts),
+            Err(e) => self
+                .setup
+                .download_failed(&self.agent_id, DownloadKind::Tts, e.to_string()),
+        }
+        result.map(|_| ())
     }
+
 }
 
 #[async_trait::async_trait]
 impl VizierTtsModel for KokoroTtsModel {
     async fn generate_speech(&self, text: &str, voice: &str, speed: f32) -> Result<Vec<u8>> {
-        let lock = self.ensure_tts().await?;
-        let tts = lock
-            .as_ref()
-            .ok_or_else(|| VizierError("Kokoro TTS not initialized".into()))?;
+        let voice = resolve_voice(voice);
+        // The model dir and its starter voice must exist before the engine loads; the voice
+        // packs are fetched on first use.
+        self.ensure_model().await?;
+        self.ensure_voice(&voice).await?;
 
-        let sid = resolve_voice_id(&self.model_name, voice);
-        let num_speakers = tts.num_speakers();
-        let sid = if sid >= num_speakers {
-            tracing::warn!(
-                "Voice ID {} exceeds max speakers ({}) for model {}, using 0",
-                sid,
-                num_speakers,
-                self.model_name
-            );
-            0
-        } else {
-            sid
-        };
+        let request = SynthesisRequest::new(text)
+            .with_voice(&voice)
+            // any-tts accepts 0.1..=5.0; the trait's speed is a plain multiplier.
+            .with_speed(speed.clamp(0.1, 5.0) as f64);
 
-        let gen_config = GenerationConfig {
-            sid,
-            speed,
-            ..Default::default()
-        };
-
-        let audio = tts
-            .generate_with_config::<fn(&[f32], f32) -> bool>(text, &gen_config, None)
-            .ok_or_else(|| VizierError("Kokoro TTS generation failed".into()))?;
-
-        let sample_rate = audio.sample_rate() as u32;
-        let samples = audio.samples();
-
-        let spec = hound::WavSpec {
-            channels: 1,
-            sample_rate,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        };
-
-        let mut wav_buf = std::io::Cursor::new(Vec::new());
-        {
-            let mut writer = hound::WavWriter::new(&mut wav_buf, spec)
-                .map_err(|e| VizierError(format!("wav writer: {e}")))?;
-
-            for &sample in samples {
-                let clamped = sample.clamp(-1.0, 1.0);
-                let pcm = (clamped * 32767.0) as i16;
-                writer
-                    .write_sample(pcm)
-                    .map_err(|e| VizierError(format!("wav write: {e}")))?;
+        // Loading the weights and synthesising are CPU-bound and take seconds; keep them off
+        // the async workers so other turns keep running. The lock makes concurrent requests
+        // share one loaded engine and take turns on it.
+        let slot = self.tts.clone();
+        let model_dir = self.model_dir.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut slot = slot.lock();
+            if slot.is_none() {
+                let tts = load_model(
+                    TtsConfig::new(ModelType::Kokoro)
+                        .with_model_path(model_dir.to_string_lossy().into_owned()),
+                )
+                .map_err(|e| VizierError(format!("load Kokoro TTS engine: {e}")))?;
+                *slot = Some(tts);
             }
 
-            writer
-                .finalize()
-                .map_err(|e| VizierError(format!("wav finalize: {e}")))?;
-        }
+            let tts = slot
+                .as_ref()
+                .ok_or_else(|| VizierError("Kokoro TTS not initialized".into()))?;
+            let audio = tts
+                .synthesize(&request)
+                .map_err(|e| VizierError(format!("Kokoro TTS generation failed: {e}")))?;
+            Ok(audio.get_wav())
+        })
+        .await
+        .map_err(|e| VizierError(format!("Kokoro TTS task: {e}")))?
+    }
+}
 
-        Ok(wav_buf.into_inner())
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saved_sherpa_models_map_to_the_kokoro_release() {
+        for old in ["kokoro-en-v0_19", "kokoro-multi-lang-v1_0", "kokoro-multi-lang-v1_1"] {
+            assert_eq!(resolve_repo(old), ("hexgrad/Kokoro-82M".into(), "Kokoro-82M".into()));
+        }
+        assert_eq!(
+            resolve_repo("Kokoro-82M"),
+            ("hexgrad/Kokoro-82M".into(), "Kokoro-82M".into())
+        );
+        assert_eq!(
+            resolve_repo("someone/Kokoro-Tiny"),
+            ("someone/Kokoro-Tiny".into(), "Kokoro-Tiny".into())
+        );
+    }
+
+    #[test]
+    fn sherpa_voice_names_keep_their_kokoro_packs() {
+        assert_eq!(resolve_voice("af"), "af_heart");
+        assert_eq!(resolve_voice("af_bella"), "af_bella");
+        // Numeric ids and unknown names fall back to the default.
+        assert_eq!(resolve_voice("3"), "af_heart");
+        assert_eq!(resolve_voice("nope"), "af_heart");
     }
 }

@@ -77,13 +77,13 @@ async fn connected(state: &HTTPState) -> Vec<ProviderResponse> {
     let migrated = usage::migrated_from(state).await;
     let mut out = vec![];
     for p in summaries {
-        if p.origin == ProviderOrigin::Custom || p.id == ProviderId::DUMMYPLUG {
+        if p.origin == ProviderOrigin::Custom {
             continue;
         }
         let used_by = used.remove(&p.id).map(|(u, _)| u).unwrap_or_default();
         let local = p.kind == ProviderKind::Local;
         // A local provider on its default address has no source, but is listed once used.
-        let listed = p.connection.source.is_some() || (local && used_by.total() > 0);
+        let listed = p.id == ProviderId::DUMMYPLUG || p.connection.source.is_some() || (local && used_by.total() > 0);
         if !listed {
             continue;
         }
@@ -105,7 +105,7 @@ async fn connected(state: &HTTPState) -> Vec<ProviderResponse> {
             source: p.connection.source,
             has_api_key: set(&creds.api_key),
             endpoint: creds.endpoint,
-            base_url: creds.base_url,
+            base_url: creds.base_url.or(p.endpoint),
             has_access_token: set(&creds.access_token),
             account_id: creds.account_id,
             used_by,
@@ -147,9 +147,6 @@ pub(crate) async fn get_provider(
     let Ok(id) = ProviderId::parse(&id) else {
         return err_response(StatusCode::BAD_REQUEST, "invalid provider id".into());
     };
-    if id == ProviderId::DUMMYPLUG {
-        return err_response(StatusCode::NOT_FOUND, "provider not found".into());
-    }
     match connected(&state).await.into_iter().find(|p| p.id == id) {
         Some(p) => api_response(StatusCode::OK, p),
         None => err_response(StatusCode::NOT_FOUND, "provider not found".into()),
@@ -221,12 +218,6 @@ fn check_fields(
     sent: &[CredentialField],
     custom: &[crate::schema::CustomProvider],
 ) -> Result<(), (StatusCode, String)> {
-    if *id == ProviderId::DUMMYPLUG {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "dummyplug requires no configuration".into(),
-        ));
-    }
     let Some(listing) = state.catalogue.providers(custom).into_iter().find(|p| p.id == *id) else {
         return Err((
             StatusCode::NOT_FOUND,
@@ -464,5 +455,93 @@ pub(crate) async fn test_provider(
                 error: Some(e.to_string()),
             },
         ),
+    }
+}
+
+#[cfg(test)]
+mod dummyplug_provider_tests {
+    use super::*;
+    use crate::{
+        config::VizierConfig,
+        dependencies::VizierDependencies,
+        storage::provider::ProviderStorage,
+    };
+    use std::sync::Arc;
+
+    async fn state() -> (HTTPState, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        let deps = VizierDependencies::new(config).await.unwrap();
+        let state = HTTPState {
+            config: deps.config.clone(),
+            transport: deps.transport.clone(),
+            storage: deps.storage.clone(),
+            background_jobs: deps.background_jobs.clone(),
+            catalogue: deps.catalogue.clone(),
+            deps,
+            client_events: Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+                10,
+                std::time::Duration::from_secs(60),
+            )),
+            client_state_saves: Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+                2,
+                std::time::Duration::from_secs(1),
+            )),
+            visit_throttle: Arc::new(crate::channels::http::rate_limit::RateLimiter::new(
+                1,
+                std::time::Duration::from_secs(60),
+            )),
+            deferred_client_calls: Default::default(),
+        };
+        (state, dir)
+    }
+
+    #[tokio::test]
+    async fn get_lists_the_default_and_put_edits_dummyplug_base_url() {
+        let (state, _dir) = state().await;
+        let initial = connected(&state)
+            .await
+            .into_iter()
+            .find(|provider| provider.id == ProviderId::DUMMYPLUG)
+            .expect("dummyplug is listed by default");
+        assert_eq!(initial.base_url.as_deref(), Some("http://127.0.0.1:9998/v1"));
+        assert_eq!(initial.fields, vec![CredentialField::BaseUrl]);
+
+        let put = upsert_provider(
+            Path("dummyplug".into()),
+            State(state.clone()),
+            axum::Json(UpsertProviderRequest {
+                base_url: Some("http://127.0.0.1:19998/v1".into()),
+                ..Default::default()
+            }),
+        )
+        .await;
+        assert_eq!(put.0, StatusCode::OK);
+        assert_eq!(put.1.0.data.as_ref().unwrap().base_url.as_deref(), Some("http://127.0.0.1:19998/v1"));
+
+        let get = get_provider(Path("dummyplug".into()), State(state.clone())).await;
+        assert_eq!(get.0, StatusCode::OK);
+        assert_eq!(get.1.0.data.as_ref().unwrap().base_url.as_deref(), Some("http://127.0.0.1:19998/v1"));
+
+        let saved = state.storage.get_provider(&ProviderId::DUMMYPLUG).await.unwrap().unwrap();
+        assert_eq!(saved.credentials.base_url.as_deref(), Some("http://127.0.0.1:19998/v1"));
+    }
+
+    #[tokio::test]
+    async fn put_rejects_fields_dummyplug_does_not_support() {
+        let (state, _dir) = state().await;
+        let put = upsert_provider(
+            Path("dummyplug".into()),
+            State(state),
+            axum::Json(UpsertProviderRequest {
+                api_key: Some("not-used".into()),
+                ..Default::default()
+            }),
+        )
+        .await;
+        assert_eq!(put.0, StatusCode::BAD_REQUEST);
     }
 }

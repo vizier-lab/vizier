@@ -116,6 +116,40 @@ cd webui && npm run typecheck
 cd webui && npm run dev   # the WebUI on http://localhost:5173, proxying /api to a running `just run`
 ```
 
+### Try the dummyplug integration locally
+
+This branch includes the standalone Node.js dummyplug server as a submodule. To try the branch
+from a clean checkout, install Rust, Node.js 22+, and `just`, then run:
+
+```sh
+git clone --recurse-submodules --branch 030-standalone-dummyplug-server \
+  https://github.com/vizier-lab/vizier.git
+cd vizier
+just install
+```
+
+Start dummyplug and Vizier in separate terminals from the repository root:
+
+```sh
+just dummyplug  # OpenAI-compatible test server on 127.0.0.1:9998
+```
+
+```sh
+just run        # Vizier API and WebUI on http://localhost:9999
+```
+
+On a fresh database, open the Vizier URL and create the first account. Create an agent with the
+**dummyplug (testing)** provider and any model name. The default dummyplug URL is
+`http://127.0.0.1:9998/v1`; no model API key is needed. Send `tools` to list the agent's tools,
+or send a tool name such as `read_core` to see its arguments and an example request.
+
+Run the standalone server tests and Vizier's test-harness tests manually with:
+
+```sh
+just dummyplug-test
+just test-scripts
+```
+
 Tracing and metrics are exported over OpenTelemetry when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; see [Observability](docs/src/configuration/observability.md).
 
 > **Build gotcha:** the WebUI (`webui/`), its component library (`design/`) and the website (`landing/`) are git submodules. Clone with `--recurse-submodules`, or run `git submodule update --init --recursive`. `build.rs` runs `npm run build` in `webui/` on every `cargo build` if `webui/node_modules/` exists; if `node_modules/` is absent and `webui/build/client/` doesn't exist, the build panics — run `just install` first. `landing/` is not part of the binary build. `legacy/` holds the previous WebUI for reference; it is never built, served or packaged.

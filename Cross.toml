@@ -9,13 +9,13 @@ passthrough = [
 [target.x86_64-unknown-linux-musl]
 image = "ghcr.io/cross-rs/x86_64-unknown-linux-musl:main"
 pre-build = [
-    "apt-get update && apt-get install -y perl make python3-dev libclang-dev clang"
+    "apt-get update && apt-get install -y perl make python3-dev libclang-dev clang cmake g++ musl-tools"
 ]
 
 [target.aarch64-unknown-linux-gnu]
 image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main"
 pre-build = [
     "dpkg --add-architecture arm64",
-    "apt-get update && apt-get install -y perl make libclang-dev clang",
+    "apt-get update && apt-get install -y perl make libclang-dev clang cmake g++-aarch64-linux-gnu",
     "apt-get install -y python3-dev:arm64 || apt-get install -y python3-dev"
 ]

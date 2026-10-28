@@ -21,7 +21,7 @@ pub struct BuiltinProvider {
     pub id: ProviderId,
     pub name: &'static str,
     pub kind: ProviderKind,
-    /// `None`: not a chat provider (media-only), or dummyplug, which has its own model.
+    /// `None`: not a chat provider (media-only).
     pub dialect: Option<DialectKind>,
     pub fields: &'static [CredentialField],
     /// Env vars, in lookup order, matching `fields`.
@@ -66,10 +66,10 @@ pub fn builtins() -> &'static [BuiltinProvider] {
                 id: ProviderId::DUMMYPLUG,
                 name: "dummyplug (testing)",
                 kind: ProviderKind::Local,
-                dialect: None,
-                fields: &[],
-                env: &[],
-                default_base_url: None,
+                dialect: Some(DialectKind::OpenAiChat),
+                fields: &[BaseUrl],
+                env: &["DUMMYPLUG_URL"],
+                default_base_url: Some("http://127.0.0.1:9998/v1"),
             },
             BuiltinProvider {
                 id: ProviderId::ELEVENLABS,
@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn builtins_are_found_by_id() {
         assert_eq!(builtin(&ProviderId::OLLAMA).unwrap().kind, ProviderKind::Local);
-        assert_eq!(builtin(&ProviderId::DUMMYPLUG).unwrap().dialect, None);
+        assert_eq!(builtin(&ProviderId::DUMMYPLUG).unwrap().dialect, Some(DialectKind::OpenAiChat));
         assert!(builtin(&ProviderId::OPENAI).is_none());
         let mut ids: Vec<_> = builtins().iter().map(|b| b.id.as_str()).collect();
         ids.dedup();

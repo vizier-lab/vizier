@@ -44,6 +44,11 @@ pub struct SqliteStorage {
         crate::schema::VizierSession,
         crate::schema::session_file::SessionFileRecord,
     )>,
+    /// The workspace cipher (spec 031). `disabled()` for tests and the pre-encryption
+    /// filesystem import; production always enables it.
+    pub(crate) cipher: crate::encryption::SecretCipher,
+    /// Which integration settings are secret, from the kind registry.
+    pub(crate) secret_paths: Arc<dyn crate::encryption::IntegrationSecretPaths>,
 }
 
 /// The Memory Graph Index tables (`memory_node`/`memory_edge`, data-model.md) plus the derived
@@ -193,6 +198,25 @@ impl SqliteStorage {
             conn,
             document_store,
             session_files: tokio::sync::broadcast::channel(64).0,
+            cipher: crate::encryption::SecretCipher::disabled(),
+            secret_paths: Arc::new(crate::encryption::NoIntegrationSecretPaths),
+        }
+    }
+
+    /// The production constructor: every in-scope secret read/write goes through `cipher`, and
+    /// integration settings are classified by `secret_paths`. No schema change.
+    pub fn with_secrets(
+        conn: Arc<Mutex<Connection>>,
+        document_store: Arc<dyn DocumentStore>,
+        cipher: crate::encryption::SecretCipher,
+        secret_paths: Arc<dyn crate::encryption::IntegrationSecretPaths>,
+    ) -> Self {
+        Self {
+            conn,
+            document_store,
+            session_files: tokio::sync::broadcast::channel(64).0,
+            cipher,
+            secret_paths,
         }
     }
 

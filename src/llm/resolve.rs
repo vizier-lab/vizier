@@ -293,16 +293,10 @@ fn resolve_builtin(
     model: &str,
     overrides: &ModelOverrides,
 ) -> crate::Result<ResolvedModel> {
-    let dialect = b.dialect.ok_or_else(|| {
-        if b.id == ProviderId::DUMMYPLUG {
-            VizierError("dummyplug has its own model and is not resolved over HTTP".into())
-        } else {
-            VizierError(format!(
-                "\"{}\" is a media provider and can't be used for chat; pick another provider",
-                b.id
-            ))
-        }
-    })?;
+    let dialect = b.dialect.ok_or_else(|| VizierError(format!(
+        "\"{}\" is a media provider and can't be used for chat; pick another provider",
+        b.id
+    )))?;
     let creds = ctx.credentials.clone().unwrap_or_default();
     let mut resolved = base(&b.id, model, dialect);
     resolved.context_window = overrides.context_window;
@@ -620,6 +614,15 @@ mod resolve_tests {
         assert_eq!((r.dialect, r.base_url.as_str()), (DialectKind::Ollama, "http://localhost:11434"));
         let r = resolve_with(&ctx(&c, None), &ProviderId::LLAMA_CPP, "m", &ModelOverrides::default()).unwrap();
         assert_eq!(r.base_url, "http://localhost:8080/v1");
+        let r = resolve_with(&ctx(&c, None), &ProviderId::DUMMYPLUG, "any-model", &ModelOverrides::default()).unwrap();
+        assert_eq!(r.dialect, DialectKind::OpenAiChat);
+        assert_eq!(r.base_url, "http://127.0.0.1:9998/v1");
+        let creds = Some(ProviderCredentials {
+            base_url: Some("http://configured.test/v1".into()),
+            ..Default::default()
+        });
+        let r = resolve_with(&ctx(&c, creds), &ProviderId::DUMMYPLUG, "alias", &ModelOverrides::default()).unwrap();
+        assert_eq!(r.base_url, "http://configured.test/v1");
         let creds = Some(ProviderCredentials {
             access_token: Some("t".into()),
             ..Default::default()
@@ -628,6 +631,20 @@ mod resolve_tests {
         assert!(r.stream_required);
         assert_eq!(r.base_url, CHATGPT_BASE_URL);
         assert!(resolve_with(&ctx(&c, None), &ProviderId::ELEVENLABS, "x", &ModelOverrides::default()).is_err());
+    }
+
+    #[test]
+    fn dummyplug_url_environment_override_uses_the_normal_base_url_field() {
+        // SAFETY: this unique test variable is removed immediately after resolution.
+        unsafe { std::env::set_var("DUMMYPLUG_URL", "http://env.test/v1"); }
+        let env = crate::provider_keys::credentials_from_env(
+            &ProviderId::DUMMYPLUG,
+            &["DUMMYPLUG_URL".into()],
+        ).unwrap().0;
+        let c = catalogue();
+        let r = resolve_with(&ctx(&c, Some(env)), &ProviderId::DUMMYPLUG, "dummyplug", &ModelOverrides::default()).unwrap();
+        assert_eq!(r.base_url, "http://env.test/v1");
+        unsafe { std::env::remove_var("DUMMYPLUG_URL"); }
     }
 
     #[test]

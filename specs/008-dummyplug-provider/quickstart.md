@@ -1,6 +1,6 @@
 # Quickstart: Dummyplug Test Provider
 
-These steps check the feature by hand, end to end. They are needed because the automated suite is sparse; see the constitution's quality gates.
+These steps check the feature by hand, end to end. Dummyplug is an optional standalone Node.js server.
 
 ## 1. Run with no credentials
 
@@ -8,11 +8,13 @@ These steps check the feature by hand, end to end. They are needed because the a
 env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY just run
 ```
 
-It's fine if `dev.vizier.yaml` has keys, because dummyplug never reads them. To show that nothing is required, you can also run config-less:
+In a second terminal, start dummyplug (Node.js 22+):
 
 ```sh
-VIZIER_DATA_DIR=$(mktemp -d) cargo run -- run
+just dummyplug
 ```
+
+Vizier uses `http://127.0.0.1:9998/v1` by default. Set `DUMMYPLUG_URL` to override it. The server is optional; when stopped, Vizier still starts and other providers work, but a dummyplug request reports a connection error.
 
 ## 2. Create a dummyplug agent
 
@@ -47,6 +49,7 @@ Or use the HTTP API, with the same body as any other agent and `"provider": "dum
 
 ```sh
 cargo clippy
-cargo test dummyplug
+just dummyplug-test
+node --test scripts/dummyplug-*.test.mjs
 cd webui && npm run typecheck
 ```

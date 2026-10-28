@@ -23,7 +23,7 @@ vizier:
 - **Environment variables**: the catalogue's variable for the provider (e.g. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`) is picked up automatically. Settings → Providers lists these as *From env NAME*.
 - **API**: `GET /api/v1/providers` (connected providers, with where their key comes from and which agents use them), `PUT|DELETE /api/v1/providers/{id}`, `POST /api/v1/providers/{id}/test`. The `PUT` body accepts only the fields the provider uses (`api_key`, and for some `endpoint`, `base_url`, `access_token`, `account_id`); responses never return a secret.
 
-Credentials are resolved in this order: the saved entry, then the catalogue's environment variable, then the environment variable Vizier read before the catalogue existed (see the table below). Saving or removing a provider's credentials restarts the agents that use it, so the change takes effect immediately.
+Credentials are resolved in this order: the saved entry, then the catalogue's environment variable, then the environment variable Vizier read before the catalogue existed (see the table below). Saving or removing a provider's credentials restarts the agents that use it, so the change takes effect immediately. Saved API keys and access tokens are encrypted at rest; the workspace key is separate from the database and must be backed up — see [Encryption at Rest](./encryption.md).
 
 A cloud provider's address always comes from the catalogue; to point at another address (a proxy, a self-hosted server) add a **custom provider**.
 
@@ -48,7 +48,7 @@ API: `GET|POST /api/v1/providers/custom`, `PUT|DELETE /api/v1/providers/custom/{
 | `elevenlabs` | `api_key` | `ELEVENLABS_API_KEY` | TTS/STT only |
 | `voyageai` | `api_key` | `VOYAGE_API_KEY` | Embeddings only |
 | `hyperbolic` | `api_key` | `HYPERBOLIC_API_KEY` | TTS and image generation |
-| `dummyplug` | — | — | Offline test provider; see [below](#dummyplug-testing) |
+| `dummyplug` | `base_url` | `DUMMYPLUG_URL` | Local test server; default `http://127.0.0.1:9998/v1` |
 
 Every other provider comes from the catalogue.
 
@@ -76,9 +76,9 @@ On upgrade, saved credentials and agents are rewritten to the new ids once. An a
 
 ## Dummyplug (testing)
 
-`dummyplug` is an offline chat provider for exercising agents, channels, sessions and tools without a live model. It needs no keys, no network and no provider entry: set an agent's provider to `dummyplug` (shown as **dummyplug (testing)** in the WebUI) and any model name. `PUT /api/v1/providers/dummyplug` is rejected with `400`, since there is nothing to configure.
+`dummyplug` is a local Node.js OpenAI-compatible chat server for exercising agents, channels, sessions and tools without a live model. Start it with `just dummyplug` (requires Node.js 22), then set an agent's provider to `dummyplug` (shown as **dummyplug (testing)**) and any model name. Its default URL is `http://127.0.0.1:9998/v1`; override it with `DUMMYPLUG_URL` or save a `base_url` through Settings → Providers. It is optional: Vizier and other providers work when the server is stopped, while dummyplug turns report a connection error.
 
-It reads the latest user message and replies by these rules, first match wins:
+The separate server reads the latest user message and replies by these rules, first match wins:
 
 | Send | Reply |
 |------|-------|

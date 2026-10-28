@@ -1,6 +1,6 @@
 # 2.4 Channels
 
-Vizier exposes agents over three channels. The HTTP channel is process-wide and configured in `.vizier.yaml`; Discord and Telegram are **per agent** — each agent owns its own bot token.
+Vizier exposes agents over three channels. The HTTP channel is process-wide and configured in `.vizier.yaml`; Discord and Telegram are **per agent** — each agent owns its own bot token. Bot tokens are encrypted at rest; back up the workspace key separately — see [Encryption at Rest](./encryption.md).
 
 ## HTTP (REST + WebSocket + WebUI)
 
@@ -42,7 +42,7 @@ CORS is fully open (`Any` origin), so a separately hosted frontend can talk to t
 
 ### First run
 
-On a fresh database `GET /api/v1/auth/setup-status` returns `{ "needs_setup": true }` and the WebUI redirects to `/onboarding`, which calls `POST /api/v1/auth/setup` to create the first user. That user is assigned the built-in `superadmin` system role.
+On a fresh database `GET /api/v1/auth/setup-status` returns `{ "needs_setup": true }` and the WebUI redirects to `/onboarding`, which calls `POST /api/v1/auth/setup` to create the first user. That user is assigned the built-in `superadmin` system role, and the WebUI then opens Home, whose setup guide covers connecting a provider and creating the first agent.
 
 ### WebUI-only agent tools
 

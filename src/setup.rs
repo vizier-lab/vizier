@@ -10,10 +10,14 @@
 //! entry with no live build and no active download is dropped immediately.
 
 use std::collections::HashMap;
+use std::io::Write;
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+
+use crate::{Result, VizierError};
 
 /// How long a finished (`ready`/`failed`) setup lingers for the UI to notice it.
 const TERMINAL_TTL: Duration = Duration::from_secs(5);
@@ -337,6 +341,124 @@ impl SetupBoard {
                 entry.terminal_at = Some(Instant::now());
             }
         });
+    }
+
+    /// Stream `url` into `dest`, reporting progress on this board. The file is written to a
+    /// `.part` sibling first, so a cut-off attempt is never mistaken for a complete artifact.
+    /// `optional` turns a 404 into `Ok(false)` (a repository that publishes one of two
+    /// weight formats). Retries transient failures; the caller owns `download_started`,
+    /// `download_finished` and `download_failed`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn download_file(
+        &self,
+        client: &reqwest::Client,
+        url: &str,
+        dest: &Path,
+        agent_id: &str,
+        kind: DownloadKind,
+        status: &str,
+        optional: bool,
+    ) -> Result<bool> {
+        /// How many bytes a download moves between two progress reports.
+        const PROGRESS_STEP: u64 = 1024 * 1024;
+
+        let part = dest.with_extension("part");
+        let max_retries = 100u32;
+        let mut last_err: Option<VizierError> = None;
+
+        for attempt in 1..=max_retries {
+            let _ = std::fs::remove_file(&part);
+
+            let response = match client.get(url).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    last_err = Some(VizierError(format!("download {status}: {e}")));
+                    tracing::warn!("Download attempt {attempt}/{max_retries} failed: {e}");
+                    if attempt < max_retries {
+                        tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64))
+                            .await;
+                    }
+                    continue;
+                }
+            };
+
+            if response.status() == reqwest::StatusCode::NOT_FOUND && optional {
+                return Ok(false);
+            }
+            if !response.status().is_success() {
+                let code = response.status();
+                last_err = Some(VizierError(format!("download {status}: HTTP {code}")));
+                tracing::warn!("Download attempt {attempt}/{max_retries} failed: HTTP {code}");
+                if attempt < max_retries {
+                    tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
+                }
+                continue;
+            }
+
+            let total_size = response.content_length().unwrap_or(0);
+            let mut completed = 0u64;
+            let mut reported = 0u64;
+            let mut file = match std::fs::File::create(&part) {
+                Ok(f) => f,
+                Err(e) => return Err(VizierError(format!("create {status}: {e}"))),
+            };
+
+            let mut stream = response.bytes_stream();
+            use futures::StreamExt;
+            let mut download_failed = false;
+            while let Some(chunk) = stream.next().await {
+                match chunk {
+                    Ok(c) => {
+                        if let Err(e) = file.write_all(&c) {
+                            return Err(VizierError(format!("write {status}: {e}")));
+                        }
+                        completed += c.len() as u64;
+                        // Every chunk would take the board's lock thousands of times.
+                        if completed - reported >= PROGRESS_STEP || completed == total_size {
+                            reported = completed;
+                            self.download_progress(agent_id, kind, completed, total_size, status);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Download attempt {attempt}/{max_retries} failed at chunk: {e}"
+                        );
+                        last_err = Some(VizierError(format!("download chunk: {e}")));
+                        download_failed = true;
+                        break;
+                    }
+                }
+            }
+            drop(file);
+
+            if download_failed {
+                if attempt < max_retries {
+                    tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
+                }
+                continue;
+            }
+
+            if total_size > 0 && completed != total_size {
+                tracing::warn!(
+                    "Download attempt {attempt}/{max_retries} ended early: {completed}/{total_size} bytes"
+                );
+                last_err = Some(VizierError(format!(
+                    "download ended early: {completed} of {total_size} bytes"
+                )));
+                if attempt < max_retries {
+                    tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
+                }
+                continue;
+            }
+
+            std::fs::rename(&part, dest)
+                .map_err(|e| VizierError(format!("finish {status}: {e}")))?;
+            return Ok(true);
+        }
+
+        let err = last_err.unwrap_or_else(|| VizierError("download failed".into()));
+        let _ = std::fs::remove_file(&part);
+        Err(err)
     }
 
     /// Every setup worth showing right now, dropping the expired ones.

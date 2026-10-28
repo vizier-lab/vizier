@@ -74,4 +74,4 @@ Replacing a value takes effect for the very next retrieval. Nothing is cached, n
 
 Every write records an event (who — a person or the agent — what, and when) in `agent_secret_event`; the event holds no value. Deleting an agent removes both its secrets and its events.
 
-Values are stored as plaintext in the embedded SQLite database and rely on host and disk protection, exactly like provider credentials. **There is no application-level encryption, no expiry and no version history.** Back up and restrict the database accordingly.
+Values are stored as authenticated ciphertext in the embedded SQLite database. They are encrypted at rest with the workspace key and decrypted only in memory for their consumer; the WebUI and HTTP API still mask them after decryption. **There is no expiry and no version history.** The key is separate from the database and must be backed up: see [Encryption at Rest](./encryption.md) for key sources, backup/restore and what to do if the key is lost.

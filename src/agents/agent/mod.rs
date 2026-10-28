@@ -711,8 +711,20 @@ impl VizierAgent {
             None => {
                 let mut saved = req.clone();
                 saved.attachments = shown_attachments;
-                self.save_history_or_log(&session, SessionHistoryContent::Request(saved))
+                if matches!(saved.content, VizierRequestContent::AudioChat(..)) {
+                    // The voice message and its transcript are ready now; whoever watches the
+                    // session shouldn't wait for the turn to end to see them.
+                    crate::agents::steps::record_step(
+                        &self.storage,
+                        &self.transport,
+                        &session,
+                        SessionHistoryContent::Request(saved),
+                    )
                     .await
+                } else {
+                    self.save_history_or_log(&session, SessionHistoryContent::Request(saved))
+                        .await
+                }
             }
         };
         // Files the person attached are theirs, and belong to this request.

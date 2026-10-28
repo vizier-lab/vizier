@@ -85,6 +85,8 @@ Tool input schemas are passed through from the server. Calls are subject to the 
 
 The agent then sees `mcp_github__create_issue`, `mcp_github__search_repositories`, and so on.
 
+Every value in a server's `env` map is encrypted at rest; `command`, `args`, `transport` and the URL stay readable. See [Encryption at Rest](./encryption.md) for the key and backup rules.
+
 ## Migration note
 
 Older versions declared servers globally under `tools.mcp_servers` in `.vizier.yaml` and referenced them by name from each agent. That YAML key is now ignored; a one-time startup migration copied any global definitions onto the agents that referenced them.

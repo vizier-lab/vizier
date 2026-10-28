@@ -18,6 +18,7 @@ mod config;
 mod constant;
 mod dependencies;
 mod embedding;
+mod encryption;
 mod error;
 mod file_manager;
 mod indexer;
@@ -78,12 +79,16 @@ fn main() -> Result<()> {
     // its TLS config from that default and would panic without one.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
-    if let Err(err) = cli::start() {
-        tracing::error!("{}", err)
-    }
+    let exit_code = match cli::start() {
+        Ok(()) => 0,
+        Err(err) => {
+            tracing::error!("{}", err);
+            1
+        }
+    };
     // `process::exit` skips destructors: flush the exporters first.
     drop(telemetry);
-    process::exit(0);
+    process::exit(exit_code);
 }
 
 fn default_filter() -> EnvFilter {

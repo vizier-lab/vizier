@@ -8,7 +8,7 @@ vizier:
     type: sqlite
 ```
 
-SQLite is the only runtime backend. The database lives at `<workspace>/.runtime/vizier.db` and holds agents, sessions, history, tasks, users/roles/API keys, providers, dream journals, session-file records, and the memory graph index (with `sqlite-vec` for vectors). No external service is needed.
+SQLite is the only runtime backend. The database lives at `<workspace>/.runtime/vizier.db` and holds agents, sessions, history, tasks, users/roles/API keys, providers, dream journals, session-file records, and the memory graph index (with `sqlite-vec` for vectors). No external service is needed. Credentials and secret values inside it are encrypted at rest with a workspace key at `<workspace>/.runtime/encryption.key` (or `VIZIER_ENCRYPTION_KEY`/`VIZIER_ENCRYPTION_KEY_FILE`); back up the key separately from the database — see [Encryption at Rest](./encryption.md).
 
 Memory **documents** are the one thing not stored in SQLite: they are markdown files under `<workspace>/agents/<agent_id>/memory/`. See [Memory](./memory.md).
 

@@ -5,6 +5,9 @@ use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::{
+    encryption::{
+        IntegrationSecretPaths, ProtectMode, SecretCipher, fields::decrypt_integration_settings,
+    },
     schema::{
         AgentId, EventAction, EventDraft, Integration, IntegrationEvent, IntegrationFamily,
         IntegrationGrant, Requester,
@@ -31,44 +34,75 @@ fn read_creator(creator: Option<String>, created_by: Option<String>) -> Option<R
         .or(created_by.map(Requester::User))
 }
 
-fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option<Integration>> {
-    let family: String = row.get(2)?;
-    let settings: String = row.get(4)?;
-    let created_at: String = row.get(8)?;
-    let updated_at: String = row.get(9)?;
-    let (Some(family), Ok(settings)) =
-        (IntegrationFamily::parse(&family), serde_json::from_str(&settings))
-    else {
-        return Ok(None);
-    };
-    Ok(Some(Integration {
+fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawIntegration> {
+    Ok(RawIntegration {
         id: row.get(0)?,
         kind: row.get(1)?,
-        family,
+        family: row.get(2)?,
         name: row.get(3)?,
-        settings,
-        enabled: row.get::<_, i64>(5)? != 0,
-        creator: read_creator(row.get(7)?, row.get(6)?),
-        agents: vec![],
-        created_at: parse_time(&created_at),
-        updated_at: parse_time(&updated_at),
-    }))
+        settings: row.get(4)?,
+        enabled: row.get(5)?,
+        created_by: row.get(6)?,
+        creator: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+    })
+}
+
+/// One `integration` row before its settings are decrypted. Decryption needs the cipher and the
+/// kind's secret paths, which the row-mapping closure cannot carry.
+struct RawIntegration {
+    id: String,
+    kind: String,
+    family: String,
+    name: String,
+    settings: String,
+    enabled: i64,
+    created_by: Option<String>,
+    creator: Option<String>,
+    created_at: String,
+    updated_at: String,
 }
 
 /// Integrations matching `filter` (a SQL condition over `integration`), with their agents.
 fn load(
     conn: &Connection,
+    cipher: &SecretCipher,
+    paths: &dyn IntegrationSecretPaths,
     filter: &str,
     params: &[&dyn rusqlite::types::ToSql],
 ) -> Result<Vec<Integration>> {
     let sql = format!("SELECT {COLUMNS} FROM integration WHERE {filter} ORDER BY created_at, id");
     let mut stmt = conn.prepare(&sql)?;
-    let mut integrations: Vec<Integration> = stmt
+    let rows = stmt
         .query_map(params, from_row)?
-        .collect::<rusqlite::Result<Vec<_>>>()?
-        .into_iter()
-        .flatten()
-        .collect();
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(stmt);
+
+    let mut integrations: Vec<Integration> = Vec::with_capacity(rows.len());
+    for row in rows {
+        let (Some(family), Ok(settings)) = (
+            IntegrationFamily::parse(&row.family),
+            serde_json::from_str::<serde_json::Value>(&row.settings),
+        ) else {
+            continue;
+        };
+        let settings =
+            decrypt_integration_settings(cipher, paths, &row.id, &row.kind, &settings)
+                .map_err(|e| anyhow!("integration '{}': {e}", row.id))?;
+        integrations.push(Integration {
+            id: row.id,
+            kind: row.kind,
+            family,
+            name: row.name,
+            settings,
+            enabled: row.enabled != 0,
+            creator: read_creator(row.creator, row.created_by),
+            agents: vec![],
+            created_at: parse_time(&row.created_at),
+            updated_at: parse_time(&row.updated_at),
+        });
+    }
 
     let mut attachments: HashMap<String, Vec<AgentId>> = HashMap::new();
     let mut stmt = conn.prepare(
@@ -84,8 +118,13 @@ fn load(
     Ok(integrations)
 }
 
-fn get(conn: &Connection, id: &str) -> Result<Option<Integration>> {
-    Ok(load(conn, "id = ?1", &[&id])?.into_iter().next())
+fn get(
+    conn: &Connection,
+    cipher: &SecretCipher,
+    paths: &dyn IntegrationSecretPaths,
+    id: &str,
+) -> Result<Option<Integration>> {
+    Ok(load(conn, cipher, paths, "id = ?1", &[&id])?.into_iter().next())
 }
 
 fn attached_agents(conn: &Connection, id: &str) -> Result<Vec<AgentId>> {
@@ -260,19 +299,27 @@ pub(super) fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Option
 #[async_trait::async_trait]
 impl IntegrationStorage for SqliteStorage {
     async fn list_integrations(&self) -> Result<Vec<Integration>> {
-        load(&self.conn.lock(), "1 = 1", &[])
+        load(
+            &self.conn.lock(),
+            &self.cipher,
+            &*self.secret_paths,
+            "1 = 1",
+            &[],
+        )
     }
 
     async fn list_agent_integrations(&self, agent_id: &str) -> Result<Vec<Integration>> {
         load(
             &self.conn.lock(),
+            &self.cipher,
+            &*self.secret_paths,
             "id IN (SELECT integration_id FROM integration_attachment WHERE agent_id = ?1)",
             &[&agent_id],
         )
     }
 
     async fn get_integration(&self, id: &str) -> Result<Option<Integration>> {
-        get(&self.conn.lock(), id)
+        get(&self.conn.lock(), &self.cipher, &*self.secret_paths, id)
     }
 
     async fn save_integration(
@@ -284,14 +331,22 @@ impl IntegrationStorage for SqliteStorage {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
 
-        if attach_to.is_some() && get(&tx, &integration.id)?.is_some() {
+        if attach_to.is_some()
+            && get(&tx, &self.cipher, &*self.secret_paths, &integration.id)?.is_some()
+        {
             return Err(anyhow!("integration '{}' already exists", integration.id));
         }
 
         if integration.family == IntegrationFamily::Channel
             && let Some(token) = channel_token(&integration.settings)
         {
-            let same_kind = load(&tx, "kind = ?1 AND id != ?2", &[&integration.kind, &integration.id])?;
+            let same_kind = load(
+                &tx,
+                &self.cipher,
+                &*self.secret_paths,
+                "kind = ?1 AND id != ?2",
+                &[&integration.kind, &integration.id],
+            )?;
             if let Some(other) = same_kind
                 .iter()
                 .find(|other| channel_token(&other.settings) == Some(token))
@@ -303,6 +358,15 @@ impl IntegrationStorage for SqliteStorage {
                 .into());
             }
         }
+
+        let (protected_settings, _) = crate::encryption::fields::protect_integration_settings(
+            &self.cipher,
+            &*self.secret_paths,
+            &integration.id,
+            &integration.kind,
+            &integration.settings,
+            ProtectMode::Write,
+        )?;
 
         let before = attached_agents(&tx, &integration.id)?;
         let creator = integration.creator.as_ref().map(serde_json::to_string).transpose()?;
@@ -317,7 +381,7 @@ impl IntegrationStorage for SqliteStorage {
                 integration.kind,
                 integration.family.as_str(),
                 integration.name,
-                serde_json::to_string(&integration.settings)?,
+                serde_json::to_string(&protected_settings)?,
                 integration.enabled as i64,
                 creator,
                 integration.created_at.to_rfc3339(),
@@ -346,7 +410,7 @@ impl IntegrationStorage for SqliteStorage {
     async fn delete_integration(&self, id: &str, event: &EventDraft) -> Result<Vec<AgentId>> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        let Some(integration) = get(&tx, id)? else {
+        let Some(integration) = get(&tx, &self.cipher, &*self.secret_paths, id)? else {
             return Ok(vec![]);
         };
         record(&tx, &integration.agents, Some(id), &integration.name, integration.family, event)?;
@@ -359,7 +423,8 @@ impl IntegrationStorage for SqliteStorage {
     async fn unlink(&self, id: &str, agent_id: &str, event: &EventDraft) -> Result<Vec<AgentId>> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        let integration = get(&tx, id)?.ok_or_else(|| anyhow!("integration '{id}' not found"))?;
+        let integration = get(&tx, &self.cipher, &*self.secret_paths, id)?
+            .ok_or_else(|| anyhow!("integration '{id}' not found"))?;
         if integration.agents.len() < 2 || !integration.agents.iter().any(|a| a == agent_id) {
             return Err(anyhow!(
                 "'{}' is not linked to several agents including '{agent_id}'; delete it instead",
@@ -710,5 +775,85 @@ mod tests {
         let rest = s.list_events("a", None, Some((last.at, last.id.clone())), 10).await.unwrap();
         assert_eq!(rest.len(), 2);
         assert_eq!(rest.last().unwrap().action, EventAction::Created);
+    }
+
+    /// With the production cipher, a `Secret`/`SecretMap` path is an envelope while transport,
+    /// command, args and safe-search stay readable; a plaintext secret after migration is an
+    /// error, not silently accepted.
+    #[tokio::test]
+    async fn settings_are_protected_at_rest_and_tampering_errors() {
+        use crate::encryption::storage_tests::{file_backed, raw_value, vizier_storage};
+
+        let h = file_backed();
+        let v = vizier_storage(&h);
+        v.save_integration(&bot("t1", "telegram", "telegram-secret-abc123"), Some("a"), &[created()])
+            .await
+            .unwrap();
+        v.save_integration(
+            &integration(
+                "b1",
+                "brave_search",
+                IntegrationFamily::Addon,
+                "brave",
+                json!({"api_key": "brave-secret-abc123", "safesearch": true}),
+            ),
+            Some("a"),
+            &[created()],
+        )
+        .await
+        .unwrap();
+        v.save_integration(
+            &integration(
+                "m1",
+                "mcp",
+                IntegrationFamily::Mcp,
+                "crypto",
+                json!({"transport": "local", "command": "cat", "args": ["--verbose"],
+                       "env": {"GITHUB_TOKEN": "mcp-secret-abc123"}}),
+            ),
+            Some("a"),
+            &[created()],
+        )
+        .await
+        .unwrap();
+        v.save_integration(
+            &integration("legacy", "retired_kind", IntegrationFamily::Mcp, "legacy",
+                         json!({"token": "legacy-secret-abc123"})),
+            Some("a"),
+            &[created()],
+        )
+        .await
+        .unwrap();
+
+        let telegram = raw_value(&h.storage, "SELECT settings FROM integration WHERE id = 't1'", &[]);
+        assert!(telegram.contains("enc:v1:") && !telegram.contains("telegram-secret-abc123"));
+        let brave_raw = raw_value(&h.storage, "SELECT settings FROM integration WHERE id = 'b1'", &[]);
+        assert!(brave_raw.contains("enc:v1:"));
+        assert!(brave_raw.contains("\"safesearch\":true"));
+        let mcp_raw = raw_value(&h.storage, "SELECT settings FROM integration WHERE id = 'm1'", &[]);
+        assert!(mcp_raw.contains("enc:v1:") && !mcp_raw.contains("mcp-secret-abc123"));
+        assert!(mcp_raw.contains("\"command\":\"cat\""));
+        assert!(mcp_raw.contains("\"args\":[\"--verbose\"]"));
+        let legacy_raw = raw_value(&h.storage, "SELECT settings FROM integration WHERE id = 'legacy'", &[]);
+        assert!(legacy_raw.starts_with('"'));
+        assert!(!legacy_raw.contains("legacy-secret-abc123"));
+
+        // Reads decrypt for their normal consumers.
+        assert_eq!(
+            v.get_integration("t1").await.unwrap().unwrap().settings["token"],
+            "telegram-secret-abc123"
+        );
+        assert_eq!(
+            v.get_integration("legacy").await.unwrap().unwrap().settings["token"],
+            "legacy-secret-abc123"
+        );
+
+        h.storage
+            .conn
+            .lock()
+            .execute("UPDATE integration SET settings = '{\"token\":\"plaintext\"}' WHERE id = 't1'", [])
+            .unwrap();
+        assert!(v.get_integration("t1").await.is_err());
+        assert!(v.list_integrations().await.is_err());
     }
 }

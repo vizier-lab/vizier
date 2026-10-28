@@ -33,9 +33,9 @@ The wizard asks for:
 
 - Workspace path (where `.vizier.yaml` and the `.vizier/` data directory are created)
 - HTTP port (default `9999`) and JWT secret (a random one is generated)
-- One primary provider and its API key / base URL
-- Storage type — choose **SQLite** (`Filesystem` is legacy and is migrated into SQLite on first run)
 - Worker threads and WebSocket idle timeout
+
+Storage is always SQLite, and providers are connected later in the WebUI.
 
 Skip this step entirely if you're happy with defaults: with no config file, Vizier uses `$VIZIER_DATA_DIR` or `$HOME/.vizier` as its workspace and SQLite storage. See [Config-less mode](../configuration/index.md#config-less-mode).
 
@@ -51,7 +51,7 @@ Add `-d` to daemonize; stop it later with `vizier shutdown`.
 
 ## 4. Create the first user
 
-Open `http://localhost:9999`. On a fresh install the WebUI redirects to an onboarding page that creates the first user (this user gets the `superadmin` system role). After that, log in normally.
+Open `http://localhost:9999`. On a fresh install the WebUI redirects to a page that creates the first user (this user gets the `superadmin` system role) and then lands on Home, whose setup guide walks you through the next two steps. After that, log in normally.
 
 The same thing via API: `GET /api/v1/auth/setup-status` → `POST /api/v1/auth/setup` with `{ "username", "password" }`.
 

@@ -7,6 +7,7 @@ install:
   git submodule update --init --recursive
   cd design && npm i
   cd webui && npm i
+  cd dummyplug && npm ci
   cd landing && VIZIER_SOURCE=.. node scripts/link-design.mjs && VIZIER_SOURCE=.. npm i
   @echo -e "\n\\e[1;32mDone\\e[0m"
 
@@ -66,3 +67,10 @@ catalogue-update:
 # Unit tests for the submodule PR linking/cascade automation.
 test-scripts:
   node --test scripts/*.test.mjs
+
+# Optional standalone model server. `just run` never starts this service.
+dummyplug:
+  npm --prefix dummyplug start
+
+dummyplug-test:
+  npm --prefix dummyplug test
