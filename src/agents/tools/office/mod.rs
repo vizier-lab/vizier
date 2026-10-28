@@ -18,6 +18,8 @@ use crate::{
 
 pub mod docx;
 pub mod xlsx;
+#[cfg(test)]
+mod fixture_tests;
 
 pub const DOCX_MIME: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 pub const XLSX_MIME: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
