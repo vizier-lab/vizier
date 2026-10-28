@@ -44,7 +44,7 @@ fn a_word_table_is_a_markdown_pipe_table() {
     assert!(!md.contains("[table content]"), "{md}");
     assert!(md.contains("# Quarterly Report"), "{md}");
     assert!(md.contains("**bold**") && md.contains("*italic*"), "{md}");
-    assert!(md.contains("| Name | Note |\n|---|---|\n| alpha | a\|b |\n| beta | plain |"), "{md}");
+    assert!(md.contains("| Name | Note |\n|---|---|\n| alpha | a\\|b |\n| beta | plain |"), "{md}");
     assert!(md.contains("[the docs](https://example.com/docs)"), "{md}");
     assert!(md.contains("Top item") && md.contains("Nested item"), "{md}");
 }
@@ -119,4 +119,44 @@ fn a_legacy_xls_reads_through_the_xls_flavour() {
     assert_eq!(r[0], vec![Cell::Text("Item".into()), Cell::Text("Qty".into())]);
     assert_eq!(r[1], vec![Cell::Text("pens".into()), Cell::number(12.0)]);
     assert_eq!(r[2], vec![Cell::Text("ink".into()), Cell::number(2.5)]);
+}
+
+#[test]
+fn executed_formula_calculates_a_file_from_another_tool() {
+    let formulas = fixture!("formulas.xlsx");
+    let read = read_csv(&formulas, Flavour::Xlsx, Some("Data"), None, true).unwrap();
+    assert_eq!(
+        read.sheets[0].csv,
+        "Item,Amount\na,17\nb,25\nsum,42\nlabel,big\ndouble,34\nbroken,#DIV/0!\n",
+        "B6 had no saved result; it is calculated now"
+    );
+    assert_eq!(read.note, None);
+    // Without the flag the formula text is shown, and the cell with no saved value is not empty.
+    let text = read_csv(&formulas, Flavour::Xlsx, Some("Data"), None, false).unwrap();
+    assert!(text.sheets[0].csv.contains("double,=B2*2"), "{}", text.sheets[0].csv);
+    // A reference to another sheet.
+    let summary = read_csv(&formulas, Flavour::Xlsx, Some("Summary"), None, true).unwrap();
+    assert_eq!(summary.sheets[0].csv, "Total from Data,42\n");
+}
+
+#[test]
+fn executed_formula_keeps_saved_values_when_the_engine_cannot_read_the_file() {
+    // The same sheets without styles and document properties: calamine reads them, the formula
+    // engine refuses them, and the read still succeeds with the saved values and says why.
+    let minimal = fixture!("formulas-minimal.xlsx");
+    let read = read_csv(&minimal, Flavour::Xlsx, Some("Data"), None, true).unwrap();
+    assert_eq!(
+        read.sheets[0].csv,
+        "Item,Amount\na,17\nb,25\nsum,42\nlabel,big\ndouble,\nbroken,#DIV/0!\n"
+    );
+    let note = read.note.unwrap();
+    assert!(note.contains("not calculated") && note.contains("could not read"), "{note}");
+}
+
+#[test]
+fn a_legacy_xls_is_never_calculated() {
+    let legacy = fixture!("legacy.xls");
+    let read = read_csv(&legacy, Flavour::Xls, None, None, true).unwrap();
+    assert!(read.sheets[0].csv.starts_with("Item,Qty\npens,12\nink,2.5\n"), "{}", read.sheets[0].csv);
+    assert!(read.note.unwrap().contains("legacy .xls"));
 }

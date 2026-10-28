@@ -149,20 +149,20 @@ fn paragraph_block(
 ) -> Option<String> {
     let text = inline(&p.children, links);
     let style = p.property.style.as_ref().map(|s| s.val.as_str()).unwrap_or("");
-    if let Some(numbering) = &p.property.numbering_property {
-        if let Some(id) = numbering.id.as_ref().map(|i| i.id).filter(|id| *id != 0) {
-            let level = numbering.level.as_ref().map(|l| l.val).unwrap_or(0);
-            if text.trim().is_empty() {
-                return None;
-            }
-            let indent = "  ".repeat(level);
-            let marker = if lists.is_bullet(id, level) {
-                "-".to_string()
-            } else {
-                format!("{}.", counters.next(id, level))
-            };
-            return Some(format!("{indent}{marker} {}", text.trim()));
+    if let Some(numbering) = &p.property.numbering_property
+        && let Some(id) = numbering.id.as_ref().map(|i| i.id).filter(|id| *id != 0)
+    {
+        let level = numbering.level.as_ref().map(|l| l.val).unwrap_or(0);
+        if text.trim().is_empty() {
+            return None;
         }
+        let indent = "  ".repeat(level);
+        let marker = if lists.is_bullet(id, level) {
+            "-".to_string()
+        } else {
+            format!("{}.", counters.next(id, level))
+        };
+        return Some(format!("{indent}{marker} {}", text.trim()));
     }
     if text.trim().is_empty() {
         return None;
@@ -322,7 +322,7 @@ fn xml_safe(text: &str) -> String {
 
 enum Block {
     Paragraph(Box<Paragraph>),
-    Table(Table),
+    Table(Box<Table>),
 }
 
 struct ListState {
@@ -489,7 +489,7 @@ impl Writer {
                 if let Some(t) = self.table.take() {
                     // Twips: without a margin the text touches the cell borders.
                     let table = Table::new(t.rows).margins(TableCellMargins::new().margin(40, 100, 40, 100));
-                    self.blocks.push(Block::Table(table));
+                    self.blocks.push(Block::Table(Box::new(table)));
                 }
             }
             _ => {}
@@ -658,7 +658,7 @@ impl Writer {
         for block in self.blocks {
             docx = match block {
                 Block::Paragraph(p) => docx.add_paragraph(*p),
-                Block::Table(t) => docx.add_table(t),
+                Block::Table(t) => docx.add_table(*t),
             };
         }
         let mut buffer = std::io::Cursor::new(Vec::new());
@@ -836,7 +836,7 @@ mod tests {
         unique.sort();
         unique.dedup();
         assert_eq!(unique.len(), ids.len(), "{ids:?}");
-        assert!(ids.iter().any(|id| *id == 2), "{ids:?}");
+        assert!(ids.contains(&2), "{ids:?}");
         let abstracts: Vec<usize> = docx.numberings.abstract_nums.iter().map(|a| a.id).collect();
         let mut unique = abstracts.clone();
         unique.sort();

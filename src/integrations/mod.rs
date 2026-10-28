@@ -321,7 +321,7 @@ mod tests {
     async fn the_office_addon_contributes_its_tools_only_while_enabled() {
         let kinds = IntegrationKinds::builtin();
         let on = integration("office-1", "office", IntegrationFamily::Addon, "Office", json!({}));
-        let tools = IntegrationTools::build(&kinds, &[on.clone()], &ctx(), None);
+        let tools = IntegrationTools::build(&kinds, std::slice::from_ref(&on), &ctx(), None);
         let names: Vec<String> = tools.addons["office"].toolset.tools.keys().cloned().collect();
         assert_eq!(names.len(), 5, "{names:?}");
         assert!(names.iter().all(|n| n.starts_with("office_")), "{names:?}");

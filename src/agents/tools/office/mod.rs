@@ -17,6 +17,7 @@ use crate::{
 };
 
 pub mod docx;
+mod formula;
 pub mod xlsx;
 #[cfg(test)]
 mod fixture_tests;
@@ -323,7 +324,7 @@ pub struct XlsxCsvArgs {
     )]
     pub range: Option<String>,
     #[schemars(
-        description = "false (default): a formula cell is written as its formula text, for example =SUM(A1:A3). true: a formula cell is written as its calculated result."
+        description = "false (default): a formula cell is written as its formula text, for example =SUM(A1:A3). true: a formula cell is written as its calculated result; a cell that cannot be calculated shows its saved value and is named in note."
     )]
     pub executed_formula: Option<bool>,
 }
@@ -347,7 +348,7 @@ impl VizierTool for OfficeXlsxReadCsv {
     }
 
     fn description(&self) -> String {
-        "Preview an Excel workbook (.xlsx or legacy .xls) as CSV text, every sheet in one call, so you can see the whole picture. Each sheet returns its name, used_range, start (the A1 address of the first CSV cell), formula_cells (the addresses of cells that hold formulas) and the csv. With executed_formula=false (default) formula cells show their formula text; with true they show calculated results, which are not available yet, so saved values are shown and the result says so. CSV loses cell types (a date or a number looks like text); use office_xlsx_read_as_cells when types matter. Output is cut at 20 sheets, 1000 rows, 100 columns or about 200 KB, and the result says so."
+        "Preview an Excel workbook (.xlsx or legacy .xls) as CSV text, every sheet in one call, so you can see the whole picture. Each sheet returns its name, used_range, start (the A1 address of the first CSV cell), formula_cells (the addresses of cells that hold formulas) and the csv. With executed_formula=false (default) formula cells show their formula text; with true they show calculated results. The calculation is done here, not by Excel, so it can differ from what Excel shows (and NOW or RAND change on every read). A cell that cannot be calculated (an unsupported function, a circular reference, a link to another file), and every cell of a legacy .xls, shows the value the file saved, and the result names those cells in note. CSV loses cell types (a date or a number looks like text); use office_xlsx_read_as_cells when types matter. Output is cut at 20 sheets, 1000 rows, 100 columns or about 200 KB, and the result says so."
             .to_string()
     }
 
@@ -357,13 +358,18 @@ impl VizierTool for OfficeXlsxReadCsv {
         let Some(flavour) = flavour(format) else {
             return Err(wrong_tool(&args.filename, format, Self::name().as_str()));
         };
-        xlsx::read_csv(
-            &bytes,
-            flavour,
-            args.sheet.as_deref(),
-            args.range.as_deref(),
-            args.executed_formula.unwrap_or(false),
-        )
+        let executed_formula = args.executed_formula.unwrap_or(false);
+        if executed_formula {
+            // Calculating waits on a worker thread for up to its time limit; keep that off the
+            // async runtime. A calculation that fails is data in the result, not an error.
+            let (sheet, range) = (args.sheet, args.range);
+            return tokio::task::spawn_blocking(move || {
+                xlsx::read_csv(&bytes, flavour, sheet.as_deref(), range.as_deref(), true)
+            })
+            .await
+            .map_err(|e| VizierError(format!("The calculation could not finish: {e}")))?;
+        }
+        xlsx::read_csv(&bytes, flavour, args.sheet.as_deref(), args.range.as_deref(), false)
     }
 }
 

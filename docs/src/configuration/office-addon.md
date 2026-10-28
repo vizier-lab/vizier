@@ -8,7 +8,7 @@ Files are session files: the agent reads what a person uploaded and delivers wha
 |------|-----------|
 | `office_docx_read_as_md` | Read a Word document as Markdown: headings, bold and italic, nested lists, links and tables as pipe tables. Images, shapes, text boxes and footnotes are skipped. |
 | `office_xlsx_read_as_cells` | Read typed cells (text, number, boolean, date, empty, error) per sheet, with `sheet` and `range` filters, `info` for sheet sizes only, and `formulas` for formula text. It never calculates. |
-| `office_xlsx_read_as_csv` | Preview every sheet of a workbook as CSV in one call. Formulas show as text, or as calculated results with `executed_formula` (not available yet: the call says so). |
+| `office_xlsx_read_as_csv` | Preview every sheet of a workbook as CSV in one call. Formulas show as text, or as calculated results with `executed_formula`. The calculation is done by the addon, not by Excel, so it can differ from what Excel shows; a cell it cannot calculate (an unknown function, a circular reference, a link to another file) keeps the value saved in the file and is named in `note`. Legacy `.xls` files are never calculated. |
 | `office_docx_write_from_md` | Create a new `.docx` from Markdown, with an optional title. |
 | `office_xlsx_write_from_sheets` | Create a new `.xlsx` from sheets of rows. Text such as `=1+1` is stored as text, never as a formula. |
 

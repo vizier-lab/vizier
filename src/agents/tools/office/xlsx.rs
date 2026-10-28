@@ -2,15 +2,16 @@
 //! writing new `.xlsx` workbooks.
 //!
 //! Pure functions on bytes: no storage, no `ToolContext`, so the format logic is unit-testable
-//! on its own (spec `034-office-addon`, FR-004 and FR-030). Formulas are never calculated here:
-//! a formula cell is read as the value the spreadsheet application last saved, optionally
-//! together with its formula text.
+//! on its own (spec `034-office-addon`, FR-004 and FR-030). The typed read never calculates formulas: a
+//! formula cell is the value the spreadsheet application last saved, optionally together with
+//! its formula text. Only the CSV read calculates, and only on request, through `formula.rs`.
 
 use std::io::Cursor;
 
 use calamine::{Data, Range, Reader, Xls, Xlsx};
 use rust_xlsxwriter::{ExcelDateTime, Format, Workbook, Worksheet};
 
+use super::formula::{self, Outcome};
 use super::{
     Cell, Dimensions, MAX_COLS, MAX_FORMULA_CELLS, MAX_ROWS, MAX_SHEETS, READ_MAX_CHARS, SheetCsv,
     SheetInput, SheetRead, WorkbookCsv, WorkbookRead,
@@ -447,9 +448,13 @@ fn csv_text(data: &Data) -> String {
     }
 }
 
+/// How many cells a note names before it says "and N more".
+const MAX_NAMED_CELLS: usize = 20;
+
 /// Read a workbook as CSV text (FR-030), every sheet by default. With `executed_formula` false
-/// a formula cell is its formula text; calculating formulas is not available yet, so with it
-/// true a formula cell shows its saved value and the result says so.
+/// a formula cell is its formula text. With it true a formula cell is the result of calculating
+/// it (`formula::calculate`, research R10). A cell the engine cannot calculate, a file it cannot
+/// read and a legacy `.xls` (never calculated) show the value the file saved, and `note` says so.
 pub fn read_csv(
     bytes: &[u8],
     flavour: Flavour,
@@ -465,6 +470,7 @@ pub fn read_csv(
     let mut budget = Budget(READ_MAX_CHARS);
     let mut notes: Vec<String> = Vec::new();
 
+    let mut blocks = Vec::new();
     for (index, name) in names.iter().enumerate() {
         if index >= MAX_SHEETS {
             out.truncated = true;
@@ -478,7 +484,28 @@ pub fn read_csv(
         let formula_range = book.formulas(name);
         let block = sheet_block(name, &data, &formula_range, window, &mut budget);
         out.truncated |= block.cut;
+        blocks.push(block);
+    }
 
+    // One calculation for the whole workbook, asked only for the formula cells that are printed.
+    let calculation = match (executed_formula, flavour) {
+        (true, Flavour::Xlsx) => Some(formula::calculate(bytes, wanted_cells(&blocks))),
+        (true, Flavour::Xls) => {
+            notes.push(
+                "A legacy .xls file is not calculated: formula cells show their last saved value.".into(),
+            );
+            None
+        }
+        (false, _) => None,
+    };
+    if let Some(reason) = calculation.as_ref().and_then(|c| c.failure.as_deref()) {
+        notes.push(format!(
+            "Formulas were not calculated ({reason}): formula cells show their last saved value."
+        ));
+    }
+    let mut not_calculated: Vec<String> = Vec::new();
+
+    for block in &blocks {
         let mut csv = String::new();
         let mut formula_cells = Vec::new();
         let mut uncounted = 0usize;
@@ -488,16 +515,26 @@ pub fn read_csv(
                 .enumerate()
                 .map(|(c, data)| match &block.formulas[r][c] {
                     Some(text) => {
-                        let at = address((block.start.0 + r as u32, block.start.1 + c as u32));
+                        let position = (block.start.0 + r as u32, block.start.1 + c as u32);
+                        let at = address(position);
                         if formula_cells.len() < MAX_FORMULA_CELLS {
-                            formula_cells.push(at);
+                            formula_cells.push(at.clone());
                         } else {
                             uncounted += 1;
                         }
-                        if executed_formula {
-                            csv_field(&csv_text(data))
-                        } else {
-                            csv_field(&format!("={text}"))
+                        if !executed_formula {
+                            return csv_field(&format!("={text}"));
+                        }
+                        let outcome = calculation
+                            .as_ref()
+                            .and_then(|calc| calc.get(&block.name, position.0, position.1));
+                        match outcome {
+                            Some(Outcome::Value(value)) => csv_field(&csv_text(&calculated(value, data))),
+                            Some(Outcome::Unavailable) => {
+                                not_calculated.push(format!("{}!{at}", block.name));
+                                csv_field(&csv_text(data))
+                            }
+                            None => csv_field(&csv_text(data)),
                         }
                     }
                     None => csv_field(&csv_text(data)),
@@ -508,7 +545,8 @@ pub fn read_csv(
         }
         if uncounted > 0 {
             notes.push(format!(
-                "Sheet '{name}': {uncounted} more formula cells than the {MAX_FORMULA_CELLS} addresses listed."
+                "Sheet '{}': {uncounted} more formula cells than the {MAX_FORMULA_CELLS} addresses listed.",
+                block.name
             ));
         }
         out.sheets.push(SheetCsv {
@@ -519,14 +557,61 @@ pub fn read_csv(
             csv,
         });
     }
-    if executed_formula {
-        notes.push("executed_formula is not available yet: formula cells show their last saved value, not a calculated result.".into());
+    if !not_calculated.is_empty() {
+        let shown = not_calculated.iter().take(MAX_NAMED_CELLS).cloned().collect::<Vec<_>>().join(", ");
+        let more = not_calculated.len().saturating_sub(MAX_NAMED_CELLS);
+        let more = if more > 0 { format!(" and {more} more") } else { String::new() };
+        notes.push(format!(
+            "{} formula cell(s) could not be calculated (an unknown or unsupported function, a circular reference or a link to another file) and show their last saved value: {shown}{more}.",
+            not_calculated.len()
+        ));
     }
     if out.truncated {
         notes.push("The result was cut at the output limits (sheets, rows, columns or size). Read a smaller `range` to see the rest.".into());
     }
     out.note = (!notes.is_empty()).then(|| notes.join(" "));
     Ok(out)
+}
+
+/// The formula cells that will be printed, per sheet, for the engine to calculate.
+fn wanted_cells(blocks: &[Block]) -> Vec<formula::Wanted> {
+    blocks
+        .iter()
+        .map(|block| {
+            let mut cells = Vec::new();
+            for (r, row) in block.formulas.iter().enumerate() {
+                for (c, text) in row.iter().enumerate() {
+                    if text.is_some() {
+                        cells.push((block.start.0 + r as u32, block.start.1 + c as u32));
+                    }
+                }
+            }
+            formula::Wanted { sheet: block.name.clone(), cells }
+        })
+        .filter(|wanted| !wanted.cells.is_empty())
+        .collect()
+}
+
+/// A calculated value as the cell the CSV writer prints. A number whose saved value is a date
+/// (or a duration) stays one, so a date formula still prints as a date. An error result is its
+/// text, which is how the CSV shows every error.
+fn calculated(value: &formula::Value, saved: &Data) -> Data {
+    match value {
+        formula::Value::Number(n) => match saved {
+            Data::DateTime(dt) => {
+                let kind = if dt.is_duration() {
+                    calamine::ExcelDateTimeType::TimeDelta
+                } else {
+                    calamine::ExcelDateTimeType::DateTime
+                };
+                Data::DateTime(calamine::ExcelDateTime::new(*n, kind, false))
+            }
+            _ => Data::Float(*n),
+        },
+        formula::Value::Text(text) => Data::String(text.clone()),
+        formula::Value::Bool(b) => Data::Bool(*b),
+        formula::Value::Error(code) => Data::String(code.clone()),
+    }
 }
 
 const DATE_FORMAT: &str = "yyyy-mm-dd";
@@ -799,11 +884,108 @@ mod tests {
         assert_eq!(read.sheets[0].start.as_deref(), Some("B2"));
     }
 
+    /// A workbook whose saved results are not what its formulas give, so a read that only
+    /// echoes the file is caught: B3 saved 999 (true 30), a date formula saved a day behind, a
+    /// formula the engine does not know (B5), an error result (B6) and a circular pair (B7, B8).
+    fn formulas() -> Vec<u8> {
+        let mut book = Workbook::new();
+        let date = Format::new().set_num_format("yyyy-mm-dd");
+        let data = book.add_worksheet();
+        data.set_name("Data").unwrap();
+        for (row, (label, value)) in [("x", 10.0), ("y", 20.0)].into_iter().enumerate() {
+            data.write_string(row as u32, 0, label).unwrap();
+            data.write_number(row as u32, 1, value).unwrap();
+        }
+        let formulas = [
+            ("sum", "=SUM(B1:B2)", "999"),
+            ("label", r#"=IF(B3>25,"big","small")"#, "small"),
+            ("unknown", "=FOOBAR(B1)", "7"),
+            ("div", "=B1/0", "#DIV/0!"),
+            ("loop1", "=B8+1", "5"),
+            ("loop2", "=B7+1", "6"),
+        ];
+        for (i, (label, formula, saved)) in formulas.into_iter().enumerate() {
+            let row = 2 + i as u32;
+            data.write_string(row, 0, label).unwrap();
+            data.write_formula(row, 1, Formula::new(formula).set_result(saved)).unwrap();
+        }
+        data.write_string(8, 0, "when").unwrap();
+        data.write_datetime_with_format(8, 1, ExcelDateTime::from_ymd(2026, 11, 1).unwrap(), &date)
+            .unwrap();
+        data.write_string(9, 0, "next").unwrap();
+        data.write_formula_with_format(9, 1, Formula::new("=B9+1").set_result("46327"), &date)
+            .unwrap();
+        let other = book.add_worksheet();
+        other.set_name("Other").unwrap();
+        other.write_formula(0, 0, Formula::new("=Data!B3*2").set_result("1")).unwrap();
+        book.save_to_buffer().unwrap()
+    }
+
     #[test]
-    fn csv_shows_saved_values_and_says_calculation_is_not_available() {
-        let read = read_csv(&mixed(), Flavour::Xlsx, Some("Budget"), Some("A4:B4"), true).unwrap();
-        assert_eq!(read.sheets[0].csv, "Total,12\n");
-        assert!(read.note.as_deref().unwrap().contains("not available yet"));
+    fn csv_without_executed_formula_shows_the_formula_text() {
+        let read = read_csv(&formulas(), Flavour::Xlsx, Some("Data"), None, false).unwrap();
+        let csv = &read.sheets[0].csv;
+        assert!(csv.contains("sum,=SUM(B1:B2)\n"), "{csv}");
+        assert!(csv.contains("unknown,=FOOBAR(B1)\n"), "{csv}");
+        assert!(read.note.is_none(), "{:?}", read.note);
+    }
+
+    #[test]
+    fn csv_with_executed_formula_prints_calculated_results_and_names_what_it_could_not() {
+        let read = read_csv(&formulas(), Flavour::Xlsx, Some("Data"), None, true).unwrap();
+        let lines: Vec<&str> = read.sheets[0].csv.lines().collect();
+        assert_eq!(lines[2], "sum,30", "calculated, not the saved 999");
+        assert_eq!(lines[3], "label,big");
+        assert_eq!(lines[4], "unknown,7", "an unknown function keeps its saved value");
+        assert_eq!(lines[5], "div,#DIV/0!", "an error result is a result");
+        assert_eq!((lines[6], lines[7]), ("loop1,5", "loop2,6"), "a circular reference keeps its saved value");
+        assert_eq!(lines[9], "next,2026-11-02", "a date formula stays a date");
+        let note = read.note.unwrap();
+        assert!(note.contains("3 formula cell(s) could not be calculated"), "{note}");
+        for cell in ["Data!B5", "Data!B7", "Data!B8"] {
+            assert!(note.contains(cell), "{note}");
+        }
+        assert!(!note.contains("Data!B3") && !note.contains("Data!B6"), "{note}");
+        assert_eq!(read.sheets[0].formula_cells, ["B3", "B4", "B5", "B6", "B7", "B8", "B10"]);
+    }
+
+    #[test]
+    fn executed_formula_follows_references_between_sheets() {
+        let read = read_csv(&formulas(), Flavour::Xlsx, Some("Other"), None, true).unwrap();
+        assert_eq!(read.sheets[0].csv, "60\n");
+        assert!(read.note.is_none(), "{:?}", read.note);
+    }
+
+    #[test]
+    fn executed_formula_honours_the_range() {
+        let read = read_csv(&formulas(), Flavour::Xlsx, Some("Data"), Some("A3:B4"), true).unwrap();
+        assert_eq!(read.sheets[0].csv, "sum,30\nlabel,big\n");
+        assert_eq!(read.sheets[0].start.as_deref(), Some("A3"));
+    }
+
+    #[test]
+    fn a_workbook_the_engine_cannot_read_keeps_its_saved_values() {
+        // Not a package the engine can open (it needs xl/styles.xml), but calamine reads it.
+        let mut book = Workbook::new();
+        book.add_worksheet().write_formula(0, 0, Formula::new("=1+1").set_result("5")).unwrap();
+        let mut bytes = book.save_to_buffer().unwrap();
+        // Rewrite the archive without that part.
+        let mut archive = zip::ZipArchive::new(Cursor::new(std::mem::take(&mut bytes))).unwrap();
+        let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).unwrap();
+            let name = file.name().unwrap().to_string();
+            if name == "xl/styles.xml" {
+                continue;
+            }
+            out.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            std::io::copy(&mut file, &mut out).unwrap();
+        }
+        let bytes = out.finish().unwrap().into_inner();
+        let read = read_csv(&bytes, Flavour::Xlsx, None, None, true).unwrap();
+        assert_eq!(read.sheets[0].csv, "5\n");
+        let note = read.note.unwrap();
+        assert!(note.contains("not calculated") && note.contains("could not read"), "{note}");
     }
 
     fn sheet(name: &str, rows: Vec<Vec<Cell>>) -> SheetInput {

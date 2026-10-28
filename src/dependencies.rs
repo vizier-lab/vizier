@@ -288,10 +288,10 @@ impl VizierDependencies {
                 tracing::warn!("failed to add the Office addon to agent '{agent_id}': {e}");
             }
         }
-        if complete {
-            if let Err(e) = self.storage.save_state(key, serde_json::json!(true)).await {
-                tracing::warn!("failed to record the Office addon backfill: {e}");
-            }
+        if complete
+            && let Err(e) = self.storage.save_state(key, serde_json::json!(true)).await
+        {
+            tracing::warn!("failed to record the Office addon backfill: {e}");
         }
     }
 
