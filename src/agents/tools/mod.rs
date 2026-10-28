@@ -1359,7 +1359,9 @@ mod tests {
     use super::*;
     use crate::agents::tools::{
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
-        office::{OfficeDocxRead, OfficeXlsxRead, OfficeXlsxReadCsv},
+        office::{
+            OfficeDocxRead, OfficeDocxWrite, OfficeXlsxRead, OfficeXlsxReadCsv, OfficeXlsxWrite,
+        },
         discord::{
             GetDiscordChannelInfo, GetDiscordGuildInfo, GetDiscordMemberInfo, GetDiscordMessage,
             ReactDiscordMessage, SendDiscordMessage,
@@ -1424,6 +1426,8 @@ mod tests {
             entry::<OfficeDocxRead>(),
             entry::<OfficeXlsxRead>(),
             entry::<OfficeXlsxReadCsv>(),
+            entry::<OfficeDocxWrite>(),
+            entry::<OfficeXlsxWrite>(),
             entry::<FetchWebpage>(),
             entry::<HttpClient>(),
             entry::<TtsGenerate>(),
@@ -1533,6 +1537,8 @@ mod tests {
             ("office_docx_read_as_md", "office"),
             ("office_xlsx_read_as_cells", "office"),
             ("office_xlsx_read_as_csv", "office"),
+            ("office_docx_write_from_md", "office"),
+            ("office_xlsx_write_from_sheets", "office"),
         ];
         const UNCATEGORISED: &[&str] = &[
             "brave_search_web",
@@ -1540,6 +1546,8 @@ mod tests {
             "office_docx_read_as_md",
             "office_xlsx_read_as_cells",
             "office_xlsx_read_as_csv",
+            "office_docx_write_from_md",
+            "office_xlsx_write_from_sheets",
             "think",
             "execute_python",
             "list_tool_functions",

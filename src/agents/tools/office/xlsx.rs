@@ -1,4 +1,5 @@
-//! Reading Excel workbooks (`.xlsx`, and legacy `.xls`) as typed cells or as CSV text.
+//! Reading Excel workbooks (`.xlsx`, and legacy `.xls`) as typed cells or as CSV text, and
+//! writing new `.xlsx` workbooks.
 //!
 //! Pure functions on bytes: no storage, no `ToolContext`, so the format logic is unit-testable
 //! on its own (spec `034-office-addon`, FR-004 and FR-030). Formulas are never calculated here:
@@ -8,10 +9,11 @@
 use std::io::Cursor;
 
 use calamine::{Data, Range, Reader, Xls, Xlsx};
+use rust_xlsxwriter::{ExcelDateTime, Format, Workbook, Worksheet};
 
 use super::{
     Cell, Dimensions, MAX_COLS, MAX_FORMULA_CELLS, MAX_ROWS, MAX_SHEETS, READ_MAX_CHARS, SheetCsv,
-    SheetRead, WorkbookCsv, WorkbookRead,
+    SheetInput, SheetRead, WorkbookCsv, WorkbookRead,
 };
 use crate::error::VizierError;
 
@@ -527,6 +529,115 @@ pub fn read_csv(
     Ok(out)
 }
 
+const DATE_FORMAT: &str = "yyyy-mm-dd";
+const DATE_TIME_FORMAT: &str = "yyyy-mm-dd hh:mm:ss";
+const MIN_WIDTH: f64 = 8.0;
+const MAX_WIDTH: f64 = 60.0;
+
+/// A new `.xlsx` workbook from named sheets of rows.
+///
+/// Every string goes through the string API, never `write_formula`, so text that begins with
+/// `=`, `+`, `-` or `@` stays text and opening the file never runs content taken from elsewhere
+/// (FR-028). The first row of a sheet is bold and frozen; columns are as wide as their content.
+pub fn write_workbook(sheets: &[SheetInput]) -> Result<Vec<u8>, VizierError> {
+    if sheets.is_empty() {
+        return Err(VizierError("A workbook needs at least one sheet.".into()));
+    }
+    let mut book = Workbook::new();
+    for sheet in sheets {
+        let ws = book.add_worksheet();
+        ws.set_name(&sheet.name)
+            .map_err(|e| VizierError(format!("Sheet name '{}' is not allowed: {e}", sheet.name)))?;
+        write_sheet(ws, sheet)?;
+    }
+    book.save_to_buffer()
+        .map_err(|e| VizierError(format!("Could not build the Excel file: {e}")))
+}
+
+fn write_sheet(ws: &mut Worksheet, sheet: &SheetInput) -> Result<(), VizierError> {
+    let mut widths: Vec<f64> = Vec::new();
+    for (r, row) in sheet.rows.iter().enumerate() {
+        for (c, cell) in row.iter().enumerate() {
+            let at = |e: rust_xlsxwriter::XlsxError| {
+                VizierError(format!("Sheet '{}', cell {}: {e}", sheet.name, address((r as u32, c as u32))))
+            };
+            let (row_no, col_no) = (
+                u32::try_from(r).map_err(|e| VizierError(e.to_string()))?,
+                u16::try_from(c).map_err(|_| {
+                    VizierError(format!("Sheet '{}' has more than 16384 columns.", sheet.name))
+                })?,
+            );
+            let bold = r == 0;
+            let width = write_cell(ws, row_no, col_no, cell, bold).map_err(at)?;
+            if widths.len() <= c {
+                widths.resize(c + 1, MIN_WIDTH);
+            }
+            widths[c] = widths[c].max(width);
+        }
+    }
+    for (c, width) in widths.iter().enumerate() {
+        ws.set_column_width(c as u16, width.clamp(MIN_WIDTH, MAX_WIDTH))
+            .map_err(|e| VizierError(e.to_string()))?;
+    }
+    if !sheet.rows.is_empty() {
+        ws.set_freeze_panes(1, 0).map_err(|e| VizierError(e.to_string()))?;
+    }
+    Ok(())
+}
+
+/// Writes one cell and returns the width its content wants, in characters.
+fn write_cell(
+    ws: &mut Worksheet,
+    row: u32,
+    col: u16,
+    cell: &Cell,
+    bold: bool,
+) -> Result<f64, rust_xlsxwriter::XlsxError> {
+    let mut format = Format::new();
+    if bold {
+        format = format.set_bold();
+    }
+    // A bold header gets a little more room.
+    let extra = if bold { 2.0 } else { 1.0 };
+    match cell {
+        Cell::Null => {}
+        Cell::Bool(b) => {
+            ws.write_boolean_with_format(row, col, *b, &format)?;
+            return Ok(5.0 + extra);
+        }
+        Cell::Number(n) => {
+            let value = n.as_f64().unwrap_or(0.0);
+            ws.write_number_with_format(row, col, value, &format)?;
+            return Ok(n.to_string().len() as f64 + extra);
+        }
+        Cell::Date { date } => {
+            let moment = ExcelDateTime::parse_from_str(date.trim())?;
+            let has_time = date.contains('T') || date.contains(' ');
+            let format = format.set_num_format(if has_time { DATE_TIME_FORMAT } else { DATE_FORMAT });
+            ws.write_datetime_with_format(row, col, moment, &format)?;
+            return Ok(if has_time { 20.0 } else { 12.0 });
+        }
+        // Formulas and errors are never written as such: their text stays text.
+        Cell::Text(text) => return write_text(ws, row, col, text, &format, extra),
+        Cell::Error { error } => return write_text(ws, row, col, error, &format, extra),
+        Cell::Formula { formula, .. } => return write_text(ws, row, col, formula, &format, extra),
+    }
+    Ok(MIN_WIDTH)
+}
+
+fn write_text(
+    ws: &mut Worksheet,
+    row: u32,
+    col: u16,
+    text: &str,
+    format: &Format,
+    extra: f64,
+) -> Result<f64, rust_xlsxwriter::XlsxError> {
+    ws.write_string_with_format(row, col, text, format)?;
+    let longest = text.lines().map(|l| l.chars().count()).max().unwrap_or(0);
+    Ok(longest as f64 + extra)
+}
+
 #[cfg(test)]
 mod tests {
     use rust_xlsxwriter::{ExcelDateTime, Format, Formula, Workbook};
@@ -693,5 +804,124 @@ mod tests {
         let read = read_csv(&mixed(), Flavour::Xlsx, Some("Budget"), Some("A4:B4"), true).unwrap();
         assert_eq!(read.sheets[0].csv, "Total,12\n");
         assert!(read.note.as_deref().unwrap().contains("not available yet"));
+    }
+
+    fn sheet(name: &str, rows: Vec<Vec<Cell>>) -> SheetInput {
+        SheetInput { name: name.into(), rows }
+    }
+
+    fn text(s: &str) -> Cell {
+        Cell::Text(s.into())
+    }
+
+    #[test]
+    fn written_cells_read_back_in_their_types() {
+        let rows = vec![
+            vec![text("Item"), text("Qty"), text("Due"), text("Done"), text("Note")],
+            vec![
+                text("Pens"),
+                Cell::number(12.0),
+                Cell::Date { date: "2026-11-01".into() },
+                Cell::Bool(true),
+                Cell::Null,
+            ],
+            vec![text("Ink"), Cell::number(2.5), Cell::Date { date: "2026-11-02T09:30:00".into() }, Cell::Bool(false)],
+        ];
+        let bytes = write_workbook(&[sheet("Budget", rows)]).unwrap();
+        let read = read_workbook(&bytes, Flavour::Xlsx, None, None, false, false).unwrap();
+        let got = read.sheets[0].rows.as_ref().unwrap();
+        assert_eq!(got[0][0], text("Item"));
+        assert_eq!(got[1][0], text("Pens"));
+        assert_eq!(got[1][1], Cell::number(12.0));
+        assert_eq!(got[1][2], Cell::Date { date: "2026-11-01".into() });
+        assert_eq!(got[1][3], Cell::Bool(true));
+        assert_eq!(got[1][4], Cell::Null);
+        assert_eq!(got[2][1], Cell::number(2.5));
+        assert_eq!(got[2][2], Cell::Date { date: "2026-11-02T09:30:00".into() });
+        assert_eq!(got[2][3], Cell::Bool(false));
+        assert_eq!(read.sheets[0].start.as_deref(), Some("A1"));
+    }
+
+    #[test]
+    fn two_sheets_keep_their_names_and_order() {
+        let bytes = write_workbook(&[
+            sheet("First", vec![vec![text("a")]]),
+            sheet("Second", vec![vec![Cell::number(1.0)]]),
+        ])
+        .unwrap();
+        let read = read_workbook(&bytes, Flavour::Xlsx, None, None, false, false).unwrap();
+        let names: Vec<&str> = read.sheets.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["First", "Second"]);
+        assert_eq!(read.sheets[1].rows.as_ref().unwrap()[0][0], Cell::number(1.0));
+    }
+
+    /// The text of one part of the xlsx archive.
+    fn part(bytes: &[u8], name: &str) -> String {
+        use std::io::Read;
+        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let mut out = String::new();
+        zip.by_name(name).unwrap().read_to_string(&mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn the_header_row_is_bold_and_frozen() {
+        let bytes = write_workbook(&[sheet(
+            "S",
+            vec![vec![text("H1"), Cell::number(1.0)], vec![text("x"), Cell::number(2.0)]],
+        )])
+        .unwrap();
+        let styles = part(&bytes, "xl/styles.xml");
+        assert!(styles.contains("<b/>"), "{styles}");
+        let sheet_xml = part(&bytes, "xl/worksheets/sheet1.xml");
+        assert!(sheet_xml.contains("state=\"frozen\""), "{sheet_xml}");
+        assert!(sheet_xml.contains("<cols>"), "{sheet_xml}");
+        // Only the header cells carry a style.
+        let a1 = sheet_xml.split("r=\"A1\"").nth(1).unwrap();
+        assert!(a1.trim_start().starts_with("s=\""), "{a1}");
+        let a2 = sheet_xml.split("r=\"A2\"").nth(1).unwrap();
+        assert!(!a2.trim_start().starts_with("s=\""), "{a2}");
+    }
+
+    #[test]
+    fn text_that_looks_like_a_formula_stays_text() {
+        let rows = vec![vec![text("=1+1"), text("+x"), text("@y"), text("-z"), text("=SUM(A1:A9)")]];
+        let bytes = write_workbook(&[sheet("S", rows.clone())]).unwrap();
+        let sheet_xml = part(&bytes, "xl/worksheets/sheet1.xml");
+        assert!(!sheet_xml.contains("<f>") && !sheet_xml.contains("<f "), "{sheet_xml}");
+        let read = read_workbook(&bytes, Flavour::Xlsx, None, None, false, true).unwrap();
+        assert_eq!(read.sheets[0].rows.as_ref().unwrap(), &rows);
+    }
+
+    #[test]
+    fn formula_and_error_cells_are_written_as_their_text() {
+        let rows = vec![vec![
+            Cell::Formula { value: None, formula: "=A1".into() },
+            Cell::Error { error: "#DIV/0!".into() },
+        ]];
+        let bytes = write_workbook(&[sheet("S", rows)]).unwrap();
+        assert!(!part(&bytes, "xl/worksheets/sheet1.xml").contains("<f>"));
+        let read = read_workbook(&bytes, Flavour::Xlsx, None, None, false, false).unwrap();
+        assert_eq!(read.sheets[0].rows.as_ref().unwrap()[0], vec![text("=A1"), text("#DIV/0!")]);
+    }
+
+    #[test]
+    fn a_bad_sheet_name_or_date_is_an_ordinary_error() {
+        for name in ["", "a/b", "[x]", "has?mark", &"x".repeat(32)] {
+            let err = write_workbook(&[sheet(name, vec![])]).unwrap_err();
+            assert!(err.0.contains("Sheet name"), "{name}: {}", err.0);
+        }
+        let err = write_workbook(&[sheet("A", vec![]), sheet("a", vec![])]).unwrap_err();
+        assert!(!err.0.is_empty());
+        let err = write_workbook(&[sheet("S", vec![vec![Cell::Date { date: "soon".into() }]])]).unwrap_err();
+        assert!(err.0.contains("A1"), "{}", err.0);
+        assert!(write_workbook(&[]).is_err());
+    }
+
+    #[test]
+    fn an_empty_sheet_is_fine() {
+        let bytes = write_workbook(&[sheet("Empty", vec![])]).unwrap();
+        let read = read_workbook(&bytes, Flavour::Xlsx, None, None, true, false).unwrap();
+        assert_eq!(read.sheets[0].used_range, None);
     }
 }

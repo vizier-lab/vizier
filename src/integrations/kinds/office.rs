@@ -1,4 +1,4 @@
-//! The built-in `office` addon: read Word and Excel files (spec `034-office-addon`). It has no
+//! The built-in `office` addon: read and write Word and Excel files (spec `034-office-addon`). It has no
 //! settings; its tools are present when the integration is, and listed under the `office`
 //! category.
 
@@ -7,7 +7,9 @@ use serde_json::Value;
 use crate::{
     agents::tools::{
         VizierToolSet,
-        office::{OfficeDocxRead, OfficeXlsxRead, OfficeXlsxReadCsv},
+        office::{
+            OfficeDocxRead, OfficeDocxWrite, OfficeXlsxRead, OfficeXlsxReadCsv, OfficeXlsxWrite,
+        },
     },
     integrations::kind::{AgentToolContext, Contribution, IntegrationKind, KindListing},
     schema::{Integration, IntegrationFamily},
@@ -27,7 +29,7 @@ impl IntegrationKind for OfficeKind {
     fn listing(&self) -> KindListing {
         KindListing {
             name: "Office",
-            description: "Read Word and Excel files: Markdown, typed cells and CSV previews",
+            description: "Read and create Word and Excel files: Markdown, typed cells and CSV previews",
             icon: "office",
             fields: vec![],
         }
@@ -48,7 +50,9 @@ impl IntegrationKind for OfficeKind {
             native: VizierToolSet::new()
                 .tool(OfficeDocxRead { storage: storage.clone(), file_manager: file_manager.clone() })
                 .tool(OfficeXlsxRead { storage: storage.clone(), file_manager: file_manager.clone() })
-                .tool(OfficeXlsxReadCsv { storage, file_manager }),
+                .tool(OfficeXlsxReadCsv { storage: storage.clone(), file_manager: file_manager.clone() })
+                .tool(OfficeDocxWrite { storage: storage.clone(), file_manager: file_manager.clone() })
+                .tool(OfficeXlsxWrite { storage, file_manager }),
             mcp: None,
             addon: Some(self.id()),
         }

@@ -5212,9 +5212,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
 dependencies = [
  "bitflags 2.13.2",
+ "getopts",
  "memchr",
+ "pulldown-cmark-escape",
  "unicase",
 ]
+
+[[package]]
+name = "pulldown-cmark-escape"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "007d8adb5ddab6f8e3f491ac63566a7d5002cc7ed73901f72057943fa71ae1ae"
 
 [[package]]
 name = "pulp"
@@ -6193,6 +6201,15 @@ checksum = "796e8d2b6696392a43bea58116b667fb4c29727dc5abd27d6acf338bb4f688c7"
 dependencies = [
  "cfg-if",
  "ordered-multimap",
+]
+
+[[package]]
+name = "rust_xlsxwriter"
+version = "0.101.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49aa1d1558e9465f5053bf9fb5361fe75db827c6a4423d5e5fe72096622f8908"
+dependencies = [
+ "zip 9.0.3",
 ]
 
 [[package]]
@@ -8502,7 +8519,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vizier"
-version = "0.13.3"
+version = "0.13.4"
 dependencies = [
  "any-tts",
  "anyhow",
@@ -8544,6 +8561,7 @@ dependencies = [
  "opentelemetry_sdk",
  "parking_lot",
  "pdf-extract",
+ "pulldown-cmark",
  "rand 0.10.3",
  "regex",
  "reqwest 0.13.5",
@@ -8551,6 +8569,7 @@ dependencies = [
  "rmcp",
  "rusqlite",
  "rust-embed",
+ "rust_xlsxwriter",
  "rustls",
  "schemars 1.2.3",
  "serde",
@@ -8593,7 +8612,7 @@ dependencies = [
 
 [[package]]
 name = "vizier-derive"
-version = "0.13.3"
+version = "0.13.4"
 dependencies = [
  "proc-macro2",
  "quote",
