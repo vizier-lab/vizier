@@ -16,7 +16,7 @@ Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that co
 
 **Storage**: existing SQLite only. Reuses `integration` / `integration_event` tables, `session_file` table, `FileManager` blob store, and the `state` key/value table (`office.default_seeded`). No schema change.
 
-**Testing**: `cargo test` (per-format unit tests with checked-in fixtures and round-trips; kind and catalogue-table tests; seed/backfill tests against in-memory SQLite); `cargo clippy`; end-to-end: agent steps scripted in [quickstart.md](quickstart.md) against the standalone dummyplug server (`just dummyplug`, spec 030-standalone-dummyplug-server; constitution e2e gate — default tool list of every agent changes). The branch needs the merged dummyplug change (vizier-lab/vizier#103) from `master` first.
+**Testing**: `cargo test` (per-format unit tests with checked-in fixtures and round-trips; kind and catalogue-table tests; seed/backfill tests against in-memory SQLite); `cargo clippy`; end-to-end: agent steps scripted in [quickstart.md](quickstart.md) against the standalone dummyplug server (`just dummyplug`, spec 030-standalone-dummyplug-server; constitution e2e gate — default tool list of every agent changes). The branch already contains the merged dummyplug change (vizier-lab/vizier#103).
 
 **Target Platform**: Linux/macOS/Windows single binary, incl. static `musl` cross targets in `Cross.toml` (all new code is pure Rust).
 

@@ -177,7 +177,7 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 
 - [ ] T045 [P] Add a docs page for the addon in `docs/src/configuration/office-addon.md` (the five tools and when to use each, cell and range reads, the CSV preview and what `executed_formula` does and where it falls back, create-only writes, same-named files are replaced, on by default and how to turn it off) and link it from `docs/src/SUMMARY.md`
 - [ ] T046 [P] Reconcile `specs/034-office-addon/contracts/office-tools.md` with the implemented error and output shape: the contract describes errors as `status: "error"` objects and outputs with a `status` field, while tools following `image_generate` return `{filename, size}` and raise a catchable error on failure
-- [ ] T047 Run the whole dummyplug script in `specs/034-office-addon/quickstart.md` (steps 0 to 8 including 6a and 6b) against the real binary and the standalone dummyplug server (`just dummyplug`; rebase on `master` first so the branch has vizier-lab/vizier#103) and fix what it finds; optionally automate it as `scripts/office-e2e.mjs` in the style of `scripts/dummyplug-vizier-e2e.mjs`
+- [ ] T047 Run the whole dummyplug script in `specs/034-office-addon/quickstart.md` (steps 0 to 8 including 6a and 6b) against the real binary and the standalone dummyplug server (`just dummyplug`; this branch already contains vizier-lab/vizier#103) and fix what it finds; optionally automate it as `scripts/office-e2e.mjs` in the style of `scripts/dummyplug-vizier-e2e.mjs`
 - [ ] T048 Open the generated `.docx` and `.xlsx` in Microsoft Office and in LibreOffice and confirm there is no repair prompt (SC-004); needs a person with those applications
 - [ ] T049 Run `cargo clippy` and `cargo test` (including `every_addon_tool_is_namespaced_by_its_addon` and `every_tool_is_in_its_category`) and fix every finding
 - [ ] T050 Build one static target from `Cross.toml` (for example `cross build --target x86_64-unknown-linux-musl`) with the final dependencies, including the formula engine chosen in T016, to confirm cross-compilation still works (constitution Principle IV)
@@ -197,7 +197,7 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 - **US3 (Phase 5)**: needs T019 (the kind exists) so there is something to seed; independent of the tools themselves.
 - **US4 (Phase 6)**: needs T019; the web tasks need no Rust.
 - **US5 (Phase 7)**: needs only Phase 2; it is independent of the addon code and can run in parallel with US1 to US4.
-- **Polish (Phase 8)**: needs the stories you want shipped. T047 also needs this branch rebased on `master` (dummyplug, #103).
+- **Polish (Phase 8)**: needs the stories you want shipped. T047 needs the `dummyplug/` submodule checked out (`just install`; dummyplug is already on this branch, #103).
 
 ### User Story Dependencies
 
