@@ -18,7 +18,7 @@ Three decisions keep the first release simple:
 
 - **No automatic collection.** Session files are cleared only by an explicit action — the chat side panel's Clear session files, the `/clear-files` channel command, deleting the conversation, or deleting the agent. There is no retention period, background collector or size-based cleanup in this release. This is deliberately deferred so the permanence model can settle first.
 - **Promotion copies, it does not link.** The artifact gets its own copy of the bytes, and the source session file stays where it is. Nothing needs to mark which session files are artifacts, and clearing session files can never damage an artifact. The source is not hidden or flagged after promotion; it remains an ordinary session file until it is cleared.
-- **Session deletion is explicit and safe for artifacts.** Deleting a conversation removes that conversation's session files and their content. Artifacts promoted from it survive because they are copies, and a memory that references an artifact keeps resolving. A memory that references one of the deleted session files shows that file as unavailable. Deletion is refused while a turn is running or queued. Deleting an agent removes its session files and artifacts together.
+- **Session deletion is explicit and safe for artifacts.** Deleting a conversation removes that conversation's session files and their stored bytes — the actual file blobs, not only the database records. A blob still referenced by another conversation's session file is kept until its last reference is removed. Artifacts promoted from the deleted conversation survive because they are copies, and a memory that references an artifact keeps resolving. A memory that references one of the deleted session files shows that file as unavailable. Deletion is refused while a turn is running or queued. Deleting an agent removes its session files, their stored bytes and its artifacts together.
 
 The feature deliberately does not turn every existing session file into an artifact. Permanence is an explicit step. Existing messages and memories that reference session files keep working while those files exist; clearing the files makes those references unavailable. Artifacts are not shared across agents, are not public links, and do not keep a restorable history of earlier versions in this release. The generated-UI media surface continues to use the conversation's session files.
 
@@ -89,11 +89,12 @@ A conversation is finished with. Its uploaded spreadsheets, generated drafts and
 6. **Given** a clear confirmation that is cancelled, or a conversation with no files, **When** the action ends, **Then** nothing is removed and the person is told what happened.
 7. **Given** two conversations with session files, **When** one is cleared, **Then** the other conversation's files, artifacts and history are unchanged.
 8. **Given** an older message or memory that references a cleared session file, **When** it is shown or read, **Then** the missing file is shown as unavailable without breaking the rest of the message or memory.
-9. **Given** a conversation with no turn running or queued, **When** it is deleted, **Then** its session files are removed and its artifacts remain.
-10. **Given** an agent is deleted, **When** the deletion completes, **Then** its session files, artifacts and artifact records are gone and no orphaned content remains.
+9. **Given** a conversation with no turn running or queued, **When** it is deleted, **Then** its session-file records and their stored bytes are removed, its artifacts remain, and no other conversation is affected.
+10. **Given** an agent is deleted, **When** the deletion completes, **Then** its session files, their stored bytes, artifacts and artifact records are gone and no orphaned content remains.
 11. **Given** a file is being promoted while the conversation is cleared, **When** both complete, **Then** either the artifact was created from the complete copy and survives, or the promotion fails cleanly and no artifact exists.
 12. **Given** a conversation with a session file that an older memory references, **When** the conversation is deleted, **Then** the memory shows the file as unavailable, any artifact promoted from that conversation still resolves, and no other conversation or artifact changes.
 13. **Given** a conversation with a turn running or queued, **When** conversation deletion is attempted, **Then** it is refused until the turn ends and nothing is removed.
+14. **Given** the same stored bytes are referenced by session files in two conversations, **When** one conversation is deleted, **Then** the bytes remain available to the other conversation, and they are removed when the last conversation referencing them is deleted or cleared.
 
 ---
 
@@ -162,6 +163,7 @@ A person wants to know where an artifact came from and who changed it. The galle
 - **Clear confirmation cancelled or expired**: nothing is removed.
 - **Clear while a turn is running or queued**: refused; the person is told to wait for the turn to finish.
 - **Clear in one conversation**: no other conversation's files, artifacts or history change.
+- **Shared stored bytes**: a blob referenced by session files in two conversations survives one conversation's clear or deletion and is removed with the last reference.
 - **Clearing a file referenced by an older message or memory**: the reference becomes unavailable; the rest of the message or memory still renders.
 - **No automatic expiry**: a session file that nobody clears remains available indefinitely; storage growth is visible and accepted until automatic collection is added later.
 - **Agent updated or restarted**: artifacts and their references survive without migration.
@@ -223,11 +225,11 @@ A person wants to know where an artifact came from and who changed it. The galle
 - **FR-034**: The chat side panel MUST offer a Clear session files action for the current conversation; it MUST require confirmation, report how many files were removed, and affect only that conversation.
 - **FR-035**: Discord and Telegram conversations MUST offer the same clear as a `/clear-files` command, with the same confirmation, count and safety rules; on a platform whose command naming rules do not accept hyphens, the command MUST be registered in its valid form (Telegram's `/clear_files`).
 - **FR-036**: A conversation with a turn running or queued MUST NOT have its session files removed by a clear; the attempt MUST be refused with an explanation that the turn must finish first.
-- **FR-037**: Clearing MUST remove the conversation's session file records and their content, MUST NOT remove or change any artifact or artifact content, and MUST NOT affect another conversation.
+- **FR-037**: Clearing MUST remove the conversation's session file records and their stored bytes, including the actual file blobs, except a blob still referenced by another conversation's session file. It MUST NOT remove or change any artifact or artifact content, and MUST NOT affect another conversation.
 - **FR-038**: The clear confirmation MUST state that artifacts are unaffected and that older messages or memories still referencing the cleared files will no longer open them.
 - **FR-039**: A cancelled confirmation or a conversation with no files MUST remove nothing and MUST tell the person what happened.
-- **FR-040**: Deleting a conversation MUST be refused while a turn is running or queued; otherwise it MUST remove the conversation's session files and MUST leave its artifacts intact.
-- **FR-041**: Deleting an agent MUST remove its session files and artifacts together, leaving no orphaned content.
+- **FR-040**: Deleting a conversation MUST be refused while a turn is running or queued; otherwise it MUST remove the conversation's session file records and their stored bytes, including the actual file blobs, except a blob still referenced by another conversation's session file. It MUST leave its artifacts intact.
+- **FR-041**: Deleting an agent MUST remove its session file records, their stored bytes and its artifacts together, leaving no orphaned content.
 - **FR-042**: Promotion and clearing MUST be safe against each other: a completed artifact MUST survive a clear, and a promotion whose source is cleared mid-copy MUST fail cleanly rather than produce a partial artifact.
 - **FR-043**: Clear MUST treat promoted and unpromoted session files identically; the product MUST NOT need a promotion marker, link or reference count to protect artifacts from clearing.
 
@@ -256,7 +258,7 @@ A person wants to know where an artifact came from and who changed it. The galle
 - **Artifact**: A named, permanent file owned by one agent. It has an identity, a name unique within the agent, a media type, a byte size, a current version, its own copy of the content, its origin conversation and source filename, who created it, and when it was created and last changed.
 - **Artifact change record**: One promotion, replacement or deletion of one artifact, naming the actor, the action, the time and the source. It survives the artifact's deletion and never contains the content.
 - **Artifact reference**: A message attachment or memory attachment that points at an artifact by identity rather than at a snapshot of its bytes. It follows the current version and becomes a tombstone when the artifact is deleted.
-- **Session file**: A transient file scoped to one conversation, with its filename, media type, size, who sent it and the message it arrived with. It is readable by the agent, may be copied into an artifact, and remains until a person clears it or its conversation or agent is deleted. It carries no promotion marker.
+- **Session file**: A transient file scoped to one conversation, with its filename, media type, size, who sent it and the message it arrived with. It is readable by the agent, may be copied into an artifact, and remains until a person clears it or its conversation or agent is deleted. Removing it deletes its stored bytes unless another session file still references the same content. It carries no promotion marker.
 - **Agent visibility**: The existing rule that decides which agents a person may see. It alone governs gallery listing, preview and download; the conversation that produced an artifact does not add or remove access. Delete additionally requires ownership of the agent or `all_agents:edit`.
 
 ## Success Criteria *(mandatory)*
@@ -266,24 +268,26 @@ A person wants to know where an artifact came from and who changed it. The galle
 - **SC-001**: 100% of promoted artifacts remain listed and byte-identical after their origin conversation's session files are cleared, the conversation is deleted, and vizier restarts.
 - **SC-002**: A person can promote a file, find it in the gallery, preview it and download it in under 2 minutes from the conversation.
 - **SC-003**: A person can find a known artifact by name, type and date in under 30 seconds and can tell its origin, current version and every place it is used from one detail view.
-- **SC-004**: A clear removes 100% of the current conversation's session files, reports the correct count, and changes no other conversation's files.
+- **SC-004**: A clear removes 100% of the current conversation's session-file records and their stored bytes — except bytes still referenced by another conversation's session file — reports the correct count, and changes no other conversation's files.
 - **SC-005**: A clear leaves 100% of artifacts intact, downloadable and usable in messages and memories.
 - **SC-006**: A replacement is visible through every reference on its next load or delivery in 100% of checks, and a failed replacement leaves the previous content and version unchanged in 100% of checks.
 - **SC-007**: A deleted artifact produces a readable placeholder in 100% of messages and memories that referenced it, with no crash or broken download.
 - **SC-008**: 100% of cross-agent read, replace, attach and delete attempts are refused, and 100% of delete attempts by people without management rights are refused.
-- **SC-009**: Deleting an agent leaves zero session files, artifacts, artifact content, references or change records for that agent.
+- **SC-009**: Deleting an agent leaves zero session files, stored bytes, artifacts, artifact content, references or change records for that agent.
 - **SC-010**: 100% of promotion, replacement and deletion actions appear in the change history or activity view with actor, action, time and source, and none records content.
 - **SC-011**: With 500 artifacts for one agent, the gallery's first page loads in under 1 second for 95% of loads, and search and filters return the correct set with no duplicates or gaps.
 - **SC-012**: 100% of artifact attachments too large for a channel are reported explicitly while the reply text is still delivered, and the artifact remains usable in the gallery.
 - **SC-013**: The feature documentation covers explicit session clearing, permissions and reference behaviour, and a reader can answer what happens to a message or memory after a clear, replace or delete without reading the code.
 - **SC-014**: 100% of session files remain until an explicit clear, conversation deletion or agent deletion; no timer, background job or size threshold removes one.
 - **SC-015**: 100% of messages and memories whose session-file references were cleared show an unavailable placeholder and still render the rest of their content.
+- **SC-016**: Deleting a conversation removes 100% of its session-file records and their stored bytes — except bytes still referenced by another conversation's session file — and 100% of other conversations and artifacts remain usable.
 
 ## Assumptions
 
 - **Automatic collection is deferred**: this release adds no retention period, background garbage collector, size threshold or automatic expiry for session files. They are removed only by an explicit clear, conversation deletion or agent deletion. Storage growth is accepted until a later change adds collection; the gallery and clear action make the transient tier manageable in the meantime.
 - **Promotion copies**: the artifact owns an independent copy of the bytes, and the source session file is left untouched and unmarked. This is what removes the need to track which session files are artifacts or to protect them from clearing. Until the source is cleared, the same content is stored twice; that duplication is the deliberate cost of keeping clearing simple.
 - **Clear is destructive for legacy references**: after a clear, an older message or memory that still points at one of the cleared session files shows an unavailable placeholder. New messages and memories avoid this by referencing artifacts. The confirmation says so before anything is removed.
+- **Deletion removes stored bytes**: clearing and conversation deletion remove the actual file content, not only the records. The one exception is a blob still referenced by another conversation's session file, which is removed with its last reference. Legacy memory references to a deleted blob become unavailable, as above.
 - **Clear is conversation-scoped**: the side panel clears only the open conversation; the channel command clears only the conversation it is sent in. Anyone who can participate in that conversation may clear its files. No other conversation, memory, artifact or agent is affected.
 - **Channel command naming**: `/clear-files` is the canonical name. Discord accepts it as written; Telegram's rules do not accept hyphens, so the same command is registered there as `/clear_files`. Both do the same thing.
 - **Agent-owned, not conversation-owned**: an artifact belongs to the agent workspace, not to the conversation that produced it. It outlives the conversation and is visible wherever the agent's own visibility allows.
