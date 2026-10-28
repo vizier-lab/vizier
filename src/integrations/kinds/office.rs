@@ -15,11 +15,15 @@ use crate::{
     schema::{Integration, IntegrationFamily},
 };
 
+pub const ID: &str = "office";
+/// The name of the integration seeded on every agent.
+pub const DEFAULT_NAME: &str = "Office";
+
 pub struct OfficeKind;
 
 impl IntegrationKind for OfficeKind {
     fn id(&self) -> &'static str {
-        "office"
+        ID
     }
 
     fn family(&self) -> IntegrationFamily {

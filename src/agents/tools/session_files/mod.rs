@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use calamine::Reader;
 use chrono::Utc;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agents::tools::{ToolCategory, ToolContext, VizierTool},
+    agents::tools::{
+        ToolCategory, ToolContext, VizierTool,
+        office::{DOCX_MIME, XLS_MIME, XLSX_MIME},
+    },
     error::VizierError,
     file_manager::FileManager,
     schema::{VizierResponse, VizierResponseContent, session_file::SessionFileRecord},
@@ -122,65 +124,10 @@ fn extract_text(mime_type: &str, content: Vec<u8>) -> Result<String, VizierError
                 .map_err(|e| VizierError(format!("Failed to extract PDF: {}", e)))?;
             Ok(text)
         }
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
-            let docx = docx_rs::read_docx(&content)
-                .map_err(|e| VizierError(format!("Failed to read DOCX: {}", e)))?;
-            let mut text = String::new();
-            for child in docx.document.children {
-                match child {
-                    docx_rs::DocumentChild::Paragraph(p) => {
-                        for run in p.children {
-                            if let docx_rs::ParagraphChild::Run(r) = run {
-                                for text_run in r.children {
-                                    if let docx_rs::RunChild::Text(t) = text_run {
-                                        text.push_str(&t.text);
-                                    }
-                                }
-                            }
-                        }
-                        text.push('\n');
-                    }
-                    docx_rs::DocumentChild::Table(_) => {
-                        text.push_str("[table content]\n");
-                    }
-                    _ => {}
-                }
-            }
-            Ok(text)
-        }
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => {
-            let mut workbook = calamine::open_workbook_from_rs::<calamine::Xlsx<_>, _>(
-                std::io::Cursor::new(content),
-            )
-            .map_err(|e| VizierError(format!("Failed to read XLSX: {}", e)))?;
-
-            let mut csv = String::new();
-            for name in workbook.sheet_names() {
-                if let Ok(range) = workbook.worksheet_range(&name) {
-                    csv.push_str(&format!("## {}\n\n", name));
-                    for row in range.rows() {
-                        let cells: Vec<String> = row
-                            .iter()
-                            .map(|cell| match cell {
-                                calamine::Data::Empty => String::new(),
-                                calamine::Data::String(s) => s.clone(),
-                                calamine::Data::Float(f) => format!("{}", f),
-                                calamine::Data::Int(i) => format!("{}", i),
-                                calamine::Data::Bool(b) => format!("{}", b),
-                                calamine::Data::Error(e) => format!("ERR:{:?}", e),
-                                calamine::Data::DateTime(dt) => format!("{}", dt),
-                                calamine::Data::DateTimeIso(s) => s.clone(),
-                                calamine::Data::DurationIso(s) => s.clone(),
-                            })
-                            .collect();
-                        csv.push_str(&cells.join(","));
-                        csv.push('\n');
-                    }
-                    csv.push('\n');
-                }
-            }
-            Ok(csv)
-        }
+        // Word and Excel are read by the Office addon (specs/034-office-addon).
+        DOCX_MIME | XLSX_MIME | XLS_MIME => Err(VizierError(
+            "read_document_file no longer reads Word and Excel files. Use office_docx_read_as_md for .docx, or office_xlsx_read_as_cells (typed cells) / office_xlsx_read_as_csv (whole-workbook preview) for .xlsx and .xls. These tools belong to the Office addon: install it or turn it on in the agent's integrations if they are missing.".into(),
+        )),
         _ => {
             // Try as UTF-8 text, fall back to error
             match String::from_utf8(content) {
@@ -205,7 +152,7 @@ impl VizierTool for ReadDocumentFile {
     }
 
     fn description(&self) -> String {
-        "Read a textual document from the current session (plain text, JSON, YAML, CSV, Markdown, HTML, CSS, JavaScript, XML, TOML, PDF, DOCX, XLSX). Returns the extracted text content. For images, use read_image_file.".to_string()
+        "Read a textual document from the current session (plain text, JSON, YAML, CSV, Markdown, HTML, CSS, JavaScript, XML, TOML, PDF). Returns the extracted text content. For images, use read_image_file. For Word (.docx) and Excel (.xlsx, .xls) files use the office_* tools of the Office addon instead.".to_string()
     }
 
     async fn call(
@@ -236,5 +183,27 @@ impl VizierTool for ReadDocumentFile {
             attachments: vec![],
             ..Default::default()
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_text;
+    use crate::agents::tools::office::{DOCX_MIME, XLS_MIME, XLSX_MIME};
+
+    #[test]
+    fn word_and_excel_point_to_the_office_tools() {
+        for mime in [DOCX_MIME, XLSX_MIME, XLS_MIME] {
+            let message = extract_text(mime, b"x".to_vec()).unwrap_err().0;
+            assert!(message.contains("office_docx_read_as_md"), "{mime}: {message}");
+            assert!(message.contains("office_xlsx_read_as_cells"), "{mime}: {message}");
+            assert!(message.contains("Office addon"), "{mime}: {message}");
+        }
+    }
+
+    #[test]
+    fn text_still_reads_as_before() {
+        assert_eq!(extract_text("text/plain", b"hello".to_vec()).unwrap(), "hello");
+        assert!(extract_text("application/pdf", b"not a pdf".to_vec()).is_err());
     }
 }

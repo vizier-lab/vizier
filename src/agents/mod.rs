@@ -415,9 +415,26 @@ impl VizierAgents {
             );
         }
 
+        // Built-in default addon, before the agent starts (specs/034-office-addon). A failure
+        // is logged and never fails the creation.
+        if let Err(e) = crate::integrations::service::seed_default(
+            &self.deps,
+            &agent_id,
+            config.owner_id.as_deref(),
+            crate::integrations::kinds::office::ID,
+            crate::integrations::kinds::office::DEFAULT_NAME,
+        )
+        .await
+        {
+            tracing::warn!("failed to add the Office addon to agent '{}': {}", agent_id, e);
+        }
+
         let recv = self.deps.transport.register_agent(agent_id.clone()).await;
         let summary = self.summary(&agent_id, &config).await;
-        self.start(agent_id, config, recv, Some(built));
+        self.start(agent_id.clone(), config, recv, Some(built));
+        // The change event fired before the agent had a process entry, so it saw nothing:
+        // ask the running instance to re-read its integrations once (research R13).
+        self.refresh_integrations(&agent_id);
         AgentCommandResult::Ok(summary)
     }
 

@@ -24,6 +24,7 @@
 - [2.12 Observability](./configuration/observability.md)
 - [2.13 Agent Secrets](./configuration/secrets.md)
 - [2.14 Encryption at Rest](./configuration/encryption.md)
+- [2.15 Office Addon](./configuration/office-addon.md)
 
 # 3. API Integration
 

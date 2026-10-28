@@ -277,7 +277,7 @@ impl VizierRequest {
 
         if !all_attachments_info.is_empty() {
             prompt = format!(
-                "{}\n\n# Attached Files\n{}\nthe following files added to your session files.\nUse `read_document_file` for documents and `read_image_file` for images.",
+                "{}\n\n# Attached Files\n{}\nthe following files added to your session files.\nUse `read_document_file` for text documents and PDFs, `read_image_file` for images, and the `office_*` tools for Word and Excel files.",
                 prompt,
                 all_attachments_info.join("\n")
             );
