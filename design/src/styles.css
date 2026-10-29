@@ -16,6 +16,15 @@
  * radii, font sizes and shadows are switched off, so `bg-red-500` or
  * `text-sm` simply don't exist here.
  */
+/* The sigil's signal dot breathes between emerald and white while its agent is live. Reduced motion keeps it emerald. */
+@keyframes vz-breathe {
+  0%, 100% { fill: var(--vz-live); }
+  50% { fill: var(--vz-text); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .vz-breathe { animation: vz-breathe 2.4s ease-in-out infinite; }
+}
+
 @theme {
   --color-*: initial;
   --color-transparent: transparent;

@@ -13,6 +13,8 @@ export type RailAgent = {
   name: string;
   state: AgentState;
   href: string;
+  /** The agent's own picture, when it has one. */
+  imageSrc?: string;
 };
 
 export type RailProps = {
@@ -34,7 +36,7 @@ export type RailProps = {
   user: ReactNode;
 } & HTMLAttributes<HTMLElement>;
 
-/** The corner dot: live and running are emerald, a failing agent amber or red, the rest grey. */
+/** The corner dot of an agent with a picture: live and running are emerald, a failing agent amber or red, the rest grey. */
 const DOT: Record<AgentState, string> = {
   live: "bg-live",
   running: "bg-live",
@@ -165,8 +167,9 @@ export function Rail({
       className="rounded-md hover:opacity-90"
       onClick={(e) => dragged.current && e.preventDefault()}
     >
-      <Sigil size="rail" agentId={a.agentId} live={a.state === "live" || a.state === "running"} />
-      <span aria-hidden className={cx("absolute -right-3 -bottom-3 size-10 rounded-pill border-2 border-shell", DOT[a.state])} />
+      <Sigil size="rail" agentId={a.agentId} image={a.imageSrc} live={a.state === "live" || a.state === "running"} />
+      {/* The pattern shows the agent live by itself; a picture has nowhere to, so it gets the corner dot. */}
+      {a.imageSrc && <span aria-hidden className={cx("absolute -right-3 -bottom-3 size-10 rounded-pill border-2 border-shell", DOT[a.state])} />}
     </RailLink>
   );
   return (
