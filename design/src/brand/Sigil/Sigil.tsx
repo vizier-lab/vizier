@@ -53,7 +53,7 @@ export function Sigil({ agentId, size = "md", live = false, image, label, classN
               cx={(i % 5) * 3 + 2}
               cy={Math.floor(i / 5) * 3 + 2}
               r={1}
-              className={i === signal ? "fill-live vz-breathe" : "fill-ink"}
+              className={i === signal ? "fill-live vz-pulse" : "fill-ink"}
             />
           ) : null,
         )}
