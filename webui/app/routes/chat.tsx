@@ -1,3 +1,4 @@
+import { DeleteConversation, type DeleteTarget } from '../screens/chat/DeleteConversation'
 import { FadeRule, SIDE_PANEL_WIDTH, SideCard } from '../screens/shared/SideCard'
 import { IconButton, JobsPill, Presence, SlideOver, motionDurations, motionEases } from '@vizier/design'
 import { nanoid } from 'nanoid'
@@ -182,6 +183,16 @@ export default function Chat() {
     const topicIndex = topics.findIndex((t) => t.topic_id === topicId)
     const title = conversationTitle(state.title || topics[topicIndex]?.title, topicId)
 
+    // Deleting the conversation on screen: the server refuses while a turn runs in it.
+    const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
+    const deleteConversation = topicId ? (
+        <IconButton
+            icon="trash"
+            aria-label="Delete conversation"
+            onClick={() => setDeleting({ topic: topicId, title })}
+        />
+    ) : null
+
     // The same fresh topic the picker's "New conversation" opens, one click from the header.
     const newConversation = (
         <IconButton
@@ -238,6 +249,7 @@ export default function Chat() {
                                 count={runningJobs}
                                 onClick={() => setSheet(true)}
                             />
+                            {deleteConversation}
                             {newConversation}
                             <IconButton
                                 icon="layers"
@@ -256,6 +268,7 @@ export default function Chat() {
                                 onClick={() => togglePanel(true)}
                                 open={panel}
                             />
+                            {deleteConversation}
                             {newConversation}
                             <IconButton
                                 icon="layers"
@@ -387,6 +400,12 @@ export default function Chat() {
                 </Presence>
                 </div>
             </div>
+            <DeleteConversation
+                agentId={agentId}
+                target={deleting}
+                onClose={() => setDeleting(null)}
+                onDeleted={() => navigate(`/${agentId}/chat/${nanoid(10)}`)}
+            />
             {mobile && (
                 <SlideOver
                     open={sheet}

@@ -13,6 +13,7 @@ import { nanoid } from 'nanoid'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { agentState } from '../../api/endpoints/agents'
+import { DeleteConversation, type DeleteTarget } from '../chat/DeleteConversation'
 import { canManageSecrets } from '../../lib/access'
 import { conversationHref, conversationTitle, sidebarSections, sidebarTime } from '../../lib/conversations'
 import { relativeTime } from '../../lib/format'
@@ -39,6 +40,9 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
     const [switching, setSwitching] = useState(false)
     const [shown, setShown] = useState(SESSIONS_STEP)
     const [sessionQuery, setSessionQuery] = useState('')
+    // The conversation being deleted, while its confirmation is open; and a bump that makes the list look again.
+    const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
+    const [listVersion, setListVersion] = useState(0)
     // The server searches; it is asked once typing pauses.
     const [sessionSearch, setSessionSearch] = useState('')
     useEffect(() => {
@@ -49,7 +53,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
     const agent = agents.find((a) => a.agent_id === agentId)
     const state = agent ? agentState(health[agentId]) : 'stopped'
     const page = pageOf(pathname)
-    const { items, total } = useSessions(agentId, pathname, shown, sessionSearch)
+    const { items, total } = useSessions(agentId, `${pathname}#${listVersion}`, shown, sessionSearch)
 
     const turns = useTurns((s) => s.topics)
     const isLive = (topic: string) => (turns[topicKey(agentId, topic)]?.phase ?? 'idle') !== 'idle'
@@ -65,12 +69,14 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
             sidebarSections(items).map((g) => ({
                 label: g.label,
                 items: g.items.map((c) => ({
-                    key: c.channel,
+                    key: `${c.channel}#${c.latest_topic}`,
                     title: conversationTitle(c.title, c.latest_topic),
                     time: sidebarTime(c.last_activity),
                     live: c.kind === 'webui' && isLive(c.latest_topic),
                     href: conversationHref(agentId, c),
                     active: isCurrent(c),
+                    // Only the WebUI's own conversations: Discord and Telegram ones belong to those platforms.
+                    deletable: c.kind === 'webui',
                 })),
             })),
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -161,6 +167,10 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
             <SessionList
                 groups={groups}
                 onNew={newConversation}
+                onDelete={(key) => {
+                    const c = items.find((i) => `${i.channel}#${i.latest_topic}` === key)
+                    if (c) setDeleting({ topic: c.latest_topic, title: conversationTitle(c.title, c.latest_topic) })
+                }}
                 search={{ value: sessionQuery, onChange: setSessionQuery }}
                 empty={sessionSearch ? 'No conversation matched.' : undefined}
                 showAll={
@@ -168,6 +178,15 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                         ? { label: 'Show more', onSelect: () => setShown((n) => n + SESSIONS_STEP) }
                         : undefined
                 }
+            />
+            <DeleteConversation
+                agentId={agentId}
+                target={deleting}
+                onClose={() => setDeleting(null)}
+                onDeleted={(topic) => {
+                    setListVersion((v) => v + 1)
+                    if (topicId && decodeURIComponent(topicId) === topic) navigate(`/${agentId}/chat/${nanoid(10)}`)
+                }}
             />
         </ContextSidebar>
     )
