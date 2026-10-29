@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow, Context};
+use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use rusqlite::OptionalExtension;
 
@@ -53,12 +53,9 @@ impl AgentStorage for SqliteStorage {
             let Ok(config) = serde_json::from_str::<AgentConfig>(&data) else {
                 continue;
             };
-            let config = crate::encryption::fields::decrypt_agent_config(
-                &self.cipher,
-                &agent_id,
-                &config,
-            )
-            .with_context(|| format!("agent '{agent_id}'"))?;
+            let config =
+                crate::encryption::fields::decrypt_agent_config(&self.cipher, &agent_id, &config)
+                    .with_context(|| format!("agent '{agent_id}'"))?;
             agents.push((agent_id, config));
         }
         Ok(agents)
@@ -82,8 +79,9 @@ impl AgentStorage for SqliteStorage {
         drop(conn);
 
         let config: AgentConfig = serde_json::from_str(&data)?;
-        let config = crate::encryption::fields::decrypt_agent_config(&self.cipher, agent_id, &config)
-            .with_context(|| format!("agent '{agent_id}'"))?;
+        let config =
+            crate::encryption::fields::decrypt_agent_config(&self.cipher, agent_id, &config)
+                .with_context(|| format!("agent '{agent_id}'"))?;
         Ok(Some(config))
     }
 
@@ -150,6 +148,25 @@ impl AgentStorage for SqliteStorage {
         super::notification::delete_agent_notifications(&conn, agent_id)?;
         conn.execute(
             "DELETE FROM session_turn WHERE agent_id = ?1",
+            rusqlite::params![agent_id],
+        )?;
+        // Its transient session-file records and permanent artifact metadata go with it
+        // (`specs/035-add-artifacts`); blobs and content files are removed after the commit by
+        // `SessionFiles` and `Artifacts`.
+        conn.execute(
+            "DELETE FROM session_file WHERE agent_id = ?1",
+            rusqlite::params![agent_id],
+        )?;
+        conn.execute(
+            "DELETE FROM artifact_reference WHERE agent_id = ?1",
+            rusqlite::params![agent_id],
+        )?;
+        conn.execute(
+            "DELETE FROM artifact_event WHERE agent_id = ?1",
+            rusqlite::params![agent_id],
+        )?;
+        conn.execute(
+            "DELETE FROM artifact WHERE agent_id = ?1",
             rusqlite::params![agent_id],
         )?;
         let deleted = conn.execute(
@@ -294,7 +311,8 @@ impl AgentStorage for SqliteStorage {
         let origin = origin
             .clone()
             .with_trigger(RevisionTrigger::Rollback { restored_from: seq });
-        self.set_agent_core(agent_id, &target.content, &origin).await?;
+        self.set_agent_core(agent_id, &target.content, &origin)
+            .await?;
         let after = {
             let conn = self.conn.lock();
             core_revision::latest(&conn, agent_id)?.map(|r| r.seq)
@@ -334,11 +352,18 @@ mod encryption_tests {
     async fn shell_env_is_protected_but_the_rest_of_the_config_is_readable() {
         let h = file_backed();
         let s = &h.storage;
-        s.create_agent("dp-env", &agent_config(json!({"SHELL_TOKEN": "shell-secret-abc123"})))
-            .await
-            .unwrap();
+        s.create_agent(
+            "dp-env",
+            &agent_config(json!({"SHELL_TOKEN": "shell-secret-abc123"})),
+        )
+        .await
+        .unwrap();
 
-        let raw = raw_value(s, "SELECT data FROM agent_config WHERE agent_id = 'dp-env'", &[]);
+        let raw = raw_value(
+            s,
+            "SELECT data FROM agent_config WHERE agent_id = 'dp-env'",
+            &[],
+        );
         assert!(raw.contains("enc:v1:"), "{raw}");
         assert!(!raw.contains("shell-secret-abc123"));
         assert!(raw.contains("\"model\":\"dummyplug\""));
@@ -351,7 +376,10 @@ mod encryption_tests {
 
         s.conn
             .lock()
-            .execute("UPDATE agent_config SET data = replace(data, 'enc:v1:', 'enc:v1:x')", [])
+            .execute(
+                "UPDATE agent_config SET data = replace(data, 'enc:v1:', 'enc:v1:x')",
+                [],
+            )
             .unwrap();
         assert!(s.get_agent("dp-env").await.is_err());
         assert!(s.list_agents().await.is_err());
@@ -369,8 +397,12 @@ mod encryption_tests {
 
         let raw = {
             let conn = s.conn.lock();
-            conn.query_row("SELECT data FROM agent_config WHERE agent_id = 'dp-env'", [], |r| r.get::<_, String>(0))
-                .unwrap()
+            conn.query_row(
+                "SELECT data FROM agent_config WHERE agent_id = 'dp-env'",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .unwrap()
         };
         assert!(!raw.contains("discord_token"));
         assert!(!raw.contains("telegram_token"));

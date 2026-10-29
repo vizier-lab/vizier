@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod artifact;
 pub mod background;
 mod commands;
 pub mod dream_journal;
@@ -20,39 +21,47 @@ mod task;
 pub mod usage;
 
 pub use agent::{
-    AgentConfig, AgentToolsConfig, EmbeddingProvider,
-    EmbeddingConfig, ImageGenProvider, ImageGenToolSettings, IndexerConfig, IndexerKind,
-    ReadImageToolSettings, SttToolSettings, ToolConfig, TtsToolSettings,
+    AgentConfig, AgentToolsConfig, EmbeddingConfig, EmbeddingProvider, ImageGenProvider,
+    ImageGenToolSettings, IndexerConfig, IndexerKind, ReadImageToolSettings, SttToolSettings,
+    ToolConfig, TtsToolSettings,
 };
-pub use commands::{
-    AgentCommand, AgentCommandResult, AgentHealthStatus, AgentModelInfo, AgentRunState, AgentSummary,
-    ChannelHealth, ChannelPlatform, ChannelState,
-    CommandRequest, CommandResponse, FileCommand, MemoryOpEnvelope, MemoryOpRequest,
-    MemoryOpResponse,
+pub use artifact::{
+    Artifact, ArtifactCursor, ArtifactDeleteResult, ArtifactEvent, ArtifactEventAction,
+    ArtifactFilters, ArtifactId, ArtifactKind, ArtifactOrigin, ArtifactPage, ArtifactReference,
+    ArtifactStats, validate_artifact_name,
 };
 pub use background::{
-    BackgroundJob, BackgroundJobId, BackgroundJobSnapshot, BackgroundPiece, BackgroundPieceSnapshot,
-    BackgroundReport, Canceller, JobKind, JobState, PieceState, ReportEntry,
+    BackgroundJob, BackgroundJobId, BackgroundJobSnapshot, BackgroundPiece,
+    BackgroundPieceSnapshot, BackgroundReport, Canceller, JobKind, JobState, PieceState,
+    ReportEntry,
+};
+pub use commands::{
+    AgentCommand, AgentCommandResult, AgentHealthStatus, AgentModelInfo, AgentRunState,
+    AgentSummary, ChannelHealth, ChannelPlatform, ChannelState, CommandRequest, CommandResponse,
+    FileCommand, MemoryOpEnvelope, MemoryOpRequest, MemoryOpResponse,
 };
 pub use dream_journal::{DreamJournalEntry, DreamJournalEntryFrontMatter};
 pub use file::FileRecord;
 pub use global_config::{GlobalConfigEntry, GlobalConfigValue};
+pub use history::{
+    ClientCallOutcome, RecallOrigin, RecalledPassage, SessionHistory, SessionHistoryContent,
+    dedupe_passages, history_entries_to_messages, message_for_model, messages_for_model,
+    messages_to_history_entries, open_tool_calls, seal_tool_calls, split_at_request,
+};
 pub use integration::{
     EventAction, EventDraft, Integration, IntegrationChanged, IntegrationEvent, IntegrationFamily,
     IntegrationGrant, IntegrationStatus,
-};
-pub use history::{
-    ClientCallOutcome, RecallOrigin, RecalledPassage, SessionHistory, SessionHistoryContent, dedupe_passages, history_entries_to_messages, message_for_model,
-    messages_for_model, messages_to_history_entries, open_tool_calls, seal_tool_calls, split_at_request,
 };
 pub use notification::{
     NotificationCategory, NotificationCounts, NotificationDraft, NotificationFilter,
     NotificationItem, NotificationPage, NotificationTone, ReplyBatch,
 };
-pub use provider::{CustomModel, CustomProtocol, CustomProvider, ProviderCredentials, ProviderEntry};
+pub use provider::{
+    CustomModel, CustomProtocol, CustomProvider, ProviderCredentials, ProviderEntry,
+};
 pub use request::{
-    PlatformMessageId, ReactionAction, ReactionEntry, VizierAttachment,
-    ClientEvent, VizierAttachmentContent, VizierRequest, VizierRequestContent,
+    AttachmentResolver, ClientEvent, NoopAttachmentResolver, PlatformMessageId, ReactionAction,
+    ReactionEntry, VizierAttachment, VizierAttachmentContent, VizierRequest, VizierRequestContent,
 };
 pub use response::{ErrorKind, VizierResponse, VizierResponseContent, VizierResponseStats};
 pub use revision::{
@@ -60,21 +69,20 @@ pub use revision::{
     PaginatedCoreRevisions, PaginatedMemoryRevisions, RevisionActor, RevisionDiff, RevisionOrigin,
     RevisionTrigger, RollbackResponse,
 };
+pub use secret::{AgentSecretEvent, SecretAction};
 pub use session::{
     AgentId, DreamStage, DreamStatus, TopicId, VizierChannelId, VizierSession, VizierSessionDetail,
 };
 pub use session_file::SessionFileRecord;
-pub use secret::{AgentSecretEvent, SecretAction};
 pub use storage::{
-    BundleSummary, DEFAULT_BUNDLE, DocumentIndex, ImportReport, Memory, MemoryFrontMatter,
-    MemoryGraph, MemoryGraphEdge, MemoryGraphNode, MemoryPassageResult, MemoryQueryParams,
-    PaginatedMemory, Skill,
-    SkillFrontMatter, default_bundle,
+    BundleSummary, DEFAULT_BUNDLE, DocumentIndex, ImportReport, Memory, MemoryAttachment,
+    MemoryAttachmentView, MemoryFrontMatter, MemoryGraph, MemoryGraphEdge, MemoryGraphNode,
+    MemoryPassageResult, MemoryQueryParams, PaginatedMemory, Skill, SkillFrontMatter,
+    default_bundle,
 };
 pub use task::{Requester, Task, TaskFrontMatter, TaskRun, TaskRunState, TaskSchedule};
 
 use serde::{Deserialize, Serialize};
-
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct User {

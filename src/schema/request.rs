@@ -1,20 +1,17 @@
 use std::fmt::Display;
 use std::path::PathBuf;
 
+use crate::llm::types::{Message, Part};
 use anyhow::Result;
 use base64::Engine;
 use chrono::{DateTime, Utc};
-use crate::llm::types::{Message, Part};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-
 use crate::{error::VizierError, schema::BackgroundReport, utils::get_mime_type};
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum PlatformMessageId {
     Discord(u64),
@@ -28,9 +25,7 @@ pub enum ReactionAction {
     Removed,
 }
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq)]
 pub struct ReactionEntry {
     pub user_id: String,
     pub emoji: String,
@@ -135,6 +130,14 @@ pub enum VizierAttachmentContent {
     Base64(String),
     Url(String),
     Local(String),
+    /// An artifact by identity (`specs/035-add-artifacts`). The bytes are resolved through an
+    /// [`AttachmentResolver`]; `available` is read-time only and never stored.
+    Artifact {
+        agent_id: String,
+        artifact_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        available: Option<bool>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
@@ -143,10 +146,26 @@ pub struct VizierAttachment {
     pub content: VizierAttachmentContent,
 }
 
+/// Turns an artifact identity into its current content path (`specs/035-add-artifacts` R3).
+/// Synchronous because model-part conversion is; the implementation is a single indexed SQLite
+/// read plus one content-file existence check.
+pub trait AttachmentResolver: Send + Sync {
+    fn artifact_path(&self, agent_id: &str, artifact_id: &str) -> Result<Option<PathBuf>>;
+}
+
+/// A resolver for tests and the offline provider: every artifact is unavailable.
+pub struct NoopAttachmentResolver;
+
+impl AttachmentResolver for NoopAttachmentResolver {
+    fn artifact_path(&self, _agent_id: &str, _artifact_id: &str) -> Result<Option<PathBuf>> {
+        Ok(None)
+    }
+}
+
 impl VizierAttachment {
     /// The attachment as a message part. Whether the model gets it, or a note saying it was
     /// attached, is decided by capability in `llm::prepare` (FR-013).
-    pub fn to_part(&self, workspace: &str) -> Result<Part> {
+    pub fn to_part(&self, workspace: &str, resolver: &dyn AttachmentResolver) -> Result<Part> {
         let mime = get_mime_type(&self.filename);
         let data = match &self.content {
             VizierAttachmentContent::Bytes(bytes) => bytes.clone(),
@@ -157,6 +176,26 @@ impl VizierAttachment {
             VizierAttachmentContent::Url(url) => {
                 return Ok(Part::Text(format!("[attachment {}: {url}]", self.filename)));
             }
+            VizierAttachmentContent::Artifact {
+                agent_id,
+                artifact_id,
+                ..
+            } => match resolver.artifact_path(agent_id, artifact_id) {
+                Ok(Some(path)) => std::fs::read(&path).map_err(|e| {
+                    VizierError(format!(
+                        "failed to read artifact {} at {}: {e}",
+                        self.filename,
+                        path.display()
+                    ))
+                })?,
+                // A deleted artifact is a readable note, never a failed turn.
+                _ => {
+                    return Ok(Part::Text(format!(
+                        "[attachment {}: artifact no longer available]",
+                        self.filename
+                    )));
+                }
+            },
         };
         Ok(Part::Attachment {
             mime,
@@ -190,9 +229,7 @@ impl VizierAttachment {
     }
 }
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, Default,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, Default)]
 pub struct VizierRequest {
     pub timestamp: DateTime<Utc>,
     pub user: String,
@@ -255,7 +292,8 @@ impl VizierRequest {
         if self.transient {
             return false;
         }
-        if matches!(&self.content, VizierRequestContent::Command(cmd) if cmd == "abort" || cmd == "dream") {
+        if matches!(&self.content, VizierRequestContent::Command(cmd) if cmd == "abort" || cmd == "dream")
+        {
             return false;
         }
         !matches!(session.1, crate::schema::VizierChannelId::Dream(..))
@@ -335,13 +373,17 @@ impl VizierRequest {
         }))?)
     }
 
-    pub fn to_message(&self, workspace: &str) -> Result<Message> {
+    pub fn to_message(
+        &self,
+        workspace: &str,
+        resolver: &dyn AttachmentResolver,
+    ) -> Result<Message> {
         let mut contents = vec![Part::Text(
             self.to_prompt()
                 .map_err(|err| VizierError(err.to_string()))?,
         )];
         for attachment in self.attachments.iter() {
-            contents.push(attachment.to_part(workspace)?);
+            contents.push(attachment.to_part(workspace, resolver)?);
         }
         Ok(Message::User(contents))
     }
@@ -353,7 +395,10 @@ mod tests {
     fn abort_dream_and_dream_sessions_are_not_durable() {
         use crate::schema::{DreamStage, VizierChannelId, VizierSession};
         let session = VizierSession("a".into(), VizierChannelId::System, None);
-        let req = |content| VizierRequest { content, ..Default::default() };
+        let req = |content| VizierRequest {
+            content,
+            ..Default::default()
+        };
         assert!(req(VizierRequestContent::Chat("hi".into())).is_durable(&session));
         assert!(req(VizierRequestContent::Command("checkpoint".into())).is_durable(&session));
         assert!(!req(VizierRequestContent::Command("abort".into())).is_durable(&session));
@@ -503,7 +548,9 @@ mod tests {
     /// came from (specs/019-client-tools R10).
     #[test]
     fn a_client_event_is_the_persons_message_via_the_client() {
-        let frontmatter = client_event(Some("call-1"), None).generate_frontmatter().unwrap();
+        let frontmatter = client_event(Some("call-1"), None)
+            .generate_frontmatter()
+            .unwrap();
         assert!(frontmatter.contains("sender: alice"), "{frontmatter}");
         assert!(frontmatter.contains("via: client_event"), "{frontmatter}");
         assert!(frontmatter.contains("source_call: call-1"), "{frontmatter}");
@@ -515,9 +562,15 @@ mod tests {
     #[test]
     fn a_client_event_reads_as_its_text_then_its_data() {
         let req = client_event(None, Some(serde_json::json!({ "quarter": 3 })));
-        assert_eq!(req.content.to_string(), "Submitted filters\n\n```json\n{\"quarter\":3}\n```");
+        assert_eq!(
+            req.content.to_string(),
+            "Submitted filters\n\n```json\n{\"quarter\":3}\n```"
+        );
         assert_eq!(req.content.kind(), "client_event");
-        assert_eq!(client_event(None, None).content.to_string(), "Submitted filters");
+        assert_eq!(
+            client_event(None, None).content.to_string(),
+            "Submitted filters"
+        );
     }
 
     /// Declarations and the binding are never written out, so no stored request holds them.

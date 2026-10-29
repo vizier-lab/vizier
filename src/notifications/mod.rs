@@ -17,15 +17,11 @@ use chrono::{DateTime, Utc};
 
 use crate::{
     schema::{
-        EventAction, IntegrationFamily, JobKind, JobState, NotificationCategory,
-        NotificationDraft, NotificationTone, Requester, TaskRunState, VizierChannelId,
-        VizierSession,
+        EventAction, IntegrationFamily, JobKind, JobState, NotificationCategory, NotificationDraft,
+        NotificationTone, Requester, TaskRunState, VizierChannelId, VizierSession,
     },
     storage::{
-        VizierStorage,
-        agent::AgentStorage,
-        notification::NotificationStorage,
-        state::StateStorage,
+        VizierStorage, agent::AgentStorage, notification::NotificationStorage, state::StateStorage,
         user::UserStorage,
     },
 };
@@ -228,7 +224,12 @@ impl Notifications {
     /// A WebUI conversation's reply, addressed to the person whose conversation it is: the
     /// session's channel carries their username, which resolves to the id read state uses.
     /// Discord/Telegram keep the hourly `channel_replies` aggregate instead.
-    pub async fn chat_replied(&self, session: &VizierSession, history_uid: &str, at: DateTime<Utc>) {
+    pub async fn chat_replied(
+        &self,
+        session: &VizierSession,
+        history_uid: &str,
+        at: DateTime<Utc>,
+    ) {
         let VizierChannelId::HTTP(username, _) = &session.1 else {
             return;
         };
@@ -295,24 +296,7 @@ impl Notifications {
     /// `Requester::User` resolves to the username, `Requester::Agent` to the agent's name, and
     /// either falls back to the id.
     async fn actor_name(&self, actor: &Requester) -> String {
-        match actor {
-            Requester::User(id) => self
-                .storage
-                .get_user_by_id(id)
-                .await
-                .ok()
-                .flatten()
-                .map(|user| user.username)
-                .unwrap_or_else(|| id.clone()),
-            Requester::Agent(id) => self
-                .storage
-                .get_agent(id)
-                .await
-                .ok()
-                .flatten()
-                .map(|config| config.name)
-                .unwrap_or_else(|| id.clone()),
-        }
+        crate::utils::actor_display_name(&self.storage, actor).await
     }
 
     // -----------------------------------------------------------------------------------------
@@ -332,10 +316,7 @@ impl Notifications {
 
         let Some(through) = through else {
             self.storage
-                .save_state(
-                    REPLIES_THROUGH.to_string(),
-                    serde_json::json!(now_hour - 1),
-                )
+                .save_state(REPLIES_THROUGH.to_string(), serde_json::json!(now_hour - 1))
                 .await?;
             return Ok(0);
         };
@@ -653,4 +634,3 @@ mod tests {
         );
     }
 }
-

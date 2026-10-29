@@ -7,7 +7,10 @@ use reqwest::StatusCode;
 use crate::channels::http::{
     api::v1::agents::agents,
     auth::middleware::{PermissionState, require_auth, require_permission},
-    models::{self, response::{api_response, APIResponse}},
+    models::{
+        self,
+        response::{APIResponse, api_response},
+    },
     state::HTTPState,
 };
 
@@ -20,6 +23,7 @@ pub mod integrations;
 pub mod notifications;
 pub mod overview;
 pub mod providers;
+pub mod range;
 pub mod skill_support;
 pub mod skills;
 pub mod utils;
@@ -51,87 +55,157 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
         .route(
             "/auth/change-password",
             post(auth::change_password)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "settings:password".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "settings:password".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route(
             "/auth/api-keys",
             post(auth::create_api_key)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "settings:api_keys".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "settings:api_keys".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route(
             "/auth/api-keys",
             get(auth::list_api_keys)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "settings:api_keys".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "settings:api_keys".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route(
             "/auth/api-keys/{key_id}",
             delete(auth::delete_api_key)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "settings:api_keys".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "settings:api_keys".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         // Role management routes (require roles:manage permission)
         .route(
             "/auth/roles",
             get(auth::list_roles)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "roles:manage".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "roles:manage".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route(
             "/auth/roles",
             post(auth::create_role)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "roles:manage".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "roles:manage".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route(
             "/auth/roles/available-permissions",
             get(auth::available_permissions)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "roles:manage".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "roles:manage".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route(
             "/auth/roles/{role_id}",
             get(auth::get_role)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "roles:manage".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "roles:manage".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route(
             "/auth/roles/{role_id}",
             put(auth::update_role)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "roles:manage".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "roles:manage".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route(
             "/auth/roles/{role_id}",
             delete(auth::delete_role)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "roles:manage".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "roles:manage".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         // User management routes (require users:manage permission)
         .route(
             "/auth/users",
             get(auth::list_users)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "users:manage".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "users:manage".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route(
             "/auth/users",
             post(auth::create_user)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "users:manage".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "users:manage".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route(
             "/auth/users/{user_id}",
             put(auth::update_user)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "users:manage".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "users:manage".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .route(
             "/auth/users/{user_id}",
             delete(auth::delete_user)
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "users:manage".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "users:manage".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         // Files routes
@@ -151,7 +225,8 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
         .nest("/integrations", integrations::integrations(state.clone()))
         .nest(
             "/notifications",
-            notifications::notifications().layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+            notifications::notifications()
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .nest(
             "/overview",
@@ -160,7 +235,12 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
         .nest(
             "/providers",
             providers::providers()
-                .layer(middleware::from_fn_with_state(PermissionState { permission: "settings:providers".to_string() }, require_permission))
+                .layer(middleware::from_fn_with_state(
+                    PermissionState {
+                        permission: "settings:providers".to_string(),
+                    },
+                    require_permission,
+                ))
                 .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .nest(
@@ -169,7 +249,8 @@ pub fn v1(state: HTTPState) -> Router<HTTPState> {
         )
         .nest(
             "/embedding-models",
-            embedding::embedding().layer(middleware::from_fn_with_state(state.clone(), require_auth)),
+            embedding::embedding()
+                .layer(middleware::from_fn_with_state(state.clone(), require_auth)),
         )
         .nest(
             "/utils",
@@ -201,7 +282,11 @@ async fn status(
     match state.storage.user_exists().await {
         Ok(exists) => api_response(
             StatusCode::OK,
-            ServerStatus { online: true, version: env!("CARGO_PKG_VERSION"), setup_required: !exists },
+            ServerStatus {
+                online: true,
+                version: env!("CARGO_PKG_VERSION"),
+                setup_required: !exists,
+            },
         ),
         Err(e) => models::response::err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }

@@ -81,6 +81,12 @@ pub fn continued_note(resumed: bool, content: String) -> String {
     }
 }
 
+/// The one short notice a channel sends after a reply's text when an attachment cannot be
+/// resolved or delivered (`specs/035-add-artifacts` FR-053): never silent, never a lost reply.
+pub fn attachment_failure_notice(filename: &str) -> String {
+    format!("[Attachment '{filename}' could not be sent]")
+}
+
 #[cfg(test)]
 mod continued_tests {
     use super::continued_note;

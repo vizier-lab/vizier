@@ -74,7 +74,8 @@ When a config file **is** used, the workspace is `<config dir>/.vizier/`.
     memory/<bundle>/        # markdown memory concepts + index.md + log.md
     skills/<slug>/          # per-agent skills
   skills/<slug>/            # global skills
-  uploads/<file_id>/        # uploaded session files
+  artifacts/<agent_id>/<artifact_id>/  # permanent artifacts (content.v<n>)
+  uploads/<file_id>/        # transient session files
   .runtime/
     vizier.db               # SQLite database (agents, sessions, history, users, memory index…)
     .vizier.sock            # command socket used by `vizier shutdown` / `agent ps`

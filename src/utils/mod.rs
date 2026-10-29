@@ -64,6 +64,33 @@ pub fn agent_workspace(workspace: &str, agent_id: &str) -> PathBuf {
     build_path(workspace, &["agents", agent_id])
 }
 
+/// A display name for a [`crate::schema::Requester`]: a person's username or an agent's name,
+/// falling back to the stored id. One rule shared by notifications and artifact events
+/// (`specs/035-add-artifacts` T066).
+pub async fn actor_display_name(
+    storage: &crate::storage::VizierStorage,
+    actor: &crate::schema::Requester,
+) -> String {
+    use crate::storage::agent::AgentStorage;
+    use crate::storage::user::UserStorage;
+    match actor {
+        crate::schema::Requester::User(id) => storage
+            .get_user_by_id(id)
+            .await
+            .ok()
+            .flatten()
+            .map(|user| user.username)
+            .unwrap_or_else(|| id.clone()),
+        crate::schema::Requester::Agent(id) => storage
+            .get_agent(id)
+            .await
+            .ok()
+            .flatten()
+            .map(|config| config.name)
+            .unwrap_or_else(|| id.clone()),
+    }
+}
+
 pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
     let title = match &*name.clone() {
         "think" => "is thinking:".to_string(),
@@ -74,6 +101,8 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "memory_follow" => "🔗 Following links:".to_string(),
         "memory_graph" => "📊 Knowledge graph:".to_string(),
         "memory_delete" => "🗑️ Deleting memory:".to_string(),
+        "attach_artifact_to_memory" => "📎 Attaching artifact to memory:".to_string(),
+        "detach_attachment_from_memory" => "📎 Detaching memory attachment:".to_string(),
         "list_task" => "📋 Listing tasks:".to_string(),
         "delete_task" => "🗑️ Deleting task:".to_string(),
         "get_task_detail" => "📋 Task detail:".to_string(),
@@ -87,6 +116,10 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "get_session_file_path" => "📍 Getting file path:".to_string(),
         "load_path_as_session_file" => "📥 Loading file:".to_string(),
         "send_attachment" => "📎 Sending attachment:".to_string(),
+        "promote_artifact" => "⭐ Promoting artifact:".to_string(),
+        "update_artifact" => "✏️ Updating artifact:".to_string(),
+        "list_artifacts" => "📚 Listing artifacts".to_string(),
+        "load_artifact_as_session_file" => "📥 Loading artifact:".to_string(),
         "fetch" => "🌐 Fetching:".to_string(),
         "http_client" => format!("🔗 HTTP {}:", args["method"].as_str().unwrap_or("GET")),
         "brave_search_web" => "🌐 Searching web:".to_string(),
@@ -194,13 +227,10 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
             format!("'{}'", args["filename"].as_str().unwrap_or("?"))
         }
         "send_attachment" => {
-            format!("'{}'", args["filename"].as_str().unwrap_or("?"))
+            format!("'{}'", args["artifact"].as_str().unwrap_or("?"))
         }
         "fetch" => format!("'{}'", args["url"].as_str().unwrap_or("?")),
-        "http_client" => format!(
-            "'{}'",
-            args["url"].as_str().unwrap_or("?")
-        ),
+        "http_client" => format!("'{}'", args["url"].as_str().unwrap_or("?")),
         "brave_search_web" | "brave_search_news" => {
             format!("'{}'", args["query"].as_str().unwrap_or("?"))
         }
@@ -232,12 +262,8 @@ pub fn format_thinking(name: &String, args: &serde_json::Value) -> String {
         "read_dream_journal" => {
             let parts = vec![
                 args["stage"].as_str().map(|s| format!("stage: {}", s)),
-                args["cycle_id"]
-                    .as_str()
-                    .map(|s| format!("cycle: {}", s)),
-                args["limit"]
-                    .as_u64()
-                    .map(|l| format!("limit: {}", l)),
+                args["cycle_id"].as_str().map(|s| format!("cycle: {}", s)),
+                args["limit"].as_u64().map(|l| format!("limit: {}", l)),
             ];
             let filters: Vec<String> = parts.into_iter().flatten().collect();
             if filters.is_empty() {

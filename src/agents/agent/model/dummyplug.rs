@@ -493,7 +493,7 @@ mod tests {
             metadata: json!({}),
             ..Default::default()
         }
-        .to_message("")
+        .to_message("", &crate::schema::NoopAttachmentResolver)
         .unwrap()
     }
 

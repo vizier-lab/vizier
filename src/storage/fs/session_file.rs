@@ -103,4 +103,83 @@ impl SessionFileStorage for FileSystemStorage {
 
         Ok(())
     }
+
+    async fn delete_session_files(&self, session: &VizierSession) -> Result<usize> {
+        let dir = self.session_file_dir(session);
+        if !dir.exists() {
+            return Ok(0);
+        }
+        let mut removed = 0;
+        let mut entries = tokio::fs::read_dir(&dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            if entry.path().extension().and_then(|e| e.to_str()) == Some("json") {
+                tokio::fs::remove_file(entry.path()).await?;
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
+
+    async fn list_agent_files(&self, agent_id: &str) -> Result<Vec<SessionFileRecord>> {
+        let root = PathBuf::from(&self.workspace)
+            .join("agents")
+            .join(agent_id)
+            .join(SESSION_FILE_PATH);
+        if !root.exists() {
+            return Ok(vec![]);
+        }
+        let mut records = vec![];
+        let mut channels = tokio::fs::read_dir(&root).await?;
+        while let Some(channel) = channels.next_entry().await? {
+            if !channel.path().is_dir() {
+                continue;
+            }
+            let mut topics = tokio::fs::read_dir(channel.path()).await?;
+            while let Some(topic) = topics.next_entry().await? {
+                if !topic.path().is_dir() {
+                    continue;
+                }
+                let mut files = tokio::fs::read_dir(topic.path()).await?;
+                while let Some(file) = files.next_entry().await? {
+                    if file.path().extension().and_then(|e| e.to_str()) == Some("json") {
+                        if let Ok(bytes) = tokio::fs::read(file.path()).await {
+                            if let Ok(record) = serde_json::from_slice::<SessionFileRecord>(&bytes)
+                            {
+                                records.push(record);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(records)
+    }
+
+    async fn session_file_reference_count(&self, file_id: &str) -> Result<usize> {
+        fn walk(dir: &std::path::Path, file_id: &str, count: &mut usize) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, file_id, count);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                    if let Ok(bytes) = std::fs::read(&path) {
+                        if let Ok(record) = serde_json::from_slice::<SessionFileRecord>(&bytes) {
+                            if record.file_id == file_id {
+                                *count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let agents = PathBuf::from(&self.workspace).join("agents");
+        let mut count = 0;
+        if agents.exists() {
+            walk(&agents, file_id, &mut count);
+        }
+        Ok(count)
+    }
 }

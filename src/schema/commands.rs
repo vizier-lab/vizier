@@ -146,9 +146,7 @@ pub enum AgentCommand {
     },
     /// Rebuild the running agent's integration tools from storage, without a restart. A
     /// no-op for an agent that isn't running: its next build reads storage.
-    RefreshIntegrations {
-        agent_id: String,
-    },
+    RefreshIntegrations { agent_id: String },
     /// This agent's view of its attached integrations, by integration id. Empty while the
     /// agent isn't running.
     IntegrationStatus {
@@ -204,7 +202,21 @@ pub enum MemoryOpRequest {
         title: String,
         content: String,
         tags: Vec<String>,
-        attachments: Vec<VizierAttachment>,
+        origin: RevisionOrigin,
+    },
+    /// Attach one artifact (owned by this agent) to an existing memory (specs/035).
+    AttachArtifact {
+        bundle: Option<String>,
+        path: String,
+        artifact_id: String,
+        artifact_name: String,
+        origin: RevisionOrigin,
+    },
+    /// Remove one attachment by display name, artifact or legacy session file.
+    DetachAttachment {
+        bundle: Option<String>,
+        path: String,
+        name: String,
         origin: RevisionOrigin,
     },
     Query {

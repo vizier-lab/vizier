@@ -7,17 +7,129 @@
 //! on a timer ([`watch`]) and sends only when the finished list differs from the last one the
 //! platform accepted.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
 
-use crate::schema::{AgentId, Skill};
+use crate::schema::{AgentId, Skill, VizierSession};
 use crate::skill::{SkillManager, invocation};
 
 /// How often the skills are re-read for a changed command list.
 const RESYNC_EVERY: Duration = Duration::from_secs(60);
+
+/// How long a `/clear-files` confirmation waits for its `confirm`.
+pub const CLEAR_CONFIRM_TTL: Duration = Duration::from_secs(60);
+
+/// Pending `/clear-files` confirmations, one per conversation, expiring after
+/// [`CLEAR_CONFIRM_TTL`] (`specs/035-add-artifacts` contracts/session-files.md §5). Both channel
+/// readers use the same two-step flow; the WebUI sends the confirmed DELETE directly.
+pub struct ClearConfirmations {
+    pending: parking_lot::Mutex<HashMap<String, Instant>>,
+}
+
+impl Default for ClearConfirmations {
+    fn default() -> Self {
+        Self {
+            pending: parking_lot::Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+impl ClearConfirmations {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a request for this conversation, replacing any earlier one.
+    pub fn request(&self, session: &VizierSession) -> Instant {
+        let now = Instant::now();
+        self.pending.lock().insert(session.to_slug(), now);
+        now
+    }
+
+    /// Consume a pending confirmation. `true` only when one exists and is within the TTL.
+    pub fn take(&self, session: &VizierSession) -> bool {
+        let key = session.to_slug();
+        let mut pending = self.pending.lock();
+        match pending.remove(&key) {
+            Some(at) if at.elapsed() <= CLEAR_CONFIRM_TTL => true,
+            _ => false,
+        }
+    }
+
+    pub fn cancel(&self, session: &VizierSession) {
+        self.pending.lock().remove(&session.to_slug());
+    }
+}
+
+#[cfg(test)]
+mod clear_confirmation_tests {
+    use super::*;
+    use crate::schema::VizierChannelId;
+
+    fn session(topic: &str) -> VizierSession {
+        VizierSession(
+            "a".into(),
+            VizierChannelId::DiscordChanel(1),
+            Some(topic.into()),
+        )
+    }
+
+    #[test]
+    fn request_then_confirm_is_accepted_once() {
+        let clear = ClearConfirmations::new();
+        let s = session("t");
+        clear.request(&s);
+        assert!(clear.take(&s));
+        // A second confirm without a new request is refused.
+        assert!(!clear.take(&s));
+    }
+
+    #[test]
+    fn confirm_without_a_request_is_refused() {
+        assert!(!ClearConfirmations::new().take(&session("t")));
+    }
+
+    #[test]
+    fn cancel_removes_the_pending_request() {
+        let clear = ClearConfirmations::new();
+        let s = session("t");
+        clear.request(&s);
+        clear.cancel(&s);
+        assert!(!clear.take(&s));
+    }
+
+    #[test]
+    fn an_expired_request_is_refused() {
+        let clear = ClearConfirmations::new();
+        let s = session("t");
+        clear.pending.lock().insert(
+            s.to_slug(),
+            Instant::now() - CLEAR_CONFIRM_TTL - Duration::from_secs(1),
+        );
+        assert!(!clear.take(&s));
+    }
+
+    #[test]
+    fn a_new_request_replaces_the_old_one() {
+        let clear = ClearConfirmations::new();
+        let s = session("t");
+        clear.request(&s);
+        clear.request(&s);
+        assert!(clear.take(&s));
+        assert!(!clear.take(&s));
+    }
+
+    #[test]
+    fn conversation_slugs_separate_their_requests() {
+        let clear = ClearConfirmations::new();
+        clear.request(&session("one"));
+        assert!(!clear.take(&session("two")));
+        assert!(clear.take(&session("one")));
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandOption {
@@ -29,7 +141,12 @@ pub struct CommandOption {
 
 impl CommandOption {
     pub fn text(name: &str, description: &str) -> Self {
-        Self { name: name.into(), description: description.into(), required: false, autocomplete: false }
+        Self {
+            name: name.into(),
+            description: description.into(),
+            required: false,
+            autocomplete: false,
+        }
     }
 }
 
@@ -42,7 +159,11 @@ pub struct CommandEntry {
 
 impl CommandEntry {
     pub fn new(name: &str, description: &str) -> Self {
-        Self { name: name.into(), description: description.into(), options: vec![] }
+        Self {
+            name: name.into(),
+            description: description.into(),
+            options: vec![],
+        }
     }
 
     pub fn option(mut self, option: CommandOption) -> Self {
@@ -71,20 +192,29 @@ pub fn name_ok(name: &str, allowed: impl Fn(char) -> bool) -> bool {
 /// `/skill name:<skill> input:<text>` and `/skills`.
 fn skill_commands() -> [CommandEntry; 2] {
     [
-        CommandEntry::new("skill", "Run one of my skills by name").option(CommandOption {
-            name: "name".into(),
-            description: "The skill to run".into(),
-            required: true,
-            autocomplete: true,
-        })
-        .option(CommandOption::text("input", "What to run it on")),
+        CommandEntry::new("skill", "Run one of my skills by name")
+            .option(CommandOption {
+                name: "name".into(),
+                description: "The skill to run".into(),
+                required: true,
+                autocomplete: true,
+            })
+            .option(CommandOption::text("input", "What to run it on")),
         CommandEntry::new("skills", "List the skills you can run"),
     ]
 }
 
 fn description(skill: &Skill, max: usize) -> String {
-    let text = skill.description.split_whitespace().collect::<Vec<_>>().join(" ");
-    let text = if text.chars().count() < 3 { format!("Run the {} skill", skill.name) } else { text };
+    let text = skill
+        .description
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let text = if text.chars().count() < 3 {
+        format!("Run the {} skill", skill.name)
+    } else {
+        text
+    };
     if text.chars().count() <= max {
         return text;
     }
@@ -95,7 +225,10 @@ fn description(skill: &Skill, max: usize) -> String {
 
 /// The command list for `skills` under `rules`, and every skill left out with the reason.
 /// A skill that gets no command of its own is still reachable through `/skill`.
-pub fn build(skills: &[Skill], rules: &PlatformRules) -> (Vec<CommandEntry>, Vec<(String, &'static str)>) {
+pub fn build(
+    skills: &[Skill],
+    rules: &PlatformRules,
+) -> (Vec<CommandEntry>, Vec<(String, &'static str)>) {
     let mut entries = rules.builtins.clone();
     for command in skill_commands() {
         if !entries.iter().any(|entry| entry.name == command.name) {
@@ -112,7 +245,10 @@ pub fn build(skills: &[Skill], rules: &PlatformRules) -> (Vec<CommandEntry>, Vec
     for skill in skills {
         let name = (rules.convert)(&skill.name);
         if !(rules.name_ok)(&name) {
-            skipped.push((skill.name.clone(), "its name is not a valid command name here"));
+            skipped.push((
+                skill.name.clone(),
+                "its name is not a valid command name here",
+            ));
         } else if taken.contains(&name) || invocation::RESERVED.contains(&name.as_str()) {
             skipped.push((skill.name.clone(), "its name is already a built-in command"));
         } else {
@@ -126,7 +262,10 @@ pub fn build(skills: &[Skill], rules: &PlatformRules) -> (Vec<CommandEntry>, Vec
     for (name, skill) in &candidates {
         let rivals = candidates.iter().filter(|(other, _)| other == name).count();
         if rivals > 1 && skill.name != *name {
-            skipped.push((skill.name.clone(), "another skill has the same command name"));
+            skipped.push((
+                skill.name.clone(),
+                "another skill has the same command name",
+            ));
             continue;
         }
         skill_entries.push(
@@ -137,7 +276,10 @@ pub fn build(skills: &[Skill], rules: &PlatformRules) -> (Vec<CommandEntry>, Vec
 
     for entry in skill_entries {
         if entries.len() >= rules.max_commands {
-            skipped.push((entry.name, "the bot already has as many commands as the platform allows"));
+            skipped.push((
+                entry.name,
+                "the bot already has as many commands as the platform allows",
+            ));
         } else {
             entries.push(entry);
         }
@@ -214,7 +356,9 @@ impl CommandSync {
         }
         match send(entries.clone()).await {
             Ok(()) => *sent = Some(entries),
-            Err(e) => tracing::warn!(agent_id = %self.agent_id, "could not register bot commands: {e:#}"),
+            Err(e) => {
+                tracing::warn!(agent_id = %self.agent_id, "could not register bot commands: {e:#}")
+            }
         }
     }
 }
@@ -263,7 +407,11 @@ mod tests {
 
     fn rules(max_commands: usize, convert: fn(&str) -> String) -> PlatformRules {
         PlatformRules {
-            name_ok: |name| name_ok(name, |c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
+            name_ok: |name| {
+                name_ok(name, |c| {
+                    c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'
+                })
+            },
             convert,
             max_commands,
             max_description: 10,
@@ -279,37 +427,73 @@ mod tests {
     fn builtins_then_skill_commands_then_skills_by_name() {
         let skills = [skill("zeta", "last one"), skill("alpha", "first one")];
         let (entries, skipped) = build(&skills, &rules(100, str::to_lowercase));
-        assert_eq!(names(&entries), ["abort", "skill", "skills", "alpha", "zeta"]);
+        assert_eq!(
+            names(&entries),
+            ["abort", "skill", "skills", "alpha", "zeta"]
+        );
         assert!(skipped.is_empty());
-        assert_eq!(entries[3].options, [CommandOption::text("input", "What to run it on")]);
+        assert_eq!(
+            entries[3].options,
+            [CommandOption::text("input", "What to run it on")]
+        );
     }
 
     #[test]
     fn stops_at_the_cap_and_cuts_descriptions() {
-        let skills = [skill("a", "a very long description"), skill("b", "short"), skill("c", "")];
+        let skills = [
+            skill("a", "a very long description"),
+            skill("b", "short"),
+            skill("c", ""),
+        ];
         let (entries, skipped) = build(&skills, &rules(5, str::to_lowercase));
         assert_eq!(names(&entries), ["abort", "skill", "skills", "a", "b"]);
         assert_eq!(entries[3].description, "a very lo…");
         assert_eq!(entries[3].description.chars().count(), 10);
-        assert_eq!(skipped, [("c".to_string(), "the bot already has as many commands as the platform allows")]);
+        assert_eq!(
+            skipped,
+            [(
+                "c".to_string(),
+                "the bot already has as many commands as the platform allows"
+            )]
+        );
     }
 
     #[test]
     fn skips_builtin_clashes_and_invalid_names() {
-        let skills = [skill("abort", "x"), skill("has space", "x"), skill("ok", "fine")];
+        let skills = [
+            skill("abort", "x"),
+            skill("has space", "x"),
+            skill("ok", "fine"),
+        ];
         let (entries, skipped) = build(&skills, &rules(100, str::to_lowercase));
         assert_eq!(names(&entries), ["abort", "skill", "skills", "ok"]);
         assert_eq!(skipped.len(), 2);
-        assert_eq!(entries[0].description, "Stop the turn", "the built-in keeps its entry");
+        assert_eq!(
+            entries[0].description, "Stop the turn",
+            "the built-in keeps its entry"
+        );
     }
 
     #[test]
     fn telegram_conversion_keeps_the_exact_name_when_two_collide() {
         let telegram = |name: &str| name.to_lowercase().replace('-', "_");
-        let skills = [skill("release-notes", "dash"), skill("release_notes", "underscore"), skill("team-sync", "sync")];
+        let skills = [
+            skill("release-notes", "dash"),
+            skill("release_notes", "underscore"),
+            skill("team-sync", "sync"),
+        ];
         let (entries, skipped) = build(&skills, &rules(100, telegram));
-        assert_eq!(names(&entries), ["abort", "skill", "skills", "release_notes", "team_sync"]);
+        assert_eq!(
+            names(&entries),
+            ["abort", "skill", "skills", "release_notes", "team_sync"]
+        );
         assert_eq!(entries[3].description, "underscore");
-        assert_eq!(skipped, [("release-notes".to_string(), "another skill has the same command name")]);
+        assert_eq!(
+            skipped,
+            [(
+                "release-notes".to_string(),
+                "another skill has the same command name"
+            )]
+        );
     }
 }

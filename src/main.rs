@@ -10,6 +10,7 @@ use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberI
 pub type Result<T> = std::result::Result<T, VizierError>;
 
 mod agents;
+mod artifacts;
 mod catalogue;
 mod channels;
 mod cli;
@@ -29,20 +30,21 @@ mod sandbox;
 mod scheduler;
 mod schema;
 mod secrets;
+mod session_files;
 mod setup;
 
-mod skill;
-mod storage;
-mod transport;
-mod usage;
-mod tts;
-mod stt;
-mod telemetry;
+mod access;
 mod image_generation;
 mod provider_keys;
 mod provider_migration;
+mod skill;
+mod storage;
+mod stt;
+mod telemetry;
+mod transport;
+mod tts;
+mod usage;
 mod utils;
-mod access;
 
 #[cfg(test)]
 mod tests_support;

@@ -3,9 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, RwLock};
 
+use crate::llm::types::Message;
 use anyhow::Result;
 use chrono::Utc;
-use crate::llm::types::Message;
 use tokio::sync::watch;
 use tokio::task::{AbortHandle, Id as TaskId, JoinHandle, JoinSet};
 
@@ -29,15 +29,23 @@ use crate::{
     },
     skill::invocation::{self, Invoked, Parsed},
     storage::{
-        VizierStorage, dream_journal::DreamJournalStorage,
+        VizierStorage,
+        dream_journal::DreamJournalStorage,
         history::{HistoryStorage, save_with_busy_retry},
-        memory::MemoryStorage, scratch::ScratchStorage, session::SessionStorage, turn::TurnStorage,
+        memory::MemoryStorage,
+        scratch::ScratchStorage,
+        session::SessionStorage,
+        turn::TurnStorage,
     },
     transport::{DreamCommand, SessionEvent, SessionFrame, VizierRequestEnvelope, VizierTransport},
 };
 
 /// Requests waiting for the session's running job, each with where its response goes.
-type SessionQueue = VecDeque<(VizierRequest, Option<flume::Sender<VizierResponse>>, TurnRef)>;
+type SessionQueue = VecDeque<(
+    VizierRequest,
+    Option<flume::Sender<VizierResponse>>,
+    TurnRef,
+)>;
 
 fn abort_session_silent(
     session: &VizierSession,
@@ -54,12 +62,7 @@ fn abort_session_silent(
     let session_clone = session.clone();
     tokio::spawn(async move {
         let _ = storage_clone
-            .update_thinking_state(
-                session_clone.0,
-                session_clone.1,
-                session_clone.2,
-                false,
-            )
+            .update_thinking_state(session_clone.0, session_clone.1, session_clone.2, false)
             .await;
     });
     session_queues.remove(session);
@@ -79,13 +82,8 @@ async fn abort_session_notify(
     // The aborted turn's own sender hears it too: Discord and Telegram send `/abort` with
     // no sender of their own, and only the turn's renderer can say "thinking aborted".
     let turn_tx = turns.response_tx(session);
-    let had_in_flight = abort_session_silent(
-        session,
-        turns,
-        thinking_handles,
-        session_queues,
-        storage,
-    );
+    let had_in_flight =
+        abort_session_silent(session, turns, thinking_handles, session_queues, storage);
     // A call the abort cut off gets its result now. The task may still be finishing a save
     // as it is dropped; a doubled result for one call is dropped again on replay.
     if had_in_flight {
@@ -99,7 +97,10 @@ async fn abort_session_notify(
     // The turn and its queue are gone, so a message sent straight after starts afresh.
     clear_idle_scratch(storage, session).await;
     if had_in_flight {
-        for tx in [turn_tx.as_ref(), response_tx.as_ref()].into_iter().flatten() {
+        for tx in [turn_tx.as_ref(), response_tx.as_ref()]
+            .into_iter()
+            .flatten()
+        {
             let _ = tx
                 .send_async(VizierResponse {
                     timestamp: chrono::Utc::now(),
@@ -307,17 +308,34 @@ pub async fn agent_process(
     let replacing = !deleting.load(std::sync::atomic::Ordering::SeqCst);
     let mut resumed_turns = Vec::new();
     for (session, response_tx, turn) in turns.stop_all(TURN_STOP_TIMEOUT).await {
-        seal_open_calls(&deps.storage, &deps.transport, &session, None, StopReason::AgentRestarted).await;
+        seal_open_calls(
+            &deps.storage,
+            &deps.transport,
+            &session,
+            None,
+            StopReason::AgentRestarted,
+        )
+        .await;
         if replacing && turn.id.is_some() {
             if let Some(handle) = thinking_handles.remove(&session) {
                 handle.abort();
             }
-            resumed_turns.push((session, response_tx, TurnRef { resumed: true, ..turn }));
+            resumed_turns.push((
+                session,
+                response_tx,
+                TurnRef {
+                    resumed: true,
+                    ..turn
+                },
+            ));
             continue;
         }
         notify_turn_stopped(&session, response_tx, &mut thinking_handles, &deps.storage).await;
         // A session whose queue is handed on carries on in the next instance, scratch and all.
-        if session_queues.get(&session).is_none_or(|queue| queue.is_empty()) {
+        if session_queues
+            .get(&session)
+            .is_none_or(|queue| queue.is_empty())
+        {
             clear_idle_scratch(&deps.storage, &session).await;
         }
     }
@@ -326,7 +344,14 @@ pub async fn agent_process(
 }
 
 /// Queues a handover ahead of the queued messages and behind any handover already waiting.
-fn queue_handover(queue: &mut SessionQueue, item: (VizierRequest, Option<flume::Sender<VizierResponse>>, TurnRef)) {
+fn queue_handover(
+    queue: &mut SessionQueue,
+    item: (
+        VizierRequest,
+        Option<flume::Sender<VizierResponse>>,
+        TurnRef,
+    ),
+) {
     let position = queue
         .iter()
         .position(|(queued, _, _)| !is_handover_command(queued))
@@ -357,7 +382,12 @@ async fn notify_turn_stopped(
         handle.abort();
     }
     let _ = storage
-        .update_thinking_state(session.0.clone(), session.1.clone(), session.2.clone(), false)
+        .update_thinking_state(
+            session.0.clone(),
+            session.1.clone(),
+            session.2.clone(),
+            false,
+        )
         .await;
     if let Some(tx) = response_tx {
         let _ = tx
@@ -381,7 +411,11 @@ async fn notify_turn_stopped(
 /// delete), their senders are told so.
 async fn hand_on_queued(
     session_queues: HashMap<VizierSession, SessionQueue>,
-    resumed_turns: Vec<(VizierSession, Option<flume::Sender<VizierResponse>>, TurnRef)>,
+    resumed_turns: Vec<(
+        VizierSession,
+        Option<flume::Sender<VizierResponse>>,
+        TurnRef,
+    )>,
     deps: &VizierDependencies,
 ) {
     // Turns that were running go first, ahead of their session's queue, on their own sender.
@@ -431,8 +465,7 @@ async fn hand_on_queued(
                             timestamp: chrono::Utc::now(),
                             content: VizierResponseContent::Error {
                                 kind: ErrorKind::AgentUnavailable,
-                                message: "The agent was removed before it got to this."
-                                    .to_string(),
+                                message: "The agent was removed before it got to this.".to_string(),
                             },
                             attachments: vec![],
                             ..Default::default()
@@ -456,7 +489,9 @@ struct TitlingClaim {
 
 impl TitlingClaim {
     fn take(titling: &TitlingSessions, session: &VizierSession) -> Option<Self> {
-        let mut in_flight = titling.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut in_flight = titling
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         in_flight.insert(session.clone()).then(|| Self {
             titling: titling.clone(),
             session: session.clone(),
@@ -544,10 +579,18 @@ async fn refresh_session_detail(
         hooks: None,
         background_depth: 0,
         deadline: None,
+        dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
     };
     let Ok((title, _, _, _)) = agent
-        .prompt(Message::User(vec![crate::llm::types::Part::Text(prompt)]), vec![], 0, None, false, &ctx)
+        .prompt(
+            Message::User(vec![crate::llm::types::Part::Text(prompt)]),
+            vec![],
+            0,
+            None,
+            false,
+            &ctx,
+        )
         .await
     else {
         return;
@@ -612,7 +655,14 @@ struct FinishedTurn {
 struct SessionTurns {
     tasks: JoinSet<()>,
     running: HashMap<VizierSession, (TaskId, AbortHandle)>,
-    spawned: HashMap<TaskId, (VizierSession, Option<flume::Sender<VizierResponse>>, TurnRef)>,
+    spawned: HashMap<
+        TaskId,
+        (
+            VizierSession,
+            Option<flume::Sender<VizierResponse>>,
+            TurnRef,
+        ),
+    >,
 }
 
 impl SessionTurns {
@@ -627,7 +677,8 @@ impl SessionTurns {
     {
         let handle = self.tasks.spawn(turn);
         let id = handle.id();
-        self.spawned.insert(id, (session.clone(), response_tx, turn_ref));
+        self.spawned
+            .insert(id, (session.clone(), response_tx, turn_ref));
         self.running.insert(session, (id, handle));
     }
 
@@ -668,7 +719,10 @@ impl SessionTurns {
             let Some((session, response_tx, turn)) = self.spawned.remove(&id) else {
                 continue;
             };
-            let current = self.running.get(&session).is_some_and(|(running, _)| *running == id);
+            let current = self
+                .running
+                .get(&session)
+                .is_some_and(|(running, _)| *running == id);
             if current {
                 self.running.remove(&session);
             }
@@ -688,7 +742,11 @@ impl SessionTurns {
     async fn stop_all(
         &mut self,
         timeout: Duration,
-    ) -> Vec<(VizierSession, Option<flume::Sender<VizierResponse>>, TurnRef)> {
+    ) -> Vec<(
+        VizierSession,
+        Option<flume::Sender<VizierResponse>>,
+        TurnRef,
+    )> {
         let stopped = self
             .running
             .drain()
@@ -786,7 +844,13 @@ fn start_session_job(
     let thinking_response_tx = response_tx.clone();
     let thinking_request = request.clone();
     let thinking_handle = Arc::new(tokio::spawn(async move {
-        if matches!(thinking_request.content, VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(_, _) | VizierRequestContent::BackgroundReport(_) | VizierRequestContent::ClientEvent(_)) {
+        if matches!(
+            thinking_request.content,
+            VizierRequestContent::Chat(_)
+                | VizierRequestContent::AudioChat(_, _)
+                | VizierRequestContent::BackgroundReport(_)
+                | VizierRequestContent::ClientEvent(_)
+        ) {
             if let Some(ref tx) = thinking_response_tx {
                 let _ = tx
                     .send_async(VizierResponse {
@@ -808,72 +872,77 @@ fn start_session_job(
     let indexer = jobs.indexer.clone();
     let turn_session = session.clone();
     let turn_response_tx = response_tx.clone();
-    turns.spawn(
-        turn_session,
-        turn_response_tx,
-        turn,
-        async move {
-            if let Some(id) = turn.id
-                && let Err(e) = storage.start_turn(id).await
-            {
-                tracing::warn!("could not mark a turn running: {e}");
+    turns.spawn(turn_session, turn_response_tx, turn, async move {
+        if let Some(id) = turn.id
+            && let Err(e) = storage.start_turn(id).await
+        {
+            tracing::warn!("could not mark a turn running: {e}");
+        }
+        // Set is_thinking = true
+        let _ = storage
+            .update_thinking_state(
+                session.0.clone(),
+                session.1.clone(),
+                session.2.clone(),
+                true,
+            )
+            .await;
+
+        let result = match &request.content {
+            VizierRequestContent::Command(cmd) if cmd == "checkpoint" => {
+                run_checkpoint(&agent, &storage, &session, &response_tx).await;
+                Ok(())
             }
-            // Set is_thinking = true
-            let _ = storage
-                .update_thinking_state(session.0.clone(), session.1.clone(), session.2.clone(), true)
-                .await;
-
-            let result = match &request.content {
-                VizierRequestContent::Command(cmd) if cmd == "checkpoint" => {
-                    run_checkpoint(&agent, &storage, &session, &response_tx).await;
-                    Ok(())
-                }
-                VizierRequestContent::Command(cmd) if cmd == "lobotomy" => {
-                    run_lobotomy(&storage, &session, &response_tx).await;
-                    Ok(())
-                }
-                _ => {
-                    handle_request(
-                        agent.clone(),
-                        agent_config.clone(),
-                        session.clone(),
-                        request.clone(),
-                        response_tx.clone(),
-                        storage.clone(),
-                        indexer.clone(),
-                        &deps,
-                        turn,
-                    )
-                    .await
-                }
-            };
-
-            if let Err(err) = result {
-                tracing::error!("{}", err);
-                if let Some(ref tx) = response_tx {
-                    let err_str = err.to_string();
-                    let _ = tx
-                        .send_async(VizierResponse {
-                            timestamp: chrono::Utc::now(),
-                            content: VizierResponseContent::Error {
-                                kind: ErrorKind::classify(&err_str),
-                                message: err_str,
-                            },
-                            attachments: vec![],
-                            ..Default::default()
-                        })
-                        .await;
-                }
+            VizierRequestContent::Command(cmd) if cmd == "lobotomy" => {
+                run_lobotomy(&storage, &session, &response_tx).await;
+                Ok(())
             }
+            _ => {
+                handle_request(
+                    agent.clone(),
+                    agent_config.clone(),
+                    session.clone(),
+                    request.clone(),
+                    response_tx.clone(),
+                    storage.clone(),
+                    indexer.clone(),
+                    &deps,
+                    turn,
+                )
+                .await
+            }
+        };
 
-            thinking_handle.abort();
+        if let Err(err) = result {
+            tracing::error!("{}", err);
+            if let Some(ref tx) = response_tx {
+                let err_str = err.to_string();
+                let _ = tx
+                    .send_async(VizierResponse {
+                        timestamp: chrono::Utc::now(),
+                        content: VizierResponseContent::Error {
+                            kind: ErrorKind::classify(&err_str),
+                            message: err_str,
+                        },
+                        attachments: vec![],
+                        ..Default::default()
+                    })
+                    .await;
+            }
+        }
 
-            // Set is_thinking = false
-            let _ = storage
-                .update_thinking_state(session.0.clone(), session.1.clone(), session.2.clone(), false)
-                .await;
-        },
-    );
+        thinking_handle.abort();
+
+        // Set is_thinking = false
+        let _ = storage
+            .update_thinking_state(
+                session.0.clone(),
+                session.1.clone(),
+                session.2.clone(),
+                false,
+            )
+            .await;
+    });
 }
 
 async fn send_text(response_tx: &Option<flume::Sender<VizierResponse>>, content: String) {
@@ -951,6 +1020,7 @@ async fn run_checkpoint(
         hooks: None,
         background_depth: 0,
         deadline: None,
+        dream_sources: vec![],
         secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
     };
 
@@ -968,7 +1038,10 @@ async fn run_checkpoint(
     };
 
     // Save checkpoint
-    if let Err(e) = storage.save_checkpoint(session.clone(), handover.clone()).await {
+    if let Err(e) = storage
+        .save_checkpoint(session.clone(), handover.clone())
+        .await
+    {
         tracing::error!("Failed to save checkpoint: {}", e);
         send_text(response_tx, format!("Failed to save checkpoint: {}", e)).await;
         return;
@@ -1247,19 +1320,33 @@ pub async fn handle_request(
                     Parsed::Plain => {}
                     Parsed::List => {
                         let reply = list_reply(agent.skills());
-                        return answer_directly(&storage, &session, request, &response_tx, reply).await;
+                        return answer_directly(&storage, &session, request, &response_tx, reply)
+                            .await;
                     }
                     Parsed::Invoke { name, input } => match agent.skills().resolve(&name) {
                         Ok(Some(skill)) => {
-                            set_metadata(&mut request.metadata, "invoked_skill", skill.name.clone().into());
+                            set_metadata(
+                                &mut request.metadata,
+                                "invoked_skill",
+                                skill.name.clone().into(),
+                            );
                             invoked = Some(Invoked { skill, input });
                         }
                         Ok(None) => {
                             let reply = not_found_reply(agent.skills(), &name);
-                            return answer_directly(&storage, &session, request, &response_tx, reply).await;
+                            return answer_directly(
+                                &storage,
+                                &session,
+                                request,
+                                &response_tx,
+                                reply,
+                            )
+                            .await;
                         }
                         Err(e) => {
-                            tracing::warn!("could not read skills to resolve /{name}, answering as chat: {e}");
+                            tracing::warn!(
+                                "could not read skills to resolve /{name}, answering as chat: {e}"
+                            );
                         }
                     },
                 }
@@ -1338,8 +1425,7 @@ pub async fn handle_request(
             if notifies_chat
                 && matches!(
                     res.content,
-                    VizierResponseContent::Message { .. }
-                        | VizierResponseContent::AudioReply(..)
+                    VizierResponseContent::Message { .. } | VizierResponseContent::AudioReply(..)
                 )
                 && let Some(uid) = &res.history_uid
             {
@@ -1548,15 +1634,26 @@ async fn answer_directly(
     content: String,
 ) -> Result<()> {
     request.attachments.clear();
-    if let Err(e) = save_with_busy_retry(storage, session, SessionHistoryContent::Request(request)).await {
+    if let Err(e) =
+        save_with_busy_retry(storage, session, SessionHistoryContent::Request(request)).await
+    {
         tracing::error!(agent_id = %session.0, "failed to save session history: {e}");
     }
     let mut response = VizierResponse {
         timestamp: Utc::now(),
-        content: VizierResponseContent::Message { content, stats: None },
+        content: VizierResponseContent::Message {
+            content,
+            stats: None,
+        },
         ..Default::default()
     };
-    match save_with_busy_retry(storage, session, SessionHistoryContent::Response(response.clone())).await {
+    match save_with_busy_retry(
+        storage,
+        session,
+        SessionHistoryContent::Response(response.clone()),
+    )
+    .await
+    {
         Ok(uid) => response.history_uid = Some(uid),
         Err(e) => tracing::error!(agent_id = %session.0, "failed to save session history: {e}"),
     }
@@ -1773,7 +1870,8 @@ mod auto_context_tests {
 
     #[test]
     fn the_memory_section_is_omitted_entirely_when_nothing_qualified() {
-        let rendered = crate::agents::agent::system_prompt::context::context_md(&[], &[], None, None);
+        let rendered =
+            crate::agents::agent::system_prompt::context::context_md(&[], &[], None, None);
         assert!(
             !rendered.contains("Related Memories"),
             "FR-026: no empty heading, no weakly-related filler: {rendered}"
@@ -1782,8 +1880,12 @@ mod auto_context_tests {
 
     #[test]
     fn a_rendered_passage_carries_its_address_and_is_labelled_as_data() {
-        let rendered =
-            crate::agents::agent::system_prompt::context::context_md(&[passage("Deploys go out Tuesday.")], &[], None, None);
+        let rendered = crate::agents::agent::system_prompt::context::context_md(
+            &[passage("Deploys go out Tuesday.")],
+            &[],
+            None,
+            None,
+        );
         assert!(rendered.contains(r#"<memory bundle="work" path="ops/deploys" passage="3">"#));
         assert!(rendered.contains("Deploys go out Tuesday."));
         assert!(rendered.contains("</memory>"));
@@ -1801,7 +1903,8 @@ mod auto_context_tests {
     fn a_merged_passage_renders_its_ordinal_range() {
         let mut p = passage("merged text");
         p.ordinal_end = 5;
-        let rendered = crate::agents::agent::system_prompt::context::context_md(&[p], &[], None, None);
+        let rendered =
+            crate::agents::agent::system_prompt::context::context_md(&[p], &[], None, None);
         assert!(rendered.contains(r#"passage="3-5""#), "{rendered}");
     }
 
@@ -1809,7 +1912,8 @@ mod auto_context_tests {
     fn a_truncated_passage_says_so_in_the_rendered_block() {
         let mut p = passage("cut short");
         p.truncated = true;
-        let rendered = crate::agents::agent::system_prompt::context::context_md(&[p], &[], None, None);
+        let rendered =
+            crate::agents::agent::system_prompt::context::context_md(&[p], &[], None, None);
         assert!(rendered.contains(r#"truncated="true""#), "{rendered}");
         assert!(rendered.contains("truncated to fit"), "{rendered}");
     }
@@ -1851,24 +1955,40 @@ mod session_turns_tests {
     async fn a_panicking_turn_still_frees_its_session_and_returns_its_sender() {
         let mut turns = SessionTurns::default();
         let (tx, _rx) = flume::unbounded();
-        turns.spawn(session("a"), Some(tx), TurnRef::default(), async { panic!("turn blew up") });
+        turns.spawn(session("a"), Some(tx), TurnRef::default(), async {
+            panic!("turn blew up")
+        });
 
         let finished = next(&mut turns).await;
         assert_eq!(finished.outcome, TurnOutcome::Panicked);
-        assert!(finished.current, "the loop must pick up the queue behind it");
+        assert!(
+            finished.current,
+            "the loop must pick up the queue behind it"
+        );
         assert_eq!(finished.session, session("a"));
         assert!(!turns.is_running(&session("a")));
 
-        assert!(finished.response_tx.is_some(), "so the sender can be told it failed");
+        assert!(
+            finished.response_tx.is_some(),
+            "so the sender can be told it failed"
+        );
     }
 
     #[tokio::test]
     async fn an_aborted_turn_frees_its_session_at_once_and_ends_as_not_current() {
         let mut turns = SessionTurns::default();
-        turns.spawn(session("a"), None, TurnRef::default(), std::future::pending());
+        turns.spawn(
+            session("a"),
+            None,
+            TurnRef::default(),
+            std::future::pending(),
+        );
 
         assert!(turns.abort(&session("a")));
-        assert!(!turns.is_running(&session("a")), "a new request may start right away");
+        assert!(
+            !turns.is_running(&session("a")),
+            "a new request may start right away"
+        );
         assert!(!turns.abort(&session("a")), "nothing left to abort");
 
         let finished = next(&mut turns).await;
@@ -1888,12 +2008,20 @@ mod session_turns_tests {
         });
         // Abort only marks it; replace it as the session's turn before it is joined.
         turns.abort(&session("a"));
-        turns.spawn(session("a"), None, TurnRef::default(), std::future::pending());
+        turns.spawn(
+            session("a"),
+            None,
+            TurnRef::default(),
+            std::future::pending(),
+        );
         drop(release_old);
 
         let finished = next(&mut turns).await;
         assert!(!finished.current);
-        assert!(turns.is_running(&session("a")), "the newer turn still holds the session");
+        assert!(
+            turns.is_running(&session("a")),
+            "the newer turn still holds the session"
+        );
     }
 
     /// #52: a stopping agent's turns end with it, and only the running ones are handed back
@@ -1907,7 +2035,12 @@ mod session_turns_tests {
             let _keep = dropped_tx;
             std::future::pending::<()>().await
         });
-        turns.spawn(session("b"), None, TurnRef::default(), std::future::pending());
+        turns.spawn(
+            session("b"),
+            None,
+            TurnRef::default(),
+            std::future::pending(),
+        );
         turns.abort(&session("b"));
 
         let stopped = turns.stop_all(Duration::from_secs(5)).await;
@@ -1915,14 +2048,24 @@ mod session_turns_tests {
         assert_eq!(stopped[0].0, session("a"));
         assert!(stopped[0].1.is_some());
         assert!(turns.is_empty(), "every task has ended");
-        assert!(dropped.await.is_err(), "the turn's future was dropped, not detached");
+        assert!(
+            dropped.await.is_err(),
+            "the turn's future was dropped, not detached"
+        );
     }
 
     #[tokio::test]
     async fn sessions_are_tracked_independently() {
         let mut turns = SessionTurns::default();
-        turns.spawn(session("a"), None, TurnRef::default(), async { panic!("a fails") });
-        turns.spawn(session("b"), None, TurnRef::default(), std::future::pending());
+        turns.spawn(session("a"), None, TurnRef::default(), async {
+            panic!("a fails")
+        });
+        turns.spawn(
+            session("b"),
+            None,
+            TurnRef::default(),
+            std::future::pending(),
+        );
 
         let finished = next(&mut turns).await;
         assert_eq!(finished.session, session("a"));
@@ -1932,7 +2075,10 @@ mod session_turns_tests {
 
     #[test]
     fn handovers_re_sent_in_order_keep_their_place_ahead_of_messages() {
-        let req = |content| VizierRequest { content, ..Default::default() };
+        let req = |content| VizierRequest {
+            content,
+            ..Default::default()
+        };
         let chat = |t: &str| req(VizierRequestContent::Chat(t.into()));
         let handover = || req(VizierRequestContent::Command("checkpoint".into()));
         let mut queue = SessionQueue::new();
@@ -1944,7 +2090,10 @@ mod session_turns_tests {
                 queue.push_back((item, None, TurnRef::default()));
             }
         }
-        let order: Vec<_> = queue.iter().map(|(r, _, _)| is_handover_command(r)).collect();
+        let order: Vec<_> = queue
+            .iter()
+            .map(|(r, _, _)| is_handover_command(r))
+            .collect();
         assert_eq!(order, vec![true, false, false]);
     }
 
@@ -1970,11 +2119,23 @@ mod session_turns_tests {
         let titling = TitlingSessions::default();
         let first = TitlingClaim::take(&titling, &session("a"));
         assert!(first.is_some());
-        assert!(TitlingClaim::take(&titling, &session("a")).is_none(), "a burst starts one");
-        assert!(TitlingClaim::take(&titling, &session("b")).is_some(), "other sessions are independent");
+        assert!(
+            TitlingClaim::take(&titling, &session("a")).is_none(),
+            "a burst starts one"
+        );
+        assert!(
+            TitlingClaim::take(&titling, &session("b")).is_some(),
+            "other sessions are independent"
+        );
 
         drop(first);
-        assert!(TitlingClaim::take(&titling, &session("a")).is_some(), "released when it ends");
-        assert!(titling.lock().unwrap().is_empty(), "nothing is kept once generations end");
+        assert!(
+            TitlingClaim::take(&titling, &session("a")).is_some(),
+            "released when it ends"
+        );
+        assert!(
+            titling.lock().unwrap().is_empty(),
+            "nothing is kept once generations end"
+        );
     }
 }

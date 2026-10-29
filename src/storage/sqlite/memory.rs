@@ -6,7 +6,7 @@ use crate::{
     schema::{
         BundleSummary, ImportReport, Memory, MemoryGraph, MemoryPassageResult, MemoryQueryParams,
         MemoryRevision, PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff, RevisionOrigin,
-        RollbackResponse, VizierAttachment,
+        RollbackResponse,
     },
     storage::{memory::MemoryStorage, sqlite::SqliteStorage},
 };
@@ -23,16 +23,67 @@ impl MemoryStorage for SqliteStorage {
         title: String,
         content: String,
         tags: Vec<String>,
-        attachments: Vec<VizierAttachment>,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
     ) -> Result<Memory> {
         self.bundle_store()
             .write_memory(
-                agent_id, bundle, path, create_only, title, content, tags, attachments, origin,
-                indexer, limits,
+                agent_id,
+                bundle,
+                path,
+                create_only,
+                title,
+                content,
+                tags,
+                origin,
+                indexer,
+                limits,
             )
+            .await
+    }
+
+    async fn attach_memory_attachment(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        artifact_id: String,
+        artifact_name: String,
+        origin: &RevisionOrigin,
+    ) -> Result<Memory> {
+        self.bundle_store()
+            .attach_memory_attachment(agent_id, bundle, path, artifact_id, artifact_name, origin)
+            .await
+    }
+
+    async fn detach_memory_attachment(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        name: String,
+        origin: &RevisionOrigin,
+    ) -> Result<Memory> {
+        self.bundle_store()
+            .detach_memory_attachment(agent_id, bundle, path, name, origin)
+            .await
+    }
+
+    async fn detach_artifact_from_memories(
+        &self,
+        agent_id: String,
+        artifact_id: String,
+        origin: &RevisionOrigin,
+    ) -> Result<usize> {
+        self.bundle_store()
+            .detach_artifact_from_memories(agent_id, artifact_id, origin)
+            .await
+    }
+
+    async fn reconcile_agent_artifact_references(&self, agent_id: &str) -> Result<usize> {
+        self.bundle_store()
+            .reconcile_agent_artifact_references(agent_id)
             .await
     }
 
@@ -78,7 +129,9 @@ impl MemoryStorage for SqliteStorage {
         agent_id: String,
         bundle: Option<String>,
     ) -> Result<Vec<Memory>> {
-        self.bundle_store().get_all_agent_memory(agent_id, bundle).await
+        self.bundle_store()
+            .get_all_agent_memory(agent_id, bundle)
+            .await
     }
 
     async fn get_filtered_memories(&self, params: MemoryQueryParams) -> Result<PaginatedMemory> {
@@ -91,7 +144,9 @@ impl MemoryStorage for SqliteStorage {
         bundle: Option<String>,
         path: String,
     ) -> Result<Option<Memory>> {
-        self.bundle_store().get_memory_detail(agent_id, bundle, path).await
+        self.bundle_store()
+            .get_memory_detail(agent_id, bundle, path)
+            .await
     }
 
     async fn get_related_memories(
@@ -100,7 +155,9 @@ impl MemoryStorage for SqliteStorage {
         bundle: Option<String>,
         path: String,
     ) -> Result<Vec<Memory>> {
-        self.bundle_store().get_related_memories(agent_id, bundle, path).await
+        self.bundle_store()
+            .get_related_memories(agent_id, bundle, path)
+            .await
     }
 
     async fn get_memory_graph(
@@ -109,7 +166,9 @@ impl MemoryStorage for SqliteStorage {
         bundle: Option<String>,
         search: Option<String>,
     ) -> Result<MemoryGraph> {
-        self.bundle_store().get_memory_graph(agent_id, bundle, search).await
+        self.bundle_store()
+            .get_memory_graph(agent_id, bundle, search)
+            .await
     }
 
     async fn has_incoming_links(
@@ -118,7 +177,9 @@ impl MemoryStorage for SqliteStorage {
         bundle: Option<String>,
         path: String,
     ) -> Result<bool> {
-        self.bundle_store().has_incoming_links(agent_id, bundle, path).await
+        self.bundle_store()
+            .has_incoming_links(agent_id, bundle, path)
+            .await
     }
 
     async fn delete_memory(

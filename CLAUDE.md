@@ -68,6 +68,39 @@ Constructed once at startup: opens storage (sqlite connection or filesystem root
 - **User-invoked skills** (`specs/021-user-invokable-skills/`): `/<skill> [input]`, `/skill <name> [input]` and `/skills` arrive from every channel as plain `Chat` text and are told apart once, in the `Chat` arm of `agents/process.rs`, by the pure `skill::invocation::parse` (resolution: `invocation::resolve`, agent skill before global, case-insensitive, `_` = `-`). A resolved skill is passed to `VizierAgent::chat` as `Invoked`; its content goes into an `## Invoked Skill` section of `context_md` (never a system prompt) and the model's message is the input, while history keeps the typed text plus `metadata.invoked_skill`. `/skills` and unknown names are answered by `answer_directly` with no model call. Discord registers each skill as a slash command (plus `/skill` with autocomplete) and Telegram sets its `setMyCommands` menu, both through `channels/commands.rs` (`build` per `PlatformRules`, `CommandSync` + `watch` re-checking every 60 s and sending only on change); a Discord skill command is turned back into the same `Chat` text. Telegram lets an unmentioned group message through only when it names one of the agent's skills.
 - `skill/` — reusable agent behaviors, separate from the top-level `skill/` module (skill *packages*, install/registry).
 
+### Artifacts and session files (`src/artifacts/`, `src/session_files/`)
+
+Files come in two tiers. **Session files** are transient conversation uploads under
+`<workspace>/uploads/<file_id>/`, in the `session_file` table. **Artifacts** are permanent,
+agent-owned files under `<workspace>/artifacts/<agent_id>/<artifact_id>/content.v<n>`, with
+metadata/events/references in SQLite (`ArtifactStorage`).
+
+- `Artifacts` (`src/artifacts/mod.rs`) is the one service: promote (copies the bytes; the source
+  is untouched), replace (writes `content.v<n+1>` then switches the row, removes the old file),
+  list/detail/activity, delete, and the sync `AttachmentResolver` that turns
+  `VizierAttachmentContent::Artifact { agent_id, artifact_id }` into current bytes for
+  `to_part`, `to_tool_result` and `FileManager::resolve`.
+- `SessionFiles` is the one clear/delete service used by the WebUI side panel, `/clear-files`
+  (`/clear_files` on Telegram), conversation deletion and agent deletion. Refuses while a turn is
+  running/queued; deletes records first, then an `uploads/<file_id>/` blob only when its
+  reference count is zero (`json_extract`). **No automatic GC or retention.**
+- Deletion is reference-only both ways: deleting a conversation/memory keeps the artifact;
+  deleting an artifact keeps message/memory bodies (messages read `available: false`, memory
+  links are removed with a revision).
+- Four permissions: `all_agents`/`owned_agents` × `view_artifacts`/`manage_artifacts`
+  (`src/artifacts/access.rs`; `manage` implies `view`, system bypasses). Reads use view,
+  promote/delete use manage.
+- `artifact_reference` is a derived index written with history saves and memory writes, and
+  reconciled at agent start — never scan history JSON or memory documents at gallery read time.
+- `MemoryAttachment` is a two-variant enum (`Artifact { artifact_id, name }` |
+  `LegacySessionFile(VizierAttachment)`). `memory_write` is content-only and preserves existing
+  attachments; attach/detach are separate tools/API operations that rewrite only frontmatter, the
+  node, a revision and reference rows. Legacy session-file memory attachments and legacy
+  `Local`/`Url`/`Bytes`/`Base64` message attachments are read-only compatibility tracked in #82.
+- Dreams may read their source conversations' session files and promote/list/attach/detach
+  artifacts (`ToolContext.dream_sources`); they cannot update/delete artifacts, send attachments,
+  load one into a session, or clear files.
+
 ### Tools (`src/agents/tools/mod.rs`)
 
 Tools implement the `VizierTool` trait: associated `Input`/`Output` types (both `JsonSchema + Serialize + Deserialize`), `name()`, `category()`, `description()`, `call()`. `category()` is required and returns `Option<ToolCategory>`, one of 15 variants in display order: `Memory, Identity, Scheduling, Agents, Skills, Files, Scratchpad, Web, Audio, Media, Discord, Telegram, Webui, Shell, Integrations`. Only the four direct tools and the two dream-journal tools return `None`; `every_tool_is_in_its_category` in `tools/mod.rs` pins the full table.

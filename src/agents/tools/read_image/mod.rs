@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     agents::agent::model::VizierModel,
-    llm::types::{CompletionRequest, Message, Part},
     agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::VizierError,
     file_manager::FileManager,
+    llm::types::{CompletionRequest, Message, Part},
     schema::{VizierResponse, VizierResponseContent},
     storage::{VizierStorage, session_file::SessionFileStorage},
 };
@@ -27,6 +27,11 @@ pub struct ReadImageFileArgs {
         attachment-injection flow."
     )]
     pub prompt: Option<String>,
+    #[schemars(
+        description = "the conversation holding the image. Omit for the current conversation; in a dream, name a source (omit only when there is one)."
+    )]
+    #[serde(default)]
+    pub session: Option<String>,
 }
 
 pub struct ReadImageFile {
@@ -71,9 +76,10 @@ impl VizierTool for ReadImageFile {
         args: Self::Input,
         ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
+        let source = super::artifacts::resolve_source_session(ctx, args.session.as_deref())?;
         let file = self
             .storage
-            .get_session_file(&ctx.session, &args.filename)
+            .get_session_file(&source, &args.filename)
             .await
             .map_err(|e| VizierError(e.to_string()))?
             .ok_or_else(|| VizierError(format!("File not found: {}", args.filename)))?;
@@ -135,10 +141,13 @@ impl VizierTool for ReadImageFile {
         }
 
         let loaded = format!("Loaded {} into context.", file.filename);
-        ctx.loaded_images.lock().await.push(crate::schema::VizierAttachment {
-            filename: file.filename,
-            content: crate::schema::VizierAttachmentContent::Base64(b64),
-        });
+        ctx.loaded_images
+            .lock()
+            .await
+            .push(crate::schema::VizierAttachment {
+                filename: file.filename,
+                content: crate::schema::VizierAttachmentContent::Base64(b64),
+            });
         Ok(VizierResponse {
             timestamp: Utc::now(),
             content: VizierResponseContent::ToolResponse {

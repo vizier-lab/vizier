@@ -14,8 +14,8 @@ use crate::{
     config::ChunkLimits,
     indexer::VizierIndexer,
     schema::{
-        BundleSummary, ImportReport, Memory, MemoryFrontMatter, MemoryGraph, MemoryGraphEdge,
-        MemoryGraphNode, MemoryPassageResult, MemoryQueryParams, MemoryRevision,
+        BundleSummary, ImportReport, Memory, MemoryAttachment, MemoryFrontMatter, MemoryGraph,
+        MemoryGraphEdge, MemoryGraphNode, MemoryPassageResult, MemoryQueryParams, MemoryRevision,
         MemoryRevisionSummary, PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff,
         RevisionOrigin, RevisionTrigger, RollbackResponse, VizierAttachment, default_bundle,
     },
@@ -401,7 +401,9 @@ impl BundleMemoryStore {
             })
             .collect();
 
-        indexer.add_document_indexes("memory".into(), entries).await?;
+        indexer
+            .add_document_indexes("memory".into(), entries)
+            .await?;
         Ok(spans.len())
     }
 
@@ -597,9 +599,11 @@ impl BundleMemoryStore {
             let (target_bundle, target_path, kind) = row?;
             match kind.as_str() {
                 "same_bundle" => relations.push(format!("{}.md", target_path.unwrap_or_default())),
-                "cross_bundle_concept" => {
-                    relations.push(format!("{}/{}", target_bundle, target_path.unwrap_or_default()))
-                }
+                "cross_bundle_concept" => relations.push(format!(
+                    "{}/{}",
+                    target_bundle,
+                    target_path.unwrap_or_default()
+                )),
                 _ => relations.push(target_bundle),
             }
         }
@@ -815,8 +819,8 @@ impl BundleMemoryStore {
 
         let cached_paths: HashSet<String> = {
             let conn = self.conn.lock();
-            let mut stmt = conn
-                .prepare("SELECT path FROM memory_node WHERE agent_id = ?1 AND bundle = ?2")?;
+            let mut stmt =
+                conn.prepare("SELECT path FROM memory_node WHERE agent_id = ?1 AND bundle = ?2")?;
             stmt.query_map(params![agent_id, bundle], |row| row.get::<_, String>(0))?
                 .filter_map(|r| r.ok())
                 .collect()
@@ -908,7 +912,10 @@ impl BundleMemoryStore {
                 }
             };
 
-            let stored_hash = self.stored_content_hash(agent_id, bundle, &path).ok().flatten();
+            let stored_hash = self
+                .stored_content_hash(agent_id, bundle, &path)
+                .ok()
+                .flatten();
             let live_hash = Self::content_hash(&content);
             match &stored_hash {
                 // Absence of rows is the only resume marker: already converted, no drift, skip.
@@ -1000,7 +1007,14 @@ impl BundleMemoryStore {
         Ok(())
     }
 
-    async fn append_log(&self, agent_id: &str, bundle: &str, action: &str, path: &str, title: &str) -> Result<()> {
+    async fn append_log(
+        &self,
+        agent_id: &str,
+        bundle: &str,
+        action: &str,
+        path: &str,
+        title: &str,
+    ) -> Result<()> {
         let key = Self::log_key(agent_id, bundle);
         let mut existing = match self.document_store.get(&key).await? {
             Some(bytes) => String::from_utf8_lossy(&bytes).to_string(),
@@ -1048,7 +1062,40 @@ impl BundleMemoryStore {
         title: String,
         content: String,
         tags: Vec<String>,
-        attachments: Vec<VizierAttachment>,
+        origin: &RevisionOrigin,
+        indexer: &VizierIndexer,
+        limits: &ChunkLimits,
+    ) -> Result<Memory> {
+        self.write_memory_inner(
+            agent_id,
+            bundle,
+            path,
+            create_only,
+            title,
+            content,
+            tags,
+            None,
+            origin,
+            indexer,
+            limits,
+        )
+        .await
+    }
+
+    /// The one write path. `attachments: None` preserves whatever the document already has
+    /// (a content update never clobbers attachments); `Some` is used by rollback, which must
+    /// restore the snapshot's attachment list.
+    #[allow(clippy::too_many_arguments)]
+    async fn write_memory_inner(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: Option<String>,
+        create_only: bool,
+        title: String,
+        content: String,
+        tags: Vec<String>,
+        attachments: Option<Vec<MemoryAttachment>>,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
@@ -1073,13 +1120,14 @@ impl BundleMemoryStore {
         }
 
         let now = Utc::now();
-        let (created_at, read_count) = match &existing {
+        let (created_at, read_count, existing_attachments) = match &existing {
             Some(bytes) => match parse_markdown_bytes::<MemoryFrontMatter>(bytes) {
-                Ok((fm, _)) => (fm.created_at, fm.read_count),
-                Err(_) => (now, 0),
+                Ok((fm, _)) => (fm.created_at, fm.read_count, fm.attachments),
+                Err(_) => (now, 0, vec![]),
             },
-            None => (now, 0),
+            None => (now, 0, vec![]),
         };
+        let attachments = attachments.unwrap_or(existing_attachments);
 
         let relations = parse_relations(&content);
         let frontmatter = MemoryFrontMatter {
@@ -1131,13 +1179,230 @@ impl BundleMemoryStore {
         self.append_log(
             &agent_id,
             &bundle,
-            if existing.is_some() { "updated" } else { "created" },
+            if existing.is_some() {
+                "updated"
+            } else {
+                "created"
+            },
             &path,
             &title,
         )
         .await?;
 
         Ok(memory_from_frontmatter(frontmatter, content))
+    }
+
+    /// Sync the derived `artifact_reference` rows for one memory. Best effort: the document is
+    /// the source of truth and a failure is repaired by the next agent-start reconcile.
+    fn sync_artifact_references(
+        &self,
+        agent_id: &str,
+        bundle: &str,
+        path: &str,
+        title: &str,
+        attachments: &[MemoryAttachment],
+    ) {
+        let conn = self.conn.lock();
+        let result = (|| -> Result<()> {
+            let tx = conn.unchecked_transaction()?;
+            tx.execute(
+                "DELETE FROM artifact_reference WHERE kind = 'memory' AND agent_id = ?1 AND bundle = ?2 AND path = ?3",
+                params![agent_id, bundle, path],
+            )?;
+            let now = Utc::now().timestamp_millis();
+            let target = format!("memory:{bundle}:{path}");
+            for attachment in attachments {
+                if let MemoryAttachment::Artifact { artifact_id, .. } = attachment {
+                    tx.execute(
+                        "INSERT OR REPLACE INTO artifact_reference \
+                         (artifact_id, agent_id, kind, target, session_slug, history_uid, channel, topic, bundle, path, label, created_at) \
+                         VALUES (?1, ?2, 'memory', ?3, NULL, NULL, NULL, NULL, ?4, ?5, ?6, ?7)",
+                        params![artifact_id, agent_id, target, bundle, path, title, now],
+                    )?;
+                }
+            }
+            tx.commit()?;
+            Ok(())
+        })();
+        if let Err(e) = result {
+            tracing::warn!(
+                agent_id,
+                bundle,
+                path,
+                "failed to sync memory artifact references: {e}"
+            );
+        }
+    }
+
+    /// Attach one artifact to an existing memory (`specs/035-add-artifacts` R6). Idempotent by
+    /// artifact id. Rewrites only the frontmatter, node, a revision and reference rows.
+    pub async fn attach_memory_attachment(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        artifact_id: String,
+        artifact_name: String,
+        origin: &RevisionOrigin,
+    ) -> Result<Memory> {
+        let bundle = bundle.unwrap_or_else(default_bundle);
+        let path = normalize_path(&path);
+        let key = Self::doc_key(&agent_id, &bundle, &path);
+        let existing = self
+            .document_store
+            .get(&key)
+            .await?
+            .ok_or_else(|| anyhow!("memory '{path}' not found in bundle '{bundle}'"))?;
+        let (mut fm, body) = parse_markdown_bytes::<MemoryFrontMatter>(&existing)?;
+        if fm
+            .attachments
+            .iter()
+            .any(|a| a.artifact_id() == Some(artifact_id.as_str()))
+        {
+            return Ok(memory_from_frontmatter(fm, body));
+        }
+        fm.attachments.push(MemoryAttachment::Artifact {
+            artifact_id,
+            name: artifact_name,
+        });
+        self.rewrite_attachments(&agent_id, &bundle, &path, &key, existing, fm, body, origin)
+            .await
+    }
+
+    /// Remove one attachment by display name, artifact or legacy session file. A name that is
+    /// not attached changes nothing.
+    pub async fn detach_memory_attachment(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        name: String,
+        origin: &RevisionOrigin,
+    ) -> Result<Memory> {
+        let bundle = bundle.unwrap_or_else(default_bundle);
+        let path = normalize_path(&path);
+        let key = Self::doc_key(&agent_id, &bundle, &path);
+        let existing = self
+            .document_store
+            .get(&key)
+            .await?
+            .ok_or_else(|| anyhow!("memory '{path}' not found in bundle '{bundle}'"))?;
+        let (mut fm, body) = parse_markdown_bytes::<MemoryFrontMatter>(&existing)?;
+        let before = fm.attachments.len();
+        fm.attachments.retain(|a| a.display_name() != name);
+        if fm.attachments.len() == before {
+            return Ok(memory_from_frontmatter(fm, body));
+        }
+        self.rewrite_attachments(&agent_id, &bundle, &path, &key, existing, fm, body, origin)
+            .await
+    }
+
+    async fn rewrite_attachments(
+        &self,
+        agent_id: &str,
+        bundle: &str,
+        path: &str,
+        key: &str,
+        existing: Vec<u8>,
+        mut fm: MemoryFrontMatter,
+        body: String,
+        origin: &RevisionOrigin,
+    ) -> Result<Memory> {
+        let canonical_before = canonical_of_bytes(&existing);
+        fm.updated_at = Utc::now();
+        fm.attachment_count = fm.attachments.len();
+        let canonical_new = memory_canonical(&fm.title, &fm.tags, &fm.attachments, &body)?;
+        let bytes = serialize_markdown(&fm, &body)?;
+        self.document_store.put(key, bytes).await?;
+        self.upsert_node_from_frontmatter(agent_id, bundle, path, &fm)?;
+        self.record_revision(
+            agent_id,
+            bundle,
+            path,
+            Some(&canonical_new),
+            origin,
+            canonical_before.as_deref(),
+        )?;
+        self.sync_artifact_references(agent_id, bundle, path, &fm.title, &fm.attachments);
+        Ok(memory_from_frontmatter(fm, body))
+    }
+
+    /// Remove every link to one artifact from the agent's memories, recording a revision per
+    /// affected document. The body is never changed.
+    pub async fn detach_artifact_from_memories(
+        &self,
+        agent_id: String,
+        artifact_id: String,
+        origin: &RevisionOrigin,
+    ) -> Result<usize> {
+        let nodes = self.list_nodes(&agent_id, None)?;
+        let mut changed = 0;
+        for node in nodes {
+            let key = Self::doc_key(&agent_id, &node.bundle, &node.path);
+            let Some(existing) = self.document_store.get(&key).await? else {
+                continue;
+            };
+            let Ok((mut fm, body)) = parse_markdown_bytes::<MemoryFrontMatter>(&existing) else {
+                continue;
+            };
+            let before = fm.attachments.len();
+            fm.attachments
+                .retain(|a| a.artifact_id() != Some(artifact_id.as_str()));
+            if fm.attachments.len() == before {
+                continue;
+            }
+            match self
+                .rewrite_attachments(
+                    &agent_id,
+                    &node.bundle,
+                    &node.path,
+                    &key,
+                    existing,
+                    fm,
+                    body,
+                    origin,
+                )
+                .await
+            {
+                Ok(_) => changed += 1,
+                Err(e) => tracing::warn!(
+                    agent_id,
+                    bundle = %node.bundle,
+                    path = %node.path,
+                    "failed to detach deleted artifact from memory: {e}"
+                ),
+            }
+        }
+        Ok(changed)
+    }
+
+    /// Rebuild every `artifact_reference` memory row for one agent from its concept documents.
+    /// Returns how many artifact references are now recorded.
+    pub async fn reconcile_agent_artifact_references(&self, agent_id: &str) -> Result<usize> {
+        let nodes = self.list_nodes(agent_id, None)?;
+        let mut refs = 0;
+        for node in nodes {
+            let key = Self::doc_key(agent_id, &node.bundle, &node.path);
+            let Some(bytes) = self.document_store.get(&key).await? else {
+                continue;
+            };
+            let Ok((fm, _)) = parse_markdown_bytes::<MemoryFrontMatter>(&bytes) else {
+                continue;
+            };
+            refs += fm
+                .attachments
+                .iter()
+                .filter(|a| a.artifact_id().is_some())
+                .count();
+            self.sync_artifact_references(
+                agent_id,
+                &node.bundle,
+                &node.path,
+                &fm.title,
+                &fm.attachments,
+            );
+        }
+        Ok(refs)
     }
 
     /// Semantic search over passages (FR-008–FR-016).
@@ -1317,7 +1582,9 @@ impl BundleMemoryStore {
         indexer: &VizierIndexer,
         memory: &Memory,
     ) -> Vec<crate::storage::chunk::PassageSpan> {
-        let stored = self.load_passage_spans(agent_id, bundle, path).unwrap_or_default();
+        let stored = self
+            .load_passage_spans(agent_id, bundle, path)
+            .unwrap_or_default();
         let hash = Self::content_hash(content);
         let fresh = self
             .stored_content_hash(agent_id, bundle, path)
@@ -1390,7 +1657,10 @@ impl BundleMemoryStore {
             .collect()
     }
 
-    pub async fn get_filtered_memories(&self, params: MemoryQueryParams) -> Result<PaginatedMemory> {
+    pub async fn get_filtered_memories(
+        &self,
+        params: MemoryQueryParams,
+    ) -> Result<PaginatedMemory> {
         let all = self
             .get_all_agent_memory(params.agent_id.clone(), params.bundle.clone())
             .await?;
@@ -1422,7 +1692,11 @@ impl BundleMemoryStore {
             }
         });
 
-        filtered = filtered.into_iter().skip(params.offset).take(params.limit).collect();
+        filtered = filtered
+            .into_iter()
+            .skip(params.offset)
+            .take(params.limit)
+            .collect();
 
         Ok(PaginatedMemory {
             memories: filtered,
@@ -1480,7 +1754,9 @@ impl BundleMemoryStore {
     ) -> Result<Option<Memory>> {
         let bundle = bundle.unwrap_or_else(default_bundle);
         let path = normalize_path(&path);
-        let result = self.read_and_sync_document(&agent_id, &bundle, &path).await?;
+        let result = self
+            .read_and_sync_document(&agent_id, &bundle, &path)
+            .await?;
         self.recompute_broken(&agent_id)?;
         Ok(result)
     }
@@ -1497,7 +1773,8 @@ impl BundleMemoryStore {
         // Refresh this document's own outgoing edges from its actual content before reading
         // them — `reconcile_bundle` only catches documents added/removed since the cache was
         // last built, not a relation-parsing drift on one that's already present in both.
-        self.read_and_sync_document(&agent_id, &bundle, &path).await?;
+        self.read_and_sync_document(&agent_id, &bundle, &path)
+            .await?;
         self.recompute_broken(&agent_id)?;
 
         let mut result = Vec::new();
@@ -1550,7 +1827,11 @@ impl BundleMemoryStore {
                 _ => {
                     if let Some(target_path) = edge.path {
                         if let Ok(Some(memory)) = self
-                            .get_memory_detail(agent_id.clone(), Some(edge.bundle.clone()), target_path)
+                            .get_memory_detail(
+                                agent_id.clone(),
+                                Some(edge.bundle.clone()),
+                                target_path,
+                            )
                             .await
                         {
                             if seen.insert((memory.bundle.clone(), memory.slug.clone())) {
@@ -1707,8 +1988,11 @@ impl BundleMemoryStore {
                     }
                 }
 
-                let all_bundles: HashSet<String> =
-                    self.discover_bundles(&agent_id).await?.into_iter().collect();
+                let all_bundles: HashSet<String> = self
+                    .discover_bundles(&agent_id)
+                    .await?
+                    .into_iter()
+                    .collect();
                 for b in &boundary_bundles {
                     nodes.push(MemoryGraphNode {
                         slug: b.clone(),
@@ -1798,15 +2082,21 @@ impl BundleMemoryStore {
         // Clears the passage rows and every one of their index entries, by stored ordinal
         // (FR-034). `clear_passages` also removes the legacy unsuffixed document key, so this is
         // the whole of the index cleanup for a deleted memory.
-        if let Err(e) = self.clear_passages(&agent_id, &bundle, &path, indexer).await {
+        if let Err(e) = self
+            .clear_passages(&agent_id, &bundle, &path, indexer)
+            .await
+        {
             tracing::warn!(
-                agent_id, bundle, path,
+                agent_id,
+                bundle,
+                path,
                 "failed to clear passages for a deleted memory: {e}"
             );
         }
 
         self.regenerate_index(&agent_id, &bundle).await?;
-        self.append_log(&agent_id, &bundle, "deleted", &path, &title).await?;
+        self.append_log(&agent_id, &bundle, "deleted", &path, &title)
+            .await?;
 
         Ok(())
     }
@@ -1905,7 +2195,9 @@ impl BundleMemoryStore {
             self.document_store.delete(&key).await?;
             if let Err(e) = self.clear_passages(&agent_id, &bundle, path, indexer).await {
                 tracing::warn!(
-                    agent_id, bundle, path,
+                    agent_id,
+                    bundle,
+                    path,
                     "failed to clear passages while deleting a bundle: {e}"
                 );
             }
@@ -1914,7 +2206,9 @@ impl BundleMemoryStore {
         let prefix = Self::bundle_prefix(&agent_id, &bundle);
         let files = self.document_store.list(&prefix).await?;
         for file in files {
-            self.document_store.delete(&format!("{prefix}/{file}")).await?;
+            self.document_store
+                .delete(&format!("{prefix}/{file}"))
+                .await?;
         }
 
         // Nothing should remain in memory_node/memory_edge/memory_passage for an already-empty
@@ -2006,7 +2300,9 @@ impl BundleMemoryStore {
             return Err(anyhow!("archive contains no files"));
         }
         if !entries.iter().any(|(name, _)| name.ends_with(".md")) {
-            return Err(anyhow!("archive does not look like a memory bundle (no .md files)"));
+            return Err(anyhow!(
+                "archive does not look like a memory bundle (no .md files)"
+            ));
         }
 
         let mut report = ImportReport::default();
@@ -2032,8 +2328,16 @@ impl BundleMemoryStore {
                     self.document_store.put(&key, out).await?;
                     self.upsert_node_from_frontmatter(&agent_id, &bundle, &path, &fm)?;
                     // Import skips existing paths, so there is never a "before" to baseline.
-                    let canonical = memory_canonical(&fm.title, &fm.tags, &fm.attachments, &content)?;
-                    self.record_revision(&agent_id, &bundle, &path, Some(&canonical), origin, None)?;
+                    let canonical =
+                        memory_canonical(&fm.title, &fm.tags, &fm.attachments, &content)?;
+                    self.record_revision(
+                        &agent_id,
+                        &bundle,
+                        &path,
+                        Some(&canonical),
+                        origin,
+                        None,
+                    )?;
                     self.rewrite_edges(&agent_id, &bundle, &path, &fm.relations)?;
                     // Every imported document gets passages with no extra manual step (FR-035).
                     self.write_passages_lenient(
@@ -2053,7 +2357,11 @@ impl BundleMemoryStore {
             &bundle,
             "imported",
             &bundle,
-            &format!("{} concept(s) imported, {} skipped", report.imported.len(), report.skipped.len()),
+            &format!(
+                "{} concept(s) imported, {} skipped",
+                report.imported.len(),
+                report.skipped.len()
+            ),
         )
         .await?;
 
@@ -2098,8 +2406,7 @@ impl BundleMemoryStore {
         let latest_seq = memory_revision::latest(&conn, &agent_id, &bundle, &path)?
             .map(|r| r.seq)
             .unwrap_or(0);
-        let (rows, total) =
-            memory_revision::list(&conn, &agent_id, &bundle, &path, offset, limit)?;
+        let (rows, total) = memory_revision::list(&conn, &agent_id, &bundle, &path, offset, limit)?;
         Ok(PaginatedMemoryRevisions {
             revisions: rows
                 .iter()
@@ -2215,7 +2522,7 @@ impl BundleMemoryStore {
         let origin = origin
             .clone()
             .with_trigger(RevisionTrigger::Rollback { restored_from: seq });
-        self.write_memory(
+        self.write_memory_inner(
             agent_id.clone(),
             Some(bundle.clone()),
             Some(path.clone()),
@@ -2223,7 +2530,7 @@ impl BundleMemoryStore {
             fm.title,
             body,
             fm.tags,
-            fm.attachments,
+            Some(fm.attachments),
             &origin,
             indexer,
             limits,
@@ -2264,6 +2571,10 @@ impl BundleMemoryStore {
         let path = normalize_path(&path);
         let key = Self::doc_key(&agent_id, &bundle, &path);
         let relations = parse_relations(&content);
+        let attachments: Vec<MemoryAttachment> = attachments
+            .into_iter()
+            .map(MemoryAttachment::LegacySessionFile)
+            .collect();
 
         let frontmatter = MemoryFrontMatter {
             slug: path.clone(),
@@ -2359,7 +2670,6 @@ mod tests {
                 "Note".into(),
                 "hello".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2375,7 +2685,6 @@ mod tests {
                 true,
                 "Note Again".into(),
                 "hello again".into(),
-                vec![],
                 vec![],
                 &origin(),
                 &indexer,
@@ -2397,7 +2706,6 @@ mod tests {
                 "Note".into(),
                 "v1".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2413,7 +2721,6 @@ mod tests {
                 false,
                 "Note".into(),
                 "v2".into(),
-                vec![],
                 vec![],
                 &origin(),
                 &indexer,
@@ -2435,7 +2742,6 @@ mod tests {
                 false,
                 "Bred".into(),
                 "hi".into(),
-                vec![],
                 vec![],
                 &origin(),
                 &indexer,
@@ -2465,7 +2771,6 @@ mod tests {
                 "Alpha".into(),
                 "alpha content".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2481,7 +2786,6 @@ mod tests {
                 false,
                 "Beta".into(),
                 "beta content".into(),
-                vec![],
                 vec![],
                 &origin(),
                 &indexer,
@@ -2499,7 +2803,6 @@ mod tests {
                 "Gamma".into(),
                 "same bundle [Alpha](alpha.md), cross bundle [[other/beta]]".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2511,7 +2814,10 @@ mod tests {
             .get_related_memories("a1".into(), Some("default".into()), "gamma".into())
             .await
             .unwrap();
-        let slugs: Vec<String> = related.iter().map(|m| format!("{}/{}", m.bundle, m.slug)).collect();
+        let slugs: Vec<String> = related
+            .iter()
+            .map(|m| format!("{}/{}", m.bundle, m.slug))
+            .collect();
         assert!(slugs.contains(&"default/alpha".to_string()));
         assert!(slugs.contains(&"other/beta".to_string()));
     }
@@ -2527,7 +2833,6 @@ mod tests {
                 false,
                 "Alpha".into(),
                 "content".into(),
-                vec![],
                 vec![],
                 &origin(),
                 &indexer,
@@ -2545,7 +2850,6 @@ mod tests {
                 false,
                 "Gamma".into(),
                 "see [Alpha](alpha) for details".into(),
-                vec![],
                 vec![],
                 &origin(),
                 &indexer,
@@ -2573,7 +2877,6 @@ mod tests {
                 "Gamma".into(),
                 "see [screenshot](notes.png) and [site](https://example.com/page) and [mail](mailto:a@b.com)".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2600,7 +2903,6 @@ mod tests {
                 false,
                 "Alpha".into(),
                 "content".into(),
-                vec![],
                 vec![],
                 &origin(),
                 &indexer,
@@ -2648,7 +2950,6 @@ mod tests {
                 "Alpha".into(),
                 "content".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2686,7 +2987,6 @@ mod tests {
                 "The Great Gatsby".into(),
                 "content".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2703,7 +3003,6 @@ mod tests {
                 "F. Scott Fitzgerald".into(),
                 "wrote [The Great Gatsby](books/great-gatsby.md)".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2712,10 +3011,18 @@ mod tests {
             .unwrap();
 
         let related = store
-            .get_related_memories("viz".into(), Some("authors".into()), "f-scott-fitzgerald".into())
+            .get_related_memories(
+                "viz".into(),
+                Some("authors".into()),
+                "f-scott-fitzgerald".into(),
+            )
             .await
             .unwrap();
-        assert!(related.iter().any(|m| m.bundle == "books" && m.slug == "great-gatsby"));
+        assert!(
+            related
+                .iter()
+                .any(|m| m.bundle == "books" && m.slug == "great-gatsby")
+        );
 
         // A genuine same-bundle nested path must keep working exactly as before — the literal
         // interpretation always wins when it actually resolves.
@@ -2727,7 +3034,6 @@ mod tests {
                 false,
                 "Real Nested Concept".into(),
                 "content".into(),
-                vec![],
                 vec![],
                 &origin(),
                 &indexer,
@@ -2744,7 +3050,6 @@ mod tests {
                 "Pointer".into(),
                 "see [nested](nested/real-nested-concept.md)".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2755,7 +3060,11 @@ mod tests {
             .get_related_memories("viz".into(), Some("authors".into()), "pointer".into())
             .await
             .unwrap();
-        assert!(related2.iter().any(|m| m.bundle == "authors" && m.slug == "nested/real-nested-concept"));
+        assert!(
+            related2
+                .iter()
+                .any(|m| m.bundle == "authors" && m.slug == "nested/real-nested-concept")
+        );
     }
 
     /// A bare legacy `[[slug]]` wikilink that doesn't name an existing bundle should resolve as
@@ -2772,7 +3081,6 @@ mod tests {
                 "Alpha".into(),
                 "content".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2788,7 +3096,6 @@ mod tests {
                 "Gamma".into(),
                 "see [[alpha]]".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2800,7 +3107,11 @@ mod tests {
             .get_related_memories("a1".into(), Some("default".into()), "gamma".into())
             .await
             .unwrap();
-        assert!(related.iter().any(|m| m.bundle == "default" && m.slug == "alpha"));
+        assert!(
+            related
+                .iter()
+                .any(|m| m.bundle == "default" && m.slug == "alpha")
+        );
     }
 
     #[tokio::test]
@@ -2815,7 +3126,6 @@ mod tests {
                 "Gamma".into(),
                 "points to [missing](missing.md) and [[nowhere/nothing]]".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2829,7 +3139,10 @@ mod tests {
             .unwrap();
         assert!(related.is_empty());
 
-        let graph = store.get_memory_graph("a1".into(), Some("default".into()), None).await.unwrap();
+        let graph = store
+            .get_memory_graph("a1".into(), Some("default".into()), None)
+            .await
+            .unwrap();
         assert!(graph.edges.iter().any(|e| e.broken));
     }
 
@@ -2871,7 +3184,6 @@ mod tests {
                 "Alpha".into(),
                 "content".into(),
                 vec!["x".into()],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2899,7 +3211,6 @@ mod tests {
                 "Alpha".into(),
                 "updated content".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2922,7 +3233,6 @@ mod tests {
                 "Note".into(),
                 "hello".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2930,7 +3240,9 @@ mod tests {
             .await
             .unwrap();
 
-        let err = store.delete_bundle("a1".into(), "andy".into(), false, &origin(), &indexer).await;
+        let err = store
+            .delete_bundle("a1".into(), "andy".into(), false, &origin(), &indexer)
+            .await;
         assert!(err.is_err());
 
         // Bundle must still be fully intact after a rejected delete.
@@ -2953,7 +3265,6 @@ mod tests {
                 "Note".into(),
                 "hello".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2961,11 +3272,20 @@ mod tests {
             .await
             .unwrap();
         store
-            .delete_memory("a1".into(), Some("andy".into()), "note".into(), &origin(), &indexer)
+            .delete_memory(
+                "a1".into(),
+                Some("andy".into()),
+                "note".into(),
+                &origin(),
+                &indexer,
+            )
             .await
             .unwrap();
 
-        store.delete_bundle("a1".into(), "andy".into(), false, &origin(), &indexer).await.unwrap();
+        store
+            .delete_bundle("a1".into(), "andy".into(), false, &origin(), &indexer)
+            .await
+            .unwrap();
 
         assert!(!dir.path().join("a1/memory/andy/index.md").exists());
         assert!(!dir.path().join("a1/memory/andy/log.md").exists());
@@ -2986,7 +3306,6 @@ mod tests {
                 "Note".into(),
                 "hello".into(),
                 vec![],
-                vec![],
                 &origin(),
                 &indexer,
                 &limits(),
@@ -2995,10 +3314,18 @@ mod tests {
             .unwrap();
 
         // Not forced: still rejected.
-        assert!(store.delete_bundle("a1".into(), "andy".into(), false, &origin(), &indexer).await.is_err());
+        assert!(
+            store
+                .delete_bundle("a1".into(), "andy".into(), false, &origin(), &indexer)
+                .await
+                .is_err()
+        );
 
         // Forced: the whole bundle, concept included, is gone.
-        store.delete_bundle("a1".into(), "andy".into(), true, &origin(), &indexer).await.unwrap();
+        store
+            .delete_bundle("a1".into(), "andy".into(), true, &origin(), &indexer)
+            .await
+            .unwrap();
 
         assert!(!dir.path().join("a1/memory/andy/note.md").exists());
         assert!(!dir.path().join("a1/memory/andy/index.md").exists());
@@ -3032,7 +3359,6 @@ mod tests {
                 title.into(),
                 body.into(),
                 tags,
-                vec![],
                 origin,
                 indexer,
                 &limits(),
@@ -3073,7 +3399,10 @@ mod tests {
         write_note(&store, &indexer, "Note", "v2", vec!["t".into()], &agent).await;
 
         let rows = history(&store);
-        assert_eq!(rows.iter().map(|r| r.seq).collect::<Vec<_>>(), vec![3, 2, 1]);
+        assert_eq!(
+            rows.iter().map(|r| r.seq).collect::<Vec<_>>(),
+            vec![3, 2, 1]
+        );
         assert_eq!(rows[2].actor, crate::schema::RevisionActor::Agent);
         assert_eq!(rows[2].trigger, RevisionTrigger::Conversation);
         assert_eq!(rows[1].actor, user.actor);
@@ -3121,7 +3450,13 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[1].trigger, RevisionTrigger::Baseline);
         assert_eq!(rows[1].actor, crate::schema::RevisionActor::System);
-        assert!(rows[1].content.as_deref().unwrap().contains("pre-history body"));
+        assert!(
+            rows[1]
+                .content
+                .as_deref()
+                .unwrap()
+                .contains("pre-history body")
+        );
 
         store
             .delete_memory("a1".into(), None, "note".into(), &agent, &indexer)
@@ -3261,7 +3596,6 @@ mod tests {
                 format!("Doc {path}"),
                 body.into(),
                 vec!["ops".into()],
-                vec![],
                 &origin(),
                 indexer,
                 &limits(),
@@ -3373,11 +3707,20 @@ mod tests {
         assert!(!recorder.snapshot().is_empty());
 
         store
-            .delete_memory("a1".into(), Some("default".into()), "note".into(), &origin(), &indexer)
+            .delete_memory(
+                "a1".into(),
+                Some("default".into()),
+                "note".into(),
+                &origin(),
+                &indexer,
+            )
             .await
             .unwrap();
 
-        assert!(passage_rows(&store, "note").is_empty(), "passage rows cleared");
+        assert!(
+            passage_rows(&store, "note").is_empty(),
+            "passage rows cleared"
+        );
         assert!(
             recorder.snapshot().is_empty(),
             "index entries cleared: {:?}",
@@ -3411,17 +3754,34 @@ mod tests {
         let (store, _dir, indexer, recorder) = setup_recording();
         write_at(&store, &indexer, "one", &long_body(3)).await;
         write_at(&store, &indexer, "two", &long_body(3)).await;
-        let zip = store.export_bundle("a1".into(), "default".into()).await.unwrap();
+        let zip = store
+            .export_bundle("a1".into(), "default".into())
+            .await
+            .unwrap();
 
         let (dest, _dir2, dest_indexer, dest_recorder) = setup_recording();
         let report = dest
-            .import_bundle("a1".into(), "imported".into(), zip, &origin(), &dest_indexer, &limits())
+            .import_bundle(
+                "a1".into(),
+                "imported".into(),
+                zip,
+                &origin(),
+                &dest_indexer,
+                &limits(),
+            )
             .await
             .unwrap();
-        assert_eq!(report.imported.len(), 2, "both concepts imported: {report:?}");
+        assert_eq!(
+            report.imported.len(),
+            2,
+            "both concepts imported: {report:?}"
+        );
 
         let keys = dest_recorder.snapshot();
-        assert!(!keys.is_empty(), "import indexed passages with no extra step (FR-035)");
+        assert!(
+            !keys.is_empty(),
+            "import indexed passages with no extra step (FR-035)"
+        );
         for path in &report.imported {
             let conn = dest.conn.lock();
             let count: i64 = conn
@@ -3518,7 +3878,11 @@ mod tests {
             .reconcile_all_passages("a1", &limits(), &indexer)
             .await
             .unwrap();
-        assert_eq!((converted, failed), (1, 0), "unconverted document picked up");
+        assert_eq!(
+            (converted, failed),
+            (1, 0),
+            "unconverted document picked up"
+        );
         assert!(!passage_rows(&store, "note").is_empty());
 
         // Drift: the stored hash no longer matches the body, which is what a hand-edit on disk
@@ -3537,7 +3901,9 @@ mod tests {
         assert!(!rows.is_empty());
         let conn = store.conn.lock();
         let hash: String = conn
-            .query_row("SELECT content_hash FROM memory_passage LIMIT 1", [], |r| r.get(0))
+            .query_row("SELECT content_hash FROM memory_passage LIMIT 1", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_ne!(hash, "stale", "the rebuilt rows carry the real hash");
     }

@@ -47,9 +47,8 @@ impl SessionFileStorage for SqliteStorage {
     async fn list_session_files(&self, session: &VizierSession) -> Result<Vec<SessionFileRecord>> {
         let session_slug = session.to_slug();
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT data FROM session_file WHERE session_slug = ?1 AND agent_id = ?2",
-        )?;
+        let mut stmt = conn
+            .prepare("SELECT data FROM session_file WHERE session_slug = ?1 AND agent_id = ?2")?;
         let records = stmt
             .query_map(rusqlite::params![session_slug, session.0], |row| {
                 let data: String = row.get(0)?;
@@ -84,8 +83,44 @@ impl SessionFileStorage for SqliteStorage {
     async fn delete_session_file(&self, session: &VizierSession, filename: &str) -> Result<()> {
         let id = format!("{}/{}", session.to_slug(), filename);
         let conn = self.conn.lock();
-        conn.execute("DELETE FROM session_file WHERE id = ?1", rusqlite::params![id])?;
+        conn.execute(
+            "DELETE FROM session_file WHERE id = ?1",
+            rusqlite::params![id],
+        )?;
         Ok(())
+    }
+
+    async fn delete_session_files(&self, session: &VizierSession) -> Result<usize> {
+        let conn = self.conn.lock();
+        let deleted = conn.execute(
+            "DELETE FROM session_file WHERE session_slug = ?1 AND agent_id = ?2",
+            rusqlite::params![session.to_slug(), session.0],
+        )?;
+        Ok(deleted)
+    }
+
+    async fn list_agent_files(&self, agent_id: &str) -> Result<Vec<SessionFileRecord>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT data FROM session_file WHERE agent_id = ?1")?;
+        let records = stmt
+            .query_map(rusqlite::params![agent_id], |row| {
+                let data: String = row.get(0)?;
+                Ok(data)
+            })?
+            .filter_map(|r| r.ok())
+            .filter_map(|data| serde_json::from_str::<SessionFileRecord>(&data).ok())
+            .collect();
+        Ok(records)
+    }
+
+    async fn session_file_reference_count(&self, file_id: &str) -> Result<usize> {
+        let conn = self.conn.lock();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM session_file WHERE json_extract(data, '$.file_id') = ?1",
+            rusqlite::params![file_id],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
     }
 
     async fn label_session_file(

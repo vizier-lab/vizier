@@ -4,7 +4,7 @@ use axum::{
         Path, Query, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
-    routing::{any, delete, get},
+    routing::{any, delete, get, post},
 };
 use chrono::Utc;
 use futures::{SinkExt, StreamExt};
@@ -14,6 +14,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::{
+    agents::client::{
+        ClientAnswer, ClientBinding, ClientConnection, DeferredClaims, declare, deliver_deferred,
+    },
     channels::{
         http::{
             models::{
@@ -25,17 +28,16 @@ use crate::{
         },
         reactions::{self, ApplyOutcome, ReactionChange, ReactionKind, ReactionTarget},
     },
-    agents::client::{
-        ClientAnswer, ClientBinding, ClientConnection, DeferredClaims, declare, deliver_deferred,
-    },
     schema::{
-        ClientEvent, ReactionAction, SessionHistory, SessionHistoryContent, TopicId,
-        VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent,
+        Artifact, ClientEvent, ReactionAction, Requester, SessionHistory, SessionHistoryContent,
+        TopicId, VizierAttachmentContent, VizierChannelId, VizierRequest, VizierRequestContent,
         VizierSession, VizierSessionDetail,
     },
     storage::{
-        agent::AgentStorage, background_job::BackgroundJobStorage,
-        client_call::ClientCallStorage, history::HistoryStorage,
+        agent::AgentStorage,
+        background_job::BackgroundJobStorage,
+        client_call::ClientCallStorage,
+        history::HistoryStorage,
         reaction::{ReactionStorage, Reactor},
         session::SessionStorage,
     },
@@ -43,6 +45,8 @@ use crate::{
 };
 
 use super::{platform_of_slug, user_can_show_platform_chats, user_can_view_agent};
+use crate::access::Caller;
+use crate::artifacts::access as ArtifactsAccess;
 use crate::channels::http::models::page::Page;
 use crate::schema::session_file::SessionFileRecord;
 use crate::storage::session_file::SessionFileStorage;
@@ -52,10 +56,16 @@ use crate::storage::session_file::SessionFileStorage;
 /// WebUI channel of the caller's own. Routes that write never use this: nobody chats on Discord
 /// through the WebUI.
 fn readable_channel(username: &str, channel_id: &str) -> (VizierChannelId, bool) {
-    if let Some(id) = channel_id.strip_prefix("discord__").and_then(|id| id.parse::<u64>().ok()) {
+    if let Some(id) = channel_id
+        .strip_prefix("discord__")
+        .and_then(|id| id.parse::<u64>().ok())
+    {
         return (VizierChannelId::DiscordChanel(id), true);
     }
-    if let Some(id) = channel_id.strip_prefix("telegram__").and_then(|id| id.parse::<i64>().ok()) {
+    if let Some(id) = channel_id
+        .strip_prefix("telegram__")
+        .and_then(|id| id.parse::<i64>().ok())
+    {
         return (VizierChannelId::TelegramChannel(id), true);
     }
     // A blocking subagent's conversation is addressable by its topic, even though it has
@@ -63,13 +73,25 @@ fn readable_channel(username: &str, channel_id: &str) -> (VizierChannelId, bool)
     if channel_id.eq_ignore_ascii_case("SUBAGENT") {
         return (VizierChannelId::Subagent, false);
     }
-    (VizierChannelId::HTTP(username.to_string(), channel_id.to_string()), false)
+    (
+        VizierChannelId::HTTP(username.to_string(), channel_id.to_string()),
+        false,
+    )
 }
 
 /// The session a read-only route opens. Discord and Telegram conversations have no topic.
-fn readable_session(agent_id: String, username: &str, channel_id: &str, topic_id: TopicId) -> VizierSession {
+fn readable_session(
+    agent_id: String,
+    username: &str,
+    channel_id: &str,
+    topic_id: TopicId,
+) -> VizierSession {
     let (channel, platform) = readable_channel(username, channel_id);
-    VizierSession(agent_id, channel, if platform { None } else { Some(topic_id) })
+    VizierSession(
+        agent_id,
+        channel,
+        if platform { None } else { Some(topic_id) },
+    )
 }
 
 pub fn channel() -> Router<HTTPState> {
@@ -80,7 +102,14 @@ pub fn channel() -> Router<HTTPState> {
             "/{channel_id}/topic/{topic_id}/history",
             get(get_topic_history),
         )
-        .route("/{channel_id}/topic/{topic_id}/files", get(list_topic_files))
+        .route(
+            "/{channel_id}/topic/{topic_id}/files",
+            get(list_topic_files).delete(clear_topic_files),
+        )
+        .route(
+            "/{channel_id}/topic/{topic_id}/files/promote",
+            post(promote_topic_file),
+        )
         .route(
             "/{channel_id}/topic/{topic_id}/detail",
             get(get_topic_detail),
@@ -156,7 +185,9 @@ pub async fn get_topic_history(
 ) -> models::response::Response<Vec<SessionHistory>> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Ok(None) => {
+            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+        }
         Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
 
@@ -215,7 +246,9 @@ pub async fn list_topic_files(
 ) -> models::response::Response<Page<SessionFileRecord>> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Ok(None) => {
+            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+        }
         Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
     if !user_can_view_agent(&user, &config) {
@@ -240,7 +273,145 @@ pub async fn list_topic_files(
         .skip(params.offset.unwrap_or(0))
         .take(params.limit.unwrap_or(100).clamp(1, 100))
         .collect();
-    api_response(StatusCode::OK, Page { items, total, counts: Default::default() })
+    api_response(
+        StatusCode::OK,
+        Page {
+            items,
+            total,
+            counts: Default::default(),
+        },
+    )
+}
+
+#[utoipa::path(
+    delete,
+    path = "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/files",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("channel_id" = String, Path, description = "Channel ID"),
+        ("topic_id" = String, Path, description = "Topic ID")
+    ),
+    responses(
+        (status = 200, description = "How many session files were removed and their stored bytes", body = APIResponse<crate::session_files::ClearResult>),
+        (status = 403, description = "Access denied", body = APIResponse<String>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>),
+        (status = 409, description = "A turn is running or queued in this conversation", body = APIResponse<String>)
+    )
+)]
+pub async fn clear_topic_files(
+    Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<crate::session_files::ClearResult> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => {
+            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+        }
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+    if let Some(platform) = platform_of_slug(&channel_id) {
+        if !user_can_show_platform_chats(&user, &config, platform) {
+            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+        }
+    }
+    let session = readable_session(agent_id, &user.username, &channel_id, topic_id);
+    match state.deps.session_files.clear(&session).await {
+        Ok(result) => api_response(StatusCode::OK, result),
+        Err(crate::session_files::ClearError::TurnActive) => err_response(
+            StatusCode::CONFLICT,
+            "a turn is running or queued in this conversation; wait for it to finish".into(),
+        ),
+        Err(crate::session_files::ClearError::AgentNotFound) => {
+            err_response(StatusCode::NOT_FOUND, "agent not found".into())
+        }
+        Err(crate::session_files::ClearError::Storage(e)) => {
+            err_response(StatusCode::INTERNAL_SERVER_ERROR, e)
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct PromoteFileRequest {
+    pub filename: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/files/promote",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("channel_id" = String, Path, description = "Channel ID"),
+        ("topic_id" = String, Path, description = "Topic ID")
+    ),
+    request_body = PromoteFileRequest,
+    responses(
+        (status = 201, description = "The new artifact", body = APIResponse<Artifact>),
+        (status = 403, description = "Access denied", body = APIResponse<String>),
+        (status = 404, description = "Agent, conversation or file not found", body = APIResponse<String>),
+        (status = 409, description = "An artifact with that name already exists", body = APIResponse<String>),
+        (status = 422, description = "Invalid name or empty/unreadable source", body = APIResponse<String>)
+    )
+)]
+pub async fn promote_topic_file(
+    Path((agent_id, channel_id, topic_id)): Path<(String, String, TopicId)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    axum::Json(body): axum::Json<PromoteFileRequest>,
+) -> models::response::Response<Artifact> {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => {
+            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+        }
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    if !user_can_view_agent(&user, &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+    if let Some(platform) = platform_of_slug(&channel_id) {
+        if !user_can_show_platform_chats(&user, &config, platform) {
+            return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+        }
+    }
+    if !ArtifactsAccess::can_manage(&Caller::from(&user), &config) {
+        return err_response(StatusCode::FORBIDDEN, "Access denied".into());
+    }
+
+    let session = readable_session(agent_id.clone(), &user.username, &channel_id, topic_id);
+    let source = crate::artifacts::SourceFile {
+        session,
+        filename: body.filename.clone(),
+    };
+    match state
+        .deps
+        .artifacts
+        .promote(
+            &agent_id,
+            Requester::User(user.user_id.clone()),
+            &source,
+            body.name.as_deref(),
+        )
+        .await
+    {
+        Ok(artifact) => api_response(StatusCode::CREATED, artifact),
+        Err(e) => {
+            let message = e.to_string();
+            let status = if message.contains("already exists") {
+                StatusCode::CONFLICT
+            } else if message.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::UNPROCESSABLE_ENTITY
+            };
+            err_response(status, message)
+        }
+    }
 }
 
 #[utoipa::path(
@@ -263,7 +434,9 @@ pub async fn list_topics(
 ) -> models::response::Response<Vec<TopicEntry>> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Ok(None) => {
+            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+        }
         Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
 
@@ -330,7 +503,9 @@ pub async fn get_topic_detail(
 ) -> models::response::Response<TopicEntry> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Ok(None) => {
+            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+        }
         Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
 
@@ -348,7 +523,11 @@ pub async fn get_topic_detail(
 
     match state
         .storage
-        .get_session_detail_by_topic(agent_id, channel, if platform { None } else { Some(topic_id) })
+        .get_session_detail_by_topic(
+            agent_id,
+            channel,
+            if platform { None } else { Some(topic_id) },
+        )
         .await
     {
         Ok(Some(detail)) => api_response(StatusCode::OK, TopicEntry::from(detail)),
@@ -377,7 +556,9 @@ pub async fn delete_topic(
 ) -> models::response::Response<String> {
     let config = match state.storage.get_agent(&agent_id).await {
         Ok(Some(config)) => config,
-        Ok(None) => return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found")),
+        Ok(None) => {
+            return err_response(StatusCode::NOT_FOUND, format!("agent {agent_id} not found"));
+        }
         Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
 
@@ -385,18 +566,30 @@ pub async fn delete_topic(
         return err_response(StatusCode::FORBIDDEN, "Access denied".into());
     }
 
-    let channel = VizierChannelId::HTTP(user.username, channel_id);
-
-    let response = state
-        .storage
-        .delete_session(agent_id, channel, topic_id)
-        .await;
-
-    if response.is_err() {
-        return err_response(StatusCode::NOT_FOUND, "Topic not found".into());
+    let session = VizierSession(
+        agent_id,
+        VizierChannelId::HTTP(user.username, channel_id),
+        Some(topic_id),
+    );
+    if state.deps.session_files.has_active_turn(&session).await {
+        return err_response(
+            StatusCode::CONFLICT,
+            "a turn is running or queued in this conversation; wait for it to finish".into(),
+        );
     }
-
-    api_response(StatusCode::OK, "Topic deleted".into())
+    match state.deps.session_files.delete_conversation(&session).await {
+        Ok(_) => api_response(StatusCode::OK, "Topic deleted".into()),
+        Err(crate::session_files::ClearError::TurnActive) => err_response(
+            StatusCode::CONFLICT,
+            "a turn is running or queued in this conversation; wait for it to finish".into(),
+        ),
+        Err(crate::session_files::ClearError::AgentNotFound) => {
+            err_response(StatusCode::NOT_FOUND, "Topic not found".into())
+        }
+        Err(crate::session_files::ClearError::Storage(e)) => {
+            err_response(StatusCode::INTERNAL_SERVER_ERROR, e)
+        }
+    }
 }
 
 #[utoipa::path(
@@ -443,7 +636,11 @@ pub async fn chat(
     }
 
     let transport = state.transport.clone();
-    let session = VizierSession(agent_id, VizierChannelId::HTTP(user.username, channel_id), Some(topic_id));
+    let session = VizierSession(
+        agent_id,
+        VizierChannelId::HTTP(user.username, channel_id),
+        Some(topic_id),
+    );
     let ws_idle_timeout_secs = state
         .config
         .channels
@@ -457,7 +654,17 @@ pub async fn chat(
         state_saves: state.client_state_saves.clone(),
         deferred: state.deferred_client_calls.clone(),
     };
-    ws.on_upgrade(move |socket| handle_socket(socket, session, transport, state.storage.clone(), state.config.workspace.clone(), ws_idle_timeout_secs, limits))
+    ws.on_upgrade(move |socket| {
+        handle_socket(
+            socket,
+            session,
+            transport,
+            state.storage.clone(),
+            state.config.workspace.clone(),
+            ws_idle_timeout_secs,
+            limits,
+        )
+    })
 }
 
 /// The limits on what a client may send (`specs/019-client-tools` research R15), shared by
@@ -482,8 +689,13 @@ fn spawn_delivery(
     claims: &std::sync::Arc<DeferredClaims>,
     call_ids: Option<Vec<String>>,
 ) {
-    let (storage, transport, session, connection, claims) =
-        (storage.clone(), transport.clone(), session.clone(), connection.clone(), claims.clone());
+    let (storage, transport, session, connection, claims) = (
+        storage.clone(),
+        transport.clone(),
+        session.clone(),
+        connection.clone(),
+        claims.clone(),
+    );
     tokio::spawn(async move {
         let call_ids = match call_ids {
             Some(ids) => ids,
@@ -496,7 +708,14 @@ fn spawn_delivery(
             },
         };
         futures::future::join_all(call_ids.iter().map(|call_id| {
-            deliver_deferred(&storage, &transport, &session, &connection, &claims, call_id)
+            deliver_deferred(
+                &storage,
+                &transport,
+                &session,
+                &connection,
+                &claims,
+                call_id,
+            )
         }))
         .await;
     });
@@ -508,11 +727,17 @@ const MAX_EVENT_TEXT_BYTES: usize = 4 * 1024;
 const MAX_EVENT_DATA_BYTES: usize = 64 * 1024;
 
 fn json_len(value: &serde_json::Value) -> usize {
-    serde_json::to_string(value).map(|s| s.len()).unwrap_or(usize::MAX)
+    serde_json::to_string(value)
+        .map(|s| s.len())
+        .unwrap_or(usize::MAX)
 }
 
 /// A `client_error` frame for this socket only.
-fn client_error(code: &str, call_id: Option<&str>, message: impl Into<String>) -> serde_json::Value {
+fn client_error(
+    code: &str,
+    call_id: Option<&str>,
+    message: impl Into<String>,
+) -> serde_json::Value {
     let mut error = serde_json::json!({ "code": code, "message": message.into() });
     if let Some(call_id) = call_id {
         error["call_id"] = serde_json::json!(call_id);
@@ -540,7 +765,11 @@ fn client_tool_result(
     payload: &serde_json::Value,
 ) -> Result<(), serde_json::Value> {
     let Some(call_id) = payload.get("call_id").and_then(|id| id.as_str()) else {
-        return Err(client_error("invalid_frame", None, "client_tool_result needs a call_id"));
+        return Err(client_error(
+            "invalid_frame",
+            None,
+            "client_tool_result needs a call_id",
+        ));
     };
     let answer = if let Some(ok) = payload.get("ok") {
         if json_len(ok) > MAX_RESULT_BYTES {
@@ -557,7 +786,11 @@ fn client_tool_result(
             other => other.to_string(),
         })
     } else {
-        return Err(client_error("invalid_frame", Some(call_id), "client_tool_result needs ok or error"));
+        return Err(client_error(
+            "invalid_frame",
+            Some(call_id),
+            "client_tool_result needs ok or error",
+        ));
     };
     if connection.answer(call_id, answer) {
         Ok(())
@@ -580,9 +813,16 @@ async fn client_call_state(
     payload: &serde_json::Value,
 ) -> Result<(), serde_json::Value> {
     let Some(call_id) = payload.get("call_id").and_then(|id| id.as_str()) else {
-        return Err(client_error("invalid_frame", None, "client_call_state needs a call_id"));
+        return Err(client_error(
+            "invalid_frame",
+            None,
+            "client_call_state needs a call_id",
+        ));
     };
-    let state = payload.get("state").cloned().unwrap_or(serde_json::Value::Null);
+    let state = payload
+        .get("state")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
 
     match is_client_call_in(storage, session, call_id).await {
         Ok(true) => {}
@@ -595,7 +835,11 @@ async fn client_call_state(
         }
         Err(err) => {
             tracing::warn!("failed to look up client tool call {call_id}: {err}");
-            return Err(client_error("state_not_saved", Some(call_id), "state not saved"));
+            return Err(client_error(
+                "state_not_saved",
+                Some(call_id),
+                "state not saved",
+            ));
         }
     }
     if json_len(&state) > MAX_STATE_BYTES {
@@ -614,7 +858,11 @@ async fn client_call_state(
     }
     if let Err(err) = storage.save_client_call_state(call_id, &state).await {
         tracing::warn!("failed to save state of client tool call {call_id}: {err}");
-        return Err(client_error("state_not_saved", Some(call_id), "state not saved"));
+        return Err(client_error(
+            "state_not_saved",
+            Some(call_id),
+            "state not saved",
+        ));
     }
     transport.publish_session_event(SessionEvent {
         session: session.clone(),
@@ -641,7 +889,11 @@ async fn check_client_event(
             format!("text must be 1 to {MAX_EVENT_TEXT_BYTES} bytes"),
         ));
     }
-    if event.data.as_ref().is_some_and(|data| json_len(data) > MAX_EVENT_DATA_BYTES) {
+    if event
+        .data
+        .as_ref()
+        .is_some_and(|data| json_len(data) > MAX_EVENT_DATA_BYTES)
+    {
         return Err(client_error(
             "invalid_client_event",
             None,
@@ -656,7 +908,9 @@ async fn check_client_event(
         ));
     }
     if let Some(source) = &event.source_call_id
-        && !is_client_call_in(storage, session, source).await.unwrap_or(false)
+        && !is_client_call_in(storage, session, source)
+            .await
+            .unwrap_or(false)
     {
         event.source_call_id = None;
     }
@@ -674,7 +928,9 @@ fn bind_client_tools(
     request.client = None;
     let takes_tools = matches!(
         request.content,
-        VizierRequestContent::Chat(_) | VizierRequestContent::AudioChat(..) | VizierRequestContent::ClientEvent(_)
+        VizierRequestContent::Chat(_)
+            | VizierRequestContent::AudioChat(..)
+            | VizierRequestContent::ClientEvent(_)
     );
     if tools.is_empty() || !takes_tools {
         return Ok(());
@@ -703,7 +959,10 @@ async fn webui_reaction(
         Ok(Some(entry)) if &entry.vizier_session == curr_session => {}
         Ok(_) => return Err("message not found in this conversation".to_string()),
         Err(err) => {
-            tracing::warn!("failed to look up reaction target {}: {err}", payload.message_uid);
+            tracing::warn!(
+                "failed to look up reaction target {}: {err}",
+                payload.message_uid
+            );
             return Err("reaction not saved".to_string());
         }
     }
@@ -718,7 +977,10 @@ async fn webui_reaction(
     };
     let change = ReactionChange {
         target: ReactionTarget::History(payload.message_uid.clone()),
-        reactor: Reactor { id: username, name: None },
+        reactor: Reactor {
+            id: username,
+            name: None,
+        },
         kind,
     };
 
@@ -766,7 +1028,14 @@ pub async fn handle_socket(
     };
 
     // Calls deferred while no client was here are this socket's to deliver first.
-    spawn_delivery(&storage, &transport, &curr_session, &connection, &limits.deferred, None);
+    spawn_delivery(
+        &storage,
+        &transport,
+        &curr_session,
+        &connection,
+        &limits.deferred,
+        None,
+    );
 
     // Background job changes, reactions, and the frames of every turn on this session: the
     // ones a background report woke and the ones a person started from any socket, this one
@@ -881,6 +1150,20 @@ pub async fn handle_socket(
                                 && let Err(error) = check_client_event(&storage, &curr_session, &limits, event).await
                             {
                                 send_frame(error).await;
+                                continue;
+                            }
+                            if request.attachments.iter().any(|attachment| {
+                                matches!(
+                                    attachment.content,
+                                    VizierAttachmentContent::Artifact { .. }
+                                )
+                            }) {
+                                send_frame(client_error(
+                                    "invalid_attachment",
+                                    None,
+                                    "request attachments must be uploads; artifact references are created by the agent",
+                                ))
+                                .await;
                                 continue;
                             }
                             for attachment in request.attachments.iter_mut() {

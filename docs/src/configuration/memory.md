@@ -52,7 +52,7 @@ Compare with [[star-wars/jedi]] or the whole [[marvel]] bundle.
 | `created_at`, `updated_at`, `read_count` | Vizier | `read_count` increments when the agent reads the concept via the memory tools |
 | `tags`, `keywords` | you / the agent | Filterable in the WebUI and API |
 | `relations` | Vizier | Re-parsed from the body on every read/write (self-healing) |
-| `attachments` | Vizier | Session files attached to the memory; surfaced as session files when the memory is read |
+| `attachments` | Artifact references | Permanent artifacts attached to the memory (`artifact_id`, `name`); old session-file attachments are legacy but still readable |
 
 ### Links
 
@@ -75,7 +75,7 @@ Available whenever the agent has an `embedding` + `indexer` configured:
 | `memory_write` | Create or update a concept. `bundle` defaults to `default` (a new bundle name creates it); `path` may nest (`friends/bob`); `tags` optional |
 | `memory_read` | Semantic search across all bundles (or one), returns matching content |
 | `memory_list` | No bundle → list bundles (name, count, last updated). With a bundle → paginated concept list |
-| `memory_detail` | Full content of one concept by `(bundle, path)`; attaches its attachments to the session |
+| `memory_read` | Full content of one concept by `(bundle, path)`; copies its artifacts into the session as transient files |
 | `memory_follow` | Traverse links from a concept to the given depth |
 | `memory_graph` | Nodes/edges: top level (bundles + cross-bundle edges) or within one bundle |
 | `memory_delete` | Delete one concept (and its embedding) |
@@ -90,7 +90,7 @@ All under `/api/v1/agents/{agent_id}/memory`:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/` | List concepts. Query: `bundle`, `tags` (comma-separated), `offset`, `limit` (50), `sort_by`, `sort_order` |
-| `POST` | `/` | Create: `{ "title", "content", "bundle"?, "path"?, "tags"?, "attachments"? }` |
+| `POST` | `/` | Create: `{ "title", "content", "bundle"?, "path"?, "tags"? }` (attachments are added separately; a non-empty `attachments` field is `422`) |
 | `GET` | `/query` | Semantic search. Query: `query`, `bundle`?, `limit` (10), `threshold` (0.5) |
 | `GET` | `/bundles` | List bundles |
 | `GET` | `/bundles/graph` | Bundle-level graph (`?search=` filters) |

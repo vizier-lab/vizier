@@ -18,7 +18,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    schema::{RevisionActor, RevisionOrigin, RevisionTrigger, VizierAttachment},
+    schema::{MemoryAttachment, RevisionActor, RevisionOrigin, RevisionTrigger},
     storage::memory_bundle::{parse_markdown_bytes, serialize_markdown},
 };
 
@@ -44,13 +44,13 @@ pub struct RevisionFrontMatter {
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
-    pub attachments: Vec<VizierAttachment>,
+    pub attachments: Vec<MemoryAttachment>,
 }
 
 pub(crate) fn memory_canonical(
     title: &str,
     tags: &[String],
-    attachments: &[VizierAttachment],
+    attachments: &[MemoryAttachment],
     body: &str,
 ) -> Result<String> {
     let fm = RevisionFrontMatter {
@@ -230,7 +230,9 @@ pub(crate) fn record(
     }
     ensure_baseline(conn, agent_id, bundle, path, current_before_save)?;
     let next_seq = match latest(conn, agent_id, bundle, path)? {
-        Some(latest) if latest.deleted == content.is_none() && latest.content.as_deref() == content => {
+        Some(latest)
+            if latest.deleted == content.is_none() && latest.content.as_deref() == content =>
+        {
             return Ok(None);
         }
         Some(latest) => latest.seq + 1,
@@ -253,7 +255,10 @@ pub(crate) fn delete_agent(conn: &Connection, agent_id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{schema::VizierAttachmentContent, storage::sqlite::init_revision_schema};
+    use crate::{
+        schema::{VizierAttachment, VizierAttachmentContent},
+        storage::sqlite::init_revision_schema,
+    };
 
     fn conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -292,8 +297,14 @@ mod tests {
     #[test]
     fn identical_content_is_a_no_op() {
         let c = conn();
-        assert_eq!(record(&c, A, B, P, Some("x"), &agent_origin(), None).unwrap(), Some(1));
-        assert_eq!(record(&c, A, B, P, Some("x"), &agent_origin(), Some("x")).unwrap(), None);
+        assert_eq!(
+            record(&c, A, B, P, Some("x"), &agent_origin(), None).unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            record(&c, A, B, P, Some("x"), &agent_origin(), Some("x")).unwrap(),
+            None
+        );
         assert_eq!(list(&c, A, B, P, 0, 50).unwrap().1, 1);
     }
 
@@ -306,25 +317,43 @@ mod tests {
     #[test]
     fn deletion_then_content_then_deletion_sequence() {
         let c = conn();
-        assert_eq!(record(&c, A, B, P, Some("v1"), &agent_origin(), None).unwrap(), Some(1));
+        assert_eq!(
+            record(&c, A, B, P, Some("v1"), &agent_origin(), None).unwrap(),
+            Some(1)
+        );
         // deletion entry
-        assert_eq!(record(&c, A, B, P, None, &agent_origin(), Some("v1")).unwrap(), Some(2));
+        assert_eq!(
+            record(&c, A, B, P, None, &agent_origin(), Some("v1")).unwrap(),
+            Some(2)
+        );
         let latest_row = latest(&c, A, B, P).unwrap().unwrap();
         assert!(latest_row.deleted);
         assert!(latest_row.content.is_none());
         // a second consecutive deletion is a no-op
-        assert_eq!(record(&c, A, B, P, None, &agent_origin(), None).unwrap(), None);
+        assert_eq!(
+            record(&c, A, B, P, None, &agent_origin(), None).unwrap(),
+            None
+        );
         // recreating with the same content as v1 is still a new revision (latest is a delete)
-        assert_eq!(record(&c, A, B, P, Some("v1"), &agent_origin(), None).unwrap(), Some(3));
+        assert_eq!(
+            record(&c, A, B, P, Some("v1"), &agent_origin(), None).unwrap(),
+            Some(3)
+        );
         let (rows, total) = list(&c, A, B, P, 0, 50).unwrap();
         assert_eq!(total, 3);
-        assert_eq!(rows.iter().map(|r| r.seq).collect::<Vec<_>>(), vec![3, 2, 1]);
+        assert_eq!(
+            rows.iter().map(|r| r.seq).collect::<Vec<_>>(),
+            vec![3, 2, 1]
+        );
     }
 
     #[test]
     fn deleting_a_never_recorded_document_records_nothing() {
         let c = conn();
-        assert_eq!(record(&c, A, B, P, None, &agent_origin(), None).unwrap(), None);
+        assert_eq!(
+            record(&c, A, B, P, None, &agent_origin(), None).unwrap(),
+            None
+        );
         assert_eq!(list(&c, A, B, P, 0, 50).unwrap().1, 0);
     }
 
@@ -355,10 +384,10 @@ mod tests {
 
     #[test]
     fn canonical_round_trips_title_tags_attachments_and_body() {
-        let attachments = vec![VizierAttachment {
+        let attachments = vec![MemoryAttachment::LegacySessionFile(VizierAttachment {
             filename: "photo.png".into(),
             content: VizierAttachmentContent::Local("files/photo.png".into()),
-        }];
+        })];
         let tags = vec!["friend".to_string(), "runner".to_string()];
         let body = "Bred likes running.\n\nSee [[friends/alice]].\n";
         let text = memory_canonical("Bred", &tags, &attachments, body).unwrap();
@@ -369,7 +398,7 @@ mod tests {
         assert_eq!(fm.title, "Bred");
         assert_eq!(fm.tags, tags);
         assert_eq!(fm.attachments.len(), 1);
-        assert_eq!(fm.attachments[0].filename, "photo.png");
+        assert_eq!(fm.attachments[0].display_name(), "photo.png");
         assert_eq!(parsed_body, body);
     }
 

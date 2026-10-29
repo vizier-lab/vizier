@@ -2,10 +2,11 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-
 use crate::llm::types::{AssistantPart, Message, Part};
 use crate::sandbox::ExecutionReport;
-use crate::schema::{ReactionEntry, VizierRequest, VizierResponse, VizierResponseContent, VizierSession};
+use crate::schema::{
+    ReactionEntry, VizierRequest, VizierResponse, VizierResponseContent, VizierSession,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema)]
 pub struct SessionHistory {
@@ -66,8 +67,52 @@ pub enum SessionHistoryContent {
     },
 }
 
+impl SessionHistoryContent {
+    /// Every attachment this entry carries, whether on a request, a reply or an audio reply
+    /// (`specs/035-add-artifacts`): one helper for reference writing and availability filling.
+    pub fn attachments(&self) -> Vec<&crate::schema::VizierAttachment> {
+        match self {
+            Self::Request(request) => request.attachments.iter().collect(),
+            Self::Response(response) => {
+                let mut attachments: Vec<&crate::schema::VizierAttachment> =
+                    response.attachments.iter().collect();
+                if let crate::schema::VizierResponseContent::AudioReply(attachment, ..) =
+                    &response.content
+                {
+                    attachments.push(attachment);
+                }
+                attachments
+            }
+            _ => vec![],
+        }
+    }
+
+    pub fn attachments_mut(&mut self) -> Vec<&mut crate::schema::VizierAttachment> {
+        match self {
+            Self::Request(request) => request.attachments.iter_mut().collect(),
+            Self::Response(response) => {
+                let audio = match &mut response.content {
+                    crate::schema::VizierResponseContent::AudioReply(attachment, ..) => {
+                        Some(attachment)
+                    }
+                    _ => None,
+                };
+                let mut attachments: Vec<&mut crate::schema::VizierAttachment> =
+                    response.attachments.iter_mut().collect();
+                if let Some(attachment) = audio {
+                    attachments.push(attachment);
+                }
+                attachments
+            }
+            _ => vec![],
+        }
+    }
+}
+
 /// How recalled passages reached the turn.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, JsonSchema, utoipa::ToSchema)]
+#[derive(
+    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, JsonSchema, utoipa::ToSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum RecallOrigin {
     /// Retrieved automatically from the message, before the first model call.
@@ -108,8 +153,12 @@ pub fn dedupe_passages(passages: Vec<RecalledPassage>) -> Vec<RecalledPassage> {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ClientCallOutcome {
     Pending,
-    Ok { result: serde_json::Value },
-    Error { message: String },
+    Ok {
+        result: serde_json::Value,
+    },
+    Error {
+        message: String,
+    },
     Disconnected,
     Timeout,
     Cancelled,
@@ -333,10 +382,14 @@ pub fn history_entries_to_messages(entries: &[SessionHistory]) -> Vec<Message> {
 pub fn split_at_request<'a>(
     entries: &'a [SessionHistory],
     request_uid: &str,
-) -> Option<(&'a [SessionHistory], &'a SessionHistory, &'a [SessionHistory])> {
-    let at = entries
-        .iter()
-        .position(|e| e.uid == request_uid && matches!(e.content, SessionHistoryContent::Request(_)))?;
+) -> Option<(
+    &'a [SessionHistory],
+    &'a SessionHistory,
+    &'a [SessionHistory],
+)> {
+    let at = entries.iter().position(|e| {
+        e.uid == request_uid && matches!(e.content, SessionHistoryContent::Request(_))
+    })?;
     Some((&entries[..at], &entries[at], &entries[at + 1..]))
 }
 
@@ -564,13 +617,21 @@ mod tests {
 
         let value: serde_json::Value =
             serde_json::from_str(&first_tool_result_text(&narrowed)).unwrap();
-        assert!(!value["tool_calls"][0].as_object().unwrap().contains_key("arguments"));
+        assert!(
+            !value["tool_calls"][0]
+                .as_object()
+                .unwrap()
+                .contains_key("arguments")
+        );
         assert_eq!(value["result"]["hits"], 2);
 
         // The message the agent loop keeps for storage is not modified.
         let original: serde_json::Value =
             serde_json::from_str(&first_tool_result_text(&message)).unwrap();
-        assert_eq!(original["tool_calls"][0]["arguments"]["query"], "rust releases");
+        assert_eq!(
+            original["tool_calls"][0]["arguments"]["query"],
+            "rust releases"
+        );
     }
 
     #[test]
@@ -609,7 +670,12 @@ mod tests {
         assert_eq!(narrowed.len(), 2);
         let value: serde_json::Value =
             serde_json::from_str(&first_tool_result_text(&narrowed[1])).unwrap();
-        assert!(!value["tool_calls"][0].as_object().unwrap().contains_key("arguments"));
+        assert!(
+            !value["tool_calls"][0]
+                .as_object()
+                .unwrap()
+                .contains_key("arguments")
+        );
     }
     // ---------------------------------------------------------------------------------
     // Narration: recording intermediate assistant text, and replaying it as a shape a
@@ -686,7 +752,10 @@ mod tests {
             tool_result("a", "one"),
             tool_result("b", "two"),
         ]);
-        assert_eq!(kinds(&entries), vec!["ToolCall", "ToolCall", "ToolResult", "ToolResult"]);
+        assert_eq!(
+            kinds(&entries),
+            vec!["ToolCall", "ToolCall", "ToolResult", "ToolResult"]
+        );
     }
 
     /// H14, H15, H16.
@@ -710,7 +779,11 @@ mod tests {
         let messages = history_entries_to_messages(&history);
 
         // H14: exactly one assistant message, text first, then its tool call.
-        assert_eq!(messages.len(), 2, "expected one assistant message then its result");
+        assert_eq!(
+            messages.len(),
+            2,
+            "expected one assistant message then its result"
+        );
         let Message::Assistant(blocks) = &messages[0] else {
             panic!("expected an assistant message first");
         };
@@ -725,7 +798,10 @@ mod tests {
         // H15: no two consecutive assistant messages.
         for pair in messages.windows(2) {
             assert!(
-                !matches!((&pair[0], &pair[1]), (Message::Assistant(_), Message::Assistant(_))),
+                !matches!(
+                    (&pair[0], &pair[1]),
+                    (Message::Assistant(_), Message::Assistant(_))
+                ),
                 "two consecutive assistant messages were emitted"
             );
         }
@@ -824,9 +900,15 @@ mod tests {
     /// answers a call in the assistant message right before its run.
     fn assert_paired(messages: &[Message]) {
         for (index, message) in messages.iter().enumerate() {
-            let answered: Vec<String> = results(messages, index + 1).into_iter().map(|(id, _)| id).collect();
+            let answered: Vec<String> = results(messages, index + 1)
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect();
             for id in tool_call_ids(message) {
-                assert!(answered.contains(&id), "tool call {id} has no result after it");
+                assert!(
+                    answered.contains(&id),
+                    "tool call {id} has no result after it"
+                );
             }
             if let Some(id) = result_id(message) {
                 let owner = messages[..index]
@@ -835,7 +917,10 @@ mod tests {
                     .find(|m| result_id(m).is_none())
                     .map(tool_call_ids)
                     .unwrap_or_default();
-                assert!(owner.iter().any(|c| c == id), "tool result {id} answers no call before it");
+                assert!(
+                    owner.iter().any(|c| c == id),
+                    "tool result {id} answers no call before it"
+                );
             }
         }
     }
@@ -846,7 +931,10 @@ mod tests {
 
         assert_paired(&messages);
         assert_eq!(messages.len(), 2);
-        assert_eq!(results(&messages, 1), vec![("a".to_string(), NO_RESULT_RECORDED.to_string())]);
+        assert_eq!(
+            results(&messages, 1),
+            vec![("a".to_string(), NO_RESULT_RECORDED.to_string())]
+        );
     }
 
     #[test]
@@ -902,7 +990,10 @@ mod tests {
 
     #[test]
     fn sealing_answers_only_the_calls_that_did_not_return() {
-        let mut history = vec![Message::user_text("find it").unwrap(), calls_message(&["a", "b", "c"])];
+        let mut history = vec![
+            Message::user_text("find it").unwrap(),
+            calls_message(&["a", "b", "c"]),
+        ];
         let completed = vec![tool_result("a", "two hits")];
 
         seal_tool_calls(&mut history, completed, "timed out after 60s");
@@ -912,8 +1003,14 @@ mod tests {
             results(&history, 2),
             vec![
                 ("a".to_string(), "two hits".to_string()),
-                ("b".to_string(), "[tool did not return: timed out after 60s]".to_string()),
-                ("c".to_string(), "[tool did not return: timed out after 60s]".to_string()),
+                (
+                    "b".to_string(),
+                    "[tool did not return: timed out after 60s]".to_string()
+                ),
+                (
+                    "c".to_string(),
+                    "[tool did not return: timed out after 60s]".to_string()
+                ),
             ]
         );
     }
@@ -924,7 +1021,10 @@ mod tests {
         seal_tool_calls(&mut history, vec![], "depth limit");
         assert_eq!(history.len(), 2);
 
-        let mut history = vec![Message::user_text("hi").unwrap(), Message::assistant_text("hello")];
+        let mut history = vec![
+            Message::user_text("hi").unwrap(),
+            Message::assistant_text("hello"),
+        ];
         seal_tool_calls(&mut history, vec![], "depth limit");
         assert_eq!(history.len(), 2);
     }
@@ -944,7 +1044,9 @@ mod tests {
             category: "ui".into(),
             tool: "render_interactive_ui".into(),
             arguments: json!({ "title": "t", "html": "<p>hi</p>" }),
-            outcome: Some(ClientCallOutcome::Ok { result: json!({ "status": "rendered" }) }),
+            outcome: Some(ClientCallOutcome::Ok {
+                result: json!({ "status": "rendered" }),
+            }),
             state: Some(json!({ "n": 3 })),
         });
         let narration = entry(SessionHistoryContent::AssistantMessage("drawing it".into()));
@@ -954,12 +1056,29 @@ mod tests {
             content: "ok".into(),
         });
         let response = entry(SessionHistoryContent::Response(VizierResponse {
-            content: VizierResponseContent::Message { content: "done".into(), stats: None },
+            content: VizierResponseContent::Message {
+                content: "done".into(),
+                stats: None,
+            },
             ..Default::default()
         }));
 
-        let without = vec![request.clone(), narration.clone(), tool_call.clone(), result.clone(), response.clone()];
-        let with = vec![request, call.clone(), narration, tool_call, call, result, response];
+        let without = vec![
+            request.clone(),
+            narration.clone(),
+            tool_call.clone(),
+            result.clone(),
+            response.clone(),
+        ];
+        let with = vec![
+            request,
+            call.clone(),
+            narration,
+            tool_call,
+            call,
+            result,
+            response,
+        ];
         assert_eq!(
             format!("{:?}", history_entries_to_messages(&with)),
             format!("{:?}", history_entries_to_messages(&without))
@@ -975,7 +1094,12 @@ mod tests {
             vec!["b".to_string()]
         );
         assert_eq!(
-            open_tool_calls(&[call_entry("a"), call_entry("b"), call_entry("c"), result_entry("b", "ok")]),
+            open_tool_calls(&[
+                call_entry("a"),
+                call_entry("b"),
+                call_entry("c"),
+                result_entry("b", "ok")
+            ]),
             vec!["a".to_string(), "c".to_string()]
         );
         assert_eq!(
@@ -1004,11 +1128,17 @@ mod tests {
             call_entry("a"),
             call_entry("b"),
             result_entry("a", "ok"),
-            result_entry("b", "Interrupted: vizier restarted before this call finished, so its outcome is unknown. It was not run again."),
+            result_entry(
+                "b",
+                "Interrupted: vizier restarted before this call finished, so its outcome is unknown. It was not run again.",
+            ),
         ];
         let messages = history_entries_to_messages(&entries);
         let calls: Vec<String> = messages.iter().flat_map(tool_call_ids).collect();
-        let results: Vec<String> = messages.iter().filter_map(|m| result_id(m).map(str::to_string)).collect();
+        let results: Vec<String> = messages
+            .iter()
+            .filter_map(|m| result_id(m).map(str::to_string))
+            .collect();
         assert_eq!(calls.len(), results.len());
     }
 
@@ -1021,8 +1151,9 @@ mod tests {
             }),
             entry(SessionHistoryContent::AssistantMessage("hello".into())),
         ]);
-        let without =
-            history_entries_to_messages(&[entry(SessionHistoryContent::AssistantMessage("hello".into()))]);
+        let without = history_entries_to_messages(&[entry(
+            SessionHistoryContent::AssistantMessage("hello".into()),
+        )]);
         assert_eq!(with.len(), without.len());
     }
 

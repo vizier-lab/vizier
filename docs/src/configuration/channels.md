@@ -125,3 +125,11 @@ A session is `(agent, channel, topic)`. Each Discord channel / Telegram chat / W
 - **API**: `PUT /api/v1/agents/{agent_id}` with `discord_token` / `telegram_token` (send `null` to disconnect)
 
 The agent process is restarted on update, so the old bot connection is dropped and the new one established automatically.
+
+
+## Clearing session files
+
+`/clear-files` on Discord and `/clear_files` on Telegram remove the current conversation's
+transient session files. Both are two-step: send the command to see the count, then
+`/clear-files confirm` (or `/clear_files confirm`) within 60 seconds. A clear is refused while a
+turn is running or queued. Artifacts are unaffected, and there is no automatic collection.

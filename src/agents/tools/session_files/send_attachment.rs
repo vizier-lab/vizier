@@ -7,13 +7,13 @@ use crate::{
     agents::tools::{ToolCategory, ToolContext, VizierTool},
     error::VizierError,
     schema::{VizierAttachment, VizierAttachmentContent},
-    storage::{VizierStorage, session_file::SessionFileStorage},
+    storage::{VizierStorage, artifact::ArtifactStorage, session_file::SessionFileStorage},
 };
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct SendAttachmentArgs {
-    #[schemars(description = "filename of the session file to send as attachment")]
-    pub filename: String,
+    #[schemars(description = "name of the artifact to send as an attachment")]
+    pub artifact: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -40,7 +40,7 @@ impl VizierTool for SendAttachment {
     }
 
     fn description(&self) -> String {
-        "Queue a session file to be sent back to the user as an attachment with your response."
+        "Queue one of this agent's permanent artifacts to be sent with your response. Session files are transient: promote one with `promote_artifact` first. The current artifact content is served at send time, so a later update or deletion is reflected."
             .to_string()
     }
 
@@ -49,22 +49,42 @@ impl VizierTool for SendAttachment {
         args: Self::Input,
         ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
-        let file = self
+        let artifact = self
             .storage
-            .get_session_file(&ctx.session, &args.filename)
+            .get_artifact_by_name(&ctx.session.0, &args.artifact)
             .await
-            .map_err(|e| VizierError(e.to_string()))?
-            .ok_or_else(|| VizierError(format!("File not found: {}", args.filename)))?;
-
-        let url = format!("/api/v1/files/{}", file.file_id);
+            .map_err(|e| VizierError(e.to_string()))?;
+        let Some(artifact) = artifact else {
+            if self
+                .storage
+                .get_session_file(&ctx.session, &args.artifact)
+                .await
+                .ok()
+                .flatten()
+                .is_some()
+            {
+                return Err(VizierError(format!(
+                    "'{}' is a session file, not an artifact. Promote it with `promote_artifact` first.",
+                    args.artifact
+                )));
+            }
+            return Err(VizierError(format!(
+                "no artifact named '{}' on this agent",
+                args.artifact
+            )));
+        };
 
         ctx.pending_attachments.lock().await.push(VizierAttachment {
-            filename: file.filename.clone(),
-            content: VizierAttachmentContent::Local(url),
+            filename: artifact.name.clone(),
+            content: VizierAttachmentContent::Artifact {
+                agent_id: artifact.agent_id.clone(),
+                artifact_id: artifact.id.clone(),
+                available: None,
+            },
         });
 
         Ok(SendAttachmentOutput {
-            filename: file.filename,
+            filename: artifact.name,
             status: "sent".into(),
         })
     }
