@@ -102,7 +102,8 @@ export function ConversationHeader({
     }
 
     return (
-        <header className="flex h-76 shrink-0 items-center gap-12 border-b border-border px-24">
+        <header className="relative flex h-76 shrink-0 items-center gap-12 px-24">
+            <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
             <ConversationPicker
                 agentId={agentId}
                 open={open}

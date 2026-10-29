@@ -1,0 +1,181 @@
+import {
+    AgentMenu,
+    ContextSidebar,
+    HighlightMatch,
+    Picker,
+    PickerAction,
+    SessionList,
+    SidebarAgent,
+    SlideOver,
+    type EssentialPage,
+    type MenuPage,
+} from '@vizier/design'
+import { nanoid } from 'nanoid'
+import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
+import { agentState } from '../../api/endpoints/agents'
+import { canManageSecrets } from '../../lib/access'
+import { conversationHref, sidebarSections, sidebarTime } from '../../lib/conversations'
+import { relativeTime } from '../../lib/format'
+import { useAgents } from '../../stores/agents'
+import { topicKey } from '../../stores/connection'
+import { useSession } from '../../stores/session'
+import { useTurns } from '../../stores/turns'
+import { ConversationPicker } from '../chat/ConversationPicker'
+import { PAGE_PATH, pageOf } from './pages'
+import { useSessions } from './useSessions'
+
+const ESSENTIAL = new Set<string>(['memory', 'tasks', 'skills', 'dreams'])
+
+/**
+ * The agent's column: the agent card with its menu, the four essentials, and the conversations.
+ * Everything here navigates; nothing here changes what a page shows.
+ */
+export function AgentSidebar({ agentId }: { agentId: string }) {
+    const navigate = useNavigate()
+    const { pathname } = useLocation()
+    const [search] = useSearchParams()
+    const { can, canEditAgent } = useSession()
+    const { agents, health } = useAgents()
+    const [query, setQuery] = useState('')
+    const [switching, setSwitching] = useState(false)
+    const [all, setAll] = useState(false)
+
+    const agent = agents.find((a) => a.agent_id === agentId)
+    const state = agent ? agentState(health[agentId]) : 'stopped'
+    const page = pageOf(pathname)
+    const { items, total } = useSessions(agentId, pathname)
+
+    const turns = useTurns((s) => s.topics)
+    const isLive = (topic: string) => (turns[topicKey(agentId, topic)]?.phase ?? 'idle') !== 'idle'
+
+    // The conversation on screen: a WebUI topic by id, a Discord or Telegram one by channel.
+    const topicId = pathname.match(/^\/[^/]+\/chat\/([^/]+)$/)?.[1]
+    const channel = pathname.endsWith('/chat/read') ? search.get('channel') : null
+    const isCurrent = (c: (typeof items)[number]) =>
+        channel ? c.channel === channel : c.kind === 'webui' && !!topicId && c.latest_topic === decodeURIComponent(topicId)
+
+    const groups = useMemo(
+        () =>
+            sidebarSections(items).map((g) => ({
+                label: g.label,
+                items: g.items.map((c) => ({
+                    key: c.channel,
+                    title: c.title,
+                    time: sidebarTime(c.last_activity),
+                    live: c.kind === 'webui' && isLive(c.latest_topic),
+                    href: conversationHref(agentId, c),
+                    active: isCurrent(c),
+                })),
+            })),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [items, turns, topicId, channel, agentId]
+    )
+
+    const newConversation = () => navigate(`/${agentId}/chat/${nanoid(10)}`)
+
+    // Ctrl K (or ⌘K) opens the list of agents to switch to.
+    useEffect(() => {
+        const on = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault()
+                setSwitching(true)
+            }
+        }
+        window.addEventListener('keydown', on)
+        return () => window.removeEventListener('keydown', on)
+    }, [])
+
+    const q = query.trim().toLowerCase()
+    const matching = agents
+        .filter((a) => !q || a.name.toLowerCase().includes(q) || a.agent_id.toLowerCase().includes(q))
+        .sort((a, b) => a.name.localeCompare(b.name))
+
+    return (
+        <ContextSidebar
+            agent={
+                <div className="relative">
+                    <AgentMenu
+                        trigger={
+                            <SidebarAgent
+                                agentId={agentId}
+                                name={agent?.name ?? agentId}
+                                state={state}
+                                active={!!page && !ESSENTIAL.has(page) && page !== 'chat'}
+                                detail={
+                                    health[agentId]?.next_retry_at
+                                        ? `retry ${relativeTime(health[agentId].next_retry_at!)}`
+                                        : undefined
+                                }
+                            />
+                        }
+                        active={page && !ESSENTIAL.has(page) && page !== 'chat' ? (page as MenuPage) : undefined}
+                        hiddenPages={agent && canManageSecrets(agent) ? undefined : ['secrets']}
+                        disabledPages={agent && !canEditAgent(agent) ? ['config'] : undefined}
+                        onSelect={(p) => navigate(`/${agentId}${PAGE_PATH[p]}`)}
+                        onSwitchAgent={() => setSwitching(true)}
+                        switchShortcut="Ctrl K"
+                    />
+                    <Picker
+                        label="Agents"
+                        width={SIDEBAR_PICKER_WIDTH}
+                        open={switching}
+                        onOpenChange={setSwitching}
+                        trigger={<span aria-hidden className="block h-0 w-full" />}
+                        search={{ placeholder: 'Search agents', value: query, onChange: setQuery, total: `${agents.length}` }}
+                        sections={[{ label: q ? undefined : 'All agents', items: matching }]}
+                        getKey={(a) => a.agent_id}
+                        itemHeight={52}
+                        renderItem={(a, { query: hl }) => (
+                            <div className="flex min-w-0 flex-col">
+                                <span className="truncate type-body-strong text-fg">
+                                    <HighlightMatch text={a.name} query={hl} />
+                                </span>
+                                <span className="truncate type-mono-xs text-faint">{a.agent_id}</span>
+                            </div>
+                        )}
+                        onSelect={(a) => navigate(`/${a.agent_id}/chat`)}
+                        footer={
+                            can('all_agents:create') ? (
+                                <PickerAction icon="plus" onClick={() => navigate('/agents/new')}>
+                                    Create agent
+                                </PickerAction>
+                            ) : undefined
+                        }
+                    />
+                </div>
+            }
+            active={page && ESSENTIAL.has(page) ? (page as EssentialPage) : undefined}
+            hrefFor={(p) => `/${agentId}${PAGE_PATH[p]}`}
+        >
+            <SessionList
+                groups={groups}
+                onNew={newConversation}
+                showAll={
+                    total > items.length
+                        ? { label: `Show all ${total}`, onSelect: () => setAll(true) }
+                        : undefined
+                }
+            />
+            <SlideOver open={all} title="Conversations" onClose={() => setAll(false)}>
+                <ConversationPicker
+                    agentId={agentId}
+                    open={all}
+                    onOpenChange={setAll}
+                    onSelect={(c) => {
+                        setAll(false)
+                        navigate(conversationHref(agentId, c))
+                    }}
+                    onNew={() => {
+                        setAll(false)
+                        newConversation()
+                    }}
+                    current={{ topic: topicId, channel: channel ?? undefined }}
+                    liveTopics={items.filter((c) => c.kind === 'webui' && isLive(c.latest_topic)).map((c) => c.latest_topic)}
+                />
+            </SlideOver>
+        </ContextSidebar>
+    )
+}
+
+const SIDEBAR_PICKER_WIDTH = 340
