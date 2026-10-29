@@ -1,4 +1,4 @@
-//! The built-in `office` addon: read and write Word and Excel files (spec `034-office-addon`). It has no
+//! The built-in `office` addon: read and write Word and Excel files (spec `035-office-addon`). It has no
 //! settings; its tools are present when the integration is, and listed under the `office`
 //! category.
 

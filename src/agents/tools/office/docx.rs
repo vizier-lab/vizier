@@ -1,6 +1,6 @@
 //! Reading Word documents (`.docx`) as Markdown, and writing them from Markdown.
 //!
-//! Pure functions on bytes (spec `034-office-addon`, FR-002): headings, bold and italic,
+//! Pure functions on bytes (spec `035-office-addon`, FR-002): headings, bold and italic,
 //! ordered and unordered nested lists, tables as pipe tables and hyperlinks. Reading skips
 //! images, shapes, text boxes and footnotes; writing turns images and raw HTML into their text.
 

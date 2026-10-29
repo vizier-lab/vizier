@@ -1,6 +1,6 @@
 # Quickstart: Office Addon
 
-**Feature**: `034-office-addon`
+**Feature**: `035-office-addon`
 
 This checks the feature against a running binary and the standalone `dummyplug` server (spec `030-standalone-dummyplug-server`, merged in vizier-lab/vizier#103). dummyplug is no longer built into Vizier: it is a separate Node.js OpenAI-compatible server in the `dummyplug/` submodule, and an agent with provider `dummyplug` reaches it over HTTP at `DUMMYPLUG_URL` (default `http://127.0.0.1:9998/v1`). The chat protocol is unchanged: send `tools`, then a tool name for a sample request, then the JSON request to run it (see `specs/030-standalone-dummyplug-server/contracts/` and the legacy `specs/008-dummyplug-provider/contracts/dummyplug-protocol.md`). Agent tools are called from `execute_python` (code mode). No step needs a live model provider or a model key. This branch already contains #103 (merged from `master`); the `dummyplug/` submodule must be checked out (`just install`).
 

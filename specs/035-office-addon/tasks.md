@@ -5,7 +5,7 @@ description: "Task list for the Office addon (DOCX and XLSX)"
 
 # Tasks: Office Addon (DOCX and XLSX)
 
-**Input**: Design documents from `/specs/034-office-addon/`
+**Input**: Design documents from `/specs/035-office-addon/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/office-tools.md, quickstart.md
 
@@ -123,7 +123,7 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 - [X] T031 [US3] Add `seed_default(deps, agent_id, owner, kind_id, name)` to `src/integrations/service.rs`: look up the kind, validate with `{}`, then run the same save, notification and `publish` steps as `create` (move that shared tail into one private function used by both), with no access check
 - [X] T032 [US3] Call `seed_default` from `finish_create` in `src/agents/mod.rs` after the CORE seed and before `self.start(...)`, logging a failure with `tracing::warn!` and never failing creation; call `self.refresh_integrations(&agent_id)` once after `start`, because the change event fires before the agent has a process entry (research R13)
 - [X] T033 [US3] Add the `OFFICE_DEFAULT_SEEDED` key and `seed_office_defaults()` to `src/dependencies.rs`: build `deps` first, run the pass at the end of `VizierDependencies::new` only when the key is absent, set the key only after every agent was handled, log per-agent failures; confirm that publishing the change event with no subscribers is harmless (research R14)
-- [ ] T034 [US3] Run the real binary against a workspace that already has an agent from the previous version and confirm the quickstart step 0 and 1 results, including that no backfill runs on the second start
+- [ ] T034 [US3] Run the real binary against a workspace that already has an agent from the previous version and confirm the quickstart step 0 and 1 results, including that no backfill runs on the second start (not run yet: the `dummyplug/` submodule is empty on the VPS and the binary was not started)
 
 **Checkpoint**: US1 to US3 give the full P1 value: every agent can read and create Office files without setup.
 
@@ -176,13 +176,13 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 **Purpose**: Documentation, end-to-end verification, build gates and the commit.
 
 - [X] T045 [P] Add a docs page for the addon in `docs/src/configuration/office-addon.md` (the five tools and when to use each, cell and range reads, the CSV preview and what `executed_formula` does and where it falls back, create-only writes, same-named files are replaced, on by default and how to turn it off) and link it from `docs/src/SUMMARY.md`
-- [X] T046 [P] Reconcile `specs/034-office-addon/contracts/office-tools.md` with the implemented error and output shape: the contract describes errors as `status: "error"` objects and outputs with a `status` field, while tools following `image_generate` return `{filename, size}` and raise a catchable error on failure
-- [ ] T047 Run the whole dummyplug script in `specs/034-office-addon/quickstart.md` (steps 0 to 8 including 6a and 6b) against the real binary and the standalone dummyplug server (`just dummyplug`; this branch already contains vizier-lab/vizier#103) and fix what it finds; optionally automate it as `scripts/office-e2e.mjs` in the style of `scripts/dummyplug-vizier-e2e.mjs`
+- [X] T046 [P] Reconcile `specs/035-office-addon/contracts/office-tools.md` with the implemented error and output shape: the contract describes errors as `status: "error"` objects and outputs with a `status` field, while tools following `image_generate` return `{filename, size}` and raise a catchable error on failure
+- [ ] T047 Run the whole dummyplug script in `specs/035-office-addon/quickstart.md` (steps 0 to 8 including 6a and 6b) against the real binary and the standalone dummyplug server (`just dummyplug`; this branch already contains vizier-lab/vizier#103) and fix what it finds; optionally automate it as `scripts/office-e2e.mjs` in the style of `scripts/dummyplug-vizier-e2e.mjs` (not run yet, same reason as T034; the behaviour of step 4 is covered by `fixture_tests.rs` and the `xlsx.rs` tests)
 - [ ] T048 Open the generated `.docx` and `.xlsx` in Microsoft Office and in LibreOffice and confirm there is no repair prompt (SC-004); needs a person with those applications
-- [ ] T049 Run `cargo clippy` and `cargo test` (including `every_addon_tool_is_namespaced_by_its_addon` and `every_tool_is_in_its_category`) and fix every finding
+- [ ] T049 Run `cargo clippy` and `cargo test` (including `every_addon_tool_is_namespaced_by_its_addon` and `every_tool_is_in_its_category`) and fix every finding (run on the VPS at `5579483`: `cargo test` 835 passed, both `every_*` tests pass, and the clippy findings in the Office code, `src/dependencies.rs` and `src/integrations/mod.rs` are fixed; about 89 findings from clippy 1.99 remain in files this addon does not touch, so this stays open until the maintainer decides whether to fix them here)
 - [ ] T050 (blocked, not caused by the formula engine: `cargo build --release --target x86_64-unknown-linux-musl` stops at `ort-sys`, which has no musl binary and was already in `Cargo.lock`; the engine alone passes `cargo check` for musl. See research R10; the maintainer picks a supported target or supplies a musl ONNX Runtime) Build one static target from `Cross.toml` (for example `cross build --target x86_64-unknown-linux-musl`) with the final dependencies, including the formula engine chosen in T016, to confirm cross-compilation still works (constitution Principle IV)
 - [X] T051 Prepare the text of a checklist entry for tracker issue #82 covering the startup backfill (`seed_office_defaults` and its flag) and what depends on it (FR-025); the maintainer posts it, since it is public (text in `issue-82-entry.md`)
-- [ ] T052 Commit with a conventional message `feat(office)!:` and a `[**breaking**]` note that `read_document_file` no longer reads Word and Excel and that every agent now has the Office addon by default (research R16); the changelog is generated from it
+- [X] T052 Commit with a conventional message `feat(office)!:` and a `[**breaking**]` note that `read_document_file` no longer reads Word and Excel and that every agent now has the Office addon by default (research R16); the changelog is generated from it (done in `5579483`, no Co-Authored-By trailer)
 
 ---
 
