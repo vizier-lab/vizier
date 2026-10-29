@@ -69,7 +69,7 @@ To confirm the host history and system prompts reach the model, run vizier with 
 ```sh
 curl -s "${auth[@]}" "$API/agents/dp-btw/btw" -d '{
   "channel_id":"webui","topic_id":"host1","question":"context",
-  "exchange":[{"question":"first aside","answer":"first answer"}]
+  "turns":[{"question":"first aside","answer":"first answer"}]
 }' | jq -r .data.answer | head -3
 ```
 
@@ -80,10 +80,10 @@ Nine questions is the limit:
 ```sh
 EX=$(jq -nc '[range(8) | {question:"q", answer:"a"}]')
 curl -s -o /dev/null -w '%{http_code}\n' "${auth[@]}" "$API/agents/dp-btw/btw" \
-  -d "{\"channel_id\":\"webui\",\"topic_id\":\"host1\",\"question\":\"ninth\",\"exchange\":$EX}"        # 200
+  -d "{\"channel_id\":\"webui\",\"topic_id\":\"host1\",\"question\":\"ninth\",\"turns\":$EX}"        # 200
 EX=$(jq -nc '[range(9) | {question:"q", answer:"a"}]')
 curl -s "${auth[@]}" "$API/agents/dp-btw/btw" \
-  -d "{\"channel_id\":\"webui\",\"topic_id\":\"host1\",\"question\":\"tenth\",\"exchange\":$EX}" | jq .   # 422
+  -d "{\"channel_id\":\"webui\",\"topic_id\":\"host1\",\"question\":\"tenth\",\"turns\":$EX}" | jq .   # 422
 ```
 
 ## 4. No tools, and it says so (US1-4, FR-004, FR-013, SC-005)

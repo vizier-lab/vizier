@@ -12,7 +12,7 @@
 
 ### User Story 1 - Ask a quick off-the-record question in the WebUI (Priority: P1)
 
-While chatting with an agent, a person wants to ask it something on the side — sanity-check a draft reply, ask it to clarify something it just said, test a hypothesis out loud — without that question or its answer becoming part of the agent's permanent record. They type `/btw` followed by their question. A side panel opens showing the exchange; the agent answers using its usual identity and knowledge of the conversation so far, but does no other work (no searching memory, no running tools). The person can ask one or two follow-ups in the same panel. When they close it, the exchange is gone — nothing about it remains anywhere the agent or anyone else can later see.
+While chatting with an agent, a person wants to ask it something on the side — sanity-check a draft reply, ask it to clarify something it just said, test a hypothesis out loud — without that question or its answer becoming part of the agent's permanent record. They type `/btw` followed by their question. A side panel opens showing the exchange; the agent answers using its usual identity and knowledge of the conversation so far, but does no other work (no searching memory, no running tools). The person can ask a few follow-ups in the same panel, and the agent remembers the earlier questions and answers *of this side chat* while it is open. When they close it, the exchange is gone — nothing about it remains anywhere the agent or anyone else can later see.
 
 **Why this priority**: This is the core value of the feature and the only surface that has no feasible workaround today (opening a disposable second conversation doesn't guarantee it's never reflected on or seen later). It must work before the other channels are worth building.
 
@@ -31,6 +31,8 @@ While chatting with an agent, a person wants to ask it something on the side —
 
 A person chatting with an agent in a Discord server wants the same off-the-record aside, but visible only to themselves — not posted publicly to the channel for everyone to see.
 
+Discord shows a reply to only one person through private ("only you can see this") replies, and such a reply can't be replied to: answering it with an ordinary message would post that message publicly. So each private answer carries a **Follow up** button, which opens a small private form for the next question. Running the side-chat command again always starts a new, empty side chat.
+
 **Why this priority**: Extends the core value to a channel where conversations are often semi-public, where the privacy guarantee matters even more than in a private WebUI session. Depends on the core mechanism from Story 1 existing.
 
 **Independent Test**: Can be fully tested by invoking the side-chat command in a Discord channel and confirming only the invoking person can see the question and answer, while other channel members see nothing.
@@ -38,7 +40,7 @@ A person chatting with an agent in a Discord server wants the same off-the-recor
 **Acceptance Scenarios**:
 
 1. **Given** a person in a Discord channel with an agent, **When** they invoke the side-chat command, **Then** the question and the agent's reply are visible only to that person, not to other channel members.
-2. **Given** a side-chat reply only the invoker can see, **When** the person asks a follow-up, **Then** the follow-up and its answer are likewise private to them.
+2. **Given** a side-chat reply only the invoker can see, **When** the person chooses **Follow up** on it and asks a follow-up, **Then** the follow-up and its answer are likewise private to them, and the answer is aware of the earlier turns of that side chat.
 3. **Given** a side-chat exchange on Discord, **When** enough time passes, **Then** the exchange is no longer accessible to anyone, including the person who started it.
 
 ---
@@ -56,6 +58,7 @@ A person chatting with an agent on Telegram wants the same aside. Telegram has n
 1. **Given** a person chatting with an agent on Telegram, **When** they invoke the side-chat command, **Then** they receive a reply along with a clear notice that the exchange will be automatically removed.
 2. **Given** an active Telegram side-chat exchange, **When** the person is inactive for the stated period, **Then** all of the agent's replies in the exchange are deleted from the chat, and so are the person's command and follow-ups wherever Telegram lets the agent delete them (always in a private chat; in a group only when the agent's bot is an admin allowed to delete messages).
 3. **Given** a Telegram side-chat invoked in a group, **When** the exchange is posted, **Then** it is visible to the group until removed (not private to the invoker), consistent with the notice given.
+4. **Given** an active Telegram side-chat exchange, **When** the person replies to one of its answers, **Then** the reply is answered as a follow-up of that side chat, aware of its earlier turns, and is removed with the rest of it.
 
 ---
 
@@ -78,7 +81,7 @@ A person chatting with an agent on Telegram wants the same aside. Telegram has n
 - **FR-002**: The side-chat MUST answer as the same agent the person is already talking to — same identity and knowledge of itself — not a different or generic assistant.
 - **FR-003**: The side-chat MUST have awareness of the host conversation's recent messages, so the person can ask about something just said.
 - **FR-004**: The side-chat MUST NOT have access to the agent's tools (searching memory, running commands, reading or writing files, contacting other services, etc.) — it answers from conversation and identity alone.
-- **FR-005**: The system MUST allow the person to exchange a small number of follow-up messages within one side-chat session before it ends.
+- **FR-005**: The system MUST let the person ask follow-up questions within one side chat, answered with awareness of that side chat's earlier turns, up to 9 questions in all. Invoking the side-chat command again MUST always start a new, empty side chat.
 - **FR-006**: The system MUST NOT retain any record of a side-chat exchange once it ends — not in the conversation's visible history, not in anything the agent can later recall, reflect on, or search. The only things kept are the exchange's cost (FR-011) and, on Telegram, a note of which chat messages are still waiting to be removed (identifiers and a time only — no text, no sender), which is discarded once removal has been attempted.
 - **FR-007**: On the WebUI, the side-chat MUST be presented in a way that is clearly separate from the main conversation (e.g. a distinct panel), so the person cannot mistake it for a message that will be remembered.
 - **FR-008**: On Discord, a side-chat exchange MUST be visible only to the person who started it, not to other participants in the same channel.
@@ -87,10 +90,11 @@ A person chatting with an agent on Telegram wants the same aside. Telegram has n
 - **FR-011**: The system MUST still record the computational cost of a side-chat exchange for usage/billing purposes, even though the exchange's content is not retained.
 - **FR-012**: If a side-chat exchange is interrupted (connection lost, server restarts, person closes it) before completing, the system MUST NOT attempt to resume or recover it — the person simply sees a failure and may start again.
 - **FR-013**: If the person asks the side-chat to perform an action that requires a tool, the agent MUST explain that it cannot in this mode, rather than attempting the action or appearing to succeed.
+- **FR-014**: A side chat MUST end, and be discarded in full, at a point the person can predict on each channel: on the WebUI when its panel is closed or the page is left; on Discord after 5 minutes without activity, or 14 minutes after it started, whichever comes first; on Telegram after 2 minutes without activity. While it lasts, its earlier turns MUST live only in the person's browser (WebUI) or in the running server's memory (Discord, Telegram), never in storage.
 
 ### Key Entities
 
-- **Side-chat exchange**: A short-lived, unrecorded conversation between a person and an agent, consisting of one or more question/answer turns, scoped to one invocation and discarded in full when it ends. Not an entity that persists beyond its own lifetime — it has no stored identity once closed.
+- **Side-chat exchange** ("side chat", "aside"): A short-lived, unrecorded conversation between a person and an agent. It is started by one invocation of the side-chat command and continued by that person's follow-ups (up to 9 questions), so it has memory *within itself*, unlike a one-shot question. It is never part of the conversation's history: it ends as described in FR-014 and is then discarded in full. Not an entity that persists beyond its own lifetime — it has no stored identity once closed.
 
 ## Success Criteria *(mandatory)*
 
@@ -106,7 +110,7 @@ A person chatting with an agent on Telegram wants the same aside. Telegram has n
 ## Assumptions
 
 - The person is already authenticated and has an existing, permitted conversation with the agent before starting a side-chat — side-chat does not introduce a new way to reach an agent a person couldn't already talk to.
-- A "small number" of follow-ups (FR-005) means the exchange is meant for a short back-and-forth, not an extended working session; the exact practical limit is a design detail to be settled during planning, not a user-facing constraint to specify here.
+- The side chat is meant for a short back-and-forth, not an extended working session: 9 questions (FR-005) and the channel lifetimes (FR-014) are sized for that, and both apply on top of the rate limit (FR-010).
 - The model, provider, and general behavior tone the agent uses in a side-chat exchange match whatever is currently configured for that agent elsewhere — no new configuration surface is introduced for choosing a different model specifically for side-chat.
 - "Automatically removed" on Telegram (FR-009) means removed from the chat transcript visible to users; it does not claim removal from Telegram's own servers or logs, which are outside this system's control.
 - On Telegram, an agent's bot can always remove its own messages, and the person's messages in a private chat, but can remove other people's messages in a group only when it is a group admin allowed to delete messages. Without that right, the person's own side-chat messages stay in the group; the notice given at the start says so.

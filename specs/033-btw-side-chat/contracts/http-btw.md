@@ -15,7 +15,7 @@ Ask the agent one side-chat question beside one of the caller's own conversation
   "channel_id": "webui",
   "topic_id": "k3j9xq0a2b",
   "question": "Is the plan you just gave realistic for a team of two?",
-  "exchange": [
+  "turns": [
     { "question": "What did you mean by 'phase two'?", "answer": "The migration of …" }
   ]
 }
@@ -26,7 +26,7 @@ Ask the agent one side-chat question beside one of the caller's own conversation
 | `channel_id` | string | yes | As in the topic routes |
 | `topic_id` | string | yes | |
 | `question` | string | yes | Trimmed; 1–4,000 characters |
-| `exchange` | array of `{question, answer}` | no (default `[]`) | Earlier turns of this side chat, oldest first; at most 8; each question 1–4,000, each answer 0–16,000 characters |
+| `turns` | array of `{question, answer}` | no (default `[]`) | Earlier turns of this side chat, oldest first; at most 8; each question 1–4,000, each answer 0–16,000 characters |
 
 No `attachments` field; unknown fields are ignored.
 
@@ -58,7 +58,7 @@ A rate-limited or invalid request is refused **before** anything reaches the age
 - Nothing is written to the conversation's history, its session detail (no creation, no title, no `is_thinking`), the turn journal, scratchpad, memory or notifications.
 - The answer never comes from a tool: the model is offered no usable tool (research R5).
 - The agent answers as itself: same system prompt, CORE.md, owner profile, documents, provider and model as the conversation.
-- It sees the conversation as its next turn would (history since the last checkpoint, plus the checkpoint's handover), then `exchange`, then `question`.
+- It sees the conversation as its next turn would (history since the last checkpoint, plus the checkpoint's handover), then `turns`, then `question`.
 - One `usage_event` row per answered call, in the host conversation.
 - Not resumable: a restart mid-answer is a failed request; the client may ask again.
 - The request queues behind a turn already running in the same conversation, like any message, and is bounded by `prompt_timeout`.

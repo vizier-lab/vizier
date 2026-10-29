@@ -6,7 +6,7 @@
 
 ## Summary
 
-`/btw <question>` lets a person ask the agent they are talking to an off-the-record question from the WebUI, Discord or Telegram. The agent answers as itself, with the conversation so far as context, in one tool-less completion, and nothing about the exchange is kept except its token usage.
+`/btw <question>` lets a person ask the agent they are talking to an off-the-record question from the WebUI, Discord or Telegram. A side chat is **one aside with follow-ups** (up to 9 questions), discarded in full when it ends (research R0). Each answer is one tool-less completion, made by the agent as itself with the conversation so far and the aside's earlier turns as context. Nothing about the aside is kept except its token usage.
 
 Technically: a new `VizierRequestContent::Btw(SideChat)`, always `transient`, is sent on the host conversation's session through the existing transport by one shared helper, `channels::side_chat::ask`. That helper validates, rate-limits (5 / 60 s per person) and awaits the reply under `prompt_timeout`. `agent_process` routes the request to `run_btw` beside `checkpoint`/`lobotomy`, and skips the session-detail refresh and the thinking flag for it. `run_btw` runs `VizierAgent::side_chat`, which assembles the same prompt prefix as a host turn and makes one `complete_until` call with `tool_choice: none`. It never touches `chat()`, history, the turn journal or session events.
 
@@ -55,7 +55,7 @@ Each channel presents the exchange differently. The WebUI shows a side panel who
 2. The rate-limit key is per platform identity, because platform links in profiles are unverified. This narrows the spec's cross-platform assumption (R9).
 3. Discord follow-ups use a button + modal instead of replies, because replies to an ephemeral message would be public (R12).
 4. Telegram keeps a content-free deletion ledger in `state`. Without it, a restart would leave exchanges in the chat indefinitely (R13).
-5. The request carries the earlier turns (`SideChat { question, exchange }`) instead of `Btw(String)` (R11).
+5. The request carries the earlier turns (`SideChat { question, turns }`) instead of `Btw(String)` (R11).
 6. Two more per-request writes (session-detail titling, the `is_thinking` flag) must be skipped. The issue did not list them (R2).
 
 ## Project Structure
@@ -65,7 +65,7 @@ Each channel presents the exchange differently. The WebUI shows a side panel who
 ```text
 specs/033-btw-side-chat/
 ├── plan.md              # This file
-├── research.md          # Phase 0: decisions R1–R16
+├── research.md          # Phase 0: decisions R0–R16
 ├── data-model.md        # Phase 1: SideChat, SideChats, ledger, unchanged entities
 ├── quickstart.md        # Phase 1: dummyplug e2e script (+ LIVE Discord/Telegram)
 ├── contracts/

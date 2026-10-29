@@ -39,7 +39,7 @@ description: "Task list for /btw Ephemeral Side-Chat"
 
 ### Request type and limiter
 
-- [ ] T004 Add `SideChat { question, exchange: Vec<SideChatTurn> }` and `SideChatTurn { question, answer }` (deriving what `ClientEvent` derives) and `VizierRequestContent::Btw(SideChat)` in `src/schema/request.rs`. Extend `kind()` with `"btw"` and `Display` with the question, and add `pub fn is_side_chat(&self) -> bool`. Then fix every now-non-exhaustive `match` on `VizierRequestContent` that `cargo check` reports.
+- [ ] T004 Add `SideChat { question, turns: Vec<SideChatTurn> }` and `SideChatTurn { question, answer }` (deriving what `ClientEvent` derives) and `VizierRequestContent::Btw(SideChat)` in `src/schema/request.rs`. Extend `kind()` with `"btw"` and `Display` with the question, and add `pub fn is_side_chat(&self) -> bool`. Then fix every now-non-exhaustive `match` on `VizierRequestContent` that `cargo check` reports.
 - [ ] T005 Unit tests in `src/schema/request.rs` `mod tests`: `Btw` serialises as `{"btw": {...}}`, `kind()` is `"btw"`, `is_side_chat()` is true only for `Btw`, and `is_durable` is false for a `Btw` request with `transient: true`
 - [ ] T006 [P] Add `pub side_chat_limits: Arc<crate::channels::http::rate_limit::RateLimiter>` (built with `ASKS_PER_WINDOW`/`ASK_WINDOW` from T001) to `VizierDependencies` in `src/dependencies.rs`, constructed wherever the struct is built. Update the module doc comment in `src/channels/http/rate_limit.rs`: it says the limiter lives on `HTTPState`, and it is now also shared with the Discord and Telegram readers through `VizierDependencies`.
 
@@ -78,7 +78,7 @@ description: "Task list for /btw Ephemeral Side-Chat"
 - [ ] T012 Implement in `src/channels/side_chat.rs`:
   - `PersonKey` constructors: `http(username)`, `discord(id)`, `telegram(id)`.
   - `SideChatError { RateLimited { retry_after_secs }, Invalid(String), Timeout, Agent { kind, message } }`, with `user_message()`.
-  - `fn validate(&SideChat) -> Result<(), SideChatError>`, enforcing the data-model limits. The 9th follow-up message is "side chat is full — start a new one".
+  - `fn validate(&SideChat) -> Result<(), SideChatError>`, enforcing the data-model limits. A 10th question (9 earlier turns) is refused with "side chat is full — start a new one".
   - `pub async fn ask(deps: &VizierDependencies, session: VizierSession, person: &PersonKey, user: String, side_chat: SideChat, timeout: Duration) -> Result<SideChatAnswer { answer, stats }, SideChatError>`. It validates, checks `deps.side_chat_limits` (refusing before sending), builds the request with `transient: true` and no attachments, sends it via `deps.transport.send_request`, then awaits the first `Message`/`Error`/`Abort` or a closed channel under `timeout`.
   - `retry_after_secs` is derived from `ASK_WINDOW`. Add a `RateLimiter::retry_after(key)` helper in `src/channels/http/rate_limit.rs` only if the window start is needed; otherwise report the full window.
 - [ ] T013 Unit tests in `src/channels/side_chat.rs`:
@@ -114,7 +114,7 @@ description: "Task list for /btw Ephemeral Side-Chat"
 
 ### Backend for User Story 1
 
-- [ ] T016 [US1] Add `BtwRequest { channel_id, topic_id, question, #[serde(default)] exchange }` and `BtwResponse { answer, stats }`, both `utoipa::ToSchema`, and `async fn agent_btw` with its `#[utoipa::path(post, path = "/agents/{agent_id}/btw", ...)]`, in `src/channels/http/api/v1/agents/mod.rs`. The handler:
+- [ ] T016 [US1] Add `BtwRequest { channel_id, topic_id, question, #[serde(default)] turns }` and `BtwResponse { answer, stats }`, both `utoipa::ToSchema`, and `async fn agent_btw` with its `#[utoipa::path(post, path = "/agents/{agent_id}/btw", ...)]`, in `src/channels/http/api/v1/agents/mod.rs`. The handler:
   - Looks up the agent and returns 404 if it's missing.
   - Checks `user_can_view_agent`, returning 403.
   - Builds the session as `HTTP(user.username, channel_id)` with the topic.
@@ -126,11 +126,11 @@ description: "Task list for /btw Ephemeral Side-Chat"
 
 ### WebUI for User Story 1 (submodule `webui/`)
 
-- [ ] T019 [P] [US1] Add `askSideChat(agentId, { channel_id, topic_id, question, exchange })` to `webui/app/api/endpoints/chat.ts`. It uses the typed `request` client and returns the answer or a typed error that carries the status, message and `Retry-After`.
+- [ ] T019 [P] [US1] Add `askSideChat(agentId, { channel_id, topic_id, question, turns })` to `webui/app/api/endpoints/chat.ts`. It uses the typed `request` client and returns the answer or a typed error that carries the status, message and `Retry-After`.
 - [ ] T020 [P] [US1] Create `webui/app/lib/sideChat.ts`:
   - A pure exchange reducer with turns, pending question, per-turn error, and `full` at 9 questions.
   - Actions `ask`/`answered`/`failed`/`retry`/`reset`.
-  - `toExchange(state)` for the request.
+  - `toTurns(state)` for the request.
   - An error mapper: 429 becomes "Slow down — try again in {n}s", 422 shows its message, 408/5xx/network failures become a retryable error.
   - Add `webui/app/lib/sideChat.test.ts` (vitest) covering the reducer, the 9-question limit and the error mapping.
 - [ ] T021 [US1] Create `webui/app/screens/chat/SideChatPanel.tsx` (depends on T019, T020):
@@ -157,7 +157,7 @@ description: "Task list for /btw Ephemeral Side-Chat"
 
 - [ ] T025 [US2] Add `CommandEntry::new("btw", "ask me a side question only you can see; never saved")` with a required `message` option to `builtin_commands()` in `src/channels/discord/mod.rs`. Add `/btw` to the `/help` text.
 - [ ] T026 [US2] Add a `side_chats: Arc<SideChats<DiscordPosted>>` field to the Discord reader in `src/channels/discord/mod.rs`, where `DiscordPosted { token, message_id: Option<Id<MessageMarker>> }`. Use `Lifetime { idle: 5 min, max: Some(14 min) }`. Start it with `side_chats.spawn_sweeper(15 s, on_end)` (T014), where `on_end` deletes the ended exchange's messages through `http.interaction(app_id).delete_response(token)` / `delete_followup(token, id)`. Abort the handle when the reader stops. The deletes are best-effort and logged at `debug`.
-- [ ] T027 [US2] Implement `async fn side_chat(&self, interaction, channel, question, exchange: Option<ExchangeId>)` in `src/channels/discord/mod.rs`:
+- [ ] T027 [US2] Implement `async fn side_chat(&self, interaction, channel, question, continuing: Option<ExchangeId>)` in `src/channels/discord/mod.rs`:
   1. Respond `DeferredChannelMessageWithSource` with `MessageFlags::EPHEMERAL`.
   2. Resolve the host session from `load_state(&channel).active_topic`.
   3. Use the user string the way `run_skill_command` builds it, and `PersonKey::discord(author id)`.
