@@ -170,7 +170,7 @@ export function Rail({
     </RailLink>
   );
   return (
-    <nav aria-label="Agents" className={cx("flex h-full w-64 shrink-0 flex-col items-center gap-10 bg-shell pt-16 pb-14", className)} {...rest}>
+    <nav aria-label="Agents" className={cx("flex h-full w-66 shrink-0 flex-col items-center gap-10 bg-shell pt-16 pb-14", className)} {...rest}>
       <RailButton icon="home" label="Home" href={homeHref} active={homeActive} />
       <span aria-hidden className="h-px w-22 bg-border" />
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-10 overflow-y-auto overflow-x-clip [scrollbar-width:none]">

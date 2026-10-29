@@ -51,7 +51,7 @@ export type ContextSidebarProps = {
 export function ContextSidebar({ agent, active, hiddenPages, hrefFor, children, className, ...rest }: ContextSidebarProps) {
   const hidden = new Set(hiddenPages);
   return (
-    <nav aria-label="Agent" className={cx("flex h-full w-256 shrink-0 flex-col gap-8 bg-shell px-10 pt-12 pb-14", className)} {...rest}>
+    <nav aria-label="Agent" className={cx("flex h-full w-256 shrink-0 flex-col gap-8 bg-shell pr-12 pl-0 pt-12 pb-14", className)} {...rest}>
       <div className="shrink-0">{agent}</div>
       <div className="flex shrink-0 flex-col gap-2 pt-4">
         {ESSENTIALS.filter((p) => !hidden.has(p.page)).map((p) => (
