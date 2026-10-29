@@ -13,6 +13,8 @@ export type SessionItem = {
   live?: boolean;
   href: string;
   active?: boolean;
+  /** Shows a delete button on hover and focus. */
+  deletable?: boolean;
 };
 
 export type SessionGroup = { label: string; items: SessionItem[] };
@@ -22,6 +24,8 @@ export type SessionListProps = {
   /** Starts a new conversation. */
   onNew?: () => void;
   newLabel?: string;
+  /** Called with the item's key when its delete button is pressed. The caller confirms and removes it. */
+  onDelete?: (key: string) => void;
   /** A search over the conversations. The field opens from the header and stays open while it holds text. */
   search?: { value: string; onChange: (value: string) => void; placeholder?: string };
   /** What to say when the list is empty; the search's "nothing matched" goes here. */
@@ -38,7 +42,7 @@ const EASE = { duration: motionDurations.base, ease: motionEases.standard };
  * groups. A new one slides in at the top, a removed one folds away, and the lit row slides to the
  * conversation you open.
  */
-export function SessionList({ groups, onNew, newLabel = "New session", search, empty, showAll, className }: SessionListProps) {
+export function SessionList({ groups, onNew, newLabel = "New session", onDelete, search, empty, showAll, className }: SessionListProps) {
   const [opened, setOpened] = useState(false);
   const open = opened || !!search?.value;
   const input = useRef<HTMLInputElement>(null);
@@ -123,7 +127,7 @@ export function SessionList({ groups, onNew, newLabel = "New session", search, e
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: 30, transition: EASE }}
                       exit={{ opacity: 0, height: 0, transition: { ...EASE, duration: motionDurations.fast } }}
-                      className="relative overflow-hidden"
+                      className="group/row relative overflow-hidden"
                     >
                       <a
                         href={s.href}
@@ -143,8 +147,27 @@ export function SessionList({ groups, onNew, newLabel = "New session", search, e
                         )}
                         <span className={cx("relative min-w-0 flex-1 truncate type-ui", s.active && "type-ui-medium")}>{s.title}</span>
                         {s.live && <span role="img" aria-label="a turn is running" className="relative size-6 shrink-0 rounded-pill bg-live" />}
-                        <span className={cx("relative shrink-0 type-mono-xs", s.live ? "text-live-text" : "text-faint")}>{s.time}</span>
+                        <span
+                          className={cx(
+                            "relative shrink-0 type-mono-xs transition-opacity",
+                            s.live ? "text-live-text" : "text-faint",
+                            onDelete && s.deletable && "group-hover/row:opacity-0 group-focus-within/row:opacity-0",
+                          )}
+                        >
+                          {s.time}
+                        </span>
                       </a>
+                      {onDelete && s.deletable && (
+                        <button
+                          type="button"
+                          aria-label={`Delete ${s.title}`}
+                          title="Delete conversation"
+                          onClick={() => onDelete(s.key)}
+                          className="absolute top-1/2 right-6 grid size-24 -translate-y-1/2 place-items-center rounded-md text-faint opacity-0 transition-[opacity,color,background-color] hover:bg-raised hover:text-failed focus-visible:opacity-100 group-hover/row:opacity-100 group-focus-within/row:opacity-100"
+                        >
+                          <Icon name="trash" size={13} />
+                        </button>
+                      )}
                     </motion.li>
                   ))}
                 </AnimatePresence>
