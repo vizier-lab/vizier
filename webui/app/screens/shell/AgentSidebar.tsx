@@ -100,6 +100,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                             <SidebarAgent
                                 agentId={agentId}
                                 name={agent?.name ?? agentId}
+                                description={agent?.description || undefined}
                                 state={state}
                                 active={!!page && !ESSENTIAL.has(page) && page !== 'chat'}
                                 detail={
@@ -113,8 +114,6 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                         hiddenPages={agent && canManageSecrets(agent) ? undefined : ['secrets']}
                         disabledPages={agent && !canEditAgent(agent) ? ['config'] : undefined}
                         onSelect={(p) => navigate(`/${agentId}${PAGE_PATH[p]}`)}
-                        onSwitchAgent={() => setSwitching(true)}
-                        switchShortcut="Ctrl K"
                     />
                     {/* Out of the flow: it only anchors the agent list under the card. */}
                     <div className="absolute inset-x-0 bottom-0">
