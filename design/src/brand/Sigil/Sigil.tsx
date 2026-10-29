@@ -2,12 +2,12 @@ import type { HTMLAttributes } from "react";
 import { cx } from "../../lib/cx";
 import { sigilCells, sigilSignalCell } from "./sigilCells";
 
-export type SigilSize = "sm" | "md" | "lg" | "xl";
+export type SigilSize = "sm" | "md" | "rail" | "lg" | "xl";
 
 export type SigilProps = {
   /** The agent id the pattern is drawn from. */
   agentId: string;
-  /** sm 22 (chat), md 34 (switcher, cards), lg 64 (new agent preview), xl 86 (config identity). */
+  /** sm 22 (chat), md 34 (switcher, cards), rail 42 (the app rail), lg 64 (new agent preview), xl 86 (config identity). */
   size?: SigilSize;
   /** Turns the signal dot emerald while the agent is live. */
   live?: boolean;
@@ -19,6 +19,7 @@ export type SigilProps = {
 const SIZES: Record<SigilSize, { box: number; grid: number; radius: number }> = {
   sm: { box: 22, grid: 16, radius: 6 },
   md: { box: 34, grid: 25, radius: 7.5 },
+  rail: { box: 42, grid: 31, radius: 9 },
   lg: { box: 64, grid: 47, radius: 14 },
   xl: { box: 86, grid: 63, radius: 19 },
 };

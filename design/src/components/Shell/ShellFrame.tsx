@@ -43,7 +43,7 @@ export function ShellFrame({ rail, sidebar, sidebarKey = "sidebar", children }: 
           </motion.div>
         )}
       </Presence>
-      <main className="my-8 mr-8 ml-8 flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-panel">{children}</main>
+      <main className="my-12 mr-12 ml-12 flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-panel">{children}</main>
     </div>
   );
 }

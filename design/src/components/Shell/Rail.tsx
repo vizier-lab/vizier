@@ -72,7 +72,7 @@ function RailTip({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-const TILE = "relative grid size-34 shrink-0 place-items-center rounded-lg transition-colors duration-[var(--vz-duration-base)]";
+const TILE = "relative grid size-42 shrink-0 place-items-center rounded-lg transition-colors duration-[var(--vz-duration-base)]";
 
 /** The marker that tells which tile is open. One element shared by all tiles, so it slides. */
 function Marker({ id }: { id: string }) {
@@ -106,18 +106,18 @@ function RailLink({ label, href, active, marker, children, className }: {
 
 function RailButton({ icon, label, active, href, onSelect }: { icon: IconName; label: string; active?: boolean; href?: string; onSelect?: () => void }) {
   const cls = cx(
-    "grid size-34 shrink-0 place-items-center rounded-lg transition-colors duration-[var(--vz-duration-base)]",
+    "grid size-42 shrink-0 place-items-center rounded-lg transition-colors duration-[var(--vz-duration-base)]",
     active ? "bg-ink text-ground" : "text-muted hover:bg-surface hover:text-fg",
   );
   return (
     <RailTip label={label}>
       {href !== undefined ? (
         <a href={href} aria-label={label} aria-current={active ? "page" : undefined} className={cls}>
-          <Icon name={icon} size={16} />
+          <Icon name={icon} size={18} />
         </a>
       ) : (
         <button type="button" aria-label={label} onClick={onSelect} className={cls}>
-          <Icon name={icon} size={16} />
+          <Icon name={icon} size={18} />
         </button>
       )}
     </RailTip>
@@ -145,7 +145,7 @@ export function Rail({
 }: RailProps) {
   const marker = useId();
   return (
-    <nav aria-label="Agents" className={cx("flex h-full w-56 shrink-0 flex-col items-center gap-10 bg-shell pt-16 pb-14", className)} {...rest}>
+    <nav aria-label="Agents" className={cx("flex h-full w-64 shrink-0 flex-col items-center gap-10 bg-shell pt-16 pb-14", className)} {...rest}>
       <RailButton icon="home" label="Home" href={homeHref} active={homeActive} />
       <span aria-hidden className="h-px w-22 bg-border" />
       <ul className="m-0 flex min-h-0 w-full flex-1 list-none flex-col items-center gap-10 overflow-y-auto overflow-x-clip p-0 [scrollbar-width:none]">
@@ -154,10 +154,10 @@ export function Rail({
           return (
             <li key={a.agentId} className="relative">
               <RailLink label={a.name} href={a.href} active={active} marker={marker} className="rounded-md hover:opacity-90">
-                <Sigil agentId={a.agentId} live={a.state === "live" || a.state === "running"} />
+                <Sigil size="rail" agentId={a.agentId} live={a.state === "live" || a.state === "running"} />
                 <span
                   aria-hidden
-                  className={cx("absolute -right-3 -bottom-3 size-9 rounded-pill border-2 border-shell", DOT[a.state])}
+                  className={cx("absolute -right-3 -bottom-3 size-10 rounded-pill border-2 border-shell", DOT[a.state])}
                 />
               </RailLink>
             </li>
@@ -174,7 +174,7 @@ export function Rail({
                 addActive ? "border-ink bg-ink text-ground" : "border-border-strong hover:border-border-hover hover:text-fg",
               )}
             >
-              <Icon name="plus" size={14} />
+              <Icon name="plus" size={16} />
             </RailLink>
           </li>
         )}
