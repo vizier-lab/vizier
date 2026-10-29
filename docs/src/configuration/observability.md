@@ -62,7 +62,7 @@ A message from a person (WebUI, Discord, Telegram), a scheduled task run and a d
 | `vizier.dream.stage` | `extraction` or `consolidation` (`dream` only) |
 | `vizier.dream.source` | the conversation being reflected on (`dream` only) |
 | `vizier.topic` | the conversation topic, when there is one |
-| `vizier.request.kind` | `chat`, `prompt`, `silent_read`, `unattended`, `command`, `audio_chat`, `audio_prompt`, `background_report` |
+| `vizier.request.kind` | `chat`, `prompt`, `silent_read`, `unattended`, `command`, `audio_chat`, `audio_prompt`, `background_report`, `btw` |
 | `vizier.background_depth` | how many background hops led to this turn (0 for a person's message) |
 | `vizier.queue.wait_ms` | time spent queued before the turn started: behind a running turn, or while the agent restarted |
 | `vizier.dream` | `true` for a dream-cycle turn |
@@ -134,6 +134,10 @@ With it set:
 Attachments are described by type, name and size; their bytes are never recorded.
 
 > **Keep content capture to backends you control.** Every prompt is sent in full, so spans get large (several KB per model call, far more with long histories), and they contain your users' messages. Leave it off when exporting to a shared or third-party backend.
+
+### Side chats
+
+A [`/btw` side chat](./channels.md#side-chats-btw) opens the usual `invoke_agent` span (with `vizier.request.kind` = `btw`) and one `chat {model}` span for its single model call, and no `execute_tool` spans, since it has no tools. Its question and answer follow the same rule as every other turn: they appear on spans **only** with content capture on. "Nothing is saved" describes what the agent keeps, not what an exporter you have switched content capture on for receives. No log line ever contains a side chat's question or answer.
 
 ## Metrics
 
