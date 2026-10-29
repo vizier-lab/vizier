@@ -2,16 +2,15 @@ import { useEffect, useState } from 'react'
 import { listConversations, type ConversationItem } from '../../api/endpoints/conversations'
 
 const POLL_MS = 15_000
-const PAGE = 10
-// A whole list is read a page at a time, up to this many conversations.
-const ALL_MAX = 500
+/** How many more a click on Show more brings in. */
+export const SESSIONS_STEP = 10
 
 /**
  * The agent's most recent conversations for the sidebar. It looks again when the page changes (a
  * conversation just started shows up) and on a slow timer while the tab is visible; a failed look
- * keeps what it had. With `all` it reads the whole list, not just the latest few.
+ * keeps what it had. It reads `count` conversations, following the server's cursor when one page isn't enough.
  */
-export function useSessions(agentId: string | undefined, refreshKey: string, all = false) {
+export function useSessions(agentId: string | undefined, refreshKey: string, count = SESSIONS_STEP) {
     const [state, setState] = useState<{ agentId?: string; items: ConversationItem[]; total: number }>({ items: [], total: 0 })
 
     useEffect(() => {
@@ -19,13 +18,13 @@ export function useSessions(agentId: string | undefined, refreshKey: string, all
         const ctrl = new AbortController()
         const load = async () => {
             try {
-                let page = await listConversations(agentId, { limit: all ? 50 : PAGE }, ctrl.signal)
+                let page = await listConversations(agentId, { limit: count }, ctrl.signal)
                 const items = [...page.items]
-                while (all && page.next && items.length < ALL_MAX) {
-                    page = await listConversations(agentId, { limit: 50, cursor: page.next }, ctrl.signal)
+                while (page.next && items.length < count) {
+                    page = await listConversations(agentId, { limit: count - items.length, cursor: page.next }, ctrl.signal)
                     items.push(...page.items)
                 }
-                setState({ agentId, items, total: page.total })
+                setState({ agentId, items: items.slice(0, count), total: page.total })
             } catch {
                 /* keeps what it had */
             }
@@ -37,7 +36,7 @@ export function useSessions(agentId: string | undefined, refreshKey: string, all
             clearTimeout(soon)
             clearInterval(id)
         }
-    }, [agentId, refreshKey, all])
+    }, [agentId, refreshKey, count])
 
     // Another agent's list is never shown under this one while it loads.
     return state.agentId === agentId ? state : { items: [], total: 0 }

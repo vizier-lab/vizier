@@ -21,7 +21,7 @@ import { topicKey } from '../../stores/connection'
 import { useSession } from '../../stores/session'
 import { useTurns } from '../../stores/turns'
 import { PAGE_PATH, pageOf } from './pages'
-import { useSessions } from './useSessions'
+import { SESSIONS_STEP, useSessions } from './useSessions'
 
 const ESSENTIAL = new Set<string>(['memory', 'tasks', 'skills', 'dreams'])
 
@@ -37,12 +37,12 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
     const { agents, health } = useAgents()
     const [query, setQuery] = useState('')
     const [switching, setSwitching] = useState(false)
-    const [all, setAll] = useState(false)
+    const [shown, setShown] = useState(SESSIONS_STEP)
 
     const agent = agents.find((a) => a.agent_id === agentId)
     const state = agent ? agentState(health[agentId]) : 'stopped'
     const page = pageOf(pathname)
-    const { items, total } = useSessions(agentId, pathname, all)
+    const { items, total } = useSessions(agentId, pathname, shown)
 
     const turns = useTurns((s) => s.topics)
     const isLive = (topic: string) => (turns[topicKey(agentId, topic)]?.phase ?? 'idle') !== 'idle'
@@ -71,6 +71,8 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
     )
 
     const newConversation = () => navigate(`/${agentId}/chat/${nanoid(10)}`)
+
+    useEffect(() => setShown(SESSIONS_STEP), [agentId])
 
     // Ctrl K (or ⌘K) opens the list of agents to switch to.
     useEffect(() => {
@@ -151,11 +153,9 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                 groups={groups}
                 onNew={newConversation}
                 showAll={
-                    all
-                        ? { label: 'Show fewer', onSelect: () => setAll(false) }
-                        : total > items.length
-                          ? { label: `Show all ${total}`, onSelect: () => setAll(true) }
-                          : undefined
+                    total > items.length
+                        ? { label: 'Show more', onSelect: () => setShown((n) => n + SESSIONS_STEP) }
+                        : undefined
                 }
             />
         </ContextSidebar>
