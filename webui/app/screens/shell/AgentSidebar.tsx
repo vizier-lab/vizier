@@ -6,7 +6,6 @@ import {
     PickerAction,
     SessionList,
     SidebarAgent,
-    SlideOver,
     type EssentialPage,
     type MenuPage,
 } from '@vizier/design'
@@ -21,7 +20,6 @@ import { useAgents } from '../../stores/agents'
 import { topicKey } from '../../stores/connection'
 import { useSession } from '../../stores/session'
 import { useTurns } from '../../stores/turns'
-import { ConversationPicker } from '../chat/ConversationPicker'
 import { PAGE_PATH, pageOf } from './pages'
 import { useSessions } from './useSessions'
 
@@ -44,7 +42,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
     const agent = agents.find((a) => a.agent_id === agentId)
     const state = agent ? agentState(health[agentId]) : 'stopped'
     const page = pageOf(pathname)
-    const { items, total } = useSessions(agentId, pathname)
+    const { items, total } = useSessions(agentId, pathname, all)
 
     const turns = useTurns((s) => s.topics)
     const isLive = (topic: string) => (turns[topicKey(agentId, topic)]?.phase ?? 'idle') !== 'idle'
@@ -154,28 +152,13 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                 groups={groups}
                 onNew={newConversation}
                 showAll={
-                    total > items.length
-                        ? { label: `Show all ${total}`, onSelect: () => setAll(true) }
-                        : undefined
+                    all
+                        ? { label: 'Show fewer', onSelect: () => setAll(false) }
+                        : total > items.length
+                          ? { label: `Show all ${total}`, onSelect: () => setAll(true) }
+                          : undefined
                 }
             />
-            <SlideOver open={all} title="Conversations" onClose={() => setAll(false)}>
-                <ConversationPicker
-                    agentId={agentId}
-                    open={all}
-                    onOpenChange={setAll}
-                    onSelect={(c) => {
-                        setAll(false)
-                        navigate(conversationHref(agentId, c))
-                    }}
-                    onNew={() => {
-                        setAll(false)
-                        newConversation()
-                    }}
-                    current={{ topic: topicId, channel: channel ?? undefined }}
-                    liveTopics={items.filter((c) => c.kind === 'webui' && isLive(c.latest_topic)).map((c) => c.latest_topic)}
-                />
-            </SlideOver>
         </ContextSidebar>
     )
 }
