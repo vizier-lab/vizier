@@ -119,22 +119,22 @@ Set the agent's `telegram_token`. Same lifecycle as Discord.
 
 ## Side chats (`/btw`)
 
-`/btw` asks the agent you are talking to a quick, off-the-record question without disturbing the conversation. The agent answers as itself, with the conversation so far as context, then **forgets the exchange**: nothing is written to the conversation's history, title or memory, and the agent has no tools in a side chat, so it cannot act. A side chat is one aside with follow-ups, and ends when you close it or it goes idle.
+`/btw` asks the agent you are talking to a quick, off-the-record question without disturbing the conversation. The agent answers as itself, with the conversation so far as context, then **forgets the exchange**: nothing is written to the conversation's history, title or memory, and the agent has no tools in a side chat, so it cannot act. A side chat is one aside with follow-ups, and ends when you close it or it goes idle. In the WebUI it is a single question and its answer, in a small window with no input of its own, so it stays out of the way: it floats over the conversation without dimming it, you can drag it, resize it, and keep using the conversation behind it.
 
 What "not saved" means depends on the channel:
 
 | | WebUI | Discord | Telegram |
 |---|---|---|---|
-| Start | `/btw [question]` in the composer | `/btw message:<text>` | `/btw <text>` |
-| Who sees it | Only you, in a small pop-up | **Everyone in the channel** | Everyone in the chat, until it deletes itself |
-| Follow up | Type in the pop-up | Reply to one of its answers | Reply to one of its answers |
-| Ends | You close the pop-up | 5 minutes idle, or a restart | 2 minutes idle |
+| Start | `/btw <question>` in the composer | `/btw message:<text>` | `/btw <text>` |
+| Who sees it | Only you, in a small floating window | **Everyone in the channel** | Everyone in the chat, until it deletes itself |
+| Follow up | Not offered: another `/btw` is a new side chat | Reply to one of its answers | Reply to one of its answers |
+| Ends | You close the window (`esc`) | 5 minutes idle, or a restart | 2 minutes idle |
 | What remains | Nothing | The messages stay in the channel; the bot forgets the exchange | Nothing: the messages are deleted |
 
 - **Discord asides are public.** Discord cannot reply to a private (ephemeral) message, so the answer is posted in the channel and stays there. Every message the bot posts in a side chat starts with a small marker line so people can tell it is not remembered. Replies to those messages are never passed to the agent as ordinary messages: from the person who started the aside they are follow-ups, from anyone else they are ignored, and after the aside ended they get "This side chat has ended". Want it private? Use the WebUI, or `/btw` in a direct message with the bot.
 - **Telegram deletes after 2 minutes of inactivity**, within about 15 seconds of the deadline. Your `/btw` message, your follow-ups and every reply in the exchange are deleted. In a **private chat** the bot can delete both. In a **group** the bot can delete its own messages, but it can delete other people's only if it is an **administrator with the *Delete messages* right**; without it, your own messages stay and the bot says so. Telegram will not let a bot delete a message older than 48 hours.
 - **Restarts.** A restart ends every live side chat. On Telegram the bot keeps a small list of chat and message ids waiting for deletion (no text, no names) so that messages are still deleted after a restart; the list is emptied as it goes and is removed with the agent.
-- **Limits.** Each question is at most 4,000 characters, and a whole side chat (every question and answer so far) at most 32,000. A full side chat refuses new questions: start a new one. Each person can ask 5 side-chat questions per minute, counted per platform account; the sixth is refused before it reaches the agent.
+- **Limits.** Each question is at most 4,000 characters, and on Discord and Telegram a whole side chat (every question and answer so far) at most 32,000. A full side chat refuses new questions: start a new one. Each person can ask 5 side-chat questions per minute, counted per platform account; the sixth is refused before it reaches the agent.
 - **Usage is still counted.** Each answer is a model call, so its tokens show in the agent's usage, under the conversation it was asked beside. The question and answer text are not stored. If you export traces with content capture on, see [Observability](./observability.md#side-chats).
 - **Timing.** A side chat waits behind a turn already running in the same conversation, like any message, and fails like any turn if the agent takes longer than its prompt timeout.
 

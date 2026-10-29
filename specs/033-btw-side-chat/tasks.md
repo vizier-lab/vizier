@@ -128,21 +128,20 @@ description: "Task list for /btw Ephemeral Side-Chat"
 
 - [X] T019 [P] [US1] Add `askSideChat(agentId, { channel_id, topic_id, question, turns })` to `webui/app/api/endpoints/chat.ts`. It uses the typed `request` client and returns the answer or a typed error that carries the status, message and `Retry-After`.
 - [X] T020 [P] [US1] Create `webui/app/lib/sideChat.ts`:
-  - A pure exchange reducer with turns, pending question, per-turn error, the characters used, and `full` once no question fits in the 32,000-character budget.
-  - Actions `ask`/`answered`/`failed`/`retry`/`reset`.
-  - `toTurns(state)` for the request.
+  - A pure reducer for the window's one question and answer: the turn, its pending state and per-turn error, with actions `ask`/`answered`/`failed`/`retry`/`reset`. A late result for a turn that is no longer pending is ignored.
+  - `refusal(question)` for an empty question or one over 4,000 characters.
   - An error mapper: 429 becomes "Slow down — try again in {n}s", 422 shows its message, 408/5xx/network failures become a retryable error.
-  - Add `webui/app/lib/sideChat.test.ts` (vitest) covering the reducer, the character budget and the error mapping.
+  - Add `webui/app/lib/sideChat.test.ts` (vitest) covering the reducer, `refusal` and the error mapping.
+  - Also `webui/app/lib/floatingWindow.ts` (+ test): pure geometry for moving and resizing the window, clamped to the viewport.
 - [X] T021 [US1] Create `webui/app/screens/chat/SideChatPanel.tsx` (depends on T019, T020):
   - A small floating window with no scrim, so the conversation stays visible and usable: the header shows `/btw` and the question and moves it, the bottom-right corner resizes it (position and size are kept in memory only), and `esc` closes it.
-  - Show the agent name and the model read-only, plus the muted line "Not saved — closing this panel discards it."
-  - Render answers as Markdown with `AgentReply`, show a working indicator while pending, and give an inline error a **Retry** action.
-  - Add a compact composer that's shows the characters left, refuses a question that doesn't fit, and is disabled when the side chat is full.
-  - If opened with an initial question, ask it at once.
-  - Keep state in `useReducer` only (no store, no storage). It's discarded on close and unmount.
-  - Give each ask an `AbortController` and abort it on close, unmount, and when the conversation changes. A result that arrives after that is ignored, so a late answer can never appear in a reopened panel. The server still finishes that answer and records its usage; nothing else is kept.
-- [X] T022 [US1] Add `{ name: 'btw', description: 'Ask a side question that is never saved' }` to `BUILTIN` in `webui/app/screens/chat/Composer.tsx`. In `send()`, intercept `/^\/btw(?:\s+([\s\S]*))?$/` before the command regex and before anything is uploaded or sent, and call a new `onSideChat(question?: string)` prop.
-- [X] T023 [US1] Mount `SideChatPanel` in `webui/app/routes/chat.tsx`. Pass `onSideChat` to `<Composer>` to open it with the agent, the conversation's channel id and topic id, and the optional question. Close it when the conversation or agent changes.
+  - It has **no input of its own**: it is throwaway, and another question is another `/btw`.
+  - Show the agent name and the model read-only, plus the muted line "Not saved — closing this discards it."
+  - Render the answer as Markdown with `AgentReply`, show a working indicator while pending, and give an inline error a **Retry** action. A question over 4,000 characters is refused in the window without a request.
+  - Ask the question it is opened with at once. Keep state in `useReducer` only (no store, no storage). It's discarded on close and unmount.
+  - Give the ask an `AbortController` and abort it on close, unmount, and when the conversation changes. A result that arrives after that is ignored, so a late answer can never appear in a reopened window. The server still finishes that answer and records its usage; nothing else is kept.
+- [X] T022 [US1] Add `{ name: 'btw', description: 'Ask a side question that is never saved' }` to `BUILTIN` in `webui/app/screens/chat/Composer.tsx`. In `send()`, intercept `/^\/btw(?:\s+([\s\S]*))?$/` before the command regex and before anything is uploaded or sent, and call a new `onSideChat(question)` prop; a `/btw` with no question sends nothing and leaves the text in the composer. A partly typed command name that the slash menu would complete (`/bt`) is never sent as a message.
+- [X] T023 [US1] Mount `SideChatPanel` in `webui/app/routes/chat.tsx`. Pass `onSideChat` to `<Composer>` to open it with the agent, the conversation's channel id and topic id, and the question. Close it when the conversation or agent changes.
 - [X] T024 [US1] Run `cd webui && npm run typecheck && npx vitest run side`, then commit in `webui/` and bump the `webui` gitlink here once the webui PR lands
 
 **Checkpoint**: User Story 1 is fully usable from the WebUI and the HTTP API — the MVP.

@@ -6,17 +6,17 @@ What a person sees. Every channel asks through `side_chat::ask` (agent-side-chat
 
 ## Starting, continuing and ending (all channels)
 
-A side chat is one aside with follow-ups, discarded in full when it ends (research R0). `/btw` always starts a new, empty one.
+A side chat is one aside with follow-ups, discarded in full when it ends (research R0). `/btw` always starts a new, empty one. On the WebUI an aside is one question and its answer: the window has no input, and another question is another `/btw`.
 
 | | WebUI | Discord | Telegram |
 |---|---|---|---|
-| Start | `/btw [question]` in the composer | `/btw message:<question>` | `/btw <question>` |
+| Start | `/btw <question>` in the composer | `/btw message:<question>` | `/btw <question>` |
 | Visible to | The person only | **Everyone in the channel** | Everyone in the chat, until deleted |
-| Continue (follow-up) | Ask in the panel's composer | Reply to one of its answers | Reply to one of its answers |
-| Ends | Panel closed, page left, conversation switched | 5 min idle | 2 min idle |
+| Continue (follow-up) | Not offered: another `/btw` starts a new one | Reply to one of its answers | Reply to one of its answers |
+| Ends | Window closed, page left, conversation switched | 5 min idle | 2 min idle |
 | After it ends | Gone | Messages stay in the channel | Messages deleted |
-| Earlier turns held by | The panel (browser memory) | The reader's process memory | The reader's process memory |
-| Size limit | 32,000 characters | 32,000 characters | 32,000 characters |
+| Earlier turns held by | Nothing: one question per window | The reader's process memory | The reader's process memory |
+| Size limit | 4,000 characters per question | 32,000 characters | 32,000 characters |
 
 On every channel the agent keeps no record of the side chat; only its visibility differs. Replies to a side chat's messages on Discord and Telegram are never passed to the agent as ordinary messages (research R11–R13).
 
@@ -24,20 +24,19 @@ On every channel the agent keeps no record of the side chat; only its visibility
 
 | Action | Result |
 |--------|--------|
-| Type `/btw` (alone) and send | The **Side chat** panel opens, empty, with its own composer focused |
-| Type `/btw <question>` and send | The panel opens and asks `<question>` at once |
-| Pick `btw` from the `/` menu | Inserts `/btw ` into the composer |
-| Ask in the panel | The question shows, then a working indicator, then the answer (rendered as Markdown) |
-| Ask again in the panel | A follow-up: the earlier turns are sent as `turns` |
-| The side chat reaches 32,000 characters | Inline notice "This side chat is full — close it and start a new one"; the composer is disabled. Before that, the composer shows the characters left and refuses a question that wouldn't fit |
-| 429 | Inline "Slow down — try again in {n}s"; the question stays in the composer |
-| 408 / 500 / 503 / network failure | Inline error under the question with a **Retry** action; the turn is not added to the exchange |
-| Close the panel (button, Esc, scrim) | The exchange is discarded; no confirmation |
-| Navigate away, reload, switch conversation | The exchange is discarded |
+| Type `/btw <question>` and send | A small floating **Side chat** window opens and asks `<question>` at once: the question, then a working indicator, then the answer (rendered as Markdown) |
+| Type `/btw` (alone) and send | Nothing is sent and the text stays in the composer, so the question can be finished there |
+| Pick `btw` from the `/` menu | Completes to `/btw`; a partly typed name (`/bt`) is completed by the menu, never sent as a message |
+| Want another question | Another `/btw <question>`: a new, empty side chat. The window has no input of its own, because it is throwaway |
+| 429 | Inline "Slow down — try again in {n}s" with a **Retry** action |
+| 408 / 500 / 503 / network failure | Inline error with a **Retry** action |
+| Close the window (`esc`, Esc, or the `/btw` command again) | The answer is discarded; no confirmation |
+| Navigate away, reload, switch conversation | The answer is discarded |
 
-- The panel header shows "Side chat", the agent's name, and the model read-only; a muted line reads "Not saved — closing this panel discards it."
+- The window has no scrim, so the conversation stays visible and usable behind it. Its header shows `/btw` and the question and moves the window; the bottom-right corner resizes it. Position and size are remembered in memory only, for the next `/btw` on the page.
+- The window shows the agent's name and the model read-only, and a muted line reads "Not saved — closing this discards it."
 - Nothing is sent on the conversation's socket; the main message list, trail, and conversation list do not change. `/btw` never reaches the agent as `Chat`.
-- The panel's turns live in component state only (no Zustand persistence, no `localStorage`/IndexedDB).
+- The answer lives in component state only (no Zustand persistence, no `localStorage`/IndexedDB). The window sends no earlier turns, so a question over 4,000 characters is refused in the window without a request.
 
 ## Discord
 
