@@ -39,7 +39,7 @@ Rule (FR-027): a write for an existing session and filename replaces the record,
 
 | Key | Meaning |
 |---|---|
-| `office.default_seeded` | Present once the one-time backfill of pre-existing agents has finished. Never cleared. Constant `OFFICE_DEFAULT_SEEDED` in `dependencies.rs`. |
+| `migration.office_default_seeded` | Present once the one-time backfill of pre-existing agents has finished. Never cleared. Constant `OFFICE_DEFAULT_SEEDED` in `dependencies.rs`. |
 
 ## New in-memory types (no persistence)
 
@@ -94,5 +94,5 @@ No other limits (owner's decision for the proof of concept). Excel's own format 
 Agent 1 ──── 0..1 Integration(kind="office", family=Addon)
 Integration 1 ──── 1..n IntegrationEvent  (created, edited, enabled, disabled, deleted)
 Agent/session 1 ──── 0..n SessionFile      (produced by office_*_write_*, sender = agent id)
-state["office.default_seeded"]  — global, set once after the backfill
+state["migration.office_default_seeded"]  — global, set once after the backfill
 ```

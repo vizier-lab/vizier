@@ -14,9 +14,9 @@ Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that co
 
 **Primary Dependencies**: existing `docx-rs 0.4` (read + write), `calamine 0.36` (read; add `Xls`), `pulldown-cmark 0.13` (already in the tree through `text-splitter`'s markdown feature; promoted to a direct dependency to parse `docx_write` input). **Two new crates**: `rust_xlsxwriter` (pure Rust XLSX writer; calamine cannot write and hand-writing OOXML is not "a few lines" — see Constitution Check I) and **a formula engine for `executed_formula`**, one of `formualizer`, `IronCalc` or `logisheets-rs`, chosen by the trial in task T016 (research R10; all pure Rust, MIT or Apache-2.0, none verified yet). `calamine` covers the saved values and the formula text (formula text for legacy `.xls` is unverified, R5); `.xls` is never calculated. No new system library.
 
-**Storage**: existing SQLite only. Reuses `integration` / `integration_event` tables, `session_file` table, `FileManager` blob store, and the `state` key/value table (`office.default_seeded`). No schema change.
+**Storage**: existing SQLite only. Reuses `integration` / `integration_event` tables, `session_file` table, `FileManager` blob store, and the `state` key/value table (`migration.office_default_seeded`). No schema change.
 
-**Testing**: `cargo test` (per-format unit tests with checked-in fixtures and round-trips; kind and catalogue-table tests; seed/backfill tests against in-memory SQLite); `cargo clippy`; end-to-end: agent steps scripted in [quickstart.md](quickstart.md) against the standalone dummyplug server (`just dummyplug`, spec 030-standalone-dummyplug-server; constitution e2e gate — default tool list of every agent changes). The branch already contains the merged dummyplug change (vizier-lab/vizier#103).
+**Testing**: `cargo test` (per-format unit tests with golden files generated outside the repository (python-docx, openpyxl, xlwt and hand-written OOXML), not committed (a test is skipped with a message when its file is missing), and round-trips; kind and catalogue-table tests; seed/backfill tests against in-memory SQLite); `cargo clippy`; end-to-end: agent steps scripted in [quickstart.md](quickstart.md) against the standalone dummyplug server (`just dummyplug`, spec 030-standalone-dummyplug-server; constitution e2e gate — default tool list of every agent changes). The branch already contains the merged dummyplug change (vizier-lab/vizier#103).
 
 **Target Platform**: Linux/macOS/Windows single binary, incl. static `musl` cross targets in `Cross.toml` (all new code is pure Rust).
 
@@ -24,7 +24,7 @@ Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that co
 
 **Performance Goals**: reading/writing a typical (<5 MB) office file within a normal tool-call time.
 
-**Constraints**: read output ≈ 200 KB of text and capped sheets/rows with `truncated: true` (FR-009, from the issue); no other size limits in this proof of concept (owner's decision, research R7); all failures are tool result data, never turn-ending errors (FR-010). Calculating formulas (`executed_formula: true`) has its own time and size limits, whose values are set in the engine trial (T016); until then they are unspecified on purpose.
+**Constraints**: read output ≈ 200 KB of text and capped sheets/rows with `truncated: true` (FR-009, from the issue); no other size limits in this proof of concept (owner's decision, research R7); all failures are tool result data, never turn-ending errors (FR-010). Calculating formulas (`executed_formula: true`) has its own limits (spec FR-030): 10 seconds, 20,000 formula cells in the workbook, and 16 calculations at once.
 
 **Scale/Scope**: 5 tools, 1 integration kind, 1 seed helper, 1 one-time backfill, ~14 touched existing files (see Source Code), 0 new tables.
 
@@ -85,7 +85,7 @@ src/
 ├── dependencies.rs                  # OFFICE_DEFAULT_SEEDED key + one-time seed_office_defaults() at the end of VizierDependencies::new
 assets/integrations/office.svg       # catalogue icon
 Cargo.toml                           # + rust_xlsxwriter, pulldown-cmark (direct), the formula engine chosen in T016
-src/agents/tools/office/fixtures/    # checked-in fixtures read with include_bytes!: table.docx, mixed.xlsx, formulas.xlsx, legacy.xls (beside the code, like src/llm/dialect/fixtures; the repo has no tests/ directory)
+src/agents/tools/office/fixtures/    # golden files generated outside the repository (python-docx, openpyxl, xlwt and hand-written OOXML), not committed, read at test time: table.docx, mixed.xlsx, formulas.xlsx, legacy.xls (beside the code, like src/llm/dialect/fixtures; the repo has no tests/ directory)
 scripts/office-e2e.mjs               # optional scripted run against standalone dummyplug (mirrors scripts/dummyplug-vizier-e2e.mjs, which starts and stops the server)
 docs/src/…                           # a short docs page for the office addon + SUMMARY.md entry; configuration/tools-embedding.md no longer says docx/xlsx are extracted to text
 src/schema/request.rs                # the attached-files hint also points Word/Excel files at the office tools

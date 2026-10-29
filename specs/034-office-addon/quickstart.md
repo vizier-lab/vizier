@@ -45,7 +45,7 @@ curl -s "${auth[@]}" "$API/agents/dp-old/integrations" | jq '[.data[] | select(.
 curl -s "${auth[@]}" "$API/agents/dp-old/integrations/events" | jq '[.data[] | select(.action=="created")] | length'  # 1
 ```
 
-Expected: `dp-old` has exactly one `office` integration and one `created` event; the log shows the backfill ran once and `office.default_seeded` is set.
+Expected: `dp-old` has exactly one `office` integration and one `created` event; the log shows the backfill ran once and `migration.office_default_seeded` is set.
 
 ## 1. New agent has the tools without a restart (US3, FR-015)
 
