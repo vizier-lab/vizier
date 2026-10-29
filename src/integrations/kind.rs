@@ -10,6 +10,7 @@ use crate::{
     agents::{mcp::McpServer, tools::VizierToolSet},
     channels::readers::Reader,
     dependencies::VizierDependencies,
+    file_manager::FileManager,
     integrations::{IntegrationHealth, mask_secret},
     schema::{AgentId, ChannelPlatform, Integration, IntegrationFamily},
     storage::VizierStorage,
@@ -106,6 +107,8 @@ pub struct AgentToolContext {
     pub agent_id: AgentId,
     pub storage: Arc<VizierStorage>,
     pub health: IntegrationHealth,
+    /// Where an addon that makes files (the Office addon) stores and loads them.
+    pub file_manager: FileManager,
 }
 
 pub trait IntegrationKind: Send + Sync {

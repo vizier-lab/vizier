@@ -11,7 +11,10 @@ use serde_json::Value;
 
 use crate::{
     dependencies::VizierDependencies,
-    integrations::access::{self, Caller},
+    integrations::{
+        access::{self, Caller},
+        kind::IntegrationKind,
+    },
     schema::{
         AgentCommand, AgentConfig, AgentId, EventAction, EventDraft, Integration,
         IntegrationChanged, IntegrationFamily, IntegrationStatus, Requester,
@@ -209,6 +212,19 @@ pub async fn create(
             }
         }
     }
+    persist_new(deps, &actor.requester(), actor.draft(EventAction::Created), agent_id, kind.as_ref(), new).await
+}
+
+/// Validate, save with its change record, notify and publish: what every new integration
+/// goes through, whoever asked for it. Access is decided by the caller.
+async fn persist_new(
+    deps: &VizierDependencies,
+    requester: &Requester,
+    draft: EventDraft,
+    agent_id: &str,
+    kind: &dyn IntegrationKind,
+    new: NewIntegration,
+) -> ServiceResult<Integration> {
     let name = new.name.trim().to_string();
     if name.is_empty() {
         return Err(ServiceError::Invalid("a name is required".into()));
@@ -223,14 +239,14 @@ pub async fn create(
         name,
         settings: new.settings,
         enabled: new.enabled,
-        creator: Some(actor.requester()),
+        creator: Some(requester.clone()),
         agents: vec![],
         created_at: now,
         updated_at: now,
     };
     let affected = deps
         .storage
-        .save_integration(&integration, Some(agent_id), &[actor.draft(EventAction::Created)])
+        .save_integration(&integration, Some(agent_id), &[draft])
         .await
         .map_err(ServiceError::from_storage)?;
     let at = Utc::now();
@@ -239,7 +255,7 @@ pub async fn create(
             &integration.id,
             &integration.name,
             integration.family,
-            &actor.requester(),
+            requester,
             EventAction::Created,
             0,
             &affected,
@@ -249,6 +265,36 @@ pub async fn create(
     publish(&deps.transport, &integration, affected);
     integration.agents = vec![agent_id.to_string()];
     Ok(integration)
+}
+
+/// Install a built-in default on `agent_id` as a system action (specs/036-office-addon): no
+/// permission check, the same validation, record, notification and event as `create`. The
+/// actor is the agent's owner, or `system` when it has none. An agent that already has the
+/// addon is `Ok(None)`, not an error, so a seed can be repeated.
+pub async fn seed_default(
+    deps: &VizierDependencies,
+    agent_id: &str,
+    owner: Option<&str>,
+    kind_id: &str,
+    name: &str,
+) -> ServiceResult<Option<Integration>> {
+    let kind = deps
+        .integration_kinds
+        .get(kind_id)
+        .ok_or_else(|| ServiceError::Invalid(format!("unknown kind '{kind_id}'")))?;
+    let requester = Requester::User(owner.unwrap_or("system").to_string());
+    let draft = EventDraft::new(requester.clone(), EventAction::Created);
+    let new = NewIntegration {
+        kind: kind_id.to_string(),
+        name: name.to_string(),
+        settings: serde_json::json!({}),
+        enabled: true,
+    };
+    match persist_new(deps, &requester, draft, agent_id, kind.as_ref(), new).await {
+        Ok(integration) => Ok(Some(integration)),
+        Err(ServiceError::Conflict(IntegrationConflict::AddonInstalled { .. })) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 #[derive(Default)]
@@ -437,7 +483,103 @@ pub async fn set_grants(
 mod tests {
     use serde_json::json;
 
-    use super::changed_keys;
+    use super::{changed_keys, seed_default};
+    use crate::{
+        config::VizierConfig,
+        dependencies::VizierDependencies,
+        schema::{EventAction, Requester},
+        storage::{agent::AgentStorage, integration::IntegrationStorage},
+        tests_support::agent_config,
+    };
+
+    async fn deps() -> (VizierDependencies, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = VizierConfig { workspace: dir.path().to_string_lossy().to_string(), ..Default::default() };
+        (VizierDependencies::new(config).await.unwrap(), dir)
+    }
+
+    #[tokio::test]
+    async fn seeding_adds_the_addon_once_with_its_event_and_needs_no_permission() {
+        let (deps, _dir) = deps().await;
+        let mut config = agent_config("a");
+        config.owner_id = Some("owner-1".into());
+        deps.storage.create_agent("a", &config).await.unwrap();
+
+        let first = seed_default(&deps, "a", Some("owner-1"), "office", "Office").await.unwrap();
+        assert!(first.is_some_and(|i| i.enabled && i.kind == "office"));
+        // The addon_installed conflict counts as success.
+        assert!(seed_default(&deps, "a", Some("owner-1"), "office", "Office").await.unwrap().is_none());
+
+        let listed = deps.storage.list_agent_integrations("a").await.unwrap();
+        assert_eq!(listed.len(), 1);
+        let events = deps.storage.list_events("a", None, None, 10).await.unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, EventAction::Created);
+        assert_eq!(events[0].actor, Requester::User("owner-1".into()));
+    }
+
+    #[tokio::test]
+    async fn seeding_announces_the_change_so_running_agents_recompose() {
+        let (deps, _dir) = deps().await;
+        deps.storage.create_agent("c", &agent_config("c")).await.unwrap();
+        let mut changes = deps.transport.subscribe_integration_changes();
+
+        seed_default(&deps, "c", None, "office", "Office").await.unwrap();
+        let change = changes.try_recv().expect("the seed publishes IntegrationChanged");
+        assert_eq!(change.family, crate::schema::IntegrationFamily::Addon);
+        assert_eq!(change.agents, vec!["c".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn turning_the_addon_off_and_on_publishes_without_touching_the_agent() {
+        use super::{Actor, IntegrationPatch, update};
+        use crate::access::Caller;
+
+        let (deps, _dir) = deps().await;
+        deps.storage.create_agent("e", &agent_config("e")).await.unwrap();
+        let office = seed_default(&deps, "e", None, "office", "Office").await.unwrap().unwrap();
+        let actor = Actor::Person(Caller { user_id: "root", is_system: true, permissions: &[] });
+        let mut changes = deps.transport.subscribe_integration_changes();
+        let _seeded = changes.try_recv();
+
+        for enabled in [false, true] {
+            let patch = IntegrationPatch { enabled: Some(enabled), ..Default::default() };
+            let (saved, affected) = update(&deps, &actor, &office.id, patch, &|_| true).await.unwrap();
+            assert_eq!(saved.enabled, enabled);
+            assert_eq!(affected, vec!["e".to_string()]);
+            let change = changes.try_recv().expect("each toggle publishes IntegrationChanged");
+            assert_eq!(change.integration_id, office.id);
+            let stored = deps.storage.list_agent_integrations("e").await.unwrap();
+            assert_eq!(stored.len(), 1);
+            assert_eq!(stored[0].enabled, enabled);
+        }
+    }
+
+    /// A person turned the addon off: seeding again (as a restart or an update would, were
+    /// either to seed) neither turns it on nor adds a second one.
+    #[tokio::test]
+    async fn a_disabled_addon_is_not_re_enabled_or_duplicated_by_seeding() {
+        let (deps, _dir) = deps().await;
+        deps.storage.create_agent("d", &agent_config("d")).await.unwrap();
+        let mut office = seed_default(&deps, "d", None, "office", "Office").await.unwrap().unwrap();
+        office.enabled = false;
+        let draft = crate::schema::EventDraft::new(Requester::User("p".into()), EventAction::Disabled);
+        deps.storage.save_integration(&office, None, &[draft]).await.unwrap();
+
+        assert!(seed_default(&deps, "d", None, "office", "Office").await.unwrap().is_none());
+        let listed = deps.storage.list_agent_integrations("d").await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(!listed[0].enabled);
+    }
+
+    #[tokio::test]
+    async fn an_agent_without_an_owner_is_seeded_as_system() {
+        let (deps, _dir) = deps().await;
+        deps.storage.create_agent("b", &agent_config("b")).await.unwrap();
+        seed_default(&deps, "b", None, "office", "Office").await.unwrap();
+        let events = deps.storage.list_events("b", None, None, 10).await.unwrap();
+        assert_eq!(events[0].actor, Requester::User("system".into()));
+    }
 
     #[test]
     fn changed_keys_names_only_what_differs() {

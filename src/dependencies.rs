@@ -260,7 +260,7 @@ impl VizierDependencies {
             });
         }
 
-        Ok(Self {
+        let deps = Self {
             config: Arc::new(config.clone()),
             storage,
             sqlite_conn: conn,
@@ -276,7 +276,57 @@ impl VizierDependencies {
             channel_board: Default::default(),
             setup: Default::default(),
             notifications,
-        })
+        };
+        deps.seed_office_defaults().await;
+        Ok(deps)
+    }
+
+    /// Set once every agent that existed has been given the Office addon.
+    pub const OFFICE_DEFAULT_SEEDED: &'static str = "migration.office_default_seeded";
+
+    /// Spec 036 (FR-025): give every agent that exists now the Office addon, once. The key is
+    /// set only after every agent was handled, so a failure is retried on the next start; once
+    /// set, an addon a person removed or turned off stays that way. Never blocks startup.
+    /// Tracked for removal in #82.
+    async fn seed_office_defaults(&self) {
+        use crate::storage::{agent::AgentStorage, state::StateStorage};
+
+        let key = Self::OFFICE_DEFAULT_SEEDED.to_string();
+        match self.storage.get_state(key.clone()).await {
+            Ok(Some(_)) => return,
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!("could not read the Office addon backfill state: {e}");
+                return;
+            }
+        }
+        let agents = match self.storage.list_agents().await {
+            Ok(agents) => agents,
+            Err(e) => {
+                tracing::warn!("could not list agents for the Office addon backfill: {e}");
+                return;
+            }
+        };
+        let mut complete = true;
+        for (agent_id, config) in agents {
+            if let Err(e) = crate::integrations::service::seed_default(
+                self,
+                &agent_id,
+                config.owner_id.as_deref(),
+                crate::integrations::kinds::office::ID,
+                crate::integrations::kinds::office::DEFAULT_NAME,
+            )
+            .await
+            {
+                complete = false;
+                tracing::warn!("failed to add the Office addon to agent '{agent_id}': {e}");
+            }
+        }
+        if complete
+            && let Err(e) = self.storage.save_state(key, serde_json::json!(true)).await
+        {
+            tracing::warn!("failed to record the Office addon backfill: {e}");
+        }
     }
 
     /// When complete usage accounting started, set once [`Self::migrate_reply_usage`] has finished.
@@ -1464,5 +1514,44 @@ mod encryption_startup_tests {
             .unwrap()
         };
         assert_eq!(raw, raw_again);
+    }
+
+    #[tokio::test]
+    async fn the_office_backfill_seeds_each_agent_once_and_leaves_removals_alone() {
+        use crate::storage::{agent::AgentStorage, integration::IntegrationStorage, state::StateStorage};
+
+        let dir = tempfile::tempdir().unwrap();
+        let config = VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        let deps = VizierDependencies::new(config).await.unwrap();
+        // The first start had no agents, so it only set the flag. Simulate an upgrade.
+        deps.storage.create_agent("old", &crate::tests_support::agent_config("old")).await.unwrap();
+        deps.storage.create_agent("older", &crate::tests_support::agent_config("older")).await.unwrap();
+        deps.storage
+            .save_state(VizierDependencies::OFFICE_DEFAULT_SEEDED.into(), serde_json::Value::Null)
+            .await
+            .unwrap();
+        {
+            let conn = deps.sqlite_conn.lock();
+            conn.execute("DELETE FROM state WHERE key = ?1", [VizierDependencies::OFFICE_DEFAULT_SEEDED]).unwrap();
+        }
+
+        deps.seed_office_defaults().await;
+        for id in ["old", "older"] {
+            assert_eq!(deps.storage.list_agent_integrations(id).await.unwrap().len(), 1, "{id}");
+        }
+        assert!(deps.storage.get_state(VizierDependencies::OFFICE_DEFAULT_SEEDED.into()).await.unwrap().is_some());
+
+        // A second run adds nothing back after a removal.
+        let added = deps.storage.list_agent_integrations("old").await.unwrap();
+        let event = crate::schema::EventDraft::new(
+            crate::schema::Requester::User("p".into()),
+            crate::schema::EventAction::Deleted,
+        );
+        deps.storage.delete_integration(&added[0].id, &event).await.unwrap();
+        deps.seed_office_defaults().await;
+        assert!(deps.storage.list_agent_integrations("old").await.unwrap().is_empty());
     }
 }

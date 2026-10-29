@@ -25,6 +25,7 @@
 - [2.13 Agent Secrets](./configuration/secrets.md)
 - [2.14 Encryption at Rest](./configuration/encryption.md)
 - [2.15 Artifacts](./configuration/artifacts.md)
+- [2.16 Office Addon](./configuration/office-addon.md)
 
 # 3. API Integration
 

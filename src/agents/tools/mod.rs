@@ -61,6 +61,7 @@ mod dream_journal;
 mod fetch;
 mod http_client;
 mod image_gen;
+pub mod office;
 mod python;
 mod read_image;
 mod scheduler;
@@ -1440,6 +1441,9 @@ mod tests {
     use crate::agents::tools::{
         artifacts::{ListArtifacts, LoadArtifactAsSessionFile, PromoteArtifact, UpdateArtifact},
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
+        office::{
+            OfficeDocxRead, OfficeDocxWrite, OfficeXlsxRead, OfficeXlsxReadCsv, OfficeXlsxWrite,
+        },
         discord::{
             GetDiscordChannelInfo, GetDiscordGuildInfo, GetDiscordMemberInfo, GetDiscordMessage,
             ReactDiscordMessage, SendDiscordMessage,
@@ -1508,6 +1512,11 @@ mod tests {
             entry::<ReadTmp>(),
             entry::<BraveSearch<WebOnlySearch>>(),
             entry::<BraveSearch<NewsOnlySearch>>(),
+            entry::<OfficeDocxRead>(),
+            entry::<OfficeXlsxRead>(),
+            entry::<OfficeXlsxReadCsv>(),
+            entry::<OfficeDocxWrite>(),
+            entry::<OfficeXlsxWrite>(),
             entry::<FetchWebpage>(),
             entry::<HttpClient>(),
             entry::<TtsGenerate>(),
@@ -1620,10 +1629,20 @@ mod tests {
         const ADDON: &[(&str, &str)] = &[
             ("brave_search_web", "brave_search"),
             ("brave_search_news", "brave_search"),
+            ("office_docx_read_as_md", "office"),
+            ("office_xlsx_read_as_cells", "office"),
+            ("office_xlsx_read_as_csv", "office"),
+            ("office_docx_write_from_md", "office"),
+            ("office_xlsx_write_from_sheets", "office"),
         ];
         const UNCATEGORISED: &[&str] = &[
             "brave_search_web",
             "brave_search_news",
+            "office_docx_read_as_md",
+            "office_xlsx_read_as_cells",
+            "office_xlsx_read_as_csv",
+            "office_docx_write_from_md",
+            "office_xlsx_write_from_sheets",
             "think",
             "execute_python",
             "list_tool_functions",

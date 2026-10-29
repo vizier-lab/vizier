@@ -88,6 +88,10 @@ Optional repository variables:
 
 The detection and planning logic is unit-tested: `just test-scripts` (or `node --test scripts/*.test.mjs`).
 
+## Test fixtures
+
+Sample files that tests read (for now the Office addon's Word and Excel files) live in a dedicated folder at the repository root, `fixtures/<feature>/`, with a `README.md` saying what each file is and, when a script writes them, how to run it. Commit them: tests compile them in, so a missing file fails the build instead of skipping a test. See `fixtures/office/` and [the Office addon](../configuration/office-addon.md).
+
 ## Releasing
 
 Releases are dispatched from the **Release, Build & Publish** workflow with a

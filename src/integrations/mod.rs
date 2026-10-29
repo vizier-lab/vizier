@@ -35,6 +35,7 @@ impl IntegrationKinds {
                 Arc::new(kinds::discord::DiscordKind),
                 Arc::new(kinds::telegram::TelegramKind),
                 Arc::new(kinds::brave_search::BraveSearchKind),
+                Arc::new(kinds::office::OfficeKind),
                 Arc::new(kinds::mcp::McpKind),
             ],
         }
@@ -249,6 +250,9 @@ mod tests {
                 Arc::new(LocalDocumentStore::new(std::env::temp_dir())),
             ))),
             health: IntegrationHealth::default(),
+            file_manager: crate::file_manager::FileManager::new(
+                std::env::temp_dir().to_string_lossy().into_owned(),
+            ),
         }
     }
 
@@ -311,6 +315,21 @@ mod tests {
         off.enabled = false;
         let tools = IntegrationTools::build(&kinds, &[off, brave("")], &ctx(), None);
         assert!(tools.addons.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_office_addon_contributes_its_tools_only_while_enabled() {
+        let kinds = IntegrationKinds::builtin();
+        let on = integration("office-1", "office", IntegrationFamily::Addon, "Office", json!({}));
+        let tools = IntegrationTools::build(&kinds, std::slice::from_ref(&on), &ctx(), None);
+        let names: Vec<String> = tools.addons["office"].toolset.tools.keys().cloned().collect();
+        assert_eq!(names.len(), 5, "{names:?}");
+        assert!(names.iter().all(|n| n.starts_with("office_")), "{names:?}");
+
+        let mut off = on;
+        off.enabled = false;
+        let tools = IntegrationTools::build(&kinds, &[off], &ctx(), None);
+        assert!(!tools.addons.contains_key("office"));
     }
 
     /// The encryption paths come from the same listing that redaction uses: a `Secret` field is
