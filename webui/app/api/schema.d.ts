@@ -36,6 +36,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{agent_id}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_artifacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/artifacts/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["activity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["artifact_detail"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_artifact"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/artifacts/{artifact_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["artifact_content"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/btw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["agent_btw"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}": {
         parameters: {
             query?: never;
@@ -78,6 +158,22 @@ export interface paths {
         get: operations["list_topic_files"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/files/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["promote_topic_file"];
         delete?: never;
         options?: never;
         head?: never;
@@ -368,6 +464,22 @@ export interface paths {
         put?: never;
         post: operations["create_memory"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{agent_id}/memory/attachments/{bundle}/{*path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["attach_artifact"];
+        delete: operations["detach_attachment"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1238,6 +1350,83 @@ export interface components {
             /** Format: int32 */
             status: number;
         };
+        APIResponse_Artifact: {
+            /** @description A permanent, agent-owned file. */
+            data?: {
+                agent_id: string;
+                /** @description The current content file name inside the artifact directory (`content.v<n>`). */
+                content_file: string;
+                /** Format: date-time */
+                created_at: string;
+                created_by: components["schemas"]["Requester"];
+                id: string;
+                kind: components["schemas"]["ArtifactKind"];
+                mime_type: string;
+                name: string;
+                origin_channel?: string | null;
+                origin_topic?: string | null;
+                /** Format: int64 */
+                size: number;
+                source_filename?: string | null;
+                /** Format: date-time */
+                updated_at: string;
+                /** Format: int32 */
+                version: number;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_ArtifactActivityView: {
+            data?: {
+                items: components["schemas"]["ArtifactEventView"][];
+                next?: string | null;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_ArtifactDeleteResult: {
+            /**
+             * @description What a delete did. Message references remain (the history row keeps the artifact id and
+             *     reads as unavailable); memory links are removed.
+             */
+            data?: {
+                memory_links_removed: number;
+                references: number;
+                removed: boolean;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_ArtifactDetailView: {
+            data?: {
+                artifact: components["schemas"]["ArtifactItemView"];
+                available: boolean;
+                events: components["schemas"]["ArtifactEventView"][];
+                origin: components["schemas"]["ArtifactOrigin"];
+                references: components["schemas"]["ArtifactReferenceView"][];
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_ArtifactListView: {
+            data?: {
+                agent_total: number;
+                /** Format: int64 */
+                agent_total_bytes: number;
+                items: components["schemas"]["ArtifactItemView"][];
+                next?: string | null;
+                total: number;
+                /** Format: int64 */
+                total_bytes: number;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
         APIResponse_BackgroundJobSnapshot: {
             /** @description The WebUI wire shape (`contracts/http-api.md`). */
             data?: {
@@ -1254,6 +1443,15 @@ export interface components {
                 state: components["schemas"]["JobState"];
                 /** Format: int64 */
                 timeout_secs: number;
+            };
+            message?: string | null;
+            /** Format: int32 */
+            status: number;
+        };
+        APIResponse_BtwResponse: {
+            data?: {
+                answer: string;
+                stats?: components["schemas"]["VizierResponseStats"] | null;
             };
             message?: string | null;
             /** Format: int32 */
@@ -1551,7 +1749,7 @@ export interface components {
         APIResponse_MemoryDetail: {
             data?: {
                 agent_id: string;
-                attachments: components["schemas"]["VizierAttachment"][];
+                attachments: components["schemas"]["MemoryAttachmentView"][];
                 bundle: string;
                 content: string;
                 /** Format: date-time */
@@ -1685,12 +1883,17 @@ export interface components {
         APIResponse_ProviderResponse: {
             /** @description A connected provider: saved credentials or a key in the environment, never the secrets. */
             data?: {
+                /** @description AWS Bedrock: the access key id is an identifier, not a secret. */
+                access_key_id?: string | null;
                 account_id?: string | null;
                 base_url?: string | null;
                 endpoint?: string | null;
                 fields: components["schemas"]["CredentialField"][];
                 has_access_token: boolean;
                 has_api_key: boolean;
+                /** @description Never the value itself. */
+                has_secret_access_key: boolean;
+                has_session_token: boolean;
                 id: components["schemas"]["ProviderId"];
                 kind: components["schemas"]["ProviderKind"];
                 logo?: string | null;
@@ -1701,6 +1904,8 @@ export interface components {
                 origin: components["schemas"]["ProviderOrigin"];
                 /** @description Local and custom providers only; checked in the background. */
                 reachable?: boolean | null;
+                /** @description AWS region, safe to show. */
+                region?: string | null;
                 /** @description `saved`, `env:NAME`, or `null` for a local provider on its default address. */
                 source?: string | null;
                 used_by: components["schemas"]["UsedBy"];
@@ -1998,7 +2203,7 @@ export interface components {
         APIResponse_Vec_MemoryDetail: {
             data?: {
                 agent_id: string;
-                attachments: components["schemas"]["VizierAttachment"][];
+                attachments: components["schemas"]["MemoryAttachmentView"][];
                 bundle: string;
                 content: string;
                 /** Format: date-time */
@@ -2085,12 +2290,17 @@ export interface components {
         };
         APIResponse_Vec_ProviderResponse: {
             data?: {
+                /** @description AWS Bedrock: the access key id is an identifier, not a secret. */
+                access_key_id?: string | null;
                 account_id?: string | null;
                 base_url?: string | null;
                 endpoint?: string | null;
                 fields: components["schemas"]["CredentialField"][];
                 has_access_token: boolean;
                 has_api_key: boolean;
+                /** @description Never the value itself. */
+                has_secret_access_key: boolean;
+                has_session_token: boolean;
                 id: components["schemas"]["ProviderId"];
                 kind: components["schemas"]["ProviderKind"];
                 logo?: string | null;
@@ -2101,6 +2311,8 @@ export interface components {
                 origin: components["schemas"]["ProviderOrigin"];
                 /** @description Local and custom providers only; checked in the background. */
                 reachable?: boolean | null;
+                /** @description AWS region, safe to show. */
+                region?: string | null;
                 /** @description `saved`, `env:NAME`, or `null` for a local provider on its default address. */
                 source?: string | null;
                 used_by: components["schemas"]["UsedBy"];
@@ -2121,6 +2333,7 @@ export interface components {
                 endpoint?: string | null;
                 env: string[];
                 fields: components["schemas"]["CredentialField"][];
+                guide?: components["schemas"]["ProviderGuide"] | null;
                 id: components["schemas"]["ProviderId"];
                 kind: components["schemas"]["ProviderKind"];
                 logo?: string | null;
@@ -2348,6 +2561,114 @@ export interface components {
             /** @description The first characters of the key; empty for a key made before they were kept. */
             prefix?: string | null;
         };
+        /** @description A permanent, agent-owned file. */
+        Artifact: {
+            agent_id: string;
+            /** @description The current content file name inside the artifact directory (`content.v<n>`). */
+            content_file: string;
+            /** Format: date-time */
+            created_at: string;
+            created_by: components["schemas"]["Requester"];
+            id: string;
+            kind: components["schemas"]["ArtifactKind"];
+            mime_type: string;
+            name: string;
+            origin_channel?: string | null;
+            origin_topic?: string | null;
+            /** Format: int64 */
+            size: number;
+            source_filename?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int32 */
+            version: number;
+        };
+        ArtifactActivityView: {
+            items: components["schemas"]["ArtifactEventView"][];
+            next?: string | null;
+        };
+        /**
+         * @description What a delete did. Message references remain (the history row keeps the artifact id and
+         *     reads as unavailable); memory links are removed.
+         */
+        ArtifactDeleteResult: {
+            memory_links_removed: number;
+            references: number;
+            removed: boolean;
+        };
+        ArtifactDetailView: {
+            artifact: components["schemas"]["ArtifactItemView"];
+            available: boolean;
+            events: components["schemas"]["ArtifactEventView"][];
+            origin: components["schemas"]["ArtifactOrigin"];
+            references: components["schemas"]["ArtifactReferenceView"][];
+        };
+        /** @enum {string} */
+        ArtifactEventAction: "promoted" | "replaced" | "deleted";
+        ArtifactEventView: {
+            action: components["schemas"]["ArtifactEventAction"];
+            actor: components["schemas"]["Requester"];
+            actor_name: string;
+            artifact_id: string;
+            artifact_name: string;
+            /** Format: date-time */
+            created_at: string;
+            id: string;
+            source_channel?: string | null;
+            source_filename?: string | null;
+            source_topic?: string | null;
+        };
+        ArtifactItemView: {
+            agent_id: string;
+            available: boolean;
+            /** Format: date-time */
+            created_at: string;
+            id: string;
+            kind: components["schemas"]["ArtifactKind"];
+            mime_type: string;
+            name: string;
+            /** Format: int64 */
+            size: number;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int32 */
+            version: number;
+        };
+        /**
+         * @description What an artifact is, derived from its MIME type (or extension) at promotion.
+         * @enum {string}
+         */
+        ArtifactKind: "image" | "pdf" | "text" | "markdown" | "csv" | "audio" | "video" | "other";
+        ArtifactListView: {
+            agent_total: number;
+            /** Format: int64 */
+            agent_total_bytes: number;
+            items: components["schemas"]["ArtifactItemView"][];
+            next?: string | null;
+            total: number;
+            /** Format: int64 */
+            total_bytes: number;
+        };
+        /**
+         * @description Where an artifact came from: the promoting conversation and the session file that supplied
+         *     the current content. All parts are optional (an agent promotion in a dream has a source
+         *     conversation; a migration may have none).
+         */
+        ArtifactOrigin: {
+            channel?: string | null;
+            source_filename?: string | null;
+            topic?: string | null;
+        };
+        ArtifactReferenceView: {
+            /** Format: date-time */
+            created_at: string;
+            href?: string | null;
+            kind: string;
+            label: string;
+        };
+        AttachArtifactRequest: {
+            artifact: string;
+        };
         AttachmentBody: {
             attached: boolean;
         };
@@ -2403,6 +2724,18 @@ export interface components {
             share?: number | null;
             /** Format: int64 */
             tokens: number;
+        };
+        BtwRequest: {
+            channel_id: string;
+            /** @description Trimmed; 1–4,000 characters */
+            question: string;
+            topic_id: string;
+            /** @description Earlier turns of this side chat, oldest first */
+            turns?: components["schemas"]["SideChatTurn"][];
+        };
+        BtwResponse: {
+            answer: string;
+            stats?: components["schemas"]["VizierResponseStats"] | null;
         };
         BundleSummary: {
             concept_count: number;
@@ -2736,7 +3069,7 @@ export interface components {
          * @description A credential field a provider's connect form asks for.
          * @enum {string}
          */
-        CredentialField: "api_key" | "endpoint" | "base_url" | "access_token" | "account_id";
+        CredentialField: "api_key" | "endpoint" | "base_url" | "access_token" | "account_id" | "access_key_id" | "secret_access_key" | "session_token" | "region";
         /**
          * @description A model an operator listed for a custom provider; unset fields are filled from the
          *     catalogue (FR-024).
@@ -2807,7 +3140,7 @@ export interface components {
             delete_workspace?: boolean;
         };
         /** @enum {string} */
-        DialectKind: "open_ai_chat" | "open_ai_responses" | "anthropic" | "gemini" | "ollama";
+        DialectKind: "open_ai_chat" | "open_ai_responses" | "anthropic" | "bedrock" | "gemini" | "ollama";
         DiffHunk: {
             lines: components["schemas"]["DiffLine"][];
             new_lines: number;
@@ -2938,7 +3271,7 @@ export interface components {
             provider: components["schemas"]["EmbeddingProvider"];
         };
         /** @enum {string} */
-        EmbeddingProvider: "local" | "openrouter" | "ollama" | "openai" | "gemini" | "voyageai" | "mistral" | "together" | "cohere" | "copilot";
+        EmbeddingProvider: "local" | "openrouter" | "ollama" | "openai" | "gemini" | "voyageai" | "mistral" | "together" | "cohere" | "copilot" | "bedrock";
         /** @enum {string} */
         ErrorKind: "completion" | "tool_timeout" | "prompt_timeout" | "rate_limited" | "provider_unavailable" | "agent_unavailable";
         /** @enum {string} */
@@ -2979,6 +3312,20 @@ export interface components {
             channel: components["schemas"]["GrantState"];
             mcp: components["schemas"]["GrantState"];
         };
+        GuideLink: {
+            label: string;
+            url: string;
+        };
+        /** @description A copyable policy or snippet. */
+        GuidePolicy: {
+            code: string;
+            language: string;
+        };
+        /** @description One numbered step of a guide. */
+        GuideStep: {
+            body: string;
+            title: string;
+        };
         HistoryQuery: {
             /** Format: date-time */
             before?: string | null;
@@ -2992,7 +3339,7 @@ export interface components {
             limit?: number | null;
         };
         /** @enum {string} */
-        ImageGenProvider: "openai" | "openrouter" | "xai" | "huggingface" | "hyperbolic";
+        ImageGenProvider: "openai" | "openrouter" | "xai" | "huggingface" | "hyperbolic" | "bedrock";
         ImageGenToolSettings: {
             /** @default null */
             model: string | null;
@@ -3203,9 +3550,29 @@ export interface components {
             /** @description `bundled` (the embedded seed) or `cached` (a refreshed copy). */
             source: string;
         };
+        /**
+         * @description The HTTP view of a memory attachment: tagged by kind and carrying read-time availability.
+         *     The stored document stays the untagged [`MemoryAttachment`] enum.
+         */
+        MemoryAttachmentView: {
+            artifact_id: string;
+            available: boolean;
+            /** @enum {string} */
+            kind: "artifact";
+            mime_type?: string | null;
+            name: string;
+            /** Format: int64 */
+            size?: number | null;
+        } | {
+            available: boolean;
+            content: components["schemas"]["VizierAttachmentContent"];
+            filename: string;
+            /** @enum {string} */
+            kind: "legacy_session_file";
+        };
         MemoryDetail: {
             agent_id: string;
-            attachments: components["schemas"]["VizierAttachment"][];
+            attachments: components["schemas"]["MemoryAttachmentView"][];
             bundle: string;
             content: string;
             /** Format: date-time */
@@ -3434,6 +3801,17 @@ export interface components {
             /** Format: int64 */
             telegram: number;
         };
+        PromoteFileRequest: {
+            filename: string;
+            name?: string | null;
+        };
+        /** @description What the connect form shows above the fields. Static metadata, never stored or editable. */
+        ProviderGuide: {
+            intro: string;
+            links: components["schemas"]["GuideLink"][];
+            policy: components["schemas"]["GuidePolicy"];
+            steps: components["schemas"]["GuideStep"][];
+        };
         /** @description A provider id: a catalogue provider, a built-in or a custom provider */
         ProviderId: string;
         /** @enum {string} */
@@ -3442,12 +3820,17 @@ export interface components {
         ProviderOrigin: "catalogue" | "builtin" | "custom";
         /** @description A connected provider: saved credentials or a key in the environment, never the secrets. */
         ProviderResponse: {
+            /** @description AWS Bedrock: the access key id is an identifier, not a secret. */
+            access_key_id?: string | null;
             account_id?: string | null;
             base_url?: string | null;
             endpoint?: string | null;
             fields: components["schemas"]["CredentialField"][];
             has_access_token: boolean;
             has_api_key: boolean;
+            /** @description Never the value itself. */
+            has_secret_access_key: boolean;
+            has_session_token: boolean;
             id: components["schemas"]["ProviderId"];
             kind: components["schemas"]["ProviderKind"];
             logo?: string | null;
@@ -3458,6 +3841,8 @@ export interface components {
             origin: components["schemas"]["ProviderOrigin"];
             /** @description Local and custom providers only; checked in the background. */
             reachable?: boolean | null;
+            /** @description AWS region, safe to show. */
+            region?: string | null;
             /** @description `saved`, `env:NAME`, or `null` for a local provider on its default address. */
             source?: string | null;
             used_by: components["schemas"]["UsedBy"];
@@ -3473,6 +3858,7 @@ export interface components {
             endpoint?: string | null;
             env: string[];
             fields: components["schemas"]["CredentialField"][];
+            guide?: components["schemas"]["ProviderGuide"] | null;
             id: components["schemas"]["ProviderId"];
             kind: components["schemas"]["ProviderKind"];
             logo?: string | null;
@@ -3830,6 +4216,19 @@ export interface components {
             /** @enum {string} */
             environment: "local";
         });
+        /**
+         * @description One `/btw` side chat carried in each request: the question being asked now and the
+         *     aside's earlier turns, held between asks only by whoever shows the side chat (the WebUI
+         *     panel, or a Discord/Telegram reader). Never stored.
+         */
+        SideChat: {
+            question: string;
+            turns?: components["schemas"]["SideChatTurn"][];
+        };
+        SideChatTurn: {
+            answer: string;
+            question: string;
+        };
         /** @enum {string} */
         SortOrder: "asc" | "desc";
         String: string;
@@ -3840,7 +4239,7 @@ export interface components {
             language: string | null;
             /** @default null */
             model: string | null;
-            /** @default openai */
+            /** @default whisper */
             provider: components["schemas"]["SttProvider"];
         };
         TaskResponse: {
@@ -3937,7 +4336,7 @@ export interface components {
         TtsToolSettings: {
             /** @default null */
             model: string | null;
-            /** @default openai */
+            /** @default kokoro */
             provider: components["schemas"]["TtsProvider"];
             /**
              * Format: float
@@ -3993,11 +4392,19 @@ export interface components {
         };
         /** @description Credentials to save. An omitted field keeps the stored value; an empty string clears it. */
         UpsertProviderRequest: {
+            /** @description AWS Bedrock access key id. */
+            access_key_id?: string | null;
             access_token?: string | null;
             account_id?: string | null;
             api_key?: string | null;
             base_url?: string | null;
             endpoint?: string | null;
+            /** @description AWS region. */
+            region?: string | null;
+            /** @description AWS Bedrock secret access key (write-only after saving). */
+            secret_access_key?: string | null;
+            /** @description AWS Bedrock temporary-credential session token (write-only after saving). */
+            session_token?: string | null;
         };
         /**
          * @description What a model call was for. Decided once, when the call is recorded (research R4).
@@ -4081,6 +4488,16 @@ export interface components {
             url: string;
         } | {
             local: string;
+        } | {
+            /**
+             * @description An artifact by identity (`specs/035-add-artifacts`). The bytes are resolved through an
+             *     [`AttachmentResolver`]; `available` is read-time only and never stored.
+             */
+            artifact: {
+                agent_id: string;
+                artifact_id: string;
+                available?: boolean | null;
+            };
         };
         VizierRequest: {
             attachments?: components["schemas"]["VizierAttachment"][];
@@ -4142,6 +4559,13 @@ export interface components {
              *     agent drew (`specs/019-client-tools`). It starts a turn like `Chat`.
              */
             client_event: components["schemas"]["ClientEvent"];
+        } | {
+            /**
+             * @description An off-the-record `/btw` question (`specs/033-btw-side-chat`): the agent answers it
+             *     from the conversation's context, but nothing above, about or around it is saved.
+             *     Dispatched beside `checkpoint`/`lobotomy`, never through `handle_request`.
+             */
+            btw: components["schemas"]["SideChat"];
         };
         VizierResponse: {
             attachments: components["schemas"]["VizierAttachment"][];
@@ -4418,6 +4842,338 @@ export interface operations {
             };
         };
     };
+    list_artifacts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                q: string | null;
+                kind: string | null;
+                from: string | null;
+                to: string | null;
+                cursor: string | null;
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of artifacts, newest change first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ArtifactListView"];
+                };
+            };
+            /** @description Malformed cursor */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description No artifact view permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Agent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    activity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                cursor: string | null;
+                limit: number | null;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The agent's artifact change log, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ArtifactActivityView"];
+                };
+            };
+            /** @description Malformed cursor */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description No artifact view permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Agent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    artifact_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Artifact ID */
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Artifact detail with references and change history */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ArtifactDetailView"];
+                };
+            };
+            /** @description No artifact view permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Agent or artifact not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    delete_artifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Artifact ID */
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Artifact deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_ArtifactDeleteResult"];
+                };
+            };
+            /** @description No artifact manage permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Agent or artifact not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    artifact_content: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Artifact ID */
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current artifact bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A byte range of the current content */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No artifact view permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Artifact not found or content unavailable */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    agent_btw: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BtwRequest"];
+            };
+        };
+        responses: {
+            /** @description The side chat answer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_BtwResponse"];
+                };
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Agent not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Agent response timeout */
+            408: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description The reason, e.g. the side chat is full */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Over 5 side-chat asks per 60 s; reply header Retry-After */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description The agent answered with an error, or its response channel closed */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description The agent is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
     delete_topic: {
         parameters: {
             query?: never;
@@ -4524,6 +5280,73 @@ export interface operations {
             };
             /** @description Agent not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    promote_topic_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Channel ID */
+                channel_id: string;
+                /** @description Topic ID */
+                topic_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromoteFileRequest"];
+            };
+        };
+        responses: {
+            /** @description The new artifact */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_Artifact"];
+                };
+            };
+            /** @description Access denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Agent, conversation or file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description An artifact with that name already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Invalid name or empty/unreadable source */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5491,6 +6314,101 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    attach_artifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Bundle name */
+                bundle: string;
+                /** @description Memory path */
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttachArtifactRequest"];
+            };
+        };
+        responses: {
+            /** @description The memory with its updated attachment list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_MemoryDetail"];
+                };
+            };
+            /** @description Memory or artifact visibility denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Memory or artifact not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+        };
+    };
+    detach_attachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent ID */
+                agent_id: string;
+                /** @description Bundle name */
+                bundle: string;
+                /** @description Memory path */
+                path: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The memory with its updated attachment list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_MemoryDetail"];
+                };
+            };
+            /** @description Memory visibility denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIResponse_String"];
+                };
+            };
+            /** @description Memory not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

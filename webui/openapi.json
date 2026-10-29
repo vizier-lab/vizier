@@ -309,6 +309,503 @@
         }
       }
     },
+    "/agents/{agent_id}/artifacts": {
+      "get": {
+        "tags": [
+          "api::v1::agents::artifacts"
+        ],
+        "operationId": "list_artifacts",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "to",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of artifacts, newest change first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ArtifactListView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No artifact view permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/artifacts/activity": {
+      "get": {
+        "tags": [
+          "api::v1::agents::artifacts"
+        ],
+        "operationId": "activity",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The agent's artifact change log, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ArtifactActivityView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No artifact view permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/artifacts/{artifact_id}": {
+      "get": {
+        "tags": [
+          "api::v1::agents::artifacts"
+        ],
+        "operationId": "artifact_detail",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "description": "Artifact ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifact detail with references and change history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ArtifactDetailView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No artifact view permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent or artifact not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "api::v1::agents::artifacts"
+        ],
+        "operationId": "delete_artifact",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "description": "Artifact ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifact deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_ArtifactDeleteResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No artifact manage permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent or artifact not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/artifacts/{artifact_id}/content": {
+      "get": {
+        "tags": [
+          "api::v1::agents::artifacts"
+        ],
+        "operationId": "artifact_content",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "description": "Artifact ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current artifact bytes"
+          },
+          "206": {
+            "description": "A byte range of the current content"
+          },
+          "403": {
+            "description": "No artifact view permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Artifact not found or content unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/btw": {
+      "post": {
+        "tags": [
+          "api::v1::agents"
+        ],
+        "operationId": "agent_btw",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BtwRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The side chat answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_BtwResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "Agent response timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The reason, e.g. the side chat is full",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Over 5 side-chat asks per 60 s; reply header Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The agent answered with an error, or its response channel closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The agent is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}": {
       "delete": {
         "tags": [
@@ -495,6 +992,105 @@
           },
           "404": {
             "description": "Agent not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/channel/{channel_id}/topic/{topic_id}/files/promote": {
+      "post": {
+        "tags": [
+          "api::v1::agents::channel"
+        ],
+        "operationId": "promote_topic_file",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel_id",
+            "in": "path",
+            "description": "Channel ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "description": "Topic ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteFileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The new artifact",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_Artifact"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent, conversation or file not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An artifact with that name already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid name or empty/unreadable source",
             "content": {
               "application/json": {
                 "schema": {
@@ -2034,6 +2630,160 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/memory/attachments/{bundle}/{*path}": {
+      "post": {
+        "tags": [
+          "api::v1::agents::memory"
+        ],
+        "operationId": "attach_artifact",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "bundle",
+            "in": "path",
+            "description": "Bundle name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Memory path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachArtifactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The memory with its updated attachment list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_MemoryDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Memory or artifact visibility denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Memory or artifact not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "api::v1::agents::memory"
+        ],
+        "operationId": "detach_attachment",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "description": "Agent ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "bundle",
+            "in": "path",
+            "description": "Bundle name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Memory path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The memory with its updated attachment list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_MemoryDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Memory visibility denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIResponse_String"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Memory not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -5860,6 +6610,295 @@
           }
         }
       },
+      "APIResponse_Artifact": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A permanent, agent-owned file.",
+            "required": [
+              "id",
+              "agent_id",
+              "name",
+              "kind",
+              "mime_type",
+              "size",
+              "version",
+              "content_file",
+              "created_by",
+              "created_at",
+              "updated_at"
+            ],
+            "properties": {
+              "agent_id": {
+                "type": "string"
+              },
+              "content_file": {
+                "type": "string",
+                "description": "The current content file name inside the artifact directory (`content.v<n>`)."
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "created_by": {
+                "$ref": "#/components/schemas/Requester"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/components/schemas/ArtifactKind"
+              },
+              "mime_type": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "origin_channel": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "origin_topic": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "size": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "source_filename": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "version": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_ArtifactActivityView": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "items"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ArtifactEventView"
+                }
+              },
+              "next": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_ArtifactDeleteResult": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "What a delete did. Message references remain (the history row keeps the artifact id and\nreads as unavailable); memory links are removed.",
+            "required": [
+              "removed",
+              "references",
+              "memory_links_removed"
+            ],
+            "properties": {
+              "memory_links_removed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "references": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "removed": {
+                "type": "boolean"
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_ArtifactDetailView": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "artifact",
+              "origin",
+              "available",
+              "references",
+              "events"
+            ],
+            "properties": {
+              "artifact": {
+                "$ref": "#/components/schemas/ArtifactItemView"
+              },
+              "available": {
+                "type": "boolean"
+              },
+              "events": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ArtifactEventView"
+                }
+              },
+              "origin": {
+                "$ref": "#/components/schemas/ArtifactOrigin"
+              },
+              "references": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ArtifactReferenceView"
+                }
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_ArtifactListView": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "items",
+              "total",
+              "total_bytes",
+              "agent_total",
+              "agent_total_bytes"
+            ],
+            "properties": {
+              "agent_total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "agent_total_bytes": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ArtifactItemView"
+                }
+              },
+              "next": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total_bytes": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "APIResponse_BackgroundJobSnapshot": {
         "type": "object",
         "required": [
@@ -5934,6 +6973,46 @@
                 "type": "integer",
                 "format": "int64",
                 "minimum": 0
+              }
+            }
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "APIResponse_BtwResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "answer"
+            ],
+            "properties": {
+              "answer": {
+                "type": "string"
+              },
+              "stats": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/VizierResponseStats"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             }
           },
@@ -7097,7 +8176,7 @@
               "attachments": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/VizierAttachment"
+                  "$ref": "#/components/schemas/MemoryAttachmentView"
                 }
               },
               "bundle": {
@@ -7585,9 +8664,18 @@
               "fields",
               "has_api_key",
               "has_access_token",
+              "has_secret_access_key",
+              "has_session_token",
               "used_by"
             ],
             "properties": {
+              "access_key_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "AWS Bedrock: the access key id is an identifier, not a secret."
+              },
               "account_id": {
                 "type": [
                   "string",
@@ -7616,6 +8704,13 @@
                 "type": "boolean"
               },
               "has_api_key": {
+                "type": "boolean"
+              },
+              "has_secret_access_key": {
+                "type": "boolean",
+                "description": "Never the value itself."
+              },
+              "has_session_token": {
                 "type": "boolean"
               },
               "id": {
@@ -7653,6 +8748,13 @@
                   "null"
                 ],
                 "description": "Local and custom providers only; checked in the background."
+              },
+              "region": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "AWS region, safe to show."
               },
               "source": {
                 "type": [
@@ -8829,7 +9931,7 @@
                 "attachments": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/VizierAttachment"
+                    "$ref": "#/components/schemas/MemoryAttachmentView"
                   }
                 },
                 "bundle": {
@@ -9157,9 +10259,18 @@
                 "fields",
                 "has_api_key",
                 "has_access_token",
+                "has_secret_access_key",
+                "has_session_token",
                 "used_by"
               ],
               "properties": {
+                "access_key_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "AWS Bedrock: the access key id is an identifier, not a secret."
+                },
                 "account_id": {
                   "type": [
                     "string",
@@ -9188,6 +10299,13 @@
                   "type": "boolean"
                 },
                 "has_api_key": {
+                  "type": "boolean"
+                },
+                "has_secret_access_key": {
+                  "type": "boolean",
+                  "description": "Never the value itself."
+                },
+                "has_session_token": {
                   "type": "boolean"
                 },
                 "id": {
@@ -9225,6 +10343,13 @@
                     "null"
                   ],
                   "description": "Local and custom providers only; checked in the background."
+                },
+                "region": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "AWS region, safe to show."
                 },
                 "source": {
                   "type": [
@@ -9317,6 +10442,17 @@
                   "items": {
                     "$ref": "#/components/schemas/CredentialField"
                   }
+                },
+                "guide": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ProviderGuide",
+                      "description": "The in-form setup guide, when this provider has one (Amazon Bedrock today)."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "id": {
                   "$ref": "#/components/schemas/ProviderId"
@@ -10165,6 +11301,390 @@
           }
         }
       },
+      "Artifact": {
+        "type": "object",
+        "description": "A permanent, agent-owned file.",
+        "required": [
+          "id",
+          "agent_id",
+          "name",
+          "kind",
+          "mime_type",
+          "size",
+          "version",
+          "content_file",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "content_file": {
+            "type": "string",
+            "description": "The current content file name inside the artifact directory (`content.v<n>`)."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/Requester"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ArtifactKind"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "origin_channel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origin_topic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "source_filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ArtifactActivityView": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactEventView"
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ArtifactDeleteResult": {
+        "type": "object",
+        "description": "What a delete did. Message references remain (the history row keeps the artifact id and\nreads as unavailable); memory links are removed.",
+        "required": [
+          "removed",
+          "references",
+          "memory_links_removed"
+        ],
+        "properties": {
+          "memory_links_removed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "references": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ArtifactDetailView": {
+        "type": "object",
+        "required": [
+          "artifact",
+          "origin",
+          "available",
+          "references",
+          "events"
+        ],
+        "properties": {
+          "artifact": {
+            "$ref": "#/components/schemas/ArtifactItemView"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactEventView"
+            }
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ArtifactOrigin"
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactReferenceView"
+            }
+          }
+        }
+      },
+      "ArtifactEventAction": {
+        "type": "string",
+        "enum": [
+          "promoted",
+          "replaced",
+          "deleted"
+        ]
+      },
+      "ArtifactEventView": {
+        "type": "object",
+        "required": [
+          "id",
+          "artifact_id",
+          "artifact_name",
+          "action",
+          "actor",
+          "actor_name",
+          "created_at"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ArtifactEventAction"
+          },
+          "actor": {
+            "$ref": "#/components/schemas/Requester"
+          },
+          "actor_name": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string"
+          },
+          "artifact_name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "source_channel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_topic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ArtifactItemView": {
+        "type": "object",
+        "required": [
+          "id",
+          "agent_id",
+          "name",
+          "kind",
+          "mime_type",
+          "size",
+          "version",
+          "created_at",
+          "updated_at",
+          "available"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ArtifactKind"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ArtifactKind": {
+        "type": "string",
+        "description": "What an artifact is, derived from its MIME type (or extension) at promotion.",
+        "enum": [
+          "image",
+          "pdf",
+          "text",
+          "markdown",
+          "csv",
+          "audio",
+          "video",
+          "other"
+        ]
+      },
+      "ArtifactListView": {
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "total_bytes",
+          "agent_total",
+          "agent_total_bytes"
+        ],
+        "properties": {
+          "agent_total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "agent_total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactItemView"
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ArtifactOrigin": {
+        "type": "object",
+        "description": "Where an artifact came from: the promoting conversation and the session file that supplied\nthe current content. All parts are optional (an agent promotion in a dream has a source\nconversation; a migration may have none).",
+        "properties": {
+          "channel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "topic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ArtifactReferenceView": {
+        "type": "object",
+        "required": [
+          "kind",
+          "label",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "href": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "AttachArtifactRequest": {
+        "type": "object",
+        "required": [
+          "artifact"
+        ],
+        "properties": {
+          "artifact": {
+            "type": "string"
+          }
+        }
+      },
       "AttachmentBody": {
         "type": "object",
         "required": [
@@ -10379,6 +11899,54 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "BtwRequest": {
+        "type": "object",
+        "required": [
+          "channel_id",
+          "topic_id",
+          "question"
+        ],
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string",
+            "description": "Trimmed; 1–4,000 characters"
+          },
+          "topic_id": {
+            "type": "string"
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SideChatTurn"
+            },
+            "description": "Earlier turns of this side chat, oldest first"
+          }
+        }
+      },
+      "BtwResponse": {
+        "type": "object",
+        "required": [
+          "answer"
+        ],
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "stats": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/VizierResponseStats"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -11685,7 +13253,11 @@
           "endpoint",
           "base_url",
           "access_token",
-          "account_id"
+          "account_id",
+          "access_key_id",
+          "secret_access_key",
+          "session_token",
+          "region"
         ]
       },
       "CustomModel": {
@@ -11934,6 +13506,7 @@
           "open_ai_chat",
           "open_ai_responses",
           "anthropic",
+          "bedrock",
           "gemini",
           "ollama"
         ]
@@ -12366,7 +13939,8 @@
           "mistral",
           "together",
           "cohere",
-          "copilot"
+          "copilot",
+          "bedrock"
         ]
       },
       "ErrorKind": {
@@ -12525,6 +14099,53 @@
           }
         }
       },
+      "GuideLink": {
+        "type": "object",
+        "required": [
+          "label",
+          "url"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "GuidePolicy": {
+        "type": "object",
+        "description": "A copyable policy or snippet.",
+        "required": [
+          "language",
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          }
+        }
+      },
+      "GuideStep": {
+        "type": "object",
+        "description": "One numbered step of a guide.",
+        "required": [
+          "title",
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "HistoryQuery": {
         "type": "object",
         "properties": {
@@ -12559,7 +14180,8 @@
           "openrouter",
           "xai",
           "huggingface",
-          "hyperbolic"
+          "hyperbolic",
+          "bedrock"
         ]
       },
       "ImageGenToolSettings": {
@@ -13357,6 +14979,77 @@
           }
         }
       },
+      "MemoryAttachmentView": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "artifact_id",
+              "name",
+              "available",
+              "kind"
+            ],
+            "properties": {
+              "artifact_id": {
+                "type": "string"
+              },
+              "available": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "artifact"
+                ]
+              },
+              "mime_type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "size": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "filename",
+              "content",
+              "available",
+              "kind"
+            ],
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "content": {
+                "$ref": "#/components/schemas/VizierAttachmentContent"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "legacy_session_file"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "The HTTP view of a memory attachment: tagged by kind and carrying read-time availability.\nThe stored document stays the untagged [`MemoryAttachment`] enum."
+      },
       "MemoryDetail": {
         "type": "object",
         "required": [
@@ -13378,7 +15071,7 @@
           "attachments": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/VizierAttachment"
+              "$ref": "#/components/schemas/MemoryAttachmentView"
             }
           },
           "bundle": {
@@ -14137,6 +15830,53 @@
           }
         ]
       },
+      "PromoteFileRequest": {
+        "type": "object",
+        "required": [
+          "filename"
+        ],
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ProviderGuide": {
+        "type": "object",
+        "description": "What the connect form shows above the fields. Static metadata, never stored or editable.",
+        "required": [
+          "intro",
+          "steps",
+          "policy",
+          "links"
+        ],
+        "properties": {
+          "intro": {
+            "type": "string"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GuideLink"
+            }
+          },
+          "policy": {
+            "$ref": "#/components/schemas/GuidePolicy"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GuideStep"
+            }
+          }
+        }
+      },
       "ProviderId": {
         "type": "string",
         "description": "A provider id: a catalogue provider, a built-in or a custom provider"
@@ -14170,9 +15910,18 @@
           "fields",
           "has_api_key",
           "has_access_token",
+          "has_secret_access_key",
+          "has_session_token",
           "used_by"
         ],
         "properties": {
+          "access_key_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "AWS Bedrock: the access key id is an identifier, not a secret."
+          },
           "account_id": {
             "type": [
               "string",
@@ -14201,6 +15950,13 @@
             "type": "boolean"
           },
           "has_api_key": {
+            "type": "boolean"
+          },
+          "has_secret_access_key": {
+            "type": "boolean",
+            "description": "Never the value itself."
+          },
+          "has_session_token": {
             "type": "boolean"
           },
           "id": {
@@ -14238,6 +15994,13 @@
               "null"
             ],
             "description": "Local and custom providers only; checked in the background."
+          },
+          "region": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "AWS region, safe to show."
           },
           "source": {
             "type": [
@@ -14308,6 +16071,17 @@
             "items": {
               "$ref": "#/components/schemas/CredentialField"
             }
+          },
+          "guide": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ProviderGuide",
+                "description": "The in-form setup guide, when this provider has one (Amazon Bedrock today)."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "id": {
             "$ref": "#/components/schemas/ProviderId"
@@ -15503,6 +17277,39 @@
           }
         ]
       },
+      "SideChat": {
+        "type": "object",
+        "description": "One `/btw` side chat carried in each request: the question being asked now and the\naside's earlier turns, held between asks only by whoever shows the side chat (the WebUI\npanel, or a Discord/Telegram reader). Never stored.",
+        "required": [
+          "question"
+        ],
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SideChatTurn"
+            }
+          }
+        }
+      },
+      "SideChatTurn": {
+        "type": "object",
+        "required": [
+          "question",
+          "answer"
+        ],
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          }
+        }
+      },
       "SortOrder": {
         "type": "string",
         "enum": [
@@ -15545,7 +17352,7 @@
           },
           "provider": {
             "$ref": "#/components/schemas/SttProvider",
-            "default": "openai"
+            "default": "whisper"
           }
         }
       },
@@ -15829,7 +17636,7 @@
           },
           "provider": {
             "$ref": "#/components/schemas/TtsProvider",
-            "default": "openai"
+            "default": "kokoro"
           },
           "speed": {
             "type": [
@@ -16017,6 +17824,13 @@
         "type": "object",
         "description": "Credentials to save. An omitted field keeps the stored value; an empty string clears it.",
         "properties": {
+          "access_key_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "AWS Bedrock access key id."
+          },
           "access_token": {
             "type": [
               "string",
@@ -16046,6 +17860,27 @@
               "string",
               "null"
             ]
+          },
+          "region": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "AWS region."
+          },
+          "secret_access_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "AWS Bedrock secret access key (write-only after saving)."
+          },
+          "session_token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "AWS Bedrock temporary-credential session token (write-only after saving)."
           }
         },
         "additionalProperties": false
@@ -16354,6 +18189,37 @@
                 "type": "string"
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "An artifact by identity (`specs/035-add-artifacts`). The bytes are resolved through an\n[`AttachmentResolver`]; `available` is read-time only and never stored.",
+            "required": [
+              "artifact"
+            ],
+            "properties": {
+              "artifact": {
+                "type": "object",
+                "description": "An artifact by identity (`specs/035-add-artifacts`). The bytes are resolved through an\n[`AttachmentResolver`]; `available` is read-time only and never stored.",
+                "required": [
+                  "agent_id",
+                  "artifact_id"
+                ],
+                "properties": {
+                  "agent_id": {
+                    "type": "string"
+                  },
+                  "artifact_id": {
+                    "type": "string"
+                  },
+                  "available": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
           }
         ]
       },
@@ -16528,6 +18394,19 @@
               "client_event": {
                 "$ref": "#/components/schemas/ClientEvent",
                 "description": "A message a client sent on the person's behalf, such as a click inside a page the\nagent drew (`specs/019-client-tools`). It starts a turn like `Chat`."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "An off-the-record `/btw` question (`specs/033-btw-side-chat`): the agent answers it\nfrom the conversation's context, but nothing above, about or around it is saved.\nDispatched beside `checkpoint`/`lobotomy`, never through `handle_request`.",
+            "required": [
+              "btw"
+            ],
+            "properties": {
+              "btw": {
+                "$ref": "#/components/schemas/SideChat",
+                "description": "An off-the-record `/btw` question (`specs/033-btw-side-chat`): the agent answers it\nfrom the conversation's context, but nothing above, about or around it is saved.\nDispatched beside `checkpoint`/`lobotomy`, never through `handle_request`."
               }
             }
           }
