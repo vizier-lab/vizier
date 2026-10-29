@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.5] - 2026-10-29
+
+### 🚀 Features
+
+- Add permanent artifacts and explicit session-file clearing
 ## [0.13.4] - 2026-10-28
 
 ### 🚀 Features
@@ -16,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Bump webui for notification sound and toast position
 - Bump webui for chat details panel under the header
 - Bump webui for toast position
+- Bump version to 0.13.4
 ## [0.13.3] - 2026-10-27
 
 ### 🚀 Features

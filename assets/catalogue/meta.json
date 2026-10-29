@@ -1,7 +1,7 @@
 {
-  "etag": "\"c631ace2b31fce48a439b72a4d2caf10\"",
-  "fetched_at": "2026-10-28T02:16:45Z",
-  "models": 8940,
+  "etag": "\"abf71b3b9e0bca07fd2947542b3ccc3d\"",
+  "fetched_at": "2026-10-29T07:30:30Z",
+  "models": 8909,
   "no_logo": [
     "aion-labs",
     "aisingapore",
@@ -66,7 +66,7 @@
     "voyageai",
     "writer"
   ],
-  "providers": 232,
+  "providers": 233,
   "schema": 1,
   "source_url": "https://models.dev/api.json"
 }
