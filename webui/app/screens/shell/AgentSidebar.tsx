@@ -98,7 +98,6 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                             <SidebarAgent
                                 agentId={agentId}
                                 name={agent?.name ?? agentId}
-                                description={agent?.description || undefined}
                                 state={state}
                                 active={!!page && !ESSENTIAL.has(page) && page !== 'chat'}
                                 detail={
