@@ -26,7 +26,7 @@ const SIZES: Record<SigilSize, { box: number; grid: number; radius: number }> = 
   xl: { box: 86, grid: 63, radius: 19 },
 };
 
-/** An agent's 5×5 identicon (B3). */
+/** An agent's 8×8 identicon (B3). */
 export function Sigil({ agentId, size = "md", live = false, image, label, className, style, ...rest }: SigilProps) {
   const cells = sigilCells(agentId);
   const signal = live ? sigilSignalCell(cells) : -1;
@@ -44,15 +44,15 @@ export function Sigil({ agentId, size = "md", live = false, image, label, classN
         <img src={image} alt="" draggable={false} className="size-full object-cover" />
       ) : (
       <>
-      {/* 5 cells of 3 units plus a 1-unit margin; dots are 2 units wide, as drawn. */}
+      {/* 8 cells of 2 units; dots are 1.4 units wide. */}
       <svg viewBox="0 0 16 16" width={grid} height={grid} aria-hidden>
         {cells.map((lit, i) =>
           lit ? (
             <circle
               key={i}
-              cx={(i % 5) * 3 + 2}
-              cy={Math.floor(i / 5) * 3 + 2}
-              r={1}
+              cx={(i % 8) * 2 + 1}
+              cy={Math.floor(i / 8) * 2 + 1}
+              r={0.7}
               className={i === signal ? "fill-live" : "fill-ink"}
             />
           ) : null,
