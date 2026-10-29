@@ -27,7 +27,7 @@ use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 use crate::channels::commands::{self, CommandEntry, CommandOption, CommandSync, PlatformRules};
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
 use crate::channels::side_chat::{
-    self, AbortOnDrop, ExchangeId, Lifetime, PersonKey, ReplyKind, SideChatError, SideChats,
+    self, AbortOnDrop, ExchangeId, Lifetime, ReplyKind, SideChatError, SideChats,
 };
 use crate::channels::woken;
 use crate::channels::{FatalChannelError, VizierChannel};
@@ -731,7 +731,7 @@ If I am halucinating, feel free to `/lobotomy` me
                 };
                 let question = option_text(&data.options, "message").trim().to_string();
                 // Refused before anything is posted, so the notice is for this person only.
-                let person = PersonKey::discord(author.id.get());
+                let person = format!("discord:{}", author.id.get());
                 if let Some(wait) = self.deps.side_chat_limits.retry_after(&person.to_string()) {
                     let secs = wait.max(std::time::Duration::from_secs(1)).as_secs();
                     let response = InteractionResponse {
@@ -926,7 +926,7 @@ If I am halucinating, feel free to `/lobotomy` me
         continuing: Option<ExchangeId>,
         origin: SideChatOrigin<'_>,
     ) {
-        let person = PersonKey::discord(author.id.get());
+        let person = format!("discord:{}", author.id.get());
         let (id, session, turns) = match continuing {
             Some(id) => match self.side_chats.get_for(&id, &person) {
                 Some((session, turns)) => (id, session, turns),
@@ -1275,7 +1275,7 @@ If I am halucinating, feel free to `/lobotomy` me
                 channel_id: msg.channel_id.get(),
                 message_id: referenced.id.get(),
             };
-            let from = PersonKey::discord(msg.author.id.get());
+            let from = format!("discord:{}", msg.author.id.get());
             let kind = self.side_chats.classify_reply(
                 self.side_chats.owner_of(&replied_to),
                 &from,

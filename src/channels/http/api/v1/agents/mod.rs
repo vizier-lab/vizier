@@ -1518,7 +1518,7 @@ async fn agent_btw(
     let result = crate::channels::side_chat::ask(
         &state.deps,
         session,
-        &crate::channels::side_chat::PersonKey::http(&user.username),
+        &format!("http:{}", user.username),
         user.username.clone(),
         side_chat,
         *config.prompt_timeout,

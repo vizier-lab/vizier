@@ -31,42 +31,6 @@ use crate::schema::{
     VizierSession,
 };
 
-/// Who is asking, as the rate-limit key (`research R9`): a string derived from the platform
-/// identity, never stored. It is also what the in-memory exchange store uses to decide
-/// whether a reply may continue a side chat.
-///
-/// The username/ids are passed in by each channel; they never carry question or answer text.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum PersonKey {
-    Http(String),
-    Discord(u64),
-    Telegram(u64),
-}
-
-impl PersonKey {
-    pub fn http(username: &str) -> Self {
-        Self::Http(username.to_string())
-    }
-
-    pub fn discord(id: u64) -> Self {
-        Self::Discord(id)
-    }
-
-    pub fn telegram(id: u64) -> Self {
-        Self::Telegram(id)
-    }
-}
-
-impl std::fmt::Display for PersonKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Http(username) => write!(f, "http:{username}"),
-            Self::Discord(id) => write!(f, "discord:{id}"),
-            Self::Telegram(id) => write!(f, "telegram:{id}"),
-        }
-    }
-}
-
 /// What `ask` returns when there is no answer; each channel maps it to its own surface
 /// (`specs/033-btw-side-chat/contracts/channel-commands.md`).
 #[derive(Debug, Clone)]
@@ -174,24 +138,29 @@ fn kind_label(kind: ErrorKind) -> &'static str {
 /// request on the host conversation's session and awaits the first answer, error, abort or
 /// a closed channel under `timeout`. Nothing about the question or the answer is stored
 /// here: the exchange's turns live with whoever called this.
+///
+/// `person` is who is asking, as the platform names them: `http:{username}`,
+/// `discord:{user id}` or `telegram:{user id}`. It is only the rate-limit key and the check
+/// that a reply may continue a side chat, never stored, and per platform identity on purpose:
+/// the profile links between a WebUI account and a Discord/Telegram id are self-declared
+/// (research R9), so a key spanning platforms would let anyone spend another person's budget.
 #[allow(clippy::too_many_arguments)]
 pub async fn ask(
     deps: &VizierDependencies,
     session: VizierSession,
-    person: &PersonKey,
+    person: &str,
     user: String,
     side_chat: SideChat,
     timeout: Duration,
 ) -> Result<SideChatAnswer, SideChatError> {
     validate(&side_chat)?;
-    let key = person.to_string();
-    if let Some(wait) = deps.side_chat_limits.retry_after(&key) {
+    if let Some(wait) = deps.side_chat_limits.retry_after(person) {
         return Err(SideChatError::RateLimited {
             retry_after_secs: wait.max(Duration::from_secs(1)).as_secs(),
         });
     }
     // Counts the ask itself; the limit is checked before anything is sent.
-    let _ = deps.side_chat_limits.check(&key);
+    let _ = deps.side_chat_limits.check(person);
 
     let request = VizierRequest {
         timestamp: chrono::Utc::now(),
@@ -298,7 +267,7 @@ pub type ExchangeId = String;
 #[derive(Debug, Clone)]
 pub struct LiveExchange<P> {
     pub id: ExchangeId,
-    pub person: PersonKey,
+    pub person: String,
     pub session: VizierSession,
     pub turns: Vec<crate::schema::SideChatTurn>,
     pub last_active: tokio::time::Instant,
@@ -344,7 +313,7 @@ impl<P: Clone + PartialEq> SideChats<P> {
     }
 
     /// A new exchange for `person`, reading `session`.
-    pub fn start(&self, person: PersonKey, session: VizierSession) -> ExchangeId {
+    pub fn start(&self, person: String, session: VizierSession) -> ExchangeId {
         let id = nanoid::nanoid!(10);
         let exchange = LiveExchange {
             id: id.clone(),
@@ -365,14 +334,14 @@ impl<P: Clone + PartialEq> SideChats<P> {
     pub fn get_for(
         &self,
         id: &ExchangeId,
-        person: &PersonKey,
+        person: &str,
     ) -> Option<(VizierSession, Vec<crate::schema::SideChatTurn>)> {
         let exchanges = self
             .exchanges
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let exchange = exchanges.get(id)?;
-        if &exchange.person != person {
+        if exchange.person != person {
             return None;
         }
         Some((exchange.session.clone(), exchange.turns.clone()))
@@ -436,7 +405,7 @@ impl<P: Clone + PartialEq> SideChats<P> {
 
     /// Which live exchange, if any, a reply is replying to — by a message id the exchange
     /// posted. No live exchange owns it: the reader's own side-chat check decides.
-    pub fn owner_of(&self, posted: &P) -> Option<(ExchangeId, PersonKey)> {
+    pub fn owner_of(&self, posted: &P) -> Option<(ExchangeId, String)> {
         let exchanges = self
             .exchanges
             .lock()
@@ -451,12 +420,12 @@ impl<P: Clone + PartialEq> SideChats<P> {
     /// (`specs/033-btw-side-chat/contracts/channel-commands.md`).
     pub fn classify_reply(
         &self,
-        owner: Option<(ExchangeId, PersonKey)>,
-        from: &PersonKey,
+        owner: Option<(ExchangeId, String)>,
+        from: &str,
         is_side_chat_message: bool,
     ) -> ReplyKind {
         match owner {
-            Some((id, person)) if &person == from => ReplyKind::FollowUp(id),
+            Some((id, person)) if person == from => ReplyKind::FollowUp(id),
             Some((_, _)) => ReplyKind::Ignore,
             None if is_side_chat_message => ReplyKind::Ended,
             None => ReplyKind::NotSideChat,
@@ -590,7 +559,7 @@ mod tests {
             let result = ask(
                 &deps,
                 session("no-agent"),
-                &PersonKey::http("user"),
+                "http:user",
                 "user".into(),
                 short_side_chat("what?"),
                 Duration::from_secs(5),
@@ -606,7 +575,7 @@ mod tests {
         let result = ask(
             &deps,
             session("no-agent"),
-            &PersonKey::http("user"),
+            "http:user",
             "user".into(),
             short_side_chat("what?"),
             Duration::from_secs(5),
@@ -621,12 +590,12 @@ mod tests {
     #[tokio::test]
     async fn another_person_has_its_own_window() {
         let (deps, _dir) = no_agent_deps().await;
-        let first = PersonKey::http("p-one");
+        let first = "http:p-one";
         for _ in 0..ASKS_PER_WINDOW {
             let _ = ask(
                 &deps,
                 session("no-agent"),
-                &first,
+                first,
                 "p-one".into(),
                 short_side_chat("what?"),
                 Duration::from_secs(5),
@@ -637,7 +606,7 @@ mod tests {
         let result = ask(
             &deps,
             session("no-agent"),
-            &first,
+            first,
             "p-one".into(),
             short_side_chat("what?"),
             Duration::from_secs(5),
@@ -646,11 +615,11 @@ mod tests {
         assert!(matches!(result, Err(SideChatError::RateLimited { .. })), "got {result:?}");
 
         // A second person has its own window entirely.
-        let second = PersonKey::http("p-two");
+        let second = "http:p-two";
         let result = ask(
             &deps,
             session("no-agent"),
-            &second,
+            second,
             "p-two".into(),
             short_side_chat("what?"),
             Duration::from_secs(5),
@@ -664,30 +633,30 @@ mod tests {
     #[test]
     fn an_exchange_belongs_to_its_person_only() {
         let store: SideChats<String> = SideChats::new(Lifetime { idle: Duration::from_secs(300) });
-        let alice = PersonKey::discord(1);
-        let bob = PersonKey::discord(2);
-        let id = store.start(alice.clone(), session("agent"));
-        let (got, turns) = store.get_for(&id, &alice).unwrap();
+        let alice = "discord:1";
+        let bob = "discord:2";
+        let id = store.start(alice.to_string(), session("agent"));
+        let (got, turns) = store.get_for(&id, alice).unwrap();
         assert_eq!(got.0, "agent");
         assert!(turns.is_empty());
-        assert!(store.get_for(&id, &bob).is_none(), "another person's id is refused");
+        assert!(store.get_for(&id, bob).is_none(), "another person's id is refused");
     }
 
     #[test]
     fn an_unknown_or_ended_id_gives_none() {
         let store: SideChats<String> = SideChats::new(Lifetime { idle: Duration::from_secs(10) });
         assert!(
-            store.get_for(&"nope".to_string(), &PersonKey::discord(1)).is_none(),
+            store.get_for(&"nope".to_string(), "discord:1").is_none(),
             "an unknown id gives none"
         );
 
-        let alice = PersonKey::discord(1);
-        let id = store.start(alice.clone(), session("agent"));
+        let alice = "discord:1";
+        let id = store.start(alice.to_string(), session("agent"));
         // A synthetic "now" past the lifetime ends the exchange without waiting for one.
         let ended = store.sweep(tokio::time::Instant::now() + Duration::from_secs(11));
         assert_eq!(ended.len(), 1);
         assert!(
-            store.get_for(&id, &alice).is_none(),
+            store.get_for(&id, alice).is_none(),
             "an ended id gives none"
         );
     }
@@ -696,16 +665,16 @@ mod tests {
     fn sweeps_only_the_idle_exchanges() {
         let store: SideChats<String> =
             SideChats::new(Lifetime { idle: Duration::from_millis(10) });
-        let stale = store.start(PersonKey::discord(2), session("agent"));
+        let stale = store.start("discord:2".to_string(), session("agent"));
         std::thread::sleep(Duration::from_millis(250));
-        let live = store.start(PersonKey::discord(1), session("agent"));
+        let live = store.start("discord:1".to_string(), session("agent"));
 
         let ended = store.sweep(tokio::time::Instant::now());
         assert_eq!(ended.len(), 1);
         assert_eq!(ended[0].id, stale);
-        assert_eq!(ended[0].person, PersonKey::discord(2));
-        assert!(store.get_for(&stale, &PersonKey::discord(2)).is_none());
-        assert!(store.get_for(&live, &PersonKey::discord(1)).is_some());
+        assert_eq!(ended[0].person, "discord:2");
+        assert!(store.get_for(&stale, "discord:2").is_none());
+        assert!(store.get_for(&live, "discord:1").is_some());
 
         // A nothing-to-sweep sweep is empty, and the live exchange stays live.
         assert!(store.sweep(tokio::time::Instant::now()).is_empty());
@@ -715,47 +684,47 @@ mod tests {
     fn recording_and_touching_keep_an_exchange_alive() {
         let store: SideChats<String> =
             SideChats::new(Lifetime { idle: Duration::from_millis(10) });
-        let alice = PersonKey::discord(3);
-        let id = store.start(alice.clone(), session("agent"));
+        let alice = "discord:3";
+        let id = store.start(alice.to_string(), session("agent"));
         store.record(&id, SideChatTurn {
             question: "q".into(),
             answer: "a".into(),
         });
         assert!(store.sweep(tokio::time::Instant::now()).is_empty());
-        assert_eq!(store.get_for(&id, &alice).unwrap().1.len(), 1);
+        assert_eq!(store.get_for(&id, alice).unwrap().1.len(), 1);
     }
 
     #[test]
     fn owner_of_finds_a_posted_message() {
         let store: SideChats<u64> = SideChats::new(Lifetime { idle: Duration::from_secs(30) });
-        let alice = PersonKey::telegram(42);
-        let id = store.start(alice.clone(), session("agent"));
-        let _ = store.get_for(&id, &alice);
+        let alice = "telegram:42";
+        let id = store.start(alice.to_string(), session("agent"));
+        let _ = store.get_for(&id, alice);
         store.add_posted(&id, 7777);
-        assert_eq!(store.owner_of(&7777), Some((id, alice)));
+        assert_eq!(store.owner_of(&7777), Some((id, alice.to_string())));
         assert_eq!(store.owner_of(&1), None);
     }
 
     #[test]
     fn classify_reply_covers_every_branch() {
         let store: SideChats<String> = SideChats::new(Lifetime::default());
-        let alice = PersonKey::discord(7);
-        let bob = PersonKey::discord(8);
-        let id = store.start(alice.clone(), session("agent"));
+        let alice = "discord:7";
+        let bob = "discord:8";
+        let id = store.start(alice.to_string(), session("agent"));
 
-        match store.classify_reply(Some((id.clone(), alice.clone())), &alice, false) {
+        match store.classify_reply(Some((id.clone(), alice.to_string())), alice, false) {
             ReplyKind::FollowUp(found) => assert_eq!(found, id),
             other => panic!("expected FollowUp, got {other:?}"),
         }
-        match store.classify_reply(Some((id.clone(), alice.clone())), &bob, false) {
+        match store.classify_reply(Some((id.clone(), alice.to_string())), bob, false) {
             ReplyKind::Ignore => {}
             other => panic!("expected Ignore for another person, got {other:?}"),
         }
-        match store.classify_reply(None, &alice, true) {
+        match store.classify_reply(None, alice, true) {
             ReplyKind::Ended => {}
             other => panic!("expected Ended, got {other:?}"),
         }
-        match store.classify_reply(None, &alice, false) {
+        match store.classify_reply(None, alice, false) {
             ReplyKind::NotSideChat => {}
             other => panic!("expected NotSideChat, got {other:?}"),
         }
@@ -765,7 +734,7 @@ mod tests {
     async fn the_sweeper_calls_on_end_once_per_ended_exchange() {
         let store: Arc<SideChats<String>> =
             Arc::new(SideChats::new(Lifetime { idle: Duration::from_secs(2) }));
-        let started = store.start(PersonKey::discord(11), session("agent"));
+        let started = store.start("discord:11".to_string(), session("agent"));
 
         let ended: Arc<std::sync::Mutex<Vec<ExchangeId>>> = Arc::new(std::sync::Mutex::new(vec![]));
         let sink = ended.clone();
@@ -784,7 +753,7 @@ mod tests {
         tokio::time::advance(Duration::from_secs(3)).await;
         let seen = ended.lock().unwrap().clone();
         assert_eq!(seen, vec![started.clone()]);
-        assert!(store.get_for(&started, &PersonKey::discord(11)).is_none());
+        assert!(store.get_for(&started, "discord:11").is_none());
 
         sweeper.abort();
     }

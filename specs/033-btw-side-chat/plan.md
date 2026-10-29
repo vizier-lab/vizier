@@ -91,7 +91,7 @@ src/
 │       ├── side_chat.rs              # NEW: impl VizierAgent { side_chat(..) } — one tool-less completion
 │       └── system_prompt/side_chat.rs # NEW: SIDE_CHAT_MD, SIDE_CHAT_NO_TOOLS
 ├── channels/
-│   ├── side_chat.rs                  # NEW: ask(), SideChatError, PersonKey, limits, SideChats store
+│   ├── side_chat.rs                  # NEW: ask(), SideChatError, limits, SideChats store
 │   │                                 #      (LiveExchange, Lifetime, sweep), unit tests
 │   ├── http/api/v1/agents/mod.rs     # + POST /{agent_id}/btw (BtwRequest/BtwResponse, utoipa);
 │   │                                 #   agent_chat's await loop reused from side_chat::ask
