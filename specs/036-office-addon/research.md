@@ -136,7 +136,7 @@ A reviewer asked whether formulas are executed or only the cached value is retur
 
 ## R15. Testing and the e2e check
 
-- **Unit**: docx round-trip (heading, bold/italic, nested list, table, link) and a `.docx` fixture with a table (generated outside the repository (python-docx, openpyxl, xlwt and hand-written OOXML), not committed); xlsx round-trip (string, number, bool, date, multi-sheet, header bold, width) and `.xlsx` and `.xls` fixtures (same); formula-safety test; limit/truncation tests; corrupt-file error tests.
+- **Unit**: docx round-trip (heading, bold/italic, nested list, table, link) and a `.docx` fixture with a table (made with python-docx, openpyxl, xlwt and hand-written OOXML, committed in `fixtures/office/` at the repository root); xlsx round-trip (string, number, bool, date, multi-sheet, header bold, width) and `.xlsx` and `.xls` fixtures (same); formula-safety test; limit/truncation tests; corrupt-file error tests.
 - **Kind/catalogue**: `every_addon_tool_is_namespaced_by_its_addon` covers the prefix; extend the `EXPECTED`/`ADDON` tables; test `OfficeKind` (no fields, `missing() == []`, validate accepts `{}`).
 - **Service/state**: `seed_default` against in-memory SQLite — creates the row + event, is idempotent (second call → `Ok(None)`), works without any permission, actor falls back to `"system"`; backfill test — seeds each existing agent once, sets the flag, a removed addon stays removed across a second run.
 - **Write-path rule**: `write_session_file` writes over a same-named file like the other file tools do (no existing-file check); the tool descriptions say so.

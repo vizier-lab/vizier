@@ -23,7 +23,7 @@ description: "Task list for the Office addon (DOCX and XLSX)"
 
 ## Path Conventions
 
-Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository root. New code lives in `src/agents/tools/office/` and `src/integrations/kinds/office.rs`. Test fixtures live in `src/agents/tools/office/fixtures/` and are generated outside the repository (python-docx, openpyxl, xlwt and hand-written OOXML), not committed, and read at test time; a test is skipped with a message when its file is missing.
+Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository root. New code lives in `src/agents/tools/office/` and `src/integrations/kinds/office.rs`. Test fixtures live in `fixtures/office/` at the repository root (made with python-docx, openpyxl, xlwt and hand-written OOXML, committed, described in its README) and are compiled into the tests with `include_bytes!`, so a missing file fails the build.
 
 ---
 
@@ -33,7 +33,7 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 
 - [X] T001 Add `rust_xlsxwriter` and a direct `pulldown-cmark = "0.13"` dependency to `Cargo.toml` (`pulldown-cmark` is already in `Cargo.lock` through `text-splitter`); run `cargo fetch` and confirm the lockfile changes only by `rust_xlsxwriter` and its own dependencies. The formula engine crate is added later, by T016, once it is chosen
 - [X] T002 [P] Create the module skeleton `src/agents/tools/office/mod.rs`, `src/agents/tools/office/docx.rs`, `src/agents/tools/office/xlsx.rs` (module docs only, pure functions to be filled in later) and declare `mod office;` in `src/agents/tools/mod.rs`
-- [ ] T003 [P] Create the fixtures in `src/agents/tools/office/fixtures/`: `table.docx` saved by Word or LibreOffice (heading, bold and italic text, nested bullet list, numbered list, an external link, a table) because research R3 notes the probe only read a file written by `docx-rs` itself; `mixed.xlsx` (two sheets, text, number, boolean, date, empty cell, a formula with a saved value, and a sheet whose data starts at `C5`); `formulas.xlsx` (a formula with a saved value, and a formula with no saved value, as a script-made file has, for quickstart step 4); `legacy.xls` (at least one sheet with text and numbers). No office application was available, so the files are generated outside the repository (python-docx, openpyxl, xlwt and hand-written OOXML), not committed; files saved by Word or LibreOffice would still be a better check
+- [ ] T003 [P] Create the fixtures in `fixtures/office/` (repository root, as the reviewer asked): `table.docx` saved by Word or LibreOffice (heading, bold and italic text, nested bullet list, numbered list, an external link, a table) because research R3 notes the probe only read a file written by `docx-rs` itself; `mixed.xlsx` (two sheets, text, number, boolean, date, empty cell, a formula with a saved value, and a sheet whose data starts at `C5`); `formulas.xlsx` (a formula with a saved value, and a formula with no saved value, as a script-made file has, for quickstart step 4); `legacy.xls` (at least one sheet with text and numbers). Plus `formulas-minimal.xlsx` (the same sheets without `xl/styles.xml`, for the engine fallback). No office application was available, so the files were made with python-docx, openpyxl, xlwt and hand-written OOXML and are committed; this task stays open until `table.docx` is replaced by a file saved by Word or LibreOffice
 
 **Checkpoint**: The crate builds with the new dependencies and an empty `office` module.
 

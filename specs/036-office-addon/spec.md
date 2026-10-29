@@ -165,7 +165,7 @@ Until now the generic `read_document_file` tool also converted Word and Excel fi
 
 **Quality and rollout**
 
-- **FR-022**: Each format MUST be tested on its own, without storage or an agent: round-trip (write then read) and reading of fixed sample files (generated outside the repository (python-docx, openpyxl, xlwt and hand-written OOXML), not committed; a test is skipped when its file is missing), including a Word table and each spreadsheet cell type across more than one sheet.
+- **FR-022**: Each format MUST be tested on its own, without storage or an agent: round-trip (write then read) and reading of fixed sample files (made with python-docx, openpyxl, xlwt and hand-written OOXML, and committed in `fixtures/office/` at the repository root; they are compiled into the tests, so a missing file fails the build), including a Word table and each spreadsheet cell type across more than one sheet.
 - **FR-023**: Because every agent's default tool list changes, the change MUST be verified end to end on an agent using the offline test provider (write a document, receive the filename, send it as an attachment) and MUST be noted in the changelog.
 - **FR-024**: The pinned tables that list every tool and its category MUST include the new tools, so adding or renaming a tool without updating them fails the build.
 - **FR-025**: Code that exists only to support upgrades from earlier versions (the one-time backfill) MUST be recorded on the project's tracker for pre-1.0 migration cleanup.

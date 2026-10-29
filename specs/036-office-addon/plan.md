@@ -16,7 +16,7 @@ Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that co
 
 **Storage**: existing SQLite only. Reuses `integration` / `integration_event` tables, `session_file` table, `FileManager` blob store, and the `state` key/value table (`migration.office_default_seeded`). No schema change.
 
-**Testing**: `cargo test` (per-format unit tests with golden files generated outside the repository (python-docx, openpyxl, xlwt and hand-written OOXML), not committed (a test is skipped with a message when its file is missing), and round-trips; kind and catalogue-table tests; seed/backfill tests against in-memory SQLite); `cargo clippy`; end-to-end: agent steps scripted in [quickstart.md](quickstart.md) against the standalone dummyplug server (`just dummyplug`, spec 030-standalone-dummyplug-server; constitution e2e gate — default tool list of every agent changes). The branch already contains the merged dummyplug change (vizier-lab/vizier#103).
+**Testing**: `cargo test` (per-format unit tests with golden files made by other tools (python-docx, openpyxl, xlwt and hand-written OOXML) and committed in `fixtures/office/`, compiled in with `include_bytes!`, and round-trips; kind and catalogue-table tests; seed/backfill tests against in-memory SQLite); `cargo clippy`; end-to-end: agent steps scripted in [quickstart.md](quickstart.md) against the standalone dummyplug server (`just dummyplug`, spec 030-standalone-dummyplug-server; constitution e2e gate — default tool list of every agent changes). The branch already contains the merged dummyplug change (vizier-lab/vizier#103).
 
 **Target Platform**: Linux/macOS/Windows single binary, incl. static `musl` cross targets in `Cross.toml` (all new code is pure Rust).
 
@@ -85,7 +85,7 @@ src/
 ├── dependencies.rs                  # OFFICE_DEFAULT_SEEDED key + one-time seed_office_defaults() at the end of VizierDependencies::new
 assets/integrations/office.svg       # catalogue icon
 Cargo.toml                           # + rust_xlsxwriter, pulldown-cmark (direct), the formula engine chosen in T016
-src/agents/tools/office/fixtures/    # golden files generated outside the repository (python-docx, openpyxl, xlwt and hand-written OOXML), not committed, read at test time: table.docx, mixed.xlsx, formulas.xlsx, legacy.xls (beside the code, like src/llm/dialect/fixtures; the repo has no tests/ directory)
+fixtures/office/                     # dedicated fixture folder at the repository root (reviewer request), committed and compiled into the tests: table.docx, mixed.xlsx, formulas.xlsx, formulas-minimal.xlsx, legacy.xls, README.md
 scripts/office-e2e.mjs               # optional scripted run against standalone dummyplug (mirrors scripts/dummyplug-vizier-e2e.mjs, which starts and stops the server)
 docs/src/…                           # a short docs page for the office addon + SUMMARY.md entry; configuration/tools-embedding.md no longer says docx/xlsx are extracted to text
 src/schema/request.rs                # the attached-files hint also points Word/Excel files at the office tools

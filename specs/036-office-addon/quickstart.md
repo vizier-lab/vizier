@@ -108,7 +108,7 @@ Expected: only that range of the `Budget` sheet, with `start: "A1"`. Single cell
 {"tool":"execute_python","arguments":{"code":"print(office_xlsx_read_as_cells(filename='budget.xlsx', sheet='Budget', range='B2'))\nprint(office_xlsx_read_as_cells(filename='budget.xlsx', info=True))"}}
 ```
 
-Expected: the first result is one row with one cell, `12`, and `start: "B2"`. Formula cells need a fixture, because the write tool never writes formulas (FR-028): attach `formulas.xlsx` (one formula with a saved result, one with none) and read it twice:
+Expected: the first result is one row with one cell, `12`, and `start: "B2"`. Formula cells need a fixture, because the write tool never writes formulas (FR-028): attach `fixtures/office/formulas.xlsx` from the repository (one formula with a saved result, one with none) and read it twice:
 
 ```json
 {"tool":"execute_python","arguments":{"code":"print(office_xlsx_read_as_cells(filename='formulas.xlsx'))\nprint(office_xlsx_read_as_cells(filename='formulas.xlsx', formulas=True))"}}

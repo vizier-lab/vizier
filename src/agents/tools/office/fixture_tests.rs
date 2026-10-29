@@ -5,27 +5,11 @@ use super::docx::to_markdown;
 use super::xlsx::{read_csv, read_workbook, Flavour};
 use super::{Cell, Dimensions, SheetRead, WorkbookRead};
 
-/// The files are generated outside the repository and not committed, so a test is
-/// skipped (with a message) when its file has not been generated.
-fn fixture(name: &str) -> Option<Vec<u8>> {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/agents/tools/office/fixtures")
-        .join(name);
-    match std::fs::read(&path) {
-        Ok(bytes) => Some(bytes),
-        Err(_) => {
-            eprintln!("skipped: {} is missing; generate the fixtures first (see the Office addon PR notes)", path.display());
-            None
-        }
-    }
-}
-
+/// The sample files in `fixtures/office/` at the repository root (see its README). They are
+/// compiled in, so a missing file fails the build rather than skipping a test.
 macro_rules! fixture {
-    ($name:expr) => {
-        match fixture($name) {
-            Some(bytes) => bytes,
-            None => return,
-        }
+    ($name:literal) => {
+        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/office/", $name)).to_vec()
     };
 }
 
