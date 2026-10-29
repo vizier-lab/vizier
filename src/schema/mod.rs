@@ -61,7 +61,8 @@ pub use provider::{
 };
 pub use request::{
     AttachmentResolver, ClientEvent, NoopAttachmentResolver, PlatformMessageId, ReactionAction,
-    ReactionEntry, VizierAttachment, VizierAttachmentContent, VizierRequest, VizierRequestContent,
+    ReactionEntry, SideChat, SideChatTurn, VizierAttachment, VizierAttachmentContent, VizierRequest,
+    VizierRequestContent,
 };
 pub use response::{ErrorKind, VizierResponse, VizierResponseContent, VizierResponseStats};
 pub use revision::{

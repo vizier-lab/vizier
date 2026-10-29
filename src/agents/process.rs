@@ -159,14 +159,19 @@ pub async fn agent_process(
                 let turn = TurnRef { id: envelope.turn_id, resumed: envelope.resumed };
                 tracing::trace!(agent_id = %session.0, channel = ?session.1, "incoming request");
 
-                detail_tasks.spawn(refresh_session_detail(
-                    agent.clone(),
-                    deps.storage.clone(),
-                    session.clone(),
-                    request.clone(),
-                    titling.clone(),
-                    deps.transport.clone(),
-                ));
+                // A side chat must leave no trace (FR-006): it never creates or titles the
+                // session's detail row, and never touches the conversation itself. The
+                // on-the-record decision lives in one testable predicate (research R2).
+                if records_session_activity(&request.content) {
+                    detail_tasks.spawn(refresh_session_detail(
+                        agent.clone(),
+                        deps.storage.clone(),
+                        session.clone(),
+                        request.clone(),
+                        titling.clone(),
+                        deps.transport.clone(),
+                    ));
+                }
 
                 // Handle abort command
                 if let VizierRequestContent::Command(ref cmd) = request.content {
@@ -810,6 +815,13 @@ fn is_handover_command(request: &VizierRequest) -> bool {
     matches!(&request.content, VizierRequestContent::Command(cmd) if cmd == "checkpoint" || cmd == "lobotomy")
 }
 
+/// Whether handling this request records anything about its conversation: history, session
+/// detail, the thinking flag. Only the side chat is excluded (research R2) — every other
+/// kind is an on-the-record turn. One predicate, so both gates and the tests read one rule.
+fn records_session_activity(content: &VizierRequestContent) -> bool {
+    !matches!(content, VizierRequestContent::Btw(_))
+}
+
 /// A job is running, or one has finished and the queue it leaves behind has not been
 /// picked up yet: its completion is still on its way, and starting a request now would
 /// jump ahead of the queue. Every turn's end reaches the loop through `SessionTurns`,
@@ -878,15 +890,19 @@ fn start_session_job(
         {
             tracing::warn!("could not mark a turn running: {e}");
         }
-        // Set is_thinking = true
-        let _ = storage
-            .update_thinking_state(
-                session.0.clone(),
-                session.1.clone(),
-                session.2.clone(),
-                true,
-            )
-            .await;
+        // Set is_thinking = true. A side chat must not make the conversation look busy
+        // with a turn that never appears in it (research R2).
+        let records_activity = records_session_activity(&request.content);
+        if records_activity {
+            let _ = storage
+                .update_thinking_state(
+                    session.0.clone(),
+                    session.1.clone(),
+                    session.2.clone(),
+                    true,
+                )
+                .await;
+        }
 
         let result = match &request.content {
             VizierRequestContent::Command(cmd) if cmd == "checkpoint" => {
@@ -895,6 +911,12 @@ fn start_session_job(
             }
             VizierRequestContent::Command(cmd) if cmd == "lobotomy" => {
                 run_lobotomy(&storage, &session, &response_tx).await;
+                Ok(())
+            }
+            // A side chat is answered by `run_btw`, which never saves anything: no history,
+            // no session detail, no turn journal, no session events (research R1/R2).
+            VizierRequestContent::Btw(_) => {
+                run_btw(agent.clone(), storage.clone(), session.clone(), request.clone(), response_tx.clone()).await;
                 Ok(())
             }
             _ => {
@@ -933,15 +955,17 @@ fn start_session_job(
 
         thinking_handle.abort();
 
-        // Set is_thinking = false
-        let _ = storage
-            .update_thinking_state(
-                session.0.clone(),
-                session.1.clone(),
-                session.2.clone(),
-                false,
-            )
-            .await;
+        // Set is_thinking = false (skipped for a side chat, as above).
+        if records_activity {
+            let _ = storage
+                .update_thinking_state(
+                    session.0.clone(),
+                    session.1.clone(),
+                    session.2.clone(),
+                    false,
+                )
+                .await;
+        }
     });
 }
 
@@ -1049,6 +1073,46 @@ async fn run_checkpoint(
 
     send_checkpoint(response_tx, handover).await;
     tracing::info!("Manual checkpoint created for session {:?}", session);
+}
+
+/// One `/btw` ask: load the host conversation up to this request's timestamp, hand it to
+/// the agent's one tool-less completion, and send the answer or the classified error. It
+/// never writes to storage — even a failure to load history is answered as an error rather
+/// than saved (`specs/033-btw-side-chat/contracts/agent-side-chat.md`).
+async fn run_btw(
+    agent: Arc<VizierAgent>,
+    storage: Arc<VizierStorage>,
+    session: VizierSession,
+    request: VizierRequest,
+    response_tx: Option<flume::Sender<VizierResponse>>,
+) {
+    let answer = match storage
+        .list_session_history_until_checkpoint(session.clone(), Some(request.timestamp))
+        .await
+    {
+        Ok((history, handover)) => match agent.side_chat(request, session, history, handover).await
+        {
+            Ok(reply) => reply,
+            Err(e) => btw_error_response(e.to_string()),
+        },
+        Err(e) => btw_error_response(e.to_string()),
+    };
+    if let Some(tx) = response_tx {
+        let _ = tx.send_async(answer).await;
+    }
+}
+
+/// A side-chat failure sent on the response channel: never saved, only classified.
+fn btw_error_response(message: String) -> VizierResponse {
+    VizierResponse {
+        timestamp: chrono::Utc::now(),
+        content: VizierResponseContent::Error {
+            kind: ErrorKind::classify(&message),
+            message,
+        },
+        attachments: vec![],
+        ..Default::default()
+    }
 }
 
 /// `/lobotomy`: a checkpoint with no handover, so the session carries nothing over.
@@ -1619,6 +1683,12 @@ pub async fn handle_request(
         VizierRequestContent::Command(cmd) => {
             tracing::warn!("unhandled command: {}", cmd);
         }
+        // A side chat is answered by `run_btw` in `start_session_job`, never here — this arm
+        // is defensive: a refactor that bypasses that dispatch fails loudly instead of saving
+        // anything (specs/033-btw-side-chat, research R1).
+        VizierRequestContent::Btw(_) => {
+            return Err(anyhow::Error::msg("side chats are answered by run_btw"));
+        }
     }
 
     Ok(())
@@ -2137,5 +2207,374 @@ mod session_turns_tests {
             titling.lock().unwrap().is_empty(),
             "nothing is kept once generations end"
         );
+    }
+}
+
+#[cfg(test)]
+mod btw_tests {
+    use super::*;
+    use crate::agents::agent::model::VizierModel;
+    use crate::config::VizierConfig;
+    use crate::dependencies::VizierDependencies;
+    use crate::llm::{
+        AssistantPart, CompletionModel, CompletionRequest, CompletionResponse, LlmError, ToolChoice,
+    };
+    use crate::tests_support::agent_config;
+    use crate::storage::usage::UsageStorage;
+    use crate::schema::{BackgroundReport, ClientEvent, SideChat};
+    use crate::schema::background::JobKind;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// Answers every completion with the next scripted side, so a side chat runs without a
+    /// network or a channel. Records the tool choice each call was given.
+    struct ScriptedSideChat {
+        replies: std::sync::Mutex<Vec<Option<Result<AssistantPart, LlmError>>>>,
+        calls: AtomicU32,
+        tool_choices: std::sync::Mutex<Vec<Option<ToolChoice>>>,
+    }
+
+    impl ScriptedSideChat {
+        fn text(parts: Vec<AssistantPart>) -> Arc<Self> {
+            let replies: Vec<std::option::Option<std::result::Result<AssistantPart, LlmError>>> =
+                parts.into_iter().map(|p| Some(Ok(p))).collect();
+            Arc::new(Self {
+                replies: replies.into(),
+                calls: AtomicU32::new(0),
+                tool_choices: vec![].into(),
+            })
+        }
+
+        fn tool_call() -> Arc<Self> {
+            Arc::new(Self {
+                replies: vec![Some(Ok(AssistantPart::ToolCall {
+                    id: "call-1".into(),
+                    name: "list_tool_functions".into(),
+                    arguments: serde_json::json!({}),
+                    provider_data: None,
+                }))]
+                .into(),
+                calls: AtomicU32::new(0),
+                tool_choices: vec![].into(),
+            })
+        }
+
+        fn failing() -> Arc<Self> {
+            Arc::new(Self {
+                replies: vec![Some(Err(LlmError::Http {
+                    status: 500,
+                    retry_after: None,
+                    body: "boom".into(),
+                }))]
+                .into(),
+                calls: AtomicU32::new(0),
+                tool_choices: vec![].into(),
+            })
+        }
+
+        fn tool_choices(&self) -> Vec<Option<ToolChoice>> {
+            self.tool_choices.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl CompletionModel for ScriptedSideChat {
+        async fn complete(
+            &self,
+            req: CompletionRequest,
+        ) -> Result<CompletionResponse, LlmError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.tool_choices.lock().unwrap().push(req.tool_choice);
+            self.replies
+                .lock()
+                .unwrap()
+                .remove(0)
+                .map(|next| {
+                    next.map(|part| CompletionResponse {
+                        id: None,
+                        content: vec![part],
+                        usage: crate::llm::Usage {
+                            input_tokens: 10,
+                            output_tokens: 5,
+                            total_tokens: 15,
+                            ..Default::default()
+                        },
+                        model: Some("scripted-served".into()),
+                        finish_reason: None,
+                    })
+                })
+                .unwrap_or_else(|| Err(LlmError::Decode("no scripted reply left".into())))
+        }
+
+        fn context_window(&self) -> Option<u64> {
+            None
+        }
+    }
+
+    fn btw_session() -> VizierSession {
+        VizierSession(
+            "btw-agent".into(),
+            VizierChannelId::HTTP("btw-user".into(), "btw-topic".into()),
+            None,
+        )
+    }
+
+    fn btw_request(question: &str) -> VizierRequest {
+        VizierRequest {
+            content: VizierRequestContent::Btw(crate::schema::SideChat {
+                question: question.into(),
+                turns: vec![],
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// One temp workspace with a full `VizierAgent` on a scripted model, and seeded host
+    /// history, so `run_btw` can be driven end to end.
+    async fn setup(
+        model: Arc<ScriptedSideChat>,
+    ) -> (
+        Arc<VizierAgent>,
+        Arc<VizierStorage>,
+        VizierSession,
+        tempfile::TempDir,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let config = VizierConfig {
+            workspace: dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        let deps = VizierDependencies::new(config).await.unwrap();
+        let agent_id = "btw-agent";
+        let session = btw_session();
+        let storage = deps.storage.clone();
+        storage
+            .save_session_history(
+                session.clone(),
+                SessionHistoryContent::Request(btw_request("ask first")),
+            )
+            .await
+            .unwrap();
+        storage
+            .save_session_history(
+                session.clone(),
+                SessionHistoryContent::Response(VizierResponse::default()),
+            )
+            .await
+            .unwrap();
+        let mut agent =
+            VizierAgent::new(agent_id.to_string(), &deps, &agent_config(agent_id), None)
+                .await
+                .unwrap();
+        let scripted = VizierModel::scripted(
+            agent_id.to_string(),
+            storage.clone(),
+            model.clone(),
+            "scripted",
+        );
+        agent.swap_model_for_test(scripted);
+        (Arc::new(agent), storage, session, dir)
+    }
+
+    async fn history_uids(storage: &VizierStorage, session: &VizierSession) -> Vec<String> {
+        storage
+            .list_session_history(session.clone(), None, None, None)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|h| h.uid)
+            .collect()
+    }
+
+    async fn usage_event_count(storage: &VizierStorage, agent_id: &str) -> u64 {
+        storage
+            .usage_groups_since(
+                &[agent_id.to_string()],
+                chrono::DateTime::parse_from_rfc3339("2000-01-01T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            )
+            .await
+            .unwrap()
+            .iter()
+            .map(|g| g.calls)
+            .sum()
+    }
+
+    async fn detail_at(
+        storage: &VizierStorage,
+        session: &VizierSession,
+    ) -> Option<VizierSessionDetail> {
+        storage
+            .get_session_detail_by_topic(
+                session.0.clone(),
+                session.1.clone(),
+                session.2.clone(),
+            )
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_side_chat_answers_and_leaves_no_trace() {
+        let (agent, storage, session, _dir) =
+            setup(ScriptedSideChat::text(vec![AssistantPart::Text("aside answer".into())])).await;
+
+        let (tx, rx) = flume::bounded(1);
+        run_btw(
+            agent.clone(),
+            storage.clone(),
+            session.clone(),
+            btw_request("what is up"),
+            Some(tx),
+        )
+        .await;
+
+        let reply = rx.recv_async().await.unwrap();
+        let VizierResponseContent::Message { content, stats } = reply.content else {
+            panic!("expected a message reply, got {:?}", reply.content);
+        };
+        assert_eq!(content, "aside answer");
+        assert!(reply.history_uid.is_none(), "a side chat reply is never saved");
+        assert!(reply.attachments.is_empty());
+        let stats = stats.unwrap();
+        assert_eq!(stats.provider.map(|p| p.to_string()).as_deref(), Some("dummyplug"));
+        assert_eq!(stats.model.as_deref(), Some("scripted"));
+
+        // Nothing in history: before and after, the same two entries by uid.
+        assert_eq!(history_uids(&storage, &session).await.len(), 2);
+
+        let detail = detail_at(&storage, &session).await;
+        assert!(detail.is_none(), "a side chat never creates or updates session detail");
+
+        let pending = storage.pending_turns("btw-agent").await.unwrap();
+        assert!(pending.is_empty(), "a side chat never journals a turn");
+    }
+
+    #[tokio::test]
+    async fn a_tool_call_answer_becomes_the_no_tools_notice() {
+        let (agent, storage, session, _dir) = setup(ScriptedSideChat::tool_call()).await;
+
+        let (tx, rx) = flume::bounded(1);
+        run_btw(
+            agent,
+            storage.clone(),
+            session.clone(),
+            btw_request("do something"),
+            Some(tx),
+        )
+        .await;
+
+        let reply = rx.recv_async().await.unwrap();
+        let VizierResponseContent::Message { content, .. } = reply.content else {
+            panic!("expected a message reply, got {:?}", reply.content);
+        };
+        assert_eq!(content, crate::agents::agent::system_prompt::side_chat::SIDE_CHAT_NO_TOOLS);
+    }
+
+    #[tokio::test]
+    async fn a_model_failure_is_answered_as_an_error_without_storage_writes() {
+        let (agent, storage, session, _dir) = setup(ScriptedSideChat::failing()).await;
+
+        let detail_before = detail_at(&storage, &session).await;
+
+        let (tx, rx) = flume::bounded(1);
+        run_btw(
+            agent,
+            storage.clone(),
+            session.clone(),
+            btw_request("hi"),
+            Some(tx),
+        )
+        .await;
+
+        let reply = rx.recv_async().await.unwrap();
+        let VizierResponseContent::Error { kind: _, message } = reply.content else {
+            panic!("expected an error reply, got {:?}", reply.content);
+        };
+        assert!(!message.is_empty());
+        assert!(reply.history_uid.is_none());
+
+        let detail_after = detail_at(&storage, &session).await;
+        assert_eq!(detail_before.is_none(), detail_after.is_none());
+        assert_eq!(history_uids(&storage, &session).await.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn exactly_one_usage_event_per_side_chat() {
+        let (agent, storage, session, _dir) =
+            setup(ScriptedSideChat::text(vec![AssistantPart::Text("aside answer".into())])).await;
+
+        let (tx, rx) = flume::bounded(1);
+        run_btw(
+            agent,
+            storage.clone(),
+            session.clone(),
+            btw_request("hi"),
+            Some(tx),
+        )
+        .await;
+        let _ = rx.recv_async().await.unwrap();
+
+        // The usage event is written from a spawned task; give it a moment to land.
+        for _ in 0..50 {
+            if usage_event_count(&storage, "btw-agent").await == 1 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(usage_event_count(&storage, "btw-agent").await, 1);
+    }
+
+    #[tokio::test]
+    async fn the_side_chat_completion_is_tool_less() {
+        let model = ScriptedSideChat::text(vec![AssistantPart::Text("aside answer".into())]);
+        let (agent, storage, session, _dir) = setup(model.clone()).await;
+
+        let (tx, rx) = flume::bounded(1);
+        run_btw(
+            agent,
+            storage.clone(),
+            session.clone(),
+            btw_request("hi"),
+            Some(tx),
+        )
+        .await;
+        let _ = rx.recv_async().await.unwrap();
+
+        let choices = model.tool_choices();
+        assert_eq!(choices.len(), 1);
+        assert_eq!(choices[0], Some(ToolChoice::None));
+    }
+
+    #[test]
+    fn only_a_side_chat_has_no_session_activity() {
+        let activity: Vec<VizierRequestContent> = vec![
+            VizierRequestContent::Chat("hi".into()),
+            VizierRequestContent::Prompt("hi".into()),
+            VizierRequestContent::SilentRead("hi".into()),
+            VizierRequestContent::Unattended("hi".into()),
+            VizierRequestContent::Command("checkpoint".into()),
+            VizierRequestContent::BackgroundReport(BackgroundReport {
+                job_id: "job-1".into(),
+                kind: JobKind::Batch,
+                delegated_to: None,
+                entries: vec![],
+            }),
+            VizierRequestContent::ClientEvent(ClientEvent {
+                text: "click".into(),
+                data: None,
+                source_call_id: None,
+            }),
+        ];
+        for content in &activity {
+            assert!(
+                records_session_activity(content),
+                "expected session activity for {content:?}"
+            );
+        }
+        assert!(!records_session_activity(&VizierRequestContent::Btw(SideChat {
+            question: "aside".into(),
+            turns: vec![],
+        })));
     }
 }

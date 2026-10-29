@@ -64,6 +64,7 @@ use crate::{
 };
 
 pub mod model;
+pub mod side_chat;
 pub mod system_prompt;
 
 #[derive(Clone)]
@@ -225,6 +226,13 @@ impl VizierAgent {
             transport: deps.transport.clone(),
             indexer,
         })
+    }
+
+    /// Test-only (`specs/033-btw-side-chat` T011): swap the agent's model for a scripted one
+    /// so `run_btw` can be driven without a network or the dummyplug protocol.
+    #[cfg(test)]
+    pub(crate) fn swap_model_for_test(&mut self, model: VizierModel) {
+        self.model = model;
     }
 
     /// The integration layer from the agent's attachments in storage, reusing what `previous`
@@ -715,12 +723,7 @@ impl VizierAgent {
 
         // Inject checkpoint handover as system context
         if let Some(handover) = checkpoint_handover {
-            history.push(Message::system(format!(
-                "# Conversation Context (Previous Checkpoint)\n\
-                 The following is a summary of the conversation before this session was checkpointed. \
-                 Use this to maintain context and continuity.\n\n{}",
-                handover
-            )));
+            history.push(checkpoint_context(handover));
         }
 
         history.extend(history_entries_to_messages(&session_history));
@@ -2015,6 +2018,18 @@ impl VizierAgent {
         }
         outcome
     }
+}
+
+/// The checkpoint handover as a system message (`specs/033-btw-side-chat` research R6).
+/// Extracted from `chat_turn` so the side chat replays it without the wording drifting;
+/// `chat_turn` and `VizierAgent::side_chat` share this one.
+fn checkpoint_context(handover: String) -> Message {
+    Message::system(format!(
+        "# Conversation Context (Previous Checkpoint)\n\
+         The following is a summary of the conversation before this session was checkpointed. \
+         Use this to maintain context and continuity.\n\n{}",
+        handover
+    ))
 }
 
 /// The error a failed turn returns, with every record it has to keep.

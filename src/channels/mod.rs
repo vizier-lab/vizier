@@ -14,6 +14,7 @@ pub mod discord;
 pub mod http;
 pub mod reactions;
 pub mod readers;
+pub mod side_chat;
 pub mod telegram;
 pub mod woken;
 

@@ -31,6 +31,12 @@ impl StateStorage for SqliteStorage {
             None => Ok(None),
         }
     }
+
+    async fn delete_state(&self, key: String) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute("DELETE FROM state WHERE key = ?1", rusqlite::params![key])?;
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]

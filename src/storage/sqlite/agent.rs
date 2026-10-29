@@ -150,6 +150,11 @@ impl AgentStorage for SqliteStorage {
             "DELETE FROM session_turn WHERE agent_id = ?1",
             rusqlite::params![agent_id],
         )?;
+        // Its Telegram side-chat deletion ledger (spec 033): message ids only, but still its own.
+        conn.execute(
+            "DELETE FROM state WHERE key = ?1",
+            rusqlite::params![format!("side_chat_pending__{agent_id}")],
+        )?;
         // Its transient session-file records and permanent artifact metadata go with it
         // (`specs/035-add-artifacts`); blobs and content files are removed after the commit by
         // `SessionFiles` and `Artifacts`.

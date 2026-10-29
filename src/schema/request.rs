@@ -54,6 +54,30 @@ pub enum VizierRequestContent {
     /// A message a client sent on the person's behalf, such as a click inside a page the
     /// agent drew (`specs/019-client-tools`). It starts a turn like `Chat`.
     ClientEvent(ClientEvent),
+    /// An off-the-record `/btw` question (`specs/033-btw-side-chat`): the agent answers it
+    /// from the conversation's context, but nothing above, about or around it is saved.
+    /// Dispatched beside `checkpoint`/`lobotomy`, never through `handle_request`.
+    Btw(SideChat),
+}
+
+/// One `/btw` side chat carried in each request: the question being asked now and the
+/// aside's earlier turns, held between asks only by whoever shows the side chat (the WebUI
+/// panel, or a Discord/Telegram reader). Never stored.
+#[derive(
+    Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq,
+)]
+pub struct SideChat {
+    pub question: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub turns: Vec<SideChatTurn>,
+}
+
+#[derive(
+    Debug, Clone, Serialize, Deserialize, JsonSchema, utoipa::ToSchema, PartialEq,
+)]
+pub struct SideChatTurn {
+    pub question: String,
+    pub answer: String,
 }
 
 /// What a client event carries: the text shown as the person's message, data only the
@@ -91,7 +115,14 @@ impl VizierRequestContent {
             Self::AudioPrompt(..) => "audio_prompt",
             Self::BackgroundReport(_) => "background_report",
             Self::ClientEvent(_) => "client_event",
+            Self::Btw(_) => "btw",
         }
+    }
+
+    /// The request is an off-the-record side chat. The one place this is decided, so the
+    /// agent loop's two trace gates and the docs all test or read it from here.
+    pub fn is_side_chat(&self) -> bool {
+        matches!(self, Self::Btw(_))
     }
 }
 
@@ -119,6 +150,7 @@ impl Display for VizierRequestContent {
             },
             Self::BackgroundReport(report) => write!(f, "{}", report),
             Self::ClientEvent(event) => write!(f, "{}", event),
+            Self::Btw(side_chat) => write!(f, "{}", side_chat.question),
         }
     }
 }
@@ -391,6 +423,93 @@ impl VizierRequest {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn btw_serialises_with_its_question_and_earlier_turns() {
+        let content = VizierRequestContent::Btw(SideChat {
+            question: "what did I just say?".into(),
+            turns: vec![SideChatTurn {
+                question: "first".into(),
+                answer: "first answer".into(),
+            }],
+        });
+        let out = serde_json::to_value(&content).unwrap();
+        assert_eq!(
+            out,
+            serde_json::json!({
+                "btw": {
+                    "question": "what did I just say?",
+                    "turns": [{ "question": "first", "answer": "first answer" }],
+                }
+            })
+        );
+        // An empty turns list is omitted.
+        let bare = VizierRequestContent::Btw(SideChat {
+            question: "q".into(),
+            turns: vec![],
+        });
+        assert_eq!(
+            serde_json::to_value(&bare).unwrap(),
+            serde_json::json!({ "btw": { "question": "q" } })
+        );
+    }
+
+    #[test]
+    fn the_btw_variant_is_named_btw_and_reads_as_its_question() {
+        let side_chat = VizierRequestContent::Btw(SideChat {
+            question: "off the record?".into(),
+            turns: vec![],
+        });
+        assert_eq!(side_chat.kind(), "btw");
+        assert_eq!(side_chat.to_string(), "off the record?");
+        assert!(side_chat.is_side_chat());
+    }
+
+    /// The one predicate: every other content kind is an ordinary, recorded kind of turn.
+    #[test]
+    fn is_side_chat_is_true_only_for_btw() {
+        for other in [
+            VizierRequestContent::Chat("hi".into()),
+            VizierRequestContent::Prompt("p".into()),
+            VizierRequestContent::SilentRead("s".into()),
+            VizierRequestContent::Unattended("u".into()),
+            VizierRequestContent::Command("checkpoint".into()),
+            VizierRequestContent::BackgroundReport(BackgroundReport {
+                job_id: "j".into(),
+                kind: crate::schema::JobKind::Batch,
+                delegated_to: None,
+                entries: vec![],
+            }),
+            VizierRequestContent::ClientEvent(ClientEvent {
+                text: "x".into(),
+                data: None,
+                source_call_id: None,
+            }),
+            VizierRequestContent::Btw(SideChat {
+                question: "q".into(),
+                turns: vec![],
+            }),
+        ] {
+            assert_eq!(other.is_side_chat(), matches!(other, VizierRequestContent::Btw(_)));
+        }
+    }
+
+    /// A side chat is always sent transient (the one thing `side_chat::ask` builds), so no
+    /// `session_turn` row is journaled for it.
+    #[test]
+    fn a_btw_request_is_not_durable() {
+        use crate::schema::{VizierChannelId, VizierSession};
+        let session = VizierSession("a".into(), VizierChannelId::System, None);
+        let req = VizierRequest {
+            content: VizierRequestContent::Btw(SideChat {
+                question: "q".into(),
+                turns: vec![],
+            }),
+            transient: true,
+            ..Default::default()
+        };
+        assert!(!req.is_durable(&session));
+    }
+
     #[test]
     fn abort_dream_and_dream_sessions_are_not_durable() {
         use crate::schema::{DreamStage, VizierChannelId, VizierSession};

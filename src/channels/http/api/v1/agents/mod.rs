@@ -1,6 +1,7 @@
 use axum::{
     Extension, Json, Router,
     extract::{Path, Query, State},
+    response::IntoResponse,
     routing::{get, patch, post},
 };
 use chrono::{DateTime, Utc};
@@ -15,6 +16,7 @@ use crate::{
         },
         state::HTTPState,
     },
+    channels::side_chat::SideChatOutcome,
     config::shell::ShellConfig,
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
@@ -127,6 +129,7 @@ pub fn agents() -> Router<HTTPState> {
         .route("/{agent_id}/ping", get(ping_agent))
         .route("/{agent_id}/restart", post(restart_agent))
         .route("/{agent_id}/chat", post(agent_chat))
+        .route("/{agent_id}/btw", post(agent_btw))
         .route(
             "/{agent_id}/sharing",
             get(get_sharing).patch(update_sharing),
@@ -1421,35 +1424,141 @@ async fn agent_chat(
     }
 
     let timeout_duration = *config.prompt_timeout;
-    match tokio::time::timeout(timeout_duration, async {
-        loop {
-            match response_rx.recv_async().await {
-                Ok(response) => match &response.content {
-                    VizierResponseContent::Message { content, stats } => {
-                        return Ok(ChatResponse {
-                            content: content.clone(),
-                            stats: stats.clone(),
-                            attachments: response.attachments,
-                        });
-                    }
-                    VizierResponseContent::Abort => {
-                        return Err("Agent aborted the request".to_string());
-                    }
-                    VizierResponseContent::Error { kind, message } => {
-                        return Err(format!("{}: {}", kind.label(), message));
-                    }
-                    _ => continue,
-                },
-                Err(_) => {
-                    return Err("Agent response channel closed".to_string());
-                }
-            }
+    // The same send-and-await loop the side chat's `ask` uses (research R10), mapped to
+    // agent_chat's responses.
+    match crate::channels::side_chat::await_reply(response_rx, timeout_duration).await {
+        Ok(SideChatOutcome::Answered(reply)) => api_response(
+            StatusCode::OK,
+            ChatResponse {
+                content: reply.content,
+                stats: reply.stats,
+                attachments: reply.attachments,
+            },
+        ),
+        Ok(SideChatOutcome::Aborted) => {
+            err_response(StatusCode::INTERNAL_SERVER_ERROR, "Agent aborted the request".into())
         }
-    })
-    .await
-    {
-        Ok(Ok(res)) => api_response(StatusCode::OK, res),
-        Ok(Err(e)) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e),
+        Ok(SideChatOutcome::AgentError { kind, message }) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{}: {}", kind.label(), message),
+        ),
+        Ok(SideChatOutcome::NoAgent) => {
+            err_response(StatusCode::INTERNAL_SERVER_ERROR, "Agent response channel closed".into())
+        }
         Err(_) => err_response(StatusCode::REQUEST_TIMEOUT, "Agent response timeout".into()),
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
+pub struct BtwRequest {
+    pub channel_id: String,
+    pub topic_id: String,
+    /// Trimmed; 1–4,000 characters
+    pub question: String,
+    /// Earlier turns of this side chat, oldest first
+    #[serde(default)]
+    pub turns: Vec<crate::schema::SideChatTurn>,
+}
+
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct BtwResponse {
+    pub answer: String,
+    pub stats: Option<VizierResponseStats>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/agents/{agent_id}/btw",
+    params(("agent_id" = String, Path, description = "Agent ID")),
+    request_body = BtwRequest,
+    responses(
+        (status = 200, description = "The side chat answer", body = APIResponse<BtwResponse>),
+        (status = 403, description = "Access denied", body = APIResponse<String>),
+        (status = 404, description = "Agent not found", body = APIResponse<String>),
+        (status = 408, description = "Agent response timeout", body = APIResponse<String>),
+        (status = 422, description = "The reason, e.g. the side chat is full", body = APIResponse<String>),
+        (status = 429, description = "Over 5 side-chat asks per 60 s; reply header Retry-After", body = APIResponse<String>),
+        (status = 500, description = "The agent answered with an error, or its response channel closed", body = APIResponse<String>),
+        (status = 503, description = "The agent is unavailable", body = APIResponse<String>)
+    )
+)]
+async fn agent_btw(
+    Path(agent_id): Path<String>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Json(body): Json<BtwRequest>,
+) -> axum::response::Response {
+    let config = match state.storage.get_agent(&agent_id).await {
+        Ok(Some(config)) => config,
+        Ok(None) => return err_response::<String>(StatusCode::NOT_FOUND, "agent not found".into()).into_response(),
+        Err(e) => {
+            return err_response::<String>(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to get agent: {}", e),
+            )
+            .into_response();
+        }
+    };
+
+    if !user_can_view_agent(&user, &config) {
+        return err_response::<String>(StatusCode::FORBIDDEN, "Access denied".into()).into_response();
+    }
+
+    let session = VizierSession(
+        agent_id,
+        VizierChannelId::HTTP(user.username.clone(), body.channel_id.clone()),
+        Some(body.topic_id.clone()),
+    );
+    let side_chat = crate::schema::SideChat {
+        question: body.question.trim().to_string(),
+        turns: body.turns,
+    };
+
+    use crate::channels::side_chat::SideChatError;
+    let result = crate::channels::side_chat::ask(
+        &state.deps,
+        session,
+        &crate::channels::side_chat::PersonKey::http(&user.username),
+        user.username.clone(),
+        side_chat,
+        *config.prompt_timeout,
+    )
+    .await;
+
+    match result {
+        Ok(answer) => api_response(
+            StatusCode::OK,
+            BtwResponse {
+                answer: answer.answer,
+                stats: answer.stats,
+            },
+        )
+        .into_response(),
+        Err(SideChatError::Invalid(message)) => {
+            err_response::<String>(StatusCode::UNPROCESSABLE_ENTITY, message).into_response()
+        }
+        Err(SideChatError::RateLimited { retry_after_secs }) => {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                axum::http::header::RETRY_AFTER,
+                retry_after_secs.to_string().parse().unwrap(),
+            );
+            let (status, Json(body)) = err_response::<String>(
+                StatusCode::TOO_MANY_REQUESTS,
+                format!("slow down — try again in {retry_after_secs}s"),
+            );
+            (status, headers, Json(body)).into_response()
+        }
+        Err(SideChatError::Timeout) => {
+            err_response::<String>(StatusCode::REQUEST_TIMEOUT, "Agent response timeout".into()).into_response()
+        }
+        Err(SideChatError::Agent { kind, message }) => {
+            let status = if kind == crate::schema::ErrorKind::AgentUnavailable.label() {
+                StatusCode::SERVICE_UNAVAILABLE
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            err_response::<String>(status, format!("{kind}: {message}")).into_response()
+        }
     }
 }
