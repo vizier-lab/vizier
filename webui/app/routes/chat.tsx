@@ -1,4 +1,4 @@
-import { FadeRule, SideCard } from '../screens/shared/SideCard'
+import { FadeRule, SIDE_PANEL_WIDTH, SideCard } from '../screens/shared/SideCard'
 import { IconButton, JobsPill, Presence, SlideOver, motionDurations, motionEases } from '@vizier/design'
 import { nanoid } from 'nanoid'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -286,9 +286,12 @@ export default function Chat() {
                     configHref={`/${agentId}/config`}
                 />
 
-                <div className="flex min-h-0 flex-1">
+                {/* The conversation runs the full width and the details card floats over its right
+                    edge, so the messages' scroll bar sits at the panel's edge, not beside the card. */}
+                <div className="relative flex min-h-0 flex-1">
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
                 <MessageList
+                    insetRight={!mobile && panel ? SIDE_PANEL_WIDTH : 0}
                     bottomInset={composerHeight}
                     state={state}
                     agent={{ id: agentId, name: agentName, live: ['live', 'running'].includes(agentState(health)) }}
@@ -322,7 +325,11 @@ export default function Chat() {
                 />
 
                 {/* The composer floats over the messages: its box is the frosted glass, over a fade to the page colour so the toggle below stays readable. */}
-                <div ref={composerBox} className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
+                <div
+                    ref={composerBox}
+                    className="pointer-events-none absolute inset-x-0 bottom-0 z-10 transition-[padding] duration-[var(--vz-duration-slow)]"
+                    style={{ paddingRight: !mobile && panel ? SIDE_PANEL_WIDTH : 0 }}
+                >
                     <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-panel via-panel/80 to-transparent" />
                     <div className="pointer-events-auto relative mx-auto w-full max-w-4xl px-24 pt-24 pb-16">
                     <Composer
@@ -366,7 +373,7 @@ export default function Chat() {
                         <motion.aside
                             key="details"
                             aria-label="Conversation details"
-                            className="flex w-320 shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto p-16 [&>*]:min-w-0"
+                            className="pointer-events-none absolute inset-y-0 right-0 flex w-320 flex-col gap-24 overflow-x-hidden overflow-y-auto p-16 [&>*]:pointer-events-auto [&>*]:min-w-0"
                             // The conversation makes room for the panel instead of
                             // jumping when it appears.
                             initial={{ width: reducedMotion ? 320 : 0, opacity: reducedMotion ? 1 : 0 }}

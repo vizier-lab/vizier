@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useMobile } from '../../lib/useMobile'
-import { SideCard } from './SideCard'
+import { SIDE_PANEL_WIDTH, SideCard } from './SideCard'
 
 type Props = {
     /** The main area: what the page is about. */
@@ -55,7 +55,7 @@ export function Panes({ children, pane, paneLabel, side = 'right', paneWidth = 3
     const aside = (
         <aside
             aria-label={paneLabel}
-            className={`flex ${WIDTH[paneWidth]} shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto border-border p-16 [&>*]:min-w-0 ${bare ? (side === 'left' ? 'border-r' : 'border-l') : ''}`}
+            className={`flex ${WIDTH[bare ? paneWidth : (Math.max(paneWidth, SIDE_PANEL_WIDTH) as keyof typeof WIDTH)]} min-w-320 shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto border-border p-16 [&>*]:min-w-0 ${bare ? (side === 'left' ? 'border-r' : 'border-l') : ''}`}
         >
             {bare ? pane : <SideCard>{pane}</SideCard>}
         </aside>
