@@ -10,6 +10,7 @@ use crate::storage::document::DocumentStore;
 use crate::utils::build_path;
 
 mod agent;
+pub mod artifact;
 mod background_job;
 mod catalogue;
 mod client_call;
@@ -179,7 +180,9 @@ impl SqliteStorage {
                     *mut *mut std::ffi::c_char,
                     *const rusqlite::ffi::sqlite3_api_routines,
                 ) -> i32,
-            >(sqlite_vec::sqlite3_vec_init as *const ())));
+            >(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )));
         }
 
         let conn = Connection::open(&db_file)?;
@@ -227,7 +230,7 @@ impl SqliteStorage {
         )
     }
 
-    fn init_schema(conn: &Connection) -> Result<()> {
+    pub(crate) fn init_schema(conn: &Connection) -> Result<()> {
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS memory (
@@ -402,6 +405,7 @@ impl SqliteStorage {
         add_column_if_missing(conn, "user", "last_seen_at", "TEXT")?;
         add_column_if_missing(conn, "user", "previous_visit_at", "TEXT")?;
 
+        init_artifact_schema(conn)?;
         init_history_schema(conn)?;
         init_reaction_schema(conn)?;
         init_memory_graph_schema(conn)?;
@@ -419,6 +423,77 @@ impl SqliteStorage {
 
         Ok(())
     }
+}
+
+/// The artifact tables (`specs/035-add-artifacts`, data-model.md §2). Metadata, change events
+/// and the derived reference index; content lives on disk under `artifacts/`. Events have no
+/// foreign-key cascade so a deletion record survives its artifact row.
+pub fn init_artifact_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS artifact (
+            id            TEXT PRIMARY KEY,
+            agent_id      TEXT NOT NULL,
+            name          TEXT NOT NULL,
+            kind          TEXT NOT NULL,
+            mime_type     TEXT NOT NULL,
+            size          INTEGER NOT NULL,
+            version       INTEGER NOT NULL,
+            content_file  TEXT NOT NULL,
+            origin_channel TEXT,
+            origin_topic  TEXT,
+            source_filename TEXT,
+            created_by    TEXT NOT NULL,
+            created_at    INTEGER NOT NULL,
+            updated_at    INTEGER NOT NULL,
+            UNIQUE (agent_id, name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_artifact_agent_updated
+            ON artifact(agent_id, updated_at DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_artifact_agent_kind
+            ON artifact(agent_id, kind, updated_at DESC, id DESC);
+
+        CREATE TABLE IF NOT EXISTS artifact_event (
+            id            TEXT PRIMARY KEY,
+            agent_id      TEXT NOT NULL,
+            artifact_id   TEXT NOT NULL,
+            artifact_name TEXT NOT NULL,
+            action        TEXT NOT NULL,
+            actor         TEXT NOT NULL,
+            source_channel TEXT,
+            source_topic  TEXT,
+            source_filename TEXT,
+            created_at    INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_artifact_event_agent_time
+            ON artifact_event(agent_id, created_at DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_artifact_event_artifact
+            ON artifact_event(artifact_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS artifact_reference (
+            artifact_id  TEXT NOT NULL,
+            agent_id     TEXT NOT NULL,
+            kind         TEXT NOT NULL,
+            target       TEXT NOT NULL,
+            session_slug TEXT,
+            history_uid  TEXT,
+            channel      TEXT,
+            topic        TEXT,
+            bundle       TEXT,
+            path         TEXT,
+            label        TEXT NOT NULL,
+            created_at   INTEGER NOT NULL,
+            PRIMARY KEY (artifact_id, kind, target)
+        );
+        CREATE INDEX IF NOT EXISTS idx_artifact_ref_artifact
+            ON artifact_reference(artifact_id, kind, created_at);
+        CREATE INDEX IF NOT EXISTS idx_artifact_ref_session
+            ON artifact_reference(kind, agent_id, session_slug);
+        CREATE INDEX IF NOT EXISTS idx_artifact_ref_memory
+            ON artifact_reference(kind, agent_id, bundle, path);
+        ",
+    )?;
+    Ok(())
 }
 
 /// The notification inbox (spec 029): one row per notable event, and one read row per person
@@ -564,7 +639,8 @@ pub fn init_media_catalogue_schema(conn: &Connection) -> Result<()> {
 }
 
 /// Accepted work that has not finished (`specs/023-persist-turn-activity/data-model.md`).
-pub fn init_turn_schema(conn: &Connection) -> Result<()> {    conn.execute_batch(
+pub fn init_turn_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS session_turn (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -726,7 +802,8 @@ pub fn init_integration_schema(conn: &Connection) -> Result<()> {
         ",
     )?;
     // specs/017-agent-self-integrations data-model §1: who made it, as a `Requester`.
-    add_column_if_missing(conn, "integration", "creator", "TEXT").map_err(|e| anyhow::anyhow!(e.0))?;
+    add_column_if_missing(conn, "integration", "creator", "TEXT")
+        .map_err(|e| anyhow::anyhow!(e.0))?;
 
     Ok(())
 }

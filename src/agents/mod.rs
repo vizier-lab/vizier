@@ -4,7 +4,6 @@ use std::time::Duration;
 use tokio::sync::{oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use crate::agents::supervisor::{AgentStatus, BuiltAgent, CurrentAgent, SharedStatus, Supervisor};
 use crate::constant::CORE_MD;
 use crate::dependencies::VizierDependencies;
@@ -17,17 +16,21 @@ use crate::storage::integration::IntegrationStorage;
 use crate::storage::user::UserStorage;
 use crate::transport::VizierRequestEnvelope;
 use crate::utils::agent_workspace;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 pub mod agent;
-pub mod client;
 pub mod background;
+pub mod client;
 pub mod hook;
 pub mod mcp;
 pub mod memory_ops;
 pub mod process;
 pub mod shell;
-pub mod steps;
 pub mod skill;
+pub mod steps;
 pub mod supervisor;
 pub mod tools;
 
@@ -54,7 +57,10 @@ impl AgentProcess {
     async fn stop(self, agent_id: &str) {
         let _ = self.shutdown.send(true);
         let abort = self.handle.abort_handle();
-        if tokio::time::timeout(STOP_TIMEOUT, self.handle).await.is_err() {
+        if tokio::time::timeout(STOP_TIMEOUT, self.handle)
+            .await
+            .is_err()
+        {
             tracing::warn!(agent_id, "agent did not stop in time, aborting it");
             abort.abort();
         }
@@ -512,15 +518,27 @@ impl VizierAgents {
             .list_agent_integrations(agent_id)
             .await
             .unwrap_or_default();
+        // Collect the transient files before the storage delete drops their rows, so their
+        // blobs can be removed afterwards (`specs/035-add-artifacts` R9).
+        let files = self
+            .deps
+            .session_files
+            .files_for_agent(agent_id)
+            .await
+            .unwrap_or_default();
         if let Err(e) = self.deps.storage.delete_agent(agent_id).await {
             return AgentCommandResult::Error(format!("failed to delete agent: {}", e));
         }
+        self.deps.session_files.delete_blobs(&files).await;
+        self.deps.artifacts.delete_agent_files(agent_id).await;
         for integration in attached {
-            self.deps.transport.publish_integration_change(IntegrationChanged {
-                integration_id: integration.id,
-                family: integration.family,
-                agents: vec![agent_id.to_string()],
-            });
+            self.deps
+                .transport
+                .publish_integration_change(IntegrationChanged {
+                    integration_id: integration.id,
+                    family: integration.family,
+                    agents: vec![agent_id.to_string()],
+                });
         }
 
         self.deps

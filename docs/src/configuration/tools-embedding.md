@@ -16,7 +16,9 @@ Every agent gets these regardless of configuration:
 | `parallel_subagents` | Run several sub-prompts in parallel and wait for their results in the current turn |
 | `background_subagents` | Run several sub-prompts in parallel in the background; results arrive later as a background report |
 | `create_skill`, `update_skill`, `delete_skill`, `list_skills`, `get_skill_details`, `use_skill`, `read_skill_resource`, `execute_skill_resource` | Skills — see [Skills](./skills.md) |
-| `list_session_files`, `read_document_file`, `read_image_file`, `send_attachment` | Session files — uploaded/attached files; documents (txt/md/json/yaml/csv/html/pdf/docx/xlsx…) are extracted to text |
+| `list_session_files`, `read_document_file`, `read_image_file` | Session files — transient uploaded/attached files; documents (txt/md/json/yaml/csv/html/pdf/docx/xlsx…) are extracted to text |
+| `promote_artifact`, `update_artifact`, `list_artifacts`, `load_artifact_as_session_file`, `send_attachment` | Permanent artifacts — copy a session file in, replace its content, list them, load one back as a session file, or send one with a reply |
+| `attach_artifact_to_memory`, `detach_attachment_from_memory` | Attach or remove one artifact on a memory (memory_write never changes attachments) |
 | `write_tmp`, `append_tmp`, `read_tmp` | Scratchpad — temporary notes private to the conversation, see [below](#scratchpad) |
 | `webui_send_message`, `webui_list_topics` | Push messages into WebUI topics |
 | `memory_*` (8 tools) | Present whenever `embedding` + `indexer` are set (the API default) — see [Memory](./memory.md) |

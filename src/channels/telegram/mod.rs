@@ -4,17 +4,17 @@ use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use teloxide::Bot;
-use teloxide::{ApiError, RequestError};
 use teloxide::prelude::*;
 use teloxide::types::{
-    AllowedUpdate, BotCommand, ChatAction, InputFile, MaybeAnonymousUser, MessageId, MessageReactionUpdated,
-    ReactionType,
+    AllowedUpdate, BotCommand, ChatAction, InputFile, MaybeAnonymousUser, MessageId,
+    MessageReactionUpdated, ReactionType,
 };
+use teloxide::{ApiError, RequestError};
 
 use crate::channels::commands::{self, CommandEntry, CommandSync, PlatformRules};
-use crate::channels::{FatalChannelError, VizierChannel};
-use crate::channels::woken;
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
+use crate::channels::woken;
+use crate::channels::{FatalChannelError, VizierChannel};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::{
@@ -37,6 +37,8 @@ pub struct TelegramChannelReader {
     /// The next update to ask for. Kept across restarts of `run`, so a restart doesn't ask
     /// Telegram again for updates already handled.
     offset: AtomicI64,
+    /// Pending `/clear_files` two-step confirmations (`specs/035-add-artifacts`).
+    clear_confirmations: commands::ClearConfirmations,
 }
 
 impl TelegramChannelReader {
@@ -55,6 +57,7 @@ impl TelegramChannelReader {
             deps,
             commands,
             offset: AtomicI64::new(0),
+            clear_confirmations: commands::ClearConfirmations::new(),
         }
     }
 }
@@ -170,7 +173,9 @@ impl TelegramChannelReader {
                     None => user.first_name.clone(),
                 };
                 let name = if name.trim().is_empty() {
-                    user.username.as_ref().map(|username| format!("@{username}"))
+                    user.username
+                        .as_ref()
+                        .map(|username| format!("@{username}"))
                 } else {
                     Some(name)
                 };
@@ -202,7 +207,9 @@ impl TelegramChannelReader {
                 reactor: reactor.clone(),
                 kind,
             };
-            if let Err(err) = reactions::apply(&self.deps.storage, &self.deps.transport, change).await {
+            if let Err(err) =
+                reactions::apply(&self.deps.storage, &self.deps.transport, change).await
+            {
                 tracing::warn!(
                     "failed to record telegram reaction on {}: {:?}",
                     update.message_id.0,
@@ -219,15 +226,20 @@ impl TelegramChannelReader {
         let is_dm = msg.chat.is_private();
 
         let key = format!("{}__{}", self.agent_id, channel.to_slug());
-        let (topic_id, show_thinking, show_tool_calls) = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await {
-            if let Ok(state) = serde_json::from_value::<ChannelState>(value) {
-                (state.active_topic, state.show_thinking, state.show_tool_calls)
+        let (topic_id, show_thinking, show_tool_calls) =
+            if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await {
+                if let Ok(state) = serde_json::from_value::<ChannelState>(value) {
+                    (
+                        state.active_topic,
+                        state.show_thinking,
+                        state.show_tool_calls,
+                    )
+                } else {
+                    (None, false, false)
+                }
             } else {
                 (None, false, false)
-            }
-        } else {
-            (None, false, false)
-        };
+            };
 
         let text = msg.text().unwrap_or("").to_string();
         let bot_username = self.bot.get_me().await?.username().to_string();
@@ -311,8 +323,86 @@ impl TelegramChannelReader {
             return Ok(());
         }
 
+        if is_command(&text, "clear_files", &bot_username) {
+            let session = VizierSession(self.agent_id.clone(), channel.clone(), topic_id.clone());
+            let confirming = text
+                .split_whitespace()
+                .nth(1)
+                .is_some_and(|word| word.eq_ignore_ascii_case("confirm"));
+            if confirming {
+                if !self.clear_confirmations.take(&session) {
+                    let _ = self
+                        .bot
+                        .send_message(chat_id, "No clear is waiting; send /clear_files first.")
+                        .await;
+                    return Ok(());
+                }
+                if self.deps.session_files.has_active_turn(&session).await {
+                    let _ = self
+                        .bot
+                        .send_message(
+                            chat_id,
+                            "a turn is running or queued in this conversation; wait for it to finish",
+                        )
+                        .await;
+                    return Ok(());
+                }
+                match self.deps.session_files.clear(&session).await {
+                    Ok(result) => {
+                        let _ = self
+                            .bot
+                            .send_message(
+                                chat_id,
+                                format!(
+                                    "Cleared {} session files. Artifacts are untouched.",
+                                    result.removed
+                                ),
+                            )
+                            .await;
+                    }
+                    Err(e) => {
+                        let _ = self.bot.send_message(chat_id, e.to_string()).await;
+                    }
+                }
+                return Ok(());
+            }
+            if self.deps.session_files.has_active_turn(&session).await {
+                let _ = self
+                    .bot
+                    .send_message(
+                        chat_id,
+                        "a turn is running or queued in this conversation; wait for it to finish",
+                    )
+                    .await;
+                return Ok(());
+            }
+            let count = self.deps.session_files.count(&session).await.unwrap_or(0);
+            if count == 0 {
+                let _ = self
+                    .bot
+                    .send_message(
+                        chat_id,
+                        "There are no session files to clear in this conversation.",
+                    )
+                    .await;
+                return Ok(());
+            }
+            self.clear_confirmations.request(&session);
+            let _ = self
+                .bot
+                .send_message(
+                    chat_id,
+                    format!(
+                        "This will remove {count} session files from this conversation. Artifacts are unaffected. Older messages or memories that reference them will no longer open. Send /clear_files confirm within 60 seconds to continue."
+                    ),
+                )
+                .await;
+            return Ok(());
+        }
+
         if is_command(&text, "thinking", &bot_username) {
-            let mut state = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await {
+            let mut state = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await
+            {
                 serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
                     active_topic: None,
                     show_thinking: false,
@@ -326,14 +416,22 @@ impl TelegramChannelReader {
                 }
             };
             state.show_thinking = !state.show_thinking;
-            let _ = self.deps.storage.save_state(key.clone(), serde_json::to_value(&state).unwrap()).await;
+            let _ = self
+                .deps
+                .storage
+                .save_state(key.clone(), serde_json::to_value(&state).unwrap())
+                .await;
             let status = if state.show_thinking { "ON" } else { "OFF" };
-            let _ = self.bot.send_message(chat_id, format!("thinking output: {}", status)).await?;
+            let _ = self
+                .bot
+                .send_message(chat_id, format!("thinking output: {}", status))
+                .await?;
             return Ok(());
         }
 
         if is_command(&text, "tool_calls", &bot_username) {
-            let mut state = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await {
+            let mut state = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await
+            {
                 serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
                     active_topic: None,
                     show_thinking: false,
@@ -347,9 +445,16 @@ impl TelegramChannelReader {
                 }
             };
             state.show_tool_calls = !state.show_tool_calls;
-            let _ = self.deps.storage.save_state(key.clone(), serde_json::to_value(&state).unwrap()).await;
+            let _ = self
+                .deps
+                .storage
+                .save_state(key.clone(), serde_json::to_value(&state).unwrap())
+                .await;
             let status = if state.show_tool_calls { "ON" } else { "OFF" };
-            let _ = self.bot.send_message(chat_id, format!("tool call details: {}", status)).await?;
+            let _ = self
+                .bot
+                .send_message(chat_id, format!("tool call details: {}", status))
+                .await?;
             return Ok(());
         }
 
@@ -398,19 +503,20 @@ impl TelegramChannelReader {
                     )
                     .await
                 {
-                    let existing_state = if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await {
-                        serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
-                            active_topic: None,
-                            show_thinking: false,
-                            show_tool_calls: false,
-                        })
-                    } else {
-                        ChannelState {
-                            active_topic: None,
-                            show_thinking: false,
-                            show_tool_calls: false,
-                        }
-                    };
+                    let existing_state =
+                        if let Ok(Some(value)) = self.deps.storage.get_state(key.clone()).await {
+                            serde_json::from_value::<ChannelState>(value).unwrap_or(ChannelState {
+                                active_topic: None,
+                                show_thinking: false,
+                                show_tool_calls: false,
+                            })
+                        } else {
+                            ChannelState {
+                                active_topic: None,
+                                show_thinking: false,
+                                show_tool_calls: false,
+                            }
+                        };
                     let _ = self
                         .deps
                         .storage
@@ -799,7 +905,8 @@ impl TurnRenderer {
                     if let Some(handle) = typing_handle.take() {
                         handle.abort();
                     }
-                    let content = crate::channels::continued_note(resumed, remove_think_tags(&content));
+                    let content =
+                        crate::channels::continued_note(resumed, remove_think_tags(&content));
                     let mut posted =
                         crate::utils::telegram::send_message(&bot, chat_id_copy, content)
                             .await
@@ -811,21 +918,33 @@ impl TurnRenderer {
                                 let mime = get_mime_type(&filename);
                                 let input_file =
                                     InputFile::memory(bytes).file_name(filename.clone());
-                                if mime.starts_with("image/") {
-                                    match bot.send_photo(chat_id_copy, input_file).await {
-                                        Ok(sent) => posted.push(sent.id),
-                                        Err(err) => tracing::error!(
-                                            "Failed to send photo attachment: {:?}",
-                                            err
-                                        ),
-                                    }
+                                let sent = if mime.starts_with("image/") {
+                                    bot.send_photo(chat_id_copy, input_file)
+                                        .await
+                                        .map(|sent| sent.id)
+                                        .map_err(|err| {
+                                            format!("Failed to send photo attachment: {err:?}")
+                                        })
                                 } else {
-                                    match bot.send_document(chat_id_copy, input_file).await {
-                                        Ok(sent) => posted.push(sent.id),
-                                        Err(err) => tracing::error!(
-                                            "Failed to send document attachment: {:?}",
-                                            err
-                                        ),
+                                    bot.send_document(chat_id_copy, input_file)
+                                        .await
+                                        .map(|sent| sent.id)
+                                        .map_err(|err| {
+                                            format!("Failed to send document attachment: {err:?}")
+                                        })
+                                };
+                                match sent {
+                                    Ok(id) => posted.push(id),
+                                    Err(err) => {
+                                        tracing::error!("{err}");
+                                        let _ = bot
+                                            .send_message(
+                                                chat_id_copy,
+                                                crate::channels::attachment_failure_notice(
+                                                    &attachment.filename,
+                                                ),
+                                            )
+                                            .await;
                                     }
                                 }
                             }
@@ -835,6 +954,14 @@ impl TurnRenderer {
                                     attachment.filename,
                                     err
                                 );
+                                let _ = bot
+                                    .send_message(
+                                        chat_id_copy,
+                                        crate::channels::attachment_failure_notice(
+                                            &attachment.filename,
+                                        ),
+                                    )
+                                    .await;
                             }
                         }
                     }
@@ -852,15 +979,13 @@ impl TurnRenderer {
                     let mut posted = vec![];
                     if let Some(content) = text {
                         let content = remove_think_tags(&content);
-                        posted =
-                            crate::utils::telegram::send_message(&bot, chat_id_copy, content)
-                                .await
-                                .unwrap_or_default();
+                        posted = crate::utils::telegram::send_message(&bot, chat_id_copy, content)
+                            .await
+                            .unwrap_or_default();
                     }
                     match file_manager.resolve(&audio_att).await {
                         Ok((filename, bytes)) => {
-                            let input_file =
-                                InputFile::memory(bytes).file_name(filename.clone());
+                            let input_file = InputFile::memory(bytes).file_name(filename.clone());
                             match bot.send_document(chat_id_copy, input_file).await {
                                 Ok(sent) => posted.push(sent.id),
                                 Err(err) => {
@@ -942,7 +1067,13 @@ async fn link_reply(
     }
     let ids: Vec<String> = posted.iter().map(|id| id.0.to_string()).collect();
     if let Err(err) = storage
-        .link_platform_messages(agent_id, Platform::Telegram, &chat_id.0.to_string(), &ids, &uid)
+        .link_platform_messages(
+            agent_id,
+            Platform::Telegram,
+            &chat_id.0.to_string(),
+            &ids,
+            &uid,
+        )
         .await
     {
         tracing::warn!("failed to link telegram reply {}: {:?}", uid, err);
@@ -973,7 +1104,9 @@ fn reaction_diff(old: &[ReactionType], new: &[ReactionType]) -> (Vec<String>, Ve
 fn telegram_rules() -> PlatformRules {
     PlatformRules {
         name_ok: |name| {
-            commands::name_ok(name, |c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            commands::name_ok(name, |c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'
+            })
         },
         convert: |name| name.to_lowercase().replace('-', "_"),
         max_commands: 100,
@@ -987,6 +1120,7 @@ fn telegram_rules() -> PlatformRules {
             CommandEntry::new("lobotomy", "save checkpoint without handover (clean break)"),
             CommandEntry::new("thinking", "toggle showing thinking output"),
             CommandEntry::new("tool_calls", "toggle showing tool call details"),
+            CommandEntry::new("clear_files", "clear this conversation's session files"),
         ],
     }
 }
@@ -1019,13 +1153,21 @@ mod tests {
     }
 
     fn emoji(e: &str) -> ReactionType {
-        ReactionType::Emoji { emoji: e.to_string() }
+        ReactionType::Emoji {
+            emoji: e.to_string(),
+        }
     }
 
     #[test]
     fn a_diff_gives_removals_and_additions() {
-        assert_eq!(reaction_diff(&[], &[emoji("👍")]), (vec![], vec!["👍".to_string()]));
-        assert_eq!(reaction_diff(&[emoji("👍")], &[]), (vec!["👍".to_string()], vec![]));
+        assert_eq!(
+            reaction_diff(&[], &[emoji("👍")]),
+            (vec![], vec!["👍".to_string()])
+        );
+        assert_eq!(
+            reaction_diff(&[emoji("👍")], &[]),
+            (vec!["👍".to_string()], vec![])
+        );
         assert_eq!(
             reaction_diff(&[emoji("👍")], &[emoji("🔥")]),
             (vec!["👍".to_string()], vec!["🔥".to_string()])
@@ -1039,7 +1181,9 @@ mod tests {
     #[test]
     fn custom_and_paid_reactions_have_stable_keys() {
         assert_eq!(
-            telegram_emoji_key(&ReactionType::CustomEmoji { custom_emoji_id: "123".into() }),
+            telegram_emoji_key(&ReactionType::CustomEmoji {
+                custom_emoji_id: "123".into()
+            }),
             "custom_emoji:123"
         );
         assert_eq!(telegram_emoji_key(&ReactionType::Paid), "⭐");

@@ -5,8 +5,8 @@ use crate::{
     indexer::VizierIndexer,
     schema::{
         BundleSummary, ImportReport, Memory, MemoryGraph, MemoryGraphNode, MemoryPassageResult,
-        MemoryQueryParams, MemoryRevision, PaginatedMemory, PaginatedMemoryRevisions,
-        RevisionDiff, RevisionOrigin, RollbackResponse, VizierAttachment,
+        MemoryQueryParams, MemoryRevision, PaginatedMemory, PaginatedMemoryRevisions, RevisionDiff,
+        RevisionOrigin, RollbackResponse,
     },
     storage::VizierStorage,
 };
@@ -35,11 +35,46 @@ pub trait MemoryStorage {
         title: String,
         content: String,
         tags: Vec<String>,
-        attachments: Vec<VizierAttachment>,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
     ) -> Result<Memory>;
+
+    /// Attach one artifact to an existing memory by identity (`specs/035-add-artifacts`).
+    /// Idempotent by `artifact_id`; rewrites only the frontmatter, node count, a revision and
+    /// the reference rows — never the body, passages or embeddings.
+    async fn attach_memory_attachment(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        artifact_id: String,
+        artifact_name: String,
+        origin: &RevisionOrigin,
+    ) -> Result<Memory>;
+
+    /// Remove one attachment by display name (an artifact or a legacy session file). A name
+    /// that is not attached changes nothing.
+    async fn detach_memory_attachment(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        name: String,
+        origin: &RevisionOrigin,
+    ) -> Result<Memory>;
+
+    /// Remove every artifact link to `artifact_id` from the agent's memories, recording one
+    /// revision per affected document. Returns how many memories changed.
+    async fn detach_artifact_from_memories(
+        &self,
+        agent_id: String,
+        artifact_id: String,
+        origin: &RevisionOrigin,
+    ) -> Result<usize>;
+
+    /// Rebuild `artifact_reference` memory rows for one agent from its concept documents.
+    async fn reconcile_agent_artifact_references(&self, agent_id: &str) -> Result<usize>;
 
     /// Semantic search over **passages**, not whole documents (FR-008). Returns short addressed
     /// slices of matching memories, ranked by each passage's own relevance independently of which
@@ -223,7 +258,6 @@ impl MemoryStorage for VizierStorage {
         title: String,
         content: String,
         tags: Vec<String>,
-        attachments: Vec<VizierAttachment>,
         origin: &RevisionOrigin,
         indexer: &VizierIndexer,
         limits: &ChunkLimits,
@@ -237,12 +271,53 @@ impl MemoryStorage for VizierStorage {
                 title,
                 content,
                 tags,
-                attachments,
                 origin,
                 indexer,
                 limits,
             )
             .await
+    }
+
+    async fn attach_memory_attachment(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        artifact_id: String,
+        artifact_name: String,
+        origin: &RevisionOrigin,
+    ) -> Result<Memory> {
+        self.0
+            .attach_memory_attachment(agent_id, bundle, path, artifact_id, artifact_name, origin)
+            .await
+    }
+
+    async fn detach_memory_attachment(
+        &self,
+        agent_id: String,
+        bundle: Option<String>,
+        path: String,
+        name: String,
+        origin: &RevisionOrigin,
+    ) -> Result<Memory> {
+        self.0
+            .detach_memory_attachment(agent_id, bundle, path, name, origin)
+            .await
+    }
+
+    async fn detach_artifact_from_memories(
+        &self,
+        agent_id: String,
+        artifact_id: String,
+        origin: &RevisionOrigin,
+    ) -> Result<usize> {
+        self.0
+            .detach_artifact_from_memories(agent_id, artifact_id, origin)
+            .await
+    }
+
+    async fn reconcile_agent_artifact_references(&self, agent_id: &str) -> Result<usize> {
+        self.0.reconcile_agent_artifact_references(agent_id).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -407,7 +482,9 @@ impl MemoryStorage for VizierStorage {
         path: String,
         seq: i64,
     ) -> Result<Option<MemoryRevision>> {
-        self.0.get_memory_revision(agent_id, bundle, path, seq).await
+        self.0
+            .get_memory_revision(agent_id, bundle, path, seq)
+            .await
     }
 
     async fn diff_memory_revisions(
@@ -475,7 +552,10 @@ mod tests {
 
     #[test]
     fn search_returns_only_matches_case_insensitive() {
-        let nodes = vec![node("kubernetes-basics", &["devops"]), node("intro", &["misc"])];
+        let nodes = vec![
+            node("kubernetes-basics", &["devops"]),
+            node("intro", &["misc"]),
+        ];
         let initial = compute_initial_slugs(&nodes, Some("KUBE"));
         assert_eq!(initial, vec!["kubernetes-basics".to_string()]);
     }
@@ -503,9 +583,8 @@ mod tests {
 
     #[test]
     fn no_search_is_not_capped_per_tag() {
-        let nodes: Vec<MemoryGraphNode> = (0..10)
-            .map(|i| node(&format!("t-{i}"), &["t"]))
-            .collect();
+        let nodes: Vec<MemoryGraphNode> =
+            (0..10).map(|i| node(&format!("t-{i}"), &["t"])).collect();
         let initial = compute_initial_slugs(&nodes, None);
         assert_eq!(initial.len(), nodes.len());
     }

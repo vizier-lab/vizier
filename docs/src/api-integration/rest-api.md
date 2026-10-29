@@ -179,7 +179,25 @@ See [Skills → HTTP API](../configuration/skills.md#http-api).
 | `POST` | `/files/upload` | required | `{ "file": "<base64>", "filename": "a.png" }` → `{ file_id, filename, url }` where `url` is `/api/v1/files/{file_id}` |
 | `GET` | `/files/{file_id}` | none | Download |
 
-Use the returned `url` as `{ "local": url }` in an attachment, or reference files the agent produced (TTS, image generation, `send_attachment`).
+Use the returned `url` as `{ "local": url }` in an attachment, or reference files the agent produced (TTS, image generation).
+
+## Artifacts
+
+Permanent, agent-owned files. Reads need `all_agents:view_artifacts` (or `owned_agents:view_artifacts` + ownership); deletes/promotion need the matching `manage_artifacts` permission. `manage` implies `view`; the system role bypasses. These permissions never grant the agent's other pages.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/agents/{id}/artifacts` | List (`q`, `kind`, `from`, `to`, `cursor`, `limit`); returns items + `next` + filtered totals + the agent's unfiltered totals |
+| `GET` | `/agents/{id}/artifacts/activity` | Change log, newest first (`cursor`, `limit`) |
+| `GET` | `/agents/{id}/artifacts/{artifact_id}` | Detail: artifact, origin, references, events |
+| `GET` | `/agents/{id}/artifacts/{artifact_id}/content` | Current bytes; stored MIME type; `Range` supported; `404` when the content is unavailable |
+| `DELETE` | `/agents/{id}/artifacts/{artifact_id}` | Delete (manage); returns `{ removed, references, memory_links_removed }` |
+| `POST` | `/agents/{id}/channel/{channel}/topic/{topic}/files/promote` | Copy a session file into an artifact (`{ filename, name? }`) |
+| `DELETE` | `/agents/{id}/channel/{channel}/topic/{topic}/files` | Clear the conversation's session files (refused with `409` while a turn is active) |
+
+Message attachments use `{ "filename", "content": { "artifact": { "agent_id", "artifact_id", "available" } } }`. `available` is filled on reads and omitted on write. A person's request attachments must be uploads: a client-supplied `artifact` is refused with `422` (`invalid_attachment` over the WebSocket).
+
+Memory attachments are artifacts too: `POST /agents/{id}/memory/attachments/{bundle}/{path}` with `{ "artifact": "name" }` and `DELETE …/attachments/{bundle}/{path}?name=…`. A memory create/update request that still carries `attachments` is `422`.
 
 ## Embedding models
 
@@ -279,7 +297,7 @@ A request may also declare tools of the client's own (`client_tools`), which the
 | `task` | string | Used internally by the scheduler |
 | `reaction` | `{ user_id, emoji, action }` | Used internally |
 
-`attachments[]` items are `{ "filename", "content": { url | base64 | bytes | local } }`; they're uploaded into session files and the agent is told to use `read_document_file` / `read_image_file`. Set `expect_audio_reply: true` to get an `audio_reply` (requires the TTS tool).
+`attachments[]` items are `{ "filename", "content": { url | base64 | bytes | local } }`; they're uploaded into session files and the agent is told to use `read_document_file` / `read_image_file`. Artifact content is refused on requests; it is produced only by the agent (`send_attachment`). Set `expect_audio_reply: true` to get an `audio_reply` (requires the TTS tool).
 
 ### Client → server: reaction
 

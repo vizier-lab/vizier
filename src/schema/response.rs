@@ -3,7 +3,6 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-
 use crate::{
     agents::agent::model::{PROMPT_TIMED_OUT, PROVIDER_UNAVAILABLE, RATE_LIMITED},
     error::VizierError,
@@ -127,7 +126,11 @@ pub enum VizierResponseContent {
         content: String,
         stats: Option<VizierResponseStats>,
     },
-    AudioReply(VizierAttachment, Option<String>, Option<VizierResponseStats>),
+    AudioReply(
+        VizierAttachment,
+        Option<String>,
+        Option<VizierResponseStats>,
+    ),
     Error {
         kind: ErrorKind,
         message: String,
@@ -142,7 +145,12 @@ pub enum VizierResponseContent {
 
 impl VizierResponse {
     /// This tool response as the result of call `call_id`.
-    pub fn to_tool_result(&self, call_id: String, workspace: &str) -> Result<Message> {
+    pub fn to_tool_result(
+        &self,
+        call_id: String,
+        workspace: &str,
+        resolver: &dyn crate::schema::request::AttachmentResolver,
+    ) -> Result<Message> {
         let text = match &self.content {
             VizierResponseContent::Message { content, stats: _ } => content.clone(),
             VizierResponseContent::AudioReply(_, Some(content), _) => content.clone(),
@@ -155,7 +163,7 @@ impl VizierResponse {
         };
         let mut content = vec![Part::Text(text)];
         for attachment in &self.attachments {
-            content.push(attachment.to_part(workspace)?);
+            content.push(attachment.to_part(workspace, resolver)?);
         }
         Ok(Message::ToolResult { call_id, content })
     }

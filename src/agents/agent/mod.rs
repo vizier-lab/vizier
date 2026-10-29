@@ -12,16 +12,16 @@ use tokio::time::{Instant, timeout};
 use tracing::Instrument;
 
 use crate::{
-    agents::steps::{StepRecorder, TurnRef},
     VizierError,
+    agents::steps::{StepRecorder, TurnRef},
     agents::{
         agent::{
             model::{VizierModel, usage::UsageScope},
             system_prompt::{
                 boot::boot_md,
                 context::{context_md, with_context},
-                reactions::reaction_digest,
                 init_workspace,
+                reactions::reaction_digest,
                 sandbox::sandbox_md,
                 scheduled_run::scheduled_run_md,
                 user::owner_md,
@@ -35,25 +35,26 @@ use crate::{
         },
     },
     config::{VizierConfig, provider::ProviderId},
-    llm::types::{AssistantPart, CompletionRequest, Message, Part, ToolChoice, ToolDefinition},
     dependencies::VizierDependencies,
     image_generation::VizierImageGen,
     indexer::VizierIndexer,
     integrations::{IntegrationTools, agent_status, kind::AgentToolContext},
+    llm::types::{AssistantPart, CompletionRequest, Message, Part, ToolChoice, ToolDefinition},
     schema::{
-        AgentConfig, AgentId, ErrorKind, IntegrationStatus, MemoryPassageResult, SessionHistory, SessionHistoryContent, Skill,
-        VizierAttachment, VizierAttachmentContent, VizierRequest, VizierRequestContent,
-        VizierResponse, VizierResponseContent, VizierResponseStats, VizierSession,
-        history_entries_to_messages, message_for_model, messages_for_model,
+        AgentConfig, AgentId, ErrorKind, IntegrationStatus, MemoryPassageResult, SessionHistory,
+        SessionHistoryContent, Skill, VizierAttachment, VizierAttachmentContent, VizierRequest,
+        VizierRequestContent, VizierResponse, VizierResponseContent, VizierResponseStats,
+        VizierSession, history_entries_to_messages, message_for_model, messages_for_model,
         seal_tool_calls,
     },
     skill::invocation::Invoked,
     storage::{
-        VizierStorage, turn::TurnStorage,
+        VizierStorage,
         agent::AgentStorage,
         history::HistoryStorage,
         integration::IntegrationStorage,
         session_file::SessionFileStorage,
+        turn::TurnStorage,
         user::{UserProfile, UserStorage},
     },
     stt::VizierStt,
@@ -108,9 +109,16 @@ impl VizierAgent {
         // must be reported (spec 028 FR-009), never silently disabled.
         let stt = if agent_config.tools.stt.enabled {
             Some(Arc::new(
-                VizierStt::new(&agent_config.tools.stt.settings, &deps, &workspace, &agent_id)
-                    .await
-                    .map_err(|e| VizierError(format!("speech-to-text is enabled but cannot start: {e}")))?,
+                VizierStt::new(
+                    &agent_config.tools.stt.settings,
+                    &deps,
+                    &workspace,
+                    &agent_id,
+                )
+                .await
+                .map_err(|e| {
+                    VizierError(format!("speech-to-text is enabled but cannot start: {e}"))
+                })?,
             ))
         } else {
             None
@@ -126,7 +134,9 @@ impl VizierAgent {
                     &agent_id,
                 )
                 .await
-                .map_err(|e| VizierError(format!("text-to-speech is enabled but cannot start: {e}")))?,
+                .map_err(|e| {
+                    VizierError(format!("text-to-speech is enabled but cannot start: {e}"))
+                })?,
             ))
         } else {
             None
@@ -137,7 +147,9 @@ impl VizierAgent {
             Some(Arc::new(
                 VizierImageGen::new(&agent_config.tools.image_gen.settings, &deps)
                     .await
-                    .map_err(|e| VizierError(format!("image generation is enabled but cannot start: {e}")))?,
+                    .map_err(|e| {
+                        VizierError(format!("image generation is enabled but cannot start: {e}"))
+                    })?,
             ))
         } else {
             None
@@ -157,7 +169,10 @@ impl VizierAgent {
             .await?,
         );
         let integrations = Self::build_integrations(&agent_id, deps, None).await;
-        let tools = Arc::new(ArcSwap::from_pointee(compose(&base, Arc::new(integrations))));
+        let tools = Arc::new(ArcSwap::from_pointee(compose(
+            &base,
+            Arc::new(integrations),
+        )));
         let skills = VizierSkills::new(agent_id.clone(), deps.clone(), indexer.clone()).await?;
 
         // Best-effort re-embed of every skill so vector-based recommendation stays fresh
@@ -236,7 +251,10 @@ impl VizierAgent {
         layer.self_management = match self_management_tools(agent_id, deps).await {
             Ok(tools) => tools,
             Err(e) => {
-                tracing::warn!(agent_id, "cannot read the agent's self-management grants: {e}");
+                tracing::warn!(
+                    agent_id,
+                    "cannot read the agent's self-management grants: {e}"
+                );
                 Default::default()
             }
         };
@@ -248,7 +266,12 @@ impl VizierAgent {
     /// A refresh that fails keeps the previous tools.
     pub async fn refresh_integrations(&self) {
         let _guard = self.refresh_lock.lock().await;
-        let integrations = match self.deps.storage.list_agent_integrations(&self.agent_id).await {
+        let integrations = match self
+            .deps
+            .storage
+            .list_agent_integrations(&self.agent_id)
+            .await
+        {
             Ok(integrations) => integrations,
             Err(e) => {
                 tracing::warn!(
@@ -276,7 +299,8 @@ impl VizierAgent {
             Some(&current.integrations),
         );
         layer.self_management = self_management;
-        self.tools.store(Arc::new(compose(&self.base, Arc::new(layer))));
+        self.tools
+            .store(Arc::new(compose(&self.base, Arc::new(layer))));
         tracing::debug!(agent_id = %self.agent_id, "integration tools refreshed");
     }
 
@@ -316,9 +340,17 @@ impl VizierAgent {
         let mut warnings = vec![];
         let read_image = &self.config.tools.read_image;
         let explicit_vision = read_image.settings.provider.is_some()
-            && read_image.settings.model.as_deref().is_some_and(|m| !m.trim().is_empty());
-        if read_image.enabled && !explicit_vision && self.model.info().caps.image_input() == Some(false) {
-            warnings.push("read_image: main model cannot view images; configure a vision model".into());
+            && read_image
+                .settings
+                .model
+                .as_deref()
+                .is_some_and(|m| !m.trim().is_empty());
+        if read_image.enabled
+            && !explicit_vision
+            && self.model.info().caps.image_input() == Some(false)
+        {
+            warnings
+                .push("read_image: main model cannot view images; configure a vision model".into());
         }
         warnings
     }
@@ -472,10 +504,26 @@ impl VizierAgent {
     ) -> Result<VizierResponse> {
         let span = self.invoke_agent_span(&req, &session, false);
         let result = self
-            .chat_turn(req, session, session_history, memory, skills, invoked, hooks, checkpoint_handover, turn)
+            .chat_turn(
+                req,
+                session,
+                session_history,
+                memory,
+                skills,
+                invoked,
+                hooks,
+                checkpoint_handover,
+                turn,
+            )
             .instrument(span.clone())
             .await;
-        if let Ok(VizierResponse { content: VizierResponseContent::Message { stats: Some(stats), .. }, .. }) = &result
+        if let Ok(VizierResponse {
+            content:
+                VizierResponseContent::Message {
+                    stats: Some(stats), ..
+                },
+            ..
+        }) = &result
             && let Some(name) = &stats.ended_by_tool
         {
             span.record("vizier.turn.ended_by_tool", name.as_str());
@@ -485,7 +533,12 @@ impl VizierAgent {
 
     /// The `invoke_agent` span for one turn: a child of whatever sent the request (a tool
     /// call, a background job), or a root for a person's message or a scheduled run.
-    fn invoke_agent_span(&self, req: &VizierRequest, session: &VizierSession, dream: bool) -> tracing::Span {
+    fn invoke_agent_span(
+        &self,
+        req: &VizierRequest,
+        session: &VizierSession,
+        dream: bool,
+    ) -> tracing::Span {
         let span = tracing::info_span!(
             "invoke_agent",
             otel.name = %format!("invoke_agent {}", self.agent_id),
@@ -565,7 +618,10 @@ impl VizierAgent {
             );
             let response = VizierResponse {
                 timestamp: chrono::Utc::now(),
-                content: VizierResponseContent::Error { kind: ErrorKind::classify(&message), message },
+                content: VizierResponseContent::Error {
+                    kind: ErrorKind::classify(&message),
+                    message,
+                },
                 attachments: vec![],
                 ..Default::default()
             };
@@ -576,7 +632,9 @@ impl VizierAgent {
         let resuming = resume_steps.is_some();
 
         // Auto-transcribe AudioChat/AudioPrompt in-place
-        if let Some(ref stt) = self.stt && !resuming {
+        if let Some(ref stt) = self.stt
+            && !resuming
+        {
             let audio_att = match &req.content {
                 VizierRequestContent::AudioChat(att, None) => Some((att.clone(), false)),
                 VizierRequestContent::AudioPrompt(att, None) => Some((att.clone(), true)),
@@ -647,6 +705,7 @@ impl VizierAgent {
             background_depth,
             deadline: None,
             client,
+            dream_sources: vec![],
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
         };
 
@@ -687,7 +746,8 @@ impl VizierAgent {
                 unavailable.push(attachment.filename.clone());
             }
         }
-        let attachment_names: Vec<String> = req.attachments.iter().map(|a| a.filename.clone()).collect();
+        let attachment_names: Vec<String> =
+            req.attachments.iter().map(|a| a.filename.clone()).collect();
         // What history shows under the person's message: only attachments that are a reference
         // (an uploaded file's URL or path), never inline bytes, which would bloat every read.
         let shown_attachments: Vec<VizierAttachment> = req
@@ -790,9 +850,9 @@ impl VizierAgent {
                 if let VizierRequestContent::Chat(text) = &mut model_req.content {
                     *text = invoked.message().to_string();
                 }
-                model_req.to_message(&self.global_workspace)?
+                model_req.to_message(&self.global_workspace, self.deps.artifacts.as_ref())?
             }
-            None => req.to_message(&self.global_workspace)?,
+            None => req.to_message(&self.global_workspace, self.deps.artifacts.as_ref())?,
         };
         if !unavailable.is_empty() {
             message = with_note(
@@ -808,17 +868,22 @@ impl VizierAgent {
             .as_deref()
             .map(history_entries_to_messages)
             .unwrap_or_default();
-        let mut recorder =
-            StepRecorder::new(session.clone(), crate::agents::steps::entries_for(&progress).len());
+        let mut recorder = StepRecorder::new(
+            session.clone(),
+            crate::agents::steps::entries_for(&progress).len(),
+        );
         let prompt_result = self
             .prompt_with(
                 &tools,
-                with_context(message, context_md(
+                with_context(
+                    message,
+                    context_md(
                         &memory,
                         &skills,
                         invoked.as_ref().map(|invoked| &invoked.skill),
                         digest.as_deref(),
-                    )),
+                    ),
+                ),
                 history,
                 0,
                 hooks.clone(),
@@ -838,7 +903,9 @@ impl VizierAgent {
                 let new_messages = partial_history
                     .get(original_history_len..)
                     .unwrap_or_default();
-                recorder.flush(&self.storage, &self.transport, new_messages).await;
+                recorder
+                    .flush(&self.storage, &self.transport, new_messages)
+                    .await;
 
                 // Determine error kind
                 let err_str = err.to_string();
@@ -870,14 +937,20 @@ impl VizierAgent {
         if stats.ended_by_tool.is_some() {
             // A turn-ending tool's result is the last message and there is no closing
             // assistant message to hold back: record every step.
-            recorder.flush(&self.storage, &self.transport, new_messages).await;
+            recorder
+                .flush(&self.storage, &self.transport, new_messages)
+                .await;
         } else if new_messages.len() > 1 {
             // `AssistantMessage` entries are kept: the narration an agent writes alongside
             // its tool calls is part of what it did on the way to the answer, and it is
             // recorded ahead of those tool calls so replay can merge the two back into the
             // single assistant message the model actually sent.
             recorder
-                .flush(&self.storage, &self.transport, &new_messages[..new_messages.len() - 1])
+                .flush(
+                    &self.storage,
+                    &self.transport,
+                    &new_messages[..new_messages.len() - 1],
+                )
                 .await;
         }
 
@@ -929,8 +1002,18 @@ impl VizierAgent {
         (anyhow::Error, Vec<Message>),
     > {
         let tools = self.tools.load_full();
-        self.prompt_with(&tools, message, history, turn_depth, hooks, is_subagent, ctx, None, vec![])
-            .await
+        self.prompt_with(
+            &tools,
+            message,
+            history,
+            turn_depth,
+            hooks,
+            is_subagent,
+            ctx,
+            None,
+            vec![],
+        )
+        .await
     }
 
     async fn prompt_with(
@@ -975,7 +1058,8 @@ impl VizierAgent {
         // Steps already taken (a resumed turn): the request and its progress go into the
         // record, and the last message of the progress is the one sent next.
         // A resumed turn whose last round already ended it is finished, not asked again.
-        let mut resumed_end = ending_tool_in(&progress).map(|name| (name, text_of_last_reply(&progress)));
+        let mut resumed_end =
+            ending_tool_in(&progress).map(|name| (name, text_of_last_reply(&progress)));
         if !progress.is_empty() {
             let mut progress = progress;
             history.push(message.clone());
@@ -1070,7 +1154,11 @@ impl VizierAgent {
                     .any(|choice| matches!(choice, AssistantPart::ToolCall { .. }))
             {
                 recorder
-                    .record(&self.storage, &self.transport, &Message::Assistant(choices.clone()))
+                    .record(
+                        &self.storage,
+                        &self.transport,
+                        &Message::Assistant(choices.clone()),
+                    )
                     .await;
             }
 
@@ -1113,8 +1201,16 @@ impl VizierAgent {
 
                 // A final answer leaves no tool call waiting, so the checkpoint is safe here,
                 // and it's what keeps the session's next turn small.
-                self.maybe_checkpoint(snapshot, current_context_size, &mut history, &request, None, &hooks, ctx)
-                    .await;
+                self.maybe_checkpoint(
+                    snapshot,
+                    current_context_size,
+                    &mut history,
+                    &request,
+                    None,
+                    &hooks,
+                    ctx,
+                )
+                .await;
                 break;
             }
 
@@ -1124,7 +1220,13 @@ impl VizierAgent {
             // it (spec 026): the round's results are the turn's last step.
             let mut round_ended_by: Option<String> = None;
             for (call_id, call_name, call_arguments) in tool_calls.iter().filter_map(|item| {
-                if let AssistantPart::ToolCall { id, name, arguments, .. } = item {
+                if let AssistantPart::ToolCall {
+                    id,
+                    name,
+                    arguments,
+                    ..
+                } = item
+                {
                     Some((id, name, arguments))
                 } else {
                     None
@@ -1135,10 +1237,8 @@ impl VizierAgent {
                 })?;
                 let (mut function_name, mut args) = (call_name.clone(), args);
                 if let Some(hooks) = hooks.clone() {
-                    (function_name, args) = hooks
-                        .on_tool_call(function_name, args)
-                        .await
-                        .map_err(|e| {
+                    (function_name, args) =
+                        hooks.on_tool_call(function_name, args).await.map_err(|e| {
                             fail_turn(e, full_history.clone(), None, tool_responses.clone())
                         })?;
                 }
@@ -1147,16 +1247,25 @@ impl VizierAgent {
                 let mut ctx_clone = ctx.clone();
                 ctx_clone.deadline = Some(tokio::time::Instant::now() + *self.config.tools.timeout);
                 let traced_args = args.clone();
-                let mut tool_res = match traced_tool_call(&function_name, call_id, &traced_args, *self.config.tools.timeout, Some(&ctx_clone.secret_redactor), async {
-                    tool_server
-                        .call(function_name.clone(), args, &ctx_clone)
-                        .await
-                })
+                let mut tool_res = match traced_tool_call(
+                    &function_name,
+                    call_id,
+                    &traced_args,
+                    *self.config.tools.timeout,
+                    Some(&ctx_clone.secret_redactor),
+                    async {
+                        tool_server
+                            .call(function_name.clone(), args, &ctx_clone)
+                            .await
+                    },
+                )
                 .await
                 {
                     // Answered like a failed call, so the model can work around it; the turn
                     // stays bounded by `prompt_timeout` and `thinking_depth` (#45).
-                    Err(_elapsed) => tool_timeout_response(&function_name, *self.config.tools.timeout),
+                    Err(_elapsed) => {
+                        tool_timeout_response(&function_name, *self.config.tools.timeout)
+                    }
                     Ok(Err(err)) => VizierResponse {
                         timestamp: Utc::now(),
                         content: VizierResponseContent::ToolResponse {
@@ -1169,12 +1278,9 @@ impl VizierAgent {
                 };
 
                 if let Some(hooks) = hooks.clone() {
-                    tool_res = hooks
-                        .on_tool_response(tool_res)
-                        .await
-                        .map_err(|e| {
-                            fail_turn(e, full_history.clone(), None, tool_responses.clone())
-                        })?;
+                    tool_res = hooks.on_tool_response(tool_res).await.map_err(|e| {
+                        fail_turn(e, full_history.clone(), None, tool_responses.clone())
+                    })?;
                 }
 
                 // Store tool attachments in SessionFiles (except from read_image_file)
@@ -1224,7 +1330,11 @@ impl VizierAgent {
                 }
 
                 let response_content = tool_res
-                    .to_tool_result(call_id.clone(), &self.global_workspace)
+                    .to_tool_result(
+                        call_id.clone(),
+                        &self.global_workspace,
+                        self.deps.artifacts.as_ref(),
+                    )
                     .map_err(|e| {
                         fail_turn(e, full_history.clone(), None, tool_responses.clone())
                     })?;
@@ -1257,9 +1367,13 @@ impl VizierAgent {
                     .await;
             }
             for attachment in ctx.loaded_images.lock().await.drain(..) {
-                pending_images.push(attachment.to_part(&self.global_workspace).map_err(|e| {
-                    fail_turn(e, full_history.clone(), None, tool_responses.clone())
-                })?);
+                pending_images.push(
+                    attachment
+                        .to_part(&self.global_workspace, self.deps.artifacts.as_ref())
+                        .map_err(|e| {
+                            fail_turn(e, full_history.clone(), None, tool_responses.clone())
+                        })?,
+                );
             }
 
             if tool_responses.is_empty() {
@@ -1365,8 +1479,7 @@ impl VizierAgent {
         hooks: &Option<Arc<VizierSessionHooks>>,
         ctx: &ToolContext,
     ) {
-        let (Some(ctx_size), Some(ctx_window)) = (context_size, self.model.context_window())
-        else {
+        let (Some(ctx_size), Some(ctx_window)) = (context_size, self.model.context_window()) else {
             return;
         };
         let usage_ratio = ctx_size as f64 / ctx_window as f64;
@@ -1386,7 +1499,10 @@ impl VizierAgent {
         let handover = match self.generate_handover_message(&summarised, None, ctx).await {
             Ok(handover) => handover,
             Err(e) => {
-                tracing::warn!("checkpoint handover failed, continuing without compacting: {}", e);
+                tracing::warn!(
+                    "checkpoint handover failed, continuing without compacting: {}",
+                    e
+                );
                 return;
             }
         };
@@ -1561,7 +1677,9 @@ impl VizierAgent {
             .await?;
 
         // Prepare system prompts (same as chat)
-        let mut history = self.prepare_system_prompts(&snapshot.categories, &session).await;
+        let mut history = self
+            .prepare_system_prompts(&snapshot.categories, &session)
+            .await;
 
         // Extend with session history
         history.extend(history_entries_to_messages(&session_history));
@@ -1571,13 +1689,36 @@ impl VizierAgent {
             req = hooks.on_request(req).await?;
         }
 
+        // The only sessions this dream may read session files from or promote from
+        // (`specs/035-add-artifacts` R16): extraction's inner source, consolidation's list.
+        let dream_sources: Vec<VizierSession> = match &session.1 {
+            crate::schema::VizierChannelId::Dream(
+                source,
+                crate::schema::DreamStage::Extraction,
+            ) => {
+                vec![(**source).clone()]
+            }
+            crate::schema::VizierChannelId::Dream(..) => req
+                .metadata
+                .get("source_session_data")
+                .cloned()
+                .and_then(|value| serde_json::from_value::<Vec<VizierSession>>(value).ok())
+                .unwrap_or_default(),
+            _ => vec![],
+        };
+
         let (output, stats) = self
             .dream_prompt(
                 &snapshot,
                 &dream_model,
                 with_context(
-                    req.to_message(&self.global_workspace)?,
-                    context_md(&[], &[], None, reaction_digest(&session_history, 1).as_deref()),
+                    req.to_message(&self.global_workspace, self.deps.artifacts.as_ref())?,
+                    context_md(
+                        &[],
+                        &[],
+                        None,
+                        reaction_digest(&session_history, 1).as_deref(),
+                    ),
                 ),
                 history,
                 tools,
@@ -1592,6 +1733,7 @@ impl VizierAgent {
                     hooks: hooks.clone(),
                     background_depth: 0,
                     deadline: None,
+                    dream_sources,
                     secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
                 },
             )
@@ -1712,7 +1854,13 @@ impl VizierAgent {
                 let mut tool_responses: Vec<Message> = vec![];
                 let mut pending_attachments: Vec<Part> = vec![];
                 for (call_id, call_name, call_arguments) in tool_calls.iter().filter_map(|item| {
-                    if let AssistantPart::ToolCall { id, name, arguments, .. } = item {
+                    if let AssistantPart::ToolCall {
+                        id,
+                        name,
+                        arguments,
+                        ..
+                    } = item
+                    {
                         Some((id, name, arguments))
                     } else {
                         None
@@ -1727,17 +1875,24 @@ impl VizierAgent {
                     // Use dream_call for dream tool dispatch
                     let ctx_clone = ctx.clone();
                     let traced_args = args.clone();
-                    let mut tool_res = match traced_tool_call(&function_name, call_id, &traced_args, *self.config.tools.timeout, Some(&ctx_clone.secret_redactor), async {
-                        snapshot
-                            .dream_call(
-                                function_name.clone(),
-                                args,
-                                &self.config.name,
-                                &deps.storage,
-                                &ctx_clone,
-                            )
-                            .await
-                    })
+                    let mut tool_res = match traced_tool_call(
+                        &function_name,
+                        call_id,
+                        &traced_args,
+                        *self.config.tools.timeout,
+                        Some(&ctx_clone.secret_redactor),
+                        async {
+                            snapshot
+                                .dream_call(
+                                    function_name.clone(),
+                                    args,
+                                    &self.config.name,
+                                    &deps.storage,
+                                    &ctx_clone,
+                                )
+                                .await
+                        },
+                    )
                     .await
                     {
                         Err(_elapsed) => {
@@ -1798,12 +1953,17 @@ impl VizierAgent {
                         }
                     }
 
-                    tool_responses
-                        .push(tool_res.to_tool_result(call_id.clone(), &self.global_workspace)?);
+                    tool_responses.push(tool_res.to_tool_result(
+                        call_id.clone(),
+                        &self.global_workspace,
+                        self.deps.artifacts.as_ref(),
+                    )?);
                 }
 
                 for attachment in ctx.loaded_images.lock().await.drain(..) {
-                    pending_attachments.push(attachment.to_part(&self.global_workspace)?);
+                    pending_attachments.push(
+                        attachment.to_part(&self.global_workspace, self.deps.artifacts.as_ref())?,
+                    );
                 }
 
                 if tool_responses.is_empty() {
@@ -1897,8 +2057,7 @@ fn completion_request(
 /// The result a timed-out tool call hands the model. The call is abandoned, but whatever it
 /// did before the deadline may already have happened.
 /// Said when the wrap-up completion offered nothing to say.
-const DEPTH_EXHAUSTED_FALLBACK: &str =
-    "I ran out of steps for this turn before I could finish. Ask me to continue and I'll pick \
+const DEPTH_EXHAUSTED_FALLBACK: &str = "I ran out of steps for this turn before I could finish. Ask me to continue and I'll pick \
      up from here.";
 
 /// `message` (normally the latest tool results) with a note that the turn's tool budget is
@@ -1957,7 +2116,10 @@ fn with_wrap_up_note(message: Message, thinking_depth: usize) -> Message {
             content.push(Part::Text(note));
             Message::User(content)
         }
-        Message::ToolResult { call_id, mut content } => {
+        Message::ToolResult {
+            call_id,
+            mut content,
+        } => {
             content.push(Part::Text(note));
             Message::ToolResult { call_id, content }
         }
@@ -2026,7 +2188,9 @@ async fn self_management_tools(
         .into_iter()
         .map(|grant| grant.family)
         .collect();
-    Ok(crate::agents::tools::self_integrations::toolset(agent_id, deps, &granted))
+    Ok(crate::agents::tools::self_integrations::toolset(
+        agent_id, deps, &granted,
+    ))
 }
 
 fn tool_context(agent_id: &AgentId, deps: &VizierDependencies) -> AgentToolContext {
@@ -2062,7 +2226,9 @@ pub async fn generate_handover_with_model(
          what worked and what did not. Omit this item if there were no reactions.\n\n\
          Format as a concise structured summary. Be factual and precise.",
     )?);
-    summary_history.push(Message::user_text("Extract conversation context for checkpoint.")?);
+    summary_history.push(Message::user_text(
+        "Extract conversation context for checkpoint.",
+    )?);
 
     let response = model
         .complete(
@@ -2100,7 +2266,10 @@ pub async fn generate_handover_with_model(
 fn note_stored_files(response: &mut serde_json::Value, stored_files: &[String]) {
     match response {
         serde_json::Value::Object(map) => {
-            map.insert("session_files_added".into(), serde_json::json!(stored_files));
+            map.insert(
+                "session_files_added".into(),
+                serde_json::json!(stored_files),
+            );
         }
         other => {
             let notification = format!("\n\n[+{} to session files]", stored_files.join(", "));
@@ -2152,8 +2321,15 @@ mod wrap_up_tests {
     /// dropped (it would never get a result, #63) and the text kept.
     #[test]
     fn a_wrap_up_keeps_its_text_and_drops_tool_calls() {
-        let kept = answer_without_tool_calls(vec![AssistantPart::Text("Here's what I found.".into()), call()]);
-        assert!(!kept.iter().any(|c| matches!(c, AssistantPart::ToolCall { .. })));
+        let kept = answer_without_tool_calls(vec![
+            AssistantPart::Text("Here's what I found.".into()),
+            call(),
+        ]);
+        assert!(
+            !kept
+                .iter()
+                .any(|c| matches!(c, AssistantPart::ToolCall { .. }))
+        );
         assert_eq!(texts(&kept), vec!["Here's what I found."]);
     }
 
@@ -2179,7 +2355,10 @@ mod wrap_up_tests {
         assert_eq!(req.tool_choice, Some(ToolChoice::None));
         assert_eq!(req.tools, vec![tool.clone()]);
         assert_eq!(req.messages.len(), 2);
-        assert_eq!(completion_request(&history, &message, &[tool], false).tool_choice, None);
+        assert_eq!(
+            completion_request(&history, &message, &[tool], false).tool_choice,
+            None
+        );
     }
 }
 
@@ -2253,11 +2432,26 @@ mod ends_turn_tests {
 
     #[test]
     fn failures_and_plain_results_leave_the_turn_running() {
-        let failed_call = [Message::tool_result("a", report(true, json!([call("ui_render", false, true)])))];
-        let failed_script = [Message::tool_result("a", report(false, json!([call("ui_render", true, true)])))];
-        let unflagged = [Message::tool_result("a", report(true, json!([call("memory_read", true, false)])))];
+        let failed_call = [Message::tool_result(
+            "a",
+            report(true, json!([call("ui_render", false, true)])),
+        )];
+        let failed_script = [Message::tool_result(
+            "a",
+            report(false, json!([call("ui_render", true, true)])),
+        )];
+        let unflagged = [Message::tool_result(
+            "a",
+            report(true, json!([call("memory_read", true, false)])),
+        )];
         let plain = [Message::tool_result("a", "not a report")];
-        for messages in [&failed_call[..], &failed_script[..], &unflagged[..], &plain[..], &[]] {
+        for messages in [
+            &failed_call[..],
+            &failed_script[..],
+            &unflagged[..],
+            &plain[..],
+            &[],
+        ] {
             assert_eq!(ending_tool_in(messages), None);
         }
     }

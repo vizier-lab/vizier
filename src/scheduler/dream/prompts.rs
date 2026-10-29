@@ -25,6 +25,14 @@ Review the provided session history and extract the following into a structured 
   - **Type**: task (specific deadline), recurring (periodic check-in), behavioral (preference/correction to remember), or reference (general context)
   - **Urgency**: immediate, soon, or eventually
 
+### Source Files
+You may examine the files of the conversation(s) this cycle reflects on. Use
+`list_session_files(session="<source slug>")` to see them and `read_document_file` /
+`read_image_file` with the same `session` to open one. If a file is worth keeping beyond that
+conversation, copy it into a permanent artifact with
+`promote_artifact(filename="...", source_session="<source slug>")`; the source file is left
+untouched. Do not try to change or clear source files — the dream toolset cannot.
+
 Output your extraction report directly as your response."#;
 
 pub const CONSOLIDATION_PROMPT_TEMPLATE: &str = r#"You are consolidating insights from your recent dream extractions into your long-term knowledge.
@@ -56,8 +64,15 @@ Now do the following:
 
 6. **Clean up redundancies** — If new information duplicates existing memories, update the existing ones rather than creating duplicates.
 
-7. **Audit action items** — Re-read all extraction reports. Verify every action item was handled:
+7. **Keep and attach artifacts** — Use `list_artifacts` to see what is already permanent. A
+   valuable file you found in a source conversation can be kept with
+   `promote_artifact(filename="...", source_session="<source slug>")`. Attach a permanent
+   artifact to a memory with `attach_artifact_to_memory(path="...", artifact="...")`, and
+   remove one with `detach_attachment_from_memory(path="...", name="...")`. Do not update,
+   delete, send or clear anything.
+
+8. **Audit action items** — Re-read all extraction reports. Verify every action item was handled:
    - State the count: N tasks scheduled, X CORE updates, Y memories written
    - List any action items you intentionally dropped and why
 
-8. **Output your consolidation report** as your final text response. Summarize what you did, key decisions made, and anything noteworthy."#;
+9. **Output your consolidation report** as your final text response. Summarize what you did, key decisions made, and anything noteworthy."#;

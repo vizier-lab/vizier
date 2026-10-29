@@ -3,9 +3,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::Instrument;
 
+use crate::llm::types::ToolDefinition;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use crate::llm::types::ToolDefinition;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 
@@ -17,25 +17,28 @@ use crate::{
         dream_journal::ReadDreamJournal,
         fetch::FetchWebpage,
         http_client::HttpClient,
+        image_gen::ImageGenerate,
         python::{DescribeToolFunction, ExecutePython, ListToolFunctions},
-scheduler::{
-    DeleteTask, GetTaskDetail, GetTaskRunDetail, ListTask, ListTaskRuns, ScheduleCronTask,
-    ScheduleOneTimeTask,
-},
         read_image::ReadImageFile,
+        scheduler::{
+            DeleteTask, GetTaskDetail, GetTaskRunDetail, ListTask, ListTaskRuns, ScheduleCronTask,
+            ScheduleOneTimeTask,
+        },
         scratchpad::{AppendTmp, ReadTmp, WriteTmp},
         secrets::{GetSecret, SetSecret},
-        session_files::{GetSessionFilePath, ListSessionFiles, LoadPathAsSessionFile, ReadDocumentFile, SendAttachment},
+        session_files::{
+            GetSessionFilePath, ListSessionFiles, LoadPathAsSessionFile, ReadDocumentFile,
+            SendAttachment,
+        },
         shell::ShellExec,
         skill::{
             CreateSkill, DeleteSkill, ExecuteSkillResource, GetSkillDetails, ListSkills,
             ReadSkillResource, UpdateSkill, UseSkill,
         },
+        stt::SttTranscribe,
         subagents::{BackgroundSubagentsTool, ParallelSubagentsTool},
         think::ThinkTool,
         tts::TtsGenerate,
-        stt::SttTranscribe,
-        image_gen::ImageGenerate,
         vector_memory::{RecallSettings, SEARCH_THRESHOLD, init_vector_memory},
         webui::{ListWebuiTopics, SendWebuiMessage},
         workspace::{ReadCore, WriteCore},
@@ -49,6 +52,7 @@ scheduler::{
     utils::agent_workspace,
 };
 
+mod artifacts;
 mod background_jobs;
 pub mod brave_search;
 mod consult;
@@ -56,6 +60,7 @@ pub mod discord;
 mod dream_journal;
 mod fetch;
 mod http_client;
+mod image_gen;
 mod python;
 mod read_image;
 mod scheduler;
@@ -65,12 +70,11 @@ pub mod self_integrations;
 mod session_files;
 mod shell;
 mod skill;
+pub mod stt;
 mod subagents;
 pub mod telegram;
 mod think;
 pub mod tts;
-pub mod stt;
-mod image_gen;
 mod vector_memory;
 mod webui;
 mod workspace;
@@ -220,6 +224,10 @@ pub struct ToolContext {
     /// script report, logs and telemetry (`specs/027-agent-secrets`). Empty — and so a no-op —
     /// on every turn that touches no secret.
     pub secret_redactor: Arc<crate::secrets::SecretRedactor>,
+    /// The conversations a dream cycle reflects on (`specs/035-add-artifacts` R16): the only
+    /// sessions a dream may read session files from or promote an artifact from. Empty on every
+    /// ordinary, scheduled and background turn.
+    pub dream_sources: Vec<VizierSession>,
 }
 
 #[derive(Clone, Default)]
@@ -329,14 +337,20 @@ pub(crate) fn record_tool_result(
     match result {
         Ok(response) => {
             if capture {
-                span.record("gen_ai.tool.call.result", recorded_tool_result(response, redactor));
+                span.record(
+                    "gen_ai.tool.call.result",
+                    recorded_tool_result(response, redactor),
+                );
             }
         }
         Err(err) => {
             span.record("otel.status_code", "ERROR");
             span.record("error.type", "tool_error");
             if capture {
-                span.record("gen_ai.tool.call.result", recorded_tool_error(&err.to_string(), redactor));
+                span.record(
+                    "gen_ai.tool.call.result",
+                    recorded_tool_error(&err.to_string(), redactor),
+                );
             }
         }
     }
@@ -367,10 +381,7 @@ fn recorded_tool_result(
     }
 }
 
-fn recorded_tool_error(
-    message: &str,
-    redactor: Option<&crate::secrets::SecretRedactor>,
-) -> String {
+fn recorded_tool_error(message: &str, redactor: Option<&crate::secrets::SecretRedactor>) -> String {
     match redactor {
         Some(redactor) => redactor.text(message),
         None => message.to_string(),
@@ -387,7 +398,9 @@ pub async fn traced_tool_call(
     call: impl std::future::Future<Output = Result<VizierResponse>>,
 ) -> std::result::Result<Result<VizierResponse>, tokio::time::error::Elapsed> {
     let span = execute_tool_span(function_name, Some(call_id));
-    let outcome = tokio::time::timeout(limit, call).instrument(span.clone()).await;
+    let outcome = tokio::time::timeout(limit, call)
+        .instrument(span.clone())
+        .await;
     record_tool_arguments(&span, args, redactor);
     match &outcome {
         Ok(result) => record_tool_result(&span, result, redactor),
@@ -440,10 +453,16 @@ pub struct AddonTools {
 pub enum ToolTarget {
     Native(String),
     /// `tool` is the server's own name for it.
-    Mcp { server: String, tool: String },
+    Mcp {
+        server: String,
+        tool: String,
+    },
     /// A tool the person's client declared for this turn, by the client's own names. Only
     /// [`turn_catalogue`] produces it, and only `RouterBridge` dispatches it.
-    Client { category: String, tool: String },
+    Client {
+        category: String,
+        tool: String,
+    },
 }
 
 /// One script-callable function: the single source for its name, category and dispatch.
@@ -614,7 +633,9 @@ fn tool_output_to_response(output: &str) -> Result<VizierResponse> {
 /// `name`, or `{name}_{suffix}` when it is a built-in category's name or in `reserved`: the
 /// one clash rule MCP servers and client categories share.
 fn reserved_category_name(name: &str, reserved: &[String], suffix: &str) -> String {
-    if ToolCategory::ALL.iter().any(|category| category.name() == name)
+    if ToolCategory::ALL
+        .iter()
+        .any(|category| category.name() == name)
         || reserved.iter().any(|taken| taken == name)
     {
         format!("{name}_{suffix}")
@@ -800,18 +821,20 @@ impl ToolRouter {
             .collect();
         let names = assign_names(&native, &pairs);
 
-        entries.extend(mcp.into_iter().zip(names).map(|((server, definition), name)| {
-            CatalogueEntry {
-                name,
-                category: mcp_category_name(&server, &self.reserved),
-                target: ToolTarget::Mcp {
-                    server,
-                    tool: definition.name.clone(),
-                },
-                definition,
-                ends_turn: false,
-            }
-        }));
+        entries.extend(
+            mcp.into_iter()
+                .zip(names)
+                .map(|((server, definition), name)| CatalogueEntry {
+                    name,
+                    category: mcp_category_name(&server, &self.reserved),
+                    target: ToolTarget::Mcp {
+                        server,
+                        tool: definition.name.clone(),
+                    },
+                    definition,
+                    ends_turn: false,
+                }),
+        );
 
         // Built-ins in declaration order, then addons, then MCP servers.
         let rank = |entry: &CatalogueEntry| match entry.target {
@@ -822,9 +845,8 @@ impl ToolRouter {
             ToolTarget::Mcp { .. } => ToolCategory::ALL.len() + 1,
             ToolTarget::Client { .. } => ToolCategory::ALL.len() + 2,
         };
-        entries.sort_by(|a, b| {
-            (rank(a), &a.category, &a.name).cmp(&(rank(b), &b.category, &b.name))
-        });
+        entries
+            .sort_by(|a, b| (rank(a), &a.category, &a.name).cmp(&(rank(b), &b.category, &b.name)));
         entries
     }
 
@@ -835,11 +857,17 @@ impl ToolRouter {
         ctx: &ToolContext,
     ) -> Result<VizierResponse> {
         let span = execute_tool_span(&function_name, None);
-        if self.get_native(&function_name).is_some_and(|tool| tool.ends_turn()) {
+        if self
+            .get_native(&function_name)
+            .is_some_and(|tool| tool.ends_turn())
+        {
             span.record("vizier.tool.ends_turn", true);
         }
         let recorded = params.clone();
-        let result = self.dispatch(function_name, params, ctx).instrument(span.clone()).await;
+        let result = self
+            .dispatch(function_name, params, ctx)
+            .instrument(span.clone())
+            .await;
         record_tool_arguments(&span, &recorded, Some(&ctx.secret_redactor));
         record_tool_result(&span, &result, Some(&ctx.secret_redactor));
         result
@@ -871,12 +899,13 @@ impl ToolRouter {
                 let output = tool.tool_call(params, ctx).await?;
                 tool_output_to_response(&output)
             }
-            Some(ToolTarget::Mcp { server, tool }) => self
-                .mcp
-                .get(&server)
-                .ok_or(VizierError("mcp not found".into()))?
-                .call(tool, serde_json::from_str(&params)?)
-                .await,
+            Some(ToolTarget::Mcp { server, tool }) => {
+                self.mcp
+                    .get(&server)
+                    .ok_or(VizierError("mcp not found".into()))?
+                    .call(tool, serde_json::from_str(&params)?)
+                    .await
+            }
             Some(ToolTarget::Client { .. }) => Err(VizierError(format!(
                 "{function_name} is provided by the person's client and is called from a script"
             ))
@@ -950,6 +979,16 @@ impl VizierTools {
         "write_tmp",
         "append_tmp",
         "read_tmp",
+        // Source-conversation files and the artifact promotion path (`specs/035-add-artifacts`
+        // R16): a dream may read its sources and keep something valuable, but never update or
+        // delete an artifact, send an attachment, load one into a session, or clear files.
+        "list_session_files",
+        "read_document_file",
+        "read_image_file",
+        "promote_artifact",
+        "list_artifacts",
+        "attach_artifact_to_memory",
+        "detach_attachment_from_memory",
     ];
 
     pub async fn dream_tools(
@@ -1085,9 +1124,21 @@ impl BaseTools {
             .tool(ParallelSubagentsTool::new(deps.clone()))
             .tool(ListBackgroundJobs::new(deps.clone()))
             .tool(CancelBackgroundJob::new(deps.clone()))
-            .tool(CreateSkill::new(agent_id.clone(), deps.clone(), indexer.clone()))
-            .tool(UpdateSkill::new(agent_id.clone(), deps.clone(), indexer.clone()))
-            .tool(DeleteSkill::new(agent_id.clone(), deps.clone(), indexer.clone()))
+            .tool(CreateSkill::new(
+                agent_id.clone(),
+                deps.clone(),
+                indexer.clone(),
+            ))
+            .tool(UpdateSkill::new(
+                agent_id.clone(),
+                deps.clone(),
+                indexer.clone(),
+            ))
+            .tool(DeleteSkill::new(
+                agent_id.clone(),
+                deps.clone(),
+                indexer.clone(),
+            ))
             .tool(ListSkills::new(agent_id.clone(), deps.clone()))
             .tool(GetSkillDetails::new(agent_id.clone(), deps.clone()))
             .tool(UseSkill::new(agent_id.clone(), deps.clone()))
@@ -1115,6 +1166,20 @@ impl BaseTools {
                 storage: deps.storage.clone(),
                 file_manager: deps.file_manager.clone(),
             })
+            .tool(artifacts::PromoteArtifact {
+                artifacts: deps.artifacts.clone(),
+            })
+            .tool(artifacts::UpdateArtifact {
+                artifacts: deps.artifacts.clone(),
+            })
+            .tool(artifacts::ListArtifacts {
+                artifacts: deps.artifacts.clone(),
+            })
+            .tool(artifacts::LoadArtifactAsSessionFile {
+                artifacts: deps.artifacts.clone(),
+                storage: deps.storage.clone(),
+                file_manager: deps.file_manager.clone(),
+            })
             .tool(LoadPathAsSessionFile {
                 storage: deps.storage.clone(),
                 file_manager: deps.file_manager.clone(),
@@ -1137,6 +1202,14 @@ impl BaseTools {
             .tool(GetSecret {
                 storage: deps.storage.clone(),
                 agent_id: agent_id.clone(),
+            })
+            .tool(vector_memory::attachments::AttachArtifactToMemory {
+                agent_id: agent_id.clone(),
+                storage: deps.storage.clone(),
+            })
+            .tool(vector_memory::attachments::DetachAttachmentFromMemory {
+                agent_id: agent_id.clone(),
+                storage: deps.storage.clone(),
             });
 
         if let Some(ref shell_config) = agent_config.tools.shell {
@@ -1181,6 +1254,7 @@ impl BaseTools {
             ) = init_vector_memory(
                 agent_id.clone(),
                 deps.storage.clone(),
+                deps.file_manager.clone(),
                 idx,
                 RecallSettings {
                     chunking: agent_config.chunking.clone(),
@@ -1282,7 +1356,10 @@ impl BaseTools {
 /// The agent's tools: `base` plus the integration layer, with the sandbox tools and the
 /// category list built over the result. Cheap (`Arc` clones and one category pass), so an
 /// integration change composes a new snapshot instead of restarting the agent.
-pub fn compose(base: &BaseTools, integrations: Arc<crate::integrations::IntegrationTools>) -> VizierTools {
+pub fn compose(
+    base: &BaseTools,
+    integrations: Arc<crate::integrations::IntegrationTools>,
+) -> VizierTools {
     let mut integration_toolset = integrations.native.clone();
     integration_toolset
         .tools
@@ -1299,7 +1376,11 @@ pub fn compose(base: &BaseTools, integrations: Arc<crate::integrations::Integrat
 
     let sandbox_toolset = VizierToolSet::new()
         .tool(ThinkTool)
-        .tool(ExecutePython::new(router.clone(), base.limits, &base.timeout))
+        .tool(ExecutePython::new(
+            router.clone(),
+            base.limits,
+            &base.timeout,
+        ))
         .tool(ListToolFunctions::new(router.clone(), categories.clone()))
         .tool(DescribeToolFunction::new(router.clone()));
 
@@ -1357,6 +1438,7 @@ async fn build_read_image_vision(
 mod tests {
     use super::*;
     use crate::agents::tools::{
+        artifacts::{ListArtifacts, LoadArtifactAsSessionFile, PromoteArtifact, UpdateArtifact},
         brave_search::{BraveSearch, NewsOnlySearch, WebOnlySearch},
         discord::{
             GetDiscordChannelInfo, GetDiscordGuildInfo, GetDiscordMemberInfo, GetDiscordMessage,
@@ -1367,6 +1449,7 @@ mod tests {
         vector_memory::{
             MemoryDelete, MemoryDeleteBundle, MemoryFollow, MemoryGraphTool, MemoryList,
             MemoryRead, MemorySearch, MemoryWrite,
+            attachments::{AttachArtifactToMemory, DetachAttachmentFromMemory},
         },
     };
 
@@ -1385,6 +1468,8 @@ mod tests {
             entry::<MemoryGraphTool>(),
             entry::<MemoryDelete>(),
             entry::<MemoryDeleteBundle>(),
+            entry::<AttachArtifactToMemory>(),
+            entry::<DetachAttachmentFromMemory>(),
             entry::<ReadCore>(),
             entry::<WriteCore>(),
             entry::<ScheduleOneTimeTask>(),
@@ -1414,6 +1499,10 @@ mod tests {
             entry::<SendAttachment>(),
             entry::<GetSessionFilePath>(),
             entry::<LoadPathAsSessionFile>(),
+            entry::<PromoteArtifact>(),
+            entry::<UpdateArtifact>(),
+            entry::<ListArtifacts>(),
+            entry::<LoadArtifactAsSessionFile>(),
             entry::<WriteTmp>(),
             entry::<AppendTmp>(),
             entry::<ReadTmp>(),
@@ -1464,6 +1553,8 @@ mod tests {
             ("memory_graph", Memory),
             ("memory_delete", Memory),
             ("memory_delete_bundle", Memory),
+            ("attach_artifact_to_memory", Memory),
+            ("detach_attachment_from_memory", Memory),
             ("read_core", Identity),
             ("write_core", Identity),
             ("schedule_one_time_task", Scheduling),
@@ -1493,6 +1584,10 @@ mod tests {
             ("send_attachment", Files),
             ("get_session_file_path", Files),
             ("load_path_as_session_file", Files),
+            ("promote_artifact", Files),
+            ("update_artifact", Files),
+            ("list_artifacts", Files),
+            ("load_artifact_as_session_file", Files),
             ("write_tmp", Scratchpad),
             ("append_tmp", Scratchpad),
             ("read_tmp", Scratchpad),
@@ -1566,7 +1661,10 @@ mod tests {
         }
 
         for (name, addon) in ADDON {
-            assert!(name.starts_with(&format!("{addon}_")), "{name} is not namespaced");
+            assert!(
+                name.starts_with(&format!("{addon}_")),
+                "{name} is not namespaced"
+            );
             assert!(tools.iter().any(|(n, c)| n == name && c.is_none()));
         }
     }
@@ -1587,7 +1685,10 @@ mod tests {
     #[test]
     fn subagent_tools_never_reach_the_dream_cycle() {
         for name in ["parallel_subagents", "background_subagents"] {
-            assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&name), "{name} is a dream tool");
+            assert!(
+                !VizierTools::DREAM_TOOL_NAMES.contains(&name),
+                "{name} is a dream tool"
+            );
         }
     }
 
@@ -1600,14 +1701,20 @@ mod tests {
             "update_integration",
             "delete_integration",
         ] {
-            assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&name), "{name} is a dream tool");
+            assert!(
+                !VizierTools::DREAM_TOOL_NAMES.contains(&name),
+                "{name} is a dream tool"
+            );
         }
     }
 
     #[test]
     fn secrets_tools_never_reach_the_dream_cycle() {
         for name in [SetSecret::name(), GetSecret::name()] {
-            assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&name.as_str()), "{name} is a dream tool");
+            assert!(
+                !VizierTools::DREAM_TOOL_NAMES.contains(&name.as_str()),
+                "{name} is a dream tool"
+            );
         }
         // Nor does the list grow a name the dream cycle would not find in the toolset.
         assert!(!VizierTools::DREAM_TOOL_NAMES.contains(&"set_secret"));
@@ -1618,7 +1725,10 @@ mod tests {
     /// categories older prompts and scripts already saw.
     #[test]
     fn secrets_is_the_last_built_in_category() {
-        let names: Vec<&str> = ToolCategory::ALL.iter().map(|category| category.name()).collect();
+        let names: Vec<&str> = ToolCategory::ALL
+            .iter()
+            .map(|category| category.name())
+            .collect();
         assert_eq!(names.last(), Some(&"secrets"));
         assert_eq!(names.len(), 16);
         assert_eq!(ToolCategory::Secrets.name(), "secrets");
@@ -1656,13 +1766,19 @@ mod tests {
         // Unarmed, the same helpers leave the text alone.
         let plain = crate::secrets::SecretRedactor::default();
         assert!(!recorded_tool_result(&response, Some(&plain)).contains("[redacted]"));
-        assert_eq!(recorded_tool_error(&err.to_string(), Some(&plain)), err.to_string());
+        assert_eq!(
+            recorded_tool_error(&err.to_string(), Some(&plain)),
+            err.to_string()
+        );
     }
 
     #[test]
     fn scratchpad_tools_reach_the_dream_cycle() {
         for name in [WriteTmp::name(), AppendTmp::name(), ReadTmp::name()] {
-            assert!(VizierTools::DREAM_TOOL_NAMES.contains(&name.as_str()), "{name} is not a dream tool");
+            assert!(
+                VizierTools::DREAM_TOOL_NAMES.contains(&name.as_str()),
+                "{name} is not a dream tool"
+            );
         }
     }
 
@@ -1674,11 +1790,10 @@ mod tests {
             .map(|c| c.name)
             .collect();
         assert!(!names.iter().any(|n| n == "integrations"));
-        let names: Vec<String> =
-            summarise_categories([ToolCategory::Integrations], [], &[], &[])
-                .into_iter()
-                .map(|c| c.name)
-                .collect();
+        let names: Vec<String> = summarise_categories([ToolCategory::Integrations], [], &[], &[])
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
         assert_eq!(names, ["integrations"]);
     }
 
@@ -1693,21 +1808,38 @@ mod tests {
     #[test]
     fn categories_list_built_ins_in_order_then_mcp_servers_by_name() {
         use ToolCategory::*;
-        let servers: Vec<String> = ["memory", "github", "a"].iter().map(|s| s.to_string()).collect();
+        let servers: Vec<String> = ["memory", "github", "a"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         // No Discord, Telegram, TTS, STT, image or shell tools registered.
-        let present = [Webui, Memory, Agents, Identity, Memory, Skills, Files, Scheduling];
+        let present = [
+            Webui, Memory, Agents, Identity, Memory, Skills, Files, Scheduling,
+        ];
         let (addon, description) = ("brave_search".to_string(), "Search the web".to_string());
         let summaries = summarise_categories(present, [(&addon, &description)], &servers, &[]);
         let names: Vec<&str> = summaries.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(
             names,
             [
-                "memory", "identity", "scheduling", "agents", "skills", "files", "webui",
-                "brave_search", "a", "github", "memory_mcp"
+                "memory",
+                "identity",
+                "scheduling",
+                "agents",
+                "skills",
+                "files",
+                "webui",
+                "brave_search",
+                "a",
+                "github",
+                "memory_mcp"
             ]
         );
         assert_eq!(summaries[7].description, "Search the web");
-        assert_eq!(summaries[10].description, "Tools from the memory MCP server");
+        assert_eq!(
+            summaries[10].description,
+            "Tools from the memory MCP server"
+        );
         assert_eq!(
             summaries,
             summarise_categories(present, [(&addon, &description)], &servers, &[])
@@ -1716,8 +1848,14 @@ mod tests {
 
     #[test]
     fn mcp_tools_are_named_server_then_tool() {
-        assert_eq!(assign_names(&[], &[("github", "create_issue")]), ["github_create_issue"]);
-        assert_eq!(assign_names(&[], &[("my-srv", "do-thing")]), ["my_srv_do_thing"]);
+        assert_eq!(
+            assign_names(&[], &[("github", "create_issue")]),
+            ["github_create_issue"]
+        );
+        assert_eq!(
+            assign_names(&[], &[("my-srv", "do-thing")]),
+            ["my_srv_do_thing"]
+        );
     }
 
     #[test]
@@ -1738,7 +1876,10 @@ mod tests {
 
     #[test]
     fn no_mcp_name_keeps_the_old_prefix() {
-        let names = assign_names(&["read_core"], &[("github", "create_issue"), ("fs", "read_file")]);
+        let names = assign_names(
+            &["read_core"],
+            &[("github", "create_issue"), ("fs", "read_file")],
+        );
         assert!(names.iter().all(|name| !name.starts_with("mcp_")));
         assert!(!names.contains(&"mcp_github__create_issue".to_string()));
     }
@@ -1754,7 +1895,10 @@ mod tests {
     #[test]
     fn a_server_named_like_an_addon_gets_a_suffix_and_cannot_take_its_tools() {
         let reserved = vec!["brave_search".to_string()];
-        assert_eq!(mcp_category_name("brave_search", &reserved), "brave_search_mcp");
+        assert_eq!(
+            mcp_category_name("brave_search", &reserved),
+            "brave_search_mcp"
+        );
         assert_eq!(
             assign_names(&["brave_search_web"], &[("brave_search", "web")]),
             ["brave_search_web_2"]
@@ -1763,11 +1907,27 @@ mod tests {
 
     #[test]
     fn a_client_category_named_like_a_reserved_one_gets_a_suffix() {
-        let router_reserved = vec!["brave_search".to_string(), "github".to_string(), "memory_mcp".to_string()];
-        assert_eq!(client_category_name("memory", &router_reserved), "memory_client");
-        assert_eq!(client_category_name("github", &router_reserved), "github_client");
-        assert_eq!(client_category_name("brave_search", &router_reserved), "brave_search_client");
-        assert_eq!(client_category_name("memory_mcp", &router_reserved), "memory_mcp_client");
+        let router_reserved = vec![
+            "brave_search".to_string(),
+            "github".to_string(),
+            "memory_mcp".to_string(),
+        ];
+        assert_eq!(
+            client_category_name("memory", &router_reserved),
+            "memory_client"
+        );
+        assert_eq!(
+            client_category_name("github", &router_reserved),
+            "github_client"
+        );
+        assert_eq!(
+            client_category_name("brave_search", &router_reserved),
+            "brave_search_client"
+        );
+        assert_eq!(
+            client_category_name("memory_mcp", &router_reserved),
+            "memory_mcp_client"
+        );
         assert_eq!(client_category_name("palette", &router_reserved), "palette");
         assert_eq!(client_category_name("client", &router_reserved), "client");
         // MCP keeps its own suffix.
@@ -1784,6 +1944,7 @@ mod tests {
             loaded_images: Default::default(),
             recalled: Default::default(),
             client,
+            dream_sources: vec![],
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
         }
     }
@@ -1804,13 +1965,22 @@ mod tests {
     async fn a_turn_without_a_client_sees_only_the_agents_tools() {
         let router = empty_router();
         let base = category_summaries(&router);
-        let names = |entries: Vec<CatalogueEntry>| entries.into_iter().map(|e| e.name).collect::<Vec<_>>();
-        assert_eq!(names(turn_catalogue(&router, &ctx(None)).await), names(router.catalogue().await));
+        let names =
+            |entries: Vec<CatalogueEntry>| entries.into_iter().map(|e| e.name).collect::<Vec<_>>();
+        assert_eq!(
+            names(turn_catalogue(&router, &ctx(None)).await),
+            names(router.catalogue().await)
+        );
         assert_eq!(turn_categories(&base, &ctx(None)), base);
 
         let list = python::ListToolFunctions::new(router.clone(), base.clone());
         let out = list
-            .call(python::ListToolFunctionsInput { category: Some("palette".into()) }, &ctx(None))
+            .call(
+                python::ListToolFunctionsInput {
+                    category: Some("palette".into()),
+                },
+                &ctx(None),
+            )
             .await
             .unwrap();
         assert_eq!(out["available"], false);
@@ -1822,12 +1992,23 @@ mod tests {
     async fn a_turn_with_a_client_sees_its_tools_after_the_agents() {
         let router = empty_router();
         let base = category_summaries(&router);
-        let client = crate::agents::client::ClientTools::for_tests(&router.catalogue().await, &[], "palette", "pick_color");
+        let client = crate::agents::client::ClientTools::for_tests(
+            &router.catalogue().await,
+            &[],
+            "palette",
+            "pick_color",
+        );
         let ctx = ctx(Some(client));
         let catalogue = turn_catalogue(&router, &ctx).await;
         let last = catalogue.last().unwrap();
         assert_eq!(last.name, "palette_pick_color");
-        assert_eq!(last.target, ToolTarget::Client { category: "palette".into(), tool: "pick_color".into() });
+        assert_eq!(
+            last.target,
+            ToolTarget::Client {
+                category: "palette".into(),
+                tool: "pick_color".into()
+            }
+        );
         let categories = turn_categories(&base, &ctx);
         assert_eq!(&categories[..base.len()], &base[..]);
         assert_eq!(categories.last().unwrap().name, "palette");
@@ -1844,7 +2025,10 @@ mod ends_turn_tests {
         assert_eq!(flagged, format!("Draws a page. {ENDS_TURN_NOTICE}"));
         assert_eq!(flagged.matches(ENDS_TURN_NOTICE).count(), 1);
         assert_eq!(with_ends_turn_notice(flagged.clone(), true), flagged);
-        assert_eq!(with_ends_turn_notice("Draws a page.".into(), false), "Draws a page.");
+        assert_eq!(
+            with_ends_turn_notice("Draws a page.".into(), false),
+            "Draws a page."
+        );
         assert_eq!(with_ends_turn_notice(String::new(), true), ENDS_TURN_NOTICE);
     }
 
@@ -1875,6 +2059,10 @@ mod ends_turn_tests {
     fn a_flagged_tool_reports_it_through_the_dyn_trait_and_its_definition() {
         let tool: &dyn VizierToolDyn = &Finisher;
         assert!(tool.ends_turn());
-        assert!(flagged_definition(tool).description.ends_with(ENDS_TURN_NOTICE));
+        assert!(
+            flagged_definition(tool)
+                .description
+                .ends_with(ENDS_TURN_NOTICE)
+        );
     }
 }

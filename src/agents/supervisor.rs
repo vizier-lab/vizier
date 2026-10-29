@@ -25,8 +25,8 @@ use crate::embedding::VizierEmbedder;
 use crate::indexer::VizierIndexer;
 use crate::indexer::sqlite::SqliteIndexer;
 use crate::schema::{
-    AgentConfig, AgentHealthStatus, AgentId, AgentRunState, ErrorKind,
-    VizierResponse, VizierResponseContent,
+    AgentConfig, AgentHealthStatus, AgentId, AgentRunState, ErrorKind, VizierResponse,
+    VizierResponseContent,
 };
 use crate::storage::memory::MemoryStorage;
 use crate::storage::provider::ProviderStorage;
@@ -139,7 +139,8 @@ impl BuiltAgent {
         }
 
         let indexer = build_indexer(deps, agent_id, config).await?;
-        let agent = Arc::new(VizierAgent::new(agent_id.clone(), deps, config, indexer.clone()).await?);
+        let agent =
+            Arc::new(VizierAgent::new(agent_id.clone(), deps, config, indexer.clone()).await?);
         Ok((agent, indexer))
     }
 }
@@ -378,7 +379,10 @@ impl Supervisor {
 
         if let Some(handle) = memory_ops {
             handle.abort();
-            self.deps.transport.unregister_memory_op(&self.agent_id).await;
+            self.deps
+                .transport
+                .unregister_memory_op(&self.agent_id)
+                .await;
         }
 
         match result {
@@ -420,7 +424,10 @@ impl Supervisor {
             let idx = idx.clone();
             tokio::spawn(async move {
                 let started = std::time::Instant::now();
-                match storage.reconcile_agent_passages(&agent_id, &limits, &idx).await {
+                match storage
+                    .reconcile_agent_passages(&agent_id, &limits, &idx)
+                    .await
+                {
                     // FR-042: counts processed, counts failed, and the reason for each failure —
                     // the reasons are logged per document by the reconcile itself. Silent when
                     // there was nothing to do, which is every start after the first.
@@ -441,14 +448,40 @@ impl Supervisor {
             });
         }
 
-        let rx = self.deps.transport.register_memory_op(agent_id.clone()).await;
+        // Rebuild the derived `artifact_reference` memory rows from the concept documents
+        // (`specs/035-add-artifacts`), so an import or a crashed write is repaired on the next
+        // start without a second full scan of its own.
+        {
+            let storage = self.deps.storage.clone();
+            let agent_id = agent_id.clone();
+            tokio::spawn(async move {
+                use crate::storage::memory::MemoryStorage;
+                match storage.reconcile_agent_artifact_references(&agent_id).await {
+                    Ok(0) => {}
+                    Ok(count) => {
+                        tracing::debug!(agent_id, count, "memory artifact references reconciled")
+                    }
+                    Err(e) => tracing::warn!(
+                        agent_id,
+                        "memory artifact reference reconcile failed; it is retried on the next start: {e}"
+                    ),
+                }
+            });
+        }
+
+        let rx = self
+            .deps
+            .transport
+            .register_memory_op(agent_id.clone())
+            .await;
         let storage = (*self.deps.storage).clone();
         let settings = memory_ops::MemoryOpSettings {
             chunking: self.config.chunking.clone(),
             per_document: self.config.auto_context.per_document,
         };
         Some(tokio::spawn(async move {
-            if let Err(e) = memory_ops::handle_memory_ops(rx, idx, agent_id, storage, settings).await
+            if let Err(e) =
+                memory_ops::handle_memory_ops(rx, idx, agent_id, storage, settings).await
             {
                 tracing::error!("memory_ops handler exited with error: {}", e);
             }
@@ -517,16 +550,34 @@ mod tests {
 
     #[test]
     fn a_ready_notification_needs_a_download_or_a_recovery() {
-        assert!(!records_ready(false, 0), "a download-less quick restart is silent");
-        assert!(records_ready(true, 0), "a build that downloaded something is news");
-        assert!(records_ready(false, 2), "recovering from a failure closes the loop");
+        assert!(
+            !records_ready(false, 0),
+            "a download-less quick restart is silent"
+        );
+        assert!(
+            records_ready(true, 0),
+            "a build that downloaded something is news"
+        );
+        assert!(
+            records_ready(false, 2),
+            "recovering from a failure closes the loop"
+        );
     }
 
     #[test]
     fn one_failure_episode_per_streak_and_never_for_a_requested_stop() {
         assert!(opens_failure_episode(false, false, false));
-        assert!(!opens_failure_episode(true, false, false), "a retry reuses the episode");
-        assert!(!opens_failure_episode(false, true, false), "delete is not news");
-        assert!(!opens_failure_episode(false, false, true), "shutdown is not news");
+        assert!(
+            !opens_failure_episode(true, false, false),
+            "a retry reuses the episode"
+        );
+        assert!(
+            !opens_failure_episode(false, true, false),
+            "delete is not news"
+        );
+        assert!(
+            !opens_failure_episode(false, false, true),
+            "shutdown is not news"
+        );
     }
 }

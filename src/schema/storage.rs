@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-
 use crate::{
     schema::{AgentId, VizierAttachment},
     utils::markdown::MarkdownDoc,
@@ -31,7 +30,7 @@ pub struct Memory {
     #[serde(default)]
     pub relations: Vec<String>,
     #[serde(default)]
-    pub attachments: Vec<VizierAttachment>,
+    pub attachments: Vec<MemoryAttachment>,
     /// Mirrors `attachments.len()` on a full read; cached separately so listing paths served
     /// from the Memory Graph Index (which never carry the full `attachments` payload) can still
     /// report how many attachments a concept has.
@@ -39,6 +38,95 @@ pub struct Memory {
     pub attachment_count: usize,
     #[serde(default)]
     pub read_count: u64,
+}
+
+/// An attachment on a memory concept document (`specs/035-add-artifacts`).
+///
+/// New writes only produce [`MemoryAttachment::Artifact`]. The pre-035 shape
+/// `{ filename, content: { local } }` still parses as [`MemoryAttachment::LegacySessionFile`]
+/// and is read-only; it is not migrated and is tracked for removal in #82.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum MemoryAttachment {
+    Artifact { artifact_id: String, name: String },
+    LegacySessionFile(VizierAttachment),
+}
+
+/// Read by key rather than as an untagged enum: a legacy attachment's `content` is itself an
+/// enum, which serde's untagged buffering cannot re-deserialize. The document stays the two
+/// shapes above; only the reader is explicit.
+impl<'de> Deserialize<'de> for MemoryAttachment {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct ArtifactAttachment {
+            artifact_id: String,
+            name: String,
+        }
+
+        // YAML represents an externally tagged enum (the legacy attachment's `content`) as a
+        // tag, so an untagged enum cannot re-read it. Capture the YAML value and dispatch by
+        // key instead; `serde_yaml::from_value` keeps the tags intact.
+        let value = serde_yaml::Value::deserialize(deserializer)?;
+        let is_artifact = value
+            .as_mapping()
+            .map(|map| {
+                map.contains_key(serde_yaml::Value::String("artifact_id".into()))
+                    && map.contains_key(serde_yaml::Value::String("name".into()))
+            })
+            .unwrap_or(false);
+        if is_artifact {
+            let artifact = serde_yaml::from_value::<ArtifactAttachment>(value)
+                .map_err(serde::de::Error::custom)?;
+            return Ok(Self::Artifact {
+                artifact_id: artifact.artifact_id,
+                name: artifact.name,
+            });
+        }
+        serde_yaml::from_value::<VizierAttachment>(value)
+            .map(Self::LegacySessionFile)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+impl MemoryAttachment {
+    /// The display name: the artifact name, or the legacy filename.
+    pub fn display_name(&self) -> &str {
+        match self {
+            Self::Artifact { name, .. } => name,
+            Self::LegacySessionFile(attachment) => &attachment.filename,
+        }
+    }
+
+    pub fn artifact_id(&self) -> Option<&str> {
+        match self {
+            Self::Artifact { artifact_id, .. } => Some(artifact_id),
+            Self::LegacySessionFile(_) => None,
+        }
+    }
+}
+
+/// The HTTP view of a memory attachment: tagged by kind and carrying read-time availability.
+/// The stored document stays the untagged [`MemoryAttachment`] enum.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, utoipa::ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MemoryAttachmentView {
+    Artifact {
+        artifact_id: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mime_type: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        size: Option<u64>,
+        available: bool,
+    },
+    LegacySessionFile {
+        filename: String,
+        content: crate::schema::VizierAttachmentContent,
+        available: bool,
+    },
 }
 
 pub const DEFAULT_BUNDLE: &str = "default";

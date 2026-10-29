@@ -48,7 +48,6 @@ async fn dispatch_memory_op(
             title,
             content,
             tags,
-            attachments,
             origin,
         } => storage
             .write_memory(
@@ -59,10 +58,41 @@ async fn dispatch_memory_op(
                 title.clone(),
                 content.clone(),
                 tags.clone(),
-                attachments.clone(),
                 origin,
                 indexer,
                 &settings.chunking,
+            )
+            .await
+            .map(MemoryOpResponse::Memory),
+        MemoryOpRequest::AttachArtifact {
+            bundle,
+            path,
+            artifact_id,
+            artifact_name,
+            origin,
+        } => storage
+            .attach_memory_attachment(
+                agent_id.to_string(),
+                bundle.clone(),
+                path.clone(),
+                artifact_id.clone(),
+                artifact_name.clone(),
+                origin,
+            )
+            .await
+            .map(MemoryOpResponse::Memory),
+        MemoryOpRequest::DetachAttachment {
+            bundle,
+            path,
+            name,
+            origin,
+        } => storage
+            .detach_memory_attachment(
+                agent_id.to_string(),
+                bundle.clone(),
+                path.clone(),
+                name.clone(),
+                origin,
             )
             .await
             .map(MemoryOpResponse::Memory),
@@ -123,7 +153,13 @@ async fn dispatch_memory_op(
             force,
             origin,
         } => storage
-            .delete_bundle(agent_id.to_string(), bundle.clone(), *force, origin, indexer)
+            .delete_bundle(
+                agent_id.to_string(),
+                bundle.clone(),
+                *force,
+                origin,
+                indexer,
+            )
             .await
             .map(|_| MemoryOpResponse::Unit),
         MemoryOpRequest::ExportBundle { bundle } => storage
@@ -170,7 +206,13 @@ async fn dispatch_memory_op(
             from,
             to,
         } => storage
-            .diff_memory_revisions(agent_id.to_string(), bundle.clone(), path.clone(), *from, *to)
+            .diff_memory_revisions(
+                agent_id.to_string(),
+                bundle.clone(),
+                path.clone(),
+                *from,
+                *to,
+            )
             .await
             .map(MemoryOpResponse::Diff),
         MemoryOpRequest::Rollback {

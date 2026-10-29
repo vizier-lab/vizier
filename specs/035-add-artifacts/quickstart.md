@@ -313,4 +313,21 @@ Confirm the legacy `MemoryAttachment::LegacySessionFile` read path and the `422 
 
 ## Recorded run
 
-When the implementation lands, record the command, expected/observed values and any skipped LIVE steps here, as the other feature quickstarts do.
+Implementation landed. Offline gates run:
+
+- `cargo test --bin vizier` — all unit/integration tests pass, including the artifact storage,
+  content paths/version switching, memory attachment parsing/attach, session-file clear, shared
+  blob, active-turn refusal, permission matrix, history reference and availability fill, and the
+  dream toolset/source tests.
+- `cd design && npm run typecheck` — passes.
+- `cd webui && npm test && npm run typecheck` — passes; `app/lib/artifacts.test.ts` covers kind
+  labels, previewability, tombstones, event/reference labels and size formatting.
+- Dummyplug/HTTP steps above need a running binary and are marked as the offline gate when run;
+  the SQLite/filesystem assertions are unchanged.
+
+Pre-1.0 compatibility paths recorded for #82 (no legacy data is migrated; each must be migrated
+to artifact references or intentionally dropped before removal):
+
+- `MemoryAttachment::LegacySessionFile` and `memory_read`'s copy/legacy-detach branch;
+- legacy message/reply attachments using `Local`/`Url`/`Bytes`/`Base64`;
+- the `422 use_attach_artifact` guard on memory create/update.

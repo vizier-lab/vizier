@@ -24,9 +24,12 @@ use crate::{
         RollbackResponse, VizierAttachment, default_bundle,
     },
     storage::agent::AgentStorage,
+    storage::artifact::ArtifactStorage,
 };
 
 use super::user_can_view_agent;
+use crate::access::Caller;
+use crate::artifacts::access as ArtifactsAccess;
 use crate::channels::http::models::page::{self, ListQuery, Listing, SortKey, SortOrder};
 
 pub fn memory() -> Router<HTTPState> {
@@ -51,7 +54,14 @@ pub fn memory() -> Router<HTTPState> {
         .route("/doc/{bundle}/{*path}", get(get_memory_detail_scoped))
         .route("/doc/{bundle}/{*path}", put(update_memory_scoped))
         .route("/doc/{bundle}/{*path}", delete(delete_memory_scoped))
-        .route("/related/{bundle}/{*path}", get(get_related_memories_scoped))
+        // Attach/detach live on their own prefix because axum requires a catch-all to be the
+        // last segment, so `/doc/{bundle}/{*path}/attachments` cannot be a route.
+        .route("/attachments/{bundle}/{*path}", post(attach_artifact))
+        .route("/attachments/{bundle}/{*path}", delete(detach_attachment))
+        .route(
+            "/related/{bundle}/{*path}",
+            get(get_related_memories_scoped),
+        )
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -151,7 +161,7 @@ pub struct MemoryDetail {
     pub updated_at: DateTime<Utc>,
     pub tags: Vec<String>,
     pub relations: Vec<String>,
-    pub attachments: Vec<VizierAttachment>,
+    pub attachments: Vec<crate::schema::MemoryAttachmentView>,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
@@ -197,7 +207,50 @@ fn summarize_memory(memory: &Memory) -> MemorySummary {
     }
 }
 
-fn detail_from_memory(memory: &Memory) -> MemoryDetail {
+async fn detail_from_memory(state: &HTTPState, memory: &Memory) -> MemoryDetail {
+    use crate::schema::{MemoryAttachment, MemoryAttachmentView, VizierAttachmentContent};
+    let mut attachments = Vec::with_capacity(memory.attachments.len());
+    for attachment in &memory.attachments {
+        match attachment {
+            MemoryAttachment::Artifact { artifact_id, name } => {
+                let artifact = state
+                    .storage
+                    .get_artifact(&memory.agent_id, artifact_id)
+                    .await
+                    .ok()
+                    .flatten();
+                let available = artifact.is_some()
+                    && state
+                        .deps
+                        .artifacts
+                        .path_for(&memory.agent_id, artifact_id)
+                        .ok()
+                        .flatten()
+                        .is_some();
+                attachments.push(MemoryAttachmentView::Artifact {
+                    artifact_id: artifact_id.clone(),
+                    name: name.clone(),
+                    mime_type: artifact.as_ref().map(|a| a.mime_type.clone()),
+                    size: artifact.as_ref().map(|a| a.size),
+                    available,
+                });
+            }
+            MemoryAttachment::LegacySessionFile(legacy) => {
+                let available = match &legacy.content {
+                    VizierAttachmentContent::Local(url) => {
+                        let file_id = url.trim_start_matches("/api/v1/files/");
+                        state.deps.file_manager.path_of(file_id).await.is_ok()
+                    }
+                    _ => true,
+                };
+                attachments.push(MemoryAttachmentView::LegacySessionFile {
+                    filename: legacy.filename.clone(),
+                    content: legacy.content.clone(),
+                    available,
+                });
+            }
+        }
+    }
     MemoryDetail {
         agent_id: memory.agent_id.clone(),
         bundle: memory.bundle.clone(),
@@ -208,7 +261,151 @@ fn detail_from_memory(memory: &Memory) -> MemoryDetail {
         updated_at: memory.updated_at,
         tags: memory.tags.clone(),
         relations: memory.relations.clone(),
-        attachments: memory.attachments.clone(),
+        attachments,
+    }
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct AttachArtifactRequest {
+    pub artifact: String,
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct DetachAttachmentQuery {
+    pub name: String,
+}
+
+async fn require_memory_and_artifact_view(
+    state: &HTTPState,
+    agent_id: &str,
+    user: &crate::channels::http::auth::AuthenticatedUser,
+) -> Result<crate::schema::AgentConfig, (StatusCode, String)> {
+    let config = require_agent(state, agent_id, user).await?;
+    if !ArtifactsAccess::can_view(&Caller::from(user), &config) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "You do not have permission to view this agent's artifacts".into(),
+        ));
+    }
+    Ok(config)
+}
+
+#[utoipa::path(
+    post,
+    path = "/agents/{agent_id}/memory/attachments/{bundle}/{*path}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("bundle" = String, Path, description = "Bundle name"),
+        ("path" = String, Path, description = "Memory path")
+    ),
+    request_body = AttachArtifactRequest,
+    responses(
+        (status = 200, description = "The memory with its updated attachment list", body = APIResponse<MemoryDetail>),
+        (status = 403, description = "Memory or artifact visibility denied", body = APIResponse<String>),
+        (status = 404, description = "Memory or artifact not found", body = APIResponse<String>)
+    )
+)]
+pub async fn attach_artifact(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+    Json(body): Json<AttachArtifactRequest>,
+) -> models::response::Response<MemoryDetail> {
+    if let Err((status, message)) = require_memory_and_artifact_view(&state, &agent_id, &user).await
+    {
+        return err_response(status, message);
+    }
+    let path = path.trim_end_matches(".md").to_string();
+    let artifact = match state
+        .storage
+        .get_artifact_by_name(&agent_id, &body.artifact)
+        .await
+    {
+        Ok(Some(artifact)) => artifact,
+        Ok(None) => {
+            return err_response(
+                StatusCode::NOT_FOUND,
+                format!("artifact '{}' not found", body.artifact),
+            );
+        }
+        Err(e) => return err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    let op = crate::schema::MemoryOpRequest::AttachArtifact {
+        bundle: Some(bundle),
+        path: path.clone(),
+        artifact_id: artifact.id,
+        artifact_name: artifact.name,
+        origin: RevisionOrigin::from_user(&user),
+    };
+    match state.transport.send_memory_op(&agent_id, op).await {
+        Ok(crate::schema::MemoryOpResponse::Memory(memory)) => {
+            api_response(StatusCode::OK, detail_from_memory(&state, &memory).await)
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            let status = if msg.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                error_status_for(&msg)
+            };
+            err_response(status, msg)
+        }
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/agents/{agent_id}/memory/attachments/{bundle}/{*path}",
+    params(
+        ("agent_id" = String, Path, description = "Agent ID"),
+        ("bundle" = String, Path, description = "Bundle name"),
+        ("path" = String, Path, description = "Memory path"),
+        DetachAttachmentQuery
+    ),
+    responses(
+        (status = 200, description = "The memory with its updated attachment list", body = APIResponse<MemoryDetail>),
+        (status = 403, description = "Memory visibility denied", body = APIResponse<String>),
+        (status = 404, description = "Memory not found", body = APIResponse<String>)
+    )
+)]
+pub async fn detach_attachment(
+    Path((agent_id, bundle, path)): Path<(String, String, String)>,
+    Query(query): Query<DetachAttachmentQuery>,
+    State(state): State<HTTPState>,
+    Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
+) -> models::response::Response<MemoryDetail> {
+    if let Err((status, message)) = require_memory_and_artifact_view(&state, &agent_id, &user).await
+    {
+        return err_response(status, message);
+    }
+    let path = path.trim_end_matches(".md").to_string();
+    let op = crate::schema::MemoryOpRequest::DetachAttachment {
+        bundle: Some(bundle),
+        path,
+        name: query.name,
+        origin: RevisionOrigin::from_user(&user),
+    };
+    match state.transport.send_memory_op(&agent_id, op).await {
+        Ok(crate::schema::MemoryOpResponse::Memory(memory)) => {
+            api_response(StatusCode::OK, detail_from_memory(&state, &memory).await)
+        }
+        Ok(_) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected response".into(),
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            let status = if msg.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                error_status_for(&msg)
+            };
+            err_response(status, msg)
+        }
     }
 }
 
@@ -219,15 +416,8 @@ async fn require_agent(
 ) -> Result<crate::schema::AgentConfig, (StatusCode, String)> {
     let config = match state.storage.get_agent(agent_id).await {
         Ok(Some(config)) => config,
-        Ok(None) => {
-            return Err((
-                StatusCode::NOT_FOUND,
-                format!("agent {agent_id} not found"),
-            ))
-        }
-        Err(e) => {
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
-        }
+        Ok(None) => return Err((StatusCode::NOT_FOUND, format!("agent {agent_id} not found"))),
+        Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     };
     if !super::user_can_view_agent(user, &config) {
         return Err((StatusCode::FORBIDDEN, "Access denied".into()));
@@ -295,7 +485,12 @@ pub async fn get_all_memories(
 
     match state
         .transport
-        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::List { params: query_params })
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::List {
+                params: query_params,
+            },
+        )
         .await
     {
         Ok(crate::schema::MemoryOpResponse::Paginated(result)) => {
@@ -343,6 +538,16 @@ pub async fn create_memory(
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
+    if body
+        .attachments
+        .as_ref()
+        .is_some_and(|list| !list.is_empty())
+    {
+        return err_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "memory attachments must be artifacts; use POST /agents/{agent_id}/memory/doc/{bundle}/{path}/attachments".into(),
+        );
+    }
 
     match state
         .transport
@@ -355,7 +560,6 @@ pub async fn create_memory(
                 title: body.title.clone(),
                 content: body.content,
                 tags: body.tags.clone(),
-                attachments: body.attachments.unwrap_or_default(),
                 origin: RevisionOrigin::from_user(&user),
             },
         )
@@ -392,6 +596,16 @@ async fn do_update_memory(
     body: UpdateMemoryRequest,
     user: &crate::channels::http::auth::AuthenticatedUser,
 ) -> models::response::Response<UpdateMemoryResponse> {
+    if body
+        .attachments
+        .as_ref()
+        .is_some_and(|list| !list.is_empty())
+    {
+        return err_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "memory attachments must be artifacts; use POST /agents/{agent_id}/memory/doc/{bundle}/{path}/attachments".into(),
+        );
+    }
     match state
         .transport
         .send_memory_op(
@@ -403,7 +617,6 @@ async fn do_update_memory(
                 title: body.title,
                 content: body.content,
                 tags: body.tags.clone(),
-                attachments: body.attachments.unwrap_or_default(),
                 origin: RevisionOrigin::from_user(user),
             },
         )
@@ -527,7 +740,10 @@ async fn do_get_graph(
 ) -> models::response::Response<MemoryGraph> {
     match state
         .transport
-        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::GetGraph { bundle, search })
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::GetGraph { bundle, search },
+        )
         .await
     {
         Ok(crate::schema::MemoryOpResponse::Graph(graph)) => api_response(StatusCode::OK, graph),
@@ -551,7 +767,10 @@ pub async fn get_bundle_level_graph(
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
-    let search = params.search.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let search = params
+        .search
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     do_get_graph(&state, agent_id, None, search).await
 }
 
@@ -564,7 +783,10 @@ pub async fn get_bundle_graph(
     if let Err((status, message)) = require_agent(&state, &agent_id, &user).await {
         return err_response(status, message);
     }
-    let search = params.search.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let search = params
+        .search
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     do_get_graph(&state, agent_id, Some(bundle), search).await
 }
 
@@ -576,11 +798,14 @@ async fn do_get_memory_detail(
 ) -> models::response::Response<MemoryDetail> {
     match state
         .transport
-        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::GetById { bundle, path })
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::GetById { bundle, path },
+        )
         .await
     {
         Ok(crate::schema::MemoryOpResponse::MemoryOption(Some(memory))) => {
-            api_response(StatusCode::OK, detail_from_memory(&memory))
+            api_response(StatusCode::OK, detail_from_memory(&state, &memory).await)
         }
         Ok(crate::schema::MemoryOpResponse::MemoryOption(None)) => {
             err_response(StatusCode::NOT_FOUND, "Not Found".into())
@@ -635,11 +860,17 @@ async fn do_get_related_memories(
 ) -> models::response::Response<Vec<MemoryDetail>> {
     match state
         .transport
-        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::GetRelated { bundle, path })
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::GetRelated { bundle, path },
+        )
         .await
     {
         Ok(crate::schema::MemoryOpResponse::MemoryList(memories)) => {
-            let response: Vec<MemoryDetail> = memories.iter().map(detail_from_memory).collect();
+            let mut response: Vec<MemoryDetail> = Vec::with_capacity(memories.len());
+            for memory in &memories {
+                response.push(detail_from_memory(&state, memory).await);
+            }
             api_response(StatusCode::OK, response)
         }
         Ok(_) => err_response(
@@ -774,7 +1005,11 @@ impl Listing<BundleSummary> for BundleListing {
     }
 
     fn default_order(&self, sort: &str) -> SortOrder {
-        if sort == "name" { SortOrder::Asc } else { SortOrder::Desc }
+        if sort == "name" {
+            SortOrder::Asc
+        } else {
+            SortOrder::Desc
+        }
     }
 }
 
@@ -801,7 +1036,9 @@ pub async fn list_bundles(
         .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::ListBundles)
         .await
     {
-        Ok(crate::schema::MemoryOpResponse::Bundles(bundles)) => page::respond(bundles, &BundleListing, &query),
+        Ok(crate::schema::MemoryOpResponse::Bundles(bundles)) => {
+            page::respond(bundles, &BundleListing, &query)
+        }
         Ok(_) => err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "unexpected response".into(),
@@ -866,7 +1103,12 @@ pub async fn export_bundle_handler(
 
     match state
         .transport
-        .send_memory_op(&agent_id, crate::schema::MemoryOpRequest::ExportBundle { bundle: bundle.clone() })
+        .send_memory_op(
+            &agent_id,
+            crate::schema::MemoryOpRequest::ExportBundle {
+                bundle: bundle.clone(),
+            },
+        )
         .await
     {
         Ok(crate::schema::MemoryOpResponse::Export(bytes)) => (

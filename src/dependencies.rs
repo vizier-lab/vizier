@@ -12,19 +12,20 @@ use crate::{
     file_manager::FileManager,
     indexer::{VizierIndexer, noop::NoopIndexer},
     schema::{
-        RevisionOrigin, RevisionTrigger, SessionHistory, SessionHistoryContent,
-        VizierAttachment,
+        RevisionOrigin, RevisionTrigger, SessionHistory, SessionHistoryContent, VizierAttachment,
     },
     storage::{
         VizierStorage,
         agent::AgentStorage,
-        background_job::BackgroundJobStorage, client_call::ClientCallStorage, scratch::ScratchStorage,
+        background_job::BackgroundJobStorage,
+        client_call::ClientCallStorage,
         document::LocalDocumentStore,
         dream::DreamStorage,
         dream_journal::DreamJournalStorage,
         fs::FileSystemStorage,
         global_config::GlobalConfigStorage,
         memory_bundle::BundleMemoryStore,
+        scratch::ScratchStorage,
         session::SessionStorage,
         session_file::SessionFileStorage,
         sqlite::SqliteStorage,
@@ -48,6 +49,11 @@ pub struct VizierDependencies {
     pub sqlite_conn: Arc<Mutex<rusqlite::Connection>>,
     pub transport: VizierTransport,
     pub file_manager: FileManager,
+    /// Permanent artifacts (`specs/035-add-artifacts`): metadata in SQLite, content on disk,
+    /// and the one resolver for artifact attachment bytes.
+    pub artifacts: Arc<crate::artifacts::Artifacts>,
+    /// The transient session-file tier's one clear/delete service.
+    pub session_files: Arc<crate::session_files::SessionFiles>,
     pub background_jobs: BackgroundJobs,
     /// The one HTTP client every model provider request goes through (`llm::http`).
     pub http: reqwest::Client,
@@ -145,7 +151,10 @@ impl VizierDependencies {
         .await?;
 
         let catalogue = crate::catalogue::Catalogue::new(crate::catalogue::seed::load_seed());
-        crate::provider_migration::migrate_provider_ids_v1(&mut conn.lock(), &catalogue.snapshot())?;
+        crate::provider_migration::migrate_provider_ids_v1(
+            &mut conn.lock(),
+            &catalogue.snapshot(),
+        )?;
         Self::warn_about_yaml_providers(&config, &catalogue);
 
         // One-time plaintext conversion, before the main storage exists. No agent, channel
@@ -186,21 +195,40 @@ impl VizierDependencies {
 
         // The refreshed catalogue cached in SQLite, when it's newer than the seed. Never
         // touches the network.
-        catalogue.swap(crate::catalogue::cache::newest(&storage, (*catalogue.snapshot()).clone()).await);
+        catalogue
+            .swap(crate::catalogue::cache::newest(&storage, (*catalogue.snapshot()).clone()).await);
         // The cached OpenRouter media lists, also newer-only, and their stored last failures.
         // Never touches the network (spec 028 FR-019/SC-011).
         catalogue.load_media_cache(&storage).await;
 
         let storage = Arc::new(storage);
+        // Artifacts and session files are constructed once; the file manager gets the artifact
+        // resolver installed after construction because the two cannot own each other (R3).
+        let artifacts = Arc::new(crate::artifacts::Artifacts::new(
+            config.workspace.clone(),
+            storage.clone(),
+            file_manager.clone(),
+        ));
+        file_manager.install_artifact_resolver(
+            artifacts.clone() as Arc<dyn crate::schema::AttachmentResolver>
+        );
+        let session_files = Arc::new(crate::session_files::SessionFiles::new(
+            storage.clone(),
+            file_manager.clone(),
+        ));
         let notifications = crate::notifications::Notifications::new(storage.clone());
         // The interrupted runs and jobs the sweeps above closed are news: record them now that
         // the service exists. Best-effort, like every notification write.
-        Self::record_interrupted(&notifications, &storage, interrupted_runs, interrupted_jobs).await;
+        Self::record_interrupted(&notifications, &storage, interrupted_runs, interrupted_jobs)
+            .await;
         if let Err(e) = notifications.purge_orphans().await {
             tracing::warn!("failed to clear orphaned notifications: {e}");
         }
         match notifications
-            .purge_before(chrono::Utc::now() - chrono::Duration::days(crate::storage::notification::RETENTION_DAYS))
+            .purge_before(
+                chrono::Utc::now()
+                    - chrono::Duration::days(crate::storage::notification::RETENTION_DAYS),
+            )
             .await
         {
             Ok(0) => {}
@@ -212,15 +240,19 @@ impl VizierDependencies {
 
         // Files saved to a session (by any tool or attachment) reach its open sockets as
         // `session_file` frames.
-        if let Some(mut files) = crate::storage::session_file::SessionFileStorage::subscribe_session_files(&*storage) {
+        if let Some(mut files) =
+            crate::storage::session_file::SessionFileStorage::subscribe_session_files(&*storage)
+        {
             let transport = transport.clone();
             tokio::spawn(async move {
                 loop {
                     match files.recv().await {
-                        Ok((session, file)) => transport.publish_session_event(crate::transport::SessionEvent {
-                            session,
-                            frame: crate::transport::SessionFrame::File(file),
-                        }),
+                        Ok((session, file)) => {
+                            transport.publish_session_event(crate::transport::SessionEvent {
+                                session,
+                                frame: crate::transport::SessionFrame::File(file),
+                            })
+                        }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                     }
@@ -234,6 +266,8 @@ impl VizierDependencies {
             sqlite_conn: conn,
             transport,
             file_manager,
+            artifacts,
+            session_files,
             background_jobs,
             http: crate::llm::http::client(),
             catalogue,
@@ -245,7 +279,7 @@ impl VizierDependencies {
         })
     }
 
-/// When complete usage accounting started, set once [`Self::migrate_reply_usage`] has finished.
+    /// When complete usage accounting started, set once [`Self::migrate_reply_usage`] has finished.
     pub const USAGE_ACCOUNTING_SINCE: &'static str = "usage.accounting_since";
 
     /// Spec 018 (research R6): copy the usage every saved reply recorded into `usage_event`, so
@@ -266,7 +300,8 @@ impl VizierDependencies {
         }
 
         // A run that failed partway left some batches in: start over, so none count twice.
-        conn.lock().execute("DELETE FROM usage_event WHERE legacy = 1", [])?;
+        conn.lock()
+            .execute("DELETE FROM usage_event WHERE legacy = 1", [])?;
 
         let mut after: i64 = 0;
         let mut carried = 0usize;
@@ -300,7 +335,10 @@ impl VizierDependencies {
             )
             .await?;
         if carried > 0 {
-            tracing::info!(replies = carried, "carried reply usage over into usage accounting");
+            tracing::info!(
+                replies = carried,
+                "carried reply usage over into usage accounting"
+            );
         }
         Ok(())
     }
@@ -334,7 +372,11 @@ impl VizierDependencies {
         let mut n = 2;
         loop {
             match bundle_store
-                .get_memory_detail(agent_id.to_string(), Some(bundle.to_string()), candidate.clone())
+                .get_memory_detail(
+                    agent_id.to_string(),
+                    Some(bundle.to_string()),
+                    candidate.clone(),
+                )
                 .await
             {
                 Ok(None) | Err(_) => return candidate,
@@ -367,7 +409,8 @@ impl VizierDependencies {
         // A cheap, storage-agnostic embedder placeholder for the migration loop itself — real
         // per-agent indexers are resolved lazily below once the sqlite-backed VizierStorage
         // exists (agents must already be readable via AgentStorage to look up embedding config).
-        let mut touched: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+        let mut touched: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
 
         match &config.storage {
             StorageConfig::Sqlite => {
@@ -435,7 +478,13 @@ impl VizierDependencies {
                     };
 
                     let base_path = parsed.slug.clone();
-                    let path = Self::unique_migration_path(&bundle_store, &target_agent, "default", &base_path).await;
+                    let path = Self::unique_migration_path(
+                        &bundle_store,
+                        &target_agent,
+                        "default",
+                        &base_path,
+                    )
+                    .await;
 
                     if let Err(e) = bundle_store
                         .write_migrated_memory(
@@ -453,15 +502,21 @@ impl VizierDependencies {
                         )
                         .await
                     {
-                        tracing::error!("failed to migrate legacy memory '{}': {}", parsed.title, e);
+                        tracing::error!(
+                            "failed to migrate legacy memory '{}': {}",
+                            parsed.title,
+                            e
+                        );
                         continue;
                     }
                     touched.insert((target_agent, "default".to_string()));
                 }
             }
             StorageConfig::Filesystem => {
-                let pattern =
-                    crate::utils::build_glob_path(&config.workspace, &["agents", "*", "memory", "*.md"]);
+                let pattern = crate::utils::build_glob_path(
+                    &config.workspace,
+                    &["agents", "*", "memory", "*.md"],
+                );
                 let entries: Vec<std::path::PathBuf> = match glob::glob(&pattern) {
                     Ok(g) => g.filter_map(|e| e.ok()).collect(),
                     Err(_) => vec![],
@@ -473,9 +528,13 @@ impl VizierDependencies {
                     return Ok(());
                 }
 
-                tracing::info!("migrating {} legacy memory file(s) into bundle storage", entries.len());
+                tracing::info!(
+                    "migrating {} legacy memory file(s) into bundle storage",
+                    entries.len()
+                );
 
-                let agents_pattern = crate::utils::build_glob_path(&config.workspace, &["agents", "*"]);
+                let agents_pattern =
+                    crate::utils::build_glob_path(&config.workspace, &["agents", "*"]);
                 let designated_global_agent = glob::glob(&agents_pattern)
                     .ok()
                     .into_iter()
@@ -486,14 +545,20 @@ impl VizierDependencies {
                     .find(|n| n != LEGACY_GLOBAL_AGENT_ID);
 
                 for entry in entries {
-                    let (frontmatter, content) =
-                        match crate::utils::markdown::read_markdown::<LegacyMemoryFrontMatter>(entry.clone()) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                tracing::error!("skipping unreadable legacy memory file {:?}: {}", entry, e);
-                                continue;
-                            }
-                        };
+                    let (frontmatter, content) = match crate::utils::markdown::read_markdown::<
+                        LegacyMemoryFrontMatter,
+                    >(entry.clone())
+                    {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::error!(
+                                "skipping unreadable legacy memory file {:?}: {}",
+                                entry,
+                                e
+                            );
+                            continue;
+                        }
+                    };
 
                     let target_agent = if frontmatter.agent_id == LEGACY_GLOBAL_AGENT_ID {
                         match &designated_global_agent {
@@ -521,7 +586,13 @@ impl VizierDependencies {
                         .file_stem()
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_else(|| "memory".to_string());
-                    let path = Self::unique_migration_path(&bundle_store, &target_agent, "default", &base_path).await;
+                    let path = Self::unique_migration_path(
+                        &bundle_store,
+                        &target_agent,
+                        "default",
+                        &base_path,
+                    )
+                    .await;
 
                     if let Err(e) = bundle_store
                         .write_migrated_memory(
@@ -539,11 +610,7 @@ impl VizierDependencies {
                         )
                         .await
                     {
-                        tracing::error!(
-                            "failed to migrate legacy memory file {:?}: {}",
-                            entry,
-                            e
-                        );
+                        tracing::error!("failed to migrate legacy memory file {:?}: {}", entry, e);
                         continue;
                     }
                     touched.insert((target_agent, "default".to_string()));
@@ -648,10 +715,14 @@ impl VizierDependencies {
         // Users, roles, API keys (best-effort: role/user ids are regenerated by SqliteStorage's
         // create_user/create_role, so cross-references to the *old* ids among migrated data are
         // not preserved — usernames, password hashes, and permissions are).
-        let mut role_id_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut role_id_map: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         if let Ok(roles) = fs.list_roles().await {
             for role in roles {
-                match sql.create_role(&role.name, role.permissions.clone(), role.is_system).await {
+                match sql
+                    .create_role(&role.name, role.permissions.clone(), role.is_system)
+                    .await
+                {
                     Ok(new_role) => {
                         role_id_map.insert(role.role_id.clone(), new_role.role_id);
                     }
@@ -662,7 +733,10 @@ impl VizierDependencies {
 
         if let Ok(users) = fs.list_users().await {
             for user in users {
-                let new_role_id = role_id_map.get(&user.role_id).cloned().unwrap_or(user.role_id.clone());
+                let new_role_id = role_id_map
+                    .get(&user.role_id)
+                    .cloned()
+                    .unwrap_or(user.role_id.clone());
                 match sql.create_user(&user.username, "", &new_role_id).await {
                     Ok(new_user) => {
                         tracing::warn!(
@@ -731,7 +805,11 @@ impl VizierDependencies {
                 storage
                     .create_role(
                         "superadmin",
-                        AVAILABLE_PERMISSIONS.to_vec().into_iter().map(String::from).collect(),
+                        AVAILABLE_PERMISSIONS
+                            .to_vec()
+                            .into_iter()
+                            .map(String::from)
+                            .collect(),
                         true,
                     )
                     .await?
@@ -757,10 +835,7 @@ impl VizierDependencies {
             let users = storage.list_users().await?;
             for user in users {
                 if storage.get_role(&user.role_id).await?.is_none() {
-                    tracing::info!(
-                        "Migrating user '{}' to superadmin role",
-                        user.username
-                    );
+                    tracing::info!("Migrating user '{}' to superadmin role", user.username);
                     storage
                         .update_user(&user.user_id, None, Some(&system_role.role_id))
                         .await?;
@@ -779,22 +854,27 @@ impl VizierDependencies {
         };
         let data = catalogue.snapshot();
         for key in map.keys().filter_map(|k| k.as_str()) {
-            let env = crate::config::provider::ProviderId::parse(key).ok().and_then(|id| {
-                crate::catalogue::builtin::builtin(&id)
-                    .and_then(|b| b.env.first().map(|e| e.to_string()))
-                    .or_else(|| {
-                        data.providers.get(&id).and_then(|p| {
-                            p.env.iter().find(|e| e.contains("KEY") || e.contains("TOKEN")).cloned()
+            let env = crate::config::provider::ProviderId::parse(key)
+                .ok()
+                .and_then(|id| {
+                    crate::catalogue::builtin::builtin(&id)
+                        .and_then(|b| b.env.first().map(|e| e.to_string()))
+                        .or_else(|| {
+                            data.providers.get(&id).and_then(|p| {
+                                p.env
+                                    .iter()
+                                    .find(|e| e.contains("KEY") || e.contains("TOKEN"))
+                                    .cloned()
+                            })
                         })
-                    })
-            });
+                });
             match env {
                 Some(var) => tracing::warn!(
                     "providers.{key} is ignored; set {var} or add it in Settings › Providers"
                 ),
-                None => tracing::warn!(
-                    "providers.{key} is ignored; add it in Settings › Providers"
-                ),
+                None => {
+                    tracing::warn!("providers.{key} is ignored; add it in Settings › Providers")
+                }
             }
         }
     }
@@ -822,7 +902,10 @@ impl VizierDependencies {
             if let Some(legacy_core) = config.core.take() {
                 // `set_agent_core` writes the table; clearing the config field afterwards
                 // makes `agent_core` the only source of truth.
-                match storage.set_agent_core(&agent_id, &legacy_core, &baseline).await {
+                match storage
+                    .set_agent_core(&agent_id, &legacy_core, &baseline)
+                    .await
+                {
                     Ok(()) => {
                         if let Err(e) = storage.update_agent(&agent_id, &config).await {
                             tracing::warn!(
@@ -833,11 +916,9 @@ impl VizierDependencies {
                         }
                         moved += 1;
                     }
-                    Err(e) => tracing::warn!(
-                        "failed to move legacy CORE for agent '{}': {}",
-                        agent_id,
-                        e
-                    ),
+                    Err(e) => {
+                        tracing::warn!("failed to move legacy CORE for agent '{}': {}", agent_id, e)
+                    }
                 }
                 continue;
             }
@@ -846,11 +927,7 @@ impl VizierDependencies {
                 Ok(Some(_)) => continue,
                 Ok(None) => {}
                 Err(e) => {
-                    tracing::warn!(
-                        "skipping CORE backfill for agent '{}': {}",
-                        agent_id,
-                        e
-                    );
+                    tracing::warn!("skipping CORE backfill for agent '{}': {}", agent_id, e);
                     continue;
                 }
             }
@@ -911,7 +988,10 @@ impl VizierDependencies {
         let mut migrated = 0;
         for (id, data) in rows {
             let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&data) else {
-                tracing::warn!("skipping requester migration for task '{}': unparseable data", id);
+                tracing::warn!(
+                    "skipping requester migration for task '{}': unparseable data",
+                    id
+                );
                 continue;
             };
             let Some(object) = value.as_object_mut() else {
@@ -926,10 +1006,7 @@ impl VizierDependencies {
                 Some(serde_json::Value::String(user)) => user,
                 _ => continue,
             };
-            object.insert(
-                "requester".to_string(),
-                serde_json::json!({ "user": user }),
-            );
+            object.insert("requester".to_string(), serde_json::json!({ "user": user }));
 
             match serde_json::to_string(&value) {
                 Ok(data) => {
@@ -965,7 +1042,10 @@ impl VizierDependencies {
     ) -> Result<Vec<crate::storage::task_run::InterruptedRun>> {
         // A run whose session has a pending turn is resumed with it and closed by
         // `VizierScheduler::recover`; only the rest died with the process.
-        let pending = storage.sessions_with_pending_turns().await.unwrap_or_default();
+        let pending = storage
+            .sessions_with_pending_turns()
+            .await
+            .unwrap_or_default();
         let keep: Vec<i64> = storage
             .open_task_runs()
             .await
@@ -1069,7 +1149,10 @@ impl VizierDependencies {
         let Ok(jobs) = storage.open_background_jobs().await else {
             return vec![];
         };
-        let pending_sessions = storage.sessions_with_pending_turns().await.unwrap_or_default();
+        let pending_sessions = storage
+            .sessions_with_pending_turns()
+            .await
+            .unwrap_or_default();
         let mut keep = vec![];
         for job in jobs {
             let backed = match job.state {
@@ -1113,15 +1196,24 @@ impl VizierDependencies {
     async fn clear_orphaned_scratch(storage: &VizierStorage) {
         // A session with a turn waiting to resume keeps its scratch files and its thinking
         // mark; everything else is a leftover of the previous process.
-        let keep = storage.sessions_with_pending_turns().await.unwrap_or_default();
+        let keep = storage
+            .sessions_with_pending_turns()
+            .await
+            .unwrap_or_default();
         match storage.reset_thinking_except(&keep).await {
             Ok(0) => {}
-            Ok(reset) => tracing::info!("cleared the thinking mark of {} session(s) left by a previous process", reset),
+            Ok(reset) => tracing::info!(
+                "cleared the thinking mark of {} session(s) left by a previous process",
+                reset
+            ),
             Err(e) => tracing::warn!("failed to reset thinking marks: {}", e),
         }
         match storage.clear_scratch_except(&keep).await {
             Ok(0) => {}
-            Ok(cleared) => tracing::info!("cleared {} scratch file(s) left by a previous process", cleared),
+            Ok(cleared) => tracing::info!(
+                "cleared {} scratch file(s) left by a previous process",
+                cleared
+            ),
             Err(e) => tracing::warn!("failed to clear leftover scratch files: {}", e),
         }
     }
@@ -1150,7 +1242,11 @@ fn reply_usage_event(history: &SessionHistory) -> Option<crate::schema::usage::U
         place: session.usage_place(),
         turn_id: None,
         round: None,
-        provider: stats.provider.as_ref().map(|p| p.to_string()).unwrap_or_default(),
+        provider: stats
+            .provider
+            .as_ref()
+            .map(|p| p.to_string())
+            .unwrap_or_default(),
         model: stats.model.clone().unwrap_or_default(),
         served_model: None,
         tokens: TokenCounts::from(stats),
@@ -1175,9 +1271,14 @@ mod usage_migration_tests {
         },
     };
 
-    fn setup() -> (VizierStorage, Arc<Mutex<rusqlite::Connection>>, tempfile::TempDir) {
+    fn setup() -> (
+        VizierStorage,
+        Arc<Mutex<rusqlite::Connection>>,
+        tempfile::TempDir,
+    ) {
         let dir = tempfile::tempdir().unwrap();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::storage::sqlite::init_artifact_schema(&conn).unwrap();
         crate::storage::sqlite::init_history_schema(&conn).unwrap();
         crate::storage::sqlite::init_reaction_schema(&conn).unwrap();
         crate::storage::sqlite::init_usage_schema(&conn).unwrap();
@@ -1219,17 +1320,30 @@ mod usage_migration_tests {
             VizierChannelId::Task("brief".into(), chrono::Utc::now()),
             None,
         );
-        storage.save_session_history(discord.clone(), reply(1000, 100, Some("sonnet"))).await.unwrap();
-        storage.save_session_history(discord, reply(500, 50, None)).await.unwrap();
-        storage.save_session_history(task.clone(), reply(200, 20, Some("sonnet"))).await.unwrap();
+        storage
+            .save_session_history(discord.clone(), reply(1000, 100, Some("sonnet")))
+            .await
+            .unwrap();
+        storage
+            .save_session_history(discord, reply(500, 50, None))
+            .await
+            .unwrap();
+        storage
+            .save_session_history(task.clone(), reply(200, 20, Some("sonnet")))
+            .await
+            .unwrap();
         // Not a reply with stats: carries nothing.
         storage
             .save_session_history(task, SessionHistoryContent::Command("checkpoint".into()))
             .await
             .unwrap();
 
-        VizierDependencies::migrate_reply_usage(&storage, conn.clone()).await.unwrap();
-        VizierDependencies::migrate_reply_usage(&storage, conn.clone()).await.unwrap();
+        VizierDependencies::migrate_reply_usage(&storage, conn.clone())
+            .await
+            .unwrap();
+        VizierDependencies::migrate_reply_usage(&storage, conn.clone())
+            .await
+            .unwrap();
 
         let q = UsageQuery {
             agent_id: "a".into(),
@@ -1238,16 +1352,29 @@ mod usage_migration_tests {
             activity: None,
             conversation: None,
         };
-        let groups = storage.usage_groups(&q, UsageGrouping::Activity).await.unwrap();
+        let groups = storage
+            .usage_groups(&q, UsageGrouping::Activity)
+            .await
+            .unwrap();
         let sum = |a: UsageActivity| -> (u64, u64, u64) {
             groups
                 .iter()
                 .filter(|g| g.activity == Some(a))
-                .fold((0, 0, 0), |(c, i, o), g| (c + g.calls, i + g.tokens.input, o + g.tokens.output))
+                .fold((0, 0, 0), |(c, i, o), g| {
+                    (c + g.calls, i + g.tokens.input, o + g.tokens.output)
+                })
         };
-        assert_eq!(sum(UsageActivity::Chat), (2, 1500, 150), "no double count on the second run");
+        assert_eq!(
+            sum(UsageActivity::Chat),
+            (2, 1500, 150),
+            "no double count on the second run"
+        );
         assert_eq!(sum(UsageActivity::Scheduled), (1, 200, 20));
-        assert!(groups.iter().any(|g| g.provider.is_empty() && g.model.is_empty()));
+        assert!(
+            groups
+                .iter()
+                .any(|g| g.provider.is_empty() && g.model.is_empty())
+        );
         assert!(
             storage
                 .get_state(VizierDependencies::USAGE_ACCOUNTING_SINCE.into())
@@ -1288,7 +1415,11 @@ mod encryption_startup_tests {
 
         let deps = VizierDependencies::new(config.clone()).await.unwrap();
         assert_eq!(
-            deps.storage.get_agent_secret("dp-a", "TOKEN").await.unwrap().as_deref(),
+            deps.storage
+                .get_agent_secret("dp-a", "TOKEN")
+                .await
+                .unwrap()
+                .as_deref(),
             Some("startup-secret-abc123")
         );
         let raw: String = {
@@ -1316,7 +1447,11 @@ mod encryption_startup_tests {
         // Second start: same value, no re-encryption.
         let deps = VizierDependencies::new(config).await.unwrap();
         assert_eq!(
-            deps.storage.get_agent_secret("dp-a", "TOKEN").await.unwrap().as_deref(),
+            deps.storage
+                .get_agent_secret("dp-a", "TOKEN")
+                .await
+                .unwrap()
+                .as_deref(),
             Some("startup-secret-abc123")
         );
         let raw_again: String = {

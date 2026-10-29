@@ -20,9 +20,9 @@ use crate::{
     error::VizierError,
     schema::{
         AgentId, BackgroundJob, BackgroundJobId, BackgroundJobSnapshot, BackgroundPiece,
-        BackgroundReport, Canceller, JobKind, JobState, PieceState, ReportEntry,
-        VizierChannelId, VizierRequest, VizierRequestContent, VizierResponse,
-        VizierResponseContent, VizierSession, background::new_job_id,
+        BackgroundReport, Canceller, JobKind, JobState, PieceState, ReportEntry, VizierChannelId,
+        VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
+        background::new_job_id,
     },
     storage::{
         VizierStorage,
@@ -120,9 +120,7 @@ pub fn classify(content: &VizierResponseContent) -> Option<PieceOutcome> {
         VizierResponseContent::AudioReply(_, None, _) => {
             Some(PieceOutcome::Failed(NO_ANSWER.to_string()))
         }
-        VizierResponseContent::Error { message, .. } => {
-            Some(PieceOutcome::Failed(message.clone()))
-        }
+        VizierResponseContent::Error { message, .. } => Some(PieceOutcome::Failed(message.clone())),
         VizierResponseContent::Abort | VizierResponseContent::Empty => {
             Some(PieceOutcome::Failed(NO_ANSWER.to_string()))
         }
@@ -300,7 +298,12 @@ impl BackgroundJobs {
                         )
                         .await
                     {
-                        tracing::warn!("failed to close background piece {}#{}: {}", job.id, piece.ordinal, e);
+                        tracing::warn!(
+                            "failed to close background piece {}#{}: {}",
+                            job.id,
+                            piece.ordinal,
+                            e
+                        );
                     }
                     piece.state = PieceState::Failed;
                     piece.reason = Some(reason);
@@ -407,10 +410,21 @@ impl BackgroundJobs {
                 JobState::Reporting => {
                     if let Err(e) = self
                         .storage
-                        .transition_background_job(&job.id, JobState::Reporting, JobState::Reported, None, None, Utc::now())
+                        .transition_background_job(
+                            &job.id,
+                            JobState::Reporting,
+                            JobState::Reported,
+                            None,
+                            None,
+                            Utc::now(),
+                        )
                         .await
                     {
-                        tracing::warn!("failed to mark recovered background job {} reported: {}", job.id, e);
+                        tracing::warn!(
+                            "failed to mark recovered background job {} reported: {}",
+                            job.id,
+                            e
+                        );
                     }
                     self.publish_stored(&job.id).await;
                     self.notifications
@@ -462,7 +476,8 @@ impl BackgroundJobs {
             async move {
                 let (state, text) = match source {
                     PieceSource::Dispatched(Some(rx)) => {
-                        self.await_piece(&rx, limit, &piece.session, &job.origin.0).await
+                        self.await_piece(&rx, limit, &piece.session, &job.origin.0)
+                            .await
                     }
                     // Recovered after a restart: no channel of its own, so its session's
                     // events and history say how it ended.
@@ -485,9 +500,14 @@ impl BackgroundJobs {
                     // Already closed: failed at dispatch, or finished before a restart.
                     PieceSource::Dispatched(None) => {
                         let text = if piece.state == PieceState::Answered {
-                            piece_answer(&self.storage, &piece.session).await.unwrap_or_default()
+                            piece_answer(&self.storage, &piece.session)
+                                .await
+                                .unwrap_or_default()
                         } else {
-                            piece.reason.clone().unwrap_or_else(|| NO_ANSWER.to_string())
+                            piece
+                                .reason
+                                .clone()
+                                .unwrap_or_else(|| NO_ANSWER.to_string())
                         };
                         return (piece.state, text);
                     }
@@ -501,7 +521,12 @@ impl BackgroundJobs {
                     .close_background_piece(&job_id, piece.ordinal, state, reason, Utc::now())
                     .await
                 {
-                    tracing::warn!("failed to close background piece {}#{}: {}", job_id, piece.ordinal, e);
+                    tracing::warn!(
+                        "failed to close background piece {}#{}: {}",
+                        job_id,
+                        piece.ordinal,
+                        e
+                    );
                 }
                 self.publish_stored(&job_id).await;
 
@@ -533,7 +558,11 @@ impl BackgroundJobs {
             Ok(true) => {}
             Ok(false) => return,
             Err(e) => {
-                tracing::warn!("failed to move background job {} to reporting: {}", job.id, e);
+                tracing::warn!(
+                    "failed to move background job {} to reporting: {}",
+                    job.id,
+                    e
+                );
                 return;
             }
         }
@@ -642,7 +671,11 @@ impl BackgroundJobs {
             )
             .await
         {
-            tracing::warn!("failed to mark background job {} undelivered: {}", job.id, e);
+            tracing::warn!(
+                "failed to mark background job {} undelivered: {}",
+                job.id,
+                e
+            );
         }
         self.publish_stored(&job.id).await;
         self.notifications
@@ -674,7 +707,11 @@ impl BackgroundJobs {
             )
             .await
         {
-            tracing::debug!("could not abort background piece {}: {}", session.to_slug(), e);
+            tracing::debug!(
+                "could not abort background piece {}: {}",
+                session.to_slug(),
+                e
+            );
         }
     }
 
@@ -844,7 +881,11 @@ mod tests {
             Some(PieceOutcome::Answered("hi".into()))
         );
         assert_eq!(
-            classify(&VizierResponseContent::AudioReply(audio(), Some("said".into()), None)),
+            classify(&VizierResponseContent::AudioReply(
+                audio(),
+                Some("said".into()),
+                None
+            )),
             Some(PieceOutcome::Answered("said".into()))
         );
         assert_eq!(
@@ -938,6 +979,7 @@ mod tests {
             hooks: None,
             background_depth: MAX_BACKGROUND_DEPTH,
             deadline: None,
+            dream_sources: vec![],
             secret_redactor: Arc::new(crate::secrets::SecretRedactor::default()),
         };
 

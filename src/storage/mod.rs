@@ -5,23 +5,41 @@ use anyhow::Result;
 use crate::{
     config::provider::ProviderId,
     schema::{
-        AgentConfig, CoreRevision, CustomProvider, GlobalConfigEntry, PaginatedCoreRevisions, ProviderEntry,
-        RevisionDiff, RevisionOrigin, RollbackResponse, SessionFileRecord, VizierSession,
+        AgentConfig, CoreRevision, CustomProvider, GlobalConfigEntry, PaginatedCoreRevisions,
+        ProviderEntry, RevisionDiff, RevisionOrigin, RollbackResponse, SessionFileRecord,
+        VizierSession,
     },
     storage::{
-        agent::AgentStorage, background_job::BackgroundJobStorage, client_call::ClientCallStorage,
-        catalogue::{CachedLogo, CatalogueCacheStorage, CatalogueSnapshotRow}, dream::DreamStorage, dream_journal::DreamJournalStorage,
-        global_config::GlobalConfigStorage, history::HistoryStorage, integration::IntegrationStorage,
-        memory::MemoryStorage,
+        agent::AgentStorage,
+        artifact::ArtifactStorage,
+        background_job::BackgroundJobStorage,
+        catalogue::{CachedLogo, CatalogueCacheStorage, CatalogueSnapshotRow},
+        client_call::ClientCallStorage,
+        dream::DreamStorage,
+        dream_journal::DreamJournalStorage,
+        global_config::GlobalConfigStorage,
+        history::HistoryStorage,
+        integration::IntegrationStorage,
         media_catalogue::{MediaCatalogueSnapshotRow, MediaCatalogueStorage},
-        provider::{CustomProviderStorage, ProviderStorage}, reaction::ReactionStorage, scratch::ScratchStorage, turn::TurnStorage, session::SessionStorage, session_file::SessionFileStorage,
+        memory::MemoryStorage,
+        notification::NotificationStorage,
+        provider::{CustomProviderStorage, ProviderStorage},
+        reaction::ReactionStorage,
+        scratch::ScratchStorage,
         secret::SecretStorage,
-        state::StateStorage, task::TaskStorage, task_run::TaskRunStorage,
-        usage::UsageStorage, user::UserStorage, notification::NotificationStorage,
+        session::SessionStorage,
+        session_file::SessionFileStorage,
+        state::StateStorage,
+        task::TaskStorage,
+        task_run::TaskRunStorage,
+        turn::TurnStorage,
+        usage::UsageStorage,
+        user::UserStorage,
     },
 };
 
 pub mod agent;
+pub mod artifact;
 pub mod background_job;
 pub mod catalogue;
 pub mod chunk;
@@ -57,6 +75,7 @@ pub mod sqlite;
 pub trait VizierStorageProvider
 where
     Self: MemoryStorage
+        + ArtifactStorage
         + TaskStorage
         + TaskRunStorage
         + BackgroundJobStorage
@@ -449,5 +468,17 @@ impl SessionFileStorage for VizierStorage {
 
     async fn delete_session_file(&self, session: &VizierSession, filename: &str) -> Result<()> {
         self.0.delete_session_file(session, filename).await
+    }
+
+    async fn delete_session_files(&self, session: &VizierSession) -> Result<usize> {
+        self.0.delete_session_files(session).await
+    }
+
+    async fn list_agent_files(&self, agent_id: &str) -> Result<Vec<SessionFileRecord>> {
+        self.0.list_agent_files(agent_id).await
+    }
+
+    async fn session_file_reference_count(&self, file_id: &str) -> Result<usize> {
+        self.0.session_file_reference_count(file_id).await
     }
 }

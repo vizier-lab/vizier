@@ -1,23 +1,74 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Result;
 use base64::Engine;
 use chrono::Utc;
+use parking_lot::RwLock;
 
 use crate::{
-    schema::{FileRecord, VizierAttachment, VizierAttachmentContent},
-    transport::VizierTransport,
     error::VizierError,
+    schema::{AttachmentResolver, FileRecord, VizierAttachment, VizierAttachmentContent},
+    transport::VizierTransport,
 };
+
+/// Read the one file inside `uploads/<file_id>/` and return its name and bytes. Free so both
+/// the `FileManager` and the artifact service (which cannot own each other) can use it
+/// (`specs/035-add-artifacts` R3).
+pub async fn read_upload(workspace: &str, file_id: &str) -> Result<(String, Vec<u8>)> {
+    let uploads_dir = PathBuf::from(workspace).join("uploads").join(file_id);
+    let mut entries = tokio::fs::read_dir(&uploads_dir).await.map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to read uploads dir {}: {}",
+            uploads_dir.display(),
+            e
+        )
+    })?;
+    let entry = entries
+        .next_entry()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read dir entry: {}", e))?
+        .ok_or_else(|| anyhow::anyhow!("No file found in {}", uploads_dir.display()))?;
+    let filename = entry.file_name().to_string_lossy().to_string();
+    let content = tokio::fs::read(entry.path())
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read file {}: {}", entry.path().display(), e))?;
+    Ok((filename, content))
+}
 
 #[derive(Clone)]
 pub struct FileManager {
     workspace: String,
+    /// Installed by `VizierDependencies` after construction, because `Artifacts` and
+    /// `FileManager` cannot own each other. Every clone shares the handle.
+    artifact_resolver: Arc<RwLock<Option<Arc<dyn AttachmentResolver>>>>,
 }
 
 impl FileManager {
     pub fn new(workspace: String) -> Self {
-        Self { workspace }
+        Self {
+            workspace,
+            artifact_resolver: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Install the artifact resolver used by `resolve`.
+    pub fn install_artifact_resolver(&self, resolver: Arc<dyn AttachmentResolver>) {
+        *self.artifact_resolver.write() = Some(resolver);
+    }
+
+    /// Remove one upload directory (`uploads/<file_id>/`), best effort.
+    pub async fn delete_upload(&self, file_id: &str) -> Result<()> {
+        let dir = PathBuf::from(&self.workspace).join("uploads").join(file_id);
+        match tokio::fs::remove_dir_all(&dir).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(anyhow::anyhow!(
+                "Failed to remove upload {}: {}",
+                dir.display(),
+                e
+            )),
+        }
     }
 
     pub async fn upload(&self, filename: &str, content: Vec<u8>) -> Result<FileRecord> {
@@ -49,12 +100,14 @@ impl FileManager {
     }
 
     pub async fn get(&self, file_id: &str) -> Result<(String, Vec<u8>)> {
-        let uploads_dir = PathBuf::from(&self.workspace)
-            .join("uploads")
-            .join(file_id);
+        let uploads_dir = PathBuf::from(&self.workspace).join("uploads").join(file_id);
 
         let mut entries = tokio::fs::read_dir(&uploads_dir).await.map_err(|e| {
-            anyhow::anyhow!("Failed to read uploads dir {}: {}", uploads_dir.display(), e)
+            anyhow::anyhow!(
+                "Failed to read uploads dir {}: {}",
+                uploads_dir.display(),
+                e
+            )
         })?;
 
         let entry = entries
@@ -103,31 +156,52 @@ impl FileManager {
                 let content = response.bytes().await?.to_vec();
                 Ok((attachment.filename.clone(), content))
             }
+            VizierAttachmentContent::Artifact {
+                agent_id,
+                artifact_id,
+                ..
+            } => {
+                let path = self
+                    .artifact_resolver
+                    .read()
+                    .as_ref()
+                    .and_then(|r| r.artifact_path(agent_id, artifact_id).ok().flatten())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("artifact '{}' is no longer available", attachment.filename)
+                    })?;
+                let content = tokio::fs::read(&path).await.map_err(|e| {
+                    anyhow::anyhow!(
+                        "failed to read artifact '{}' at {}: {}",
+                        attachment.filename,
+                        path.display(),
+                        e
+                    )
+                })?;
+                Ok((attachment.filename.clone(), content))
+            }
         }
     }
 
     pub async fn run(&self, transport: VizierTransport) {
         loop {
             match transport.recv_file_command().await {
-                Ok(cmd) => {
-                    match cmd {
-                        crate::schema::FileCommand::Upload {
-                            filename,
-                            content,
-                            response,
-                        } => {
-                            let result = self.upload(&filename, content).await;
-                            let _ = response.send(result);
-                        }
-                        crate::schema::FileCommand::Resolve {
-                            attachment,
-                            response,
-                        } => {
-                            let result = self.resolve(&attachment).await;
-                            let _ = response.send(result.map(|(_, content)| content));
-                        }
+                Ok(cmd) => match cmd {
+                    crate::schema::FileCommand::Upload {
+                        filename,
+                        content,
+                        response,
+                    } => {
+                        let result = self.upload(&filename, content).await;
+                        let _ = response.send(result);
                     }
-                }
+                    crate::schema::FileCommand::Resolve {
+                        attachment,
+                        response,
+                    } => {
+                        let result = self.resolve(&attachment).await;
+                        let _ = response.send(result.map(|(_, content)| content));
+                    }
+                },
                 Err(e) => {
                     tracing::error!("FileManager channel error: {}", e);
                     break;

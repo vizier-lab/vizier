@@ -4,7 +4,9 @@ use anyhow::{Result, anyhow};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use twilight_gateway::{CloseFrame, Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
+use twilight_gateway::{
+    CloseFrame, Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _,
+};
 use twilight_http::Client;
 use twilight_model::application::command::{
     Command, CommandOptionChoice, CommandOptionChoiceValue, CommandType,
@@ -23,9 +25,9 @@ use twilight_util::builder::InteractionResponseDataBuilder;
 use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 
 use crate::channels::commands::{self, CommandEntry, CommandOption, CommandSync, PlatformRules};
-use crate::channels::{FatalChannelError, VizierChannel};
-use crate::channels::woken;
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
+use crate::channels::woken;
+use crate::channels::{FatalChannelError, VizierChannel};
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
     PlatformMessageId, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
@@ -86,6 +88,7 @@ impl VizierChannel for DiscordChannelReader {
                 &self.deps.config.workspace,
                 discord_rules(),
             )),
+            clear_confirmations: commands::ClearConfirmations::new(),
         });
 
         let events = EventTypeFlags::READY
@@ -211,6 +214,8 @@ struct Handler {
     bot: OnceLock<BotIdentity>,
     application_id: OnceLock<Id<ApplicationMarker>>,
     commands: Arc<CommandSync>,
+    /// Pending `/clear-files` two-step confirmations (`specs/035-add-artifacts`).
+    clear_confirmations: commands::ClearConfirmations,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -227,13 +232,17 @@ fn builtin_commands() -> Vec<CommandEntry> {
         CommandEntry::new("ping", "a simple ping"),
         CommandEntry::new("help", "what I can do"),
         CommandEntry::new("new", "create fresh new session"),
-        CommandEntry::new("session", "list or select session")
-            .option(CommandOption::text("topic_id", "switch to the topic if not empty")),
+        CommandEntry::new("session", "list or select session").option(CommandOption::text(
+            "topic_id",
+            "switch to the topic if not empty",
+        )),
         CommandEntry::new("abort", "abort current thinking"),
         CommandEntry::new("checkpoint", "save checkpoint with handover summary"),
         CommandEntry::new("lobotomy", "save checkpoint without handover (clean break)"),
         CommandEntry::new("thinking", "toggle showing thinking output"),
         CommandEntry::new("tool_calls", "toggle showing tool call details"),
+        CommandEntry::new("clear-files", "clear this conversation's session files")
+            .option(CommandOption::text("confirm", "Type confirm to clear")),
     ]
 }
 
@@ -266,7 +275,10 @@ fn slash_command(entry: &CommandEntry) -> Command {
 }
 
 /// The string value of a command option, `""` when absent.
-fn option_text<'a>(options: &'a [twilight_model::application::interaction::application_command::CommandDataOption], name: &str) -> &'a str {
+fn option_text<'a>(
+    options: &'a [twilight_model::application::interaction::application_command::CommandDataOption],
+    name: &str,
+) -> &'a str {
     options
         .iter()
         .find_map(|opt| match &opt.value {
@@ -278,13 +290,20 @@ fn option_text<'a>(options: &'a [twilight_model::application::interaction::appli
 }
 
 /// The chat text a skill command stands for, which the agent resolves like typed text.
-fn skill_command_text(command: &str, options: &[twilight_model::application::interaction::application_command::CommandDataOption]) -> String {
+fn skill_command_text(
+    command: &str,
+    options: &[twilight_model::application::interaction::application_command::CommandDataOption],
+) -> String {
     let input = option_text(options, "input").trim();
     let head = match command {
         "skill" => format!("/skill {}", option_text(options, "name").trim()),
         other => format!("/{other}"),
     };
-    if input.is_empty() { head } else { format!("{head} {input}") }
+    if input.is_empty() {
+        head
+    } else {
+        format!("{head} {input}")
+    }
 }
 
 fn error_kind_label(kind: &crate::schema::ErrorKind) -> &'static str {
@@ -306,7 +325,12 @@ impl Handler {
     async fn save_state(&self, channel: &VizierChannelId, state: &ChannelState) {
         match serde_json::to_value(state) {
             Ok(value) => {
-                if let Err(err) = self.deps.storage.save_state(self.state_key(channel), value).await {
+                if let Err(err) = self
+                    .deps
+                    .storage
+                    .save_state(self.state_key(channel), value)
+                    .await
+                {
                     tracing::error!("failed to save discord channel state: {}", err);
                 }
             }
@@ -345,7 +369,11 @@ impl Handler {
     async fn respond(&self, interaction: &Interaction, content: impl Into<String>) {
         let response = InteractionResponse {
             kind: InteractionResponseType::ChannelMessageWithSource,
-            data: Some(InteractionResponseDataBuilder::new().content(content).build()),
+            data: Some(
+                InteractionResponseDataBuilder::new()
+                    .content(content)
+                    .build(),
+            ),
         };
 
         if let Err(err) = self
@@ -386,8 +414,11 @@ impl Handler {
                 )
                 .await;
 
-                self.respond(&interaction, format!("switch to new session: **{}**", topic_id))
-                    .await;
+                self.respond(
+                    &interaction,
+                    format!("switch to new session: **{}**", topic_id),
+                )
+                .await;
             }
 
             "session" => {
@@ -505,13 +536,88 @@ If I am halucinating, feel free to `/lobotomy` me
             }
 
             "checkpoint" => {
-                self.checkpoint(&interaction, channel, "checkpoint", "creating checkpoint...")
-                    .await;
+                self.checkpoint(
+                    &interaction,
+                    channel,
+                    "checkpoint",
+                    "creating checkpoint...",
+                )
+                .await;
             }
 
             "lobotomy" => {
                 self.checkpoint(&interaction, channel, "lobotomy", "performing lobotomy...")
                     .await;
+            }
+
+            "clear-files" => {
+                let topic_id = self.load_state(&channel).await.active_topic;
+                let session = VizierSession(agent_id.clone(), channel.clone(), topic_id);
+                let confirm = data.options.iter().find_map(|opt| match &opt.value {
+                    CommandOptionValue::String(value)
+                        if opt.name == "confirm" && value == "confirm" =>
+                    {
+                        Some(())
+                    }
+                    _ => None,
+                });
+                if confirm.is_some() {
+                    if !self.clear_confirmations.take(&session) {
+                        self.respond(
+                            &interaction,
+                            "No clear is waiting; send /clear-files first.",
+                        )
+                        .await;
+                        return;
+                    }
+                    if self.deps.session_files.has_active_turn(&session).await {
+                        self.respond(
+                            &interaction,
+                            "a turn is running or queued in this conversation; wait for it to finish",
+                        )
+                        .await;
+                        return;
+                    }
+                    match self.deps.session_files.clear(&session).await {
+                        Ok(result) => {
+                            self.respond(
+                                &interaction,
+                                format!(
+                                    "Cleared {} session files. Artifacts are untouched.",
+                                    result.removed
+                                ),
+                            )
+                            .await
+                        }
+                        Err(e) => self.respond(&interaction, e.to_string()).await,
+                    }
+                    return;
+                }
+                if self.deps.session_files.has_active_turn(&session).await {
+                    self.respond(
+                        &interaction,
+                        "a turn is running or queued in this conversation; wait for it to finish",
+                    )
+                    .await;
+                    return;
+                }
+                let count = self.deps.session_files.count(&session).await.unwrap_or(0);
+                if count == 0 {
+                    self.respond(
+                        &interaction,
+                        "There are no session files to clear in this conversation.",
+                    )
+                    .await;
+                    return;
+                }
+                self.clear_confirmations.request(&session);
+                self.respond(
+                    &interaction,
+                    format!(
+                        "This will remove {count} session files from this conversation. Artifacts are unaffected. Older messages or memories that reference them will no longer open. Send /clear-files confirm within 60 seconds to continue."
+                    ),
+                )
+                .await;
             }
 
             "thinking" => {
@@ -566,7 +672,11 @@ If I am halucinating, feel free to `/lobotomy` me
             });
         let response = InteractionResponse {
             kind: InteractionResponseType::ApplicationCommandAutocompleteResult,
-            data: Some(InteractionResponseDataBuilder::new().choices(choices).build()),
+            data: Some(
+                InteractionResponseDataBuilder::new()
+                    .choices(choices)
+                    .build(),
+            ),
         };
         if let Err(err) = self
             .http
@@ -580,7 +690,12 @@ If I am halucinating, feel free to `/lobotomy` me
 
     /// A skill picked from the command list: sent as the chat text it stands for, so the
     /// agent resolves it exactly as it would typed text, and the reply posted like any turn.
-    async fn run_skill_command(&self, interaction: &Interaction, channel: VizierChannelId, text: String) {
+    async fn run_skill_command(
+        &self,
+        interaction: &Interaction,
+        channel: VizierChannelId,
+        text: String,
+    ) {
         let deferred = InteractionResponse {
             kind: InteractionResponseType::DeferredChannelMessageWithSource,
             data: None,
@@ -598,7 +713,11 @@ If I am halucinating, feel free to `/lobotomy` me
             return;
         };
 
-        let ChannelState { active_topic, show_thinking, show_tool_calls } = self.load_state(&channel).await;
+        let ChannelState {
+            active_topic,
+            show_thinking,
+            show_tool_calls,
+        } = self.load_state(&channel).await;
         let session = VizierSession(self.agent_id.clone(), channel, active_topic);
         let user = match interaction.author() {
             Some(author) => format!(
@@ -749,14 +868,24 @@ If I am halucinating, feel free to `/lobotomy` me
                     .ok()
                     .map(|user| user.global_name.unwrap_or(user.name)),
                 Err(err) => {
-                    tracing::debug!("could not resolve discord user {}: {:?}", reaction.user_id, err);
+                    tracing::debug!(
+                        "could not resolve discord user {}: {:?}",
+                        reaction.user_id,
+                        err
+                    );
                     None
                 }
             },
         };
         let kind = ReactionKind::Add(discord_emoji_key(&reaction.emoji));
-        self.apply_reaction(reaction.channel_id, reaction.message_id, reaction.user_id.to_string(), name, kind)
-            .await;
+        self.apply_reaction(
+            reaction.channel_id,
+            reaction.message_id,
+            reaction.user_id.to_string(),
+            name,
+            kind,
+        )
+        .await;
     }
 
     async fn reaction_remove(&self, reaction: GatewayReaction) {
@@ -764,8 +893,14 @@ If I am halucinating, feel free to `/lobotomy` me
             return;
         }
         let kind = ReactionKind::Remove(discord_emoji_key(&reaction.emoji));
-        self.apply_reaction(reaction.channel_id, reaction.message_id, reaction.user_id.to_string(), None, kind)
-            .await;
+        self.apply_reaction(
+            reaction.channel_id,
+            reaction.message_id,
+            reaction.user_id.to_string(),
+            None,
+            kind,
+        )
+        .await;
     }
 
     /// A moderator cleared one emoji, or every reaction, on a message.
@@ -780,8 +915,13 @@ If I am halucinating, feel free to `/lobotomy` me
     }
 
     fn is_bot(&self, reaction: &GatewayReaction) -> bool {
-        self.bot.get().is_some_and(|bot| bot.user_id == reaction.user_id)
-            || reaction.member.as_ref().is_some_and(|member| member.user.bot)
+        self.bot
+            .get()
+            .is_some_and(|bot| bot.user_id == reaction.user_id)
+            || reaction
+                .member
+                .as_ref()
+                .is_some_and(|member| member.user.bot)
     }
 
     async fn apply_reaction(
@@ -806,7 +946,11 @@ If I am halucinating, feel free to `/lobotomy` me
             kind,
         };
         if let Err(err) = reactions::apply(&self.deps.storage, &self.deps.transport, change).await {
-            tracing::warn!("failed to record discord reaction on {}: {:?}", message_id, err);
+            tracing::warn!(
+                "failed to record discord reaction on {}: {:?}",
+                message_id,
+                err
+            );
         }
     }
 
@@ -1063,7 +1207,8 @@ impl TurnRenderer {
                     ..
                 } => {
                     typing = None;
-                    let content = crate::channels::continued_note(resumed, remove_think_tags(&content));
+                    let content =
+                        crate::channels::continued_note(resumed, remove_think_tags(&content));
                     let mut posted = crate::utils::discord::send_message(
                         http.clone(),
                         discord_channel_id,
@@ -1075,7 +1220,7 @@ impl TurnRenderer {
                     for attachment in &attachments {
                         match file_manager.resolve(attachment).await {
                             Ok((filename, bytes)) => {
-                                if let Ok(id) = crate::utils::discord::send_file(
+                                match crate::utils::discord::send_file(
                                     &http,
                                     discord_channel_id,
                                     filename,
@@ -1083,7 +1228,22 @@ impl TurnRenderer {
                                 )
                                 .await
                                 {
-                                    posted.push(id);
+                                    Ok(id) => posted.push(id),
+                                    Err(err) => {
+                                        tracing::error!(
+                                            "Failed to send attachment {:?}: {:?}",
+                                            attachment.filename,
+                                            err
+                                        );
+                                        let _ = crate::utils::discord::send_message(
+                                            http.clone(),
+                                            discord_channel_id,
+                                            crate::channels::attachment_failure_notice(
+                                                &attachment.filename,
+                                            ),
+                                        )
+                                        .await;
+                                    }
                                 }
                             }
                             Err(err) => {
@@ -1092,11 +1252,26 @@ impl TurnRenderer {
                                     attachment.filename,
                                     err
                                 );
+                                let _ = crate::utils::discord::send_message(
+                                    http.clone(),
+                                    discord_channel_id,
+                                    crate::channels::attachment_failure_notice(
+                                        &attachment.filename,
+                                    ),
+                                )
+                                .await;
                             }
                         }
                     }
 
-                    link_reply(&storage, &agent_id, discord_channel_id, &posted, history_uid).await;
+                    link_reply(
+                        &storage,
+                        &agent_id,
+                        discord_channel_id,
+                        &posted,
+                        history_uid,
+                    )
+                    .await;
                     break;
                 }
                 VizierResponse {
@@ -1138,7 +1313,14 @@ impl TurnRenderer {
                         }
                     }
 
-                    link_reply(&storage, &agent_id, discord_channel_id, &posted, history_uid).await;
+                    link_reply(
+                        &storage,
+                        &agent_id,
+                        discord_channel_id,
+                        &posted,
+                        history_uid,
+                    )
+                    .await;
                     break;
                 }
                 VizierResponse {
@@ -1193,7 +1375,13 @@ async fn link_reply(
     }
     let ids: Vec<String> = posted.iter().map(|id| id.to_string()).collect();
     if let Err(err) = storage
-        .link_platform_messages(agent_id, Platform::Discord, &channel_id.to_string(), &ids, &uid)
+        .link_platform_messages(
+            agent_id,
+            Platform::Discord,
+            &channel_id.to_string(),
+            &ids,
+            &uid,
+        )
         .await
     {
         tracing::warn!("failed to link discord reply {}: {:?}", uid, err);
@@ -1243,7 +1431,11 @@ fn command_text(content: &str, bot_id: Id<UserMarker>) -> String {
     }
 }
 
-fn render_mentions(content: &str, mentions: &[(Id<UserMarker>, &str)], bot: &BotIdentity) -> String {
+fn render_mentions(
+    content: &str,
+    mentions: &[(Id<UserMarker>, &str)],
+    bot: &BotIdentity,
+) -> String {
     let mut content = content.to_string();
     let bot_mention = (bot.user_id, bot.name.as_str());
     for (id, name) in mentions.iter().chain(std::iter::once(&bot_mention)) {
@@ -1276,7 +1468,10 @@ mod tests {
     #[test]
     fn a_leading_mention_is_dropped_before_a_command() {
         let bot = Id::new(42);
-        assert_eq!(command_text("<@42> /release-notes v1", bot), "/release-notes v1");
+        assert_eq!(
+            command_text("<@42> /release-notes v1", bot),
+            "/release-notes v1"
+        );
         assert_eq!(command_text("<@!42>/skills", bot), "/skills");
         assert_eq!(command_text("<@42> hello", bot), "<@42> hello");
         assert_eq!(command_text("<@7> /x", bot), "<@7> /x");
@@ -1289,10 +1484,16 @@ mod tests {
             name: name.into(),
             value: CommandOptionValue::String(value.into()),
         };
-        assert_eq!(skill_command_text("release-notes", &[option("input", " v1.2 ")]), "/release-notes v1.2");
+        assert_eq!(
+            skill_command_text("release-notes", &[option("input", " v1.2 ")]),
+            "/release-notes v1.2"
+        );
         assert_eq!(skill_command_text("release-notes", &[]), "/release-notes");
         assert_eq!(
-            skill_command_text("skill", &[option("name", "standup"), option("input", "today")]),
+            skill_command_text(
+                "skill",
+                &[option("name", "standup"), option("input", "today")]
+            ),
             "/skill standup today"
         );
         assert_eq!(skill_command_text("skills", &[]), "/skills");
@@ -1301,7 +1502,9 @@ mod tests {
     #[test]
     fn emoji_keys_keep_unicode_and_name_custom_emoji() {
         assert_eq!(
-            discord_emoji_key(&EmojiReactionType::Unicode { name: "👍".into() }),
+            discord_emoji_key(&EmojiReactionType::Unicode {
+                name: "👍".into()
+            }),
             "👍"
         );
         assert_eq!(

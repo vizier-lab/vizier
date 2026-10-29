@@ -21,7 +21,13 @@ mod paths;
 pub use paths::{GetSessionFilePath, LoadPathAsSessionFile};
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ListSessionFilesArgs {}
+pub struct ListSessionFilesArgs {
+    #[schemars(
+        description = "the conversation to list files from. Omit for the current conversation; in a dream, name one of the cycle's sources (omit only when there is one)."
+    )]
+    #[serde(default)]
+    pub session: Option<String>,
+}
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ListSessionFilesOutput {
@@ -33,6 +39,8 @@ pub struct SessionFileSummary {
     pub filename: String,
     pub mime_type: String,
     pub size: u64,
+    /// The conversation the file belongs to (a dream sees its sources' slugs here).
+    pub session_slug: String,
 }
 
 pub struct ListSessionFiles {
@@ -58,12 +66,13 @@ impl VizierTool for ListSessionFiles {
 
     async fn call(
         &self,
-        _args: Self::Input,
+        args: Self::Input,
         ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
+        let source = super::artifacts::resolve_source_session(ctx, args.session.as_deref())?;
         let records = self
             .storage
-            .list_session_files(&ctx.session)
+            .list_session_files(&source)
             .await
             .map_err(|e| VizierError(e.to_string()))?;
 
@@ -73,6 +82,7 @@ impl VizierTool for ListSessionFiles {
                 filename: r.filename,
                 mime_type: r.mime_type,
                 size: r.size,
+                session_slug: source.to_slug(),
             })
             .collect();
 
@@ -84,6 +94,11 @@ impl VizierTool for ListSessionFiles {
 pub struct ReadDocumentFileArgs {
     #[schemars(description = "filename of the session file to read")]
     pub filename: String,
+    #[schemars(
+        description = "the conversation holding the file. Omit for the current conversation; in a dream, name a source (omit only when there is one)."
+    )]
+    #[serde(default)]
+    pub session: Option<String>,
 }
 
 pub struct ReadDocumentFile {
@@ -213,9 +228,10 @@ impl VizierTool for ReadDocumentFile {
         args: Self::Input,
         ctx: &ToolContext,
     ) -> Result<Self::Output, VizierError> {
+        let source = super::artifacts::resolve_source_session(ctx, args.session.as_deref())?;
         let file = self
             .storage
-            .get_session_file(&ctx.session, &args.filename)
+            .get_session_file(&source, &args.filename)
             .await
             .map_err(|e| VizierError(e.to_string()))?
             .ok_or_else(|| VizierError(format!("File not found: {}", args.filename)))?;

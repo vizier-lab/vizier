@@ -170,6 +170,7 @@ impl DreamScheduler {
         // Spawn background task for the full dream cycle
         let deps = self.deps.clone();
         let agent_id = agent_id.to_string();
+        let source_sessions: Vec<VizierSession> = sessions.clone();
         let source_session_slugs: Vec<String> = sessions.iter().map(|s| s.to_slug()).collect();
 
         tokio::spawn(async move {
@@ -192,7 +193,9 @@ impl DreamScheduler {
                         VizierRequest {
                             timestamp: Utc::now(),
                             user: agent_id.clone(),
-                            content: VizierRequestContent::Unattended(EXTRACTION_PROMPT.to_string()),
+                            content: VizierRequestContent::Unattended(
+                                EXTRACTION_PROMPT.to_string(),
+                            ),
                             metadata: serde_json::json!({
                                 "dream_cycle_id": cycle_id,
                             }),
@@ -248,7 +251,7 @@ impl DreamScheduler {
                 .await;
 
             // Trigger consolidation
-            match Self::do_consolidation(&deps, &agent_id, &cycle_id, &source_session_slugs).await {
+            match Self::do_consolidation(&deps, &agent_id, &cycle_id, &source_sessions).await {
                 Ok(resp_rx) => {
                     // Await consolidation response
                     while let Ok(response) = resp_rx.recv_async().await {
@@ -288,8 +291,10 @@ impl DreamScheduler {
         deps: &VizierDependencies,
         agent_id: &str,
         cycle_id: &str,
-        source_sessions: &[String],
+        source_sessions: &[VizierSession],
     ) -> Result<flume::Receiver<VizierResponse>> {
+        let source_session_slugs: Vec<String> =
+            source_sessions.iter().map(|s| s.to_slug()).collect();
         // Read all extraction entries for this cycle
         let extractions = deps
             .storage
@@ -355,7 +360,10 @@ impl DreamScheduler {
                     content: VizierRequestContent::Unattended(prompt),
                     metadata: serde_json::json!({
                         "dream_cycle_id": cycle_id,
-                        "source_sessions": source_sessions,
+                        "source_sessions": source_session_slugs,
+                        // The actual sessions, so a dream turn can read/promote from exactly
+                        // the conversations this cycle reflects on (specs/035 R16).
+                        "source_session_data": source_sessions,
                     }),
                     ..Default::default()
                 },

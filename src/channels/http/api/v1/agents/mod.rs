@@ -18,18 +18,18 @@ use crate::{
     config::shell::ShellConfig,
     schema::{
         AgentCommand, AgentCommandResult, AgentConfig, AgentHealthStatus, AgentSummary,
-        AgentToolsConfig, EmbeddingConfig,
-        ImageGenToolSettings, IndexerConfig, ReadImageToolSettings, ToolConfig,
-        TtsToolSettings,
+        AgentToolsConfig, EmbeddingConfig, ImageGenToolSettings, IndexerConfig,
+        ReadImageToolSettings, ToolConfig, TtsToolSettings, VizierAttachment, VizierChannelId,
+        VizierRequest, VizierRequestContent, VizierResponseContent, VizierResponseStats,
+        VizierSession,
         agent::{EmbeddingProvider, IndexerKind, SttToolSettings},
-        VizierAttachment, VizierChannelId, VizierRequest, VizierRequestContent,
-        VizierResponseContent, VizierResponseStats, VizierSession,
     },
     storage::{VizierStorage, agent::AgentStorage, history::HistoryStorage, user::UserStorage},
 };
 
-pub mod conversations;
+pub mod artifacts;
 pub mod channel;
+pub mod conversations;
 pub mod core;
 pub mod dream;
 pub mod integrations;
@@ -39,9 +39,9 @@ pub mod secrets;
 pub mod skills;
 pub mod task;
 
-use channel::channel;
 use crate::channels::http::models::page::{self, ListQuery, Listing, SortKey, SortOrder};
 use crate::storage::session::SessionStorage;
+use channel::channel;
 use core::core;
 use dream::dream;
 use jobs::jobs;
@@ -120,7 +120,10 @@ pub fn agents() -> Router<HTTPState> {
             get(agent_detail).put(update_agent).delete(delete_agent),
         )
         .route("/{agent_id}/usage", get(agent_usage))
-        .route("/{agent_id}/usage/conversation", get(agent_usage_conversation))
+        .route(
+            "/{agent_id}/usage/conversation",
+            get(agent_usage_conversation),
+        )
         .route("/{agent_id}/ping", get(ping_agent))
         .route("/{agent_id}/restart", post(restart_agent))
         .route("/{agent_id}/chat", post(agent_chat))
@@ -129,6 +132,7 @@ pub fn agents() -> Router<HTTPState> {
             get(get_sharing).patch(update_sharing),
         )
         .nest("/{agent_id}/channel", channel().merge(jobs()))
+        .nest("/{agent_id}/artifacts", artifacts::artifacts())
         .nest("/{agent_id}/core", core())
         .nest("/{agent_id}/memory", memory())
         .nest("/{agent_id}/secrets", secrets())
@@ -164,7 +168,11 @@ impl Listing<AgentListItem> for AgentListing {
     fn matches(&self, item: &AgentListItem, q: &str) -> bool {
         item.summary.name.to_lowercase().contains(q)
             || item.summary.agent_id.to_lowercase().contains(q)
-            || item.summary.description.as_deref().is_some_and(|d| d.to_lowercase().contains(q))
+            || item
+                .summary
+                .description
+                .as_deref()
+                .is_some_and(|d| d.to_lowercase().contains(q))
     }
 
     fn filter_keys(&self, _: &[AgentListItem]) -> Vec<String> {
@@ -192,7 +200,11 @@ impl Listing<AgentListItem> for AgentListing {
     }
 
     fn default_order(&self, sort: &str) -> SortOrder {
-        if sort == "last_active" { SortOrder::Desc } else { SortOrder::Asc }
+        if sort == "last_active" {
+            SortOrder::Desc
+        } else {
+            SortOrder::Asc
+        }
     }
 }
 
@@ -228,7 +240,11 @@ async fn list_agents(
             })
             .unwrap_or_default();
         (
-            state.storage.last_activity_by_agent().await.unwrap_or_default(),
+            state
+                .storage
+                .last_activity_by_agent()
+                .await
+                .unwrap_or_default(),
             state.storage.thinking_agents().await.unwrap_or_default(),
             failed,
         )
@@ -243,7 +259,13 @@ async fn list_agents(
         }
 
         let owner_username = if let Some(ref owner_id) = config.owner_id {
-            state.storage.get_user_by_id(owner_id).await.ok().flatten().map(|u| u.username)
+            state
+                .storage
+                .get_user_by_id(owner_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|u| u.username)
         } else {
             None
         };
@@ -326,70 +348,70 @@ async fn agent_detail(
             api_response(
                 StatusCode::OK,
                 AgentDetail {
-                agent_id,
-                name: config.name,
-                description: config.description,
-                provider: config.provider,
-                model: config.model,
-                system_prompt: config.system_prompt,
-                thinking_depth: config.thinking_depth,
-                checkpoint_threshold: config.checkpoint_threshold,
-                max_tokens: config.max_tokens,
-                context_window: config.context_window,
-                shell: config.tools.shell,
-                fetch: config.tools.fetch.enabled,
-                http_client: config.tools.http_client.enabled,
-                prompt_timeout: config.prompt_timeout.to_string(),
-                dream_enabled: config.dream_enabled,
-                dream_schedule: config.dream_schedule,
-                dream_provider: config.dream_provider,
-                dream_model: config.dream_model,
-                tools_timeout: config.tools.timeout.to_string(),
-                avatar_url: config.avatar_url,
-                silent_read_initiative_chance: config.silent_read_initiative_chance,
-                tts: config.tools.tts.enabled,
-                tts_settings: if config.tools.tts.settings.provider
-                    != crate::schema::agent::TtsProvider::default()
-                    || config.tools.tts.settings.model.is_some()
-                    || config.tools.tts.settings.voice.is_some()
-                    || config.tools.tts.settings.speed.is_some()
-                {
-                    Some(config.tools.tts.settings.clone())
-                } else {
-                    None
+                    agent_id,
+                    name: config.name,
+                    description: config.description,
+                    provider: config.provider,
+                    model: config.model,
+                    system_prompt: config.system_prompt,
+                    thinking_depth: config.thinking_depth,
+                    checkpoint_threshold: config.checkpoint_threshold,
+                    max_tokens: config.max_tokens,
+                    context_window: config.context_window,
+                    shell: config.tools.shell,
+                    fetch: config.tools.fetch.enabled,
+                    http_client: config.tools.http_client.enabled,
+                    prompt_timeout: config.prompt_timeout.to_string(),
+                    dream_enabled: config.dream_enabled,
+                    dream_schedule: config.dream_schedule,
+                    dream_provider: config.dream_provider,
+                    dream_model: config.dream_model,
+                    tools_timeout: config.tools.timeout.to_string(),
+                    avatar_url: config.avatar_url,
+                    silent_read_initiative_chance: config.silent_read_initiative_chance,
+                    tts: config.tools.tts.enabled,
+                    tts_settings: if config.tools.tts.settings.provider
+                        != crate::schema::agent::TtsProvider::default()
+                        || config.tools.tts.settings.model.is_some()
+                        || config.tools.tts.settings.voice.is_some()
+                        || config.tools.tts.settings.speed.is_some()
+                    {
+                        Some(config.tools.tts.settings.clone())
+                    } else {
+                        None
+                    },
+                    stt: config.tools.stt.enabled,
+                    stt_settings: if config.tools.stt.settings.provider
+                        != crate::schema::agent::SttProvider::default()
+                        || config.tools.stt.settings.model.is_some()
+                        || config.tools.stt.settings.language.is_some()
+                    {
+                        Some(config.tools.stt.settings.clone())
+                    } else {
+                        None
+                    },
+                    read_image: config.tools.read_image.enabled,
+                    read_image_settings: if config.tools.read_image.settings.provider.is_some()
+                        || config.tools.read_image.settings.model.is_some()
+                    {
+                        Some(config.tools.read_image.settings.clone())
+                    } else {
+                        None
+                    },
+                    image_gen: config.tools.image_gen.enabled,
+                    image_gen_settings: if config.tools.image_gen.settings.provider
+                        != crate::schema::agent::ImageGenProvider::default()
+                        || config.tools.image_gen.settings.model.is_some()
+                        || config.tools.image_gen.settings.size.is_some()
+                    {
+                        Some(config.tools.image_gen.settings.clone())
+                    } else {
+                        None
+                    },
+                    embedding: config.embedding,
+                    indexer: config.indexer,
                 },
-                stt: config.tools.stt.enabled,
-                stt_settings: if config.tools.stt.settings.provider
-                    != crate::schema::agent::SttProvider::default()
-                    || config.tools.stt.settings.model.is_some()
-                    || config.tools.stt.settings.language.is_some()
-                {
-                    Some(config.tools.stt.settings.clone())
-                } else {
-                    None
-                },
-                read_image: config.tools.read_image.enabled,
-                read_image_settings: if config.tools.read_image.settings.provider.is_some()
-                    || config.tools.read_image.settings.model.is_some()
-                {
-                    Some(config.tools.read_image.settings.clone())
-                } else {
-                    None
-                },
-                image_gen: config.tools.image_gen.enabled,
-                image_gen_settings: if config.tools.image_gen.settings.provider
-                    != crate::schema::agent::ImageGenProvider::default()
-                    || config.tools.image_gen.settings.model.is_some()
-                    || config.tools.image_gen.settings.size.is_some()
-                {
-                    Some(config.tools.image_gen.settings.clone())
-                } else {
-                    None
-                },
-                embedding: config.embedding,
-                indexer: config.indexer,
-            },
-        )
+            )
         }
         Ok(None) => err_response(StatusCode::NOT_FOUND, "not found".into()),
         Err(e) => err_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string().into()),
@@ -541,10 +563,9 @@ impl CreateAgentRequest {
                 provider: EmbeddingProvider::Local,
                 model: "all_mini_lml6_v2".into(),
             })),
-            indexer: Some(
-                self.indexer
-                    .unwrap_or(IndexerConfig { kind: IndexerKind::Sqlite }),
-            ),
+            indexer: Some(self.indexer.unwrap_or(IndexerConfig {
+                kind: IndexerKind::Sqlite,
+            })),
             chunking: Default::default(),
             auto_context: Default::default(),
             completion_retry: Default::default(),
@@ -555,7 +576,8 @@ impl CreateAgentRequest {
 /// Settings that moved to Integrations (spec 016, FR-021): a body that still carries any is
 /// refused rather than silently ignored.
 const MOVED_TO_INTEGRATIONS: &[&str] = &["discord_token", "telegram_token"];
-const TOOLS_MOVED_TO_INTEGRATIONS: &[&str] = &["discord", "telegram", "brave_search", "mcp_servers"];
+const TOOLS_MOVED_TO_INTEGRATIONS: &[&str] =
+    &["discord", "telegram", "brave_search", "mcp_servers"];
 
 /// The moved fields `body` carries, as `tools.x` for those under `tools`.
 fn moved_fields(body: &serde_json::Value) -> Vec<String> {
@@ -577,7 +599,9 @@ fn moved_fields(body: &serde_json::Value) -> Vec<String> {
 
 /// The agent body, or the response refusing it: `422 moved_to_integrations` naming the moved
 /// fields, or `400` when it doesn't parse.
-fn parse_agent_body(body: serde_json::Value) -> Result<CreateAgentRequest, axum::response::Response> {
+fn parse_agent_body(
+    body: serde_json::Value,
+) -> Result<CreateAgentRequest, axum::response::Response> {
     use axum::response::IntoResponse;
     if body.get("self_management").is_some() {
         return Err(crate::channels::http::api::v1::integrations::fail(
@@ -661,7 +685,10 @@ async fn create_agent_parsed(
         if emb.model.trim().is_empty()
             && emb.provider != crate::schema::agent::EmbeddingProvider::Bedrock
         {
-            return err_response(StatusCode::BAD_REQUEST, "embedding.model is required".into());
+            return err_response(
+                StatusCode::BAD_REQUEST,
+                "embedding.model is required".into(),
+            );
         }
     }
 
@@ -686,9 +713,10 @@ async fn create_agent_parsed(
     }
 
     match resp_rx.await {
-        Ok(AgentCommandResult::Ok(summary)) => {
-            api_response(StatusCode::CREATED, saved_with_warnings(&state, &saved, summary).await)
-        }
+        Ok(AgentCommandResult::Ok(summary)) => api_response(
+            StatusCode::CREATED,
+            saved_with_warnings(&state, &saved, summary).await,
+        ),
         Ok(AgentCommandResult::Error(e)) => err_response(StatusCode::BAD_REQUEST, e),
         Err(_) => err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -718,7 +746,9 @@ async fn update_agent(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     match parse_agent_body(body) {
-        Ok(body) => update_agent_parsed(agent_id, state, user, body).await.into_response(),
+        Ok(body) => update_agent_parsed(agent_id, state, user, body)
+            .await
+            .into_response(),
         Err(refused) => refused,
     }
 }
@@ -735,7 +765,10 @@ async fn update_agent_parsed(
         if emb.model.trim().is_empty()
             && emb.provider != crate::schema::agent::EmbeddingProvider::Bedrock
         {
-            return err_response(StatusCode::BAD_REQUEST, "embedding.model is required".into());
+            return err_response(
+                StatusCode::BAD_REQUEST,
+                "embedding.model is required".into(),
+            );
         }
     }
 
@@ -772,9 +805,10 @@ async fn update_agent_parsed(
     }
 
     match resp_rx.await {
-        Ok(AgentCommandResult::Ok(summary)) => {
-            api_response(StatusCode::OK, saved_with_warnings(&state, &saved, summary).await)
-        }
+        Ok(AgentCommandResult::Ok(summary)) => api_response(
+            StatusCode::OK,
+            saved_with_warnings(&state, &saved, summary).await,
+        ),
         Ok(AgentCommandResult::Error(e)) => err_response(StatusCode::BAD_REQUEST, e),
         Err(_) => err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -806,8 +840,11 @@ async fn delete_agent(
     State(state): State<HTTPState>,
     Extension(user): Extension<crate::channels::http::auth::AuthenticatedUser>,
 ) -> models::response::Response<String> {
-    let can_delete_all = user.role.is_system || user.permissions.contains(&"all_agents:delete".to_string());
-    let can_delete_owned = user.permissions.contains(&"owned_agents:delete".to_string());
+    let can_delete_all =
+        user.role.is_system || user.permissions.contains(&"all_agents:delete".to_string());
+    let can_delete_owned = user
+        .permissions
+        .contains(&"owned_agents:delete".to_string());
 
     // Check permission
     if !can_delete_all {
@@ -879,10 +916,16 @@ pub(crate) async fn restart_agent(
     let (resp, rx) = tokio::sync::oneshot::channel();
     if let Err(e) = state
         .transport
-        .send_agent_command(AgentCommand::Restart { agent_id: agent_id.clone(), resp })
+        .send_agent_command(AgentCommand::Restart {
+            agent_id: agent_id.clone(),
+            resp,
+        })
         .await
     {
-        return err_response(StatusCode::INTERNAL_SERVER_ERROR, format!("failed to send command: {e}"));
+        return err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to send command: {e}"),
+        );
     }
     match rx.await {
         Ok(AgentCommandResult::Ok(_)) => {}
@@ -891,7 +934,10 @@ pub(crate) async fn restart_agent(
         }
         Ok(AgentCommandResult::Error(e)) => return err_response(StatusCode::BAD_REQUEST, e),
         Err(_) => {
-            return err_response(StatusCode::INTERNAL_SERVER_ERROR, "agent manager unavailable".into());
+            return err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "agent manager unavailable".into(),
+            );
         }
     }
 
@@ -941,7 +987,11 @@ fn usage_query(
     use crate::channels::http::api::v1::integrations::fail;
     let parse = |s: &str| DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&Utc));
     let bad_range = |message: &str| {
-        fail(StatusCode::BAD_REQUEST, message, serde_json::json!({"error": "invalid_range"}))
+        fail(
+            StatusCode::BAD_REQUEST,
+            message,
+            serde_json::json!({"error": "invalid_range"}),
+        )
     };
 
     let end = match end_date {
@@ -959,13 +1009,16 @@ fn usage_query(
         return Err(bad_range("the range is longer than 366 days"));
     }
     let activity = match activity.filter(|a| !a.is_empty()) {
-        Some(a) => Some(a.parse::<crate::schema::usage::UsageActivity>().map_err(|_| {
-            fail(
-                StatusCode::BAD_REQUEST,
-                format!("unknown activity '{a}'"),
-                serde_json::json!({"error": "unknown_activity"}),
-            )
-        })?),
+        Some(a) => Some(
+            a.parse::<crate::schema::usage::UsageActivity>()
+                .map_err(|_| {
+                    fail(
+                        StatusCode::BAD_REQUEST,
+                        format!("unknown activity '{a}'"),
+                        serde_json::json!({"error": "unknown_activity"}),
+                    )
+                })?,
+        ),
         None => None,
     };
     Ok(crate::storage::usage::UsageQuery {
@@ -998,7 +1051,8 @@ async fn agent_usage(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     if !state.is_agent_exists(&agent_id).await {
-        return err_response::<String>(StatusCode::NOT_FOUND, "agent not found".into()).into_response();
+        return err_response::<String>(StatusCode::NOT_FOUND, "agent not found".into())
+            .into_response();
     }
     let q = match usage_query(
         &agent_id,
@@ -1009,9 +1063,18 @@ async fn agent_usage(
         Ok(q) => q,
         Err(refused) => return refused,
     };
-    match crate::usage::build_report(&state.storage, &state.catalogue, &state.deps.integration_kinds, q).await {
+    match crate::usage::build_report(
+        &state.storage,
+        &state.catalogue,
+        &state.deps.integration_kinds,
+        q,
+    )
+    .await
+    {
         Ok(report) => api_response(StatusCode::OK, report).into_response(),
-        Err(e) => err_response::<String>(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => {
+            err_response::<String>(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     }
 }
 
@@ -1038,7 +1101,8 @@ async fn agent_usage_conversation(
 
     use crate::channels::http::api::v1::integrations::fail;
     if !state.is_agent_exists(&agent_id).await {
-        return err_response::<String>(StatusCode::NOT_FOUND, "agent not found".into()).into_response();
+        return err_response::<String>(StatusCode::NOT_FOUND, "agent not found".into())
+            .into_response();
     }
     let Some(channel) = params.channel.filter(|c| !c.is_empty()) else {
         return fail(
@@ -1065,9 +1129,19 @@ async fn agent_usage_conversation(
         Err(refused) => return refused,
     };
     q.conversation = Some((channel, params.topic.filter(|t| !t.is_empty())));
-    match crate::usage::conversation_usage(&state.storage, &state.catalogue, &state.deps.integration_kinds, q, limit).await {
+    match crate::usage::conversation_usage(
+        &state.storage,
+        &state.catalogue,
+        &state.deps.integration_kinds,
+        q,
+        limit,
+    )
+    .await
+    {
         Ok(usage) => api_response(StatusCode::OK, usage).into_response(),
-        Err(e) => err_response::<String>(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => {
+            err_response::<String>(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     }
 }
 
@@ -1278,6 +1352,23 @@ async fn agent_chat(
         Some(body.topic_id.clone()),
     );
 
+    // A request attachment is a person's upload. Artifact references are created only by the
+    // agent/tool response path, so a client cannot ask agent A to read agent B's artifact by id
+    // (`specs/035-add-artifacts` T060).
+    if body.attachments.as_ref().is_some_and(|list| {
+        list.iter().any(|attachment| {
+            matches!(
+                attachment.content,
+                crate::schema::VizierAttachmentContent::Artifact { .. }
+            )
+        })
+    }) {
+        return err_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "request attachments must be uploads; artifact references are created by the agent"
+                .into(),
+        );
+    }
     let mut attachments = body.attachments.unwrap_or_default();
     for attachment in attachments.iter_mut() {
         match transport.send_file_resolve(attachment.clone()).await {
@@ -1362,4 +1453,3 @@ async fn agent_chat(
         Err(_) => err_response(StatusCode::REQUEST_TIMEOUT, "Agent response timeout".into()),
     }
 }
-
