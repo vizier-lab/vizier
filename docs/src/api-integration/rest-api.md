@@ -82,6 +82,7 @@ All agent routes require auth. Visibility: owner, users in `shared_to`, or `all_
 | `DELETE` | `/agents/{id}/secrets/{name}` | Delete one secret; `404` when absent |
 | `GET` | `/agents/{id}/secrets/events?limit=20` | Secret change log (no values) |
 | `POST` | `/agents/{id}/chat` | **Synchronous chat** (see below) |
+| `POST` | `/agents/{id}/btw` | **Side chat**: one off-the-record question, never saved (see below) |
 
 ### Synchronous chat
 
@@ -97,6 +98,45 @@ POST /api/v1/agents/{id}/chat
 ```
 
 Blocks until the agent's final message. The session is `(agent, HTTP(username, channel_id), topic_id)` — the same sessions the WebSocket uses, so history is shared. Attachment `content` is one of `{ "url": "…" }`, `{ "base64": "…" }`, `{ "bytes": [..] }`, or `{ "local": "/api/v1/files/<id>" }` (from an upload).
+
+### Side chat
+
+```http
+POST /api/v1/agents/{id}/btw
+{
+  "channel_id": "vizier-webui",
+  "topic_id": "k3j9xq0a2b",
+  "question": "Is the plan you just gave realistic for a team of two?",
+  "turns": [ { "question": "What did you mean by 'phase two'?", "answer": "The migration of …" } ]
+}
+→ { "data": { "answer": "For two people it's tight but doable if …", "stats": { "model": "…", "input_tokens": 1234, … } } }
+```
+
+Asks the agent one side question beside one of **your own** conversations, and returns the answer. The session is `(agent, HTTP(username, channel_id), topic_id)`, so a caller can only ask beside their own conversations; the topic need not exist, and a side chat never creates it.
+
+| Field | Rules |
+|-------|-------|
+| `question` | Trimmed; 1–4,000 characters |
+| `turns` | Optional. The earlier turns of this side chat, oldest first, carried by the client: the server keeps none. Every `turns` entry plus `question` totals at most 32,000 characters |
+
+| Status | Meaning |
+|--------|---------|
+| `403` | You cannot view the agent |
+| `404` | No such agent |
+| `408` | No answer within the agent's `prompt_timeout` |
+| `422` | Invalid: empty or over-long question, or the side chat is full (start a new one) |
+| `429` | More than 5 side-chat questions in 60 seconds for this user; carries `Retry-After` |
+| `500` / `503` | The agent answered with an error, or its response channel closed (`503` when the agent is unavailable) |
+
+A rejected request is refused before anything reaches the agent, so it costs no tokens.
+
+Guarantees:
+
+- **Nothing is saved.** No history entry, no title or topic, no turn record, no scratchpad, memory or notification, and the response has no history id. The only record is one usage row per answered call.
+- **No tools.** The model is offered none, and any tool call it makes anyway is dropped: the answer is then a fixed "I can't use tools in a side chat" notice.
+- **The agent answers as itself**: same system prompt, CORE.md, owner profile and model as the conversation, and it sees the conversation as its next turn would, then `turns`, then `question`.
+- **Not resumable.** A restart mid-answer fails the request; ask again.
+- It queues behind a turn already running in the same conversation, like any message.
 
 ### Version history (CORE and memories)
 
