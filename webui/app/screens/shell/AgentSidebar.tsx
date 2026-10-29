@@ -38,11 +38,18 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
     const [query, setQuery] = useState('')
     const [switching, setSwitching] = useState(false)
     const [shown, setShown] = useState(SESSIONS_STEP)
+    const [sessionQuery, setSessionQuery] = useState('')
+    // The server searches; it is asked once typing pauses.
+    const [sessionSearch, setSessionSearch] = useState('')
+    useEffect(() => {
+        const id = setTimeout(() => setSessionSearch(sessionQuery.trim()), 250)
+        return () => clearTimeout(id)
+    }, [sessionQuery])
 
     const agent = agents.find((a) => a.agent_id === agentId)
     const state = agent ? agentState(health[agentId]) : 'stopped'
     const page = pageOf(pathname)
-    const { items, total } = useSessions(agentId, pathname, shown)
+    const { items, total } = useSessions(agentId, pathname, shown, sessionSearch)
 
     const turns = useTurns((s) => s.topics)
     const isLive = (topic: string) => (turns[topicKey(agentId, topic)]?.phase ?? 'idle') !== 'idle'
@@ -72,7 +79,8 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
 
     const newConversation = () => navigate(`/${agentId}/chat/${nanoid(10)}`)
 
-    useEffect(() => setShown(SESSIONS_STEP), [agentId])
+    useEffect(() => setShown(SESSIONS_STEP), [agentId, sessionSearch])
+    useEffect(() => setSessionQuery(''), [agentId])
 
     // Ctrl K (or ⌘K) opens the list of agents to switch to.
     useEffect(() => {
@@ -152,6 +160,8 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
             <SessionList
                 groups={groups}
                 onNew={newConversation}
+                search={{ value: sessionQuery, onChange: setSessionQuery }}
+                empty={sessionSearch ? 'No conversation matched.' : undefined}
                 showAll={
                     total > items.length
                         ? { label: 'Show more', onSelect: () => setShown((n) => n + SESSIONS_STEP) }
