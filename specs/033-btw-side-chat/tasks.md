@@ -25,7 +25,7 @@ description: "Task list for /btw Ephemeral Side-Chat"
 
 **Purpose**: Module skeletons and shared constants, so later tasks only fill in bodies
 
-- [ ] T001 Create `src/channels/side_chat.rs` with module docs pointing at `specs/033-btw-side-chat/` and constants `MAX_EXCHANGE_TURNS = 8`, `MAX_QUESTION_CHARS = 4_000`, `MAX_ANSWER_CHARS = 16_000`, `ASKS_PER_WINDOW = 5`, `ASK_WINDOW = 60 s`; register `pub mod side_chat;` in `src/channels/mod.rs`
+- [ ] T001 Create `src/channels/side_chat.rs` with module docs pointing at `specs/033-btw-side-chat/` and constants `MAX_SIDE_CHAT_CHARS = 32_000`, `MAX_QUESTION_CHARS = 4_000`, `ASKS_PER_WINDOW = 5`, `ASK_WINDOW = 60 s`; register `pub mod side_chat;` in `src/channels/mod.rs`
 - [ ] T002 [P] Create `src/agents/agent/system_prompt/side_chat.rs` with `SIDE_CHAT_MD` (the `## Side Chat` section text) and `SIDE_CHAT_NO_TOOLS` (the fixed reply), worded exactly as in `contracts/agent-side-chat.md`; register it in `src/agents/agent/system_prompt/mod.rs`
 - [ ] T003 [P] Create an empty `src/agents/agent/side_chat.rs` (`impl VizierAgent {}` block, module docs) and add `mod side_chat;` in `src/agents/agent/mod.rs`
 
@@ -78,18 +78,17 @@ description: "Task list for /btw Ephemeral Side-Chat"
 - [ ] T012 Implement in `src/channels/side_chat.rs`:
   - `PersonKey` constructors: `http(username)`, `discord(id)`, `telegram(id)`.
   - `SideChatError { RateLimited { retry_after_secs }, Invalid(String), Timeout, Agent { kind, message } }`, with `user_message()`.
-  - `fn validate(&SideChat) -> Result<(), SideChatError>`, enforcing the data-model limits. A 10th question (9 earlier turns) is refused with "side chat is full — start a new one".
+  - `fn validate(&SideChat) -> Result<(), SideChatError>`, enforcing the data-model limits: each question 1–4,000 characters, and every earlier question and answer plus the new question at most 32,000 characters (`chars().count()`). Over the budget is refused with "This side chat is full — start a new one".
   - `pub async fn ask(deps: &VizierDependencies, session: VizierSession, person: &PersonKey, user: String, side_chat: SideChat, timeout: Duration) -> Result<SideChatAnswer { answer, stats }, SideChatError>`. It validates, checks `deps.side_chat_limits` (refusing before sending), builds the request with `transient: true` and no attachments, sends it via `deps.transport.send_request`, then awaits the first `Message`/`Error`/`Abort` or a closed channel under `timeout`.
   - `retry_after_secs` is derived from `ASK_WINDOW`. Add a `RateLimiter::retry_after(key)` helper in `src/channels/http/rate_limit.rs` only if the window start is needed; otherwise report the full window.
 - [ ] T013 Unit tests in `src/channels/side_chat.rs`:
-  - Empty and over-long questions, 9 earlier turns and over-long answers are `Invalid`.
-  - 8 earlier turns are valid.
+  - Empty and over-long questions are `Invalid`; a side chat totalling exactly 32,000 characters is valid and 32,001 is `Invalid`; 20 short turns are valid.
   - The 6th ask in a window is `RateLimited` and nothing is sent; use a transport with no registered agent so a send would fail with a different error.
 
 ### Exchange store for channels without a client (Discord, Telegram)
 
 - [ ] T014 Implement `SideChats` in `src/channels/side_chat.rs`:
-  - Types: `Lifetime { idle, max: Option<Duration> }`, `ExchangeId` (nanoid 10), `LiveExchange { id, person, session, turns, started_at, last_active, posted: Vec<P> }`, generic over the platform's posted-message type `P`.
+  - Types: `Lifetime { idle }`, `ExchangeId` (nanoid 10), `LiveExchange { id, person, session, turns, last_active, posted: Vec<P> }`, generic over the platform's posted-message type `P`.
   - Methods:
     - `start(person, session) -> ExchangeId`
     - `get_for(id, person) -> Option<(VizierSession, Vec<SideChatTurn>)>` (refuses another person's exchange)
@@ -98,9 +97,10 @@ description: "Task list for /btw Ephemeral Side-Chat"
     - `add_posted(id, P)`
     - `sweep(now) -> Vec<LiveExchange<P>>` (removes and returns ended exchanges)
     - `owner_of(posted: &P) -> Option<(ExchangeId, PersonKey)>`, for recognising replies to a live exchange's messages
-    - `spawn_sweeper(self: Arc<Self>, every: Duration, on_end: F) -> JoinHandle<()>`, where `F: Fn(LiveExchange<P>) -> impl Future<Output = ()>`. It owns the interval, the `sweep` call and the loop over ended exchanges, so Discord and Telegram supply only their delete call (research R11, Principle II).
+    - `classify_reply(owner: Option<(ExchangeId, PersonKey)>, from: &PersonKey, is_side_chat_message: bool) -> ReplyKind { FollowUp(ExchangeId), Ignore, Ended, NotSideChat }`, a pure function both readers use (research R11). `is_side_chat_message` is the platform's check once no live aside owns the message: Telegram's ledger, Discord's marker line.
+    - `spawn_sweeper(self: Arc<Self>, every: Duration, on_end: F) -> JoinHandle<()>`, where `F: Fn(LiveExchange<P>) -> impl Future<Output = ()>`. It owns the interval, the `sweep` call and the loop over ended exchanges, so Discord and Telegram supply only their `on_end` (Telegram deletes; Discord only forgets) (research R11, Principle II).
   - It's in memory only, behind a `std::sync::Mutex`, and never written to storage.
-- [ ] T015 Unit tests for `SideChats` in `src/channels/side_chat.rs`: idle expiry, max-age expiry with idle activity, another person's id refused, an unknown or ended id gives `None`, `owner_of` finds a posted message, and `spawn_sweeper` calls `on_end` once per ended exchange (tokio paused time)
+- [ ] T015 Unit tests for `SideChats` in `src/channels/side_chat.rs`: idle expiry, every `classify_reply` branch, another person's id refused, an unknown or ended id gives `None`, `owner_of` finds a posted message, and `spawn_sweeper` calls `on_end` once per ended exchange (tokio paused time)
 
 **Checkpoint**: A `Btw` request sent on the transport is answered with no trace. Every channel can now call `side_chat::ask`.
 
@@ -128,16 +128,16 @@ description: "Task list for /btw Ephemeral Side-Chat"
 
 - [ ] T019 [P] [US1] Add `askSideChat(agentId, { channel_id, topic_id, question, turns })` to `webui/app/api/endpoints/chat.ts`. It uses the typed `request` client and returns the answer or a typed error that carries the status, message and `Retry-After`.
 - [ ] T020 [P] [US1] Create `webui/app/lib/sideChat.ts`:
-  - A pure exchange reducer with turns, pending question, per-turn error, and `full` at 9 questions.
+  - A pure exchange reducer with turns, pending question, per-turn error, the characters used, and `full` once no question fits in the 32,000-character budget.
   - Actions `ask`/`answered`/`failed`/`retry`/`reset`.
   - `toTurns(state)` for the request.
   - An error mapper: 429 becomes "Slow down — try again in {n}s", 422 shows its message, 408/5xx/network failures become a retryable error.
-  - Add `webui/app/lib/sideChat.test.ts` (vitest) covering the reducer, the 9-question limit and the error mapping.
+  - Add `webui/app/lib/sideChat.test.ts` (vitest) covering the reducer, the character budget and the error mapping.
 - [ ] T021 [US1] Create `webui/app/screens/chat/SideChatPanel.tsx` (depends on T019, T020):
   - Use the `@vizier/design` `SlideOver` titled "Side chat".
   - Show the agent name and the model read-only, plus the muted line "Not saved — closing this panel discards it."
   - Render answers as Markdown with `AgentReply`, show a working indicator while pending, and give an inline error a **Retry** action.
-  - Add a compact composer that's disabled when the exchange is full.
+  - Add a compact composer that's shows the characters left, refuses a question that doesn't fit, and is disabled when the side chat is full.
   - If opened with an initial question, ask it at once.
   - Keep state in `useReducer` only (no store, no storage). It's discarded on close and unmount.
   - Give each ask an `AbortController` and abort it on close, unmount, and when the conversation changes. A result that arrives after that is ignored, so a late answer can never appear in a reopened panel. The server still finishes that answer and records its usage; nothing else is kept.
@@ -151,24 +151,21 @@ description: "Task list for /btw Ephemeral Side-Chat"
 
 ## Phase 4: User Story 2 - Ask a quick off-the-record question on Discord (Priority: P2)
 
-**Goal**: `/btw message:<text>` answers ephemerally. **Follow up** opens a modal for more turns. The exchange's messages are deleted after 5 minutes idle or 14 minutes total.
+**Goal**: `/btw message:<text>` answers publicly in the channel; replying to an answer follows up. The agent keeps no record, and the messages stay in the channel.
 
-**Independent Test**: [quickstart.md](quickstart.md) §10 (LIVE): only the invoker sees the question and answers, and so do follow-ups. Two people at once each see only their own. After expiry the messages are gone, and a late **Follow up** says the side chat ended. The channel's history has no trace.
+**Independent Test**: [quickstart.md](quickstart.md) §10 (LIVE): the answer carries the marker line, the starter's reply is a follow-up, another person's reply is ignored, a reply after 5 minutes idle or a restart gets "This side chat has ended", and the channel's history holds none of it.
 
-- [ ] T025 [US2] Add `CommandEntry::new("btw", "ask me a side question only you can see; never saved")` with a required `message` option to `builtin_commands()` in `src/channels/discord/mod.rs`. Add `/btw` to the `/help` text.
-- [ ] T026 [US2] Add a `side_chats: Arc<SideChats<DiscordPosted>>` field to the Discord reader in `src/channels/discord/mod.rs`, where `DiscordPosted { token, message_id: Option<Id<MessageMarker>> }`. Use `Lifetime { idle: 5 min, max: Some(14 min) }`. Start it with `side_chats.spawn_sweeper(15 s, on_end)` (T014), where `on_end` deletes the ended exchange's messages through `http.interaction(app_id).delete_response(token)` / `delete_followup(token, id)`. Abort the handle when the reader stops. The deletes are best-effort and logged at `debug`.
-- [ ] T027 [US2] Implement `async fn side_chat(&self, interaction, channel, question, continuing: Option<ExchangeId>)` in `src/channels/discord/mod.rs`:
-  1. Respond `DeferredChannelMessageWithSource` with `MessageFlags::EPHEMERAL`.
-  2. Resolve the host session from `load_state(&channel).active_topic`.
-  3. Use the user string the way `run_skill_command` builds it, and `PersonKey::discord(author id)`.
-  4. Start a new exchange or continue one (`get_for`). An unknown, ended or someone-else's id gets an ephemeral "This side chat has ended — start a new one with /btw."
-  5. Call `side_chat::ask` with the agent's `prompt_timeout` (from storage).
-  6. Edit the response to the notice line (first answer only) plus the answer, split at 2,000 characters, with the remaining chunks as ephemeral `create_followup`. Put a **Follow up** button (`custom_id = "btw:{id}"`) on the last chunk.
-  7. Record the turn and every posted message. Errors are rendered as `**{kind label}**: {message}` or the slow-down text, and they're tracked for deletion too.
-- [ ] T028 [US2] Route `/btw` in `interaction()`'s command match in `src/channels/discord/mod.rs` to `side_chat(.., new exchange)`. Extend `interaction()` to handle:
-  - `InteractionData::MessageComponent` with a `btw:` custom id: reply with an `InteractionResponseType::Modal` "Side chat follow-up" holding one paragraph `TextInput` (max 4,000, `custom_id = "btw:{id}"`).
-  - `InteractionData::ModalSubmit` with a `btw:` id: call `side_chat(.., Some(id))` with the input's value.
-  - Everything else keeps the existing early return.
+- [ ] T025 [US2] Add `CommandEntry::new("btw", "ask me a side question; public, not remembered")` with a required `message` option to `builtin_commands()` in `src/channels/discord/mod.rs`. Add `/btw` to the `/help` text.
+- [ ] T026 [US2] Add a `side_chats: Arc<SideChats<DiscordPosted>>` field to the Discord reader in `src/channels/discord/mod.rs`, where `DiscordPosted { channel_id, message_id }` and the lifetime is `Lifetime { idle: 5 min }`. Start it with `side_chats.spawn_sweeper(15 s, on_end)` (T014), where `on_end` does nothing but let the aside go (messages stay). Abort the handle when the reader stops. Add the marker constant `SIDE_CHAT_MARKER = "-# 🤫 side chat — visible to everyone, not remembered · reply to follow up"`.
+- [ ] T027 [US2] Implement `async fn side_chat(&self, channel, person, user, question, continuing: Option<ExchangeId>, reply_to)` in `src/channels/discord/mod.rs`:
+  1. Resolve the host session from `load_state(&channel).active_topic`; use `PersonKey::discord(author id)` and the user string the way `run_skill_command` builds it.
+  2. Start a new aside or continue `continuing`.
+  3. Call `side_chat::ask` with the agent's `prompt_timeout` (from storage).
+  4. Post the answer (or `**{kind label}**: {message}`, or "This side chat is full — start a new one with /btw.") split at 2,000 characters, **every chunk starting with `SIDE_CHAT_MARKER`**. For a `/btw` command, edit the public deferred response, sending further chunks with `create_followup`. For a follow-up, reply to the person's message.
+  5. Record the turn and every posted message id (`add_posted`, read the original response's id with `get_response`).
+- [ ] T028 [US2] Wire it in `src/channels/discord/mod.rs`:
+  - In `interaction()`'s command match, `/btw` responds `DeferredChannelMessageWithSource` **without** `EPHEMERAL`, then calls `side_chat(.., None, ..)`. A rate-limited `/btw` instead gets an ephemeral "Slow down — try again in {n}s." response.
+  - At the top of `message()`, after the own-bot check and **before** the text `/abort` shortcut and `Chat`/`SilentRead` handling, when `msg.referenced_message` was written by the bot, run `classify_reply` (owner from `owner_of`, `is_side_chat_message` = its content starts with `SIDE_CHAT_MARKER`): `FollowUp` → `side_chat(.., Some(id), msg)`; `Ignore` → return; `Ended` → reply "This side chat has ended — start a new one with /btw." with the marker, then return; `NotSideChat` → carry on.
 
 **Checkpoint**: User Stories 1 and 2 both work independently.
 
@@ -197,7 +194,7 @@ description: "Task list for /btw Ephemeral Side-Chat"
   - Start it with `side_chats.spawn_sweeper(15 s, on_end)` (T014), where `on_end` calls `delete_message` on every posted message of the ended exchange and then `clear`s the ledger. Abort the handle when the reader stops. Deletes are best-effort, and a refusal is logged at `debug`.
   - At reader start, `prune` the ledger, delete its due items, and re-arm the rest with a one-shot timer each.
 - [ ] T032 [US3] At the top of `handle_message` in `src/channels/telegram/mod.rs`, before the `new`/`session`/`abort`/`checkpoint` commands and before skill/`Chat`/`SilentRead` parsing (research R13 item 3):
-  1. If `msg.reply_to_message()` is one of the bot's own messages, classify it. First match wins, and **none of these branches ever reaches `Chat`/`SilentRead`**:
+  1. If `msg.reply_to_message()` is one of the bot's own messages, classify it with `classify_reply` (T014; `is_side_chat_message` = ledger `holds`). **None of these branches ever reaches `Chat`/`SilentRead`**:
      - **Owned by a live exchange (`owner_of`), from that exchange's person** → a follow-up; continue at step 3.
      - **Owned by a live exchange, from someone else** → no answer; add the message to that exchange's `posted` and the ledger; `return Ok(())`.
      - **On the ledger (`holds`) with no live exchange** (the gap before the sweep, or after a restart) → reply "This side chat has ended — start a new one with /btw.", then `merge` both the reply and the person's message into the ledger with the old deadline (or now + 2 min if it has passed); `return Ok(())`.
@@ -217,7 +214,7 @@ description: "Task list for /btw Ephemeral Side-Chat"
 
 **Purpose**: Docs, verification gates, and the constitution's e2e check
 
-- [ ] T033 [P] Document `/btw` for the WebUI, Discord and Telegram in `docs/src/configuration/channels.md`: the privacy model per channel, the timings (5/14 min Discord, 2 min Telegram), the Telegram admin right for deleting people's messages, the rate limit, the limit of 9 questions, and that usage is still counted
+- [ ] T033 [P] Document `/btw` for the WebUI, Discord and Telegram in `docs/src/configuration/channels.md`: the privacy model per channel, that Discord asides are public and stay in the channel, the timings (5 min idle Discord, 2 min Telegram), the Telegram admin right for deleting people's messages, the rate limit, the 32,000-character budget, and that usage is still counted
 - [ ] T034 [P] Document `POST /agents/{agent_id}/btw` (request, responses, guarantees) in `docs/src/api-integration/rest-api.md`, following `contracts/http-btw.md`
 - [ ] T035 [P] Add a side-chat note to `docs/src/configuration/observability.md`: spans carry `vizier.request.kind = "btw"`, and message content is exported only under the operator's existing content-capture opt-in (research R15)
 - [ ] T036 [P] Add a `/btw` paragraph to the Agents section of `CLAUDE.md` (dispatch beside checkpoint/lobotomy, `is_side_chat` skips, `channels/side_chat.rs`, the Telegram ledger), matching the density of the neighbouring paragraphs
