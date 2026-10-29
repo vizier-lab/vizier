@@ -12,7 +12,7 @@ export type ShellFrameProps = {
   children: ReactNode;
 };
 
-const SIDEBAR = 208;
+const SIDEBAR = 256;
 
 /**
  * The app frame: the rail and the context sidebar sit on the shell, and the page is a panel inset
@@ -34,7 +34,7 @@ export function ShellFrame({ rail, sidebar, sidebarKey = "sidebar", children }: 
           >
             <motion.div
               key={sidebarKey}
-              className="h-full w-208"
+              className="h-full w-256"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1, transition: { duration: motionDurations.base } }}
             >

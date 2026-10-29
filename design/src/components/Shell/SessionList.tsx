@@ -85,7 +85,7 @@ export function SessionList({ groups, onNew, newLabel = "New session", showAll, 
                             transition={EASE}
                           />
                         )}
-                        <span className={cx("relative min-w-0 flex-1 truncate type-body", s.active && "type-body-medium")}>{s.title}</span>
+                        <span className={cx("relative min-w-0 flex-1 truncate type-ui", s.active && "type-ui-medium")}>{s.title}</span>
                         {s.live && <span role="img" aria-label="a turn is running" className="relative size-6 shrink-0 rounded-pill bg-live" />}
                         <span className={cx("relative shrink-0 type-mono-xs", s.live ? "text-live-text" : "text-faint")}>{s.time}</span>
                       </a>

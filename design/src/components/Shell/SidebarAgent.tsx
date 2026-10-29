@@ -33,7 +33,7 @@ export function SidebarAgent({ agentId, name, description, state, detail, active
       )}
       {...rest}
     >
-      <Sigil agentId={agentId} live={state === "live" || state === "running"} />
+      <Sigil size="card" agentId={agentId} live={state === "live" || state === "running"} />
       <span className="flex min-w-0 flex-1 flex-col gap-2">
         <span className="truncate type-body-strong text-fg">{name}</span>
         {description && <span className="truncate type-small text-muted">{description}</span>}

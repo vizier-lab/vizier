@@ -83,7 +83,7 @@ export function AgentMenu({
               animate={{ opacity: 1, scale: 1, y: 0, transition: { duration: motionDurations.base, ease: motionEases.arrive } }}
               exit={{ opacity: 0, scale: 0.98, transition: { duration: motionDurations.fast, ease: motionEases.standard } }}
             >
-              <Menu aria-label="Agent pages" className="w-208">
+              <Menu aria-label="Agent pages" className="w-256">
                 {groups.map((g, i) => (
                   <div key={g.label} role="group" aria-label={g.label} className="flex flex-col">
                     <div aria-hidden className={cx("px-8 pb-2 type-label uppercase text-faint", i === 0 ? "pt-6" : "pt-10")}>

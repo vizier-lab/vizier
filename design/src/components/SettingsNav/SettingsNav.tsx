@@ -35,7 +35,7 @@ export type SettingsNavProps = {
 /** The Settings rail (D6). */
 export function SettingsNav({ active, hrefFor, showAdministration = true, className, ...rest }: SettingsNavProps) {
   return (
-    <nav aria-label="Settings" className={cx("flex h-full w-208 shrink-0 flex-col gap-4 bg-shell px-10 pt-12", className)} {...rest}>
+    <nav aria-label="Settings" className={cx("flex h-full w-256 shrink-0 flex-col gap-4 bg-shell px-10 pt-12", className)} {...rest}>
       <h2 className="flex h-52 items-center px-14 type-title text-fg">Settings</h2>
       {GROUPS.filter((g) => showAdministration || g.label !== "Administration").map((g) => (
         <NavSection key={g.label} label={g.label}>
