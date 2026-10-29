@@ -181,6 +181,7 @@ export function Rail({
       </ul>
       <RailButton icon="theme" label="Theme" onSelect={onToggleTheme} />
       <RailButton icon="settings" label="Settings" href={settingsHref} active={settingsActive} />
+      <span aria-hidden className="h-px w-22 bg-border" />
       {user}
     </nav>
   );
