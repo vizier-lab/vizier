@@ -8,6 +8,7 @@ import type { IconName } from "../../icons/map";
 import { cx } from "../../lib/cx";
 import { motionDurations, motionEases } from "../../tokens/tokens";
 import type { AgentState } from "../Status/Status";
+import { StatusDot } from "./StatusDot";
 
 export type RailAgent = {
   agentId: string;
@@ -37,15 +38,6 @@ export type RailProps = {
   user: ReactNode;
 } & HTMLAttributes<HTMLElement>;
 
-/** The corner dot: live and running are emerald, a failing agent amber or red, the rest grey. */
-const DOT: Record<AgentState, string> = {
-  live: "bg-live",
-  running: "bg-live",
-  starting: "bg-muted",
-  retrying: "bg-retrying",
-  failed: "bg-failed",
-  stopped: "bg-unlit",
-};
 
 
 /**
@@ -170,7 +162,7 @@ export function Rail({
     >
       <Sigil size="rail" agentId={a.agentId} image={a.imageSrc} live={a.state === "live" || a.state === "running"} />
       {/* The pattern's own signal dot is too small to read at this size, so the state sits in the corner. */}
-      <span aria-hidden className={cx("absolute -right-3 -bottom-3 size-10 rounded-pill border-2 border-shell", DOT[a.state])} />
+      <StatusDot state={a.state} />
     </RailLink>
   );
   return (
