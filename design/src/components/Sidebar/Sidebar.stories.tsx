@@ -4,7 +4,7 @@ import { AgentSwitcher } from "../AgentSwitcher/AgentSwitcher";
 import { UserMenu } from "../UserMenu/UserMenu";
 import { Sidebar, type SidebarPage } from "./Sidebar";
 
-const PAGES: SidebarPage[] = ["home", "chat", "core", "memory", "tasks", "skills", "dreams", "channels", "addons", "mcp", "secrets", "usage", "config", "settings"];
+const PAGES: SidebarPage[] = ["home", "chat", "core", "memory", "artifacts", "tasks", "skills", "dreams", "channels", "addons", "mcp", "secrets", "usage", "config", "settings"];
 
 const meta = {
   title: "Components/Shell/Sidebar",
@@ -70,7 +70,7 @@ export const WithoutSecrets: Story = {
   },
 };
 
-const AGENT_PAGES: SidebarPage[] = ["chat", "core", "memory", "tasks", "skills", "dreams", "channels", "addons", "mcp", "usage", "config"];
+const AGENT_PAGES: SidebarPage[] = ["chat", "core", "memory", "artifacts", "tasks", "skills", "dreams", "channels", "addons", "mcp", "usage", "config"];
 
 /** No agent chosen yet: the agent's pages stay in place, greyed, and lead nowhere. */
 export const NoAgent: Story = {

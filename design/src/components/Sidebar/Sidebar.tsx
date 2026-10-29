@@ -6,7 +6,7 @@ import { NavSection } from "../NavSection/NavSection";
 import { Tooltip } from "../Tooltip/Tooltip";
 
 export type SidebarPage =
-  | "home" | "chat" | "core" | "memory" | "tasks" | "skills" | "dreams"
+  | "home" | "chat" | "core" | "memory" | "artifacts" | "tasks" | "skills" | "dreams"
   | "channels" | "addons" | "mcp" | "secrets" | "usage" | "config" | "settings";
 
 const GROUPS: { label?: string; pages: { page: SidebarPage; label: string; icon: IconName }[] }[] = [
@@ -16,6 +16,7 @@ const GROUPS: { label?: string; pages: { page: SidebarPage; label: string; icon:
       { page: "chat", label: "Chat", icon: "chat" },
       { page: "core", label: "Core", icon: "core" },
       { page: "memory", label: "Memory", icon: "memory" },
+      { page: "artifacts", label: "Artifacts", icon: "folder" },
       { page: "tasks", label: "Tasks", icon: "tasks" },
       { page: "skills", label: "Skills", icon: "skills" },
       { page: "dreams", label: "Dreams", icon: "dreams" },
