@@ -1,9 +1,11 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { Sigil } from "../../brand/Sigil/Sigil";
 import { Icon } from "../../icons/Icon";
 import { cx } from "../../lib/cx";
 import { Status, type AgentState, agentStatusLabel } from "../Status/Status";
 
 export type SidebarAgentProps = {
+  agentId: string;
   name: string;
   state: AgentState;
   /** "replying", "retry in 40s". */
@@ -17,18 +19,19 @@ export type SidebarAgentProps = {
  * the menu's popover, which sets aria-expanded. The card is lit while the menu is open or while the
  * page open is one of the menu's.
  */
-export function SidebarAgent({ name, state, detail, active, type = "button", className, ...rest }: SidebarAgentProps) {
+export function SidebarAgent({ agentId, name, state, detail, active, type = "button", className, ...rest }: SidebarAgentProps) {
   const lit = active || rest["aria-expanded"] === true;
   return (
     <button
       type={type}
       className={cx(
-        "flex h-52 w-full items-center gap-8 rounded-lg border px-14 text-left transition-colors duration-[var(--vz-duration-base)]",
+        "flex h-52 w-full items-center gap-10 rounded-lg border pr-14 pl-8 text-left transition-colors duration-[var(--vz-duration-base)]",
         lit ? "border-border-strong bg-raised" : "border-border bg-surface/40 hover:bg-surface",
         className,
       )}
       {...rest}
     >
+      <Sigil agentId={agentId} live={state === "live" || state === "running"} />
       <span className="flex min-w-0 flex-1 flex-col gap-2">
         <span className="truncate type-body-strong text-fg">{name}</span>
         <Status state={state} label={agentStatusLabel(state)} detail={detail} font="mono-xs" dot={false} />

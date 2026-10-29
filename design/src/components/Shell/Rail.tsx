@@ -1,4 +1,5 @@
-import { useId, type HTMLAttributes, type ReactNode } from "react";
+import { useId, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "motion/react";
 import { Sigil } from "../../brand/Sigil/Sigil";
 import { Icon } from "../../icons/Icon";
@@ -6,7 +7,6 @@ import type { IconName } from "../../icons/map";
 import { cx } from "../../lib/cx";
 import { motionDurations, motionEases } from "../../tokens/tokens";
 import type { AgentState } from "../Status/Status";
-import { Tooltip } from "../Tooltip/Tooltip";
 
 export type RailAgent = {
   agentId: string;
@@ -42,6 +42,36 @@ const DOT: Record<AgentState, string> = {
   stopped: "bg-unlit",
 };
 
+
+/**
+ * A label to the right of a rail control. It is drawn on the body with fixed coordinates, because
+ * the rail scrolls and the sidebar beside it would otherwise paint over it.
+ */
+function RailTip({ label, children }: { label: string; children: ReactNode }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  const show = () => {
+    const r = ref.current?.getBoundingClientRect();
+    if (r) setAt({ x: r.right + 8, y: r.top + r.height / 2 });
+  };
+  return (
+    <span ref={ref} className="inline-flex" onMouseEnter={show} onMouseLeave={() => setAt(null)} onFocus={show} onBlur={() => setAt(null)}>
+      {children}
+      {at &&
+        createPortal(
+          <span
+            role="tooltip"
+            style={{ position: "fixed", left: at.x, top: at.y, transform: "translateY(-50%)", zIndex: 70 }}
+            className="pointer-events-none rounded-md bg-ink px-8 py-4 type-small whitespace-nowrap text-ground shadow-popover"
+          >
+            {label}
+          </span>,
+          document.body,
+        )}
+    </span>
+  );
+}
+
 const TILE = "relative grid size-34 shrink-0 place-items-center rounded-lg transition-colors duration-[var(--vz-duration-base)]";
 
 /** The marker that tells which tile is open. One element shared by all tiles, so it slides. */
@@ -65,12 +95,12 @@ function RailLink({ label, href, active, marker, children, className }: {
   className?: string;
 }) {
   return (
-    <Tooltip label={label} side="right">
+    <RailTip label={label}>
       <a href={href} aria-label={label} aria-current={active ? "page" : undefined} className={cx(TILE, className)}>
         {active && marker && <Marker id={marker} />}
         {children}
       </a>
-    </Tooltip>
+    </RailTip>
   );
 }
 
@@ -80,7 +110,7 @@ function RailButton({ icon, label, active, href, onSelect }: { icon: IconName; l
     active ? "bg-ink text-ground" : "text-muted hover:bg-surface hover:text-fg",
   );
   return (
-    <Tooltip label={label} side="right">
+    <RailTip label={label}>
       {href !== undefined ? (
         <a href={href} aria-label={label} aria-current={active ? "page" : undefined} className={cls}>
           <Icon name={icon} size={16} />
@@ -90,7 +120,7 @@ function RailButton({ icon, label, active, href, onSelect }: { icon: IconName; l
           <Icon name={icon} size={16} />
         </button>
       )}
-    </Tooltip>
+    </RailTip>
   );
 }
 
@@ -118,7 +148,7 @@ export function Rail({
     <nav aria-label="Agents" className={cx("flex h-full w-56 shrink-0 flex-col items-center gap-10 bg-shell pt-16 pb-14", className)} {...rest}>
       <RailButton icon="home" label="Home" href={homeHref} active={homeActive} />
       <span aria-hidden className="h-px w-22 bg-border" />
-      <ul className="m-0 flex min-h-0 flex-1 list-none flex-col items-center gap-10 overflow-y-auto overflow-x-clip p-0 [scrollbar-width:none]">
+      <ul className="m-0 flex min-h-0 w-full flex-1 list-none flex-col items-center gap-10 overflow-y-auto overflow-x-clip p-0 [scrollbar-width:none]">
         {agents.map((a) => {
           const active = a.agentId === activeAgentId;
           return (

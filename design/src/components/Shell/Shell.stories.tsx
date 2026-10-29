@@ -60,7 +60,7 @@ function Demo({ view }: { view: "home" | "agent" | "settings" }) {
         hrefFor={(p) => `#${p}`}
         agent={
           <AgentMenu
-            trigger={<SidebarAgent name="Archivist" state="running" detail="replying" />}
+            trigger={<SidebarAgent agentId="archivist" name="Archivist" state="running" detail="replying" />}
             onSelect={() => {}}
             onSwitchAgent={() => {}}
             switchShortcut="Ctrl K"
