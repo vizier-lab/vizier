@@ -3,6 +3,7 @@ pub mod context;
 pub mod reactions;
 pub mod sandbox;
 pub mod scheduled_run;
+pub mod side_chat;
 pub mod user;
 
 pub fn init_workspace(path: String) {

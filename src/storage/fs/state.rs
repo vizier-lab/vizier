@@ -33,6 +33,15 @@ impl StateStorage for FileSystemStorage {
 
         Ok(None)
     }
+
+    async fn delete_state(&self, key: String) -> Result<()> {
+        let path = build_path(&self.workspace, &[STATE_PATH, &format!("{}.json", key)]);
+        match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
 }
 
 #[async_trait::async_trait]

@@ -6,26 +6,48 @@ use serde::{Deserialize, Serialize};
 use teloxide::Bot;
 use teloxide::prelude::*;
 use teloxide::types::{
-    AllowedUpdate, BotCommand, ChatAction, InputFile, MaybeAnonymousUser, MessageId,
-    MessageReactionUpdated, ReactionType,
+    AllowedUpdate, BotCommand, ChatAction, ChatId, InputFile, MaybeAnonymousUser, MessageId,
+    MessageReactionUpdated, ReactionType, ReplyParameters,
 };
 use teloxide::{ApiError, RequestError};
 
 use crate::channels::commands::{self, CommandEntry, CommandSync, PlatformRules};
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
+use crate::channels::side_chat::{
+    self, AbortOnDrop, ExchangeId, Lifetime, PersonKey, ReplyKind, SideChatError, SideChats,
+};
 use crate::channels::woken;
 use crate::channels::{FatalChannelError, VizierChannel};
 use crate::dependencies::VizierDependencies;
 use crate::error::VizierError;
 use crate::schema::{
-    PlatformMessageId, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
+    PlatformMessageId, SideChat, SideChatTurn, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
     VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
 };
+use crate::storage::agent::AgentStorage;
 use crate::storage::reaction::{Platform, ReactionStorage, Reactor};
 use crate::storage::session::SessionStorage;
 use crate::storage::state::StateStorage;
 use crate::transport::VizierTransport;
 use crate::utils::{get_mime_type, remove_think_tags};
+
+mod side_chat_ledger;
+
+use side_chat_ledger::LedgerStore;
+
+/// How long an aside's messages stay after its last activity, and how often the sweep and the
+/// ledger look (spec 033).
+const SIDE_CHAT_IDLE: std::time::Duration = std::time::Duration::from_secs(2 * 60);
+const SIDE_CHAT_SWEEP: std::time::Duration = std::time::Duration::from_secs(15);
+const SIDE_CHAT_ENDED: &str = "This side chat has ended — start a new one with /btw.";
+const TELEGRAM_LIMIT: usize = 4096;
+
+/// One message in a side chat: the bot's replies and the person's own messages.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TelegramPosted {
+    chat_id: i64,
+    message_id: i32,
+}
 
 pub struct TelegramChannelReader {
     bot: Bot,
@@ -39,6 +61,10 @@ pub struct TelegramChannelReader {
     offset: AtomicI64,
     /// Pending `/clear_files` two-step confirmations (`specs/035-add-artifacts`).
     clear_confirmations: commands::ClearConfirmations,
+    /// Live `/btw` asides, in memory only (`specs/033-btw-side-chat/`).
+    side_chats: std::sync::Arc<SideChats<TelegramPosted>>,
+    /// Message ids waiting for deletion, so a restart still deletes them.
+    ledger: LedgerStore,
 }
 
 impl TelegramChannelReader {
@@ -49,6 +75,7 @@ impl TelegramChannelReader {
             &deps.config.workspace,
             telegram_rules(),
         ));
+        let ledger = LedgerStore::new(deps.storage.clone(), &agent_id);
 
         Self {
             bot,
@@ -58,6 +85,10 @@ impl TelegramChannelReader {
             commands,
             offset: AtomicI64::new(0),
             clear_confirmations: commands::ClearConfirmations::new(),
+            side_chats: std::sync::Arc::new(SideChats::new(Lifetime {
+                idle: SIDE_CHAT_IDLE,
+            })),
+            ledger,
         }
     }
 }
@@ -93,6 +124,45 @@ impl VizierChannel for TelegramChannelReader {
                 }
             },
         );
+        // An ended aside's messages are deleted, best-effort, within one sweep of its deadline.
+        let _sweeper = AbortOnDrop(self.side_chats.spawn_sweeper(SIDE_CHAT_SWEEP, {
+            let bot = self.bot.clone();
+            let ledger = self.ledger.clone();
+            move |ended| {
+                let bot = bot.clone();
+                let ledger = ledger.clone();
+                async move {
+                    let mut chats: Vec<(i64, Vec<i32>)> = vec![];
+                    for posted in ended.posted {
+                        match chats.iter_mut().find(|(chat, _)| *chat == posted.chat_id) {
+                            Some((_, ids)) => ids.push(posted.message_id),
+                            None => chats.push((posted.chat_id, vec![posted.message_id])),
+                        }
+                    }
+                    for (chat_id, ids) in chats {
+                        delete_messages(&bot, &ledger, chat_id, ids).await;
+                    }
+                }
+            }
+        }));
+        // The ledger outlives the process: once on start, then every sweep, it deletes what
+        // is past its deadline, so a restart (or a reply that lands after the sweep) still
+        // ends with the messages gone. Items Telegram can no longer delete are dropped.
+        let _ledger_tick = AbortOnDrop(tokio::spawn({
+            let bot = self.bot.clone();
+            let ledger = self.ledger.clone();
+            async move {
+                let mut ticker = tokio::time::interval(SIDE_CHAT_SWEEP);
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    ticker.tick().await;
+                    for item in ledger.take_due().await {
+                        delete_messages(&bot, &ledger, item.chat_id, item.message_ids).await;
+                    }
+                }
+            }
+        }));
+
         loop {
             let updates = self
                 .bot
@@ -242,10 +312,81 @@ impl TelegramChannelReader {
             };
 
         let text = msg.text().unwrap_or("").to_string();
-        let bot_username = self.bot.get_me().await?.username().to_string();
+        let me = self.bot.get_me().await?;
+        let bot_username = me.username().to_string();
 
         let is_mention = text.starts_with(&format!("@{}", bot_username))
             || text.contains(&format!("@{}", bot_username));
+
+        // `/btw` and replies to a side chat's messages come first (spec 033, R13): before the
+        // attachments are fetched, before every other command, and before `Chat`/`SilentRead`,
+        // so nothing of an aside is ever sent to the agent as an ordinary message.
+        if let Some(from) = msg.from.as_ref().filter(|user| !user.is_bot) {
+            let person = PersonKey::telegram(from.id.0);
+            let own_message_replied_to = msg
+                .reply_to_message()
+                .filter(|replied| replied.from.as_ref().is_some_and(|user| user.id == me.id));
+            if let Some(replied) = own_message_replied_to {
+                let posted = TelegramPosted {
+                    chat_id: chat_id.0,
+                    message_id: replied.id.0,
+                };
+                let owner = self.side_chats.owner_of(&posted);
+                let live = owner.as_ref().map(|(id, _)| id.clone());
+                let held = self.ledger.holds(chat_id.0, replied.id.0).await;
+                match self.side_chats.classify_reply(owner, &person, held) {
+                    ReplyKind::FollowUp(id) => {
+                        let question = text.replace(&format!("@{bot_username}"), "");
+                        self.side_chat(&msg, from, question, Some(id), topic_id.clone())
+                            .await;
+                        return Ok(());
+                    }
+                    // Another person's reply: no answer, and it goes with the exchange.
+                    ReplyKind::Ignore => {
+                        let until = self.ledger.deadline_or_soon(chat_id.0).await;
+                        if let Some(id) = live {
+                            self.side_chats.add_posted(
+                                &id,
+                                TelegramPosted {
+                                    chat_id: chat_id.0,
+                                    message_id: msg.id.0,
+                                },
+                            );
+                        }
+                        self.ledger
+                            .merge_until(chat_id.0, &[msg.id.0], until)
+                            .await;
+                        return Ok(());
+                    }
+                    // The exchange is gone (swept, or the bot restarted); the ledger still
+                    // knows its messages. The notice and the reply go with them.
+                    ReplyKind::Ended => {
+                        let until = self.ledger.deadline_or_soon(chat_id.0).await;
+                        let mut ids = self.reply_chunks(&msg, SIDE_CHAT_ENDED).await;
+                        ids.push(msg.id.0);
+                        self.ledger.merge_until(chat_id.0, &ids, until).await;
+                        return Ok(());
+                    }
+                    ReplyKind::NotSideChat => {}
+                }
+            }
+
+            if is_command(&text, "btw", &bot_username) {
+                let question = text
+                    .split_once(char::is_whitespace)
+                    .map(|(_, rest)| rest.replace(&format!("@{bot_username}"), ""))
+                    .unwrap_or_default();
+                if question.trim().is_empty() {
+                    let mut ids = self.reply_chunks(&msg, "Usage: /btw <question>").await;
+                    ids.push(msg.id.0);
+                    self.ledger.merge(chat_id.0, &ids).await;
+                } else {
+                    self.side_chat(&msg, from, question, None, topic_id.clone())
+                        .await;
+                }
+                return Ok(());
+            }
+        }
 
         let replied_to = msg.reply_to_message().as_ref().map(|m| m.id.to_string());
         let message_id = msg.id.to_string();
@@ -793,6 +934,128 @@ impl TelegramChannelReader {
         Ok(())
     }
 
+    /// One `/btw` question, new or a follow-up (`specs/033-btw-side-chat/`). The agent keeps
+    /// no record; the person's messages and every reply go on the ledger and are deleted
+    /// 2 minutes after the last activity. Nothing is sent to the agent but the one `Btw`
+    /// request.
+    async fn side_chat(
+        &self,
+        msg: &Message,
+        from: &teloxide::types::User,
+        question: String,
+        continuing: Option<ExchangeId>,
+        topic_id: Option<TopicId>,
+    ) {
+        let chat_id = msg.chat.id;
+        let person = PersonKey::telegram(from.id.0);
+        let first = continuing.is_none();
+        let (id, session, turns) = match continuing {
+            Some(id) => match self.side_chats.get_for(&id, &person) {
+                Some((session, turns)) => (id, session, turns),
+                None => {
+                    let until = self.ledger.deadline_or_soon(chat_id.0).await;
+                    let mut ids = self.reply_chunks(msg, SIDE_CHAT_ENDED).await;
+                    ids.push(msg.id.0);
+                    self.ledger.merge_until(chat_id.0, &ids, until).await;
+                    return;
+                }
+            },
+            None => {
+                let session = VizierSession(
+                    self.agent_id.clone(),
+                    VizierChannelId::TelegramChannel(chat_id.0),
+                    topic_id,
+                );
+                let id = self.side_chats.start(person.clone(), session.clone());
+                (id, session, vec![])
+            }
+        };
+        // The person's message belongs to the aside, so it is deleted with it.
+        self.remember(&id, chat_id, &[msg.id.0]).await;
+
+        let timeout = match self.deps.storage.get_agent(&self.agent_id).await {
+            Ok(Some(config)) => *config.prompt_timeout,
+            _ => std::time::Duration::from_secs(120),
+        };
+        let question = question.trim().to_string();
+        let name = from.username.clone().unwrap_or_else(|| from.first_name.clone());
+        let result = side_chat::ask(
+            &self.deps,
+            session,
+            &person,
+            format!("@{} (TelegramUser: {})", name, from.id.0),
+            SideChat {
+                question: question.clone(),
+                turns,
+            },
+            timeout,
+        )
+        .await;
+        let mut body = match result {
+            Ok(answer) => {
+                self.side_chats.record(
+                    &id,
+                    SideChatTurn {
+                        question,
+                        answer: answer.answer.clone(),
+                    },
+                );
+                answer.answer
+            }
+            Err(error) => {
+                // A failed ask adds no turn, but it is still activity.
+                self.side_chats.touch(&id);
+                side_chat_error_text(&error)
+            }
+        };
+        if first {
+            let deleting = if msg.chat.is_private() {
+                "I'll delete this"
+            } else {
+                "I'll delete this — and your messages too, if I'm allowed to delete them here —"
+            };
+            body = format!(
+                "🤫 Side chat — not saved. {deleting} after 2 minutes of inactivity. Reply to an answer to follow up.\n\n{body}"
+            );
+        }
+        let ids = self.reply_chunks(msg, &body).await;
+        self.remember(&id, chat_id, &ids).await;
+    }
+
+    /// Replies to `msg` with `body`, split at Telegram's limit, and returns the ids sent.
+    /// Plain text, so an answer's own markup can never break the send.
+    async fn reply_chunks(&self, msg: &Message, body: &str) -> Vec<i32> {
+        let chars: Vec<char> = body.chars().collect();
+        let mut ids = vec![];
+        for chunk in chars.chunks(TELEGRAM_LIMIT) {
+            let text: String = chunk.iter().collect();
+            match self
+                .bot
+                .send_message(msg.chat.id, text)
+                .reply_parameters(ReplyParameters::new(msg.id).allow_sending_without_reply())
+                .await
+            {
+                Ok(sent) => ids.push(sent.id.0),
+                Err(err) => tracing::error!("failed to post side chat reply: {err}"),
+            }
+        }
+        ids
+    }
+
+    /// Notes messages as part of an aside and on the ledger, so they are deleted with it.
+    async fn remember(&self, id: &ExchangeId, chat_id: ChatId, ids: &[i32]) {
+        for message_id in ids {
+            self.side_chats.add_posted(
+                id,
+                TelegramPosted {
+                    chat_id: chat_id.0,
+                    message_id: *message_id,
+                },
+            );
+        }
+        self.ledger.merge(chat_id.0, ids).await;
+    }
+
     /// Post a turn a background report woke into the Telegram chat the work came from.
     async fn render_woken(
         bot: Bot,
@@ -1052,6 +1315,27 @@ struct ChannelState {
     show_tool_calls: bool,
 }
 
+/// What a person reads when the side chat gave no answer.
+fn side_chat_error_text(error: &SideChatError) -> String {
+    match error {
+        SideChatError::Invalid(reason) if reason.contains("full") => {
+            "This side chat is full — start a new one with /btw.".to_string()
+        }
+        other => other.user_message(),
+    }
+}
+
+/// Deletes `ids` from a chat, best-effort: a refusal (no admin right, too old, already gone)
+/// is only logged. The ledger forgets them either way, once the attempt was made.
+async fn delete_messages(bot: &Bot, ledger: &LedgerStore, chat_id: i64, ids: Vec<i32>) {
+    for id in &ids {
+        if let Err(err) = bot.delete_message(ChatId(chat_id), MessageId(*id)).await {
+            tracing::debug!("side chat message not deleted: {err}");
+        }
+    }
+    ledger.clear(chat_id, &ids).await;
+}
+
 /// Link every message a reply was posted as to the history entry it renders, so reactions on
 /// any chunk or attachment reach that entry. A failure is logged and never fails the send.
 async fn link_reply(
@@ -1121,6 +1405,10 @@ fn telegram_rules() -> PlatformRules {
             CommandEntry::new("thinking", "toggle showing thinking output"),
             CommandEntry::new("tool_calls", "toggle showing tool call details"),
             CommandEntry::new("clear_files", "clear this conversation's session files"),
+            CommandEntry::new(
+                "btw",
+                "ask me a side question; never saved, deleted after 2 minutes",
+            ),
         ],
     }
 }
@@ -1141,6 +1429,27 @@ fn is_command(text: &str, name: &str, bot_username: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn btw_is_in_the_menu_and_matches_the_whole_word() {
+        let rules = telegram_rules();
+        assert!(rules.builtins.iter().any(|entry| entry.name == "btw"));
+        assert!(is_command("/btw what is this", "btw", "vizier_bot"));
+        assert!(is_command("/btw@vizier_bot hi", "btw", "vizier_bot"));
+        assert!(!is_command("/btw@other_bot hi", "btw", "vizier_bot"));
+        assert!(!is_command("/btwx hi", "btw", "vizier_bot"));
+    }
+
+    #[test]
+    fn a_full_side_chat_names_the_command() {
+        let full = SideChatError::Invalid("This side chat is full — start a new one.".into());
+        assert_eq!(
+            side_chat_error_text(&full),
+            "This side chat is full — start a new one with /btw."
+        );
+        let limited = SideChatError::RateLimited { retry_after_secs: 9 };
+        assert_eq!(side_chat_error_text(&limited), "Slow down — try again in 9s.");
+    }
 
     #[test]
     fn built_in_commands_match_the_whole_word() {

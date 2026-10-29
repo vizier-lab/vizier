@@ -14,7 +14,7 @@ use twilight_model::application::command::{
 use twilight_model::application::interaction::application_command::CommandOptionValue;
 use twilight_model::application::interaction::{Interaction, InteractionData, InteractionType};
 use twilight_model::channel::Message;
-use twilight_model::channel::message::EmojiReactionType;
+use twilight_model::channel::message::{EmojiReactionType, MessageFlags};
 use twilight_model::gateway::CloseCode;
 use twilight_model::gateway::GatewayReaction;
 use twilight_model::gateway::payload::incoming::Ready;
@@ -26,13 +26,17 @@ use twilight_util::builder::command::{CommandBuilder, StringBuilder};
 
 use crate::channels::commands::{self, CommandEntry, CommandOption, CommandSync, PlatformRules};
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
+use crate::channels::side_chat::{
+    self, AbortOnDrop, ExchangeId, Lifetime, PersonKey, ReplyKind, SideChatError, SideChats,
+};
 use crate::channels::woken;
 use crate::channels::{FatalChannelError, VizierChannel};
 use crate::dependencies::VizierDependencies;
 use crate::schema::{
-    PlatformMessageId, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
+    PlatformMessageId, SideChat, SideChatTurn, TopicId, VizierAttachment, VizierAttachmentContent, VizierChannelId,
     VizierRequest, VizierRequestContent, VizierResponse, VizierResponseContent, VizierSession,
 };
+use crate::storage::agent::AgentStorage;
 use crate::storage::reaction::{Platform, ReactionStorage, Reactor};
 use crate::storage::session::SessionStorage;
 use crate::storage::state::StateStorage;
@@ -89,7 +93,14 @@ impl VizierChannel for DiscordChannelReader {
                 discord_rules(),
             )),
             clear_confirmations: commands::ClearConfirmations::new(),
+            side_chats: Arc::new(SideChats::new(Lifetime {
+                idle: SIDE_CHAT_IDLE,
+            })),
         });
+        // An ended aside is only forgotten: its messages stay in the channel. Dropped (and so
+        // aborted) when this reader stops.
+        let _side_chat_sweeper =
+            AbortOnDrop(handler.side_chats.spawn_sweeper(SIDE_CHAT_SWEEP, |_ended| async {}));
 
         let events = EventTypeFlags::READY
             | EventTypeFlags::MESSAGE_CREATE
@@ -216,6 +227,8 @@ struct Handler {
     commands: Arc<CommandSync>,
     /// Pending `/clear-files` two-step confirmations (`specs/035-add-artifacts`).
     clear_confirmations: commands::ClearConfirmations,
+    /// Live `/btw` asides, in memory only (`specs/033-btw-side-chat/`).
+    side_chats: Arc<SideChats<DiscordPosted>>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -243,6 +256,12 @@ fn builtin_commands() -> Vec<CommandEntry> {
         CommandEntry::new("tool_calls", "toggle showing tool call details"),
         CommandEntry::new("clear-files", "clear this conversation's session files")
             .option(CommandOption::text("confirm", "Type confirm to clear")),
+        CommandEntry::new("btw", "ask me a side question; public, not remembered").option(
+            CommandOption {
+                required: true,
+                ..CommandOption::text("message", "Your question")
+            },
+        ),
     ]
 }
 
@@ -308,6 +327,71 @@ fn skill_command_text(
 
 fn error_kind_label(kind: &crate::schema::ErrorKind) -> &'static str {
     kind.label()
+}
+
+/// First line of every message the bot posts in a side chat (Discord small text). A reply to
+/// any of them is recognised by it once no live aside owns the message (spec 033, R12).
+const SIDE_CHAT_MARKER: &str =
+    "-# 🤫 side chat — visible to everyone, not remembered · reply to follow up";
+
+/// A side chat has no record anywhere but the channel itself: 5 minutes idle and the bot
+/// forgets it (the messages stay).
+const SIDE_CHAT_IDLE: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+const SIDE_CHAT_SWEEP: std::time::Duration = std::time::Duration::from_secs(15);
+const MESSAGE_LIMIT: usize = 2000;
+const SIDE_CHAT_ENDED: &str = "This side chat has ended — start a new one with /btw.";
+
+/// One message the bot posted in a side chat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DiscordPosted {
+    channel_id: u64,
+    message_id: u64,
+}
+
+/// Where a side chat's answer goes: edits the public `/btw` response, or replies to the
+/// person's message.
+enum SideChatOrigin<'a> {
+    Command(&'a Interaction),
+    Reply(&'a Message),
+}
+
+/// The answer split to Discord's limit, every chunk starting with the marker line so a
+/// reply to any of them is recognised.
+fn side_chat_chunks(body: &str) -> Vec<String> {
+    let room = MESSAGE_LIMIT - SIDE_CHAT_MARKER.chars().count() - 1;
+    let body = if body.trim().is_empty() { "_No answer._" } else { body };
+    let pieces: Vec<String> = if body.chars().count() <= room {
+        vec![body.to_string()]
+    } else {
+        text_splitter::MarkdownSplitter::new(room)
+            .chunks(body)
+            .map(str::to_string)
+            .collect()
+    };
+    pieces
+        .into_iter()
+        .map(|piece| format!("{SIDE_CHAT_MARKER}\n{piece}"))
+        .collect()
+}
+
+/// How the agent is told who asked, as for every other Discord request.
+fn user_label(user: &twilight_model::user::User) -> String {
+    format!(
+        "@{} (DiscordId: {})",
+        user.global_name.as_deref().unwrap_or(&user.name),
+        user.id
+    )
+}
+
+/// What a person reads when the side chat gave no answer. The full message names `/btw`,
+/// the way the other channels' fixed text does.
+fn side_chat_error_text(error: &SideChatError) -> String {
+    match error {
+        SideChatError::Invalid(reason) if reason.contains("full") => {
+            "This side chat is full — start a new one with /btw.".to_string()
+        }
+        other => other.user_message(),
+    }
 }
 
 impl Handler {
@@ -494,6 +578,7 @@ If I am halucinating, feel free to `/lobotomy` me
 • `/abort` — Abort current thinking
 • `/new` — Create new session
 • `/session` — List or switch sessions
+• `/btw <message>` — Ask me a side question; public, not remembered
 
 **Skills:**
 • `/skills` — List the skills you can run
@@ -640,6 +725,59 @@ If I am halucinating, feel free to `/lobotomy` me
                     .await;
             }
 
+            "btw" => {
+                let Some(author) = interaction.author() else {
+                    return;
+                };
+                let question = option_text(&data.options, "message").trim().to_string();
+                // Refused before anything is posted, so the notice is for this person only.
+                let person = PersonKey::discord(author.id.get());
+                if let Some(wait) = self.deps.side_chat_limits.retry_after(&person.to_string()) {
+                    let secs = wait.max(std::time::Duration::from_secs(1)).as_secs();
+                    let response = InteractionResponse {
+                        kind: InteractionResponseType::ChannelMessageWithSource,
+                        data: Some(
+                            InteractionResponseDataBuilder::new()
+                                .content(format!("Slow down — try again in {secs}s."))
+                                .flags(MessageFlags::EPHEMERAL)
+                                .build(),
+                        ),
+                    };
+                    if let Err(err) = self
+                        .http
+                        .interaction(interaction.application_id)
+                        .create_response(interaction.id, &interaction.token, &response)
+                        .await
+                    {
+                        tracing::error!("failed to respond to discord interaction: {:?}", err);
+                    }
+                    return;
+                }
+                // Public, not ephemeral: Discord cannot reply to an ephemeral message.
+                let deferred = InteractionResponse {
+                    kind: InteractionResponseType::DeferredChannelMessageWithSource,
+                    data: None,
+                };
+                if let Err(err) = self
+                    .http
+                    .interaction(interaction.application_id)
+                    .create_response(interaction.id, &interaction.token, &deferred)
+                    .await
+                {
+                    tracing::error!("failed to respond to discord interaction: {:?}", err);
+                    return;
+                }
+                self.side_chat(
+                    channel,
+                    channel_id,
+                    author,
+                    question,
+                    None,
+                    SideChatOrigin::Command(&interaction),
+                )
+                .await;
+            }
+
             // Any other command is `/skill`, `/skills` or one skill's own command.
             command => {
                 let text = skill_command_text(command, &data.options);
@@ -773,6 +911,145 @@ If I am halucinating, feel free to `/lobotomy` me
         {
             tracing::debug!("failed to finish discord interaction: {:?}", err);
         }
+    }
+
+    /// One `/btw` question, new or a follow-up (`specs/033-btw-side-chat/`). The aside is
+    /// answered in the open, in the channel, and the agent keeps no record of it. The host
+    /// conversation is the channel's active topic; the exchange and its message ids live in
+    /// `side_chats` only.
+    async fn side_chat(
+        &self,
+        channel: VizierChannelId,
+        channel_id: Id<ChannelMarker>,
+        author: &twilight_model::user::User,
+        question: String,
+        continuing: Option<ExchangeId>,
+        origin: SideChatOrigin<'_>,
+    ) {
+        let person = PersonKey::discord(author.id.get());
+        let (id, session, turns) = match continuing {
+            Some(id) => match self.side_chats.get_for(&id, &person) {
+                Some((session, turns)) => (id, session, turns),
+                None => {
+                    self.post_side_chat(channel_id, &origin, side_chat_chunks(SIDE_CHAT_ENDED))
+                        .await;
+                    return;
+                }
+            },
+            None => {
+                let topic_id = self.load_state(&channel).await.active_topic;
+                let session = VizierSession(self.agent_id.clone(), channel, topic_id);
+                let id = self.side_chats.start(person.clone(), session.clone());
+                (id, session, vec![])
+            }
+        };
+
+        let timeout = match self.deps.storage.get_agent(&self.agent_id).await {
+            Ok(Some(config)) => *config.prompt_timeout,
+            _ => std::time::Duration::from_secs(120),
+        };
+        let question = question.trim().to_string();
+        let result = side_chat::ask(
+            &self.deps,
+            session,
+            &person,
+            user_label(author),
+            SideChat {
+                question: question.clone(),
+                turns,
+            },
+            timeout,
+        )
+        .await;
+        let body = match result {
+            Ok(answer) => {
+                self.side_chats.record(
+                    &id,
+                    SideChatTurn {
+                        question,
+                        answer: answer.answer.clone(),
+                    },
+                );
+                answer.answer
+            }
+            Err(error) => {
+                // A failed ask adds no turn, but it is still activity.
+                self.side_chats.touch(&id);
+                side_chat_error_text(&error)
+            }
+        };
+
+        let posted = self
+            .post_side_chat(channel_id, &origin, side_chat_chunks(&body))
+            .await;
+        for message_id in posted {
+            self.side_chats.add_posted(
+                &id,
+                DiscordPosted {
+                    channel_id: channel_id.get(),
+                    message_id: message_id.get(),
+                },
+            );
+        }
+    }
+
+    /// Posts a side chat's chunks and returns the id of every message that went out: the
+    /// public `/btw` response is edited, and later chunks are follow-ups; a reply goes out as
+    /// replies to the person's message.
+    async fn post_side_chat(
+        &self,
+        channel_id: Id<ChannelMarker>,
+        origin: &SideChatOrigin<'_>,
+        chunks: Vec<String>,
+    ) -> Vec<Id<MessageMarker>> {
+        let mut ids = Vec::with_capacity(chunks.len());
+        match origin {
+            SideChatOrigin::Command(interaction) => {
+                let client = self.http.interaction(interaction.application_id);
+                let mut chunks = chunks.into_iter();
+                if let Some(first) = chunks.next() {
+                    match client
+                        .update_response(&interaction.token)
+                        .content(Some(&first))
+                        .await
+                    {
+                        Ok(response) => match response.model().await {
+                            Ok(message) => ids.push(message.id),
+                            Err(err) => tracing::warn!("side chat reply unreadable: {:?}", err),
+                        },
+                        Err(err) => tracing::error!("failed to post side chat answer: {:?}", err),
+                    }
+                }
+                for chunk in chunks {
+                    match client.create_followup(&interaction.token).content(&chunk).await {
+                        Ok(response) => match response.model().await {
+                            Ok(message) => ids.push(message.id),
+                            Err(err) => tracing::warn!("side chat reply unreadable: {:?}", err),
+                        },
+                        Err(err) => tracing::error!("failed to post side chat answer: {:?}", err),
+                    }
+                }
+            }
+            SideChatOrigin::Reply(msg) => {
+                for chunk in chunks {
+                    match self
+                        .http
+                        .create_message(channel_id)
+                        .content(&chunk)
+                        .reply(msg.id)
+                        .fail_if_not_exists(false)
+                        .await
+                    {
+                        Ok(response) => match response.model().await {
+                            Ok(message) => ids.push(message.id),
+                            Err(err) => tracing::warn!("side chat reply unreadable: {:?}", err),
+                        },
+                        Err(err) => tracing::error!("failed to post side chat answer: {:?}", err),
+                    }
+                }
+            }
+        }
+        ids
     }
 
     /// Shared flow for `/checkpoint` and `/lobotomy`: send the command to the agent,
@@ -985,6 +1262,53 @@ If I am halucinating, feel free to `/lobotomy` me
         }
 
         let channel = VizierChannelId::DiscordChanel(msg.channel_id.get());
+
+        // A reply to one of a side chat's messages is never an ordinary message: it is a
+        // follow-up, ignored, or told the aside has ended. This runs before the `/abort`
+        // shortcut and before `Chat`/`SilentRead`, so nothing of an aside is saved.
+        if let Some(referenced) = msg
+            .referenced_message
+            .as_ref()
+            .filter(|referenced| referenced.author.id == bot.user_id)
+        {
+            let replied_to = DiscordPosted {
+                channel_id: msg.channel_id.get(),
+                message_id: referenced.id.get(),
+            };
+            let from = PersonKey::discord(msg.author.id.get());
+            let kind = self.side_chats.classify_reply(
+                self.side_chats.owner_of(&replied_to),
+                &from,
+                referenced.content.starts_with(SIDE_CHAT_MARKER),
+            );
+            match kind {
+                ReplyKind::FollowUp(id) => {
+                    let question = command_text(&msg.content, bot.user_id);
+                    self.side_chat(
+                        channel,
+                        msg.channel_id,
+                        &msg.author,
+                        question,
+                        Some(id),
+                        SideChatOrigin::Reply(&msg),
+                    )
+                    .await;
+                    return;
+                }
+                ReplyKind::Ignore => return,
+                ReplyKind::Ended => {
+                    self.post_side_chat(
+                        msg.channel_id,
+                        &SideChatOrigin::Reply(&msg),
+                        side_chat_chunks(SIDE_CHAT_ENDED),
+                    )
+                    .await;
+                    return;
+                }
+                ReplyKind::NotSideChat => {}
+            }
+        }
+
         let ChannelState {
             active_topic: topic_id,
             show_thinking,
@@ -1497,6 +1821,42 @@ mod tests {
             "/skill standup today"
         );
         assert_eq!(skill_command_text("skills", &[]), "/skills");
+    }
+
+    #[test]
+    fn every_side_chat_chunk_has_the_marker_and_fits() {
+        let long = "word ".repeat(1_500);
+        let chunks = side_chat_chunks(&long);
+        assert!(chunks.len() > 1);
+        for chunk in &chunks {
+            assert!(chunk.starts_with(SIDE_CHAT_MARKER));
+            assert!(chunk.chars().count() <= MESSAGE_LIMIT);
+        }
+        let short = side_chat_chunks("hello");
+        assert_eq!(short, vec![format!("{SIDE_CHAT_MARKER}\nhello")]);
+        assert!(side_chat_chunks("  ")[0].contains("_No answer._"));
+    }
+
+    #[test]
+    fn a_full_side_chat_names_the_command() {
+        let full = SideChatError::Invalid("This side chat is full — start a new one.".into());
+        assert_eq!(
+            side_chat_error_text(&full),
+            "This side chat is full — start a new one with /btw."
+        );
+        let other = SideChatError::RateLimited { retry_after_secs: 7 };
+        assert_eq!(side_chat_error_text(&other), "Slow down — try again in 7s.");
+    }
+
+    #[test]
+    fn btw_is_a_builtin_with_a_required_message() {
+        let btw = builtin_commands()
+            .into_iter()
+            .find(|entry| entry.name == "btw")
+            .expect("btw is registered");
+        assert_eq!(btw.options.len(), 1);
+        assert_eq!(btw.options[0].name, "message");
+        assert!(btw.options[0].required);
     }
 
     #[test]

@@ -118,6 +118,33 @@ impl VizierModel {
         TurnGuard::new(self.agent_id.clone(), self.storage.clone())
     }
 
+    /// A model over a test's own `CompletionModel` (`specs/033-btw-side-chat` T011 runs
+    /// `run_btw` against scripted ones). Not compiled into the binary.
+    #[cfg(test)]
+    pub(crate) fn scripted(
+        agent_id: AgentId,
+        storage: Arc<crate::storage::VizierStorage>,
+        inner: Arc<dyn CompletionModel>,
+        model: impl Into<String>,
+    ) -> Self {
+        use crate::llm::resolve::ContextSource;
+        let info = ModelInfo {
+            provider: ProviderId::DUMMYPLUG,
+            model: model.into(),
+            context_window: None,
+            max_output: None,
+            context_source: ContextSource::Unknown,
+            caps: Capabilities::default(),
+            cost: None,
+        };
+        Self {
+            inner,
+            info: Arc::new(info),
+            agent_id,
+            storage,
+        }
+    }
+
     pub async fn new(
         agent_id: AgentId,
         deps: VizierDependencies,

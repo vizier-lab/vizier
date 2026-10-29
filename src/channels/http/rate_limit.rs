@@ -1,6 +1,8 @@
 //! A small sliding-window limiter for client events and saved state
 //! (`specs/019-client-tools` research R15). It lives on `HTTPState`, so a limit holds across
-//! every socket a person has open.
+//! every socket a person has open. The `VizierDependencies.side_chat_limits` instance is
+//! shared with the Discord and Telegram readers the same way (`specs/033-btw-side-chat`
+//! research R9), which is what makes one limit hold per platform identity across channels.
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -26,6 +28,26 @@ impl RateLimiter {
     /// Count one hit for `key`; `false` (and nothing counted) when it is over the limit.
     pub fn check(&self, key: &str) -> bool {
         self.check_at(key, Instant::now())
+    }
+
+    /// How much of the window is left before `key` fits again, when it is over the limit.
+    /// Reads without counting a hit, so a refusal never spends the budget it denies
+    /// (`specs/033-btw-side-chat` T012: the reader shows this as "try again in {n}s").
+    pub fn retry_after(&self, key: &str) -> Option<Duration> {
+        let now = Instant::now();
+        let mut hits = self.hits.lock().ok()?;
+        hits.retain(|_, times| {
+            while times.front().is_some_and(|t| now.duration_since(*t) >= self.window) {
+                times.pop_front();
+            }
+            !times.is_empty()
+        });
+        let times = hits.get(key)?;
+        if times.len() < self.max {
+            return None;
+        }
+        let oldest = *times.front()?;
+        Some(self.window.saturating_sub(now.duration_since(oldest)))
     }
 
     fn check_at(&self, key: &str, now: Instant) -> bool {

@@ -10,7 +10,7 @@
 
 Technically: a new `VizierRequestContent::Btw(SideChat)`, always `transient`, is sent on the host conversation's session through the existing transport by one shared helper, `channels::side_chat::ask`. That helper validates, rate-limits (5 / 60 s per person) and awaits the reply under `prompt_timeout`. `agent_process` routes the request to `run_btw` beside `checkpoint`/`lobotomy`, and skips the session-detail refresh and the thinking flag for it. `run_btw` runs `VizierAgent::side_chat`, which assembles the same prompt prefix as a host turn and makes one `complete_until` call with `tool_choice: none`. It never touches `chat()`, history, the turn journal or session events.
 
-Each channel presents the exchange differently. The WebUI shows a side panel whose turns live in component state. On Discord the side chat is public and stays in the channel. On Telegram it's visible until it deletes itself, and a content-free deletion ledger survives restarts. On both, a follow-up is a reply to one of the side chat's answers, and the two readers share one in-memory exchange store and one reply classifier, so replies to an aside never reach the agent as ordinary messages.
+Each channel presents the exchange differently. The WebUI shows a small floating window whose turns live in component state. On Discord the side chat is public and stays in the channel. On Telegram it's visible until it deletes itself, and a content-free deletion ledger survives restarts. On both, a follow-up is a reply to one of the side chat's answers, and the two readers share one in-memory exchange store and one reply classifier, so replies to an aside never reach the agent as ordinary messages.
 
 ## Technical Context
 
@@ -107,7 +107,7 @@ docs/src/
 
 webui/ (submodule vizier-lab/webui)
 ├── app/screens/chat/Composer.tsx     # BUILTIN += btw; intercept /btw in send(); onSideChat prop
-├── app/screens/chat/SideChatPanel.tsx  # NEW: SlideOver panel, local exchange state, ask/retry/limits
+├── app/screens/chat/SideChatPanel.tsx  # NEW: floating window, local exchange state, ask/retry/limits
 ├── app/lib/sideChat.ts (+ .test.ts)  # NEW: pure exchange reducer + error mapping
 ├── app/routes/… (chat screen)        # mount the panel, pass agent/channel/topic
 └── app/api/schema.d.ts               # regenerated (BtwRequest/BtwResponse)
