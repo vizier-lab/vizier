@@ -8,14 +8,14 @@ The design agreed in [vizier-lab/vizier#108](https://github.com/vizier-lab/vizie
 
 Asked in review on PR #109: is `/btw` a throwaway one-shot question, or does it keep history?
 
-**Decision**: neither extreme. A side chat is **one aside with follow-ups**. `/btw` starts it, and the same person's follow-ups continue it, up to 9 questions. Each answer sees the conversation plus the aside's own earlier turns. When the aside ends (FR-014), **all of it is discarded**: it never enters the conversation's history, memory or any store, so nothing carries over to the next aside or the next conversation turn. "Throwaway" in #108 means *thrown away at the end*, not *one question long*. #108 says the same: "A few follow-up turns are fine inside one exchange … the whole exchange (however many turns) is thrown away together on close/expiry."
+**Decision**: neither extreme. A side chat is **one aside with follow-ups**. `/btw` starts it, and the same person's follow-ups continue it, within a 32,000-character budget (R8). Each answer sees the conversation plus the aside's own earlier turns. When the aside ends (FR-014), **all of it is discarded**: it never enters the conversation's history, memory or any store, so nothing carries over to the next aside or the next conversation turn. "Throwaway" in #108 means *thrown away at the end*, not *one question long*. #108 says the same: "A few follow-up turns are fine inside one exchange … the whole exchange (however many turns) is thrown away together on close/expiry."
 
 **How the turns live without being stored**: the agent side keeps nothing between questions. Every ask carries the aside's earlier turns in the request (`SideChat.turns`), held in between only by whoever shows the aside: the WebUI panel's state in the browser, or the Discord/Telegram reader's process memory (R11). A server restart, a closed panel or the channel's idle timeout ends it.
 
-**One rule for all channels**: follow-ups continue the open aside; invoking `/btw` again always starts a new, empty one. Each channel continues an aside with its native gesture: the panel's composer on the WebUI, the **Follow up** button on Discord (R12), a reply to an answer on Telegram (R13).
+**One rule for all channels**: follow-ups continue the open aside; invoking `/btw` again always starts a new, empty one. Each channel continues an aside with its native gesture: the panel's composer on the WebUI, and a reply to one of its answers on Discord (R12) and Telegram (R13).
 
 **Alternatives considered**:
-- **One-shot** (each `/btw` is one question and one answer). It would remove the follow-up machinery (`turns`, the exchange store, the Discord button and form, Telegram reply handling), but it loses the main use case in #108, asking the agent to explain or adjust its own side answer. Rejected.
+- **One-shot** (each `/btw` is one question and one answer). It would remove the follow-up machinery (`turns`, the exchange store, the Discord/Telegram reply handling), but it loses the main use case in #108, asking the agent to explain or adjust its own side answer. Rejected.
 - **Kept history** (asides saved and visible later). This contradicts FR-006 and the point of the feature. Rejected.
 
 ## R1. Where the side chat is dispatched
@@ -82,14 +82,17 @@ The issue traced history saving and journaling. Reading `agent_process` found th
 
 **Alternatives considered**: a `side_chat` activity (rejected for v1: a new enum value in `UsageActivity::ALL`, the usage API schema and the WebUI usage page, for a distinction nobody has asked to see; it is additive later).
 
-## R8. Exchange limits (settles "a small number of follow-ups")
+## R8. Exchange limits (settles "a small number of follow-ups") — **revised in review on #109**
 
 | Limit | Value | Where enforced |
 |-------|-------|----------------|
-| Earlier turns carried in one exchange | at most **8** (so 9 questions) | `side_chat::ask` (all channels); a 10th question is refused with "start a new side chat" |
+| One side chat's size | at most **32,000** characters: every earlier question and answer plus the new question | `side_chat::ask` (all channels); a follow-up that would go over is refused with "This side chat is full — start a new one" |
 | Question length | at most **4,000** characters | `side_chat::ask` |
-| Earlier answer length (client-supplied, WebUI) | at most **16,000** characters each | `side_chat::ask` |
 | Attachments | none | the request carries none |
+
+Characters are counted as Unicode scalar values (`chars().count()`), like the question limit.
+
+**Why characters, not a number of questions** (the first draft allowed 9 questions): what the limit protects is the size of what each follow-up resends to the model. Every follow-up carries the whole aside again, on top of the conversation. Nine short questions cost less than three with long answers, so a count bounds the wrong thing. 32,000 characters is about 8,000 tokens: room for several long answers, and small next to the conversation and the context window. The WebUI needs this bound most, because a panel has no idle timeout (FR-014) and could otherwise grow without end. The answer that crosses the budget is still delivered; only the next follow-up is refused. The panel shows how many characters are left.
 
 Constants in `src/channels/side_chat.rs`, not config (Principle I; the issue recommends constants for v1).
 
@@ -101,7 +104,7 @@ Constants in `src/channels/side_chat.rs`, not config (Principle I; the issue rec
 
 **Key**: the person as each platform identifies them — `http:{username}`, `discord:{user id}`, `telegram:{user id}`. **(Narrows the original spec assumption, which the spec now states this way.)** The first draft of the spec assumed one limit per person across platforms. Vizier has no verified link between a WebUI account and a Discord/Telegram user: `UserProfile.discord_id`/`telegram_id` are self-declared and there is no lookup by them. Keying on a self-declared link would let anyone drain another person's budget by claiming their id. The limit therefore holds per identity: across all of a WebUI user's tabs and API keys, and per Discord or Telegram account. A cross-platform key can be added once identity links are verified.
 
-**Over the limit**: `429` with `retry_after_secs` on HTTP (shown inline in the WebUI panel); an ephemeral reply on Discord; a self-deleting reply on Telegram.
+**Over the limit**: `429` with `retry_after_secs` on HTTP (shown inline in the WebUI panel); on Discord, an ephemeral notice to a `/btw` command (an interaction can still answer privately, which keeps the noise out of the channel) and a reply to a follow-up; a self-deleting reply on Telegram.
 
 ## R10. Entry point for the WebUI/API (settles open question 1)
 
@@ -117,26 +120,30 @@ The issue's `Btw(String)` carries one question; follow-ups need the earlier turn
 
 - **WebUI**: the side panel's component state (a plain array, discarded on close/unmount, as the issue specifies). It is sent with every ask.
 - **Discord, Telegram**: there is no client to hold it, so the reader holds it **in process memory** in one shared `SideChats` store (`src/channels/side_chat.rs`), keyed by an exchange id, swept on a timer (R12/R13). Nothing in it is written to storage; a restart loses it.
-- **The sweep is shared too (D1)**: `SideChats::spawn_sweeper(every, on_end)` owns the 15 s interval, the `sweep(now)` call and the per-exchange loop. Each platform supplies only `on_end`, its delete call (Discord: the interaction-token deletes; Telegram: `deleteMessage` plus the ledger clear), so the loop exists once (Principle II). The returned handle is aborted when the reader stops.
+- **Reply handling is shared too**: Discord and Telegram both continue an aside by replying, so one pure `classify_reply` decides what a reply to one of the bot's messages is: a follow-up (live aside, its starter), ignored (live aside, someone else), ended (a side-chat message no live aside owns), or not a side-chat reply. Each platform only says how it knows a message is a side-chat message once no live aside owns it: Telegram from its deletion ledger (R13), Discord from the marker line on the message itself (R12).
+- **The sweep is shared too (D1)**: `SideChats::spawn_sweeper(every, on_end)` owns the 15 s interval, the `sweep(now)` call and the per-exchange loop. Each platform supplies only `on_end`, its delete call (Telegram: `deleteMessage` plus the ledger clear; Discord deletes nothing, so its `on_end` only lets the aside go), so the loop exists once (Principle II). The returned handle is aborted when the reader stops.
 
 The WebUI's transcript is client-supplied, so a person could put words in the agent's mouth in their own aside. That is accepted: the side chat has no tools and saves nothing, so a forged earlier turn can only change the answer the forger sees.
 
-## R12. Discord: entry and follow-ups (settles open question 5) — **(deviates)**
+## R12. Discord: public, continued by replying (settles open question 5) — **revised in review on #109**
 
-**Decision**:
+**Decision**: on Discord a side chat is **public and stays in the channel**. The agent keeps no record of it, exactly as on the other channels; only its visibility differs.
 
-1. `/btw` is a registered built-in slash command with one **required** `message` option (`builtin_commands()`), answered with a deferred response flagged `EPHEMERAL`, then edited to the answer.
-2. The answer carries a **Follow up** button (`custom_id` `btw:{exchange id}`). Clicking it opens a Discord modal with one text input; submitting it is answered ephemerally like step 1, appended to the same exchange.
-3. A new `/btw` always starts a new exchange.
-4. Lifetime: an exchange ends after **5 minutes** without activity or **14 minutes** after it started, whichever is first. On end, the reader deletes every ephemeral message of the exchange through its interaction token (`delete_response`), then forgets the exchange. A **Follow up** click on an ended exchange gets an ephemeral "This side chat has ended — start a new one with /btw."
+1. `/btw` is a registered built-in slash command with one **required** `message` option (`builtin_commands()`). It is answered with a public deferred response (`DeferredChannelMessageWithSource`, no `EPHEMERAL` flag), then edited to the answer. Discord shows "<person> used /btw" with the question above it, so the question is public too.
+2. Every message the bot posts in a side chat starts with a one-line marker in Discord's small-text format: `-# 🤫 side chat — visible to everyone, not remembered · reply to follow up`. Answers over Discord's 2,000-character limit are split, and every chunk gets the marker.
+3. A follow-up is a **reply to one of its answers**, the same gesture as Telegram (R13). The bot answers it with a reply to the person's message. Replies go through the shared `classify_reply` (R11) before the reader's abort, `Chat` and `SilentRead` handling, so no branch ever forwards them to the agent:
+   - From the side chat's starter, to a message of a live aside → a follow-up.
+   - From someone else, to a message of a live aside → ignored: not answered, not forwarded. An aside belongs to whoever started it.
+   - To a message carrying the marker that no live aside owns (it ended, or the server restarted) → a reply "This side chat has ended — start a new one with /btw.", which carries the marker too, so replies to it are caught the same way.
+   - Anything else → normal handling.
+4. A new `/btw` always starts a new aside.
+5. Lifetime: the aside is forgotten after **5 minutes** without activity, with no maximum. Nothing is deleted; the messages stay in the channel.
 
-**Why not follow-ups as "normal replies within the interaction window"** (the issue's recommendation): an ephemeral message cannot be replied to, and a normal channel message is public, which breaks FR-008. The button + modal keeps every step ephemeral using only interaction responses.
+**Why public** (the first draft used ephemeral replies): ephemeral replies can't be replied to. A private follow-up then needed a **Follow up** button opening a form (a modal), ephemeral follow-ups, and deleting everything through interaction tokens within their 15-minute validity, which forced a 14-minute cap on every aside. Public messages can be replied to, so Discord continues an aside exactly like Telegram. That drops the button, the form, the token bookkeeping and the cap, and lets the two readers share reply handling. The cost is privacy within the channel: everyone there can read the aside. The notice says so, and a person who wants a private aside can use the WebUI, or `/btw` in a DM with the bot.
 
-**Why not "run `/btw` again to continue"**: then `/btw` would mean "new aside" on the WebUI and Telegram but sometimes "continue" on Discord, and a person couldn't start a fresh aside within the idle window. The button makes continuing explicit and keeps `/btw` = new aside on every channel (R0).
+**What the agent can and can't see afterwards**: the Discord reader passes the agent only the *id* of a replied-to message, never its text (`metadata.replied_message_id`). The agent's Discord tools have no channel-history read; `discord_get_message_by_id` needs an id. Every reply to an aside message is intercepted above, so the agent is never handed the id of an aside message. People can still talk *about* the aside in ordinary messages, and those are ordinary messages (saved as `SilentRead` like any other). That is inherent to a public channel, and the notice's "visible to everyone" covers it.
 
-**Why 14 minutes**: an interaction token is valid for 15 minutes. Every message in the exchange was created after the exchange started, so with a 14-minute cap every token is still valid when the exchange ends and its messages can be deleted — the "no longer accessible to anyone" scenario (US2-3) holds, and expiry is visible rather than a silent failure.
-
-Answers over Discord's 2,000-character limit are split, the rest sent as ephemeral follow-ups (`create_followup` with `EPHEMERAL`); each chunk's message id is kept for deletion.
+**Not deleting**: chosen in review, to keep Discord simple. The channel's copy is Discord's record, not vizier's (spec FR-006).
 
 ## R13. Telegram: entry, follow-ups, removal (settles open question 4) — **(deviates)**
 
@@ -144,7 +151,7 @@ Answers over Discord's 2,000-character limit are split, the rest sent as ephemer
 
 1. `/btw <question>` (also `/btw@bot`) is recognised with `is_command` before `/skill` and chat/`SilentRead` parsing, so it never reaches the agent as `Chat` or `SilentRead` (both of which are saved). It is added to the bot's built-in command menu.
 2. The answer is sent as a **reply to the person's message**, prefixed with a one-line notice: this is a side chat, it isn't saved, and it is deleted after **2 minutes** without activity.
-3. A follow-up is a Telegram **reply to one of the exchange's answers**. Replies are checked against the live exchanges before any other parsing; they are delivered to bots in privacy mode. A reply is classified like this, first match wins, and **no branch ever forwards it as `Chat` or `SilentRead`**:
+3. A follow-up is a Telegram **reply to one of the exchange's answers**. Replies are checked against the live exchanges before any other parsing; they are delivered to bots in privacy mode. A reply is classified by the shared `classify_reply` (R11, the same rules as Discord in R12), first match wins, and **no branch ever forwards it as `Chat` or `SilentRead`**:
    - It replies to a message of a **live** exchange, and comes from that exchange's person → a follow-up.
    - It replies to a message of a live exchange, but comes from **someone else** (a group) → not answered, not forwarded; its id joins the exchange's deletion list. It belongs to a thread that is about to disappear, and keeping it as an ordinary message would leave a dangling, possibly quoting, trace.
    - It replies to a message on the **deletion ledger** but no live exchange owns it. This happens in the window between an exchange ending and the 15 s sweep, and after a restart, when the in-memory store is empty but the messages are still visible. → reply "This side chat has ended — start a new one with /btw.", and put both the reply and the person's message on the ledger with the ended exchange's deadline (or now + 2 min if it has passed).

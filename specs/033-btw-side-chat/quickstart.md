@@ -75,16 +75,21 @@ curl -s "${auth[@]}" "$API/agents/dp-btw/btw" -d '{
 
 At the recording proxy, the request's last three messages are `user: first aside`, `assistant: first answer`, then the side-chat question. History is still `$BEFORE`.
 
-Nine questions is the limit:
+The limit is 32,000 characters for the whole side chat (every earlier question and answer plus the new question), not a number of questions:
 
 ```sh
-EX=$(jq -nc '[range(8) | {question:"q", answer:"a"}]')
+A=$(head -c 31998 /dev/zero | tr '\0' a)                      # 1 + 31,998 + 1 = 32,000
+EX=$(jq -nc --arg a "$A" '[{question:"q", answer:$a}]')
 curl -s -o /dev/null -w '%{http_code}\n' "${auth[@]}" "$API/agents/dp-btw/btw" \
-  -d "{\"channel_id\":\"webui\",\"topic_id\":\"host1\",\"question\":\"ninth\",\"turns\":$EX}"        # 200
-EX=$(jq -nc '[range(9) | {question:"q", answer:"a"}]')
+  -d "{\"channel_id\":\"webui\",\"topic_id\":\"host1\",\"question\":\"x\",\"turns\":$EX}"   # 200
 curl -s "${auth[@]}" "$API/agents/dp-btw/btw" \
-  -d "{\"channel_id\":\"webui\",\"topic_id\":\"host1\",\"question\":\"tenth\",\"turns\":$EX}" | jq .   # 422
+  -d "{\"channel_id\":\"webui\",\"topic_id\":\"host1\",\"question\":\"xy\",\"turns\":$EX}" | jq .   # 422, side chat is full
+EX=$(jq -nc '[range(20) | {question:"q", answer:"a"}]')
+curl -s -o /dev/null -w '%{http_code}\n' "${auth[@]}" "$API/agents/dp-btw/btw" \
+  -d "{\"channel_id\":\"webui\",\"topic_id\":\"host1\",\"question\":\"21st\",\"turns\":$EX}"   # 200: many short turns are fine
 ```
+
+The 422 is refused before the agent is asked: no new `usage_event` row (§7).
 
 ## 4. No tools, and it says so (US1-4, FR-004, FR-013, SC-005)
 
@@ -147,13 +152,15 @@ Expect one row per answered call in this topic: the `hello there` turn's rows pl
 
 ## 10. Discord (US2) — **LIVE**
 
-With a Discord channel integration on `dp-btw` and a second Discord account in the same channel:
+With a Discord channel integration on `dp-btw` and a second Discord account (B) in the same channel as the first (A):
 
-1. `/btw message:hello` — "thinking…", then a lorem answer marked as only-you-can-see, with **Follow up**. The second account sees nothing.
-2. **Follow up** → modal → `context` → an ephemeral answer containing `## Side Chat`.
-3. The second account clicks nothing and sees nothing throughout (SC-003). Run steps 1–2 from both accounts at once: each sees only their own.
-4. Wait 5 minutes: both ephemeral messages are deleted. Click **Follow up** on a still-open client copy, if any: "This side chat has ended…".
-5. The channel's conversation history (`GET …/channel/discord__…/topic/…/history` or the WebUI) has no trace.
+1. A runs `/btw message:hello`. Everyone sees "A used /btw", then a lorem answer whose first line is the marker `🤫 side chat — visible to everyone, not remembered · reply to follow up`.
+2. A replies `context` to that answer. The bot replies with the context block, containing `## Side Chat`.
+3. B replies `hi` to the same answer. There's no answer, and the vizier log shows no request for B's reply.
+4. A waits 5 minutes, then replies to an answer again. The bot replies "This side chat has ended — start a new one with /btw." with the marker. Replying to that notice gets the same notice.
+5. A starts an aside, vizier is restarted, then A replies to its answer. Same "has ended" notice.
+6. The messages are all still in the channel. The channel's conversation history (`GET …/channel/discord__…/topic/…/history` or the WebUI) holds none of the questions, answers or replies from steps 1–5 (SC-003). B's ordinary messages elsewhere in the channel are still recorded as `SilentRead`.
+7. Over the limit: A runs `/btw` six times within a minute. The sixth gets an ephemeral "Slow down…" only A can see.
 
 ## 11. Telegram (US3) — **LIVE**
 

@@ -6,17 +6,17 @@
 
 ## Summary
 
-`/btw <question>` lets a person ask the agent they are talking to an off-the-record question from the WebUI, Discord or Telegram. A side chat is **one aside with follow-ups** (up to 9 questions), discarded in full when it ends (research R0). Each answer is one tool-less completion, made by the agent as itself with the conversation so far and the aside's earlier turns as context. Nothing about the aside is kept except its token usage.
+`/btw <question>` lets a person ask the agent they are talking to an off-the-record question from the WebUI, Discord or Telegram. A side chat is **one aside with follow-ups** (up to 32,000 characters), discarded in full when it ends (research R0). Each answer is one tool-less completion, made by the agent as itself with the conversation so far and the aside's earlier turns as context. Nothing about the aside is kept except its token usage.
 
 Technically: a new `VizierRequestContent::Btw(SideChat)`, always `transient`, is sent on the host conversation's session through the existing transport by one shared helper, `channels::side_chat::ask`. That helper validates, rate-limits (5 / 60 s per person) and awaits the reply under `prompt_timeout`. `agent_process` routes the request to `run_btw` beside `checkpoint`/`lobotomy`, and skips the session-detail refresh and the thinking flag for it. `run_btw` runs `VizierAgent::side_chat`, which assembles the same prompt prefix as a host turn and makes one `complete_until` call with `tool_choice: none`. It never touches `chat()`, history, the turn journal or session events.
 
-Each channel presents the exchange differently. The WebUI shows a side panel whose turns live in component state. Discord uses ephemeral interaction replies, with a Follow-up button that opens a modal. Telegram uses self-deleting replies, and a content-free deletion ledger survives restarts. Discord and Telegram share one in-memory exchange store.
+Each channel presents the exchange differently. The WebUI shows a side panel whose turns live in component state. On Discord the side chat is public and stays in the channel. On Telegram it's visible until it deletes itself, and a content-free deletion ledger survives restarts. On both, a follow-up is a reply to one of the side chat's answers, and the two readers share one in-memory exchange store and one reply classifier, so replies to an aside never reach the agent as ordinary messages.
 
 ## Technical Context
 
 **Language/Version**: Rust (edition 2024, the workspace toolchain); TypeScript / React 19 in the `webui/` submodule
 
-**Primary Dependencies**: existing only: axum + utoipa (HTTP), twilight (Discord: interactions, components, modals), teloxide (Telegram), flume (transport), tokio, `nanoid`. WebUI: `@vizier/design` (`SlideOver`, `Composer`, `AgentReply`), Zustand untouched. **No new crates or npm packages.**
+**Primary Dependencies**: existing only: axum + utoipa (HTTP), twilight (Discord: slash-command interactions and messages), teloxide (Telegram), flume (transport), tokio, `nanoid`. WebUI: `@vizier/design` (`SlideOver`, `Composer`, `AgentReply`), Zustand untouched. **No new crates or npm packages.**
 
 **Storage**: none new. No table or column. One content-free key per Telegram chat in the existing `state` table (deletion ledger, research R13). One `usage_event` row per answered side chat, through the existing path.
 
@@ -28,7 +28,7 @@ Each channel presents the exchange differently. The WebUI shows a side panel who
 
 **Performance Goals**: a side chat in an idle conversation answers within one completion's latency (SC-001's 10 s for a typical question). The request prefix is byte-identical to the host conversation's, so prompt caching applies (research R5).
 
-**Constraints**: zero durable trace of content (FR-006); no tool execution path reachable (FR-004); bounded by `prompt_timeout`; at most 9 questions per exchange, 4,000 chars per question; 5 asks / 60 s per person; Telegram removal within 2 min 15 s of last activity; Discord exchange ≤ 14 min (token validity).
+**Constraints**: zero durable trace of content (FR-006); no tool execution path reachable (FR-004); bounded by `prompt_timeout`; at most 32,000 characters per side chat, 4,000 per question; 5 asks / 60 s per person; Telegram removal within 2 min 15 s of last activity; Discord asides forgotten after 5 min idle (messages stay).
 
 **Scale/Scope**: about 1 new Rust module (`channels/side_chat.rs`) and 1 agent file (`agents/agent/side_chat.rs`), edits to `schema/request.rs`, `agents/process.rs`, `agents/agent/mod.rs` (helper extraction), `channels/http/api/v1/agents/mod.rs`, `channels/discord/mod.rs`, `channels/telegram/mod.rs`, `dependencies.rs`. In the WebUI, 1 new panel component, `Composer.tsx` and the API types. Plus docs.
 
@@ -53,7 +53,7 @@ Each channel presents the exchange differently. The WebUI shows a side panel who
 
 1. The rate limiter is on `VizierDependencies`, not `HTTPState`, because the Discord and Telegram readers can't reach `HTTPState` (R9).
 2. The rate-limit key is per platform identity, because platform links in profiles are unverified. This narrows the spec's cross-platform assumption (R9).
-3. Discord follow-ups use a button + modal instead of replies, because replies to an ephemeral message would be public (R12).
+3. On Discord the side chat is public, not an ephemeral reply, and is continued by replying, as on Telegram. Ephemeral replies can't be replied to, and the private alternative (a button, a form and token-bound deletion) was judged too heavy in review on #109 (R12).
 4. Telegram keeps a content-free deletion ledger in `state`. Without it, a restart would leave exchanges in the chat indefinitely (R13).
 5. The request carries the earlier turns (`SideChat { question, turns }`) instead of `Btw(String)` (R11).
 6. Two more per-request writes (session-detail titling, the `is_thinking` flag) must be skipped. The issue did not list them (R2).
@@ -95,9 +95,9 @@ src/
 │   │                                 #      (LiveExchange, Lifetime, sweep), unit tests
 │   ├── http/api/v1/agents/mod.rs     # + POST /{agent_id}/btw (BtwRequest/BtwResponse, utoipa);
 │   │                                 #   agent_chat's await loop reused from side_chat::ask
-│   ├── discord/mod.rs                # /btw builtin + message option; ephemeral deferred reply;
-│   │                                 # Follow-up button (component) + modal submit; sweep task deleting
-│   │                                 # ephemeral messages; /help text
+│   ├── discord/mod.rs                # /btw builtin + message option; public deferred reply with the
+│   │                                 # marker line; replies to aside messages recognised before
+│   │                                 # abort/Chat/SilentRead (classify_reply); /help text
 │   └── telegram/mod.rs               # /btw + reply-to-answer recognised first; notice; sweep task with
 │                                     # deleteMessage; state-storage ledger load/merge/clear; menu entry
 docs/src/
@@ -130,4 +130,4 @@ Re-checked against the Phase 1 artifacts. Nothing new: the contracts add no trai
 - **Missing one trace path.** The invariants in `contracts/agent-side-chat.md` (history, session detail, `session_turn` unchanged; no `history_uid`) should be pinned by a test that runs `run_btw` against SQLite storage. Code review alone won't catch a future write added to `agent_process`'s per-request path.
 - **Queue wait.** A side chat in a busy conversation waits for the running turn (R4). If people report it, move side chats out of the session queue into their own `JoinSet`.
 - **Provider quirks with `tool_choice: none`.** Some providers still emit tool calls. They are dropped (R5), so the worst case is the fixed no-tools notice rather than an action.
-- **Discord interaction plumbing.** `interaction()` currently returns early for anything but application commands. Component and modal-submit handling must keep that early return for everything else.
+- **Replies slipping through.** On Discord and Telegram, a reply to an aside that isn't recognised becomes an ordinary message and is saved. Recognition must run before every other branch of each reader's message handler, including the text `/abort` shortcut. It must cover the live aside, the marker (Discord) or ledger (Telegram) after it ends, and other people's replies.

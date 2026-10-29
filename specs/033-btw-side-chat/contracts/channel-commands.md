@@ -11,12 +11,14 @@ A side chat is one aside with follow-ups, discarded in full when it ends (resear
 | | WebUI | Discord | Telegram |
 |---|---|---|---|
 | Start | `/btw [question]` in the composer | `/btw message:<question>` | `/btw <question>` |
-| Continue (follow-up) | Ask in the panel's composer | **Follow up** button → form | Reply to one of its answers |
-| Ends | Panel closed, page left, conversation switched | 5 min idle, or 14 min after start | 2 min idle |
+| Visible to | The person only | **Everyone in the channel** | Everyone in the chat, until deleted |
+| Continue (follow-up) | Ask in the panel's composer | Reply to one of its answers | Reply to one of its answers |
+| Ends | Panel closed, page left, conversation switched | 5 min idle | 2 min idle |
+| After it ends | Gone | Messages stay in the channel | Messages deleted |
 | Earlier turns held by | The panel (browser memory) | The reader's process memory | The reader's process memory |
-| Limit | 9 questions | 9 questions | 9 questions |
+| Size limit | 32,000 characters | 32,000 characters | 32,000 characters |
 
-Discord needs the button because its private replies can't be replied to: an ordinary message in reply would be posted publicly (FR-008). The button opens a private form instead, so every step stays visible only to the invoker.
+On every channel the agent keeps no record of the side chat; only its visibility differs. Replies to a side chat's messages on Discord and Telegram are never passed to the agent as ordinary messages (research R11–R13).
 
 ## WebUI
 
@@ -27,7 +29,7 @@ Discord needs the button because its private replies can't be replied to: an ord
 | Pick `btw` from the `/` menu | Inserts `/btw ` into the composer |
 | Ask in the panel | The question shows, then a working indicator, then the answer (rendered as Markdown) |
 | Ask again in the panel | A follow-up: the earlier turns are sent as `turns` |
-| 10th question in one panel | Inline notice "This side chat is full — close it and start a new one"; the composer is disabled |
+| The side chat reaches 32,000 characters | Inline notice "This side chat is full — close it and start a new one"; the composer is disabled. Before that, the composer shows the characters left and refuses a question that wouldn't fit |
 | 429 | Inline "Slow down — try again in {n}s"; the question stays in the composer |
 | 408 / 500 / 503 / network failure | Inline error under the question with a **Retry** action; the turn is not added to the exchange |
 | Close the panel (button, Esc, scrim) | The exchange is discarded; no confirmation |
@@ -39,20 +41,24 @@ Discord needs the button because its private replies can't be replied to: an ord
 
 ## Discord
 
-| Action | Result (all **ephemeral**: only the invoker sees it) |
-|--------|------------------------------------------------------|
-| `/btw message:<question>` | "thinking…" (deferred), then the answer, with a **Follow up** button. A first line notes "Side chat — only you can see this, and it's deleted after 5 minutes idle (14 at most)." |
-| Click **Follow up** | A modal "Side chat follow-up" with one paragraph input (max 4,000) |
-| Submit the modal | A new ephemeral answer with its own **Follow up** button |
-| Exchange ends (5 min idle or 14 min total) | Every ephemeral message of the exchange is deleted |
-| Click **Follow up** after it ended, or on someone else's exchange | Ephemeral "This side chat has ended — start a new one with /btw." |
-| Over the rate limit | Ephemeral "Slow down — try again in {n}s." |
-| 10th question | Ephemeral "This side chat is full — start a new one with /btw." |
-| Timeout / agent error | Ephemeral `**{kind label}**: {message}` |
+Every message the bot posts in a side chat starts with the marker line `-# 🤫 side chat — visible to everyone, not remembered · reply to follow up` (Discord small text).
 
-- `/btw` is a built-in command in `builtin_commands()`, with a required `message` string option; `/help` lists it.
+| Action | Result |
+|--------|--------|
+| `/btw message:<question>` | Public: Discord shows "<person> used /btw" with the question, then "thinking…", then the answer with the marker line |
+| The starter replies to one of its answers | A follow-up, answered publicly as a reply to their message |
+| Someone else replies to one of its answers | Ignored: no answer, and the reply is not passed to the agent |
+| Anyone replies after it ended (5 min idle, or a server restart) | A reply "This side chat has ended — start a new one with /btw." with the marker line |
+| It ends | Nothing visible happens: its messages stay in the channel, and the bot forgets the aside |
+| Over the rate limit | On `/btw`: an ephemeral "Slow down — try again in {n}s." (only the person sees it). On a follow-up: a reply with the same text |
+| The side chat is full (32,000 characters) | A reply "This side chat is full — start a new one with /btw." |
+| Timeout / agent error | A reply `**{kind label}**: {message}` |
+
+- `/btw` is a built-in command in `builtin_commands()`, with a required `message` string option; `/help` lists it as "ask me a side question; public, not remembered".
 - The host conversation is the channel's active topic (`ChannelState.active_topic`), as for every other command.
-- Long answers are split at 2,000 characters; the button is on the last chunk.
+- Replies to side-chat messages are recognised before abort, `Chat` and `SilentRead` handling, so they are never sent to the agent as ordinary messages. Recognition uses the live aside's message ids, or the marker line once no live aside owns the message.
+- Long answers are split at 2,000 characters; every chunk has the marker line, so a reply to any of them is recognised.
+- Want it private? Use the WebUI, or `/btw` in a DM with the bot.
 
 ## Telegram
 
@@ -63,7 +69,7 @@ Discord needs the button because its private replies can't be replied to: an ord
 | Reply to one of the exchange's answers | A follow-up, answered as a reply to it |
 | 2 minutes with no activity in the exchange | The person's `/btw` and follow-up messages and every bot reply in the exchange are deleted (within 15 s of the deadline) |
 | Over the rate limit | A reply "Slow down — try again in {n}s.", deleted with the exchange (or after 2 minutes if there is none) |
-| 10th question | A reply "This side chat is full — start a new one with /btw." |
+| The side chat is full (32,000 characters) | A reply "This side chat is full — start a new one with /btw." |
 | Timeout / agent error | A reply `**{kind label}**: {message}` |
 
 - In a group the notice adds "…your messages too, if I'm allowed to delete them here": a bot that is not an admin with *delete messages* can delete only its own messages there. In private chats it can delete both.

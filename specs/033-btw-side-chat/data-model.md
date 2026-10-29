@@ -11,14 +11,16 @@ Nothing in this feature adds a table or a column. Every type below lives in memo
 | Field | Type | Rules |
 |-------|------|-------|
 | `question` | `String` | Trimmed, 1–4,000 characters |
-| `turns` | `Vec<SideChatTurn>` | Earlier turns of this side chat, oldest first; at most 8, so a side chat holds at most 9 questions. Carried in each request by whoever holds the side chat (the browser, or the Discord/Telegram reader's memory); never stored |
+| `turns` | `Vec<SideChatTurn>` | Earlier turns of this side chat, oldest first. Carried in each request by whoever holds the side chat (the browser, or the Discord/Telegram reader's memory); never stored |
 
 `SideChatTurn`:
 
 | Field | Type | Rules |
 |-------|------|-------|
 | `question` | `String` | 1–4,000 characters |
-| `answer` | `String` | 0–16,000 characters |
+| `answer` | `String` | Any length, within the side chat's budget |
+
+**Budget** (research R8): the characters of every `turns[].question` and `turns[].answer` plus `question` must total at most **32,000** (`MAX_SIDE_CHAT_CHARS`), counted with `chars().count()`.
 
 - `VizierRequestContent::kind()` → `"btw"`; `Display` → the question; `is_side_chat()` → `true` only for this variant.
 - The request carrying it always has `transient: true`, no attachments, no `client_tools`, `background_depth: 0`, `scheduled_task: None`.
@@ -54,33 +56,34 @@ A string, never stored: `http:{username}`, `discord:{user id}`, `telegram:{user 
 | Field | Type | Notes |
 |-------|------|-------|
 | `exchanges` | `Mutex<HashMap<ExchangeId, LiveExchange>>` | |
-| `lifetime` | `Lifetime { idle: Duration, max: Option<Duration> }` | Discord `{5 min, Some(14 min)}`, Telegram `{2 min, None}` |
+| `lifetime` | `Lifetime { idle: Duration }` | Discord 5 min, Telegram 2 min |
 
 `LiveExchange`:
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `id` | `ExchangeId` (`nanoid`, 10 chars) | In Discord button `custom_id`s as `btw:{id}` |
+| `id` | `ExchangeId` (`nanoid`, 10 chars) | |
 | `person` | `PersonKey` | Only this person may continue the exchange |
 | `session` | `VizierSession` | The host conversation, fixed at start |
 | `turns` | `Vec<SideChatTurn>` | Becomes the next ask's `SideChat.turns` |
-| `started_at`, `last_active` | `Instant` | |
-| `posted` | `Vec<PostedMessage>` | What to delete on end: Discord `{ token, message_id: Option<Id> }` (None = the original response); Telegram `{ chat_id, message_id }` |
+| `last_active` | `Instant` | |
+| `posted` | `Vec<P>` | Every message the bot posted in the aside (and, on Telegram, the person's), as `{ chat/channel id, message id }`. Used to recognise replies to the aside (`owner_of`), and on Telegram for deletion |
 
 **State transitions**
 
 ```text
-          ask ok                     ask ok (follow-up, same person, turns ≤ 8)
+          ask ok                     ask ok (follow-up, same person, within budget)
  (none) ────────► Live ◄──────────────────────────────────────────────┐
                    │ └────────────────────────────────────────────────┘
-                   │ idle ≥ lifetime.idle  or  age ≥ lifetime.max  (sweep, every 15 s)
+                   │ idle ≥ lifetime.idle  (sweep, every 15 s)
                    ▼
-                 Ended ──► platform messages deleted (best-effort) ──► forgotten
+                 Ended ──► Telegram: messages deleted (best-effort) ──► forgotten
+                       Discord: messages stay in the channel ──► forgotten
 ```
 
-- A failed ask (rate limit, timeout, agent error) adds no turn, but it still counts as activity (`last_active` moves) and its error reply joins `posted`, so it is deleted with the rest.
-- A follow-up from a different person, or on an unknown/ended id, is refused without touching any exchange.
-- After the 9th question (8 earlier turns plus that one), the next follow-up is refused (`Invalid`, "This side chat is full") and the exchange stays until it times out.
+- A failed ask (rate limit, timeout, agent error) adds no turn, but it still counts as activity (`last_active` moves) and its error reply joins `posted` (deleted with the rest on Telegram).
+- Replies are sorted by the shared `classify_reply`: from someone other than the starter they are ignored; to a side-chat message no live aside owns they get "This side chat has ended" (research R11–R13).
+- A follow-up that would take the side chat over its 32,000-character budget is refused (`Invalid`, "This side chat is full — start a new one"), and the exchange stays until it times out.
 
 ## Telegram deletion ledger
 

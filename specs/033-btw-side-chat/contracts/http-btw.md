@@ -26,7 +26,7 @@ Ask the agent one side-chat question beside one of the caller's own conversation
 | `channel_id` | string | yes | As in the topic routes |
 | `topic_id` | string | yes | |
 | `question` | string | yes | Trimmed; 1–4,000 characters |
-| `turns` | array of `{question, answer}` | no (default `[]`) | Earlier turns of this side chat, oldest first; at most 8; each question 1–4,000, each answer 0–16,000 characters |
+| `turns` | array of `{question, answer}` | no (default `[]`) | Earlier turns of this side chat, oldest first; each question 1–4,000 characters. All of `turns` plus `question` total at most 32,000 characters |
 
 No `attachments` field; unknown fields are ignored.
 
