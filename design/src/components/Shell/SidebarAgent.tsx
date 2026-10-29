@@ -7,8 +7,6 @@ import { Status, type AgentState, agentStatusLabel } from "../Status/Status";
 export type SidebarAgentProps = {
   agentId: string;
   name: string;
-  /** What the agent is for. Shown under the name, above the status. */
-  description?: ReactNode;
   state: AgentState;
   /** "replying", "retry in 40s". */
   detail?: ReactNode;
@@ -21,7 +19,7 @@ export type SidebarAgentProps = {
  * the menu's popover, which sets aria-expanded. The card is lit while the menu is open or while the
  * page open is one of the menu's.
  */
-export function SidebarAgent({ agentId, name, description, state, detail, active, type = "button", className, ...rest }: SidebarAgentProps) {
+export function SidebarAgent({ agentId, name, state, detail, active, type = "button", className, ...rest }: SidebarAgentProps) {
   const lit = active || rest["aria-expanded"] === true;
   return (
     <button
@@ -36,7 +34,6 @@ export function SidebarAgent({ agentId, name, description, state, detail, active
       <Sigil size="card" agentId={agentId} live={state === "live" || state === "running"} />
       <span className="flex min-w-0 flex-1 flex-col gap-2">
         <span className="truncate type-body-strong text-fg">{name}</span>
-        {description && <span className="truncate type-small text-muted">{description}</span>}
         <Status state={state} label={agentStatusLabel(state)} detail={detail} font="mono-xs" dot={false} />
       </span>
       <Icon name="chevron-down" size={14} tone="faint" className={cx("transition-transform duration-[var(--vz-duration-base)]", rest["aria-expanded"] === true && "rotate-180")} />

@@ -1,6 +1,6 @@
-import { useId, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type HTMLAttributes, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { motion } from "motion/react";
+import { motion, Reorder } from "motion/react";
 import { Sigil } from "../../brand/Sigil/Sigil";
 import { Icon } from "../../icons/Icon";
 import type { IconName } from "../../icons/map";
@@ -22,6 +22,8 @@ export type RailProps = {
   agents: RailAgent[];
   /** The agent whose pages are open; its tile carries the marker. */
   activeAgentId?: string;
+  /** Called with the agents' ids in their new order when a tile is dropped. Tiles can be dragged when it is set. */
+  onReorder?: (agentIds: string[]) => void;
   /** The dashed "+" after the agents; omit it for people who may not create one. */
   addHref?: string;
   addActive?: boolean;
@@ -86,7 +88,8 @@ function Marker({ id }: { id: string }) {
   );
 }
 
-function RailLink({ label, href, active, marker, children, className }: {
+function RailLink({ label, href, active, marker, children, className, onClick }: {
+  onClick?: (e: MouseEvent) => void;
   label: string;
   href: string;
   active?: boolean;
@@ -96,7 +99,7 @@ function RailLink({ label, href, active, marker, children, className }: {
 }) {
   return (
     <RailTip label={label}>
-      <a href={href} aria-label={label} aria-current={active ? "page" : undefined} className={cx(TILE, className)}>
+      <a href={href} aria-label={label} aria-current={active ? "page" : undefined} draggable={false} onClick={onClick} className={cx(TILE, className)}>
         {active && marker && <Marker id={marker} />}
         {children}
       </a>
@@ -134,6 +137,7 @@ export function Rail({
   homeActive,
   agents,
   activeAgentId,
+  onReorder,
   addHref,
   addActive,
   settingsHref,
@@ -144,43 +148,82 @@ export function Rail({
   ...rest
 }: RailProps) {
   const marker = useId();
+  // The order shown while a tile is dragged; it follows the agents given whenever they change.
+  const ids = agents.map((a) => a.agentId);
+  const [order, setOrder] = useState(ids);
+  const key = ids.join("\u0000");
+  useEffect(() => setOrder(ids), [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A drop is not a click: the link under the pointer must not open.
+  const dragged = useRef(false);
+  const byId = new Map(agents.map((a) => [a.agentId, a]));
+  const tile = (a: RailAgent) => (
+    <RailLink
+      label={a.name}
+      href={a.href}
+      active={a.agentId === activeAgentId}
+      marker={marker}
+      className="rounded-md hover:opacity-90"
+      onClick={(e) => dragged.current && e.preventDefault()}
+    >
+      <Sigil size="rail" agentId={a.agentId} live={a.state === "live" || a.state === "running"} />
+      <span aria-hidden className={cx("absolute -right-3 -bottom-3 size-10 rounded-pill border-2 border-shell", DOT[a.state])} />
+    </RailLink>
+  );
   return (
     <nav aria-label="Agents" className={cx("flex h-full w-64 shrink-0 flex-col items-center gap-10 bg-shell pt-16 pb-14", className)} {...rest}>
       <RailButton icon="home" label="Home" href={homeHref} active={homeActive} />
       <span aria-hidden className="h-px w-22 bg-border" />
-      <ul className="m-0 flex min-h-0 w-full flex-1 list-none flex-col items-center gap-10 overflow-y-auto overflow-x-clip p-0 [scrollbar-width:none]">
-        {agents.map((a) => {
-          const active = a.agentId === activeAgentId;
-          return (
-            <li key={a.agentId} className="relative">
-              <RailLink label={a.name} href={a.href} active={active} marker={marker} className="rounded-md hover:opacity-90">
-                <Sigil size="rail" agentId={a.agentId} live={a.state === "live" || a.state === "running"} />
-                <span
-                  aria-hidden
-                  className={cx("absolute -right-3 -bottom-3 size-10 rounded-pill border-2 border-shell", DOT[a.state])}
-                />
-              </RailLink>
-            </li>
-          );
-        })}
-        {addHref !== undefined && (
-          <li>
-            <RailLink
-              label="New agent"
-              href={addHref}
-              active={addActive}
-              className={cx(
-                "border text-muted",
-                addActive ? "border-ink bg-ink text-ground" : "border-border-strong hover:border-border-hover hover:text-fg",
-              )}
-            >
-              <Icon name="plus" size={16} />
-            </RailLink>
-          </li>
+      <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-10 overflow-y-auto overflow-x-clip [scrollbar-width:none]">
+        {onReorder ? (
+          <Reorder.Group axis="y" values={order} onReorder={setOrder} className="m-0 flex list-none flex-col items-center gap-10 p-0">
+            {order.map((id) => {
+              const a = byId.get(id);
+              return (
+                a && (
+                  <Reorder.Item
+                    key={id}
+                    value={id}
+                    className="relative cursor-grab active:cursor-grabbing"
+                    whileDrag={{ scale: 1.08, zIndex: 5 }}
+                    onDragStart={() => (dragged.current = true)}
+                    onDragEnd={() => {
+                      onReorder(order);
+                      setTimeout(() => (dragged.current = false), 0);
+                    }}
+                  >
+                    {tile(a)}
+                  </Reorder.Item>
+                )
+              );
+            })}
+          </Reorder.Group>
+        ) : (
+          <ul className="m-0 flex list-none flex-col items-center gap-10 p-0">
+            {agents.map((a) => (
+              <li key={a.agentId} className="relative">
+                {tile(a)}
+              </li>
+            ))}
+          </ul>
         )}
-      </ul>
-      <RailButton icon="theme" label="Theme" onSelect={onToggleTheme} />
-      <RailButton icon="settings" label="Settings" href={settingsHref} active={settingsActive} />
+        {addHref !== undefined && (
+          <RailLink
+            label="New agent"
+            href={addHref}
+            active={addActive}
+            className={cx(
+              "border text-muted",
+              addActive ? "border-ink bg-ink text-ground" : "border-border-strong hover:border-border-hover hover:text-fg",
+            )}
+          >
+            <Icon name="plus" size={16} />
+          </RailLink>
+        )}
+      </div>
+      <div className="flex flex-col items-center">
+        <RailButton icon="theme" label="Theme" onSelect={onToggleTheme} />
+        <RailButton icon="settings" label="Settings" href={settingsHref} active={settingsActive} />
+      </div>
       <span aria-hidden className="h-px w-22 bg-border" />
       {user}
     </nav>
