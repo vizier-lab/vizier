@@ -143,11 +143,11 @@ Expect one row per answered call in this topic: the `hello there` turn's rows pl
 
 `cd webui && npm run dev`, open the `host1` conversation of `dp-btw` (the default local channel is `webui`; adjust `channel_id` above if yours differs).
 
-1. Type `/b` — the slash menu lists `btw`.
-2. Send `/btw what did I just say?` — the **Side chat** panel opens, shows the question and a lorem answer, the model `dummyplug` read-only, and "Not saved — closing this panel discards it." The main message list does not change, and nothing is added to the conversation list.
-3. Ask `context` in the panel — the answer shows the `## Side Chat` section.
-4. Close the panel, reload the page: no trace of the exchange anywhere in the conversation.
-5. Send 6 side-chat questions quickly — the sixth shows "Slow down — try again in …s" inline.
+1. Type `/bt` and press Enter — the slash menu completes it to `/btw` and **nothing is sent** (the conversation's history is unchanged). Press Enter again with nothing after it: still nothing is sent and the text stays in the composer.
+2. Send `/btw what did I just say?` — a small floating **Side chat** window opens (top right) with the question in its header, a lorem answer, the model `dummyplug` read-only, and "Not saved — closing this discards it." It has no input box. The main message list does not change, and nothing is added to the conversation list.
+3. Drag the header to move it, drag the bottom-right corner to resize it, and scroll the conversation behind it: the conversation is not dimmed and still scrolls.
+4. Send `/btw context` — a new window shows the `## Side Chat` section. Close it with `esc`, Esc, or the header's `esc`, reload the page: no trace of the exchange anywhere in the conversation.
+5. Send 6 side-chat questions quickly — the sixth shows "Slow down — try again in …s" inline, with a Retry action.
 6. Typecheck: `cd webui && npm run typecheck`.
 
 ## 10. Discord (US2) — **LIVE**
