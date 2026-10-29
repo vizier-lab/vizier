@@ -20,6 +20,8 @@ export type ColorToken = {
 export const colorTokens: ColorToken[] = [
   { name: "bg/ground", cssVar: "--vz-ground", tw: "ground", group: "bg", description: "Page background" },
   { name: "bg/sidebar", cssVar: "--vz-sidebar", tw: "sidebar", group: "bg", description: "Sidebar, settings rail and side panels" },
+  { name: "bg/shell", cssVar: "--vz-shell", tw: "shell", group: "bg", description: "The app frame: the rail and the context sidebar" },
+  { name: "bg/panel", cssVar: "--vz-panel", tw: "panel", group: "bg", description: "The inset content panel the pages sit on" },
   { name: "bg/surface", cssVar: "--vz-surface", tw: "surface", group: "bg", description: "Cards, panels, chat bubbles, trail" },
   { name: "bg/raised", cssVar: "--vz-raised", tw: "raised", group: "bg", description: "Inputs, hovered and selected rows, active nav, menus" },
   { name: "bg/pressed", cssVar: "--vz-pressed", tw: "pressed", group: "bg", description: "Secondary, ghost and row controls while pressed (hover is bg/raised)" },
@@ -67,6 +69,7 @@ export const sizeTokens: SizeToken[] = [
   { name: "radius/md", cssVar: "--vz-radius-md", kind: "radius" },
   { name: "radius/lg", cssVar: "--vz-radius-lg", kind: "radius" },
   { name: "radius/xl", cssVar: "--vz-radius-xl", kind: "radius" },
+  { name: "radius/2xl", cssVar: "--vz-radius-2xl", kind: "radius" },
   { name: "radius/pill", cssVar: "--vz-radius-pill", kind: "radius" },
   { name: "space/2", cssVar: "--vz-space-2", kind: "space" },
   { name: "space/4", cssVar: "--vz-space-4", kind: "space" },

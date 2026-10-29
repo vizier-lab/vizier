@@ -1,0 +1,39 @@
+import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { Icon } from "../../icons/Icon";
+import { cx } from "../../lib/cx";
+import { Status, type AgentState, agentStatusLabel } from "../Status/Status";
+
+export type SidebarAgentProps = {
+  name: string;
+  state: AgentState;
+  /** "replying", "retry in 40s". */
+  detail?: ReactNode;
+  /** The page open lives in this card's menu (Core, Channels, Usage …), or the menu is open. */
+  active?: boolean;
+} & ButtonHTMLAttributes<HTMLButtonElement>;
+
+/**
+ * The agent at the top of the context sidebar. It opens the agent's menu: pass it as the trigger of
+ * the menu's popover, which sets aria-expanded. The card is lit while the menu is open or while the
+ * page open is one of the menu's.
+ */
+export function SidebarAgent({ name, state, detail, active, type = "button", className, ...rest }: SidebarAgentProps) {
+  const lit = active || rest["aria-expanded"] === true;
+  return (
+    <button
+      type={type}
+      className={cx(
+        "flex h-52 w-full items-center gap-8 rounded-lg border px-14 text-left transition-colors duration-[var(--vz-duration-base)]",
+        lit ? "border-border-strong bg-raised" : "border-border bg-surface/40 hover:bg-surface",
+        className,
+      )}
+      {...rest}
+    >
+      <span className="flex min-w-0 flex-1 flex-col gap-2">
+        <span className="truncate type-body-strong text-fg">{name}</span>
+        <Status state={state} label={agentStatusLabel(state)} detail={detail} font="mono-xs" dot={false} />
+      </span>
+      <Icon name="chevron-down" size={14} tone="faint" className={cx("transition-transform duration-[var(--vz-duration-base)]", rest["aria-expanded"] === true && "rotate-180")} />
+    </button>
+  );
+}
