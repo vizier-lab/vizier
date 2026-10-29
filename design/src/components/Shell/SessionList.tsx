@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { Icon } from "../../icons/Icon";
 import { cx } from "../../lib/cx";
@@ -22,7 +22,11 @@ export type SessionListProps = {
   /** Starts a new conversation. */
   onNew?: () => void;
   newLabel?: string;
-  /** The "Show all 63" row; omit it when the list is whole. */
+  /** A search over the conversations. The field opens from the header and stays open while it holds text. */
+  search?: { value: string; onChange: (value: string) => void; placeholder?: string };
+  /** What to say when the list is empty; the search's "nothing matched" goes here. */
+  empty?: ReactNode;
+  /** The "Show more" row; omit it when the list is whole. */
   showAll?: { label: ReactNode; onSelect: () => void };
   className?: string;
 };
@@ -34,11 +38,37 @@ const EASE = { duration: motionDurations.base, ease: motionEases.standard };
  * groups. A new one slides in at the top, a removed one folds away, and the lit row slides to the
  * conversation you open.
  */
-export function SessionList({ groups, onNew, newLabel = "New session", showAll, className }: SessionListProps) {
+export function SessionList({ groups, onNew, newLabel = "New session", search, empty, showAll, className }: SessionListProps) {
+  const [opened, setOpened] = useState(false);
+  const open = opened || !!search?.value;
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (opened) input.current?.focus();
+  }, [opened]);
+  const close = () => {
+    search?.onChange("");
+    setOpened(false);
+  };
   return (
     <section aria-label="Sessions" className={cx("flex min-h-0 flex-1 flex-col pt-8", className)}>
       <header className="flex h-24 shrink-0 items-center justify-between px-10">
         <h2 className="type-ui-medium text-faint">Sessions</h2>
+        <span className="flex items-center gap-4">
+        {search && (
+          <button
+            type="button"
+            aria-label="Search sessions"
+            title="Search sessions"
+            aria-pressed={open}
+            onClick={() => (open ? close() : setOpened(true))}
+            className={cx(
+              "grid size-24 place-items-center rounded-md transition-colors hover:bg-raised hover:text-fg",
+              open ? "bg-raised text-fg" : "bg-surface text-muted",
+            )}
+          >
+            <Icon name="search" size={12} />
+          </button>
+        )}
         {onNew && (
           <button
             type="button"
@@ -50,8 +80,34 @@ export function SessionList({ groups, onNew, newLabel = "New session", showAll, 
             <Icon name="plus" size={12} />
           </button>
         )}
+        </span>
       </header>
+      <AnimatePresence initial={false}>
+        {search && open && (
+          <motion.div
+            key="search"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto", transition: EASE }}
+            exit={{ opacity: 0, height: 0, transition: { ...EASE, duration: motionDurations.fast } }}
+            className="shrink-0 overflow-hidden"
+          >
+            <label className="mt-8 flex h-30 items-center gap-8 rounded-lg border border-border bg-surface px-10 focus-within:border-border-hover">
+              <Icon name="search" size={13} tone="faint" />
+              <input
+                ref={input}
+                value={search.value}
+                onChange={(e) => search.onChange(e.target.value)}
+                onKeyDown={(e) => e.key === "Escape" && close()}
+                placeholder={search.placeholder ?? "Search sessions"}
+                aria-label="Search sessions"
+                className="min-w-0 flex-1 bg-transparent type-small text-fg outline-none placeholder:text-faint"
+              />
+            </label>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="min-h-0 flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
+        {groups.length === 0 && empty && <div className="px-10 py-12 type-small text-faint">{empty}</div>}
         <LayoutGroup>
           {groups.map((g) => (
             <div key={g.label} role="group" aria-label={g.label} className="flex flex-col pb-8">
