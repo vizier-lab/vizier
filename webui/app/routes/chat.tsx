@@ -361,7 +361,7 @@ export default function Chat() {
                 modelName={modelName}
                 channelId={CHANNEL}
                 topicId={topicId ?? ''}
-                initialQuestion={sideChat.question}
+                question={sideChat.question}
             />
 
             <Presence>

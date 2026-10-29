@@ -20,7 +20,7 @@ export function clampRect(r: Rect, vw: number, vh: number): Rect {
 /** Top right, beside the conversation, leaving the composer clear. */
 export function defaultRect(vw: number, vh: number): Rect {
     const w = Math.min(560, vw - 32)
-    const h = Math.min(520, vh - 120)
+    const h = Math.min(400, vh - 120)
     return clampRect({ x: vw - w - 24, y: 72, w, h }, vw, vh)
 }
 

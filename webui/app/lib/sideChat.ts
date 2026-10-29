@@ -1,12 +1,12 @@
 /**
- * The side chat's exchange, as pure data: no store, no storage. The panel holds one of these
- * in `useReducer` and drops it when it closes (spec 033, research R8).
+ * The side chat's one question and answer, as pure data: no store, no storage. The window
+ * holds one of these in `useReducer` and drops it when it closes (spec 033, research R8). The
+ * server also accepts earlier turns and a 32,000-character budget for the clients that keep
+ * follow-ups (Discord, Telegram, the API); this window is throwaway and sends neither.
  */
 
-/** Each question, 1–4,000 characters (the server's limit). */
+/** A question is 1–4,000 characters (the server's limit). */
 export const MAX_QUESTION_CHARS = 4_000
-/** Every question and answer plus the new question, at most 32,000 characters. */
-export const MAX_SIDE_CHAT_CHARS = 32_000
 
 export type SideChatTurn = {
     question: string
@@ -31,34 +31,13 @@ export type SideChatAction =
     | { type: 'retry'; index: number }
     | { type: 'reset' }
 
-/** Characters the side chat has used: every question and answer so far. */
-export function charsUsed(turns: SideChatTurn[]): number {
-    return turns.reduce((n, t) => n + t.question.length + (t.answer?.length ?? 0), 0)
-}
-
-/** Characters still free for a new question. */
-export function charsLeft(turns: SideChatTurn[]): number {
-    return MAX_SIDE_CHAT_CHARS - charsUsed(turns)
-}
-
-/** Full once no question of even one character fits. */
-export function isFull(turns: SideChatTurn[]): boolean {
-    return charsLeft(turns) <= 0
-}
-
 /** Why a question can't be asked, or `null` when it can. */
-export function refusal(turns: SideChatTurn[], question: string): string | null {
+export function refusal(question: string): string | null {
     const text = question.trim()
     if (text.length === 0) return 'Type a question first.'
     if (text.length > MAX_QUESTION_CHARS)
         return `Questions are limited to ${MAX_QUESTION_CHARS.toLocaleString()} characters.`
-    if (text.length > charsLeft(turns)) return 'This side chat is full — start a new one'
     return null
-}
-
-/** The earlier, answered turns, as the request carries them. Failed and pending turns are left out. */
-export function toTurns(turns: SideChatTurn[]): { question: string; answer: string }[] {
-    return turns.flatMap((t) => (t.answer == null ? [] : [{ question: t.question, answer: t.answer }]))
 }
 
 export function sideChatReducer(state: SideChatState, action: SideChatAction): SideChatState {

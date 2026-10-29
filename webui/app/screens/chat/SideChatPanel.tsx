@@ -1,19 +1,10 @@
-import { AgentReply, Button, Textarea } from '@vizier/design'
+import { AgentReply, Button } from '@vizier/design'
 import { useEffect, useReducer, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { ApiError } from '../../api/client'
 import { askSideChat } from '../../api/endpoints/chat'
-import {
-    charsLeft,
-    initialSideChat,
-    isFull,
-    mapAskError,
-    refusal,
-    sideChatReducer,
-    toTurns,
-    type SideChatTurn,
-} from '../../lib/sideChat'
 import { clampRect, defaultRect, moved, resized, type Rect } from '../../lib/floatingWindow'
+import { initialSideChat, mapAskError, refusal, sideChatReducer } from '../../lib/sideChat'
 import { Markdown } from '../shared/Markdown'
 
 /** Where the window was last left, for the next `/btw` in this page. Memory only: never stored. */
@@ -30,16 +21,17 @@ type Props = {
     modelName?: string
     channelId: string
     topicId: string
-    /** Asked at once when the panel opens. */
-    initialQuestion?: string
+    /** The question typed after `/btw`, asked as soon as the window opens. */
+    question?: string
 }
 
 /**
- * `/btw`: a small floating window that asks the agent beside the open conversation. It has no
- * scrim, so the conversation stays visible and usable behind it; the header moves it and the
- * bottom-right corner resizes it. Its exchange lives in component state only; closing,
- * switching conversation or unmounting discards it, and any ask still in flight is aborted so
- * a late answer never shows in a reopened window.
+ * `/btw`: a small floating window that shows the agent's answer to one throwaway question,
+ * asked beside the open conversation. It has no input of its own: another question is another
+ * `/btw`. It has no scrim, so the conversation stays visible and usable behind it; the header
+ * moves it and the bottom-right corner resizes it. The answer lives in component state only;
+ * closing, switching conversation or unmounting discards it, and an ask still in flight is
+ * aborted so a late answer never shows in a reopened window.
  */
 export function SideChatPanel({
     open,
@@ -49,34 +41,57 @@ export function SideChatPanel({
     modelName,
     channelId,
     topicId,
-    initialQuestion,
+    question,
 }: Props) {
     const [state, dispatch] = useReducer(sideChatReducer, initialSideChat)
-    const [draft, setDraft] = useState('')
-    const controllers = useRef(new Map<number, AbortController>())
-    const body = useRef<HTMLDivElement>(null)
+    const controller = useRef<AbortController | null>(null)
+    const frame = useRef<HTMLDivElement>(null)
     const [rect, setRect] = useState<Rect>(() => {
         const { vw, vh } = viewport()
         return clampRect(remembered ?? defaultRect(vw, vh), vw, vh)
     })
     const drag = useRef<{ kind: 'move' | 'resize'; x: number; y: number; start: Rect } | null>(null)
 
-    const abortAll = () => {
-        controllers.current.forEach((c) => c.abort())
-        controllers.current.clear()
+    const turn = state.turns[0]
+    // A question the server would refuse is said so, without a request.
+    const problem = question?.trim() ? refusal(question) : null
+
+    const run = (text: string) => {
+        controller.current?.abort()
+        const own = new AbortController()
+        controller.current = own
+        askSideChat(
+            agentId,
+            { channel_id: channelId, topic_id: topicId, question: text, turns: [] },
+            own.signal
+        )
+            .then((res) => {
+                if (!own.signal.aborted) dispatch({ type: 'answered', index: 0, answer: res.answer })
+            })
+            .catch((e: unknown) => {
+                if (own.signal.aborted) return
+                const err = e instanceof ApiError ? e : undefined
+                dispatch({ type: 'failed', index: 0, ...mapAskError(err?.status, err?.message ?? '') })
+            })
     }
 
-    // Each run belongs to one open modal on one conversation: leaving either discards it.
+    // The window belongs to one open `/btw` on one conversation: leaving either discards it.
     useEffect(() => {
-        if (!open) return
-        if (initialQuestion?.trim()) ask(initialQuestion)
+        if (!open || !question?.trim() || problem) return
+        dispatch({ type: 'ask', question })
+        run(question.trim())
         return () => {
-            abortAll()
+            controller.current?.abort()
+            controller.current = null
             dispatch({ type: 'reset' })
-            setDraft('')
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, agentId, topicId])
+    }, [open, agentId, topicId, question])
+
+    // Esc closes it when focus is in the window, so the window takes focus as it opens.
+    useEffect(() => {
+        if (open) frame.current?.focus()
+    }, [open])
 
     // A smaller browser window pulls this one back in.
     useEffect(() => {
@@ -106,66 +121,14 @@ export function SideChatPanel({
         setRect((r) => (remembered = r))
     }
 
-    // Keep the newest turn in view as answers arrive.
-    useEffect(() => {
-        const el = body.current
-        if (el) el.scrollTop = el.scrollHeight
-    }, [state.turns, state.pending])
-
-    const run = (index: number, question: string, earlier: SideChatTurn[]) => {
-        const controller = new AbortController()
-        controllers.current.set(index, controller)
-        askSideChat(
-            agentId,
-            { channel_id: channelId, topic_id: topicId, question, turns: toTurns(earlier) },
-            controller.signal
-        )
-            .then((res) => {
-                if (controller.signal.aborted) return
-                dispatch({ type: 'answered', index, answer: res.answer })
-            })
-            .catch((e: unknown) => {
-                if (controller.signal.aborted) return
-                const err = e instanceof ApiError ? e : undefined
-                dispatch({
-                    type: 'failed',
-                    index,
-                    ...mapAskError(err?.status, err?.message ?? ''),
-                })
-            })
-            .finally(() => controllers.current.delete(index))
-    }
-
-    const ask = (question: string) => {
-        if (refusal(state.turns, question)) return
-        const index = state.turns.length
-        dispatch({ type: 'ask', question })
-        run(index, question.trim(), state.turns)
-    }
-
-    const retry = (index: number) => {
-        const turn = state.turns[index]
-        if (!turn) return
-        dispatch({ type: 'retry', index })
-        run(index, turn.question, state.turns.slice(0, index))
-    }
-
-    const refuse = draft.trim() ? refusal(state.turns, draft) : null
-    const full = isFull(state.turns)
-    const busy = state.pending != null
-
-    const submit = () => {
-        if (busy || refuse) return
-        ask(draft)
-        setDraft('')
-    }
-
     if (!open) return null
 
     return createPortal(
         <div
+            ref={frame}
             role="dialog"
             aria-label="Side chat"
+            tabIndex={-1}
             onKeyDown={(e) => {
                 if (e.key === 'Escape') {
                     e.stopPropagation()
@@ -173,7 +136,7 @@ export function SideChatPanel({
                 }
             }}
             style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
-            className="fixed z-50 flex flex-col overflow-hidden rounded-xl border border-border-strong bg-surface shadow-dialog"
+            className="fixed z-50 flex flex-col overflow-hidden rounded-xl border border-border-strong bg-surface shadow-dialog outline-none"
         >
             <header
                 onPointerDown={begin('move')}
@@ -183,9 +146,7 @@ export function SideChatPanel({
                 className="flex shrink-0 cursor-grab touch-none select-none items-center gap-12 border-b border-border px-20 py-12 active:cursor-grabbing"
             >
                 <span className="type-code font-medium text-live-text">/btw</span>
-                <span className="min-w-0 flex-1 truncate text-muted">
-                    {state.turns[0]?.question ?? `Ask ${agentName}`}
-                </span>
+                <span className="min-w-0 flex-1 truncate text-muted">{question}</span>
                 <span
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={onClose}
@@ -195,50 +156,47 @@ export function SideChatPanel({
                 </span>
             </header>
 
-            <div ref={body} className="flex min-h-0 flex-1 flex-col gap-16 overflow-y-auto px-20 py-16">
+            <div className="flex min-h-0 flex-1 flex-col gap-16 overflow-y-auto px-20 py-16">
                 <p className="text-sm text-muted">
                     {agentName}
                     {modelName ? ` · ${modelName}` : ''}. Not saved — closing this discards it.
                 </p>
-                {state.turns.map((turn, i) => (
-                    <SideChatEntry
-                        key={i}
-                        turn={turn}
-                        pending={state.pending === i}
-                        onRetry={() => retry(i)}
-                    />
-                ))}
-            </div>
-
-            <footer className="flex shrink-0 flex-col gap-8 border-t border-border px-20 py-12">
-                <Textarea
-                    aria-label="Side chat question"
-                    rows={2}
-                    autoFocus
-                    value={draft}
-                    disabled={full}
-                    placeholder={
-                        full
-                            ? 'This side chat is full — start a new one'
-                            : `Ask ${agentName} something off the record`
-                    }
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault()
-                            submit()
+                {question?.trim() && <p className="font-medium text-fg">{question.trim()}</p>}
+                {problem ? (
+                    <p className="text-sm text-fg">{problem}</p>
+                ) : turn?.answer != null ? (
+                    <AgentReply>
+                        <Markdown>{turn.answer}</Markdown>
+                    </AgentReply>
+                ) : turn?.error ? (
+                    <AgentReply
+                        state="failed"
+                        error={
+                            <span className="flex items-center gap-8">
+                                {turn.error.message}
+                                {turn.error.retryable && (
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={() => {
+                                            dispatch({ type: 'retry', index: 0 })
+                                            run(turn.question)
+                                        }}
+                                    >
+                                        Retry
+                                    </Button>
+                                )}
+                            </span>
                         }
-                    }}
-                />
-                <div className="flex items-center justify-between gap-8">
-                    <span className="text-sm text-muted">
-                        {refuse ?? `${charsLeft(state.turns).toLocaleString()} characters left · enter to ask`}
-                    </span>
-                    <Button size="sm" onClick={submit} disabled={busy || full || !!refuse}>
-                        Ask
-                    </Button>
-                </div>
-            </footer>
+                    >
+                        <span />
+                    </AgentReply>
+                ) : (
+                    <p className="text-sm text-muted" aria-busy="true">
+                        Thinking…
+                    </p>
+                )}
+            </div>
 
             <div
                 aria-hidden
@@ -255,46 +213,5 @@ export function SideChatPanel({
             </div>
         </div>,
         document.body
-    )
-}
-
-function SideChatEntry({
-    turn,
-    pending,
-    onRetry,
-}: {
-    turn: SideChatTurn
-    pending: boolean
-    onRetry: () => void
-}) {
-    return (
-        <div className="flex flex-col gap-8">
-            <p className="font-medium text-fg">{turn.question}</p>
-            {turn.answer != null ? (
-                <AgentReply>
-                    <Markdown>{turn.answer}</Markdown>
-                </AgentReply>
-            ) : turn.error ? (
-                <AgentReply
-                    state="failed"
-                    error={
-                        <span className="flex items-center gap-8">
-                            {turn.error.message}
-                            {turn.error.retryable && (
-                                <Button size="sm" variant="secondary" onClick={onRetry}>
-                                    Retry
-                                </Button>
-                            )}
-                        </span>
-                    }
-                >
-                    <span />
-                </AgentReply>
-            ) : pending ? (
-                <p className="text-sm text-muted" aria-busy="true">
-                    Thinking…
-                </p>
-            ) : null}
-        </div>
     )
 }

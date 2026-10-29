@@ -1,19 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import {
-    charsLeft,
-    isFull,
-    MAX_SIDE_CHAT_CHARS,
-    initialSideChat,
-    mapAskError,
-    refusal,
-    sideChatReducer,
-    toTurns,
-} from './sideChat'
-
-const q = (n: number) => 'a'.repeat(n)
+import { initialSideChat, mapAskError, MAX_QUESTION_CHARS, refusal, sideChatReducer } from './sideChat'
 
 describe('sideChatReducer', () => {
-    it('asks, answers and keeps the turn order', () => {
+    it('asks and answers the one question', () => {
         let s = sideChatReducer(initialSideChat, { type: 'ask', question: ' first ' })
         expect(s.pending).toBe(0)
         expect(s.turns[0].question).toBe('first')
@@ -35,9 +24,7 @@ describe('sideChatReducer', () => {
     it('ignores an answer for a turn that is not pending', () => {
         let s = sideChatReducer(initialSideChat, { type: 'ask', question: 'q' })
         s = sideChatReducer(s, { type: 'answered', index: 0, answer: 'a' })
-        s = sideChatReducer(s, { type: 'ask', question: 'next' })
         s = sideChatReducer(s, { type: 'answered', index: 0, answer: 'late' })
-        expect(s.pending).toBe(1)
         expect(s.turns[0].answer).toBe('a')
     })
 
@@ -47,26 +34,15 @@ describe('sideChatReducer', () => {
     })
 })
 
-describe('character budget', () => {
-    it('counts questions and answers, and sends only answered turns', () => {
-        let s = sideChatReducer(initialSideChat, { type: 'ask', question: 'hi' })
-        s = sideChatReducer(s, { type: 'answered', index: 0, answer: 'there' })
-        s = sideChatReducer(s, { type: 'ask', question: 'pending' })
-        expect(charsLeft(s.turns)).toBe(MAX_SIDE_CHAT_CHARS - 2 - 5 - 7)
-        expect(toTurns(s.turns)).toEqual([{ question: 'hi', answer: 'there' }])
+describe('refusal', () => {
+    it('refuses an empty question and one over the limit', () => {
+        expect(refusal('   ')).toMatch(/Type a question/)
+        expect(refusal('a'.repeat(MAX_QUESTION_CHARS + 1))).toMatch(/4,000/)
     })
 
-    it('refuses an empty question, a long one, and one that does not fit', () => {
-        expect(refusal([], '   ')).toMatch(/Type a question/)
-        expect(refusal([], q(4_001))).toMatch(/4,000/)
-        expect(refusal([], q(4_000))).toBeNull()
-        const full = [{ question: q(4_000), answer: q(27_999) }, { question: q(4_000), answer: q(1) }]
-        expect(refusal(full, q(1))).toMatch(/full/)
-    })
-
-    it('is full only once nothing more fits', () => {
-        expect(isFull([{ question: q(4_000), answer: q(27_999) }])).toBe(false)
-        expect(isFull([{ question: q(4_000), answer: q(28_000) }])).toBe(true)
+    it('accepts a question at the limit', () => {
+        expect(refusal('a'.repeat(MAX_QUESTION_CHARS))).toBeNull()
+        expect(refusal('hi')).toBeNull()
     })
 })
 

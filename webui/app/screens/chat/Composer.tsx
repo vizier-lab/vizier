@@ -52,8 +52,8 @@ type Props = {
     onSendAudio: (attachment: VizierAttachment) => void
     onCommand: (command: 'abort' | 'checkpoint' | 'lobotomy') => void
     onStop: () => void
-    /** `/btw`: opens the side chat, asking `question` at once when there is one. */
-    onSideChat?: (question?: string) => void
+    /** `/btw <question>`: opens the side chat window, which asks `question` at once. */
+    onSideChat?: (question: string) => void
 }
 
 let pendingId = 1
@@ -139,7 +139,11 @@ export function Composer({
         // Before the command regex and before anything is uploaded or sent: a side chat is never saved.
         const btw = /^\/btw(?:\s+([\s\S]*))?$/.exec(text)
         if (btw) {
-            onSideChat?.(btw[1]?.trim() || undefined)
+            // A throwaway question has no box of its own to type in: without one, leave `/btw`
+            // in the composer so the question can be finished here.
+            const question = btw[1]?.trim()
+            if (!question) return
+            onSideChat?.(question)
             setValue('')
             return
         }
