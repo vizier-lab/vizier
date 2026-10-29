@@ -12,6 +12,16 @@ missing file fails the build instead of skipping a test.
 | `formulas.xlsx` | formulas for `executed_formula`: SUM, IF, a cross-sheet reference, a cell with no saved result, an error cell. Complete package (styles and document properties) | hand-written OOXML |
 | `formulas-minimal.xlsx` | the same sheets without `xl/styles.xml` and `docProps`; calamine reads it, the formula engine refuses it | hand-written OOXML |
 | `legacy.xls` | one sheet of text and numbers (the old binary format) | xlwt |
+| `gen-office-fixtures.py` | the script that writes the five files above | |
 
 All content is made-up sample data. No office application was available when these were made, so a file
 saved by Word or LibreOffice would still be a better check of `table.docx`.
+
+## Rebuilding
+
+```sh
+pip install python-docx openpyxl xlwt
+python3 fixtures/office/gen-office-fixtures.py
+```
+
+It rewrites the five sample files in this folder. Only commit the result if a sample really changed.
