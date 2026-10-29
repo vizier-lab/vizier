@@ -14,7 +14,7 @@ use teloxide::{ApiError, RequestError};
 use crate::channels::commands::{self, CommandEntry, CommandSync, PlatformRules};
 use crate::channels::reactions::{self, ReactionChange, ReactionKind, ReactionTarget};
 use crate::channels::side_chat::{
-    self, AbortOnDrop, ExchangeId, Lifetime, PersonKey, ReplyKind, SideChatError, SideChats,
+    self, AbortOnDrop, ExchangeId, Lifetime, ReplyKind, SideChatError, SideChats,
 };
 use crate::channels::woken;
 use crate::channels::{FatalChannelError, VizierChannel};
@@ -322,7 +322,7 @@ impl TelegramChannelReader {
         // attachments are fetched, before every other command, and before `Chat`/`SilentRead`,
         // so nothing of an aside is ever sent to the agent as an ordinary message.
         if let Some(from) = msg.from.as_ref().filter(|user| !user.is_bot) {
-            let person = PersonKey::telegram(from.id.0);
+            let person = format!("telegram:{}", from.id.0);
             let own_message_replied_to = msg
                 .reply_to_message()
                 .filter(|replied| replied.from.as_ref().is_some_and(|user| user.id == me.id));
@@ -947,7 +947,7 @@ impl TelegramChannelReader {
         topic_id: Option<TopicId>,
     ) {
         let chat_id = msg.chat.id;
-        let person = PersonKey::telegram(from.id.0);
+        let person = format!("telegram:{}", from.id.0);
         let first = continuing.is_none();
         let (id, session, turns) = match continuing {
             Some(id) => match self.side_chats.get_for(&id, &person) {

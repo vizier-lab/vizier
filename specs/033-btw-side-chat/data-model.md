@@ -45,9 +45,9 @@ What `run_btw` sends on the response channel: one `VizierResponse` with `VizierR
 | `Timeout` | No reply within the agent's `prompt_timeout` | 408 |
 | `Agent { kind, message }` | The agent answered with an error, an abort, or its response channel closed (restart) | 500 (`503` for `AgentUnavailable`) |
 
-## PersonKey (rate-limit key)
+## Rate-limit key
 
-A string, never stored: `http:{username}`, `discord:{user id}`, `telegram:{user id}` (research R9). The limiter (`RateLimiter`, 5 / 60 s) lives on `VizierDependencies.side_chat_limits`.
+A plain string, never stored, with no type of its own: `http:{username}`, `discord:{user id}`, `telegram:{user id}` (research R9). Each channel builds it where it calls `ask`. It also decides whether a reply may continue a live side chat. It is per platform identity because the profile links between a WebUI account and a Discord/Telegram id are self-declared; a key that spans platforms waits for verified identities (#116). The limiter (`RateLimiter`, 5 / 60 s) lives on `VizierDependencies.side_chat_limits`.
 
 ## SideChats (in-memory exchange store, Discord and Telegram)
 
@@ -63,7 +63,7 @@ A string, never stored: `http:{username}`, `discord:{user id}`, `telegram:{user 
 | Field | Type | Notes |
 |-------|------|-------|
 | `id` | `ExchangeId` (`nanoid`, 10 chars) | |
-| `person` | `PersonKey` | Only this person may continue the exchange |
+| `person` | `String` (the rate-limit key above) | Only this person may continue the exchange |
 | `session` | `VizierSession` | The host conversation, fixed at start |
 | `turns` | `Vec<SideChatTurn>` | Becomes the next ask's `SideChat.turns` |
 | `last_active` | `Instant` | |

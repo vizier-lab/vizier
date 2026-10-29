@@ -76,10 +76,10 @@ description: "Task list for /btw Ephemeral Side-Chat"
 ### Shared ask helper (all channels)
 
 - [X] T012 Implement in `src/channels/side_chat.rs`:
-  - `PersonKey` constructors: `http(username)`, `discord(id)`, `telegram(id)`.
+  - Who is asking is a plain string key, built by each channel where it calls `ask`: `http:{username}`, `discord:{id}`, `telegram:{id}`. No type of its own (#116 will unify identity).
   - `SideChatError { RateLimited { retry_after_secs }, Invalid(String), Timeout, Agent { kind, message } }`, with `user_message()`.
   - `fn validate(&SideChat) -> Result<(), SideChatError>`, enforcing the data-model limits: each question 1–4,000 characters, and every earlier question and answer plus the new question at most 32,000 characters (`chars().count()`). Over the budget is refused with "This side chat is full — start a new one".
-  - `pub async fn ask(deps: &VizierDependencies, session: VizierSession, person: &PersonKey, user: String, side_chat: SideChat, timeout: Duration) -> Result<SideChatAnswer { answer, stats }, SideChatError>`. It validates, checks `deps.side_chat_limits` (refusing before sending), builds the request with `transient: true` and no attachments, sends it via `deps.transport.send_request`, then awaits the first `Message`/`Error`/`Abort` or a closed channel under `timeout`.
+  - `pub async fn ask(deps: &VizierDependencies, session: VizierSession, person: &str, user: String, side_chat: SideChat, timeout: Duration) -> Result<SideChatAnswer { answer, stats }, SideChatError>`. It validates, checks `deps.side_chat_limits` (refusing before sending), builds the request with `transient: true` and no attachments, sends it via `deps.transport.send_request`, then awaits the first `Message`/`Error`/`Abort` or a closed channel under `timeout`.
   - `retry_after_secs` is derived from `ASK_WINDOW`. Add a `RateLimiter::retry_after(key)` helper in `src/channels/http/rate_limit.rs` only if the window start is needed; otherwise report the full window.
 - [X] T013 Unit tests in `src/channels/side_chat.rs`:
   - Empty and over-long questions are `Invalid`; a side chat totalling exactly 32,000 characters is valid and 32,001 is `Invalid`; 20 short turns are valid.
@@ -96,8 +96,8 @@ description: "Task list for /btw Ephemeral Side-Chat"
     - `touch(id)`
     - `add_posted(id, P)`
     - `sweep(now) -> Vec<LiveExchange<P>>` (removes and returns ended exchanges)
-    - `owner_of(posted: &P) -> Option<(ExchangeId, PersonKey)>`, for recognising replies to a live exchange's messages
-    - `classify_reply(owner: Option<(ExchangeId, PersonKey)>, from: &PersonKey, is_side_chat_message: bool) -> ReplyKind { FollowUp(ExchangeId), Ignore, Ended, NotSideChat }`, a pure function both readers use (research R11). `is_side_chat_message` is the platform's check once no live aside owns the message: Telegram's ledger, Discord's marker line.
+    - `owner_of(posted: &P) -> Option<(ExchangeId, String)>`, for recognising replies to a live exchange's messages
+    - `classify_reply(owner: Option<(ExchangeId, String)>, from: &str, is_side_chat_message: bool) -> ReplyKind { FollowUp(ExchangeId), Ignore, Ended, NotSideChat }`, a pure function both readers use (research R11). `is_side_chat_message` is the platform's check once no live aside owns the message: Telegram's ledger, Discord's marker line.
     - `spawn_sweeper(self: Arc<Self>, every: Duration, on_end: F) -> JoinHandle<()>`, where `F: Fn(LiveExchange<P>) -> impl Future<Output = ()>`. It owns the interval, the `sweep` call and the loop over ended exchanges, so Discord and Telegram supply only their `on_end` (Telegram deletes; Discord only forgets) (research R11, Principle II).
   - It's in memory only, behind a `std::sync::Mutex`, and never written to storage.
 - [X] T015 Unit tests for `SideChats` in `src/channels/side_chat.rs`: idle expiry, every `classify_reply` branch, another person's id refused, an unknown or ended id gives `None`, `owner_of` finds a posted message, and `spawn_sweeper` calls `on_end` once per ended exchange (tokio paused time)
@@ -118,7 +118,7 @@ description: "Task list for /btw Ephemeral Side-Chat"
   - Looks up the agent and returns 404 if it's missing.
   - Checks `user_can_view_agent`, returning 403.
   - Builds the session as `HTTP(user.username, channel_id)` with the topic.
-  - Calls `side_chat::ask(&state.deps, .., &PersonKey::http(&user.username), user.username.clone(), .., *config.prompt_timeout)`.
+  - Calls `side_chat::ask(&state.deps, .., &format!("http:{}", user.username), user.username.clone(), .., *config.prompt_timeout)`.
   - Maps errors as in `contracts/http-btw.md`: 422, 429 plus a `Retry-After` header, 408, 500, and 503 for `AgentUnavailable`.
   - Register `.route("/{agent_id}/btw", post(agent_btw))` beside `/chat`, and add the path and schemas to the OpenAPI document.
 - [X] T017 [US1] Remove the duplicated send-and-await loop: make `agent_chat` in `src/channels/http/api/v1/agents/mod.rs` and `side_chat::ask` share one helper (e.g. `side_chat::await_reply(rx, timeout)`, or a transport-level helper) without changing `agent_chat`'s responses (Principle II, research R10)
@@ -157,7 +157,7 @@ description: "Task list for /btw Ephemeral Side-Chat"
 - [X] T025 [US2] Add `CommandEntry::new("btw", "ask me a side question; public, not remembered")` with a required `message` option to `builtin_commands()` in `src/channels/discord/mod.rs`. Add `/btw` to the `/help` text.
 - [X] T026 [US2] Add a `side_chats: Arc<SideChats<DiscordPosted>>` field to the Discord reader in `src/channels/discord/mod.rs`, where `DiscordPosted { channel_id, message_id }` and the lifetime is `Lifetime { idle: 5 min }`. Start it with `side_chats.spawn_sweeper(15 s, on_end)` (T014), where `on_end` does nothing but let the aside go (messages stay). Abort the handle when the reader stops. Add the marker constant `SIDE_CHAT_MARKER = "-# 🤫 side chat — visible to everyone, not remembered · reply to follow up"`.
 - [X] T027 [US2] Implement `async fn side_chat(&self, channel, person, user, question, continuing: Option<ExchangeId>, reply_to)` in `src/channels/discord/mod.rs`:
-  1. Resolve the host session from `load_state(&channel).active_topic`; use `PersonKey::discord(author id)` and the user string the way `run_skill_command` builds it.
+  1. Resolve the host session from `load_state(&channel).active_topic`; use `format!("discord:{}", author id)` and the user string the way `run_skill_command` builds it.
   2. Start a new aside or continue `continuing`.
   3. Call `side_chat::ask` with the agent's `prompt_timeout` (from storage).
   4. Post the answer (or `**{kind label}**: {message}`, or "This side chat is full — start a new one with /btw.") split at 2,000 characters, **every chunk starting with `SIDE_CHAT_MARKER`**. For a `/btw` command, edit the public deferred response, sending further chunks with `create_followup`. For a follow-up, reply to the person's message.
@@ -199,7 +199,7 @@ description: "Task list for /btw Ephemeral Side-Chat"
      - **On the ledger (`holds`) with no live exchange** (the gap before the sweep, or after a restart) → reply "This side chat has ended — start a new one with /btw.", then `merge` both the reply and the person's message into the ledger with the old deadline (or now + 2 min if it has passed); `return Ok(())`.
      - **None of these** → fall through to step 2 and normal parsing.
   2. Otherwise, if `is_command(&text, "btw", &bot_username)`, start a new exchange (an empty question gets the usage reply).
-  3. In both the follow-up and new-exchange cases, call `side_chat::ask` with `PersonKey::telegram(from.id)` and the host session `(agent, channel, topic_id)`.
+  3. In both the follow-up and new-exchange cases, call `side_chat::ask` with `format!("telegram:{}", from.id)` and the host session `(agent, channel, topic_id)`.
   4. Reply to the person's message with the notice on the first answer. In groups, add "…your messages too, if I'm allowed to delete them here".
   5. Split long answers with the existing Telegram helper.
   6. Record the person's message, every reply and any error reply in `posted` and in the ledger (`merge`).
