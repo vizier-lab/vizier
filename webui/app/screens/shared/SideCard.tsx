@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 /** No side panel is narrower than this, so its cards read the same on every page. */
-export const SIDE_PANEL_WIDTH = 320
+export const SIDE_PANEL_WIDTH = 400
 
 /** A hairline that fades out at both ends, as the header rules do. */
 export function FadeRule({ className = '' }: { className?: string }) {

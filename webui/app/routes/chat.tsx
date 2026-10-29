@@ -373,11 +373,11 @@ export default function Chat() {
                         <motion.aside
                             key="details"
                             aria-label="Conversation details"
-                            className="pointer-events-none absolute inset-y-0 right-0 flex w-320 flex-col gap-24 overflow-x-hidden overflow-y-auto p-16 [&>*]:pointer-events-auto [&>*]:min-w-0"
+                            className="pointer-events-none absolute inset-y-0 right-0 flex w-400 flex-col gap-24 overflow-x-hidden overflow-y-auto p-16 [&>*]:pointer-events-auto [&>*]:min-w-0"
                             // The conversation makes room for the panel instead of
                             // jumping when it appears.
-                            initial={{ width: reducedMotion ? 320 : 0, opacity: reducedMotion ? 1 : 0 }}
-                            animate={{ width: 320, opacity: 1 }}
+                            initial={{ width: reducedMotion ? SIDE_PANEL_WIDTH : 0, opacity: reducedMotion ? 1 : 0 }}
+                            animate={{ width: SIDE_PANEL_WIDTH, opacity: 1 }}
                             exit={reducedMotion ? { opacity: 0 } : { width: 0, opacity: 0 }}
                             transition={{ duration: motionDurations.slow, ease: motionEases.standard }}
                         >
