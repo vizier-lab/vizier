@@ -36,7 +36,7 @@ snapshot          = agent.tools.load_full()
 messages          = prepare_system_prompts(&snapshot.categories, &session)
                   + [checkpoint_context(handover)]?
                   + history_entries_to_messages(&history)
-                  + for turn in exchange: [User(turn.question), Assistant(turn.answer)]
+                  + for turn in turns: [User(turn.question), Assistant(turn.answer)]
 message           = with_context(User(req.to_prompt()), context_md(&[], &[], None, None) + SIDE_CHAT_MD)
 request           = completion_request(&messages, &message, &snapshot.tools(), answer_only = true)
 response          = model.complete_until(request, Some(now + prompt_timeout),

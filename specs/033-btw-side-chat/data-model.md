@@ -11,7 +11,7 @@ Nothing in this feature adds a table or a column. Every type below lives in memo
 | Field | Type | Rules |
 |-------|------|-------|
 | `question` | `String` | Trimmed, 1–4,000 characters |
-| `exchange` | `Vec<SideChatTurn>` | Earlier turns of this exchange, oldest first; at most 8 |
+| `turns` | `Vec<SideChatTurn>` | Earlier turns of this side chat, oldest first; at most 8, so a side chat holds at most 9 questions. Carried in each request by whoever holds the side chat (the browser, or the Discord/Telegram reader's memory); never stored |
 
 `SideChatTurn`:
 
@@ -63,14 +63,14 @@ A string, never stored: `http:{username}`, `discord:{user id}`, `telegram:{user 
 | `id` | `ExchangeId` (`nanoid`, 10 chars) | In Discord button `custom_id`s as `btw:{id}` |
 | `person` | `PersonKey` | Only this person may continue the exchange |
 | `session` | `VizierSession` | The host conversation, fixed at start |
-| `turns` | `Vec<SideChatTurn>` | Becomes the next ask's `exchange` |
+| `turns` | `Vec<SideChatTurn>` | Becomes the next ask's `SideChat.turns` |
 | `started_at`, `last_active` | `Instant` | |
 | `posted` | `Vec<PostedMessage>` | What to delete on end: Discord `{ token, message_id: Option<Id> }` (None = the original response); Telegram `{ chat_id, message_id }` |
 
 **State transitions**
 
 ```text
-          ask ok                     ask ok (follow-up, same person, turns < 8)
+          ask ok                     ask ok (follow-up, same person, turns ≤ 8)
  (none) ────────► Live ◄──────────────────────────────────────────────┐
                    │ └────────────────────────────────────────────────┘
                    │ idle ≥ lifetime.idle  or  age ≥ lifetime.max  (sweep, every 15 s)
@@ -80,7 +80,7 @@ A string, never stored: `http:{username}`, `discord:{user id}`, `telegram:{user 
 
 - A failed ask (rate limit, timeout, agent error) adds no turn, but it still counts as activity (`last_active` moves) and its error reply joins `posted`, so it is deleted with the rest.
 - A follow-up from a different person, or on an unknown/ended id, is refused without touching any exchange.
-- At 8 earlier turns, the next follow-up is refused (`Invalid`) and the exchange stays until it times out.
+- After the 9th question (8 earlier turns plus that one), the next follow-up is refused (`Invalid`, "This side chat is full") and the exchange stays until it times out.
 
 ## Telegram deletion ledger
 

@@ -4,6 +4,20 @@
 
 The design agreed in [vizier-lab/vizier#108](https://github.com/vizier-lab/vizier/issues/108) is the starting point. Each decision below either confirms a point of the issue against the code as it stands, settles one of the issue's six open questions, or records a place where the code forced a change to the issue's sketch. Deviations from the issue are marked **(deviates)**.
 
+## R0. What a side chat is: one aside with follow-ups, discarded at the end
+
+Asked in review on PR #109: is `/btw` a throwaway one-shot question, or does it keep history?
+
+**Decision**: neither extreme. A side chat is **one aside with follow-ups**. `/btw` starts it, and the same person's follow-ups continue it, up to 9 questions. Each answer sees the conversation plus the aside's own earlier turns. When the aside ends (FR-014), **all of it is discarded**: it never enters the conversation's history, memory or any store, so nothing carries over to the next aside or the next conversation turn. "Throwaway" in #108 means *thrown away at the end*, not *one question long*. #108 says the same: "A few follow-up turns are fine inside one exchange … the whole exchange (however many turns) is thrown away together on close/expiry."
+
+**How the turns live without being stored**: the agent side keeps nothing between questions. Every ask carries the aside's earlier turns in the request (`SideChat.turns`), held in between only by whoever shows the aside: the WebUI panel's state in the browser, or the Discord/Telegram reader's process memory (R11). A server restart, a closed panel or the channel's idle timeout ends it.
+
+**One rule for all channels**: follow-ups continue the open aside; invoking `/btw` again always starts a new, empty one. Each channel continues an aside with its native gesture: the panel's composer on the WebUI, the **Follow up** button on Discord (R12), a reply to an answer on Telegram (R13).
+
+**Alternatives considered**:
+- **One-shot** (each `/btw` is one question and one answer). It would remove the follow-up machinery (`turns`, the exchange store, the Discord button and form, Telegram reply handling), but it loses the main use case in #108, asking the agent to explain or adjust its own side answer. Rejected.
+- **Kept history** (asides saved and visible later). This contradicts FR-006 and the point of the feature. Rejected.
+
 ## R1. Where the side chat is dispatched
 
 **Decision**: `VizierRequestContent::Btw(SideChat)` is intercepted in `start_session_job` (`src/agents/process.rs`) next to `checkpoint`/`lobotomy` and routed to `run_btw`, which never calls `VizierAgent::chat`, `handle_request` or `save_history_or_log`. `handle_request` gets a defensive `Btw(_)` arm that returns an error, so a future refactor that bypasses the dispatch fails loudly instead of saving.
@@ -72,7 +86,7 @@ The issue traced history saving and journaling. Reading `agent_process` found th
 
 | Limit | Value | Where enforced |
 |-------|-------|----------------|
-| Earlier turns carried in one exchange | at most **8** (so 9 questions) | `side_chat::ask` (all channels); a 9th follow-up is refused with "start a new side chat" |
+| Earlier turns carried in one exchange | at most **8** (so 9 questions) | `side_chat::ask` (all channels); a 10th question is refused with "start a new side chat" |
 | Question length | at most **4,000** characters | `side_chat::ask` |
 | Earlier answer length (client-supplied, WebUI) | at most **16,000** characters each | `side_chat::ask` |
 | Attachments | none | the request carries none |
@@ -91,7 +105,7 @@ Constants in `src/channels/side_chat.rs`, not config (Principle I; the issue rec
 
 ## R10. Entry point for the WebUI/API (settles open question 1)
 
-**Decision**: a sibling route, `POST /api/v1/agents/{agent_id}/btw`, with its own request type (`BtwRequest`: `channel_id`, `topic_id`, `question`, `exchange`). The send-and-await loop from `agent_chat` (send on the transport, wait for the first `Message`/`Error`/`Abort` under `prompt_timeout`, map to 200/500/408) moves into `side_chat::ask`, and `agent_chat` keeps its own copy only if extracting it would change its behaviour; the target is one implementation.
+**Decision**: a sibling route, `POST /api/v1/agents/{agent_id}/btw`, with its own request type (`BtwRequest`: `channel_id`, `topic_id`, `question`, `turns`). The send-and-await loop from `agent_chat` (send on the transport, wait for the first `Message`/`Error`/`Abort` under `prompt_timeout`, map to 200/500/408) moves into `side_chat::ask`, and `agent_chat` keeps its own copy only if extracting it would change its behaviour; the target is one implementation.
 
 **Rationale**: as the issue argues, a `kind` field on `ChatRequest` would make one endpoint "sometimes saved, sometimes never", and `ChatRequest` carries attachments a side chat must refuse. Same auth (`require_auth`, `user_can_view_agent`), same session construction (`HTTP(username, channel_id)`, topic), so a person can only ask beside their own conversations.
 
@@ -99,7 +113,7 @@ Constants in `src/channels/side_chat.rs`, not config (Principle I; the issue rec
 
 The issue's `Btw(String)` carries one question; follow-ups need the earlier turns, and the server must not keep them anywhere durable.
 
-**Decision**: the request carries the whole exchange (`SideChat { question, exchange: Vec<SideChatTurn> }`), so the agent side is stateless. Who holds the exchange between asks depends on whether the channel has a client:
+**Decision**: the request carries the whole exchange (`SideChat { question, turns: Vec<SideChatTurn> }`), so the agent side is stateless. Who holds the exchange between asks depends on whether the channel has a client:
 
 - **WebUI**: the side panel's component state (a plain array, discarded on close/unmount, as the issue specifies). It is sent with every ask.
 - **Discord, Telegram**: there is no client to hold it, so the reader holds it **in process memory** in one shared `SideChats` store (`src/channels/side_chat.rs`), keyed by an exchange id, swept on a timer (R12/R13). Nothing in it is written to storage; a restart loses it.
@@ -117,6 +131,8 @@ The WebUI's transcript is client-supplied, so a person could put words in the ag
 4. Lifetime: an exchange ends after **5 minutes** without activity or **14 minutes** after it started, whichever is first. On end, the reader deletes every ephemeral message of the exchange through its interaction token (`delete_response`), then forgets the exchange. A **Follow up** click on an ended exchange gets an ephemeral "This side chat has ended — start a new one with /btw."
 
 **Why not follow-ups as "normal replies within the interaction window"** (the issue's recommendation): an ephemeral message cannot be replied to, and a normal channel message is public, which breaks FR-008. The button + modal keeps every step ephemeral using only interaction responses.
+
+**Why not "run `/btw` again to continue"**: then `/btw` would mean "new aside" on the WebUI and Telegram but sometimes "continue" on Discord, and a person couldn't start a fresh aside within the idle window. The button makes continuing explicit and keeps `/btw` = new aside on every channel (R0).
 
 **Why 14 minutes**: an interaction token is valid for 15 minutes. Every message in the exchange was created after the exchange started, so with a 14-minute cap every token is still valid when the exchange ends and its messages can be deleted — the "no longer accessible to anyone" scenario (US2-3) holds, and expiry is visible rather than a silent failure.
 
