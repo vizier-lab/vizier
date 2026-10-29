@@ -6,6 +6,7 @@ export type AgentPage = EssentialPage | MenuPage | 'chat'
 export const PAGE_PATH: Record<AgentPage, string> = {
     chat: '/chat',
     memory: '/memory',
+    artifacts: '/artifacts',
     tasks: '/tasks',
     skills: '/skills',
     dreams: '/dream',

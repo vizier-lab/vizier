@@ -21,6 +21,7 @@ export default [
             route(':agentId/memory', 'routes/memory.tsx', { id: 'memory-all' }),
             route(':agentId/memory/:bundle', 'routes/memory.tsx', { id: 'memory-bundle' }),
             route(':agentId/memory/:bundle/*', 'routes/memory.tsx', { id: 'memory-doc' }),
+            route(':agentId/artifacts', 'routes/artifacts.tsx'),
             route(':agentId/tasks', 'routes/tasks.tsx'),
             route(':agentId/tasks/:slug', 'routes/task.tsx'),
             route(':agentId/tasks/:slug/edit', 'routes/task-edit.tsx'),

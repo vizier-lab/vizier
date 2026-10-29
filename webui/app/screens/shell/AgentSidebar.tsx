@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { agentState } from '../../api/endpoints/agents'
 import { DeleteConversation, type DeleteTarget } from '../chat/DeleteConversation'
-import { canManageSecrets } from '../../lib/access'
+import { canManageSecrets, canViewArtifacts } from '../../lib/access'
 import { conversationHref, conversationTitle, sidebarSections, sidebarTime } from '../../lib/conversations'
 import { relativeTime } from '../../lib/format'
 import { useAgents } from '../../stores/agents'
@@ -24,7 +24,7 @@ import { useTurns } from '../../stores/turns'
 import { PAGE_PATH, pageOf } from './pages'
 import { SESSIONS_STEP, useSessions } from './useSessions'
 
-const ESSENTIAL = new Set<string>(['memory', 'tasks', 'skills', 'dreams'])
+const ESSENTIAL = new Set<string>(['memory', 'artifacts', 'tasks', 'skills', 'dreams'])
 
 /**
  * The agent's column: the agent card with its menu, the four essentials, and the conversations.
@@ -162,6 +162,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                 </div>
             }
             active={page && ESSENTIAL.has(page) ? (page as EssentialPage) : undefined}
+            hiddenPages={agent && canViewArtifacts(agent) ? undefined : ['artifacts']}
             hrefFor={(p) => `/${agentId}${PAGE_PATH[p]}`}
         >
             <SessionList
