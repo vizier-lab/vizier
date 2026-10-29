@@ -15,7 +15,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { agentState } from '../../api/endpoints/agents'
 import { canManageSecrets } from '../../lib/access'
-import { conversationHref, sidebarSections, sidebarTime } from '../../lib/conversations'
+import { conversationHref, conversationTitle, sidebarSections, sidebarTime } from '../../lib/conversations'
 import { relativeTime } from '../../lib/format'
 import { useAgents } from '../../stores/agents'
 import { topicKey } from '../../stores/connection'
@@ -61,7 +61,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                 label: g.label,
                 items: g.items.map((c) => ({
                     key: c.channel,
-                    title: c.title,
+                    title: conversationTitle(c.title, c.latest_topic),
                     time: sidebarTime(c.last_activity),
                     live: c.kind === 'webui' && isLive(c.latest_topic),
                     href: conversationHref(agentId, c),
@@ -116,6 +116,8 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                         onSwitchAgent={() => setSwitching(true)}
                         switchShortcut="Ctrl K"
                     />
+                    {/* Out of the flow: it only anchors the agent list under the card. */}
+                    <div className="absolute inset-x-0 bottom-0">
                     <Picker
                         label="Agents"
                         width={SIDEBAR_PICKER_WIDTH}
@@ -143,6 +145,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                             ) : undefined
                         }
                     />
+                    </div>
                 </div>
             }
             active={page && ESSENTIAL.has(page) ? (page as EssentialPage) : undefined}

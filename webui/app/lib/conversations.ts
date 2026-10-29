@@ -54,3 +54,11 @@ export function sidebarTime(at: string, now: Date = new Date()): string {
     if (days < 7) return d.toLocaleDateString('en-US', { weekday: 'short' })
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
+
+export const UNTITLED = 'Untitled conversation'
+
+/** A conversation's name, or a generic one while it has none (the server says "Untitled", or leaves the topic's id). */
+export function conversationTitle(title: string | undefined | null, topic?: string): string {
+    const t = title?.trim()
+    return !t || t === 'Untitled' || t === topic ? UNTITLED : t
+}

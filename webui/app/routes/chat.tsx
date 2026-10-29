@@ -1,3 +1,4 @@
+import { FadeRule, SideCard } from '../screens/shared/SideCard'
 import { IconButton, JobsPill, Presence, SlideOver, motionDurations, motionEases } from '@vizier/design'
 import { nanoid } from 'nanoid'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -27,6 +28,7 @@ import { topicKey, useConnection } from '../stores/connection'
 import { useSession } from '../stores/session'
 import { toast } from '../stores/toasts'
 import { useTurns } from '../stores/turns'
+import { conversationTitle } from '../lib/conversations'
 
 const EMPTY = emptyTopic()
 // A new key so the details panel starts collapsed for everyone, including people
@@ -178,7 +180,7 @@ export default function Chat() {
     const modelName = health?.model?.model
     const failed = health?.state === 'failed'
     const topicIndex = topics.findIndex((t) => t.topic_id === topicId)
-    const title = state.title || topics[topicIndex]?.title || topicId || 'New topic'
+    const title = conversationTitle(state.title || topics[topicIndex]?.title, topicId)
 
     // The same fresh topic the picker's "New conversation" opens, one click from the header.
     const newConversation = (
@@ -191,8 +193,9 @@ export default function Chat() {
 
     // The recalled memory, background jobs and session files: a side panel, or a sheet on a phone.
     const details = (
-        <>
+        <SideCard>
             <RecalledMemoryPanel agentId={agentId} recalled={recalled} />
+            <FadeRule />
             <BackgroundJobsPanel
                 jobs={jobs}
                 onCancel={(id) =>
@@ -202,8 +205,9 @@ export default function Chat() {
                 }
                 onJumpToStart={() => {}}
             />
+            <FadeRule />
             <SessionFilesPanel files={state.files} />
-        </>
+        </SideCard>
     )
 
     return (
@@ -362,7 +366,7 @@ export default function Chat() {
                         <motion.aside
                             key="details"
                             aria-label="Conversation details"
-                            className="flex w-320 shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto border-l border-border p-16 [&>*]:min-w-0"
+                            className="flex w-320 shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto p-16 [&>*]:min-w-0"
                             // The conversation makes room for the panel instead of
                             // jumping when it appears.
                             initial={{ width: reducedMotion ? 320 : 0, opacity: reducedMotion ? 1 : 0 }}

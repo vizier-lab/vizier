@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { useMobile } from '../../lib/useMobile'
+import { SideCard } from './SideCard'
 
 type Props = {
     /** The main area: what the page is about. */
@@ -30,7 +31,7 @@ export function Panes({ children, pane, paneLabel, side = 'right', paneWidth = 3
     if (mobile) {
         const aside = (
             <aside aria-label={paneLabel} className="flex flex-col gap-24 border-border px-16 py-20 [&>*]:min-w-0">
-                {pane}
+                {bare ? pane : <SideCard>{pane}</SideCard>}
             </aside>
         )
         // A main area that has nothing for a phone (Memory's graph) leaves just the pane.
@@ -54,9 +55,9 @@ export function Panes({ children, pane, paneLabel, side = 'right', paneWidth = 3
     const aside = (
         <aside
             aria-label={paneLabel}
-            className={`flex ${WIDTH[paneWidth]} shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto border-border p-16 [&>*]:min-w-0 ${side === 'left' ? 'border-r' : 'border-l'}`}
+            className={`flex ${WIDTH[paneWidth]} shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto border-border p-16 [&>*]:min-w-0 ${bare ? (side === 'left' ? 'border-r' : 'border-l') : ''}`}
         >
-            {pane}
+            {bare ? pane : <SideCard>{pane}</SideCard>}
         </aside>
     )
     return (
