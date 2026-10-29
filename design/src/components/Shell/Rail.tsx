@@ -37,7 +37,7 @@ export type RailProps = {
   user: ReactNode;
 } & HTMLAttributes<HTMLElement>;
 
-/** The corner dot of an agent with a picture: live and running are emerald, a failing agent amber or red, the rest grey. */
+/** The corner dot: live and running are emerald, a failing agent amber or red, the rest grey. */
 const DOT: Record<AgentState, string> = {
   live: "bg-live",
   running: "bg-live",
@@ -169,8 +169,8 @@ export function Rail({
       onClick={(e) => dragged.current && e.preventDefault()}
     >
       <Sigil size="rail" agentId={a.agentId} image={a.imageSrc} live={a.state === "live" || a.state === "running"} />
-      {/* The pattern shows the agent live by itself; a picture has nowhere to, so it gets the corner dot. */}
-      {a.imageSrc && <span aria-hidden className={cx("absolute -right-3 -bottom-3 size-10 rounded-pill border-2 border-shell", DOT[a.state])} />}
+      {/* The pattern's own signal dot is too small to read at this size, so the state sits in the corner. */}
+      <span aria-hidden className={cx("absolute -right-3 -bottom-3 size-10 rounded-pill border-2 border-shell", DOT[a.state])} />
     </RailLink>
   );
   return (
