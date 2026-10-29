@@ -85,7 +85,8 @@ export function SessionFilesPanel({
                         <FileRow
                             key={f.id}
                             name={f.filename}
-                            size={`${fileSize(f.size)}${f.sender ? ` · ${f.sender}` : ''} · ${time(f.added_at)}`}
+                            size={fileSize(f.size)}
+                            subtitle={`${f.sender ? `${f.sender} · ` : ''}${time(f.added_at)}`}
                             onSelect={() => setOpen(files.indexOf(f))}
                             action={
                                 <span className="flex items-center gap-8">

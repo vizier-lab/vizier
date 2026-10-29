@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useMobile } from '../../lib/useMobile'
 import { Link } from 'react-router'
 import { NotificationsBell } from './NotificationsBell'
+import { FadeRule } from './SideCard'
 
 type Props = Omit<PageHeaderProps, 'children'> & {
     children?: ReactNode
@@ -28,7 +29,8 @@ export function PageFrame({ children, width = 'full', fill, back, description, a
     const mobile = useMobile()
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex min-h-76 shrink-0 items-center border-b border-border px-16 py-12 sm:px-24 lg:h-76 lg:py-0">
+            <div className="relative flex min-h-76 shrink-0 items-center px-16 py-12 sm:px-24 lg:h-76 lg:py-0">
+                <FadeRule className="pointer-events-none absolute inset-x-0 bottom-0" />
                 {back && (
                     <Link
                         to={back.href}

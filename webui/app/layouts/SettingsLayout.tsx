@@ -1,4 +1,4 @@
-import { Select, SettingsNav, motionDurations, type SettingsPage } from '@vizier/design'
+import { Select, motionDurations, type SettingsPage } from '@vizier/design'
 import { type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import { Outlet, useLocation, useNavigate } from 'react-router'
@@ -62,8 +62,8 @@ export default function SettingsLayout() {
         )
     }
     return (
+        // The menu beside the page is the shell's own column (AppShell); only the panel is here.
         <div className="flex min-h-0 flex-1">
-            <SettingsNav active={active} hrefFor={(p) => `/settings/${p}`} showAdministration={admin} />
             <SettingsPanel pathname={pathname}>
                 <Outlet />
             </SettingsPanel>

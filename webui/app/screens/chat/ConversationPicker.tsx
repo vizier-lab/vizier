@@ -20,7 +20,7 @@ import {
     type ConversationPage,
 } from '../../api/endpoints/conversations'
 import { count } from '../../lib/format'
-import { rowTime, sections } from '../../lib/conversations'
+import { conversationTitle, rowTime, sections } from '../../lib/conversations'
 
 type Props = {
     agentId: string
@@ -153,7 +153,7 @@ export function ConversationPicker({
             renderItem={(c, { query: q }) => (
                 <ConversationRow
                     kind={c.kind}
-                    title={c.title}
+                    title={conversationTitle(c.title, c.latest_topic)}
                     query={q}
                     place={c.place}
                     live={

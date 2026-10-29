@@ -1,3 +1,5 @@
+import { DeleteConversation, type DeleteTarget } from '../screens/chat/DeleteConversation'
+import { FadeRule, SIDE_PANEL_WIDTH, SideCard } from '../screens/shared/SideCard'
 import { IconButton, JobsPill, Presence, SlideOver, motionDurations, motionEases } from '@vizier/design'
 import { nanoid } from 'nanoid'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -28,6 +30,7 @@ import { useSession } from '../stores/session'
 import { toast } from '../stores/toasts'
 import { canManageArtifacts } from '../lib/access'
 import { useTurns } from '../stores/turns'
+import { conversationTitle } from '../lib/conversations'
 
 const EMPTY = emptyTopic()
 // A new key so the details panel starts collapsed for everyone, including people
@@ -180,7 +183,17 @@ export default function Chat() {
     const modelName = health?.model?.model
     const failed = health?.state === 'failed'
     const topicIndex = topics.findIndex((t) => t.topic_id === topicId)
-    const title = state.title || topics[topicIndex]?.title || topicId || 'New topic'
+    const title = conversationTitle(state.title || topics[topicIndex]?.title, topicId)
+
+    // Deleting the conversation on screen: the server refuses while a turn runs in it.
+    const [deleting, setDeleting] = useState<DeleteTarget | null>(null)
+    const deleteConversation = topicId ? (
+        <IconButton
+            icon="trash"
+            aria-label="Delete conversation"
+            onClick={() => setDeleting({ topic: topicId, title })}
+        />
+    ) : null
 
     // The same fresh topic the picker's "New conversation" opens, one click from the header.
     const newConversation = (
@@ -193,8 +206,9 @@ export default function Chat() {
 
     // The recalled memory, background jobs and session files: a side panel, or a sheet on a phone.
     const details = (
-        <>
+        <SideCard>
             <RecalledMemoryPanel agentId={agentId} recalled={recalled} />
+            <FadeRule />
             <BackgroundJobsPanel
                 jobs={jobs}
                 onCancel={(id) =>
@@ -204,6 +218,7 @@ export default function Chat() {
                 }
                 onJumpToStart={() => {}}
             />
+            <FadeRule />
             <SessionFilesPanel
                 files={state.files}
                 agentId={agentId}
@@ -211,7 +226,7 @@ export default function Chat() {
                 canPromote={agent ? canManageArtifacts(agent) : false}
                 onClear={() => dispatch(agentId, topicId ?? '', { type: 'files', files: [] })}
             />
-        </>
+        </SideCard>
     )
 
     return (
@@ -242,6 +257,7 @@ export default function Chat() {
                                 count={runningJobs}
                                 onClick={() => setSheet(true)}
                             />
+                            {deleteConversation}
                             {newConversation}
                             <IconButton
                                 icon="layers"
@@ -260,6 +276,7 @@ export default function Chat() {
                                 onClick={() => togglePanel(true)}
                                 open={panel}
                             />
+                            {deleteConversation}
                             {newConversation}
                             <IconButton
                                 icon="layers"
@@ -290,9 +307,12 @@ export default function Chat() {
                     configHref={`/${agentId}/config`}
                 />
 
-                <div className="flex min-h-0 flex-1">
+                {/* The conversation runs the full width and the details card floats over its right
+                    edge, so the messages' scroll bar sits at the panel's edge, not beside the card. */}
+                <div className="relative flex min-h-0 flex-1">
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
                 <MessageList
+                    insetRight={!mobile && panel ? SIDE_PANEL_WIDTH : 0}
                     bottomInset={composerHeight}
                     state={state}
                     agent={{ id: agentId, name: agentName, live: ['live', 'running'].includes(agentState(health)) }}
@@ -326,8 +346,12 @@ export default function Chat() {
                 />
 
                 {/* The composer floats over the messages: its box is the frosted glass, over a fade to the page colour so the toggle below stays readable. */}
-                <div ref={composerBox} className="pointer-events-none absolute inset-x-0 bottom-0 z-10">
-                    <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-ground via-ground/80 to-transparent" />
+                <div
+                    ref={composerBox}
+                    className="pointer-events-none absolute inset-x-0 bottom-0 z-10 transition-[padding] duration-[var(--vz-duration-slow)]"
+                    style={{ paddingRight: !mobile && panel ? SIDE_PANEL_WIDTH : 0 }}
+                >
+                    <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-panel via-panel/80 to-transparent" />
                     <div className="pointer-events-auto relative mx-auto w-full max-w-4xl px-24 pt-24 pb-16">
                     <Composer
                         agentId={agentId}
@@ -370,11 +394,11 @@ export default function Chat() {
                         <motion.aside
                             key="details"
                             aria-label="Conversation details"
-                            className="flex w-320 shrink-0 flex-col gap-24 overflow-x-hidden overflow-y-auto border-l border-border p-16 [&>*]:min-w-0"
+                            className="pointer-events-none absolute inset-y-0 right-0 flex w-400 flex-col gap-24 overflow-x-hidden overflow-y-auto p-16 [&>*]:pointer-events-auto [&>*]:min-w-0"
                             // The conversation makes room for the panel instead of
                             // jumping when it appears.
-                            initial={{ width: reducedMotion ? 320 : 0, opacity: reducedMotion ? 1 : 0 }}
-                            animate={{ width: 320, opacity: 1 }}
+                            initial={{ width: reducedMotion ? SIDE_PANEL_WIDTH : 0, opacity: reducedMotion ? 1 : 0 }}
+                            animate={{ width: SIDE_PANEL_WIDTH, opacity: 1 }}
                             exit={reducedMotion ? { opacity: 0 } : { width: 0, opacity: 0 }}
                             transition={{ duration: motionDurations.slow, ease: motionEases.standard }}
                         >
@@ -384,6 +408,12 @@ export default function Chat() {
                 </Presence>
                 </div>
             </div>
+            <DeleteConversation
+                agentId={agentId}
+                target={deleting}
+                onClose={() => setDeleting(null)}
+                onDeleted={() => navigate(`/${agentId}/chat/${nanoid(10)}`)}
+            />
             {mobile && (
                 <SlideOver
                     open={sheet}
