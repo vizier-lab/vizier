@@ -267,7 +267,7 @@ async fn persist_new(
     Ok(integration)
 }
 
-/// Install a built-in default on `agent_id` as a system action (specs/035-office-addon): no
+/// Install a built-in default on `agent_id` as a system action (specs/036-office-addon): no
 /// permission check, the same validation, record, notification and event as `create`. The
 /// actor is the agent's owner, or `system` when it has none. An agent that already has the
 /// addon is `Ok(None)`, not an error, so a seed can be repeated.

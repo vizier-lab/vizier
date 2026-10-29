@@ -2,7 +2,7 @@
 
 **Branch**: `feat/030-office-addon` | **Date**: 2026-10-25 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/035-office-addon/spec.md` (GitHub issue vizier-lab/vizier#100)
+**Input**: Feature specification from `/specs/036-office-addon/spec.md` (GitHub issue vizier-lab/vizier#100)
 
 ## Summary
 
@@ -48,7 +48,7 @@ Add a built-in `office` addon (an `IntegrationKind` in the Addon family) that co
 ### Documentation (this feature)
 
 ```text
-specs/035-office-addon/
+specs/036-office-addon/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 decisions
 ├── data-model.md        # Phase 1: entities, state, tool I/O shapes

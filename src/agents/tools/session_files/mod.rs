@@ -124,7 +124,7 @@ fn extract_text(mime_type: &str, content: Vec<u8>) -> Result<String, VizierError
                 .map_err(|e| VizierError(format!("Failed to extract PDF: {}", e)))?;
             Ok(text)
         }
-        // Word and Excel are read by the Office addon (specs/035-office-addon).
+        // Word and Excel are read by the Office addon (specs/036-office-addon).
         DOCX_MIME | XLSX_MIME | XLS_MIME => Err(VizierError(
             "read_document_file no longer reads Word and Excel files. Use office_docx_read_as_md for .docx, or office_xlsx_read_as_cells (typed cells) / office_xlsx_read_as_csv (whole-workbook preview) for .xlsx and .xls. These tools belong to the Office addon: install it or turn it on in the agent's integrations if they are missing.".into(),
         )),

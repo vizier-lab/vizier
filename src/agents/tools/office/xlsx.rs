@@ -2,7 +2,7 @@
 //! writing new `.xlsx` workbooks.
 //!
 //! Pure functions on bytes: no storage, no `ToolContext`, so the format logic is unit-testable
-//! on its own (spec `035-office-addon`, FR-004 and FR-030). The typed read never calculates formulas: a
+//! on its own (spec `036-office-addon`, FR-004 and FR-030). The typed read never calculates formulas: a
 //! formula cell is the value the spreadsheet application last saved, optionally together with
 //! its formula text. Only the CSV read calculates, and only on request, through `formula.rs`.
 

@@ -250,7 +250,7 @@ impl VizierDependencies {
     /// Set once every agent that existed has been given the Office addon.
     pub const OFFICE_DEFAULT_SEEDED: &'static str = "migration.office_default_seeded";
 
-    /// Spec 035 (FR-025): give every agent that exists now the Office addon, once. The key is
+    /// Spec 036 (FR-025): give every agent that exists now the Office addon, once. The key is
     /// set only after every agent was handled, so a failure is retried on the next start; once
     /// set, an addon a person removed or turned off stays that way. Never blocks startup.
     /// Tracked for removal in #82.

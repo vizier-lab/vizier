@@ -114,7 +114,7 @@ docx-rs = "0.4"
 calamine = "0.36"
 rust_xlsxwriter = "0.101.0"
 # Calculates formulas for office_xlsx_read_as_csv(executed_formula=true); used only in
-# src/agents/tools/office/formula.rs. Chosen by the trial in specs/035-office-addon/research.md R10.
+# src/agents/tools/office/formula.rs. Chosen by the trial in specs/036-office-addon/research.md R10.
 ironcalc = "0.9"
 pulldown-cmark = "0.13"
 hound = "3.5"

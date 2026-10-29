@@ -1,4 +1,4 @@
-//! The Office addon's tools (spec `035-office-addon`): read Word and Excel files as Markdown,
+//! The Office addon's tools (spec `036-office-addon`): read Word and Excel files as Markdown,
 //! typed cells or CSV. The format logic lives in the pure `docx` and `xlsx` modules; the tools
 //! here only resolve a session file, call them and shape the result.
 

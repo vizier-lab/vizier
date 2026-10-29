@@ -5,7 +5,7 @@ description: "Task list for the Office addon (DOCX and XLSX)"
 
 # Tasks: Office Addon (DOCX and XLSX)
 
-**Input**: Design documents from `/specs/035-office-addon/`
+**Input**: Design documents from `/specs/036-office-addon/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/office-tools.md, quickstart.md
 
@@ -176,8 +176,8 @@ Single Rust project: `src/`, `assets/`, `docs/`, `Cargo.toml` at the repository 
 **Purpose**: Documentation, end-to-end verification, build gates and the commit.
 
 - [X] T045 [P] Add a docs page for the addon in `docs/src/configuration/office-addon.md` (the five tools and when to use each, cell and range reads, the CSV preview and what `executed_formula` does and where it falls back, create-only writes, same-named files are replaced, on by default and how to turn it off) and link it from `docs/src/SUMMARY.md`
-- [X] T046 [P] Reconcile `specs/035-office-addon/contracts/office-tools.md` with the implemented error and output shape: the contract describes errors as `status: "error"` objects and outputs with a `status` field, while tools following `image_generate` return `{filename, size}` and raise a catchable error on failure
-- [ ] T047 Run the whole dummyplug script in `specs/035-office-addon/quickstart.md` (steps 0 to 8 including 6a and 6b) against the real binary and the standalone dummyplug server (`just dummyplug`; this branch already contains vizier-lab/vizier#103) and fix what it finds; optionally automate it as `scripts/office-e2e.mjs` in the style of `scripts/dummyplug-vizier-e2e.mjs` (not run yet, same reason as T034; the behaviour of step 4 is covered by `fixture_tests.rs` and the `xlsx.rs` tests)
+- [X] T046 [P] Reconcile `specs/036-office-addon/contracts/office-tools.md` with the implemented error and output shape: the contract describes errors as `status: "error"` objects and outputs with a `status` field, while tools following `image_generate` return `{filename, size}` and raise a catchable error on failure
+- [ ] T047 Run the whole dummyplug script in `specs/036-office-addon/quickstart.md` (steps 0 to 8 including 6a and 6b) against the real binary and the standalone dummyplug server (`just dummyplug`; this branch already contains vizier-lab/vizier#103) and fix what it finds; optionally automate it as `scripts/office-e2e.mjs` in the style of `scripts/dummyplug-vizier-e2e.mjs` (not run yet, same reason as T034; the behaviour of step 4 is covered by `fixture_tests.rs` and the `xlsx.rs` tests)
 - [ ] T048 Open the generated `.docx` and `.xlsx` in Microsoft Office and in LibreOffice and confirm there is no repair prompt (SC-004); needs a person with those applications
 - [ ] T049 Run `cargo clippy` and `cargo test` (including `every_addon_tool_is_namespaced_by_its_addon` and `every_tool_is_in_its_category`) and fix every finding (run on the VPS at `5579483`: `cargo test` 835 passed, both `every_*` tests pass, and the clippy findings in the Office code, `src/dependencies.rs` and `src/integrations/mod.rs` are fixed; about 89 findings from clippy 1.99 remain in files this addon does not touch, so this stays open until the maintainer decides whether to fix them here)
 - [ ] T050 (blocked, not caused by the formula engine: `cargo build --release --target x86_64-unknown-linux-musl` stops at `ort-sys`, which has no musl binary and was already in `Cargo.lock`; the engine alone passes `cargo check` for musl. See research R10; the maintainer picks a supported target or supplies a musl ONNX Runtime) Build one static target from `Cross.toml` (for example `cross build --target x86_64-unknown-linux-musl`) with the final dependencies, including the formula engine chosen in T016, to confirm cross-compilation still works (constitution Principle IV)
