@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { listConversations, type ConversationItem } from '../../api/endpoints/conversations'
 
 const POLL_MS = 15_000
-const PAGE = 20
+const PAGE = 10
 
 /**
  * The agent's most recent conversations for the sidebar. It looks again when the page changes (a
