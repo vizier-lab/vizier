@@ -22,6 +22,8 @@
   --color-current: currentColor;
   --color-ground: var(--vz-ground);
   --color-sidebar: var(--vz-sidebar);
+  --color-shell: var(--vz-shell);
+  --color-panel: var(--vz-panel);
   --color-surface: var(--vz-surface);
   --color-raised: var(--vz-raised);
   --color-pressed: var(--vz-pressed);
@@ -65,6 +67,7 @@
   --radius-md: var(--vz-radius-md);
   --radius-lg: var(--vz-radius-lg);
   --radius-xl: var(--vz-radius-xl);
+  --radius-2xl: var(--vz-radius-2xl);
   --radius-pill: var(--vz-radius-pill);
 
   /* One spacing unit is 1px, so `h-32` is 32px. Padding, margin and gap

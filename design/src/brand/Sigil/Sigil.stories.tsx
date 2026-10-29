@@ -25,9 +25,9 @@ const meta = {
     vizier: { id: "B3", replaces: "webui/app/components/avatar.tsx" },
     docs: {
       description: {
-        component: `An agent's seal: a mirror-symmetric 5×5 dot pattern drawn from its id, so it looks the same everywhere.
+        component: `An agent's seal: a mirror-symmetric 8×8 dot pattern drawn from its id, so it looks the same everywhere.
 
-**Rule** (\`sigilCells\` in \`sigil.ts\`): hash the id with 32-bit FNV-1a; read 15 bits into the left three columns row by row; mirror them onto the right two. If fewer than ${SIGIL_MIN_LIT} or more than ${SIGIL_MAX_LIT} dots are lit, rehash with "#" appended. While the agent is live, the lit dot nearest the top right turns emerald, as on the mark.`,
+**Rule** (\`sigilCells\` in \`sigil.ts\`): hash the id with 32-bit FNV-1a; read its 32 bits into the left four columns row by row; mirror them onto the right four. If fewer than ${SIGIL_MIN_LIT} or more than ${SIGIL_MAX_LIT} dots are lit, rehash with "#" appended. While the agent is live, the lit dot nearest the top right turns emerald, as on the mark.`,
       },
     },
   },

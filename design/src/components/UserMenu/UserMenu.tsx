@@ -20,7 +20,7 @@ export type UserMenuProps = {
 export function UserMenu({ name, role, avatarSrc, collapsed, onOpenProfile, onSignOut, className, ...rest }: UserMenuProps) {
   return (
     <div
-      className={cx("flex border-t border-border py-10", collapsed ? "w-full flex-col items-center gap-6" : "items-center gap-10 pr-6 pl-10", className)}
+      className={cx("flex py-10", collapsed ? "w-full flex-col items-center gap-14" : "items-center gap-10 border-t border-border pr-6 pl-10", className)}
       {...rest}
     >
       <button
