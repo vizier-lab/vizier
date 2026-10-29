@@ -107,6 +107,7 @@ export function AgentSidebar({ agentId }: { agentId: string }) {
                         trigger={
                             <SidebarAgent
                                 agentId={agentId}
+                                imageSrc={agent?.avatar_url || undefined}
                                 name={agent?.name ?? agentId}
                                 state={state}
                                 active={!!page && !ESSENTIAL.has(page) && page !== 'chat'}

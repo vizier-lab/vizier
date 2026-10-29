@@ -35,6 +35,7 @@ export function ShellRail({ pathname, view, routeAgent }: { pathname: string; vi
             agents={arranged(
                 agents.map((a) => ({
                     agentId: a.agent_id,
+                    imageSrc: a.avatar_url || undefined,
                     name: a.name,
                     state: agentState(health[a.agent_id]),
                     href: `/${a.agent_id}/chat`,
